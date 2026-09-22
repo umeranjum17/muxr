@@ -84,7 +84,7 @@ export const RealtimeConversation = React.memo(function RealtimeConversation({
                 return;
             }
             const rows = [...transcriptRows.current.values()];
-            const newest = rows.reduce((latest, row) => (latest === undefined || row.index > latest.index ? row : latest), undefined);
+            const newest = rows.reduce<TranscriptRowMeasurement | undefined>((latest, row) => (latest === undefined || row.index > latest.index ? row : latest), undefined);
             const target = newest !== undefined && newest.y > bottom
                 ? bottom
                 : rows.filter((row) => row.y <= bottom).sort((left, right) => left.y - right.y).at(-1)?.y;
