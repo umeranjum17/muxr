@@ -1053,16 +1053,34 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, runnin
         .name("desklink-encode".into())
         .spawn(move || {
             let mut pacer = Pacer::new(max_fps);
-            let mut first_frame_sent = false;
-            while let Ok(frame) = frame_rx.recv() {
+            let mut latest_frame = None;
+            let mut force_keyframe = true;
+            let mut last_keyframe = Instant::now();
+            loop {
+                // PipeWire may produce only on damage. Keep the last real frame
+                // so a new receiver/PLI can get a keyframe without a repaint.
+                let fresh = match frame_rx.recv_timeout(Duration::from_millis(100)) {
+                    Ok(frame) => { latest_frame = Some(frame); true }
+                    Err(std_mpsc::RecvTimeoutError::Timeout) => false,
+                    Err(std_mpsc::RecvTimeoutError::Disconnected) => break,
+                };
                 if !running.load(Ordering::Relaxed) {
                     break;
                 }
+                // ponytail: 2s reference refresh bounds idle loss recovery;
+                // replace it with forwarded PLI/FIR if that delay matters.
+                force_keyframe |= inner.peer.take_keyframe_request()
+                    || last_keyframe.elapsed() >= Duration::from_secs(2);
+                if !fresh && !force_keyframe {
+                    continue;
+                }
+                let Some(frame) = latest_frame.as_ref() else { continue };
                 let Some(duration) = pacer.due(Instant::now()) else {
-                    // The capture is ahead of the requested cadence; the frame is
-                    // redundant, not an error.
-                    if let Ok(mut m) = inner.metrics.lock() {
-                        m.dropped_frames += 1;
+                    // Retain a pending keyframe request across pacing drops.
+                    if fresh {
+                        if let Ok(mut m) = inner.metrics.lock() {
+                            m.dropped_frames += 1;
+                        }
                     }
                     continue;
                 };
@@ -1072,11 +1090,7 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, runnin
                         Ok(encoder) => encoder,
                         Err(_) => break,
                     };
-                    // The first frame is a key frame, but the far end is not
-                    // receiving yet, so a request from the peer (transport
-                    // connected, control channel opened) forces a fresh one.
-                    let force = !first_frame_sent || inner.peer.take_keyframe_request();
-                    encoder.encode(&frame, force)
+                    encoder.encode(frame, force_keyframe)
                 };
                 let packet = match packet {
                     Ok(packet) => packet,
@@ -1097,7 +1111,10 @@ fn spawn_pipeline(inner: &Arc<Inner>, frame_rx: std_mpsc::Receiver<I420>, runnin
                         break;
                     }
                 };
-                first_frame_sent = true;
+                if force_keyframe {
+                    last_keyframe = Instant::now();
+                }
+                force_keyframe = false;
                 if let Ok(mut m) = inner.metrics.lock() {
                     m.encoded_frames += 1;
                     m.encoded_bytes += packet.data.len() as u64;

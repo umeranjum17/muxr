@@ -85,6 +85,8 @@ class DesklinkModule : Module() {
         if (id != null) views[id] = view
       }
 
+      OnViewDestroys { view: DesktopView -> view.release() }
+
       OnViewDidUpdateProps { view: DesktopView ->
         // Props are applied before the view is measured; a session that arrived
         // with the prop has to be told about the view it will render into.

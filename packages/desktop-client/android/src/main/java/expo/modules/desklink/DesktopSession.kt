@@ -51,7 +51,7 @@ private const val TAG = "DesklinkSession"
  */
 class DesktopSession(
   private val context: Context,
-  private val eglBase: EglBase.Context,
+  internal val eglBase: EglBase.Context,
   private val onEvent: (String, Map<String, Any?>) -> Unit,
 ) {
   private val io: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
@@ -72,6 +72,12 @@ class DesktopSession(
 
   /** The renderer, attached by the view. A sink is (re)registered when it changes. */
   @Volatile var frameSink: ((VideoTrack) -> Unit)? = null
+    set(value) {
+      field = value
+      // Negotiation can deliver the track before React mounts its view.
+      // Both attachment paths run on the UI thread, including late/remounts.
+      ui.post { if (!closed) videoTrack?.let { frameSink?.invoke(it) } }
+    }
 
   fun start(iceServersJson: String, relayOnly: Boolean) {
     io.execute {
@@ -406,8 +412,7 @@ class DesktopSession(
       if (target != epoch) return
       videoTrack = track
       Log.i(TAG, "remote video track; view sink registered=${frameSink != null}")
-      // A sink can only be attached once; the view attaches it on first layout.
-      frameSink?.invoke(track)
+      ui.post { if (target == epoch && !closed) frameSink?.invoke(track) }
       emit("track", emptyMap())
     }
   }

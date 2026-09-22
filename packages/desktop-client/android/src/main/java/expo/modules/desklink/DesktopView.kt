@@ -42,7 +42,6 @@ private const val SCROLL_SLOP_DP = 18f
  * detached.
  */
 class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, appContext) {
-  private val eglBase: EglBase = EglBase.create()
   private var renderer: SurfaceViewRenderer? = null
   private val keyboard = RemoteKeyboard(context)
   private var session: DesktopSession? = null
@@ -65,23 +64,18 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   init {
     setBackgroundColor(Color.BLACK)
     clipChildren = true
-    renderer = buildRenderer()
-    // The renderer fills the view and letterboxes the picture itself; the touch
-    // mapping works out the letterbox rectangle arithmetically. Positioning the
-    // renderer with layout params instead would depend on the parent's layout
-    // class, which is not this view's business to assume.
-    addView(renderer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     addView(keyboard, LayoutParams(dp(1f), dp(1f)))
     setOnTouchListener { _, event -> handleTouch(event) }
   }
 
-  private fun buildRenderer(): SurfaceViewRenderer {
+  private fun buildRenderer(sharedContext: EglBase.Context): SurfaceViewRenderer {
     val view = SurfaceViewRenderer(context)
     view.init(
-      eglBase.eglBaseContext,
+      sharedContext,
       object : RendererCommon.RendererEvents {
         override fun onFirstFrameRendered() {
           Log.i(TAG, "first frame rendered")
+          session?.markPresented()
         }
 
         override fun onFrameResolutionChanged(width: Int, height: Int, rotation: Int) {
@@ -92,7 +86,6 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
             surfaceWidth = if (rotation % 180 == 0) width else height
             surfaceHeight = if (rotation % 180 == 0) height else width
           }
-          session?.markPresented()
         }
       },
     )
@@ -105,7 +98,16 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     if (session === next) return
     detachSink()
     chordKeysDown.clear()
+    renderer?.let { it.release(); removeView(it) }
+    renderer = null
     session = next
+    if (next != null) {
+      // Hardware decoder frames are GPU textures. An unrelated EGL root can
+      // report rendered frames while sampling an empty texture (black pixels).
+      renderer = buildRenderer(next.eglBase).also {
+        addView(it, 0, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+      }
+    }
     Log.i(TAG, "view session assigned=${next != null}")
     attachSink()
   }
@@ -284,9 +286,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   }
 
   fun release() {
-    detachSink()
-    renderer?.release()
-    runCatching { eglBase.release() }
+    setSession(null)
   }
 
   /**
