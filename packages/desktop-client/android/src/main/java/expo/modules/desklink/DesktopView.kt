@@ -511,6 +511,8 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
    * are the user's, and forwarding the *committed* text keeps them intact.
    */
   private inner class RemoteKeyboard(context: Context) : EditText(context) {
+    private val localDeleteKeysDown = mutableSetOf<Int>()
+
     init {
       background = null
       setTextColor(Color.TRANSPARENT)
@@ -595,10 +597,14 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-          // Backspace and forward-delete are real keys, not edits to a local
-          // buffer: the desktop owns the text.
-          repeat(min(64, beforeLength)) { tapKey("Backspace") }
-          repeat(min(64, afterLength)) { tapKey("Delete") }
+          val buffer = editableText
+          val (backspaces, deletes) = remoteDeletionCounts(
+            beforeLength, afterLength, selectionStart, selectionEnd,
+            BaseInputConnection.getComposingSpanStart(buffer),
+            BaseInputConnection.getComposingSpanEnd(buffer),
+          )
+          repeat(backspaces) { tapKey("Backspace") }
+          repeat(deletes) { tapKey("Delete") }
           return super.deleteSurroundingText(beforeLength, afterLength)
         }
 
@@ -675,6 +681,24 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
      * sees the real chord — Ctrl+C has to be Ctrl+C there, not a pasted "c".
      */
     private fun forwardModifierOrNamedKey(event: KeyEvent): Boolean {
+      if (event.action == KeyEvent.ACTION_UP && localDeleteKeysDown.remove(event.keyCode)) return true
+      if (event.action == KeyEvent.ACTION_DOWN &&
+        (event.keyCode == KeyEvent.KEYCODE_DEL || event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL)
+      ) {
+        val buffer = editableText
+        val (backspaces, deletes) = remoteDeletionCounts(
+          if (event.keyCode == KeyEvent.KEYCODE_DEL) 1 else 0,
+          if (event.keyCode == KeyEvent.KEYCODE_FORWARD_DEL) 1 else 0,
+          selectionStart, selectionEnd,
+          BaseInputConnection.getComposingSpanStart(buffer),
+          BaseInputConnection.getComposingSpanEnd(buffer),
+        )
+        if (backspaces + deletes == 0) {
+          localDeleteKeysDown.add(event.keyCode)
+          return false
+        }
+        localDeleteKeysDown.remove(event.keyCode)
+      }
       val name = when (event.keyCode) {
         KeyEvent.KEYCODE_CTRL_LEFT -> "Control"
         KeyEvent.KEYCODE_CTRL_RIGHT -> "ControlRight"

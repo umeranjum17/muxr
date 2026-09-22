@@ -296,12 +296,13 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     }, [endRemote, discardSession, update]);
 
     const connect = useCallback(async () => {
-        if (!(await loadPlatform())) {
-            refuse('this build cannot show a desktop surface');
-            return;
-        }
         if (nativeRef.current != null) return;
         const token = ++generationToken.current;
+        if (!(await loadPlatform())) {
+            if (token === generationToken.current) refuse('this build cannot show a desktop surface');
+            return;
+        }
+        if (token !== generationToken.current) return;
         update({ status: 'opening', failure: null, presented: false });
 
         let authorization: { signaling: Signaling; session: SessionOpenRequest };
@@ -331,61 +332,69 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
             refuse(message, classifyOpenFailure(error));
             return;
         }
-        if (token !== generationToken.current) {
-            // The screen was torn down while the host was still opening; close
-            // what it opened rather than leaving it capturing with nothing able
-            // to stop it.
-            void endRemote(openedResult, authorization.signaling);
-            return;
-        }
-        opened.current = openedResult;
-        update({ geometry: openedResult.geometry, status: 'connecting' });
-
-        // `loadPlatform` above guarantees this, but the compiler cannot see
-        // through the assignment inside it.
-        const platform = nativeDesklink;
-        const id = platform === null ? null : platform.createSession(
-            JSON.stringify(authorization.session.iceServers ?? []),
-        );
-        if (id == null) {
-            refuse('the native session could not be created');
-            return;
-        }
-        nativeRef.current = id;
-        setNativeId(id);
-
-        // The engine's notifications arrive through the same authenticated
-        // channel the application already owns.
-        authorization.signaling.subscribe((event) => {
+        let established = false;
+        try {
             if (token !== generationToken.current) return;
-            const native = nativeRef.current;
-            if (native == null) return;
-            switch (event.kind) {
-                case 'description':
-                    if (event.description.type !== 'offer') return;
-                    nativeDesklink?.setRemoteDescription(native, 'offer', event.description.sdp);
-                    return;
-                case 'candidate':
-                    nativeDesklink?.addRemoteCandidate(
-                        native,
-                        event.candidate.candidate,
-                        event.candidate.sdpMid ?? null,
-                        event.candidate.sdpMLineIndex ?? null,
-                    );
-                    return;
-                case 'state':
-                    diagnostics.current.transport = event.transport;
-                    update({ diagnostics: { ...diagnostics.current } });
-                    return;
-                case 'revoked':
-                    void teardown(event.reason, false);
-                    update({ status: 'ended', failure: { code: 'revoked', message: event.reason } });
-                    return;
-                default:
-                    return;
+            opened.current = openedResult;
+            update({ geometry: openedResult.geometry, status: 'connecting' });
+            if (token !== generationToken.current) return;
+
+            const platform = nativeDesklink;
+            const id = platform === null ? null : platform.createSession(
+                JSON.stringify(authorization.session.iceServers ?? []),
+            );
+            if (id == null) {
+                refuse('the native session could not be created');
+                return;
             }
-        });
-    }, [refuse, teardown, update]);
+            if (token !== generationToken.current) {
+                platform?.closeSession(id);
+                return;
+            }
+            nativeRef.current = id;
+            setNativeId(id);
+
+            authorization.signaling.subscribe((event) => {
+                if (token !== generationToken.current) return;
+                const native = nativeRef.current;
+                if (native == null) return;
+                switch (event.kind) {
+                    case 'description':
+                        if (event.description.type !== 'offer') return;
+                        nativeDesklink?.setRemoteDescription(native, 'offer', event.description.sdp);
+                        return;
+                    case 'candidate':
+                        nativeDesklink?.addRemoteCandidate(
+                            native,
+                            event.candidate.candidate,
+                            event.candidate.sdpMid ?? null,
+                            event.candidate.sdpMLineIndex ?? null,
+                        );
+                        return;
+                    case 'state':
+                        diagnostics.current.transport = event.transport;
+                        update({ diagnostics: { ...diagnostics.current } });
+                        return;
+                    case 'revoked':
+                        void teardown(event.reason, false);
+                        update({ status: 'ended', failure: { code: 'revoked', message: event.reason } });
+                        return;
+                    default:
+                        return;
+                }
+            });
+            if (token === generationToken.current) established = true;
+        } catch (error) {
+            if (token === generationToken.current) {
+                refuse(error instanceof Error ? error.message : 'the native session could not be created');
+            }
+        } finally {
+            if (!established) {
+                if (opened.current === openedResult) discardSession();
+                await endRemote(openedResult, authorization.signaling);
+            }
+        }
+    }, [discardSession, endRemote, refuse, teardown, update]);
 
     // Native events: answer, candidates, control replies, presentation, failure.
     useEffect(() => {
@@ -557,7 +566,18 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         }, 800);
     }, [connect, discardSession, endRemote, snapshot.status, snapshot.failure, update]);
 
-    useEffect(() => cancelReconnect, [cancelReconnect]);
+    useEffect(() => () => {
+        cancelReconnect();
+        generationToken.current += 1;
+        const id = nativeRef.current;
+        nativeRef.current = null;
+        if (id != null) nativeDesklink?.closeSession(id);
+        const openedRef = opened.current;
+        const owner = signaling.current;
+        opened.current = null;
+        signaling.current = null;
+        void endRemote(openedRef, owner);
+    }, [cancelReconnect, endRemote]);
 
     // A phone that goes to the background must not leave a remote button held:
     // the desktop cannot know the finger left the glass. This is the same

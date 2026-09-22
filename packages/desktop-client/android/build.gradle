@@ -21,6 +21,7 @@ dependencies {
   implementation project(':expo-modules-core')
   implementation 'androidx.core:core-ktx:1.17.0'
   implementation "org.jetbrains.kotlin:kotlin-stdlib:${kotlinVersion}"
+  testImplementation 'junit:junit:4.13.2'
   // The app's existing WebRTC binding, so the org.webrtc classes and the single
   // native library are shared rather than a second copy being linked in. This
   // package never mutates that binding's global decoder factory.

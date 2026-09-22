@@ -20,6 +20,7 @@ const appStateListeners = new Set<(status: string) => void>();
 const nativeListeners = new Set<(event: NativeSessionEvent) => void>();
 const sent: string[] = [];
 let createdSessions = 0;
+let nativeCreation: 'ok' | 'null' | 'throw' = 'ok';
 
 vi.mock('react-native', () => ({
     AppState: {
@@ -32,7 +33,11 @@ vi.mock('react-native', () => ({
 
 vi.mock('./native', () => ({
     nativeDesklink: {
-        createSession: () => `native-${++createdSessions}`,
+        createSession: () => {
+            if (nativeCreation === 'throw') throw new Error('native creation failed');
+            if (nativeCreation === 'null') return null;
+            return `native-${++createdSessions}`;
+        },
         setRemoteDescription: () => true,
         addRemoteCandidate: () => true,
         sendControl: (_id: string, message: string) => {
@@ -56,6 +61,7 @@ beforeEach(() => {
     nativeListeners.clear();
     sent.length = 0;
     createdSessions = 0;
+    nativeCreation = 'ok';
 });
 
 function signaling(): Signaling {
@@ -229,6 +235,43 @@ describe('a refusal the host makes', () => {
             await new Promise((resolve) => setTimeout(resolve, 900));
         });
         expect(authorizations).toBe(1);
+    }, 20_000);
+});
+
+describe('an opened host session whose native creation fails', () => {
+    it('closes capture for null and thrown creation, then allows a new connection', async () => {
+        const requests: string[] = [];
+        const channel = signaling();
+        const request = channel.request;
+        channel.request = async <T>(method: string, params?: Record<string, unknown>): Promise<T> => {
+            requests.push(method);
+            return request<T>(method, params);
+        };
+        const held: { current: DesktopSession | null } = { current: null };
+        function Harness() {
+            held.current = useDesktopSession({
+                authorize: async () => ({ signaling: channel, session: { permissions: ['view', 'control'] } }),
+            });
+            return null;
+        }
+        let renderer!: ReturnType<typeof TestRenderer.create>;
+        await TestRenderer.act(async () => { renderer = TestRenderer.create(React.createElement(Harness)); });
+
+        nativeCreation = 'null';
+        await TestRenderer.act(async () => { await held.current!.connect(); });
+        expect(requests).toEqual(['session.open', 'session.close']);
+        expect(held.current?.nativeId).toBeNull();
+
+        nativeCreation = 'throw';
+        await TestRenderer.act(async () => { await held.current!.connect(); });
+        expect(requests).toEqual(['session.open', 'session.close', 'session.open', 'session.close']);
+        expect(held.current?.nativeId).toBeNull();
+
+        nativeCreation = 'ok';
+        await TestRenderer.act(async () => { await held.current!.connect(); });
+        expect(held.current?.nativeId).not.toBeNull();
+        await TestRenderer.act(async () => { renderer.unmount(); });
+        expect(requests).toEqual(['session.open', 'session.close', 'session.open', 'session.close', 'session.open', 'session.close']);
     }, 20_000);
 });
 
