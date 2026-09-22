@@ -3,7 +3,6 @@ import { PRIMITIVE_SPECS, type PluginPrimitive } from '@muxr/contract';
 import type { PrimitiveProps } from '../domain/primitiveTypes';
 import { CapabilityButton } from './primitives/CapabilityButton';
 import { CollectionView } from './primitives/CollectionView';
-import { RealtimeSessionOverlay } from '@/conversation/ui';
 import { DictateButton } from '@/components/DictateButton';
 import { TreeSheet } from './primitives/TreeSheet';
 import { ItemList } from './primitives/ItemList';
@@ -21,7 +20,10 @@ const registry: Record<PluginPrimitive, PrimitiveRenderer> = {
     'item-list': (props) => <ItemList {...props} />,
     collection: (props) => <CollectionView {...props} />,
     'icon-button': (props) => <CapabilityButton {...props} />,
-    'realtime-session-overlay': () => <RealtimeSessionOverlay />,
+    // The product mounts the one realtime overlay in _layout.tsx. Declaring
+    // this primitive is how a plugin asks for speech.wake/voice.start, and the
+    // gate must keep seeing it; rendering here would paint a second bubble.
+    'realtime-session-overlay': () => null,
     'tree-sheet': (props) => <TreeSheet {...props} />,
     dictate: (props) => <DictateButton context={props.context as { getText: () => string; setText: (text: string) => void }} />,
 };

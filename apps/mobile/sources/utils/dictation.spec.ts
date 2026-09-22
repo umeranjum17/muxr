@@ -27,7 +27,6 @@ const mocks = vi.hoisted(() => ({
         return { remove: () => undefined };
     }),
     syncRequest: vi.fn(),
-    callPlugin: vi.fn(),
     voiceReports: () => mocks.syncRequest.mock.calls.filter((call) => call[0] === 'voice.report'),
     voicePending: [] as Array<Record<string, unknown> & { identity: string; attempts: number; readyAt: number }>,
     voiceDelivered: [] as string[],
@@ -48,7 +47,6 @@ vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/utils/localTranscription', () => ({ transcribePcm16: mocks.transcribe }));
 vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.syncRequest } }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: '' }) }));
-vi.mock('@/plugins/callPlugin', () => ({ callPlugin: mocks.callPlugin }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
 vi.mock('../plugins/application/pluginStore', () => ({ pluginSnapshot: () => mocks.pluginSnapshot }));
 vi.mock('../plugins/application/capabilityRegistry', () => ({ capabilityFor: () => mocks.capability }));

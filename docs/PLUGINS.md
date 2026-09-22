@@ -172,6 +172,8 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 | `tree-sheet` | `session.overlay` | `sessionId`, `visible`, `onClose`, `openMenu` | required read `source`; optional `title` |
 | `dictate` | home and session composer trailing | `getText`, `setText` | none |
 
+Declaring `realtime-session-overlay` records that a capability needs the product's voice surface; the product mounts that overlay itself, so the declaration paints nothing.
+
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
 
 Session actions appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, may set `"quickAction": true` on the contribution (not inside `params`). The flag stays accepted; the floating terminal command panel it once targeted was removed, so quick and non-quick actions alike render as pane-menu rows — every declared action remains reachable there.
