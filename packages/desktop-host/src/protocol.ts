@@ -18,8 +18,12 @@ export interface EngineCapabilities {
     engine: string;
     platform: string;
     session: { kind: string };
+    /** Whether the X11 backend can reach a server here, and that server's screen size. */
+    x11: { available: boolean; size: [number, number] | null };
     capture: {
         mechanism: string;
+        /** Backends this build has, not what this machine can necessarily use. */
+        backends: string[];
         formats: string[];
         cursor: string;
         audio: boolean;
