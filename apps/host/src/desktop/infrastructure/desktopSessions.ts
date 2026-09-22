@@ -54,6 +54,15 @@ const MAX_BACKLOG = 512;
  */
 const DESKTOP_SESSION_LEASE_SECONDS = 3600;
 
+/**
+ * How long the engine may take to answer, which bounds how long a portal consent
+ * prompt waits on the desktop. It must stay below the phone's 20s request
+ * timeout: the host has to answer `desktop.open` first, with the typed
+ * `consent-timeout`, or the phone shows its own timeout and a consent given
+ * after it opens a session nobody is waiting for.
+ */
+const ENGINE_REQUEST_TIMEOUT_MS = 15_000;
+
 const UNAVAILABLE_INPUT = 'This computer cannot inject input, so there is nothing to control.';
 
 /**
@@ -311,6 +320,7 @@ export class DesktopSessions {
                     resolved.command,
                     this.options.engineArguments ?? resolved.args,
                     {
+                        requestTimeoutMs: ENGINE_REQUEST_TIMEOUT_MS,
                         ...(this.options.onDiagnostic === undefined ? {} : { onDiagnostic: this.options.onDiagnostic }),
                         onEvent: (event) => {
                             if (event.event !== 'session.restoreToken') return;
