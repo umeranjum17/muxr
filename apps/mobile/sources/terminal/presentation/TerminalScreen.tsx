@@ -13,7 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useKeyboardHandler, useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, type SharedValue } from 'react-native-reanimated';
-import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
+import { DarkScope } from '@/components/DarkScope';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 // The flag is its own entry: the package's barrel also carries the session
@@ -1076,7 +1077,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const headerLifecycle = terminalPaneStatus(currentPane);
     const headerLifecycleLabel = headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
     return (
-        <ScopedTheme name="dark"><DarkSurface>{(theme) => {
+        <DarkScope><DarkSurface>{(theme) => {
             const headerStatus = agentStatusColor(headerLifecycle, theme);
             const tabPanes = currentTab?.panes ?? [];
             const paneIndex = tabPanes.findIndex((pane) => pane.sessionId === props.id);
@@ -1963,6 +1964,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     {findOpen && <FindOutputSheet sessionId={props.id} keyboardOffset={Platform.OS === 'web' || !keyboardVisible ? 0 : keyboardHeight} onClose={() => setFindOpen(false)} />}
                 </Animated.View>
             );
-        }}</DarkSurface></ScopedTheme>
+        }}</DarkSurface></DarkScope>
     );
 });

@@ -3,7 +3,8 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, Tex
 import { Ionicons } from '@expo/vector-icons';
 import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
+import { DarkScope } from '@/components/DarkScope';
 import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { Switch } from '@/components/Switch';
@@ -231,9 +232,9 @@ function KeysCategory({ entries, seed, onChange, closeForm, modifierIcons, onCha
     // would take a light phone's theme inside the dark sheet; the scope is
     // repeated here, where that render starts.
     if (formIndex !== null) {
-        return <ScopedTheme name="dark"><KeyForm entry={working[formIndex]} onSave={saveKey} onCancel={() => setFormIndex(null)} /></ScopedTheme>;
+        return <DarkScope><KeyForm entry={working[formIndex]} onSave={saveKey} onCancel={() => setFormIndex(null)} /></DarkScope>;
     }
-    return <ScopedTheme name="dark"><View>
+    return <DarkScope><View>
         <SectionLabel>LIVE PREVIEW</SectionLabel>
         {/* The stage is the dominant first section, but never at the cost of the
             sections under it: on a short pane a fixed 300dp block would push
@@ -325,7 +326,7 @@ function KeysCategory({ entries, seed, onChange, closeForm, modifierIcons, onCha
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the default row</Text>
             </Pressable>
         )}
-    </View></ScopedTheme>;
+    </View></DarkScope>;
 }
 
 // The toggle lives in local settings; the grid owns it and passes it down.
@@ -356,9 +357,9 @@ function SnippetsCategory({ actions, seed, onChange, closeForm }: {
     closeForm.current = formIndex === null ? null : () => setFormIndex(null);
     // Same dark scope as the key list, for the same reason.
     if (formIndex !== null) {
-        return <ScopedTheme name="dark"><ActionForm entry={working[formIndex]} onSave={saveAction} onCancel={() => setFormIndex(null)} /></ScopedTheme>;
+        return <DarkScope><ActionForm entry={working[formIndex]} onSave={saveAction} onCancel={() => setFormIndex(null)} /></DarkScope>;
     }
-    return <ScopedTheme name="dark"><View>
+    return <DarkScope><View>
         <Text style={[styles.caption]}>Your replies and commands · a tap in the command palette sends one</Text>
         {working.length === 0 && <Text style={[styles.caption]}>Nothing here. The command palette shows the agent&apos;s own commands only.</Text>}
         <View style={[styles.card, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.divider }]}>
@@ -411,7 +412,7 @@ function SnippetsCategory({ actions, seed, onChange, closeForm }: {
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 13 }}>Reset to the built-in replies and commands</Text>
             </Pressable>
         )}
-    </View></ScopedTheme>;
+    </View></DarkScope>;
 }
 
 /** Hold the handle to lift the row, then drag; the list swaps underneath. Shared by the key-row and snippet reorder cards. */

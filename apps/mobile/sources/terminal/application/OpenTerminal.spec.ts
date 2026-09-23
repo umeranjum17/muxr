@@ -546,7 +546,15 @@ describe('recentTerminalLinks', () => {
         clearTerminalOutput('long');
         setTerminalColumns('long', columns);
         wrappedRows.forEach((row, index) => record('long', `${row}${index === wrappedRows.length - 1 ? '' : '\r\n'}`));
+        const links = recentTerminalLinks('long');
+        expect(links).toEqual([longUrl]);
+        expect(recentTerminalLinks('long')).toBe(links);
+        setTerminalColumns('long', 0);
+        expect(recentTerminalLinks('long')).not.toBe(links);
+        setTerminalColumns('long', columns);
         expect(recentTerminalLinks('long')).toEqual([longUrl]);
+        record('long', ' https://next.example/');
+        expect(recentTerminalLinks('long')).toEqual(['https://next.example/', longUrl]);
 
         clearTerminalOutput('split-scheme');
         record('split-scheme', 'ht');

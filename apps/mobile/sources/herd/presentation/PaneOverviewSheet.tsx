@@ -8,7 +8,8 @@
 
 import * as React from 'react';
 import { AppState, Pressable, View } from 'react-native';
-import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
+import { DarkScope } from '@/components/DarkScope';
 import { Text } from '@/components/StyledText';
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Typography } from '@/constants/Typography';
@@ -156,7 +157,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
     // mounts on its own state (the agent picker, pending cards) reads it too.
     if (mode === 'agent') {
         return (
-            <ScopedTheme name="dark">
+            <DarkScope>
             <OptionSheet
                 visible={props.visible}
                 title="New pane"
@@ -165,11 +166,11 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                 onSelect={splitPane}
                 onClose={() => setMode('panes')}
             />
-            </ScopedTheme>
+            </DarkScope>
         );
     }
     return (
-        <ScopedTheme name="dark">
+        <DarkScope>
         <OptionSheet
             visible={props.visible}
             title=""
@@ -196,6 +197,6 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                 />
             )}
         />
-        </ScopedTheme>
+        </DarkScope>
     );
 }
