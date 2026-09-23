@@ -82,7 +82,7 @@ Connection & updates also exports and installs the login key. The private key's 
 
 The first successful SSH connection pins the SSH server's `SHA256:` host-key fingerprint on this device. A changed fingerprint stops the route and tells you to review the machine rather than silently trusting a replacement. The SSH user must be allowed to log in and the muxr relay must be listening on the configured loopback port. PWA and iPhone builds do not show this control because they do not have this native SSH implementation; use Tailscale, a private network, Same Wi-Fi, or your own stable WSS endpoint there.
 
-SSH is only a route to the loopback relay. It does not authorize a device, replace a grant, or remove E2EE. Tailscale Serve remains the recommended default because it needs less per-device credential setup and reconnects without a separate SSH session.
+SSH is only a route to the loopback relay. It does not authorize a device, replace a grant, or remove E2EE. The desktop picture and controls use a direct WebRTC connection, not that relay: an SSH-only phone cannot view or control the desktop unless it can also reach the computer over the same network or tailnet. Tailscale Serve remains the recommended default because it needs less per-device credential setup and reconnects without a separate SSH session.
 
 muxr never enables Funnel. Restrict the Serve endpoint with a tailnet grant/ACL to intended devices even though muxr pairing and E2EE remain authoritative. `--web` requires a secure `wss://` route; insecure LAN HTTP is refused.
 

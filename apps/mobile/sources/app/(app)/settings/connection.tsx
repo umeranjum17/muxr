@@ -635,7 +635,7 @@ export default function ConnectionSettingsScreen() {
 
                 {sshSupported && <ItemGroup
                     title="Direct SSH"
-                    footer="Android native builds only. SSH forwards the host's loopback relay; pairing, device grants, and end-to-end encryption stay unchanged. PWA and iPhone use Tailscale or another supported relay."
+                    footer="Android native builds only. SSH forwards the host's loopback relay; pairing, device grants, and end-to-end encryption stay unchanged. The remote desktop's picture still needs this phone and the computer on the same network or tailnet. PWA and iPhone use Tailscale or another supported relay."
                 >
                     <Field label="SSH host" value={sshHost} onChange={(next) => { setSshHost(next); setPublicKeyCopied(false); }} placeholder="server.example.com or 192.168.1.20" />
                     <SshHostScan onPick={(host, port) => { setSshHost(host); if (port !== undefined && port !== 22) setSshPort(String(port)); }} />

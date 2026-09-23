@@ -1399,7 +1399,21 @@ function applyHttpOriginPolicy(
 function webSocketOriginAllowed(req: import('node:http').IncomingMessage, config: RelayConfig): boolean {
     const origin = req.headers.origin;
     if (origin === undefined || (!config.publicEdge && config.allowedOrigins.size === 0)) return true;
-    return typeof origin === 'string' && config.allowedOrigins.has(origin);
+    if (typeof origin !== 'string') return false;
+    return config.allowedOrigins.has(origin) || (!config.publicEdge && ownLoopbackOrigin(req, origin));
+}
+
+/**
+ * A phone on the Direct SSH route dials this relay through a local forward, as
+ * ws://127.0.0.1:<port>, and its WebSocket names that address as its Origin.
+ * That is this relay's own loopback address, which no page served from
+ * anywhere else can claim, so it stays allowed when browser origins are
+ * configured; otherwise serving the PWA would shut the SSH route out.
+ */
+function ownLoopbackOrigin(req: import('node:http').IncomingMessage, origin: string): boolean {
+    if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
+    const host = req.headers.host;
+    return /^127\.0\.0\.1:\d+$/.test(host ?? '') && origin === `http://${host}`;
 }
 
 const unauthorizedRejectLogs = new Map<string, { reason: string; transport: string; at: number; n: number }>();
