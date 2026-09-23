@@ -10,7 +10,6 @@ import {
     NativeScrollEvent,
     NativeSyntheticEvent,
     ScrollView,
-    useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -30,11 +29,11 @@ import { HeaderLogo } from '@/components/HeaderLogo';
 import { StatusDot } from '@/components/StatusDot';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
+import { HomeHeaderActions, HomeHeaderMark } from './HomeHeaderActions';
 import { SectionLabel } from '@/components/ui';
 import { t } from '@/text';
 
 import { MOBILE_GLASS_HEADER_HEIGHT } from '@/components/navigation/headerMetrics';
-import { MobileGlassSurface } from '@/components/MobileGlass';
 import { useNewSessionDraft } from '@/spawn';
 import { useStartSessionFromDraft } from '@/spawn';
 import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
@@ -160,31 +159,6 @@ const styles = StyleSheet.create((theme) => ({
     tabletStatusText: {
         fontSize: 13,
         lineHeight: 18,
-    },
-    headerActions: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    headerActionsCompact: {
-        gap: 6,
-    },
-    headerActionGlass: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        overflow: 'hidden',
-    },
-    headerActionGlassCompact: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-    },
-    headerActionButton: {
-        width: '100%',
-        height: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
     },
     headerSearch: {
         width: '100%',
@@ -341,86 +315,10 @@ const HeaderSearch = React.memo(({
     );
 });
 
-// Header right buttons: Panes, search and Settings. Starting an agent is the
-// composer dock's job on every surface, so the header never carries a start.
-const HeaderRight = React.memo(({
-    searchActive,
-    onSearchPress,
-    compact,
-}: {
-    searchActive: boolean;
-    onSearchPress: () => void;
-    compact: boolean;
-}) => {
-    const router = useRouter();
-    const { theme } = useUnistyles();
-    const glass = [styles.headerActionGlass, compact && styles.headerActionGlassCompact];
-
-    return (
-        <View style={[styles.headerActions, compact && styles.headerActionsCompact]}>
-            <MobileGlassSurface nativeEffect interactive style={glass}>
-                <Pressable
-                    onPress={() => router.push('/panes')}
-                    style={styles.headerActionButton}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Panes"
-                >
-                    <Ionicons
-                        name="grid-outline"
-                        size={21}
-                        color={theme.colors.header.tint}
-                    />
-                </Pressable>
-            </MobileGlassSurface>
-            <MobileGlassSurface nativeEffect interactive style={glass}>
-                <Pressable
-                    onPress={onSearchPress}
-                    style={styles.headerActionButton}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('tools.names.search')}
-                >
-                    <Ionicons
-                        name={searchActive ? 'close' : 'search'}
-                        size={searchActive ? 24 : 21}
-                        color={theme.colors.header.tint}
-                    />
-                </Pressable>
-            </MobileGlassSurface>
-            <MobileGlassSurface nativeEffect interactive style={glass}>
-                <Pressable
-                    onPress={() => router.push('/settings')}
-                    style={styles.headerActionButton}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('settings.title')}
-                >
-                    <Ionicons name="settings-outline" size={21} color={theme.colors.header.tint} />
-                </Pressable>
-            </MobileGlassSurface>
-        </View>
-    );
-});
-
-// The mark shares the action circles' size and material so the header reads as
-// one row of four. It is not a control, so it carries no press response: the
-// shared header's interactive glass made it swell under a finger and do nothing.
-const HeaderMark = React.memo(({ compact }: { compact: boolean }) => (
-    <MobileGlassSurface nativeEffect style={[styles.headerActionGlass, compact && styles.headerActionGlassCompact]}>
-        <View style={styles.headerActionButton}>
-            <HeaderLogo />
-        </View>
-    </MobileGlassSurface>
-));
-
 let lastTerminalLaunchClaimed = false;
 
 export const MainView = React.memo(() => {
     useUnistyles();
-    // Four 40pt circles leave the title 50pt on a 270pt phone, and the
-    // connection line reads "connect…". Narrow phones get 36pt circles.
-    const compactHeader = useWindowDimensions().width < 330;
     const useSplitView = useSplitViewLayout();
     const router = useRouter();
     const socketStatus = useSocketStatus();
@@ -656,14 +554,10 @@ export const MainView = React.memo(() => {
                     ? <HeaderSearch value={searchQuery} onChangeText={setSearchQuery} />
                     : <HeaderTitle homeRecovering={phoneHomeRecovering} />}
                 headerRight={() => (
-                    <HeaderRight
-                        searchActive={searchActive}
-                        onSearchPress={handleSearchPress}
-                        compact={compactHeader}
-                    />
+                    <HomeHeaderActions searchActive={searchActive} onSearchPress={handleSearchPress} />
                 )}
                 headerRightGlass={false}
-                headerLeft={() => (Platform.OS === 'web' ? <HeaderLogo /> : <HeaderMark compact={compactHeader} />)}
+                headerLeft={() => (Platform.OS === 'web' ? <HeaderLogo /> : <HomeHeaderMark />)}
                 headerLeftGlass={false}
                 headerBackdropVisible={headerBackdropVisible}
                 headerShadowVisible={false}
