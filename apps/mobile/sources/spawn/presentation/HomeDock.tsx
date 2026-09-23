@@ -129,8 +129,7 @@ const styles = StyleSheet.create((theme) => ({
     inputEntryPlaceholder: {
         color: theme.colors.textSecondary,
     },
-    // The terminal composer's size: at 17 the prompt line cannot hold
-    // "Plan, ask, build…" in a 270pt phone's dock.
+    // Preserve the resting prompt label on narrow phone viewports.
     inputEntryTextCompact: {
         fontSize: 15,
     },
@@ -827,10 +826,7 @@ export const HomeDock = React.memo(({
                 )}
                 {Platform.OS !== 'web' && <DictateButton context={composerDraft} />}
                 <PluginSlot slot="home.composer.trailing" context={composerDraft} />
-                {/* The resting dock only opens the composer, so an empty one has
-                    nothing to send: a greyed send circle there was a control that
-                    could never be used, and on a 270pt phone it cost the prompt
-                    line its own words. It returns with a kept draft. */}
+                {/* A draft can remain after the focused composer closes. */}
                 {(hasPrompt || isSubmitting) && <BubblePressable
                     onPress={onSend}
                     disabled={!canSubmit}
