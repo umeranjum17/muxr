@@ -271,8 +271,8 @@ export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspa
             order: workspace.order,
             worktree: workspace.worktree && { branch: workspace.worktree.branch },
             tokens: workspace.tokens || parents.has(workspace.workspaceId) ? {
-                parent: parents.get(workspace.workspaceId),
-                kind: workspace.tokens?.kind,
+                ...(parents.has(workspace.workspaceId) ? { parent: parents.get(workspace.workspaceId)! } : {}),
+                ...(workspace.tokens?.kind === undefined ? {} : { kind: workspace.tokens.kind }),
             } : undefined,
             tabs: workspace.tabs.map((tab) => ({
                 tabId: tab.tabId,

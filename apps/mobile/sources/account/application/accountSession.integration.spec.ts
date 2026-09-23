@@ -47,6 +47,8 @@ vi.mock('expo-notifications', () => ({ scheduleNotificationAsync: vi.fn() }));
 vi.mock('react-native', () => ({ AppState: { currentState: 'active' }, Platform: { OS: 'android' } }));
 vi.mock('@/modal', () => ({ Modal: {} }));
 vi.mock('@/herd', () => ({ getSessionName: () => 'session' }));
+vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('../../catalog/application/persistence', () => ({ saveHomeSnapshot: vi.fn() }));
 vi.mock('@/connection', () => ({
     DEFAULT_CONNECTION: { ...harness.connection },
     getCachedConnectionSettings: () => harness.connection,
