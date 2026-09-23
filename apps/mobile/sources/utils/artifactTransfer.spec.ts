@@ -195,11 +195,13 @@ describe('progressive artifact download', () => {
         link.reader = (_sessionId, artifactId, offset, length) => watcher.read('pane-1', artifactId, offset, length);
         const samePane = join(paneDir, 'same-bytes.apk');
         writeFileSync(samePane, bytes);
-        const later = new Date(Date.now() + 60_000);
-        utimesSync(samePane, later, later);
-        await transferArtifact('session-1', artifact, diskPlatform(opened));
-        expect(opened.filter((uri) => uri === join(root, 'phone', 'release.apk'))).toHaveLength(2);
-        expect(readFileSync(join(root, 'phone', 'release.apk')).equals(bytes)).toBe(true);
+        const earlier = new Date(artifact.at - 60_000);
+        utimesSync(samePane, earlier, earlier);
+        const same = (await watcher.scanPane('pane-1')).artifacts.find((item) => item.name === 'same-bytes.apk')!;
+        expect((await watcher.read('pane-1', same.id, 0, 1))?.at).not.toBe(same.at);
+        await transferArtifact('session-1', same, diskPlatform(opened));
+        expect(opened).toContain(join(root, 'phone', 'same-bytes.apk'));
+        expect(readFileSync(join(root, 'phone', 'same-bytes.apk')).equals(bytes)).toBe(true);
 
         const changedPath = join(paneDir, 'changed.apk');
         const oldBytes = randomBytes(3 * 512 * 1024);
