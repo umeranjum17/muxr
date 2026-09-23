@@ -4,6 +4,7 @@ const subscribers = new Set<(motion: KeyboardMotion) => void>();
 let viewport: VisualViewport | null = null;
 let settledHeight = 0;
 let settling: number | null = null;
+let quiet: ReturnType<typeof setTimeout> | null = null;
 let motion: KeyboardMotion = { covered: 0, phase: 0 };
 
 function publish(covered: number, phase: number): void {
@@ -16,16 +17,27 @@ function measure(): void {
     const covered = Math.max(0, globalThis.innerHeight - viewport.offsetTop - viewport.height);
     publish(covered, covered > 0 ? Math.min(1, covered / (settledHeight || covered)) : 0);
     if (settling !== null) cancelAnimationFrame(settling);
+    if (quiet !== null) clearTimeout(quiet);
     settling = null;
-    if (covered > 0) {
-        settling = requestAnimationFrame(() => {
-            settling = requestAnimationFrame(() => {
-                settling = null;
-                settledHeight = covered;
-                publish(covered, 1);
-            });
-        });
+    quiet = null;
+    if (covered === 0) return;
+    if (covered < settledHeight) {
+        if (document.activeElement?.getAttribute('aria-label') !== 'Remote keyboard') return;
+        quiet = setTimeout(() => {
+            quiet = null;
+            if (document.activeElement?.getAttribute('aria-label') !== 'Remote keyboard') return;
+            settledHeight = covered;
+            publish(covered, 1);
+        }, 180);
+        return;
     }
+    settling = requestAnimationFrame(() => {
+        settling = requestAnimationFrame(() => {
+            settling = null;
+            settledHeight = covered;
+            publish(covered, 1);
+        });
+    });
 }
 
 export function observeWebKeyboardMotion(subscriber: (motion: KeyboardMotion) => void): () => void {
@@ -45,8 +57,10 @@ export function observeWebKeyboardMotion(subscriber: (motion: KeyboardMotion) =>
         viewport?.removeEventListener('resize', measure);
         viewport?.removeEventListener('scroll', measure);
         if (settling !== null) cancelAnimationFrame(settling);
+        if (quiet !== null) clearTimeout(quiet);
         viewport = null;
         settling = null;
+        quiet = null;
         settledHeight = 0;
         motion = { covered: 0, phase: 0 };
     };

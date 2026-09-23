@@ -28,7 +28,9 @@ class FakeElement extends EventTarget {
     style: Record<string, string> = {};
     value = '';
     autocapitalize = '';
-    setAttribute(): void {}
+    private attributes = new Map<string, string>();
+    setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
+    getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
     setPointerCapture(): void {}
     focus(): void {}
     blur(): void {}
@@ -297,6 +299,7 @@ describe('the pointer above the keyboard', () => {
         dispatch(viewport, 'resize', {});
         expect(tip().y).toBeCloseTo(Number.parseFloat(picture!.style.top) + clickedY + 0.5, 5);
         settle();
+        vi.useFakeTimers();
 
         (document as unknown as { activeElement: unknown }).activeElement = null;
         const beforeBlur = Number.parseFloat(picture!.style.top);
@@ -306,6 +309,8 @@ describe('the pointer above the keyboard', () => {
         dispatch(viewport, 'resize', {});
         const returningTop = Number.parseFloat(picture!.style.top);
         expect(returningTop).toBeGreaterThan(beforeBlur);
+        expect(phase).toBeCloseTo(210 / 300, 5);
+        vi.advanceTimersByTime(180);
         expect(phase).toBeCloseTo(210 / 300, 5);
         sent = [];
         touch(video, 'pointerdown', 500, 220);
@@ -323,18 +328,22 @@ describe('the pointer above the keyboard', () => {
 
         touch(video, 'pointerdown', 600, 600);
         touch(video, 'pointerup', 600, 600);
+        (document as unknown as { activeElement: unknown }).activeElement = keyboard;
+        dispatch(keyboard, 'focus', {});
         viewport.height = 600;
         dispatch(viewport, 'resize', {});
         const shorterOpening = Number.parseFloat(picture!.style.top);
         expect(phase).toBeCloseTo(0.4, 5);
         expect(shorterOpening).toBeCloseTo(-76.5, 5);
-        settle();
+        vi.advanceTimersByTime(179);
+        expect(phase).toBeCloseTo(0.4, 5);
+        vi.advanceTimersByTime(1);
         expect(phase).toBe(1);
         expect(Number.parseFloat(picture!.style.top)).toBeCloseTo(-106.5, 5);
         viewport.height = 640;
         dispatch(viewport, 'resize', {});
         expect(phase).toBeCloseTo(80 / 120, 5);
-        settle();
+        vi.advanceTimersByTime(180);
         expect(phase).toBe(1);
     });
 });

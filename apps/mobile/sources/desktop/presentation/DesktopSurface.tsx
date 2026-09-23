@@ -324,11 +324,11 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                 <Pressable onPress={() => setMenu((open) => (open === 'help' ? null : 'help'))} accessibilityRole="button" accessibilityLabel="Desktop gestures" accessibilityState={{ expanded: menu === 'help' }} hitSlop={8} style={headerMark}>
                     <Ionicons name="help-circle-outline" size={19} color={theme.colors.text} />
                 </Pressable>
-                {live && <Animated.View entering={popIn}>
+                <Animated.View entering={popIn}>
                     <Pressable onPress={toggleMore} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} hitSlop={8} style={headerMark}>
                         <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
                     </Pressable>
-                </Animated.View>}
+                </Animated.View>
             </View>}
 
             <View style={styles.body}>
@@ -364,9 +364,9 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                         <Pressable onPress={onExit} accessibilityRole="button" accessibilityLabel="Back to the conversation" style={({ pressed }) => control(pressed)}>
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
-                        {live && <Pressable onPress={toggleMore} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} style={({ pressed }) => control(pressed, menu === 'more')}>
+                        <Pressable onPress={toggleMore} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} style={({ pressed }) => control(pressed, menu === 'more')}>
                             <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
-                        </Pressable>}
+                        </Pressable>
                     </View>
                 )}
 
@@ -383,11 +383,11 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                     </Animated.View>
                 )}
 
-                {menu === 'more' && live && (
+                {menu === 'more' && (
                     <Animated.View entering={popIn} exiting={popOut} style={[card, styles.topCard]}>
-                        {compactKeyboard && menuRow('Gestures', 'help-circle-outline', () => setMenu('help'))}
-                        {menuRow('Fit to screen', 'scan-outline', session.fitToView)}
-                        {Platform.OS === 'android' && menuRow('Landscape', 'phone-landscape-outline', toggleLandscape, { selected: landscape })}
+                        {(!live || compactKeyboard) && menuRow('Gestures', 'help-circle-outline', () => setMenu('help'))}
+                        {live && menuRow('Fit to screen', 'scan-outline', session.fitToView)}
+                        {live && Platform.OS === 'android' && menuRow('Landscape', 'phone-landscape-outline', toggleLandscape, { selected: landscape })}
                         {menuRow('Disconnect', 'power-outline', onExit)}
                     </Animated.View>
                 )}

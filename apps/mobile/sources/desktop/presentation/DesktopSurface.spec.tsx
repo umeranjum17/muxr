@@ -77,6 +77,7 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     keyboardVisible = false;
     screenWidth = 270;
     screenHeight = 594;
+    session.snapshot.status = 'starting';
     vi.useFakeTimers();
     let view!: ReturnType<typeof TestRenderer.create>;
     const root = () => view.root as {
@@ -84,6 +85,14 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
         findByProps(props: { accessibilityLabel: string }): { props: { onPress(): void } };
     };
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={() => undefined} />); });
+    expect(root().findAllByProps({ accessibilityLabel: 'Desktop actions' })).toHaveLength(1);
+    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Desktop actions' }).props.onPress());
+    expect(root().findAllByProps({ accessibilityLabel: 'Gestures' })).toHaveLength(1);
+    expect(root().findAllByProps({ accessibilityLabel: 'Disconnect' })).toHaveLength(1);
+    expect(root().findAllByProps({ accessibilityLabel: 'Fit to screen' })).toHaveLength(0);
+    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Desktop actions' }).props.onPress());
+    session.snapshot.status = 'live';
+    await TestRenderer.act(async () => view.update(<DesktopSurface onExit={() => undefined} />));
     expect(root().findAllByProps({ accessibilityLabel: 'Clipboard' })).toHaveLength(0);
     expect(root().findAllByProps({ accessibilityLabel: 'Copy to Phone' })).toHaveLength(0);
     expect(root().findAllByProps({ accessibilityLabel: 'Paste from Phone' })).toHaveLength(0);
