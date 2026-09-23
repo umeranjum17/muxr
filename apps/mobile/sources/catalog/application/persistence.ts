@@ -1,5 +1,4 @@
 import { MMKV } from 'react-native-mmkv';
-import type { SessionArtifact } from '@muxr/contract';
 import { Settings, settingsDefaults, settingsParse, SettingsSchema } from './settings';
 import { LocalSettings, localSettingsDefaults, localSettingsParse } from './localSettings';
 import { Profile, profileDefaults, profileParse } from '../domain/profile';
@@ -140,9 +139,6 @@ export function loadSessionDrafts(): Record<string, string> {
 export function saveSessionDrafts(drafts: Record<string, string>) {
     mmkv.set('session-drafts', JSON.stringify(drafts));
 }
-
-/** Host metadata plus an optional local blob ref. Bytes never persist here. */
-export type StoredSessionArtifact = SessionArtifact & { localUri?: string };
 
 export function loadNewSessionDraft(): NewSessionDraft | null {
     const raw = mmkv.getString(NEW_SESSION_DRAFT_KEY);

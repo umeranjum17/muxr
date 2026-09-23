@@ -20,7 +20,7 @@ import {
 } from '@muxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import type { AttachmentPreview } from '../infrastructure/attachmentTypes';
-import { createArtifactWire, type ArtifactChunk, type ArtifactListing, type ArtifactTicket } from '../infrastructure/artifactWire';
+import { createArtifactWire, type ArtifactChunk, type ArtifactListing } from '../infrastructure/artifactWire';
 import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../infrastructure/connectionDiagnostics';
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
@@ -742,10 +742,6 @@ class MuxrSync {
 
     artifactFetch(sessionId: string, artifactId: string): Promise<{ name: string; mimeType: string; data: string } | null> {
         return this.artifactWire.fetch(sessionId, artifactId);
-    }
-
-    artifactPrepare(sessionId: string, artifactId: string): Promise<ArtifactTicket | null> {
-        return this.artifactWire.prepare(sessionId, artifactId);
     }
 
     artifactRead(sessionId: string, artifactId: string, offset: number, length: number, timeoutMs?: number): Promise<ArtifactChunk | null> {

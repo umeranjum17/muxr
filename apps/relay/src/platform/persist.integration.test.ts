@@ -136,6 +136,42 @@ it('reports a self-host peer tenant mismatch instead of claiming the target is o
     }
 });
 
+it('delivers an artifact chunk only to the socket that asked, and never replays it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muxr-artifact-route-'));
+    try {
+        const peers = new PeerTable();
+        const socket = () => ({ OPEN: 1, readyState: 1, send: vi.fn() }) as unknown as import('ws').WebSocket;
+        const peer = (role: 'machine' | 'client', ws: import('ws').WebSocket, connectionId?: string): ConnectedPeer => ({
+            socket: ws, identity: { role, machineIds: new Set(['mac']), accountId: 'local:mac', transport: 'relay' },
+            accountId: 'local:mac', role, machineIds: new Set(['mac']), connectedAt: Date.now(),
+            ...(connectionId === undefined ? {} : { connectionId }),
+        });
+        const asking = socket();
+        const other = socket();
+        peers.add(peer('client', asking, 'conn-asking'));
+        peers.add(peer('client', other, 'conn-other'));
+        const replay = new ReplayLog(root, 10, 60_000);
+        const header = { machineId: 'mac', senderId: 'mac', recipientId: '*', streamId: 'session-a', keyVersion: 1, at: Date.now() };
+        const route = (seq: number, channel: 'attachment' | 'session', connectionId?: string) => routeEnvelope(
+            { header: { ...header, seq, channel, ...(connectionId === undefined ? {} : { connectionId }) }, payload: 'e2ee:v2:opaque' },
+            peer('machine', socket()), peers, new OfflineBuffer(root, 10, 60_000), replay,
+            { pushWebhook: { url: 'http://127.0.0.1:9/', maxRetries: 0, timeoutMs: 1 } },
+        );
+
+        expect(route(1, 'attachment', 'conn-asking')).toEqual({ delivered: 1, buffered: false, pushNotified: false });
+        expect(route(2, 'attachment', 'conn-gone')).toEqual({ delivered: 0, buffered: false, pushNotified: false });
+        // A host from before directed chunks still broadcasts them; they stay out of the log too.
+        expect(route(3, 'attachment').delivered).toBe(2);
+        expect(route(4, 'session').delivered).toBe(2);
+        expect(vi.mocked(asking.send)).toHaveBeenCalledTimes(3);
+        expect(vi.mocked(other.send)).toHaveBeenCalledTimes(2);
+        expect(replay.totalStored()).toBe(1);
+    } finally {
+        await awaitPersistChain();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 it('hardens every relay state path in a custom data directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'muxr-relay-state-'));
     const customDataDir = join(root, 'custom-data');
