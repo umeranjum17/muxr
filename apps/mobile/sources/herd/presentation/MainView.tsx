@@ -10,6 +10,7 @@ import {
     NativeScrollEvent,
     NativeSyntheticEvent,
     ScrollView,
+    useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -301,6 +302,7 @@ let lastTerminalLaunchClaimed = false;
 
 export const MainView = React.memo(() => {
     useUnistyles();
+    const compactHeader = useWindowDimensions().width < 330;
     const useSplitView = useSplitViewLayout();
     const router = useRouter();
     const socketStatus = useSocketStatus();
@@ -540,6 +542,7 @@ export const MainView = React.memo(() => {
                 )}
                 headerRightGlass={false}
                 headerRightTouchInset
+                compactHorizontalPadding={compactHeader}
                 headerLeft={() => (Platform.OS === 'web' ? <HeaderLogo /> : <HomeHeaderMark />)}
                 headerLeftGlass={false}
                 headerBackdropVisible={headerBackdropVisible}

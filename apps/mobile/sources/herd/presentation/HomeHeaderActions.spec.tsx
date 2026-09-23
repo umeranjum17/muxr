@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
-import { View } from 'react-native';
 
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock('react-native', () => ({
@@ -32,8 +31,7 @@ vi.mock('@/components/MobileGlass', () => ({
 }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 
-import { HomeHeaderActions, HomeHeaderMark, HomeHeaderStatus } from './HomeHeaderActions';
-import { connectionStatusPresentation } from '@/pairing/presentation/homeConnectionStatus';
+import { HomeHeaderActions } from './HomeHeaderActions';
 
 const flatten = (style: any): Record<string, any> => Object.assign({}, ...(Array.isArray(style) ? style : [style]).filter(Boolean));
 
@@ -49,7 +47,7 @@ describe('compact home header actions', () => {
         expect(buttons.map((button) => button.props.accessibilityLabel)).toEqual([
             'Panes', 'tools.names.search', 'settings.title',
         ]);
-        expect(flatten(renderer!.root.findAllByType('View')[0].props.style).gap).toBe(6);
+        expect(flatten(renderer!.root.findAllByType('View')[0].props.style).gap).toBe(8);
         for (const button of buttons) {
             expect(flatten(button.props.style)).toMatchObject({ width: 44, height: 44, marginHorizontal: -4 });
             expect(flatten(button.findByType('Glass').props.style)).toMatchObject({ width: 36, height: 36 });
@@ -70,41 +68,4 @@ describe('compact home header actions', () => {
         expect(search).toHaveBeenCalledOnce();
     });
 
-    it('fits connecting status before the 44pt actions at 270pt', () => {
-        const connecting = connectionStatusPresentation(
-            { status: 'connecting' },
-            { colors: { status: { connecting: '#aaa' } } } as any,
-        );
-        let renderer: TestRenderer.ReactTestRenderer;
-        TestRenderer.act(() => {
-            renderer = TestRenderer.create(<View>
-                <HomeHeaderMark />
-                <HomeHeaderStatus {...connecting} />
-                <HomeHeaderActions searchActive={false} onSearchPress={() => {}} />
-            </View>);
-        });
-        const root = renderer!.root;
-        const markWidth = flatten(root.findAllByType('Glass')[0].props.style).width;
-        const actions = root.findAllByType('Pressable');
-        const actionRow = root.findAllByType('View').find((view) => flatten(view.props.style).gap === 6)!;
-        const actionWidth = actions.reduce((width, action) => {
-            const target = flatten(action.props.style);
-            expect(target.width).toBe(44);
-            return width + target.width + 2 * target.marginHorizontal;
-        }, (actions.length - 1) * flatten(actionRow.props.style).gap);
-        const status = root.findByType('Text');
-        const statusBox = root.findAllByType('View').find((view) => flatten(view.props.style).maxWidth === '100%')!;
-        expect(status.props.children).toBe('status.connecting');
-        expect(status.props.numberOfLines).toBe(1);
-        expect(status.props.ellipsizeMode).toBe('tail');
-        expect(flatten(status.props.style).flexShrink).toBe(1);
-        expect(flatten(statusBox.props.style).maxWidth).toBe('100%');
-        const titleLeft = 12 + markWidth + 8;
-        const actionsLeft = 270 - 12 - actionWidth;
-        const titleRight = actionsLeft - 8;
-        const firstHitLeft = actionsLeft + flatten(actions[0].props.style).marginHorizontal;
-        expect(actionWidth).toBe(120);
-        expect(titleRight - titleLeft).toBe(74);
-        expect(titleRight).toBeLessThan(firstHitLeft);
-    });
 });

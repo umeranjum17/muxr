@@ -15,7 +15,7 @@ const styles = StyleSheet.create(() => ({
         alignItems: 'center',
         gap: 4,
     },
-    actionsCompact: { gap: 6, paddingHorizontal: 4, marginHorizontal: -4 },
+    actionsCompact: { gap: 8, paddingHorizontal: 4, marginHorizontal: -4 },
     target: {
         width: 44,
         height: 44,

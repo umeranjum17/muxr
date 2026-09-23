@@ -24,6 +24,7 @@ interface HeaderProps {
     headerRight?: (() => React.ReactNode) | null;
     headerRightGlass?: boolean;
     headerRightTouchInset?: boolean;
+    compactHorizontalPadding?: boolean;
     headerStyle?: any;
     headerTitleStyle?: any;
     headerSubtitleStyle?: any;
@@ -47,6 +48,7 @@ export const Header = React.memo((props: HeaderProps) => {
         headerRight,
         headerRightGlass = true,
         headerRightTouchInset = false,
+        compactHorizontalPadding = false,
         headerStyle,
         headerTitleStyle,
         headerSubtitleStyle,
@@ -120,7 +122,7 @@ export const Header = React.memo((props: HeaderProps) => {
                 </Animated.View>
             )}
             <View style={styles.contentWrapper}>
-                <View style={[styles.content, isDesktop && styles.desktopContent, { height: contentHeight }]}>
+                <View style={[styles.content, isDesktop && styles.desktopContent, compactHorizontalPadding && styles.compactContent, { height: contentHeight }]}>
                     <View style={styles.leftContainer}>
                         {headerLeft && headerLeftUsesGlass && (
                             <MobileGlassSurface
@@ -286,6 +288,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         width: '100%',
         maxWidth: layout.headerMaxWidth,
     },
+    compactContent: { paddingHorizontal: 10 },
     desktopContent: {
         gap: 0,
         paddingHorizontal: Platform.select({ ios: 8, default: 16 }),
