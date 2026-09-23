@@ -43,7 +43,7 @@ import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
 import type { SessionInfo } from '@muxr/contract';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 // Its own entry, like wakeAndReport: it pulls in expo-notifications, which the barrel keeps out.
-import { alertAgent } from '@/watch/lifecycleAlert';
+import { alertAgent, dismissAgentAlert } from '@/watch/lifecycleAlert';
 import { promptAgent } from './promptAgent';
 import type { Settings } from './settings';
 import { lifecycleNotificationCopy } from '@/herd';
@@ -396,6 +396,9 @@ class MuxrSync {
 
         if (event.type === 'lifecycle.update') {
             storage.getState().applyLifecycleEvent(event.event);
+            if (event.event.state !== 'blocked' && event.event.state !== 'failed') {
+                dismissAgentAlert(event.event.sessionId);
+            }
             void this.presentPendingLifecycleEvents();
         }
 
@@ -413,6 +416,7 @@ class MuxrSync {
             // A queued frame must never resurrect a session the host retired.
             this.pendingSessionInfo.delete(sessionId);
             storage.getState().deleteSession(sessionId);
+            dismissAgentAlert(sessionId);
         }
 
         // Only creation and removal change topology. Metadata/output updates are
@@ -430,6 +434,10 @@ class MuxrSync {
     private applyAttentionCatalog(entries: readonly AttentionEntry[]): void {
         const previous = new Set(storage.getState().attentionEntries.map((entry) => entry.sessionId));
         storage.getState().applyAttentionCatalog([...entries]);
+        if (!storage.getState().lifecycleCatalogAvailable) {
+            const current = new Set(entries.map((entry) => entry.sessionId));
+            for (const sessionId of previous) if (!current.has(sessionId)) dismissAgentAlert(sessionId);
+        }
         if (storage.getState().lifecycleCatalogAvailable) return;
         if (AppState.currentState === 'active') return;
         for (const entry of entries) {

@@ -3,6 +3,24 @@ import { AppState, Platform } from 'react-native';
 
 /** The Agent whose terminal is on screen, if any. */
 let onScreen: string | null = null;
+const focusListeners = new Set<() => void>();
+
+export function focusedAgentRoute(): string | null {
+    return AppState.currentState === 'active' ? onScreen : null;
+}
+
+export function subscribeFocusedAgent(listener: () => void): () => void {
+    focusListeners.add(listener);
+    return () => { focusListeners.delete(listener); };
+}
+
+function notifyFocus(): void {
+    for (const listener of focusListeners) listener();
+}
+
+export function notificationResponseKey(notification: Notifications.Notification): string {
+    return `${notification.request.identifier}:${notification.date}`;
+}
 
 // One row per Agent: a newer Lifecycle Event replaces the Agent's last alert
 // instead of stacking under it. Without an identifier Expo invents a new one
@@ -23,20 +41,29 @@ function dismissAlert(agentRoute: string): void {
  */
 export function agentOnScreen(agentRoute: string): () => void {
     onScreen = agentRoute;
+    notifyFocus();
     dismissAlert(agentRoute);
     const resumed = AppState.addEventListener('change', (state) => {
-        if (state === 'active') dismissAlert(agentRoute);
+        notifyFocus();
+        if (state === 'active' && onScreen === agentRoute) dismissAlert(agentRoute);
     });
     return () => {
         resumed.remove();
-        if (onScreen === agentRoute) onScreen = null;
+        if (onScreen === agentRoute) {
+            onScreen = null;
+            notifyFocus();
+        }
     };
 }
 
 /** Post an Agent's lifecycle alert unless its terminal is in front of the person. */
+export function dismissAgentAlert(agentRoute: string): void {
+    dismissAlert(agentRoute);
+}
+
 export async function alertAgent(agentRoute: string, title: string, body: string): Promise<void> {
     if (Platform.OS === 'web') return;
-    if (onScreen === agentRoute && AppState.currentState === 'active') return;
+    if (focusedAgentRoute() === agentRoute) return;
     await Notifications.scheduleNotificationAsync({
         identifier: alertId(agentRoute),
         content: { title, body, data: { url: `/session/${encodeURIComponent(agentRoute)}` } },

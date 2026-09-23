@@ -18,6 +18,7 @@ import { completionNotificationState, completionTransition, herdNotificationStat
 import { boundRealtimeSession, retryVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
 import { Modal } from '@/modal';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
+import { focusedAgentRoute, subscribeFocusedAgent } from '@/watch/lifecycleAlert';
 
 function sameNotification(
     left: HerdNotificationState,
@@ -46,6 +47,7 @@ export function KernelNotifications() {
     const { state: voiceState } = useRealtimeSessionState();
     const muted = useRealtimeMuted();
     const panes = React.useMemo(() => sortHerd(sessions, workspaces), [sessions, workspaces]);
+    const focusedRoute = React.useSyncExternalStore(subscribeFocusedAgent, focusedAgentRoute, () => null);
     const herd = React.useMemo(() => herdNotificationState(panes, status), [panes, status]);
     const nativeHerd = React.useMemo(
         () => lifecycleCatalogAvailable && herd.mode === 'attention' ? { ...herd, eventKey: 'attention:' } : herd,
@@ -99,11 +101,16 @@ export function KernelNotifications() {
                 voiceState,
                 voiceName,
                 muted,
+                panes.filter((pane) => pane.agentStatus === 'blocked').map((pane) => ({
+                    id: pane.id,
+                    name: pane.agentName ?? 'Unnamed agent',
+                    focused: pane.id === focusedRoute,
+                })),
             );
             if (herdActive && !keepalive.current) keepalive.current = startHerdKeepalive();
         });
         return () => { live = false; };
-    }, [appActive, herdActive, isAuthenticated, lifecycleNotificationLevel, muted, nativeHerd, presentation, status, voiceName, voiceState]);
+    }, [appActive, focusedRoute, herdActive, isAuthenticated, lifecycleNotificationLevel, muted, nativeHerd, panes, presentation, status, voiceName, voiceState]);
 
     React.useEffect(() => {
         if (!isAuthenticated) return;

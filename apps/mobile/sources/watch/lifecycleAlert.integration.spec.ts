@@ -7,6 +7,7 @@ const harness = vi.hoisted(() => ({
     shade: new Map<string, string>(),
     // Every post, including one that replaces a row: each one alerts again.
     posted: [] as string[],
+    issued: [] as Array<{ identifier: string; date: number }>,
     appState: 'active',
     appStateListeners: new Set<(state: string) => void>(),
     eventListeners: [] as Array<(sessionId: string, event: unknown) => void>,
@@ -19,6 +20,7 @@ vi.mock('expo-notifications', () => ({
         const identifier = request.identifier ?? `expo-${Math.random()}`;
         harness.shade.set(identifier, request.content.body);
         harness.posted.push(request.content.body);
+        harness.issued.push({ identifier, date: harness.issued.length + 1 });
         return identifier;
     }),
     dismissNotificationAsync: vi.fn(async (identifier: string) => { harness.shade.delete(identifier); }),
@@ -91,7 +93,7 @@ vi.mock('@/herd', async () => {
 
 import { storage } from '@/catalog/store';
 import { syncCreate } from '@/catalog/sync';
-import { agentOnScreen } from '@/watch/lifecycleAlert';
+import { agentOnScreen, focusedAgentRoute, notificationResponseKey, subscribeFocusedAgent } from '@/watch/lifecycleAlert';
 
 let sequence = 0;
 
@@ -127,6 +129,7 @@ describe('agent lifecycle alerts on the phone', () => {
     beforeEach(() => {
         harness.shade.clear();
         harness.posted.length = 0;
+        harness.issued.length = 0;
         harness.appState = 'active';
     });
 
@@ -135,7 +138,10 @@ describe('agent lifecycle alerts on the phone', () => {
         await vi.waitFor(() => expect(storage.getState().lifecycleCatalogAvailable).toBe(true));
 
         // Lamb's terminal is open while lamb stops for three permission prompts.
+        const focusHistory: Array<string | null> = [];
+        const unsubscribe = subscribeFocusedAgent(() => focusHistory.push(focusedAgentRoute()));
         const leaveLamb = agentOnScreen('route-lamb');
+        expect(focusedAgentRoute()).toBe('route-lamb');
         for (let prompt = 0; prompt < 3; prompt += 1) {
             agentChanges('route-lamb', 'lamb', 'working');
             agentChanges('route-lamb', 'lamb', 'blocked');
@@ -153,14 +159,22 @@ describe('agent lifecycle alerts on the phone', () => {
         expect(shade()).toEqual(['lamb needs attention.', 'ewe needs attention.']);
         // Each new request alerts once, even when frames arrive together.
         expect([...harness.posted].sort()).toEqual(['ewe needs attention.', 'lamb needs attention.', 'lamb needs attention.']);
+        const [firstLamb, secondLamb] = harness.issued.filter((_, index) => harness.posted[index] === 'lamb needs attention.');
+        expect(firstLamb.identifier).toBe(secondLamb.identifier);
+        const notification = (issued: { identifier: string; date: number }) => ({
+            request: { identifier: issued.identifier }, date: issued.date,
+        }) as Parameters<typeof notificationResponseKey>[0];
+        expect(notificationResponseKey(notification(firstLamb))).not.toBe(notificationResponseKey(notification(secondLamb)));
+        expect(notificationResponseKey(notification(firstLamb))).toBe(notificationResponseKey(notification(firstLamb)));
 
         // Opening lamb clears lamb's row and leaves ewe's.
-        agentOnScreen('route-lamb');
+        const leaveAgain = agentOnScreen('route-lamb');
         await settle();
         expect(shade()).toEqual(['ewe needs attention.']);
 
         // The phone locked on lamb's terminal is not looking at it; coming back is.
         appBecomes('background');
+        expect(focusedAgentRoute()).toBeNull();
         agentChanges('route-lamb', 'lamb', 'working');
         agentChanges('route-lamb', 'lamb', 'blocked');
         await settle();
@@ -168,5 +182,12 @@ describe('agent lifecycle alerts on the phone', () => {
         appBecomes('active');
         await settle();
         expect(shade()).toEqual(['ewe needs attention.']);
+        leaveAgain();
+        expect(focusedAgentRoute()).toBeNull();
+        agentChanges('route-ewe', 'ewe', 'working');
+        await settle();
+        expect(shade()).toEqual([]);
+        expect(focusHistory).toEqual(['route-lamb', null, 'route-lamb', null, 'route-lamb', null]);
+        unsubscribe();
     });
 });
