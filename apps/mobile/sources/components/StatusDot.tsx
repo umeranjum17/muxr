@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { ViewStyle } from 'react-native';
-import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withTiming, ReduceMotion } from 'react-native-reanimated';
+import { Animated, Easing, ViewStyle } from 'react-native';
+import { useReducedMotion } from 'react-native-reanimated';
 
 export interface StatusDotProps {
     color: string;
@@ -9,28 +9,31 @@ export interface StatusDotProps {
     style?: ViewStyle;
 }
 
+const EASE = Easing.inOut(Easing.quad);
+/** Out and back in one period, each half eased like a single fade. */
+const PULSE_EASING = (t: number) => (t < 0.5 ? EASE(t * 2) : EASE(2 - t * 2));
+
+// A working agent's dot pulses for as long as it works, on every row and card
+// that shows it, including screens left mounted under the one in front. A
+// Reanimated loop here committed the whole app's shadow tree on every frame;
+// one native-driven loop per dot sets the view's alpha and never wakes JS.
 export const StatusDot = React.memo(({ color, isPulsing, size = 6, style }: StatusDotProps) => {
-    const opacity = useSharedValue(1);
+    const reduceMotion = useReducedMotion();
+    // 0 is full strength, 1 the dimmest point of the pulse.
+    const dim = React.useRef(new Animated.Value(0)).current;
+    const opacity = React.useMemo(() => dim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.3] }), [dim]);
 
     React.useEffect(() => {
-        if (isPulsing) {
-            opacity.value = withRepeat(
-                withTiming(0.3, { duration: 1000, reduceMotion: ReduceMotion.System }),
-                -1, // infinite
-                true, // reverse
-                undefined,
-                ReduceMotion.System
-            );
-        } else {
-            opacity.value = withTiming(1, { duration: 200, reduceMotion: ReduceMotion.System });
+        if (isPulsing && reduceMotion) {
+            dim.setValue(1);
+            return;
         }
-    }, [isPulsing]);
-
-    const animatedStyle = useAnimatedStyle(() => {
-        return {
-            opacity: opacity.value,
-        };
-    });
+        const animation = isPulsing
+            ? Animated.loop(Animated.timing(dim, { toValue: 1, duration: 2000, easing: PULSE_EASING, useNativeDriver: true }))
+            : Animated.timing(dim, { toValue: 0, duration: reduceMotion ? 0 : 200, easing: EASE, useNativeDriver: true });
+        animation.start();
+        return () => animation.stop();
+    }, [isPulsing, reduceMotion, dim]);
 
     const baseStyle: ViewStyle = {
         width: size,
@@ -45,7 +48,7 @@ export const StatusDot = React.memo(({ color, isPulsing, size = 6, style }: Stat
             accessible={false}
             style={[
                 baseStyle,
-                animatedStyle,
+                { opacity },
                 style
             ]}
         />
