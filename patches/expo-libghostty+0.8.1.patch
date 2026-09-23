@@ -341,7 +341,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
 +  // re-uploaded the whole bitmap to the GPU on every frame that changed a
 +  // single cell, which is what made a streaming terminal miss its frames.
 +  private val rowRendering = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-+  private var rowNodes = arrayOfNulls<RenderNode>(0)
++  private var rowNodes: Array<RenderNode?>? = null
 +  // Older releases keep the bitmap.
    private var bitmap: Bitmap? = null
    private var bitmapCanvas: Canvas? = null
@@ -452,7 +452,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
        GhosttyVt.nativeFree(handle)
        handle = 0
      }
-+    for (node in rowNodes) node?.discardDisplayList()
++    rowNodes?.forEach { it?.discardDisplayList() }
    }
  
    private fun sendBytes(bytes: ByteArray) {
@@ -485,8 +485,8 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
 +      // Rows keep their last recording through a resize, so the transition
 +      // frame still shows the previous grid until the repaint re-records it.
 +      val previousRows = rowNodes
-+      rowNodes = Array(rows) { previousRows.getOrNull(it) ?: RenderNode("ghostty-row").apply { setClipToBounds(false) } }
-+      for (row in rows until previousRows.size) previousRows[row]?.discardDisplayList()
++      rowNodes = Array<RenderNode?>(rows) { previousRows?.getOrNull(it) ?: RenderNode("ghostty-row").apply { setClipToBounds(false) } }
++      if (previousRows != null) for (row in rows until previousRows.size) previousRows[row]?.discardDisplayList()
 +    } else {
 +      val previous = bitmap
 +      bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888).also {
@@ -527,7 +527,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
 -    repeat(rowCount) { drawRowRecord(buf, canvas, snapCols) }
 +    if (canvas == null) {
 +      // A full snapshot redraws the grid: a row it leaves out is background.
-+      if (dirtyKind == DIRTY_FULL) for (node in rowNodes) node?.discardDisplayList()
++      if (dirtyKind == DIRTY_FULL) rowNodes?.forEach { it?.discardDisplayList() }
 +      repeat(rowCount) { recordRow(buf, snapCols) }
 +    } else {
 +      if (dirtyKind == DIRTY_FULL) canvas.drawColor(defaultBg)
@@ -747,7 +747,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
        val paint = when {
          symbolsPaint != null &&
            (codepoint in PUA_BMP_FIRST..PUA_BMP_LAST || codepoint >= PUA_SUPPLEMENTARY_FIRST) ->
-@@ -868,23 +1145,92 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -868,23 +1145,93 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        }
        paint.color = cellFg[col]
        if (flags and FLAG_FAINT != 0) paint.alpha = 160
@@ -816,7 +816,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
 +  /** Re-record one row's display list from its snapshot record. */
 +  private fun recordRow(buf: ByteBuffer, snapCols: Int) {
 +    val rowIndex = buf.getInt(buf.position())
-+    val node = rowNodes.getOrNull(rowIndex) ?: scratchRow
++    val node = rowNodes?.getOrNull(rowIndex) ?: (scratchRow ?: RenderNode("ghostty-scratch").also { scratchRow = it })
 +    val widthPx = max(1, ceil(cols * cellWidth).toInt())
 +    val top = rowIndex * cellHeight
 +    node.setPosition(0, top, widthPx, top + cellHeight)
@@ -831,7 +831,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
 +  }
 +
 +  /** Consumes a record for a row the grid no longer has. */
-+  private val scratchRow by lazy { RenderNode("ghostty-scratch") }
++  private var scratchRow: RenderNode? = null
 +
    override fun onDraw(canvas: Canvas) {
      canvas.drawColor(defaultBg)
@@ -839,8 +839,9 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
 +    // Row display lists replay only on a hardware canvas; the terminal is
 +    // never drawn into a software one.
 +    if (rowRendering && canvas.isHardwareAccelerated) {
-+      for (row in 0 until minOf(rows, rowNodes.size)) {
-+        val node = rowNodes[row] ?: continue
++      val nodes = rowNodes
++      for (row in 0 until minOf(rows, nodes?.size ?: 0)) {
++        val node = nodes?.get(row) ?: continue
 +        if (node.hasDisplayList()) canvas.drawRenderNode(node)
 +      }
 +    } else {
@@ -849,7 +850,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
      drawCursor(canvas)
      drawSelectionHandles(canvas)
      drawScrollIndicator(canvas)
-@@ -970,6 +1316,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -970,6 +1317,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -870,7 +871,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    // ── Input ──
  
    override fun onTouchEvent(event: MotionEvent): Boolean {
-@@ -1105,6 +1465,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1105,6 +1466,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val MAX_SCROLLBACK = 10_000L
      const val BLINK_INTERVAL_MS = 600L
      const val SYMBOLS_FONT_ASSET = "SymbolsNerdFontMono-Regular.ttf"
@@ -882,7 +883,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
  
      // Nerd Font glyph ranges: BMP private-use area plus the supplementary
      // private-use planes (material icons live at U+F0000+ since v3).
-@@ -1131,7 +1496,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1131,7 +1497,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
  
      const val HEADER_BYTES = 52
@@ -891,7 +892,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
      const val CELL_RECORD_BYTES = 16
      const val MAX_CELL_TEXT_UNITS = 32
  
-@@ -1153,5 +1518,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1153,5 +1519,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val FLAG_SPACER = 1 shl 8
      const val FLAG_FG_DEFAULT = 1 shl 9
      const val FLAG_BG_NONE = 1 shl 10
