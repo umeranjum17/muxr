@@ -258,10 +258,11 @@ function LimitBand({ rows, columns, slots, figure, legendWidth }: { rows: string
                                     // A plan with no limit of this length leaves its cell
                                     // empty: the row's name says what is not there, and a
                                     // mark in every gap would outweigh the figures.
-                                    if (cell.length === 0) return <View key={row} style={{ height: FIGURE_LINE }} />;
+                                    const figureStyle = { textAlign: 'right' as const, fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('semiBold') };
+                                    if (cell.length === 0) return <Text key={row} numberOfLines={1} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden style={figureStyle}>{'\u00a0'}</Text>;
                                     const tightest = cell[0]!;
                                     return (
-                                        <Text key={row} numberOfLines={1} style={{ color: tightest.tone === undefined ? theme.colors.text : toneColor(theme, tightest.tone), textAlign: 'right', fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('semiBold') }}>
+                                        <Text key={row} numberOfLines={1} style={{ ...figureStyle, color: tightest.tone === undefined ? theme.colors.text : toneColor(theme, tightest.tone) }}>
                                             {cell.length === 1 ? `${tightest.left}%` : [
                                                 `${tightest.left}%`,
                                                 <Text key="count" style={{ color: theme.colors.textSecondary, fontSize: LEGEND_SIZE }}>{`×${cell.length}`}</Text>,

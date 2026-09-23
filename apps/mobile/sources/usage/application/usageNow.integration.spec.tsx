@@ -878,13 +878,18 @@ describe('the usage screen read path', () => {
             .map((node: any) => [Array.isArray(node.props.children)
                 ? node.props.children.filter((part: unknown) => typeof part === 'string').join('')
                 : node.props.children, node.props.style?.color])
-            .filter(([text]: any) => typeof text === 'string' && text !== '' && !text.startsWith('plugins.rightNow.memory'));
+            .filter(([text]: any) => typeof text === 'string' && text.trim() !== '' && !text.startsWith('plugins.rightNow.memory'));
         expect(figures).toEqual([
             ['5h', '#000'], ['7d', '#000'], ['Monthly', '#000'],
             ['36%', '#fff'],
             ['60%', '#fff'], ['×2', '#999'], ['89%', '#fff'],
             ['93%', '#fff'], ['0%', 'tone:danger'], ['8%', 'tone:warning'],
         ]);
+        const spacer = card.root.findAllByType('Text').find((node: any) => node.props.children === '\u00a0');
+        const figure = card.root.findAllByType('Text').find((node: any) => node.props.children === '36%');
+        expect(spacer?.props.style).toMatchObject({ fontSize: figure!.props.style.fontSize, lineHeight: figure!.props.style.lineHeight });
+        expect(spacer?.props['aria-hidden']).toBe(true);
+        expect(spacer?.props.accessibilityElementsHidden).toBe(true);
         // Read aloud in the same order, and a coloured figure says why and
         // when it comes back, which its colour cannot.
         const summary: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button' && node.props?.onPress !== undefined
