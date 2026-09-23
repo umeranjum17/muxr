@@ -12,6 +12,7 @@ type TailState = {
     escape: EscapeState;
     decoder: TextDecoder;
     columns: number;
+    links?: string[];
 };
 const tails = new Map<string, TailState>();
 
@@ -103,6 +104,7 @@ function appendVisible(state: TailState, input: string): string {
         }
     }
     if (visible !== '') {
+        state.links = undefined;
         state.chunks.push(visible);
         state.length += visible.length;
         while (state.length > MAX_CHARS) {
@@ -132,7 +134,12 @@ export function clearTerminalOutput(sessionId: string): void {
 }
 
 export function setTerminalColumns(sessionId: string, columns: number): void {
-    touch(sessionId).columns = Number.isFinite(columns) ? Math.max(0, Math.floor(columns)) : 0;
+    const state = touch(sessionId);
+    const next = Number.isFinite(columns) ? Math.max(0, Math.floor(columns)) : 0;
+    if (state.columns !== next) {
+        state.columns = next;
+        state.links = undefined;
+    }
 }
 
 // A visual wrap fills the terminal row; a hard newline usually does not. Join
@@ -140,20 +147,16 @@ export function setTerminalColumns(sessionId: string, columns: number): void {
 function unwrapTerminalLinks(text: string, columns: number): string {
     const lines = text.replace(/\r/g, '').split('\n');
     if (columns === 0 || lines.length === 1) return lines.join('\n');
-    // Only the line being joined can end inside a URL, since the pattern
-    // stops at a newline. Testing the whole joined text rescanned the tail
-    // once per line, and the terminal asks for its links on every render.
-    const joined = [lines[0] ?? ''];
+    const parts = [lines[0] ?? ''];
+    let insideUrl = /https?:\/\/[^\s"'`<>]*$/.test(parts[0]!);
     for (let index = 1; index < lines.length; index++) {
         const previous = lines[index - 1] ?? '';
         const next = lines[index] ?? '';
-        const current = joined[joined.length - 1]!;
-        const insideUrl = /https?:\/\/[^\s"'`<>]*$/.test(current);
         const softWrap = insideUrl && previous.length === columns && /^[^\s"'`<>]/.test(next);
-        if (softWrap) joined[joined.length - 1] = current + next;
-        else joined.push(next);
+        parts.push(softWrap ? '' : '\n', next);
+        insideUrl = (softWrap && !/[\s"'`<>]/.test(next)) || /https?:\/\/[^\s"'`<>]*$/.test(next);
     }
-    return joined.join('\n');
+    return parts.join('');
 }
 
 /** Latest-first, deduped and canonical URLs from the given text. */
@@ -180,5 +183,5 @@ export function recentTerminalLinks(sessionId: string): string[] {
     const state = tails.get(sessionId);
     if (state === undefined) return [];
     touch(sessionId, state);
-    return extractLinks(unwrapTerminalLinks(state.chunks.join(''), state.columns));
+    return state.links ??= extractLinks(unwrapTerminalLinks(state.chunks.join(''), state.columns));
 }
