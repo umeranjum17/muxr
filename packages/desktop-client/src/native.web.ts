@@ -554,7 +554,9 @@ function attachGestures(session: WebSession): () => void {
                     cancelLongPress(session);
                     // The whole desktop has nowhere to move to, so the finger
                     // moves the desktop's pointer instead, without a button.
-                    session.gesture = session.view.fitted ? 'hover' : 'pan';
+                    session.gesture = session.view.fitted
+                        ? (desktopPoint(session, session.downX, session.downY) === null ? 'spent' : 'hover')
+                        : 'pan';
                     session.lastX = x;
                     session.lastY = y;
                     if (session.gesture === 'hover') hoverTo(x, y);
@@ -625,6 +627,7 @@ function attachGestures(session: WebSession): () => void {
             return;
         }
         if (gesture === 'pending') tap(x, y);
+        else if (gesture === 'hover') hoverTo(x, y);
         else if (gesture === 'armed') {
             const at = desktopPoint(session, session.downX, session.downY);
             if (at !== null) click(session, at, 3);

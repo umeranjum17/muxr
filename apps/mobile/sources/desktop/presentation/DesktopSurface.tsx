@@ -56,6 +56,7 @@ const GESTURES: readonly [gesture: string, effect: string][] = [
     ['Two fingers', 'Scroll'],
     ['Pinch', 'Zoom'],
     ['Drag', 'Move around when zoomed'],
+    ['Drag on the whole desktop', 'Move the pointer'],
 ];
 
 export interface DesktopSurfaceProps {

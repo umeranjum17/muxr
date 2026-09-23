@@ -551,7 +551,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
           removeCallbacks(longPress)
           // The whole desktop has nowhere to move to, so the finger moves the
           // desktop's pointer instead, without a button.
-          gesture = if (fitted) Gesture.HOVER else Gesture.PAN
+          gesture = if (!fitted) Gesture.PAN else if (point(downX, downY) != null) Gesture.HOVER else Gesture.SPENT
           lastX = event.x
           lastY = event.y
           if (gesture == Gesture.HOVER) hoverTo(active, event.x, event.y)
@@ -596,6 +596,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         removeCallbacks(longPress)
         when (gesture) {
           Gesture.PENDING -> tap(active, event.x, event.y)
+          Gesture.HOVER -> hoverTo(active, event.x, event.y)
           Gesture.ARMED -> point(downX, downY)?.let { rightClick(active, it) }
           Gesture.DRAG -> endDrag(active, event.x, event.y)
           else -> {}

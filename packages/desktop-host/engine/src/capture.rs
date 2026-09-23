@@ -111,7 +111,7 @@ impl RawKey {
 /// node reads that as "the client wants a DMA-BUF" and hands back a buffer this
 /// process could not read without a GPU download step; without it the same node
 /// produces a CPU-mappable shared-memory buffer.
-fn format_pod(buffer: &mut Vec<u8>) -> Result<()> {
+fn format_pod(buffer: &mut Vec<u8>, max_fps: u32) -> Result<()> {
     use spa::param::format::{FormatProperties, MediaSubtype, MediaType};
     use spa::param::video::VideoFormat;
     use spa::pod::{object, property, Value};
@@ -155,7 +155,10 @@ fn format_pod(buffer: &mut Vec<u8>) -> Result<()> {
             Choice,
             Range,
             Fraction,
-            Fraction { num: 30, denom: 1 },
+            Fraction {
+                num: max_fps.min(1000),
+                denom: 1
+            },
             Fraction { num: 0, denom: 1 },
             Fraction {
                 num: 1000,
@@ -201,6 +204,7 @@ pub fn start(
     session: PortalSession,
     encoded_width: usize,
     encoded_height: usize,
+    max_fps: u32,
     sink: FrameSink,
 ) -> Result<Capture> {
     let PortalSession { fd, source, .. } = session;
@@ -224,6 +228,7 @@ pub fn start(
                     node_id,
                     encoded_width,
                     encoded_height,
+                    max_fps,
                     sink,
                     geometry,
                     frames,
@@ -268,6 +273,7 @@ fn run_loop(
     node_id: u32,
     encoded_width: usize,
     encoded_height: usize,
+    max_fps: u32,
     sink: FrameSink,
     geometry: Arc<Mutex<Option<StreamGeometry>>>,
     frames: Arc<AtomicU64>,
@@ -405,7 +411,7 @@ fn run_loop(
         .context("pw_stream_add_listener failed")?;
 
     let mut format_buf = Vec::new();
-    format_pod(&mut format_buf)?;
+    format_pod(&mut format_buf, max_fps)?;
     let mut buffer_buf = Vec::new();
     buffer_pod(&mut buffer_buf)?;
     let mut params = [

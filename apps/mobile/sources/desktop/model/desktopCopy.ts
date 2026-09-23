@@ -24,7 +24,7 @@ export const desktopCopy = {
     clipboardUnavailable: 'This computer cannot share its clipboard.',
     liveLabel: 'Live',
     connectingLabel: 'Connecting',
-    gestureHint: 'Pinch to zoom, drag to move around. Two fingers scroll. Hold for right-click, or hold and drag to select.',
+    gestureHint: 'Drag to move the pointer; when zoomed, drag to move around. Two fingers scroll. Pinch to zoom. Hold for right-click, or hold and drag to select.',
     textUnsupported: "The desktop can't type that character.",
     textTooLarge: 'That is too much to type at once.',
     textUsePaste: 'Use Paste from Phone.',

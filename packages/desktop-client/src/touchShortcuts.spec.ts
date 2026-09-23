@@ -28,6 +28,7 @@ class FakeElement extends EventTarget {
     style: Record<string, string> = {};
     value = '';
     autocapitalize = '';
+    height = 720;
     setAttribute(): void {}
     setPointerCapture(): void {}
     focus(): void {}
@@ -35,7 +36,7 @@ class FakeElement extends EventTarget {
     remove(): void {}
     appendChild(): void {}
     getBoundingClientRect() {
-        return { left: 0, top: 0, width: 1280, height: 720 };
+        return { left: 0, top: 0, width: 1280, height: this.height };
     }
 }
 
@@ -176,10 +177,11 @@ describe('touch on the desktop', () => {
         touch(video, 'pointermove', 140, 100);
         touch(video, 'pointermove', 150, 104);
         vi.advanceTimersByTime(1000);
-        touch(video, 'pointerup', 150, 104);
+        touch(video, 'pointerup', 180, 104);
         expect(sent).toEqual([
             { kind: 'pointer', phase: 'move', x: 140, y: 100 },
             { kind: 'pointer', phase: 'move', x: 150, y: 104 },
+            { kind: 'pointer', phase: 'move', x: 180, y: 104 },
         ]);
 
         // Zoomed in, the same finger moves the view instead, and sends nothing.
@@ -190,6 +192,29 @@ describe('touch on the desktop', () => {
         touch(video, 'pointerup', 140, 100);
         expect(sent).toEqual([]);
         nativeDesklink.fitToView(session.current.nativeId!);
+
+        video.height = 800;
+        nativeDesklink.fitToView(session.current.nativeId!);
+        sent = [];
+        touch(video, 'pointerdown', 100, 10);
+        touch(video, 'pointermove', 100, 100);
+        touch(video, 'pointerup', 100, 100);
+        expect(sent).toEqual([]);
+        touch(video, 'pointerdown', 100, 90);
+        touch(video, 'pointermove', 140, 90);
+        touch(video, 'pointerup', 180, 90);
+        expect(sent).toEqual([
+            { kind: 'pointer', phase: 'move', x: 140, y: 50 },
+            { kind: 'pointer', phase: 'move', x: 180, y: 50 },
+        ]);
+        sent = [];
+        touch(video, 'pointerdown', 100, 90);
+        touch(video, 'pointermove', 140, 90);
+        touch(video, 'pointercancel', 180, 90);
+        expect(sent).toEqual([{ kind: 'pointer', phase: 'move', x: 140, y: 50 }]);
+        video.height = 720;
+        nativeDesklink.fitToView(session.current.nativeId!);
+        sent = [];
 
         // Hold, then drag: the left button is held from where the finger rested.
         touch(video, 'pointerdown', 300, 200);
