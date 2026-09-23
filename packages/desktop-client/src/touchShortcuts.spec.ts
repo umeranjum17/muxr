@@ -4,7 +4,7 @@ import TestRenderer from 'react-test-renderer';
 
 import type { Signaling } from './protocol';
 import { useDesktopSession, type DesktopSession } from './useDesktopSession';
-import { attachSurface } from './native.web';
+import { attachSurface, setKeyboardClearance } from './native.web';
 
 /** `act` refuses to flush state updates unless React is told this is a test. */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -221,6 +221,46 @@ describe('touch on the desktop', () => {
         dispatch(video, 'pointerdown', { pointerId: 3, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
         dispatch(video, 'pointerup', { pointerId: 3, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
         expect(sent).toEqual(click(50, 60, 3));
+    });
+});
+
+describe('the pointer above the keyboard', () => {
+    it('marks where a tap sent the pointer, and keeps it in sight while the keyboard is up', async () => {
+        // The phone's keyboard lays itself over the page; the visual viewport
+        // is what says how much of it is still showing.
+        const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 720 });
+        vi.stubGlobal('visualViewport', viewport);
+        const { session, video, keyboard } = await liveDesktop();
+        const [picture, , mark] = created;
+        const tip = () => {
+            const [x, y] = /translate3d\(([-\d.]+)px, ([-\d.]+)px/.exec(mark!.style.transform)!.slice(1).map(Number);
+            return { x: x! + 3, y: y! + 3 };
+        };
+
+        // Nothing is marked until a finger has put the desktop's pointer somewhere.
+        expect(mark!.style.display).toBe('none');
+        touch(video, 'pointerdown', 640, 600);
+        touch(video, 'pointerup', 640, 600);
+        expect(mark!.style.display).toBe('block');
+        expect(tip()).toEqual({ x: 640.5, y: 600.5 });
+
+        // The keyboard covers the bottom 300 pixels and the app keeps 50 above
+        // it for its controls. The pointer was near the bottom; the picture
+        // moves up under it so it stays in sight, the mark riding along.
+        setKeyboardClearance(session.current.nativeId!, 50);
+        (document as unknown as { activeElement: unknown }).activeElement = keyboard;
+        viewport.height = 420;
+        dispatch(viewport, 'resize', {});
+        expect(tip().y).toBeGreaterThan(0);
+        expect(tip().y).toBeLessThan(720 - 350);
+        expect(picture!.style.top).toBe(`${tip().y - 600.5}px`);
+
+        // Keyboard down: the whole picture comes back, and the mark with it.
+        (document as unknown as { activeElement: unknown }).activeElement = null;
+        viewport.height = 720;
+        dispatch(keyboard, 'blur', {});
+        expect(picture!.style.top).toBe('0px');
+        expect(tip()).toEqual({ x: 640.5, y: 600.5 });
     });
 });
 

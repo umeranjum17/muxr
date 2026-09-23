@@ -24,10 +24,29 @@ vi.mock('react-native', () => ({
     StyleSheet: { create: (styles: unknown) => styles, absoluteFill: {}, hairlineWidth: 1 },
     useWindowDimensions: () => ({ height: 600 }),
 }));
-vi.mock('react-native-keyboard-controller', () => ({ useKeyboardState: () => ({ isVisible: false }) }));
+vi.mock('react-native-reanimated', () => {
+    const fade = { delay: () => fade, duration: () => fade, reduceMotion: () => fade };
+    return {
+        default: { View: 'Animated.View' },
+        FadeIn: fade,
+        FadeOut: fade,
+        ReduceMotion: { System: 'system' },
+        useAnimatedStyle: (style: () => unknown) => style(),
+        useSharedValue: (initial: number) => ({ value: initial }),
+        withTiming: (value: number) => value,
+    };
+});
+vi.mock('react-native-keyboard-controller', () => ({
+    useKeyboardState: () => ({ isVisible: false }),
+    useReanimatedKeyboardAnimation: () => ({ height: { value: 0 }, progress: { value: 0 } }),
+}));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
-vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: { text: '', textSecondary: '', button: { primary: { background: '', tint: '' } } } } }) }));
-vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Icon' }));
+vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: {
+    text: '', textSecondary: '', surfaceHighest: '', surfacePressed: '',
+    glass: { border: '' }, terminalChrome: { cluster: '', clusterPressed: '' },
+    button: { primary: { background: '', tint: '' } },
+} } }) }));
+vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Icon', MaterialCommunityIcons: 'Icon' }));
 vi.mock('expo-clipboard', () => ({ getStringAsync: async () => '', setStringAsync: async () => undefined }));
 vi.mock('@desklink/react-native', () => ({
     DesktopView: 'DesktopView',
@@ -42,7 +61,7 @@ vi.mock('@/components/ui', () => ({ ui: { radius: { control: 8 } } }));
 vi.mock('@/catalog', () => ({ sync: { request: async () => ({ clipboard: available }) } }));
 vi.mock('@/catalog/store', () => ({ useLocalSettingMutable: () => [true, () => undefined], useMachine: () => null }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: 'computer' }) }));
-vi.mock('./DesktopKeyRow', () => ({ DesktopKeyRow: 'DesktopKeyRow' }));
+vi.mock('./DesktopKeyRow', () => ({ DesktopKeyRow: 'DesktopKeyRow', DESKTOP_KEY_ROW_HEIGHT: 36 }));
 
 import { DesktopSurface } from './DesktopSurface';
 

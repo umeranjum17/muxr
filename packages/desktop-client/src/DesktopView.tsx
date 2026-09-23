@@ -12,6 +12,12 @@ export interface DesktopViewProps {
     placeholder?: React.ReactNode;
     /** What a screen reader calls the surface. */
     accessibilityLabel?: string;
+    /**
+     * Space the application keeps free above the phone's keyboard for its own
+     * controls, in points. While the keyboard is up the picture sits above both,
+     * following the keyboard as it moves.
+     */
+    keyboardClearance?: number;
 }
 
 interface NativeSurfaceProps {
@@ -19,6 +25,7 @@ interface NativeSurfaceProps {
     style?: StyleProp<ViewStyle>;
     accessible?: boolean;
     accessibilityLabel?: string;
+    keyboardClearance?: number;
 }
 
 // The Expo view is resolved at module load; on a platform without it the
@@ -30,11 +37,12 @@ const NativeSurface: React.ComponentType<NativeSurfaceProps> | null = desktopAva
 /**
  * The live desktop surface.
  *
- * It renders the picture and owns the gestures, and nothing else: the
- * surrounding chrome, the start state and the return navigation belong to the
- * application, which mounts this wherever it wants the desktop to appear.
+ * It renders the picture and the pointer and owns the gestures, and nothing
+ * else: the surrounding chrome, the start state and the return navigation
+ * belong to the application, which mounts this wherever it wants the desktop
+ * to appear.
  */
-export function DesktopView({ sessionId, style, placeholder, accessibilityLabel }: DesktopViewProps) {
+export function DesktopView({ sessionId, style, placeholder, accessibilityLabel, keyboardClearance = 0 }: DesktopViewProps) {
     if (NativeSurface == null || sessionId == null) {
         return (
             <View style={[styles.surface, style]}>
@@ -42,7 +50,7 @@ export function DesktopView({ sessionId, style, placeholder, accessibilityLabel 
             </View>
         );
     }
-    return <NativeSurface style={[styles.surface, style]} sessionId={sessionId} accessible={accessibilityLabel !== undefined} accessibilityLabel={accessibilityLabel} />;
+    return <NativeSurface style={[styles.surface, style]} sessionId={sessionId} accessible={accessibilityLabel !== undefined} accessibilityLabel={accessibilityLabel} keyboardClearance={keyboardClearance} />;
 }
 
 const styles = StyleSheet.create({

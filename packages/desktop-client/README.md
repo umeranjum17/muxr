@@ -41,7 +41,7 @@ const desktop = useDesktopSession({
 // Opening is a user action, so the app decides when it happens.
 await desktop.connect();
 
-<DesktopView sessionId={desktop.nativeId} style={{ flex: 1 }} />;
+<DesktopView sessionId={desktop.nativeId} style={{ flex: 1 }} keyboardClearance={96} />;
 desktop.showKeyboard();
 desktop.setOrientation('landscape');   // Android: hold the screen on its side; 'auto' to follow the phone
 await desktop.pasteLocalToRemote(await Clipboard.getStringAsync());
@@ -69,6 +69,14 @@ import { desktopAvailable } from '@desklink/react-native/availability';
   own texture and drawn with a multi-tap filter when it is shown smaller than
   its size, so a fitted 4K desktop does not alias and a pinch redraws at once.
   `fitToView()` shows the whole desktop again.
+- **A pointer a phone can see.** Once a touch has sent the desktop's pointer
+  somewhere, the view draws it there at a readable size, over a picture whose
+  own cursor is a few pixels tall or not captured at all. A mouse keeps its own.
+- **The picture above the keyboard.** While the phone's keyboard is up, the
+  picture sits above it and above the room the app keeps for its own controls
+  (`keyboardClearance`), moving with the keyboard as it slides. A picture too
+  tall for what is left keeps the pointer, where a tap just put the caret, in
+  sight.
 - **Contained geometry.** Touch maps through the picture's actual placement.
   A touch in the letterbox is not a desktop coordinate, and a drag that leaves
   the picture is held to its edge rather than released somewhere unseen.

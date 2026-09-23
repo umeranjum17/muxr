@@ -9,6 +9,11 @@ export interface DesktopViewProps {
     placeholder?: React.ReactNode;
     /** What a screen reader calls the surface. */
     accessibilityLabel?: string;
+    /**
+     * Space the application keeps free above the phone's keyboard for its own
+     * controls, in points. While the keyboard is up the picture sits above both.
+     */
+    keyboardClearance?: number;
 }
 
 /**
@@ -20,7 +25,7 @@ export interface DesktopViewProps {
  * actually mounted rather than at module load, so an application that never
  * opens a desktop does not carry one in its first paint.
  */
-export function DesktopView({ sessionId, style, placeholder, accessibilityLabel }: DesktopViewProps) {
+export function DesktopView({ sessionId, style, placeholder, accessibilityLabel, keyboardClearance = 0 }: DesktopViewProps) {
     const mounted = React.useCallback(
         (node: unknown) => {
             const element = (node as HTMLElement | null) ?? null;
@@ -32,6 +37,11 @@ export function DesktopView({ sessionId, style, placeholder, accessibilityLabel 
         },
         [sessionId],
     );
+
+    React.useEffect(() => {
+        if (sessionId === null) return;
+        void import('./native').then((platform) => platform.setKeyboardClearance(sessionId, keyboardClearance));
+    }, [sessionId, keyboardClearance]);
 
     return (
         <View style={[styles.surface, style]} accessibilityLabel={accessibilityLabel}>

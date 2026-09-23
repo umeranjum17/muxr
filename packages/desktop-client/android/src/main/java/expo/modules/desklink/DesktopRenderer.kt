@@ -3,6 +3,7 @@ package expo.modules.desklink
 import android.opengl.GLES20
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Log
 import android.view.SurfaceHolder
 import org.webrtc.EglBase
@@ -18,6 +19,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 private const val TAG = "DesklinkRenderer"
+
+/** How long the first picture takes to come up out of black. */
+private const val REVEAL_MS = 280f
+
+/** A redraw while the first picture is still coming up: one display frame. */
+private const val REVEAL_STEP_MS = 16L
 
 private const val VERTEX_SHADER = """
 attribute vec2 position;
@@ -47,6 +54,7 @@ varying vec2 tc;
 uniform sampler2D picture;
 uniform vec2 stepX;
 uniform vec2 stepY;
+uniform float reveal;
 void main() {
   vec4 sum = vec4(0.0);
   for (int i = -1; i <= 1; i++) {
@@ -54,7 +62,7 @@ void main() {
       sum += texture2D(picture, tc + float(i) * stepX + float(j) * stepY);
     }
   }
-  gl_FragColor = sum / 9.0;
+  gl_FragColor = vec4(sum.rgb / 9.0 * reveal, 1.0);
 }
 """
 
@@ -91,6 +99,13 @@ internal class DesktopRenderer(
   private var copyDrawer: GlRectDrawer? = null
   private var shader: GlShader? = null
   private var presented = false
+
+  /**
+   * When the first picture was presented. It comes up out of black from
+   * there: the app's start state sits over this surface, and a surface cannot
+   * be faded from above, so the crossfade is drawn here.
+   */
+  private var revealedAt = 0L
 
   // Surface pixels per picture pixel, and where the picture's top-left sits on
   // the surface; null until the view has placed it. Written by the UI thread.
@@ -246,6 +261,8 @@ internal class DesktopRenderer(
     GLES20.glUniform1i(program.getUniformLocation("picture"), 0)
     GLES20.glUniform2f(program.getUniformLocation("stepX"), spread / source.width, 0f)
     GLES20.glUniform2f(program.getUniformLocation("stepY"), 0f, spread / source.height)
+    val reveal = if (revealedAt == 0L) 0f else ((SystemClock.uptimeMillis() - revealedAt) / REVEAL_MS).coerceIn(0f, 1f)
+    GLES20.glUniform1f(program.getUniformLocation("reveal"), reveal)
     program.setVertexAttribArray("position", 2, GlUtil.createFloatBuffer(floatArrayOf(
       left, bottom, right, bottom, left, top, right, top,
     )))
@@ -257,8 +274,10 @@ internal class DesktopRenderer(
     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
     base.swapBuffers()
 
+    if (reveal < 1f) handler.postDelayed({ requestDraw() }, REVEAL_STEP_MS)
     if (!presented) {
       presented = true
+      revealedAt = SystemClock.uptimeMillis()
       onFirstFrame()
     }
   }
