@@ -11,7 +11,7 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useKeyboardState } from 'react-native-keyboard-controller';
+import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
@@ -182,6 +182,17 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // that change nothing, which is most of them.
     const keyboardVisible = useKeyboardState((state) => state.isVisible);
     const keyboardHeight = useKeyboardState((state) => state.height);
+    // The composer and its rails ride the keyboard frame by frame, as the Home
+    // dock does; before, the keyboard slid up over them and they only jumped
+    // into place once it had settled. The terminal itself still resizes once,
+    // when the screen's keyboard state flips, so its grid is not re-measured
+    // on every frame. The translation is whatever the live keyboard has moved
+    // that the settled layout has not, so it is 0 at rest either way.
+    const keyboardMotion = useReanimatedKeyboardAnimation();
+    const settledRaise = keyboardVisible ? keyboardHeight - insets.bottom : 0;
+    const railsFollowKeyboard = useAnimatedStyle(() => ({
+        transform: [{ translateY: keyboardMotion.height.value + insets.bottom * keyboardMotion.progress.value + settledRaise }],
+    }), [insets.bottom, settledRaise]);
     const session = useSession(props.id);
     const sessions = useSessions();
     const { workspaces, loaded: treeLoaded } = useHerdrTree();
@@ -1442,7 +1453,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         composer read as the same piece of chrome rather than as
                         three stacked bands, and the whole of it recedes
                         together while the ring is open. */}
-                    <View style={{ backgroundColor: theme.colors.terminalChrome.chrome }}>
+                    <Animated.View style={[{ backgroundColor: theme.colors.terminalChrome.chrome }, railsFollowKeyboard]}>
 
                     {/* Session/pane chip rail: one scrollable row of identity
                         chips for the open panes (or, across tabs, the other
@@ -1643,7 +1654,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         {!dictationActive && trailingAction}
                     </View>
                     </View>}
-                    </View>
+                    </Animated.View>
 
                     {/* The control rests on the terminal and stands down while
                         a link card is open. Its overlay extends through the
