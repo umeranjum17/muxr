@@ -135,14 +135,17 @@ phone.
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
 | live view | terminal frames over the `/terminal` channel | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |
 
-Sessions you started at your desk show up on the phone too — anything herdr
-detects becomes a session row. That is the point of a multiplexer backend.
+Sessions started at the desk show up on the phone once Herdr publishes their
+agent session (often after the first turn). Detection alone is not a session:
+the host rechecks missing sessions when pane status changes and after the
+per-pane status watch is acknowledged, even if an older snapshot was in flight.
 
 ## Facts worth knowing (verified against herdr 0.8.0)
 
 - **The socket answers one request per connection**, then closes. Only
   `events.subscribe` holds a socket open — one subscribe per socket; a second
-  interleaves acks with events. `apps/host/src/herdr/socketClient.ts` opens a
+  interleaves acks with events. The host's
+  [`socketClient.ts`](../apps/host/src/agent/infrastructure/socketClient.ts) opens a
   connection per request, one batch subscription socket, and one filtered socket
   per pane for status.
 - **Filtered subscription kinds reject the whole batch.** `pane.agent_status_changed`
@@ -151,7 +154,8 @@ detects becomes a session row. That is the point of a multiplexer backend.
   per-pane sockets (`watchPaneStatus`).
 - **There are no raw `terminal.*` socket methods.** Frames come from the CLI:
   `herdr terminal session control <pane>` emits NDJSON with base64 ANSI. One subprocess
-  per attached channel (`apps/host/src/herdr/terminalManager.ts`).
+  per attached channel
+  ([`terminalManager.ts`](../apps/host/src/agent/infrastructure/terminalManager.ts)).
 - **`control` resizes the real PTY** (measured: 23×53 → 35×110); `observe` does not.
   Control is single-owner, so attaching takes over input from the desk; preview
   cards use `observe` exactly so the desk is never disturbed.
