@@ -78,6 +78,16 @@ vi.mock('./DesktopKeyRow', () => ({ DesktopKeyRow: 'DesktopKeyRow', DESKTOP_KEY_
 
 import { DesktopSurface } from './DesktopSurface';
 
+type Rendered = {
+    props: { onPress(): void; style: unknown; keyboardClearance: number; pointerEvents?: string };
+    children: (Rendered | string)[];
+    parent: Rendered;
+    findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string }): Rendered[];
+    findByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered;
+    findByType(type: string): Rendered;
+    findAllByType(type: string): Rendered[];
+};
+
 it('starts web clipboard copy in the tap and waits for the write before reporting success', async () => {
     available = true;
     openedBefore = true;
@@ -93,17 +103,18 @@ it('starts web clipboard copy in the tap and waits for the write before reportin
     vi.stubGlobal('navigator', { clipboard: { write: webWrite } });
     session.copyRemoteToLocal.mockImplementation(() => remote);
     let view!: ReturnType<typeof TestRenderer.create>;
+    const root = () => view.root as Rendered;
     try {
         await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={() => undefined} />); });
-        TestRenderer.act(() => view.root.findByProps({ accessibilityLabel: 'Clipboard' }).props.onPress());
-        TestRenderer.act(() => view.root.findByProps({ accessibilityLabel: 'Copy to Phone' }).props.onPress());
+        TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Clipboard' }).props.onPress());
+        TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Copy to Phone' }).props.onPress());
         expect(webWrite).toHaveBeenCalledTimes(1);
-        expect(view.root.findAllByProps({ accessibilityLiveRegion: 'polite' })).toHaveLength(0);
+        expect(root().findAllByProps({ accessibilityLiveRegion: 'polite' })).toHaveLength(0);
         await TestRenderer.act(async () => { resolveRemote({ text: 'remote text', truncated: false }); await Promise.resolve(); });
         expect(await webWrite.mock.calls[0][0][0].data['text/plain'].then((blob) => blob.text())).toBe('remote text');
-        expect(view.root.findAllByProps({ accessibilityLiveRegion: 'polite' })).toHaveLength(0);
+        expect(root().findAllByProps({ accessibilityLiveRegion: 'polite' })).toHaveLength(0);
         await TestRenderer.act(async () => { resolveWrite(); });
-        expect(view.root.findByProps({ accessibilityLiveRegion: 'polite' }).children.join('')).toBe('Copied to this phone.');
+        expect(root().findByProps({ accessibilityLiveRegion: 'polite' }).children.join('')).toBe('Copied to this phone.');
     } finally {
         await TestRenderer.act(async () => { if (view) view.unmount(); });
         vi.unstubAllGlobals();
@@ -119,15 +130,6 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     session.snapshot.status = 'starting';
     vi.useFakeTimers();
     let view!: ReturnType<typeof TestRenderer.create>;
-    type Rendered = {
-        props: { onPress(): void; style: unknown; keyboardClearance: number; pointerEvents?: string };
-        children: (Rendered | string)[];
-        parent: Rendered;
-        findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string }): Rendered[];
-        findByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered;
-        findByType(type: string): Rendered;
-        findAllByType(type: string): Rendered[];
-    };
     const root = () => view.root as Rendered;
     const style = (value: unknown) => {
         const resolved = typeof value === 'function' ? value({ pressed: false }) : value;
