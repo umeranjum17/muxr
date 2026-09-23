@@ -14,6 +14,7 @@ import { openWithSystem } from '@/../modules/artifact-open';
 import { Modal } from '@/modal';
 import { transferArtifact, type DownloadableArtifact, type TransferPlatform, type TransferSink } from '@/utils/artifactTransfer';
 import { sweepPartialDownloads } from '@/utils/artifactPartialRetention';
+import { artifactDownloadKey } from '@/utils/artifactDownloadKey';
 
 const DOWNLOADS = 'artifact-downloads';
 
@@ -34,16 +35,11 @@ export function clearPartialDownloads(): Promise<void> {
 
 function safeName(name: string): string {
     const cleaned = name.replace(/[^A-Za-z0-9._-]/g, '_');
-    return cleaned.length > 0 ? cleaned : 'artifact';
-}
-
-/** Content ids name their bytes; anything else is only trusted with its size. */
-function downloadKey(sessionId: string, artifact: DownloadableArtifact): string {
-    return `${encodeURIComponent(sessionId)}-${encodeURIComponent(artifact.id)}-${encodeURIComponent(artifact.name)}-${artifact.size}-${artifact.at ?? 'unknown'}`;
+    return cleaned.length > 96 ? `${cleaned.slice(0, 79)}_${cleaned.slice(-16)}` : cleaned || 'artifact';
 }
 
 function partFile(sessionId: string, artifact: DownloadableArtifact): File {
-    return new File(Paths.cache, DOWNLOADS, `${downloadKey(sessionId, artifact)}.part`);
+    return new File(Paths.cache, DOWNLOADS, `${artifactDownloadKey(sessionId, artifact)}.part`);
 }
 
 /** Bytes an interrupted download left behind, e.g. before the app was closed. */
@@ -53,7 +49,7 @@ export function keptBytes(sessionId: string, artifact: DownloadableArtifact): nu
 }
 
 function sink(artifact: DownloadableArtifact, sessionId: string): TransferSink {
-    const key = downloadKey(sessionId, artifact);
+    const key = artifactDownloadKey(sessionId, artifact);
     const finished = new File(Paths.cache, DOWNLOADS, key, safeName(artifact.name));
     if (artifact.at === undefined && finished.exists) finished.delete();
     if (finished.exists && finished.size === artifact.size) {

@@ -67,6 +67,7 @@ vi.mock('expo-file-system', async () => {
         get name() { return path.basename(this.path); }
         get exists() { return fs.existsSync(this.path); }
         get modificationTime() { return fs.statSync(this.path).mtimeMs; }
+        get size() { return fs.statSync(this.path).size; }
         delete() { fs.rmSync(this.path); }
     }
     class Directory {
@@ -82,6 +83,7 @@ vi.mock('@/../modules/artifact-open', () => ({ openWithSystem: () => false }));
 vi.mock('@/modal', () => ({ Modal: { alert: () => undefined } }));
 
 import { artifactTransferKey, transferArtifact, useArtifactTransfers, type TransferPlatform, type TransferSink } from './artifactTransfer';
+import { artifactDownloadKey } from './artifactDownloadKey';
 
 const root = mkdtempSync(join(tmpdir(), 'muxr-transfer-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -123,14 +125,20 @@ describe('progressive artifact download', () => {
         writeFileSync(fresh, 'fresh bytes');
         const nineDaysAgo = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000);
         utimesSync(old, nineDaysAgo, nineDaysAgo);
-        const { sweepArtifactDownloads } = await import('@/utils/downloadArtifact');
+        const { keptBytes, sweepArtifactDownloads } = await import('@/utils/downloadArtifact');
         await sweepArtifactDownloads();
         expect(existsSync(old)).toBe(false);
         expect(readFileSync(fresh, 'utf8')).toBe('fresh bytes');
+        const long = { id: 'a'.repeat(64), name: `${'release-'.repeat(20)}.apk`, size: 100, at: Date.now() };
+        const key = artifactDownloadKey('session-'.repeat(5), long);
+        writeFileSync(join(dir, `${key}.part`), 'kept');
+        expect(keptBytes('session-'.repeat(5), { ...long, mimeType: 'application/vnd.android.package-archive' })).toBe(4);
+        expect(key).not.toBe(artifactDownloadKey('session-'.repeat(5), { ...long, name: `${'release-'.repeat(20)}-other.apk` }));
         pairing.stored = JSON.stringify({ mode: 'hosted', machineId: 'first', relayUrl: 'ws://127.0.0.1:8792', token: '', lastSessionCwd: '', recentSessionCwds: [] });
         const { loadConnectionSettingsAsync, saveConnectionSettings } = await import('@/connection/connectionSettings');
         await saveConnectionSettings({ ...await loadConnectionSettingsAsync(), machineId: 'second' });
         expect(existsSync(fresh)).toBe(false);
+        expect(existsSync(join(dir, `${key}.part`))).toBe(false);
     });
 
     it('streams bounded chunks to disk and resumes from the kept bytes after the connection drops', async () => {
@@ -185,6 +193,13 @@ describe('progressive artifact download', () => {
         expect(new Set(opened)).toEqual(new Set(['release.apk', 'copy.apk', 'mirror.apk'].map((name) => join(root, 'phone', name))));
         expect(['copy.apk', 'mirror.apk'].every((name) => readFileSync(join(root, 'phone', name)).equals(bytes))).toBe(true);
         link.reader = (_sessionId, artifactId, offset, length) => watcher.read('pane-1', artifactId, offset, length);
+        const samePane = join(paneDir, 'same-bytes.apk');
+        writeFileSync(samePane, bytes);
+        const later = new Date(Date.now() + 60_000);
+        utimesSync(samePane, later, later);
+        await transferArtifact('session-1', artifact, diskPlatform(opened));
+        expect(opened.filter((uri) => uri === join(root, 'phone', 'release.apk'))).toHaveLength(2);
+        expect(readFileSync(join(root, 'phone', 'release.apk')).equals(bytes)).toBe(true);
 
         const changedPath = join(paneDir, 'changed.apk');
         const oldBytes = randomBytes(3 * 512 * 1024);
@@ -210,7 +225,7 @@ describe('progressive artifact download', () => {
         for (const resume of fsRead.pending.splice(0)) resume();
         await expect(interrupted).rejects.toThrow('Changed on the computer');
         expect(existsSync(join(root, 'phone', `session-1-${changedId}-${changed.name}-${changed.size}-${changed.at}.part`))).toBe(false);
-        expect(opened).toHaveLength(3);
+        expect(opened).toHaveLength(4);
 
         const corruptPath = join(paneDir, 'corrupt.apk');
         const correct = randomBytes(2 * 512 * 1024);
@@ -225,6 +240,6 @@ describe('progressive artifact download', () => {
         await expect(transferArtifact('session-1', corrupt, diskPlatform(opened))).rejects.toThrow('integrity check');
         expect(link.requests.filter((request) => request.offset === 0)).toHaveLength(2);
         expect(useArtifactTransfers.getState()[artifactTransferKey('session-1', corrupt)]).toMatchObject({ status: 'failed', message: 'Download failed integrity check. Try again.' });
-        expect(opened).toHaveLength(3);
+        expect(opened).toHaveLength(4);
     });
 });

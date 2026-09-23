@@ -8,6 +8,7 @@
  */
 import { LARGE_FILE_ERROR, transferArtifact, type DownloadableArtifact, type TransferPlatform, type TransferSink } from '@/utils/artifactTransfer';
 import { sweepPartialDownloads } from '@/utils/artifactPartialRetention';
+import { artifactDownloadKey } from '@/utils/artifactDownloadKey';
 
 const MEMORY_LIMIT = 64 * 1024 * 1024;
 
@@ -53,14 +54,10 @@ export async function sweepArtifactDownloads(): Promise<void> {
     await downloadsDirectory();
 }
 
-function fileName(sessionId: string, artifact: DownloadableArtifact): string {
-    return `${encodeURIComponent(sessionId)}-${encodeURIComponent(artifact.id)}-${encodeURIComponent(artifact.name)}-${artifact.at ?? 'unknown'}-${artifact.size}`;
-}
-
 async function sink(artifact: DownloadableArtifact, sessionId: string): Promise<TransferSink> {
     const directory = await downloadsDirectory();
     if (directory === undefined) return fallbackSink(artifact);
-    const name = fileName(sessionId, artifact);
+    const name = artifactDownloadKey(sessionId, artifact);
     let handle: FileSystemFileHandle;
     let kept: number;
     try {

@@ -163,7 +163,7 @@ async function readChunk(job: Job, at: number, length: number, requireTime = fal
         const chunk = await sync.artifactRead(job.sessionId, job.pinnedId ?? job.artifact.id, at, length, 60_000);
         if (chunk === null || chunk.offset !== at || chunk.size !== job.artifact.size) throw new ArtifactChanged();
         job.pinnedId ??= chunk.id;
-        if (chunk.id !== job.pinnedId || (job.artifact.at !== undefined && chunk.at !== undefined && chunk.at !== job.artifact.at)) throw new ArtifactChanged();
+        if (chunk.id !== job.pinnedId) throw new ArtifactChanged();
         if (requireTime && chunk.at === undefined) throw new MissingArtifactTime();
         const bytes = decodeBase64(chunk.data);
         if (bytes.length !== length) throw new ArtifactChanged();
