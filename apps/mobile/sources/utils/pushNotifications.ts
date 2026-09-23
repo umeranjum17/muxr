@@ -7,6 +7,19 @@ import { storage } from '@/catalog/store';
 export type PushState = 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed';
 
 const SW_PATH = '/sw.js';
+const LEVEL_CACHE = 'muxr-push-level';
+let levelWrite = Promise.resolve();
+let pendingLevel: LifecycleNotificationLevel | null = null;
+let syncingLevel: Promise<boolean> | null = null;
+
+export function storeWebPushNotificationLevel(level: LifecycleNotificationLevel): Promise<boolean> {
+    if (!isWebPushSupported()) return Promise.resolve(true);
+    if (typeof caches === 'undefined') return Promise.resolve(false);
+    levelWrite = levelWrite.catch(() => {}).then(async () => {
+        await (await caches.open(LEVEL_CACHE)).put('/muxr-push-level', new Response(level));
+    });
+    return levelWrite.then(() => true, () => false);
+}
 
 function isWebPushSupported(): boolean {
     return Platform.OS === 'web'
@@ -64,6 +77,7 @@ export async function refreshPushState(): Promise<PushState> {
  */
 export async function requestPermissionAndSubscribe(): Promise<boolean> {
     if (!isWebPushSupported()) return false;
+    let subscription: PushSubscription | null = null;
     try {
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
@@ -86,7 +100,7 @@ export async function requestPermissionAndSubscribe(): Promise<boolean> {
         if (!vapidRes.ok) return false;
         const { publicKey } = await vapidRes.json() as { publicKey: string };
 
-        let subscription = await reg.pushManager.getSubscription();
+        subscription = await reg.pushManager.getSubscription();
         if (!subscription) {
             subscription = await reg.pushManager.subscribe({
                 userVisibleOnly: true,
@@ -103,18 +117,24 @@ export async function requestPermissionAndSubscribe(): Promise<boolean> {
             },
             body: JSON.stringify({ subscription: subscription.toJSON(), level }),
         });
-        if (!subRes.ok) return false;
+        if (!subRes.ok) {
+            await subscription.unsubscribe().catch(() => undefined);
+            lastKnownSubscribed = false;
+            return false;
+        }
 
         lastKnownSubscribed = true;
         return true;
     } catch (error) {
+        await subscription?.unsubscribe().catch(() => undefined);
+        lastKnownSubscribed = false;
         console.warn('[push] subscribe failed', error);
         return false;
     }
 }
 
 /** Re-POST the existing browser subscription with a new level (opt-out sync). */
-export async function updateWebPushNotificationLevel(level: LifecycleNotificationLevel): Promise<boolean> {
+async function postWebPushNotificationLevel(level: LifecycleNotificationLevel): Promise<boolean> {
     if (!isWebPushSupported()) return false;
     try {
         const settings = getCachedConnectionSettings();
@@ -138,12 +158,42 @@ export async function updateWebPushNotificationLevel(level: LifecycleNotificatio
     }
 }
 
+function drainWebPushNotificationLevel(): Promise<boolean> {
+    if (syncingLevel !== null) {
+        return syncingLevel.then((synced) =>
+            pendingLevel === null ? synced : drainWebPushNotificationLevel());
+    }
+    if (pendingLevel === null) return Promise.resolve(true);
+    const sync = (async () => {
+        let synced = false;
+        while (pendingLevel !== null) {
+            const level = pendingLevel;
+            pendingLevel = null;
+            synced = await postWebPushNotificationLevel(level);
+        }
+        return synced;
+    })();
+    const syncing = sync.finally(() => {
+        if (syncingLevel === syncing) syncingLevel = null;
+    });
+    syncingLevel = syncing;
+    return syncing.then((synced) =>
+        pendingLevel === null ? synced : drainWebPushNotificationLevel());
+}
+
+export function updateWebPushNotificationLevel(level: LifecycleNotificationLevel): Promise<boolean> {
+    pendingLevel = level;
+    return drainWebPushNotificationLevel();
+}
+
 /** Remove this browser's push subscription (logout, revoke, re-pair). Pass a
  * credential captured before its grant was removed when the caller already
  * forgot the pairing: without it the server-side DELETE is skipped and the
  * relay keeps a dead endpoint. */
 export async function unsubscribeWebPush(opts: { credential?: string } = {}): Promise<void> {
     if (!isWebPushSupported()) return;
+    if (syncingLevel !== null) await syncingLevel;
+    pendingLevel = null;
     try {
         const settings = getCachedConnectionSettings();
         const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;

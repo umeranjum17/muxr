@@ -15,6 +15,7 @@ import { registerNativePushNotifications, updateNativePushNotificationLevel } fr
 import {
     refreshPushState,
     requestPermissionAndSubscribe,
+    storeWebPushNotificationLevel,
     unsubscribeWebPush,
     updateWebPushNotificationLevel,
     type PushState,
@@ -53,6 +54,8 @@ export default function NotificationSettingsScreen() {
     const [level, setLevel] = useLocalSettingMutable('lifecycleNotificationLevel');
     const [browser, setBrowser] = React.useState<PushState>('unsupported');
     const [browserBusy, setBrowserBusy] = React.useState(false);
+    const [levelBusy, setLevelBusy] = React.useState(false);
+    const [error, setError] = React.useState<'browser' | 'level' | null>(null);
     const [allowed, setAllowed] = React.useState(true);
     const liveSupported = supportsPromotedNotifications();
     const [liveOn, setLiveOn] = React.useState(() => !liveSupported || canPostPromotedNotifications());
@@ -61,6 +64,7 @@ export default function NotificationSettingsScreen() {
     // system, so read them again whenever the person comes back from there.
     React.useEffect(() => {
         let live = true;
+        if (web) void storeWebPushNotificationLevel(level);
         const read = () => {
             if (web) {
                 void refreshPushState().then((state) => { if (live) setBrowser(state); });
@@ -77,19 +81,41 @@ export default function NotificationSettingsScreen() {
         };
     }, [liveSupported, web]);
 
-    const choose = (next: LifecycleNotificationLevel) => {
-        if (next === level) return;
-        setLevel(next);
-        void updateNativePushNotificationLevel(next);
-        void updateWebPushNotificationLevel(next);
+    const choose = async (next: LifecycleNotificationLevel) => {
+        if (next === level || levelBusy || browserBusy) return;
+        setLevelBusy(true);
+        setError(null);
+        const previous = level;
+        try {
+            if (web && !await storeWebPushNotificationLevel(next)) {
+                setError('level');
+                return;
+            }
+            setLevel(next);
+            const synced = web
+                ? (await refreshPushState()) !== 'subscribed' || await updateWebPushNotificationLevel(next)
+                : Platform.OS !== 'ios' || await updateNativePushNotificationLevel(next);
+            if (!synced) {
+                if (web) await storeWebPushNotificationLevel(previous);
+                setLevel(previous);
+                setError('level');
+            }
+        } finally {
+            setLevelBusy(false);
+        }
     };
 
     const setBrowserNotifications = async (on: boolean) => {
-        if (browserBusy) return;
+        if (browserBusy || levelBusy) return;
         setBrowserBusy(true);
+        setError(null);
         try {
-            if (on) await requestPermissionAndSubscribe();
-            else await unsubscribeWebPush();
+            if (on && !await requestPermissionAndSubscribe()) {
+                await unsubscribeWebPush();
+                setError('browser');
+            } else if (!on) {
+                await unsubscribeWebPush();
+            }
             setBrowser(await refreshPushState());
         } finally {
             setBrowserBusy(false);
@@ -116,7 +142,7 @@ export default function NotificationSettingsScreen() {
     return (
         <ItemList style={{ paddingTop: 0 }}>
             {web ? (
-                <ItemGroup footer={browser === 'denied'
+                <ItemGroup footer={error === 'browser' ? "Couldn't update — try again" : browser === 'denied'
                     ? 'Allow notifications for this site in the browser, then come back here.'
                     : 'Sound follows your browser and system settings.'}>
                     <Item
@@ -128,8 +154,8 @@ export default function NotificationSettingsScreen() {
                             <Switch
                                 accessibilityLabel="Browser notifications"
                                 value={browser === 'subscribed'}
-                                disabled={browser === 'denied' || browser === 'unsupported'}
-                                onValueChange={(on) => void setBrowserNotifications(on)}
+                                disabled={browser === 'denied' || browser === 'unsupported' || levelBusy}
+                                onValueChange={(on) => setBrowserNotifications(on)}
                             />
                         )}
                     />
@@ -145,20 +171,20 @@ export default function NotificationSettingsScreen() {
                 </ItemGroup>
             )}
 
-            <ItemGroup title="Alert me when" footer="Home still shows what happened while you were away.">
+            <ItemGroup title="Alert me when" footer={error === 'level' ? "Couldn't update — try again" : 'Home still shows what happened while you were away.'}>
                 <Item
                     title="An agent needs you"
                     subtitle="It asks for approval or stops with an error"
                     subtitleLines={2}
                     showChevron={false}
-                    rightElement={<Switch accessibilityLabel="An agent needs you" value={level !== 'off'} onValueChange={(on) => choose(on ? 'important' : 'off')} />}
+                    rightElement={<Switch accessibilityLabel="An agent needs you" value={level !== 'off'} disabled={levelBusy || browserBusy} onValueChange={(on) => choose(on ? 'important' : 'off')} />}
                 />
                 {level !== 'off' && (
                     <Item
                         title="An agent finishes"
                         subtitle="Its work is done"
                         showChevron={false}
-                        rightElement={<Switch accessibilityLabel="An agent finishes" value={level === 'all'} onValueChange={(on) => choose(on ? 'all' : 'important')} />}
+                        rightElement={<Switch accessibilityLabel="An agent finishes" value={level === 'all'} disabled={levelBusy || browserBusy} onValueChange={(on) => choose(on ? 'all' : 'important')} />}
                     />
                 )}
             </ItemGroup>

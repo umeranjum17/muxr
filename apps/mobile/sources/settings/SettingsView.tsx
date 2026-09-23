@@ -370,6 +370,7 @@ export const SettingsView = React.memo(function SettingsView({
                 <Item
                     title="Appearance"
                     subtitle={`${themePreferenceText} · Terminal ${terminalFontSize} pt`}
+                    subtitleLines={2}
                     icon={<Ionicons name="color-palette-outline" size={29} color="#5856D6" />}
                     onPress={openAppearance}
                 />
@@ -378,6 +379,7 @@ export const SettingsView = React.memo(function SettingsView({
                     subtitle={Platform.OS === 'web'
                         ? browserNotificationSummary(pushState, lifecycleNotificationLevel)
                         : phoneNotificationSummary(notificationsAllowed, lifecycleNotificationLevel)}
+                    subtitleLines={2}
                     icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
                     onPress={openNotifications}
                 />
