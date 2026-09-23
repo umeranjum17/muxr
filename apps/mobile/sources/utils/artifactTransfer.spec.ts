@@ -286,10 +286,9 @@ describe('progressive artifact download', () => {
             },
         };
         const clicks: Array<{ href: string; download: string }> = [];
-        let onClick: (() => void) | undefined;
         const document = {
             visibilityState: 'hidden',
-            createElement: () => ({ href: '', download: '', click() { clicks.push({ href: this.href, download: this.download }); onClick?.(); } }),
+            createElement: () => ({ href: '', download: '', click() { clicks.push({ href: this.href, download: this.download }); } }),
         };
         vi.stubGlobal('navigator', { storage: { getDirectory: async () => ({ getDirectoryHandle: async () => directory }) } });
         vi.stubGlobal('document', document);
@@ -324,27 +323,37 @@ describe('progressive artifact download', () => {
             document.visibilityState = 'visible';
             await reloaded.downloadArtifact('session-ready', artifact);
             expect(clicks).toEqual([{ href: 'blob:download', download: 'ready.apk' }]);
-            expect(files.size).toBe(0);
+            // The browser's download manager still needs the private bytes after click().
+            expect([...files.values()].some((file) => Buffer.from(file.bytes).equals(bytes))).toBe(true);
+            expect(await reloaded.readyToSave('session-ready', artifact)).toBe(false);
             expect(link.requests).toHaveLength(reads);
             expect(state.useArtifactTransfers.getState()[state.artifactTransferKey('session-ready', artifact)]).toMatchObject({ status: 'done' });
 
             const race = { ...artifact, name: 'race.apk' };
             const initialReads = link.requests.length;
-            const originalRemove = directory.removeEntry.bind(directory);
+            const originalGet = directory.getFileHandle.bind(directory);
             let release!: () => void;
             const held = new Promise<void>((resolve) => { release = resolve; });
-            directory.removeEntry = async (name: string) => { await held; await originalRemove(name); };
-            const clicked = new Promise<void>((resolve) => { onClick = resolve; });
+            let mark!: () => void;
+            const marking = new Promise<void>((resolve) => { mark = resolve; });
+            directory.getFileHandle = async (name, options) => {
+                if (name.endsWith('.sent') && options?.create) { mark(); await held; }
+                return originalGet(name, options);
+            };
             const first = reloaded.downloadArtifact('session-ready', race);
-            await clicked;
-            expect(files.size).toBe(1);
+            await marking;
             const second = reloaded.downloadArtifact('session-ready', race);
             release();
             await Promise.all([first, second]);
+            directory.getFileHandle = originalGet;
             expect(clicks.filter((click) => click.download === 'race.apk')).toHaveLength(1);
             expect(link.requests.length - initialReads).toBe(1);
+            expect([...files.values()].some((file) => Buffer.from(file.bytes).equals(bytes))).toBe(true);
+            expect(await reloaded.readyToSave('session-ready', race)).toBe(false);
+            vi.resetModules();
+            const swept = await import('./downloadArtifact.web');
+            await swept.sweepArtifactDownloads();
             expect(files.size).toBe(0);
-            onClick = undefined;
 
             vi.resetModules();
             vi.stubGlobal('navigator', { storage: { getDirectory: async () => { throw new Error('No private storage'); } } });

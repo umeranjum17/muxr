@@ -12,6 +12,7 @@ import { artifactDownloadKey } from '@/utils/artifactDownloadKey';
 
 const MEMORY_LIMIT = 64 * 1024 * 1024;
 const READY_SUFFIX = '.ready';
+const DELIVERED_SUFFIX = '.sent';
 
 function readyName(sessionId: string, artifact: DownloadableArtifact): string {
     return `${artifactDownloadKey(sessionId, artifact)}${READY_SUFFIX}`;
@@ -40,9 +41,16 @@ function downloadsDirectory(): Promise<FileSystemDirectoryHandle | undefined> {
 }
 
 async function sweepDirectory(directory: FileSystemDirectoryHandle, clear = false): Promise<void> {
+    const entries: Array<[string, FileSystemHandle]> = [];
+    for await (const entry of (directory as unknown as AsyncIterable<[string, FileSystemHandle]>)) entries.push(entry);
+    const delivered = new Set(entries.filter(([name]) => name.endsWith(DELIVERED_SUFFIX)).map(([name]) => name.slice(0, -DELIVERED_SUFFIX.length)));
     const files = [];
-    for await (const [name, handle] of (directory as unknown as AsyncIterable<[string, FileSystemHandle]>)) {
+    for (const [name, handle] of entries) {
         if (handle.kind !== 'file') continue;
+        if (name.endsWith(DELIVERED_SUFFIX) || delivered.has(name)) {
+            await directory.removeEntry(name);
+            continue;
+        }
         const file = await (handle as FileSystemFileHandle).getFile();
         const expected = Number(name.slice(name.lastIndexOf('-') + 1, name.endsWith(READY_SUFFIX) ? -READY_SUFFIX.length : undefined));
         if (!name.endsWith(READY_SUFFIX) && file.size === expected) await directory.removeEntry(name);
@@ -65,10 +73,16 @@ export async function sweepArtifactDownloads(): Promise<void> {
 export async function readyToSave(sessionId: string, artifact: DownloadableArtifact): Promise<boolean> {
     const directory = await downloadsDirectory();
     if (directory === undefined) return false;
+    const name = readyName(sessionId, artifact);
     try {
-        return (await (await directory.getFileHandle(readyName(sessionId, artifact))).getFile()).size === artifact.size;
-    } catch {
+        await directory.getFileHandle(`${name}${DELIVERED_SUFFIX}`);
         return false;
+    } catch {
+        try {
+            return (await (await directory.getFileHandle(name)).getFile()).size === artifact.size;
+        } catch {
+            return false;
+        }
     }
 }
 
@@ -160,10 +174,15 @@ async function open(uri: string, artifact: DownloadableArtifact, sessionId: stri
     const anchor = document.createElement('a');
     anchor.href = url;
     anchor.download = artifact.name;
-    anchor.click();
+    if (stored) await directory!.getFileHandle(`${uri}${DELIVERED_SUFFIX}`, { create: true });
+    try {
+        anchor.click();
+    } catch (error) {
+        if (stored) await directory!.removeEntry(`${uri}${DELIVERED_SUFFIX}`);
+        throw error;
+    }
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    if (stored) await directory!.removeEntry(uri);
-    else memoryReady.delete(artifactTransferKey(sessionId, artifact));
+    if (!stored) memoryReady.delete(artifactTransferKey(sessionId, artifact));
 }
 
 async function ready(artifact: DownloadableArtifact, sessionId: string): Promise<string | undefined> {
