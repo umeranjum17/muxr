@@ -18,8 +18,7 @@
 
 [**Get muxr**](https://trymuxr.com/docs/quickstart) · [Android APK](https://trymuxr.com/downloads/stable/android) · [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN) · [All downloads](https://trymuxr.com/downloads)
 
-<!-- Hero loop: swap in the launch loop (docs/demo/muxr-launch-loop.webp, under 3 MB) when it is ready. -->
-<img src="docs/demo/muxr-loop.webp" alt="The muxr herd, an agent's live terminal, and a prompt continuing on the computer" width="960" />
+<img src="docs/demo/muxr-launch-loop.webp" alt="A phone opens Computer and shows the laptop's screen live, where an agent is editing a page" width="960" />
 
 </div>
 

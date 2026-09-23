@@ -105,6 +105,9 @@ the terminal, so port 22 is the only inbound port the server needs.
 
    muxr starts a private screen on it when you open the desktop, and again after
    a reboot. If the packages are missing, the phone shows this command.
+   On a machine without a Wayland session, muxr uses its X display. To choose
+   yourself, set `MUXR_DESKTOP_SOURCE=x11` (optionally with
+   `MUXR_DESKTOP_X11_DISPLAY=:99`) or `MUXR_DESKTOP_SOURCE=portal`.
 3. Pair the Android app with **Connect over SSH** ([Direct SSH from Android](#direct-ssh-from-android)),
    open an agent, and tap **Computer**.
 
