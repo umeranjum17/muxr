@@ -20,6 +20,8 @@ const harness = vi.hoisted(() => ({
     machinesGate: null as null | Promise<void>,
     permissionPending: false,
     nativeShade: [] as string[],
+    nativeFinishedPosts: 0,
+    nativeFinishedUpdates: 0,
 }));
 
 vi.mock('expo-notifications', () => ({
@@ -69,9 +71,20 @@ vi.mock('@/utils/nativePushNotifications', () => ({ registerNativePushNotificati
 vi.mock('@/utils/microphonePermissions', () => ({
     requestNotificationPermission: () => harness.permissionPending ? new Promise<boolean>(() => undefined) : Promise.resolve(true),
 }));
-vi.mock('@/../modules/voice-overlay', () => ({
-    updateVoiceNotification: (herd: { mode: string }, _voice: string, _name: string, _muted: boolean, blocked: Array<{ name: string; focused: boolean }>) => {
-        harness.nativeShade = herd.mode === 'attention' ? blocked.filter((agent) => !agent.focused).map((agent) => `${agent.name} needs you`) : [];
+vi.mock('@/../modules/voice-overlay', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@/../modules/voice-overlay')>(),
+    updateVoiceNotification: (herd: { mode: string; name: string; eventKey: string }, _voice: string, _name: string, _muted: boolean, agents: Array<{ id: string; name: string; status: string; focused: boolean }>) => {
+        if (herd.mode === 'attention') {
+            harness.nativeShade = agents.filter((agent) => agent.status === 'blocked' && !agent.focused).map((agent) => `${agent.name} needs you`);
+        } else if (herd.mode === 'finished') {
+            harness.nativeFinishedUpdates += 1;
+            const completed = herd.eventKey.slice('finished:'.length).split(',');
+            const visible = agents.filter((agent) => completed.includes(encodeURIComponent(agent.id)) && !agent.focused);
+            harness.nativeShade = agents.length === 0 ? [`${herd.name} finished`] : visible.map((agent) => `${agent.name} finished`);
+            harness.nativeFinishedPosts += harness.nativeShade.length;
+        } else {
+            harness.nativeShade = [];
+        }
         return true;
     },
     clearVoiceNotification: () => undefined,
@@ -179,6 +192,8 @@ describe('agent lifecycle alerts on the phone', () => {
         harness.machinesGate = null;
         harness.permissionPending = false;
         harness.nativeShade = [];
+        harness.nativeFinishedPosts = 0;
+        harness.nativeFinishedUpdates = 0;
         harness.appState = 'active';
     });
 
@@ -269,6 +284,9 @@ describe('agent lifecycle alerts on the phone', () => {
         harness.catalog = { revision: 3, events: [resolved, failed, blocked] };
         await sync.refreshSessions();
         await settle();
+        expect(shade()).toEqual(['ram failed.']);
+        agentChanges('route-ram', 'ram', 'working');
+        await settle();
         expect(shade()).toEqual([]);
 
         let catalogRead!: () => void;
@@ -295,6 +313,7 @@ describe('agent lifecycle alerts on the phone', () => {
         harness.permissionPending = true;
         storage.setState({
             socketStatus: 'connected',
+            lifecycleCatalogAvailable: false,
             herdrWorkspaces: [{
                 workspaceId: 'workspace-a', label: 'Work', focused: true, agentStatus: 'blocked',
                 tabs: [{ tabId: 'tab-a', focused: true, agentStatus: 'blocked', panes: [{
@@ -306,6 +325,7 @@ describe('agent lifecycle alerts on the phone', () => {
                 ...storage.getState().localSettings,
                 backgroundConnectionPrompted: true,
                 promotedNotificationsPrompted: true,
+                lifecycleNotificationLevel: 'all',
             },
         });
         harness.nativeShade = ['lamb needs you'];
@@ -317,6 +337,17 @@ describe('agent lifecycle alerts on the phone', () => {
         expect(harness.nativeShade).toEqual([]);
         await act(async () => { leave(); });
         expect(harness.nativeShade).toEqual(['lamb needs you']);
-        await act(async () => { screen.unmount(); });
+        await act(async () => { leave = agentOnScreen('route-lamb'); });
+        harness.permissionPending = false;
+        await act(async () => {
+            const [workspace] = storage.getState().herdrWorkspaces;
+            storage.getState().applyHerdrTree([{ ...workspace, agentStatus: 'done', tabs: workspace.tabs.map((tab) => ({
+                ...tab, agentStatus: 'done', panes: tab.panes.map((pane) => ({ ...pane, agentStatus: 'done' })),
+            })) }]);
+        });
+        expect(harness.nativeFinishedUpdates).toBeGreaterThan(0);
+        expect(harness.nativeShade).toEqual([]);
+        expect(harness.nativeFinishedPosts).toBe(0);
+        await act(async () => { leave(); screen.unmount(); });
     });
 });

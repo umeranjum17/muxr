@@ -36,7 +36,7 @@ interface VoiceNative {
         voiceState: VoiceState,
         voiceName: string,
         muted: boolean,
-        blockedAgents: Array<{ id: string; name: string; focused: boolean }>,
+        agents: Array<{ id: string; name: string; status: string; focused: boolean }>,
     ) => boolean;
     supportsPromotedNotifications: () => boolean;
     canPostPromotedNotifications: () => boolean;
@@ -160,7 +160,7 @@ export function updateVoiceNotification(
     voiceState: VoiceState,
     voiceName: string,
     muted = false,
-    blockedAgents: Array<{ id: string; name: string; focused: boolean }> = [],
+    agents: Array<{ id: string; name: string; status: string; focused: boolean }> = [],
 ): boolean {
     return native?.updateNotification(
         herd.mode,
@@ -170,7 +170,7 @@ export function updateVoiceNotification(
         voiceState,
         voiceName,
         muted,
-        blockedAgents,
+        agents,
     ) ?? false;
 }
 

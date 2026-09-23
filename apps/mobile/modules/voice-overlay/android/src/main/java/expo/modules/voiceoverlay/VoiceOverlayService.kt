@@ -103,39 +103,61 @@ class VoiceOverlayService : Service() {
       state: String,
       activeVoiceName: String,
       muted: Boolean,
-      blockedAgents: List<Map<String, Any?>>,
+      agents: List<Map<String, Any?>>,
     ): Boolean {
       val appContext = context.applicationContext
       mainHandler.post {
-        val focusedRoute = blockedAgents.firstOrNull { it["focused"] == true }?.get("id") as? String
+        val focusedRoute = agents.firstOrNull { it["focused"] == true }?.get("id") as? String
         val focusChanged = focusedRoute != lastFocusedRoute
         lastFocusedRoute = focusedRoute
-        val remaining = if (mode == "attention" && focusedRoute != null) {
-          blockedAgents.filter { it["id"] != focusedRoute }
-        } else blockedAgents
-        val suppressFocused = mode == "attention" && remaining.size < blockedAgents.size
-        herdMode = if (suppressFocused && remaining.isEmpty()) "working" else mode
-        herdCount = if (suppressFocused) remaining.size else count.coerceAtLeast(0)
-        herdNames = (if (suppressFocused) remaining.joinToString(", ") { it["name"] as? String ?: "" } else names)
+        val visible = agents.filter { it["id"] != focusedRoute }
+        val blocked = visible.filter { it["status"] == "blocked" }
+        val working = visible.filter { it["status"] == "working" || it["status"] == "starting" }
+        val finishedIds = if (mode == "finished") eventKey.removePrefix("finished:").split(",")
+          .filter(String::isNotBlank).map(Uri::decode).toSet() else emptySet()
+        val finished = visible.filter { pane -> finishedIds.any { it == pane["id"] } }
+        val focusedInEvent = focusedRoute != null && eventKey.substringAfter(':').split(',')
+          .any { it.isNotBlank() && Uri.decode(it) == focusedRoute }
+        val suppressFocused = when (mode) {
+          "attention" -> focusedInEvent || agents.any { it["id"] == focusedRoute && it["status"] == "blocked" }
+          "working" -> focusedInEvent || agents.any { it["id"] == focusedRoute && (it["status"] == "working" || it["status"] == "starting") }
+          "finished" -> focusedRoute != null && focusedRoute in finishedIds
+          else -> false
+        }
+        val shown = when (mode) {
+          "attention" -> blocked.ifEmpty { working }
+          "working" -> working
+          "finished" -> finished.ifEmpty { working }
+          else -> emptyList()
+        }
+        herdMode = if (!suppressFocused) mode else when {
+          shown.isEmpty() -> if (mode == "finished") "idle" else "working"
+          mode == "finished" && finished.isNotEmpty() -> "finished"
+          mode == "attention" && blocked.isNotEmpty() -> "attention"
+          else -> "working"
+        }
+        herdCount = if (suppressFocused) shown.size else count.coerceAtLeast(0)
+        herdNames = (if (suppressFocused) shown.joinToString(", ") { it["name"] as? String ?: "" } else names)
           .trim().replace(Regex("\\s+"), " ").take(160)
-        herdName = (if (suppressFocused) remaining.firstOrNull()?.get("name") as? String else herdNames.substringBefore(','))
+        herdName = (if (suppressFocused) shown.firstOrNull()?.get("name") as? String else herdNames.substringBefore(','))
           .orEmpty().trim().take(80)
-        herdEventKey = (if (suppressFocused && eventKey.startsWith("attention:")) {
-          "attention:" + eventKey.removePrefix("attention:").split(",")
+        herdEventKey = (if (!suppressFocused) eventKey else when (herdMode) {
+          "attention", "finished" -> herdMode + ":" + eventKey.substringAfter(':').split(",")
             .filter { it.isNotBlank() && Uri.decode(it) != focusedRoute }.joinToString(",")
-        } else eventKey).trim().take(200)
-        val newEventAlert = when (herdMode) {
+          else -> "working:" + shown.joinToString(",") { it["id"].toString() }
+        }).trim().take(200)
+        val newEventAlert = when (mode) {
           "attention" -> {
-            val current = herdEventKey.removePrefix("attention:").split(",").filter(String::isNotBlank).toSet()
-            val alert = current.any { it !in lastAttentionKeys }
+            val current = eventKey.removePrefix("attention:").split(",").filter(String::isNotBlank).toSet()
+            val alert = current.any { it !in lastAttentionKeys && Uri.decode(it) != focusedRoute }
             lastAttentionKeys = current
             lastFinishedKey = ""
             alert
           }
           "finished" -> {
             lastAttentionKeys = emptySet()
-            val alert = herdEventKey.isNotBlank() && herdEventKey != lastFinishedKey
-            lastFinishedKey = herdEventKey
+            val alert = eventKey.isNotBlank() && eventKey != lastFinishedKey && (!suppressFocused || finished.isNotEmpty())
+            lastFinishedKey = eventKey
             alert
           }
           else -> {
@@ -144,7 +166,9 @@ class VoiceOverlayService : Service() {
             false
           }
         }
-        pendingEventAlert = if (herdMode == "attention" || herdMode == "finished") pendingEventAlert || newEventAlert else false
+        pendingEventAlert = if (herdMode == "attention" || herdMode == "finished") {
+          (if (focusChanged) false else pendingEventAlert) || newEventAlert
+        } else false
         voiceState = state
         voiceName = activeVoiceName.trim().take(80)
         voiceMuted = muted

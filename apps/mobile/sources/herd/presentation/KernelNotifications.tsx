@@ -70,9 +70,10 @@ export function KernelNotifications() {
         voiceState,
         voiceName,
         muted,
-        blocked: panes.filter((pane) => pane.agentStatus === 'blocked').map((pane) => ({
+        agents: panes.map((pane) => ({
             id: pane.id,
             name: pane.agentName ?? 'Unnamed agent',
+            status: pane.agentStatus,
         })),
     };
     const native = React.useRef({ current: notification, connected: notification, authenticated: isAuthenticated, focus: undefined as string | null | undefined });
@@ -80,11 +81,13 @@ export function KernelNotifications() {
     native.current.authenticated = isAuthenticated;
     if (status === 'connected') native.current.connected = notification;
     const sendNative = React.useCallback((focus: string | null, retain = false) => {
-        const { herd: state, voiceState: voice, voiceName: name, muted: isMuted, blocked } = retain
+        const { herd: state, voiceState: voice, voiceName: name, muted: isMuted, agents } = retain
             ? native.current.connected : native.current.current;
-        updateVoiceNotification(state, voice, name, isMuted, blocked.map((pane) => ({
-            ...pane, focused: pane.id === focus,
-        })));
+        const visibleAgents = agents.map((pane) => ({ ...pane, focused: pane.id === focus }));
+        if (focus !== null && !visibleAgents.some((pane) => pane.focused)) {
+            visibleAgents.push({ id: focus, name: '', status: 'unknown', focused: true });
+        }
+        updateVoiceNotification(state, voice, name, isMuted, visibleAgents);
     }, []);
 
     React.useEffect(() => {
@@ -128,7 +131,7 @@ export function KernelNotifications() {
     }, [appActive, focusedRoute, herdActive, isAuthenticated, lifecycleNotificationLevel, muted, nativeHerd, panes, presentation, sendNative, status, voiceName, voiceState]);
 
     React.useEffect(() => {
-        if (!isAuthenticated || !herdActive) return;
+        if (!isAuthenticated) return;
         const previous = native.current.focus;
         if (previous === focusedRoute) return;
         native.current.focus = focusedRoute;
