@@ -102,7 +102,7 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 
 **Also on your phone:**
 
-- **New agents and worktrees** — open the home composer to choose the machine, repository, worktree, and one of 20+ agent CLIs. The resting dock hides Send until there's a draft or a submission in progress.
+- **New agents and worktrees** — open the home composer to choose the machine, repository, worktree, and one of 20+ agent CLIs. The resting dock hides Send until there's a draft or a submission in progress. On a short phone, scroll the open composer to reach its options and Start when the keyboard is visible.
 - **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone.
 - **Usage** — see each plan window's percent left, reset time, and pace when known; Home highlights the tightest window alongside machine health.
 - **Desktop control (Linux)** — open **Computer** from a controllable agent session to see and drive that machine's desktop. The phone must reach it directly over the same network or tailnet; the signaling relay does not carry video. Android and web have clients; iOS does not. The CLI installs the desktop engine as a dependency, prebuilt for Linux x64 (glibc 2.36 or newer); portal-based control requires a one-time [kernel input grant](packages/desktop-host/README.md#kernel-input-access). [Host setup](packages/desktop-host/README.md) · [Client](packages/desktop-client/README.md)
