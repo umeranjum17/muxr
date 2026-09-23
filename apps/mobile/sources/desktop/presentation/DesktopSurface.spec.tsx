@@ -10,6 +10,7 @@ let keyboardVisible = false;
 let screenWidth = 270;
 let screenHeight = 594;
 let authorize: () => Promise<unknown>;
+let reportKeyboardMotion: (motion: { covered: number; phase: number }) => void;
 const session = {
     snapshot: { status: 'live', failure: null, diagnostics: {}, presented: true },
     nativeId: 'surface',
@@ -38,7 +39,7 @@ vi.mock('react-native-reanimated', () => {
         FadeOut: fade,
         ReduceMotion: { System: 'system' },
         useAnimatedStyle: (style: () => unknown) => style(),
-        useSharedValue: (initial: number) => ({ value: initial }),
+        useSharedValue: (initial: number) => React.useRef({ value: initial }).current,
         withTiming: (value: number) => value,
     };
 });
@@ -56,7 +57,11 @@ vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Icon', MaterialCommunityIcons:
 vi.mock('expo-clipboard', () => ({ getStringAsync: async () => '', setStringAsync: async () => undefined }));
 vi.mock('@desklink/react-native', () => ({
     DesktopView: 'DesktopView',
-    observeWebKeyboardMotion: () => () => undefined,
+    observeWebKeyboardMotion: (subscriber: typeof reportKeyboardMotion) => {
+        reportKeyboardMotion = subscriber;
+        subscriber({ covered: 0, phase: 0 });
+        return () => undefined;
+    },
     useDesktopSession: (options: { authorize: () => Promise<unknown> }) => {
         authorize = options.authorize;
         return session;
@@ -82,7 +87,7 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     vi.useFakeTimers();
     let view!: ReturnType<typeof TestRenderer.create>;
     type Rendered = {
-        props: { onPress(): void; style: unknown; keyboardClearance: number };
+        props: { onPress(): void; style: unknown; keyboardClearance: number; pointerEvents?: string };
         children: (Rendered | string)[];
         parent: Rendered;
         findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string }): Rendered[];
@@ -130,11 +135,27 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     available = true;
     const exit = vi.fn();
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={exit} />); });
-    // A hardware keyboard leaves the visual viewport unchanged, but its extra keys must be visible and clear the controls.
+    // Opening must not jump before a phone keyboard starts covering the viewport.
     await TestRenderer.act(async () => root().findByProps({ accessibilityLabel: 'Keyboard' }).props.onPress());
-    const keyRow = root().findByType('DesktopKeyRow').parent;
-    expect(style(keyRow.props.style).opacity).toBe(1);
-    expect(style(root().findByProps({ accessibilityLabel: 'Hide keyboard' }).parent.props.style).transform[0].translateY).toBeLessThan(0);
+    const rowOpacity = () => style(root().findByType('DesktopKeyRow').parent.props.style).opacity;
+    const controlsY = () => style(root().findByProps({ accessibilityLabel: 'Hide keyboard' }).parent.props.style).transform[0].translateY;
+    expect(rowOpacity()).toBe(0);
+    expect(root().findByType('DesktopKeyRow').parent.props.pointerEvents).toBe('none');
+    expect(controlsY()).toBe(0);
+    TestRenderer.act(() => { vi.advanceTimersByTime(90); reportKeyboardMotion({ covered: 30, phase: 0.25 }); });
+    expect(rowOpacity()).toBe(0.25);
+    expect(root().findByType('DesktopKeyRow').parent.props.pointerEvents).toBe('auto');
+    TestRenderer.act(() => vi.advanceTimersByTime(180));
+    expect(rowOpacity()).toBe(0.25);
+    // A hardware keyboard leaves the viewport unchanged; after quiet, its keys become usable.
+    TestRenderer.act(() => reportKeyboardMotion({ covered: 0, phase: 0 }));
+    expect(rowOpacity()).toBe(0);
+    TestRenderer.act(() => vi.advanceTimersByTime(179));
+    expect(rowOpacity()).toBe(0);
+    TestRenderer.act(() => vi.advanceTimersByTime(1));
+    expect(rowOpacity()).toBe(1);
+    expect(root().findByType('DesktopKeyRow').parent.props.pointerEvents).toBe('auto');
+    expect(controlsY()).toBeLessThan(0);
     await TestRenderer.act(async () => root().findByProps({ accessibilityLabel: 'Hide keyboard' }).props.onPress());
     expect(root().findAllByType('DesktopKeyRow')).toHaveLength(0);
     session.hideKeyboard.mockClear();

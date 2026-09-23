@@ -256,8 +256,15 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     // height already covers the home indicator, so the inset that lifts them
     // at rest is let go as the keyboard comes up.
     const { height: keyboardOffset, progress: keyboardShown } = motion;
-    // A hardware keyboard can focus the desktop without covering the visual viewport.
-    const noOverlapKeys = web && !motion.visible && (keyboardOpen || keyboard.isVisible);
+    const [noOverlapReady, setNoOverlapReady] = React.useState(false);
+    React.useEffect(() => {
+        setNoOverlapReady(false);
+        if (!web || motion.visible || !(keyboardOpen || keyboard.isVisible)) return;
+        // Wait for the phone's viewport to move before treating focus as a hardware keyboard.
+        const timer = setTimeout(() => setNoOverlapReady(true), 180);
+        return () => clearTimeout(timer);
+    }, [web, motion.visible, keyboardOpen, keyboard.isVisible]);
+    const noOverlapKeys = web && !motion.visible && (keyboardOpen || keyboard.isVisible) && noOverlapReady;
     const bottomInset = insets.bottom;
     const keyRowMotion = useAnimatedStyle(() => {
         const shown = noOverlapKeys ? 1 : keyboardShown.value;
@@ -410,7 +417,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                 {keyRowShown && (
                     // Untouchable until the keyboard has brought it up: a row
                     // still waiting at the bottom would take the desktop's taps.
-                    <Animated.View pointerEvents={web || keyboard.isVisible ? 'auto' : 'none'} style={[styles.keyRow, { bottom: bottomInset, paddingHorizontal: compact ? EDGE + BUTTON + 4 : 0 }, keyRowMotion]}>
+                    <Animated.View pointerEvents={web ? (motion.visible || noOverlapKeys ? 'auto' : 'none') : (keyboard.isVisible ? 'auto' : 'none')} style={[styles.keyRow, { bottom: bottomInset, paddingHorizontal: compact ? EDGE + BUTTON + 4 : 0 }, keyRowMotion]}>
                         <DesktopKeyRow session={session} />
                     </Animated.View>
                 )}
