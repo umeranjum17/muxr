@@ -38,6 +38,7 @@ import {
     channelRelayUrl,
     establishSshTunnel,
     parseSshFields,
+    sshRelayUrl,
     tunnelPairingUrl,
 } from './sshTunnel';
 import {
@@ -80,13 +81,24 @@ describe('SSH route applied after pairing', () => {    it('saves the credential 
     it('routes a paired machine’s side channels through SSH without changing another machine’s relay', async () => {
         await pairAs(true, 'm3');
         await applySshAfterPairing(FIELDS);
-        secrets.getNativeSecret.mockResolvedValueOnce(JSON.stringify({ password: 'hunter2' }));
-        tunnel.openSshTunnel.mockResolvedValueOnce({ localPort: 49123, hostKey: 'SHA256:abc' });
-
-        expect(await channelRelayUrl('wss://public.example:8792/relay', 'm3')).toBe('ws://127.0.0.1:49123/relay');
+        secrets.getNativeSecret.mockResolvedValue(JSON.stringify({ password: 'hunter2' }));
+        let finishOpen!: (handle: { localPort: number; hostKey: string }) => void;
+        tunnel.openSshTunnel.mockImplementationOnce(() => new Promise((resolve) => { finishOpen = resolve; }));
+        const before = tunnel.openSshTunnel.mock.calls.length;
+        const sync = sshRelayUrl('wss://public.example:8792/sync', 'm3', getCachedConnectionSettings().ssh!);
+        const voice = channelRelayUrl('wss://public.example:8792/stream', 'm3');
+        await vi.waitFor(() => expect(tunnel.openSshTunnel.mock.calls.length).toBeGreaterThan(before));
+        expect(tunnel.openSshTunnel).toHaveBeenCalledTimes(before + 1);
+        finishOpen({ localPort: 49123, hostKey: 'SHA256:abc' });
+        expect(await Promise.all([sync, voice])).toEqual([
+            'ws://127.0.0.1:49123/sync', 'ws://127.0.0.1:49123/stream',
+        ]);
         expect(tunnel.openSshTunnel).toHaveBeenLastCalledWith(expect.objectContaining({
             host: 'box.lan', remoteHost: '127.0.0.1', remotePort: 8792,
         }));
+        tunnel.openSshTunnel.mockResolvedValueOnce({ localPort: 49123, hostKey: 'SHA256:abc' });
+        expect(await channelRelayUrl('wss://public.example:8792/relay', 'm3')).toBe('ws://127.0.0.1:49123/relay');
+        expect(tunnel.openSshTunnel).toHaveBeenCalledTimes(before + 2);
         expect(await channelRelayUrl('wss://public.example:8792/relay', 'other')).toBe('wss://public.example:8792/relay');
     });
 
