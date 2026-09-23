@@ -24,8 +24,8 @@ const AGE_WORTH_MENTIONING_SECONDS = 600;
  * The top of Home as figures: each connected plan's mark beside its readable
  * limits, with same-length limits grouped by their tightest share, then one
  * quieter vitals line. The section label is the title and carries the refresh
- * control; the whole card opens Usage. The host's typed usage.now method
- * serves it directly, without a plugin.
+ * control; a tap opens Usage, while a long press reveals full limit names until
+ * the next tap. The host's typed usage.now method serves it without a plugin.
  */
 export function RightNowCard() {
     const { theme } = useUnistyles();
