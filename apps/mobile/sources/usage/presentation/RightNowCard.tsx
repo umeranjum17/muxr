@@ -236,22 +236,30 @@ function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: 
 }
 
 function figureTags(figures: LimitFigure[]): string[] {
-    const names = figures.map(({ name }) => name.length <= 6 ? name : `${name.slice(0, 5)}…`);
-    const used = new Set<string>();
-    return names.map((tag, index) => {
-        if (names.indexOf(tag) === names.lastIndexOf(tag) && !used.has(tag)) {
-            used.add(tag);
-            return tag;
-        }
-        let suffix = 1;
-        let distinct: string;
-        do {
-            const ending = `…${suffix++}`;
-            distinct = `${figures[index]!.name.slice(0, Math.max(0, 6 - ending.length))}${ending}`;
-        } while (used.has(distinct) || names.includes(distinct));
-        used.add(distinct);
-        return distinct;
+    const names = figures.map(({ name }) => name.replace(/\s*·\s*Limit$/i, ''));
+    const bound = (name: string) => name.length <= 6 ? name : `${name.slice(0, 5)}…`;
+    const base = names.map(bound);
+    const tags = base.map((tag, index) => {
+        const colliding = names.filter((_, other) => base[other] === tag);
+        if (colliding.length === 1) return tag;
+        let prefix = colliding[0]!;
+        for (const name of colliding) while (!name.startsWith(prefix)) prefix = prefix.slice(0, -1);
+        return bound(names[index]!.slice(prefix.length).replace(/^[\s·._-]+/, '') || names[index]!);
     });
+    const used = new Set<string>();
+    for (const { index } of figures.map(({ name }, index) => ({ name, index })).sort((a, b) => a.name.localeCompare(b.name))) {
+        let tag = tags[index]!;
+        if (tags.filter((value) => value === tag).length > 1 || used.has(tag)) {
+            let suffix = 1;
+            do {
+                const ending = `…${suffix++}`;
+                tag = `${names[index]!.slice(0, Math.max(0, 6 - ending.length))}${ending}`;
+            } while (used.has(tag) || tags.includes(tag));
+            tags[index] = tag;
+        }
+        used.add(tag);
+    }
+    return tags;
 }
 
 function figureColor(theme: ReturnType<typeof useUnistyles>['theme'], cell: LimitCell): string {

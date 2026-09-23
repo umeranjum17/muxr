@@ -900,24 +900,37 @@ describe('the usage screen read path', () => {
         const longName = `${'model-'.repeat(12)}session`;
         const otherName = `${'model-'.repeat(12)}weekly`;
         screenWidth = 270;
-        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, {
+        const namedNow: UsageNow = {
             ...now,
             connected: now.connected!.map((provider) => provider.id === 'codex'
                 ? { ...provider, windows: [...provider.windows,
                     { label: 'gpt-4', used: 17 }, { label: 'gpt-5', used: 23 },
+                    { label: 'gpt-4-turbo', used: 52 }, { label: 'gpt-4-vision', used: 71 },
+                    { label: 'GPT-5.3-Codex-Spark · Limit', used: 65 }, { label: 'GPT-5.3-Codex-Mini · Limit', used: 76 },
                     { label: longName, used: 31 }, { label: otherName, used: 42 },
                 ] }
                 : provider),
-        }) }); });
+        };
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, namedNow) }); });
         expect(planWidths()).toEqual(['50%', '50%', '50%']);
-        const codexTags = card.root.findAllByType('AgentGlyph')[1]!.parent.parent.findAllByType('Text')
-            .map((node: any) => node.props.children)
-            .filter((text: unknown) => typeof text === 'string' && !String(text).endsWith('%'));
+        const codexText = () => card.root.findAllByType('AgentGlyph')[1]!.parent.parent.findAllByType('Text')
+            .map((node: any) => node.props.children) as string[];
+        const codexTags = codexText().filter((text) => !text.endsWith('%'));
         expect(codexTags).toContain('gpt-4');
         expect(codexTags).toContain('gpt-5');
         expect(screenText(card)).toContain('Month…');
         expect(new Set(codexTags).size).toBe(codexTags.length);
-        expect(codexTags.every((tag: string) => tag.length <= 6)).toBe(true);
+        expect(codexTags.every((tag) => tag.length <= 6)).toBe(true);
+        const namedShares = () => Object.fromEntries(codexText().filter((_, index) => index % 2 === 1)
+            .map((tag, index) => [tag, codexText()[index * 2]]));
+        expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 2, figures: withNow(undefined, {
+            ...namedNow,
+            connected: namedNow.connected!.map((provider) => provider.id === 'codex'
+                ? { ...provider, windows: [...provider.windows].reverse() }
+                : provider),
+        }) }); });
+        expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
         expect(figures()).toContainEqual(['83%', '#fff']);
         expect(screenText(card)).not.toContain(longName);
         const cardButton = () => card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
@@ -925,6 +938,8 @@ describe('the usage screen read path', () => {
         const updatedLabel: string = cardButton().props.accessibilityLabel;
         expect(updatedLabel).toContain('gpt-4');
         expect(updatedLabel).toContain('gpt-5');
+        expect(updatedLabel).toContain('gpt-4-turbo');
+        expect(updatedLabel).toContain('GPT-5.3-Codex-Spark · Limit');
         expect(updatedLabel).toContain(longName);
         expect(updatedLabel).toContain(otherName);
         TestRenderer.act(() => { cardButton().props.onLongPress(); });
