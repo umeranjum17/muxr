@@ -1074,7 +1074,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const contextTitle = labels.taskTitle;
-    const identityKnown = currentPane !== undefined || treeLoaded;
+    const identityKnown = currentPane !== undefined;
     const headerLifecycle = terminalPaneStatus(currentPane);
     const headerLifecycleLabel = headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
     return (
@@ -1239,9 +1239,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
                         <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
-                            {/* Until the tree arrives there is no pane to name, and the
-                                labels' fallback would announce a shell for a moment
-                                before the agent's own name replaced it. */}
                             {identityKnown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
                             {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '500', opacity: 0.88 }}>{contextTitle}</Text>}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
