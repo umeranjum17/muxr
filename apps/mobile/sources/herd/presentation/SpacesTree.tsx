@@ -16,7 +16,7 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceNames, workspacePath, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceCloseMessage, workspaceName, workspaceNames, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
 import { agentIdentityLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -112,6 +112,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     cardTitleCompact: {
         fontSize: 14,
+    },
+    nameSuffix: {
+        color: theme.colors.textSecondary,
+        fontWeight: '400',
     },
     branchPill: {
         backgroundColor: theme.colors.surface,
@@ -591,6 +595,8 @@ const ChildRow = React.memo(({
     const singleAgent = agentPanes.length === 1 ? agentPanes[0] : undefined;
     const singleSessionId = singleAgent?.sessionId;
     const label = name;
+    const baseName = workspaceName(child.workspace);
+    const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
     const parts = childLine2Parts(child);
     const line2 = parts.join(' · ');
     const onPress = singleSessionId !== undefined
@@ -625,7 +631,9 @@ const ChildRow = React.memo(({
                 >
                     <StatusDot color={dot.color} isPulsing={dot.pulsing} size={DOT} />
                     <View style={styles.childText}>
-                        <Text numberOfLines={1} style={[styles.childLabel, quiet && styles.childLabelQuiet]}>{label}</Text>
+                        <Text numberOfLines={1} style={[styles.childLabel, quiet && styles.childLabelQuiet]}>
+                            {suffix === undefined ? label : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>}
+                        </Text>
                         <Text numberOfLines={1} style={styles.childLine2}>{line2}</Text>
                     </View>
                 </Pressable>
@@ -696,6 +704,8 @@ const WorkspaceCard = React.memo(({
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const dot = agentStatusColor(workspace.agentStatus, theme);
+    const baseName = workspaceName(workspace);
+    const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
     const branch = workspace.worktree?.branch;
     const paneCount = workspace.tabs.reduce((count, tab) => count + tab.panes.length, 0);
     const countLabel = agentCount > 0
@@ -745,7 +755,7 @@ const WorkspaceCard = React.memo(({
                     </View>
                     <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
                     <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
-                        {name}
+                        {suffix === undefined ? name : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>}
                     </Text>
                     {branch !== undefined && (
                         <View style={styles.branchPill}>
@@ -840,8 +850,7 @@ export const SpacesTree = React.memo(({
     const names = React.useMemo(() => workspaceNames(workspaces), [workspaces]);
     const confirmCloseWorkspace = React.useCallback((workspace: HerdrTreeWorkspace) => {
         const name = names.get(workspace.workspaceId)!;
-        const location = workspacePath(workspace) ?? 'this host';
-        Modal.alert('Close workspace?', `Closes only the "${name}" workspace (${location}) in herdr. If that would close its worktree group, nothing closes.`, [
+        Modal.alert('Close workspace?', workspaceCloseMessage(workspace, name), [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Close',

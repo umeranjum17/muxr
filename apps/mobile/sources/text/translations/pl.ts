@@ -334,6 +334,9 @@ export const pl: TranslationStructure = {
         // Spaces section on Home
         title: 'Przestrzenie',
         empty: 'Brak otwartych przestrzeni',
+        rootFolder: 'Folder główny',
+        homeFolder: 'Folder domowy',
+        untitledWorkspace: 'Przestrzeń robocza bez nazwy',
         groupCount: ({ count, kind }: { count: number; kind?: string }) => {
             if (kind === 'task') return `${count} ${plural({ count, one: 'zadanie', few: 'zadania', many: 'zadań' })}`;
             return kind === undefined

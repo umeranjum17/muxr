@@ -1,7 +1,7 @@
 import { herdPanes } from './herd';
 import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it, vi } from 'vitest';
-import { buildSpaceRows, defaultExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceName, workspaceNames, workspacePath } from './herdTree';
+import { buildSpaceRows, defaultExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceCloseMessage, workspaceName, workspaceNames, workspacePath } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
 
@@ -207,11 +207,24 @@ describe('visible herd tree flow', () => {
             { ...ws('d', undefined, []), order: 4 },
             ws('e', 'Fix login · issue:ABCDEF1234567890', []),
         ];
-        const names = workspaceNames(workspaces);
-        expect([...names.values()]).toEqual(['client/app', 'umer/app', 'Untitled workspace 1', 'Untitled workspace 2', 'Fix login · issue:ABCDEF1234567890']);
+        expect([...workspaceNames(workspaces).values()]).toEqual([
+            'app · client', 'app · umer', 'Untitled workspace 1', 'Untitled workspace 2', 'Fix login · issue:ABCDEF1234567890',
+        ]);
+        const crowded = [...workspaces, ws('f', 'app · client', []), ws('g', 'Untitled workspace 1', [])];
+        const names = workspaceNames(crowded);
+        expect([...names.values()]).toEqual([
+            'app · srv/client', 'app · umer', 'Untitled workspace 2', 'Untitled workspace 3',
+            'Fix login · issue:ABCDEF1234567890', 'app · client', 'Untitled workspace 1',
+        ]);
+        expect(new Set(names.values()).size).toBe(crowded.length);
         expect(workspacePath(workspaces[0]!)).toBe('/srv/client/app');
-        expect(buildSpaceRows(workspaces, new Set(), '/srv/client/app').map((row) => row.workspace.workspaceId)).toEqual(['a']);
-        expect(buildSpaceRows(workspaces, new Set(), 'issue:ABCDEF1234567890').map((row) => row.workspace.workspaceId)).toEqual(['e']);
+        expect(buildSpaceRows(crowded, new Set(), '/srv/client/app').map((row) => row.workspace.workspaceId)).toEqual(['a']);
+        expect(buildSpaceRows(crowded, new Set(), 'issue:ABCDEF1234567890').map((row) => row.workspace.workspaceId)).toEqual(['e']);
+        expect(workspaceCloseMessage(workspaces[0]!, names.get('a')!)).toContain('"app · srv/client" workspace (/srv/client/app)');
+        const review = ws('review', 'review', [tab('t', undefined, [pane('p', 'pi', { cwd: '/tmp' })])]);
+        expect(workspaceCloseMessage(review, 'review')).toContain('"review" workspace (this host)');
+        expect(workspaceCloseMessage({ ...review, worktree: { repo: 'app', path: '/srv/client/app' } }, 'review'))
+            .toContain('"review" workspace (/srv/client/app)');
         expect(middleTruncate('short')).toBe('short');
         expect(middleTruncate('abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz', 20)).toBe('abcdefghi…rstuvwxyz');
     });

@@ -316,6 +316,9 @@ export const it: TranslationStructure = {
         // Spaces section on Home
         title: 'Spazi',
         empty: 'Nessuno spazio aperto',
+        rootFolder: 'Cartella radice',
+        homeFolder: 'Cartella Home',
+        untitledWorkspace: 'Spazio di lavoro senza nome',
         groupCount: ({ count, kind }: { count: number; kind?: string }) => {
             if (kind === 'task') return `${count} attività`;
             return kind === undefined

@@ -318,6 +318,9 @@ export const zhHant: TranslationStructure = {
         // Spaces section on Home
         title: '空間',
         empty: '沒有開啟的空間',
+        rootFolder: '根資料夾',
+        homeFolder: '主資料夾',
+        untitledWorkspace: '未命名工作區',
         groupCount: ({ count, kind }: { count: number; kind?: string }) => {
             if (kind === 'task') return `${count} 個任務`;
             return kind === undefined

@@ -329,6 +329,9 @@ export const en = {
         // Spaces section on Home
         title: 'Spaces',
         empty: 'No spaces open',
+        rootFolder: 'Root folder',
+        homeFolder: 'Home folder',
+        untitledWorkspace: 'Untitled workspace',
         // Group subheader: child workspaces folded inside a parent card
         groupCount: ({ count, kind }: { count: number; kind?: string }) => {
             if (kind === 'task') return `${count} ${plural({ count, singular: 'task', plural: 'tasks' })}`;

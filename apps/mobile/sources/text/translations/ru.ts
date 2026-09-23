@@ -304,6 +304,9 @@ export const ru: TranslationStructure = {
         // Spaces section on Home
         title: 'Пространства',
         empty: 'Нет открытых пространств',
+        rootFolder: 'Корневая папка',
+        homeFolder: 'Домашняя папка',
+        untitledWorkspace: 'Рабочее пространство без имени',
         groupCount: ({ count, kind }: { count: number; kind?: string }) => {
             if (kind === 'task') return `${count} ${plural({ count, one: 'задача', few: 'задачи', many: 'задач' })}`;
             return kind === undefined

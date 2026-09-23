@@ -3,6 +3,7 @@
  */
 
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
+import { t } from '@/text';
 
 // A producer that drew its own tree into a flat list prefixes the label with
 // box-drawing glyphs, and may append an opaque correlator (` · p:<22 chars>`).
@@ -15,8 +16,8 @@ const cleanLabel = (ws: HerdrTreeWorkspace): string =>
 /** A path label as a person names the folder: its last segment, or Home/Root. */
 function folderName(path: string): string | undefined {
     const bare = path.replace(/(.)\/+$/, '$1');
-    if (bare === '/') return 'Root folder';
-    if (bare === '~' || bare === '/root' || /^\/(home|Users)\/[^/]+$/.test(bare)) return 'Home folder';
+    if (bare === '/') return t('spacesTree.rootFolder');
+    if (bare === '~' || bare === '/root' || /^\/(home|Users)\/[^/]+$/.test(bare)) return t('spacesTree.homeFolder');
     if (!bare.startsWith('/') && !bare.startsWith('~/')) return undefined;
     return bare.split('/').pop();
 }
@@ -29,42 +30,51 @@ function folderName(path: string): string | undefined {
 export function workspaceName(ws: HerdrTreeWorkspace): string {
     const label = cleanLabel(ws);
     if (label !== '') return folderName(label) ?? label;
-    return folderName(workspacePath(ws) ?? '') ?? 'Untitled workspace';
+    return folderName(workspacePath(ws) ?? '') ?? t('spacesTree.untitledWorkspace');
+}
+
+export function workspaceRootPath(ws: HerdrTreeWorkspace): string | undefined {
+    const label = cleanLabel(ws);
+    return folderName(label) === undefined ? ws.worktree?.path : label;
 }
 
 export function workspacePath(ws: HerdrTreeWorkspace): string | undefined {
-    const label = cleanLabel(ws);
-    if (folderName(label) !== undefined) return label;
-    return ws.worktree?.path ?? ws.tabs.flatMap((tab) => tab.panes).find((pane) => pane.cwd)?.cwd;
+    return workspaceRootPath(ws) ?? ws.tabs.flatMap((tab) => tab.panes).find((pane) => pane.cwd)?.cwd;
+}
+
+export function workspaceCloseMessage(ws: HerdrTreeWorkspace, name: string): string {
+    return `Closes only the "${name}" workspace (${workspaceRootPath(ws) ?? 'this host'}) in herdr. If that would close its worktree group, nothing closes.`;
 }
 
 export function workspaceNames(workspaces: readonly HerdrTreeWorkspace[]): ReadonlyMap<string, string> {
     const names = new Map(workspaces.map((ws) => [ws.workspaceId, workspaceName(ws)]));
+    const taken = new Set(names.values());
     const groups = new Map<string, HerdrTreeWorkspace[]>();
     for (const ws of workspaces) groups.set(names.get(ws.workspaceId)!, [...(groups.get(names.get(ws.workspaceId)!) ?? []), ws]);
     for (const [name, peers] of groups) {
         if (peers.length < 2) continue;
         for (const ws of peers) {
             const path = workspacePath(ws);
-            if (name === 'Untitled workspace' || path === undefined || folderName(path) !== name) continue;
+            if (name === t('spacesTree.untitledWorkspace') || path === undefined || folderName(path) !== name) continue;
             const parts = path.replace(/\/+$/, '').split('/');
             for (let depth = 2; depth <= parts.length; depth++) {
-                const suffix = parts.slice(-depth).join('/');
-                if (peers.every((other) => other === ws || workspacePath(other)?.replace(/\/+$/, '').split('/').slice(-depth).join('/') !== suffix)) {
-                    names.set(ws.workspaceId, suffix);
-                    break;
-                }
+                const parent = parts.slice(-depth, -1).join('/');
+                const candidate = `${name} · ${parent}`;
+                if (taken.has(candidate) || peers.some((other) => other !== ws
+                    && workspacePath(other)?.replace(/\/+$/, '').split('/').slice(-depth, -1).join('/') === parent)) continue;
+                names.set(ws.workspaceId, candidate);
+                taken.add(candidate);
+                break;
             }
         }
-        const duplicates = new Map<string, number>();
-        for (const ws of peers) duplicates.set(names.get(ws.workspaceId)!, (duplicates.get(names.get(ws.workspaceId)!) ?? 0) + 1);
-        const ordinals = new Map<string, number>();
-        for (const ws of [...peers].sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))) {
-            const resolved = names.get(ws.workspaceId)!;
-            if ((duplicates.get(resolved) ?? 0) < 2) continue;
-            const number = (ordinals.get(resolved) ?? 0) + 1;
-            ordinals.set(resolved, number);
-            names.set(ws.workspaceId, `${resolved} ${number}`);
+        const unresolved = peers.filter((ws) => names.get(ws.workspaceId) === name);
+        if (unresolved.length < 2) continue;
+        for (const ws of unresolved.sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))) {
+            let number = 1;
+            while (taken.has(`${name} ${number}`)) number++;
+            const numbered = `${name} ${number}`;
+            names.set(ws.workspaceId, numbered);
+            taken.add(numbered);
         }
     }
     return names;

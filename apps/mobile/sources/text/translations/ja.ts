@@ -319,6 +319,9 @@ export const ja: TranslationStructure = {
         // Spaces section on Home
         title: 'スペース',
         empty: '開いているスペースはありません',
+        rootFolder: 'ルートフォルダー',
+        homeFolder: 'ホームフォルダー',
+        untitledWorkspace: '無名のワークスペース',
         groupCount: ({ count, kind }: { count: number; kind?: string }) => {
             if (kind === 'task') return `${count} 件のタスク`;
             return kind === undefined

@@ -319,6 +319,9 @@ export const zhHans: TranslationStructure = {
         // Spaces section on Home
         title: '空间',
         empty: '没有打开的空间',
+        rootFolder: '根文件夹',
+        homeFolder: '主文件夹',
+        untitledWorkspace: '未命名工作区',
         groupCount: ({ count, kind }: { count: number; kind?: string }) => {
             if (kind === 'task') return `${count} 个任务`;
             return kind === undefined

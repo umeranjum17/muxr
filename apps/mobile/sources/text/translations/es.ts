@@ -317,6 +317,9 @@ export const es: TranslationStructure = {
         // Spaces section on Home
         title: 'Espacios',
         empty: 'No hay espacios abiertos',
+        rootFolder: 'Carpeta raíz',
+        homeFolder: 'Carpeta de inicio',
+        untitledWorkspace: 'Espacio de trabajo sin nombre',
         groupCount: ({ count, kind }: { count: number; kind?: string }) => {
             if (kind === 'task') return `${count} ${plural({ count, singular: 'tarea', plural: 'tareas' })}`;
             return kind === undefined
