@@ -11,7 +11,7 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useKeyboardState } from 'react-native-keyboard-controller';
+import { useKeyboardHandler, useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
@@ -173,16 +173,46 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const canControl = authority === 'control' && !authorityLoading;
     const desktopVisible = props.desktop === true && canControl && isFocused;
     const insets = useSafeAreaInsets();
-    // Keyboard height already covers the home indicator, so keeping the bottom
-    // inset while it is up double-pads the composer.
-    //
-    // Both read through a selector: without one the hook hands back a fresh
-    // state object on every keyboard event, including the `willShow` that only
+    // The rail keeps its bottom inset through keyboard motion; its translation
+    // cancels that inset as the keyboard opens so the composer is not double-padded.
+    // These keyboard state values read through selectors: without one the hook
+    // hands back a fresh state object on every event, including `willShow` that only
     // carries an appearance, so a single keyboard opening re-rendered this
     // whole screen three times over. A primitive lets React drop the renders
     // that change nothing, which is most of them.
     const keyboardVisible = useKeyboardState((state) => state.isVisible);
     const keyboardHeight = useKeyboardState((state) => state.height);
+    // Keep the settled resize and its rail compensation on the same UI frame.
+    // Only resize Ghostty at the end of the keyboard motion, not on every frame.
+    const railHeight = useSharedValue(-keyboardHeight);
+    const railProgress = useSharedValue(keyboardVisible ? 1 : 0);
+    const settledRaise = useSharedValue(0);
+    useKeyboardHandler({
+        onStart: (event) => {
+            'worklet';
+            if (event.height > 0 && railHeight.value === 0) railProgress.value = 0;
+        },
+        onMove: (event) => {
+            'worklet';
+            railHeight.value = -event.height;
+            railProgress.value = event.progress;
+        },
+        onInteractive: (event) => {
+            'worklet';
+            railHeight.value = -event.height;
+            railProgress.value = event.progress;
+        },
+        onEnd: (event) => {
+            'worklet';
+            railHeight.value = -event.height;
+            railProgress.value = event.progress;
+            settledRaise.value = event.height > 0 ? event.height - insets.bottom : 0;
+        },
+    }, [insets.bottom]);
+    const settledLayout = useAnimatedStyle(() => ({ paddingBottom: settledRaise.value }));
+    const railsFollowKeyboard = useAnimatedStyle(() => ({
+        transform: [{ translateY: railHeight.value + insets.bottom * railProgress.value + settledRaise.value }],
+    }), [insets.bottom]);
     const session = useSession(props.id);
     const sessions = useSessions();
     const { workspaces, loaded: treeLoaded } = useHerdrTree();
@@ -1179,7 +1209,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // above the IME, and it measures the gap below itself to do it, so a bar
             // that floats over it gets counted as empty space and lands on the output.
                 return (
-                <View collapsable={false} style={{ flex: 1, backgroundColor: props.desktop ? '#000' : theme.colors.terminalChrome.canvas, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
+                <Animated.View collapsable={false} style={[{ flex: 1, backgroundColor: props.desktop ? '#000' : theme.colors.terminalChrome.canvas, paddingTop: insets.top }, settledLayout]}>
                     {watchingWorkingAgent && <ActiveAgentWakeLock />}
                     {/* The terminal is dark in both themes, so the system bar
                         above it is too: under a light app theme its clock and
@@ -1453,7 +1483,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         composer read as the same piece of chrome rather than as
                         three stacked bands, and the whole of it recedes
                         together while the ring is open. */}
-                    <View style={{ backgroundColor: theme.colors.terminalChrome.chrome }}>
+                    <Animated.View style={[{ backgroundColor: theme.colors.terminalChrome.chrome }, railsFollowKeyboard]}>
 
                     {/* Session/pane chip rail: one scrollable row of identity
                         chips for the open panes (or, across tabs, the other
@@ -1609,7 +1639,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         only container here — and one trailing circle that is
                         the realtime agent while the field is empty and becomes
                         send the moment there is something to send. */}
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 10, paddingTop: 4, paddingBottom: (keyboardVisible ? 8 : insets.bottom + 8) }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 10, paddingTop: 4, paddingBottom: insets.bottom + 8 }}>
                         {!dictationActive && attachmentAction}
                         <View style={{
                             flex: 1,
@@ -1654,7 +1684,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         {!dictationActive && trailingAction}
                     </View>
                     </View>}
-                    </View>
+                    </Animated.View>
 
                     {/* The control rests on the terminal and stands down while
                         a link card is open. Its overlay extends through the
@@ -1921,7 +1951,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </Pressable>
                     )}
                     {findOpen && <FindOutputSheet sessionId={props.id} keyboardOffset={Platform.OS === 'web' || !keyboardVisible ? 0 : keyboardHeight} onClose={() => setFindOpen(false)} />}
-                </View>
+                </Animated.View>
             );
         }}</DarkSurface></ScopedTheme>
     );
