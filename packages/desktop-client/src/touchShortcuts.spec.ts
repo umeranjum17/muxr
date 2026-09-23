@@ -218,9 +218,17 @@ describe('touch on the desktop', () => {
 
         // A mouse has its own right button.
         sent = [];
+        const mark = created[2]!;
+        expect(mark.style.display).toBe('block');
+        dispatch(video, 'pointermove', { pointerId: 3, pointerType: 'mouse', button: 0, clientX: 50, clientY: 60 });
+        expect(mark.style.display).toBe('none');
         dispatch(video, 'pointerdown', { pointerId: 3, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
         dispatch(video, 'pointerup', { pointerId: 3, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
         expect(sent).toEqual(click(50, 60, 3));
+        expect(mark.style.display).toBe('none');
+        touch(video, 'pointerdown', 80, 90);
+        touch(video, 'pointerup', 80, 90);
+        expect(mark.style.display).toBe('block');
     });
 });
 
@@ -228,14 +236,6 @@ describe('the pointer above the keyboard', () => {
     it('keeps the painted picture, taps and pointer together while the keyboard moves', async () => {
         const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 720 });
         vi.stubGlobal('visualViewport', viewport);
-        let frame: FrameRequestCallback | null = null;
-        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frame = callback; return 1; });
-        vi.stubGlobal('cancelAnimationFrame', () => { frame = null; });
-        const draw = (time: number) => {
-            const callback = frame;
-            frame = null;
-            callback?.(time);
-        };
         const { session, video, keyboard } = await liveDesktop();
         const [picture, , mark] = created;
         const tip = () => {
@@ -254,31 +254,29 @@ describe('the pointer above the keyboard', () => {
         (document as unknown as { activeElement: unknown }).activeElement = keyboard;
         dispatch(keyboard, 'focus', {});
         expect(picture!.style.top).toBe('0px');
-        expect(frame).toBeNull();
 
-        viewport.height = 420;
-        const start = performance.now();
+        viewport.height = 600;
         dispatch(viewport, 'resize', {});
-        expect(picture!.style.top).toBe('0px');
-        draw(start + 125);
+        const firstTop = Number.parseFloat(picture!.style.top);
+        expect(firstTop).toBeLessThan(0);
+        viewport.height = 510;
+        dispatch(viewport, 'resize', {});
         const paintedTop = Number.parseFloat(picture!.style.top);
-        expect(paintedTop).toBeLessThan(0);
-        expect(paintedTop).toBeGreaterThan(-286);
-        expect(tip().y).toBeGreaterThan(0);
-        expect(tip().y).toBeLessThan(720 - 350);
+        expect(paintedTop).toBeLessThan(firstTop);
+        expect(tip().y).toBeLessThan(720 - 260);
         sent = [];
         touch(video, 'pointerdown', 400, 200);
         touch(video, 'pointerup', 400, 200);
         const clickedY = Math.floor(200 - paintedTop);
         expect(sent).toEqual(click(400, clickedY, 1));
         expect(tip().y).toBeCloseTo(paintedTop + clickedY + 0.5, 5);
-        draw(start + 250);
+        viewport.height = 420;
+        dispatch(viewport, 'resize', {});
         expect(tip().y).toBeCloseTo(Number.parseFloat(picture!.style.top) + clickedY + 0.5, 5);
 
         (document as unknown as { activeElement: unknown }).activeElement = null;
         viewport.height = 720;
         dispatch(keyboard, 'blur', {});
-        draw(performance.now() + 250);
         expect(picture!.style.top).toBe('0px');
         expect(tip()).toEqual({ x: 400.5, y: clickedY + 0.5 });
     });

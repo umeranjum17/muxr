@@ -63,8 +63,7 @@ export interface DesktopSurfaceProps {
 /**
  * The keyboard's offset (negative while it is up) and how far up it is, as
  * values the UI thread moves with it. A phone browser reports neither: there
- * the visual viewport says how much of the page the keyboard covers, eased
- * over the keyboard's own time.
+ * the visual viewport says how much of the page the keyboard covers.
  */
 function useKeyboardMotion(): { height: SharedValue<number>; progress: SharedValue<number> } {
     const native = useReanimatedKeyboardAnimation();
@@ -75,11 +74,12 @@ function useKeyboardMotion(): { height: SharedValue<number>; progress: SharedVal
         if (viewport === undefined || viewport === null) return;
         const follow = () => {
             const covered = Math.max(0, globalThis.innerHeight - viewport.offsetTop - viewport.height);
-            height.value = withTiming(-covered, { duration: KEYBOARD_MOVE_MS });
-            progress.value = withTiming(covered > 0 ? 1 : 0, { duration: KEYBOARD_MOVE_MS });
+            height.value = -covered;
+            progress.value = covered > 0 ? 1 : 0;
         };
         viewport.addEventListener('resize', follow);
         viewport.addEventListener('scroll', follow);
+        follow();
         return () => {
             viewport.removeEventListener('resize', follow);
             viewport.removeEventListener('scroll', follow);

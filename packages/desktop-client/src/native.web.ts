@@ -41,9 +41,6 @@ const PIXELS_PER_DETENT = 120;
 /** Wheel steps smaller than this wait for more movement. */
 const MIN_WHEEL_STEP = 0.05;
 
-/** How long the picture takes to settle above a keyboard that came up or went away. */
-const KEYBOARD_MOVE_MS = 250;
-
 /** The first picture comes up out of black rather than cutting in. */
 const REVEAL = 'opacity 280ms ease-out';
 
@@ -87,7 +84,6 @@ interface WebSession {
      * controls above it cover, in CSS pixels. The picture is placed in the rest.
      */
     covered: number;
-    keyboardMove: { frame: number; target: number } | null;
     /** Space the app keeps above the keyboard for its controls. */
     clearance: number;
     gesture: Gesture;
@@ -289,7 +285,8 @@ function placePointer(session: WebSession): void {
  * the pointer, where a click just put the caret, stays in sight — or, with no
  * pointer yet, so the middle of what was shown stays in the middle.
  */
-function moveCover(session: WebSession, covered: number): void {
+function coverBottom(session: WebSession, covered: number): void {
+    if (Math.abs(covered - session.covered) < 0.5) return;
     const before = visibleHeight(session);
     session.covered = covered;
     const visible = visibleHeight(session);
@@ -302,25 +299,6 @@ function moveCover(session: WebSession, covered: number): void {
         if (y > visible - margin) view.originY -= y - (visible - margin);
     }
     layoutPicture(session);
-}
-
-function coverBottom(session: WebSession, covered: number): void {
-    if (session.keyboardMove?.target === covered) return;
-    if (session.keyboardMove !== null) cancelAnimationFrame(session.keyboardMove.frame);
-    session.keyboardMove = null;
-    if (Math.abs(covered - session.covered) < 0.5) {
-        moveCover(session, covered);
-        return;
-    }
-    const from = session.covered;
-    const start = performance.now();
-    const step = (now: number): void => {
-        const progress = Math.min(1, Math.max(0, (now - start) / KEYBOARD_MOVE_MS));
-        moveCover(session, from + (covered - from) * (1 - (1 - progress) ** 3));
-        if (progress < 1) session.keyboardMove!.frame = requestAnimationFrame(step);
-        else session.keyboardMove = null;
-    };
-    session.keyboardMove = { frame: requestAnimationFrame(step), target: covered };
 }
 
 function zoomAround(session: WebSession, focusX: number, focusY: number, factor: number): void {
@@ -485,6 +463,13 @@ function attachGestures(session: WebSession): () => void {
         session.lastFocusY = fy;
     };
 
+    const useMouse = (): void => {
+        session.mouse = true;
+        if (session.pointerAt === null) return;
+        session.pointerAt = null;
+        placePointer(session);
+    };
+
     const pointerDown = (event: PointerEvent): void => {
         // A press on the desktop is the desktop's: it must not take focus from
         // the remote keyboard, or the phone's keyboard closes under a tap that
@@ -496,11 +481,8 @@ function attachGestures(session: WebSession): () => void {
             // A synthetic event has no real pointer behind it.
         }
         const { x, y } = local(session, event.clientX, event.clientY);
-        session.mouse = event.pointerType === 'mouse';
-        if (session.mouse && session.pointerAt !== null) {
-            session.pointerAt = null;
-            placePointer(session);
-        }
+        if (event.pointerType === 'mouse') useMouse();
+        else session.mouse = false;
         if (event.pointerType === 'mouse') {
             const at = desktopPoint(session, x, y);
             if (at === null) return;
@@ -548,6 +530,7 @@ function attachGestures(session: WebSession): () => void {
     const pointerMove = (event: PointerEvent): void => {
         const { x, y } = local(session, event.clientX, event.clientY);
         if (event.pointerType === 'mouse') {
+            useMouse();
             if (session.gesture !== 'mouse') return;
             const at = desktopPoint(session, x, y, true);
             if (at === null) return;
@@ -784,8 +767,6 @@ function attachGestures(session: WebSession): () => void {
 
     return () => {
         cancelLongPress(session);
-        if (session.keyboardMove !== null) cancelAnimationFrame(session.keyboardMove.frame);
-        session.keyboardMove = null;
         resize?.disconnect();
         viewport?.removeEventListener('resize', followKeyboard);
         viewport?.removeEventListener('scroll', followKeyboard);
@@ -846,7 +827,6 @@ export const nativeDesklink: NativeDesklinkModule = {
             height: 0,
             view: { scale: 1, originX: 0, originY: 0, fitted: true },
             covered: 0,
-            keyboardMove: null,
             clearance: 0,
             followKeyboard: null,
             gesture: 'none',

@@ -5,15 +5,19 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Point
+import android.os.Build
 import android.os.SystemClock
 import android.text.InputType
 import android.util.Log
 import android.view.HapticFeedbackConstants
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.WindowManager
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -99,6 +103,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   /** Where the desktop's pointer was last sent, in desktop pixels; null until a touch sends it. */
   private var pointerAt: Pair<Int, Int>? = null
+  private var mouseInput = false
   private val pointerMark = PointerMark(context)
 
   private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
@@ -195,6 +200,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     surfaceView = null
     session = next
     pointerAt = null
+    mouseInput = false
     placePointer()
     if (next != null) {
       // Hardware decoder frames are GPU textures; the renderer shares the
@@ -286,10 +292,19 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     if (!isAttachedToWindow || height == 0) return
     val travel = if (keyboardTravel > 0) keyboardTravel else bottom
     val shown = if (travel > 0) (bottom.toFloat() / travel).coerceIn(0f, 1f) else 0f
+    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    val windowBottom = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      windowManager.currentWindowMetrics.bounds.bottom
+    } else {
+      val size = Point()
+      @Suppress("DEPRECATION")
+      windowManager.defaultDisplay.getRealSize(size)
+      size.y
+    }
     val location = IntArray(2)
-    getLocationInWindow(location)
-    val overlap = (location[1] + height - (rootView.height - bottom)).coerceAtLeast(0)
-    coverBottom(if (bottom > 0) overlap + keyboardClearance * shown else 0f)
+    getLocationOnScreen(location)
+    val overlap = (location[1] + height - (windowBottom - bottom)).coerceAtLeast(0)
+    coverBottom(if (overlap > 0) overlap + keyboardClearance * shown else 0f)
   }
 
   /**
@@ -421,7 +436,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   /** Send the desktop's pointer somewhere, and show it there. */
   private fun pointerTo(active: DesktopSession, phase: String, at: Pair<Int, Int>, withButton: Boolean = false) {
     active.sendPointer(phase, at.first, at.second, withButton)
-    showPointer(at)
+    if (!mouseInput) showPointer(at)
   }
 
   private fun showPointer(at: Pair<Int, Int>) {
@@ -442,6 +457,17 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   }
 
   private fun dp(value: Float): Int = Math.round(value * resources.displayMetrics.density)
+
+  override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+    if (event.isFromSource(InputDevice.SOURCE_MOUSE) &&
+      (event.actionMasked == MotionEvent.ACTION_HOVER_ENTER || event.actionMasked == MotionEvent.ACTION_HOVER_MOVE)
+    ) {
+      mouseInput = true
+      pointerAt = null
+      placePointer()
+    }
+    return super.dispatchGenericMotionEvent(event)
+  }
 
   /** A point in this view → desktop pixels, or null when it is off the picture. */
   private fun point(x: Float, y: Float): Pair<Int, Int>? {
@@ -469,6 +495,11 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   private fun handleTouch(event: MotionEvent): Boolean {
     val active = session ?: return true
+    mouseInput = event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE || event.isFromSource(InputDevice.SOURCE_MOUSE)
+    if (mouseInput && pointerAt != null) {
+      pointerAt = null
+      placePointer()
+    }
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
         gesture = Gesture.PENDING
@@ -603,7 +634,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   private fun rightClick(active: DesktopSession, at: Pair<Int, Int>) {
     active.sendRightClick(at.first, at.second)
-    showPointer(at)
+    if (!mouseInput) showPointer(at)
   }
 
   private fun twoFingers(active: DesktopSession, event: MotionEvent) {
