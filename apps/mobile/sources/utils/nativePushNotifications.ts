@@ -46,8 +46,8 @@ async function subscribeNativePush(
 
 function drainNotificationLevel(): Promise<boolean> {
     if (syncingNotificationLevel !== null) {
-        return syncingNotificationLevel.then(() =>
-            pendingNotificationLevel === null ? true : drainNotificationLevel());
+        return syncingNotificationLevel.then((synced) =>
+            pendingNotificationLevel === null ? synced : drainNotificationLevel());
     }
     if (pendingNotificationLevel === null) return Promise.resolve(true);
     const generation = notificationRegistrationGeneration;

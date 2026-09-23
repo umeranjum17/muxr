@@ -197,7 +197,6 @@ export const it: TranslationStructure = {
         account: 'Account',
         accountSubtitle: 'Gestisci i dettagli del tuo account',
         appearance: 'Aspetto',
-        appearanceSubtitle: 'Personalizza l\'aspetto dell\'app',
         featuresTitle: 'Funzionalità',
         featuresSubtitle: 'Abilita o disabilita le funzionalità dell\'app',
         about: 'Informazioni',
@@ -209,10 +208,6 @@ export const it: TranslationStructure = {
         connection: 'Connessione',
         connectionSubtitle: 'URL del relay, macchina e token',
         pushNotifications: 'Notifiche push',
-        pushSubtitleSubscribed: 'Attive — ricevi un avviso quando un agente ha bisogno di una risposta',
-        pushSubtitleDenied: 'Bloccate dal browser — consenti le notifiche per attivarle',
-        pushSubtitleUnsupported: 'Non disponibile in questo browser',
-        pushSubtitleDefault: 'Tocca per ricevere un avviso quando un agente ha bisogno di una risposta',
         license: 'Licenza e note legali',
         // Dynamic settings messages
     },
@@ -220,7 +215,6 @@ export const it: TranslationStructure = {
     settingsAppearance: {
         // Appearance settings screen
         theme: 'Tema',
-        themeDescription: 'Scegli lo schema di colori preferito',
         themeOptions: {
             adaptive: 'Adattivo',
             light: 'Chiaro',
@@ -228,21 +222,15 @@ export const it: TranslationStructure = {
         },
         themeDescriptions: {
             adaptive: 'Segui le impostazioni di sistema',
-            light: 'Usa sempre il tema chiaro',
-            dark: 'Usa sempre il tema scuro',
         },
-        display: 'Schermo',
-        displayDescription: 'Controlla layout e spaziatura',
 
         avatarStyle: 'Stile avatar',
-        avatarStyleDescription: 'Scegli l\'aspetto dell\'avatar di sessione',
         avatarOptions: {
             pixelated: 'Pixelato',
             gradient: 'Gradiente',
             brutalist: 'Brutalista',
         },
         showFlavorIcons: 'Mostra icone provider IA',
-        showFlavorIconsDescription: 'Mostra le icone del provider IA sugli avatar di sessione',
     },
 
     settingsFeatures: {

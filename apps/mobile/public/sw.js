@@ -18,8 +18,16 @@ self.addEventListener('push', (event) => {
     }
     const title = typeof payload.title === 'string' && payload.title !== '' ? payload.title : 'muxr';
     const body = typeof payload.body === 'string' ? payload.body : '';
-    event.waitUntil(
-        self.registration.showNotification(title, {
+    event.waitUntil((async () => {
+        let level = null;
+        try {
+            const response = await (await caches.open('muxr-push-level')).match('/muxr-push-level');
+            level = response ? await response.text() : null;
+        } catch {
+            // An unreadable cache is an unknown preference, not an opt-out.
+        }
+        if (level === 'off' || (level === 'important' && payload.kind === 'done')) return;
+        await self.registration.showNotification(title, {
             body,
             data: payload,
             // The action deep-links to the blocked request; the approval
@@ -27,8 +35,8 @@ self.addEventListener('push', (event) => {
             actions: [
                 { action: 'open', title: 'Open' },
             ],
-        })
-    );
+        });
+    })());
 });
 
 self.addEventListener('notificationclick', (event) => {

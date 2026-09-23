@@ -5,6 +5,7 @@ export * from './application/sessionOverlayNav';
 export * from './application/useGitStatusFiles';
 export * from './application/usePaneGestures';
 export * from './domain/TerminalLink';
+export * from './domain/fontSteps';
 export * from './domain/parseLocalCommandMessage';
 export * from './domain/sessionFileLinks';
 export * from './domain/sessionStatusBar';

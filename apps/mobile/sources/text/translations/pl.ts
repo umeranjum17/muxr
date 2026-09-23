@@ -215,7 +215,6 @@ export const pl: TranslationStructure = {
         account: 'Konto',
         accountSubtitle: 'Zarządzaj szczegółami konta',
         appearance: 'Wygląd',
-        appearanceSubtitle: 'Dostosuj wygląd aplikacji',
         featuresTitle: 'Funkcje',
         featuresSubtitle: 'Włącz lub wyłącz funkcje aplikacji',
         about: 'O aplikacji',
@@ -227,10 +226,6 @@ export const pl: TranslationStructure = {
         connection: 'Połączenie',
         connectionSubtitle: 'URL serwera relay, maszyna i token',
         pushNotifications: 'Powiadomienia push',
-        pushSubtitleSubscribed: 'Włączone — powiadomienie, gdy agent potrzebuje odpowiedzi',
-        pushSubtitleDenied: 'Zablokowane przez przeglądarkę — zezwól na powiadomienia, aby włączyć',
-        pushSubtitleUnsupported: 'Niedostępne w tej przeglądarce',
-        pushSubtitleDefault: 'Dotknij, aby otrzymywać powiadomienia, gdy agent potrzebuje odpowiedzi',
         license: 'Licencja i informacje prawne',
         // Dynamic settings messages
     },
@@ -238,7 +233,6 @@ export const pl: TranslationStructure = {
     settingsAppearance: {
         // Appearance settings screen
         theme: 'Motyw',
-        themeDescription: 'Wybierz preferowaną kolorystykę',
         themeOptions: {
             adaptive: 'Adaptacyjny',
             light: 'Jasny',
@@ -246,21 +240,15 @@ export const pl: TranslationStructure = {
         },
         themeDescriptions: {
             adaptive: 'Dopasuj do ustawień systemu',
-            light: 'Zawsze używaj jasnego motywu',
-            dark: 'Zawsze używaj ciemnego motywu',
         },
-        display: 'Wyświetlanie',
-        displayDescription: 'Kontroluj układ i odstępy',
 
         avatarStyle: 'Styl awatara',
-        avatarStyleDescription: 'Wybierz wygląd awatara sesji',
         avatarOptions: {
             pixelated: 'Pikselowy',
             gradient: 'Gradientowy',
             brutalist: 'Brutalistyczny',
         },
         showFlavorIcons: 'Pokaż ikony dostawcy AI',
-        showFlavorIconsDescription: 'Wyświetlaj ikony dostawcy AI na awatarach sesji',
     },
 
     settingsFeatures: {
