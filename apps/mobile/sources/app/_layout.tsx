@@ -344,7 +344,9 @@ export default function RootLayout() {
             if (resumed) void syncResume().catch(() => undefined);
             // Replay sequences are written on a trailing timer while the app
             // runs; leaving the foreground is the last chance to land them.
-            if (left) void flushReplay().catch(() => undefined);
+            if (left) {
+                void flushReplay().catch(() => undefined);
+            }
         });
         return () => subscription.remove();
     }, [initState?.credentials]);

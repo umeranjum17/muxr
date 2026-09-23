@@ -64,10 +64,31 @@ const AGENT_KIND_LABELS: Readonly<Record<string, string>> = {
     pi: 'Pi',
 };
 
+// Hermes on Android answers locale-aware string calls through ICU over JNI.
+// With a dozen agents they cost more than the rest of Home's render together.
+// Root-locale lower case is plain toLowerCase, which stays in the engine for
+// ASCII; normalize and localeCompare answers are kept, since the same labels
+// come back on every render.
+// ponytail: the whole map resets when full; an LRU only if label churn defeats it.
+const localeAnswers = new Map<string, string | boolean>();
+function remember<T extends string | boolean>(key: string, answer: () => T): T {
+    const known = localeAnswers.get(key);
+    if (known !== undefined) return known as T;
+    const value = answer();
+    if (localeAnswers.size >= 512) localeAnswers.clear();
+    localeAnswers.set(key, value);
+    return value;
+}
+
+/** Same words ignoring case, accents still counting. */
+function sameLabel(left: string, right: string): boolean {
+    return remember(`same\u0000${left}\u0000${right}`, () => left.localeCompare(right, undefined, { sensitivity: 'accent' }) === 0);
+}
+
 export function agentKindLabel(kind?: string): string | undefined {
     const value = kind?.trim();
     if (value === undefined || value === '') return undefined;
-    return AGENT_KIND_LABELS[value.toLocaleLowerCase('und')] ?? value;
+    return AGENT_KIND_LABELS[value.toLowerCase()] ?? value;
 }
 
 
@@ -99,7 +120,7 @@ function uniqueLabels(values: readonly (string | undefined)[]): string[] {
     return values.flatMap((value) => {
         const label = value?.trim();
         if (label === undefined || label === '') return [];
-        const key = label.normalize('NFKC').toLocaleLowerCase('und');
+        const key = remember(`key\u0000${label}`, () => label.normalize('NFKC').toLowerCase());
         if (seen.has(key)) return [];
         seen.add(key);
         return [label];
@@ -109,14 +130,14 @@ function uniqueLabels(values: readonly (string | undefined)[]): string[] {
 function distinctAgentName(labels: AgentLabels): string | undefined {
     const name = labels.agentName.trim();
     if (name === '') return undefined;
-    if (name.localeCompare(labels.taskTitle, undefined, { sensitivity: 'accent' }) === 0) return undefined;
+    if (sameLabel(name, labels.taskTitle)) return undefined;
     return name;
 }
 
 function agentKindSlug(kind?: string): string | undefined {
     const value = kind?.trim();
     if (value === undefined || value === '') return undefined;
-    return value.toLocaleLowerCase('und');
+    return value.toLowerCase();
 }
 
 /** Kind and animal name as one token, e.g. `pi/fox`. */

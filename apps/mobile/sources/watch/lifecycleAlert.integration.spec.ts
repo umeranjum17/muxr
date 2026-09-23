@@ -26,6 +26,7 @@ const harness = vi.hoisted(() => ({
     nativeFinishedUpdates: 0,
 }));
 
+vi.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en', languageTag: 'en-US' }] }));
 vi.mock('expo-notifications', () => ({
     scheduleNotificationAsync: vi.fn(async (request: { identifier?: string; content: { body: string } }) => {
         const gate = harness.postGate;

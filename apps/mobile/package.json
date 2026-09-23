@@ -134,5 +134,14 @@
     "react-test-renderer": "19.0.0",
     "tsx": "^4.20.4",
     "typescript": "^5.7.2"
+  },
+  "expo": {
+    "autolinking": {
+      "android": {
+        "exclude": [
+          "@expo/ui"
+        ]
+      }
+    }
   }
 }

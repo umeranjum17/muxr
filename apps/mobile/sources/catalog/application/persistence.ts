@@ -3,11 +3,16 @@ import { Settings, settingsDefaults, settingsParse, SettingsSchema } from './set
 import { LocalSettings, localSettingsDefaults, localSettingsParse } from './localSettings';
 import { Profile, profileDefaults, profileParse } from '../domain/profile';
 import { AGENT_KINDS } from '../domain/agentKinds';
+import type { Session } from '../domain/sessionTypes';
+import type { HerdrTreeWorkspace } from '@muxr/contract';
+import { agentLabels } from '@/herd/labels';
 type PermissionModeKey = string;
 
 const mmkv = new MMKV();
 const NEW_SESSION_DRAFT_KEY = 'new-session-draft-v1';
 const REGISTERED_PUSH_TOKEN_KEY = 'registered-push-token-v1';
+const HOME_SNAPSHOT_KEY = 'home-snapshot-v2';
+const OLD_HOME_SNAPSHOT_KEY = 'home-snapshot-v1';
 
 /**
  * Supported launch kinds passed through as session.start `kind`.
@@ -219,6 +224,90 @@ export function loadSessionLastMessageSentAt(): Record<string, number> {
 
 export function saveSessionLastMessageSentAt(timestamps: Record<string, number>) {
     mmkv.set('session-last-message-sent-at', JSON.stringify(timestamps));
+}
+
+/**
+ * The last Home the host confirmed for one machine. A cold start draws it,
+ * marked stale, while the connection comes up; nothing else reads it.
+ */
+export type HomeSession = Pick<Session, 'id' | 'updatedAt'> & {
+    metadata: Pick<NonNullable<Session['metadata']>, 'lifecycleStateSince'> | null;
+};
+
+type HomeWorkspace = Omit<HerdrTreeWorkspace, 'worktree' | 'tabs'> & {
+    worktree?: Pick<NonNullable<HerdrTreeWorkspace['worktree']>, 'branch'>;
+    tabs: Array<Omit<HerdrTreeWorkspace['tabs'][number], 'label'>>;
+};
+
+export interface HomeSnapshot {
+    machineId: string;
+    workspaces: HomeWorkspace[];
+    sessions: Record<string, HomeSession>;
+}
+
+export function loadHomeSnapshot(machineId: string): HomeSnapshot | null {
+    mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
+    const raw = mmkv.getString(HOME_SNAPSHOT_KEY);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw) as HomeSnapshot;
+        if (parsed.machineId !== machineId || !Array.isArray(parsed.workspaces)
+            || parsed.sessions === null || typeof parsed.sessions !== 'object') return null;
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspace[], sessions: Session[], names: ReadonlyMap<string, string>, parents: ReadonlyMap<string, string>): void {
+    mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
+    const snapshot: HomeSnapshot = {
+        machineId,
+        workspaces: workspaces.map((workspace) => ({
+            workspaceId: workspace.workspaceId,
+            label: names.get(workspace.workspaceId),
+            focused: workspace.focused,
+            agentStatus: workspace.agentStatus,
+            order: workspace.order,
+            worktree: workspace.worktree && { branch: workspace.worktree.branch },
+            tokens: workspace.tokens || parents.has(workspace.workspaceId) ? {
+                ...(parents.has(workspace.workspaceId) ? { parent: parents.get(workspace.workspaceId)! } : {}),
+                ...(workspace.tokens?.kind === undefined ? {} : { kind: workspace.tokens.kind }),
+            } : undefined,
+            tabs: workspace.tabs.map((tab) => ({
+                tabId: tab.tabId,
+                focused: tab.focused,
+                agentStatus: tab.agentStatus,
+                panes: tab.panes.map((pane) => ({
+                    paneId: pane.paneId,
+                    tabId: pane.tabId,
+                    sessionId: pane.sessionId,
+                    taskTitle: agentLabels(pane).taskTitle,
+                    focused: pane.focused,
+                    agentName: pane.agentName,
+                    agentKind: pane.agentKind,
+                    provider: pane.provider,
+                    model: pane.model,
+                    displayAgent: pane.displayAgent,
+                    agentStatus: pane.agentStatus,
+                    promptable: pane.promptable,
+                })),
+            })),
+        })),
+        sessions: Object.fromEntries(sessions.map((session) => [session.id, {
+            id: session.id,
+            updatedAt: session.updatedAt,
+            metadata: session.metadata?.lifecycleStateSince === undefined
+                ? null : { lifecycleStateSince: session.metadata.lifecycleStateSince },
+        }])),
+    };
+    mmkv.set(HOME_SNAPSHOT_KEY, JSON.stringify(snapshot));
+}
+
+/** Forgetting a machine forgets what its Home looked like. */
+export function clearHomeSnapshot(machineId?: string): void {
+    mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
+    if (machineId === undefined || loadHomeSnapshot(machineId) !== null) mmkv.delete(HOME_SNAPSHOT_KEY);
 }
 
 export function loadProfile(): Profile {

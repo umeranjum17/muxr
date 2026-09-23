@@ -1,5 +1,4 @@
 import type { AgentInfo, AgentLifecycle } from '@muxr/contract';
-import type { Session } from '@/catalog';
 import type { HerdPane } from '../domain/herd';
 import { agentLabels, isShellLabels } from '../domain/agentPresentation';
 import type { RecentActivityRow } from '../domain/recentActivity';
@@ -10,14 +9,14 @@ export type LiveTerminalBucket = 'attention' | 'working' | 'settled' | 'offline'
 
 export interface LiveTerminalOrderCard extends AgentInfo {
     id: string;
-    session?: Session;
+    session?: { id: string; createdAt?: number };
     changedAt?: number;
     createdAt?: number;
 }
 
 /** Tree panes are canonical; the session catalog only enriches their previews. Bare shells never make the strip: LIVE is agents only. */
 export function selectLiveTerminalCards(
-    sessions: readonly Session[],
+    sessions: readonly { id: string; createdAt?: number }[],
     panes: readonly HerdPane[],
 ): LiveTerminalOrderCard[] {
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));

@@ -106,7 +106,7 @@ export function lifecycleNotificationCopy(event: LifecycleEvent): string {
 }
 
 /** The same tree panes Spaces renders, using the shared agent label vocabulary. */
-export function herdPanes(sessions: Session[], workspaces: readonly HerdrTreeWorkspace[]): HerdPane[] {
+export function herdPanes(sessions: readonly { id: string; updatedAt: number; metadata: { lifecycleStateSince?: number } | null }[], workspaces: readonly HerdrTreeWorkspace[]): HerdPane[] {
     const sessionsById = new Map(sessions.map((session) => [session.id, session]));
     const routes = new Set<string>();
     return workspaces

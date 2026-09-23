@@ -32,8 +32,10 @@ import {
     loadConnectionSettingsAsync,
     sshTunnelAvailable,
 } from '@/connection';
-import { getCachedHostedGrant, loadHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
+import { getCachedHostedGrant, loadHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
+import { saveHomeSnapshot } from './persistence';
+import { spawnerOf, workspaceNames } from '@/herd/tree';
 import {
     applyStatusToSession,
     machineInfoToMachine,
@@ -247,6 +249,8 @@ class MuxrSync {
     private opening = new Map<string, Promise<void>>();
     private activeMachineId: string | undefined;
     private herdrTreeRequest = 0;
+    private confirmedHomeTree: { request: number; workspaces: HerdrTreeWorkspace[] } | undefined;
+    private catalogRequest = 0;
     private presentingLifecycleIds = new Set<string>();
     encryption!: Encryption;
     anonID = 'muxr-local';
@@ -524,6 +528,16 @@ class MuxrSync {
         return settled;
     }
 
+    private saveConfirmedHome(workspaces: HerdrTreeWorkspace[], sessions: Parameters<typeof saveHomeSnapshot>[2]): void {
+        const byId = new Map(workspaces.map((workspace) => [workspace.workspaceId, workspace] as const));
+        const parents = new Map<string, string>();
+        for (const workspace of workspaces) {
+            const parent = spawnerOf(workspace, byId);
+            if (parent !== undefined) parents.set(workspace.workspaceId, parent);
+        }
+        saveHomeSnapshot(this.getConnection().machineId, workspaces, sessions, workspaceNames(workspaces), parents);
+    }
+
     async refreshHerdTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; herdrConnected: boolean | undefined }> {
         const request = ++this.herdrTreeRequest;
         if (!this.hasTransport()) {
@@ -535,7 +549,13 @@ class MuxrSync {
         const tree = await this.request('herdr.tree', {});
         // Requests can cross when a done frame and a newer working frame arrive
         // close together. Only the latest canonical read may update the UI.
-        if (request === this.herdrTreeRequest) storage.getState().applyHerdrTree(tree.workspaces);
+        if (request === this.herdrTreeRequest) {
+            this.confirmedHomeTree = { request, workspaces: tree.workspaces };
+            storage.getState().applyHerdrTree(tree.workspaces);
+            if (storage.getState().sessionsLoaded && this.hasTransport()) {
+                this.saveConfirmedHome(tree.workspaces, Object.values(storage.getState().sessions));
+            }
+        }
         // The host adds `connected` (herdr runtime liveness) to this response.
         // A missing field means "unknown", not "healthy" — callers must only
         // treat an explicit false as a dead runtime.
@@ -543,6 +563,8 @@ class MuxrSync {
     }
 
     private async refreshCatalog(): Promise<void> {
+        const request = ++this.catalogRequest;
+        if (this.credentials === undefined) return;
         if (!this.hasTransport()) {
             storage.getState().setSocketStatus('disconnected');
             storage.getState().applyMachines([], true);
@@ -555,6 +577,7 @@ class MuxrSync {
         const client = this.ensureClient();
         if (!client.isLive()) await waitUntilClientOpen(client, 5000);
         const lifecycleBefore = new Set(storage.getState().lifecycleEvents.map((event) => event.eventId));
+        const treeRequest = this.herdrTreeRequest + 1;
         const [machines, sessions, attention, lifecycle, tree] = await Promise.all([
             client.request('machines.list', {}),
             client.request('session.list', {}),
@@ -565,7 +588,7 @@ class MuxrSync {
             }),
             this.refreshHerdTree().catch(() => undefined),
         ]);
-        if (client !== this.client) return;
+        if (request !== this.catalogRequest || client !== this.client) return;
         storage.getState().applyMachines(machines.map((machine) =>
             machineInfoToMachine(machine, getCachedHostedGrant(machine.machineId)?.machineName)
         ), true);
@@ -574,7 +597,8 @@ class MuxrSync {
         // real transition. The herd tree fetched alongside is the same host
         // truth the Spaces/notification surfaces use; fold it in.
         const stateBySession = new Map<string, Pick<SessionStatus, 'agentStatus' | 'promptable'>>();
-        for (const workspace of tree?.workspaces ?? []) {
+        const confirmedTree = treeRequest === this.herdrTreeRequest ? tree : undefined;
+        for (const workspace of confirmedTree?.workspaces ?? []) {
             for (const tab of workspace.tabs) {
                 for (const pane of tab.panes) {
                     if (pane.sessionId !== undefined) {
@@ -586,7 +610,7 @@ class MuxrSync {
                 }
             }
         }
-        storage.getState().applySessions(sessions.map((info) => {
+        const confirmedSessions = sessions.map((info) => {
             const state = stateBySession.get(info.id);
             return sessionInfoToSession(info, state === undefined ? undefined : {
                 sessionId: info.id,
@@ -595,8 +619,13 @@ class MuxrSync {
                 isStreaming: lifecycleIsWorking(state.agentStatus),
                 tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
             });
-        }), true);
+        });
+        storage.getState().applySessions(confirmedSessions, true);
         storage.getState().markSessionsLoaded();
+        const latestTree = this.confirmedHomeTree;
+        if (latestTree?.request === this.herdrTreeRequest && latestTree.request >= treeRequest && this.hasTransport()) {
+            this.saveConfirmedHome(latestTree.workspaces, confirmedSessions);
+        }
         storage.getState().applyAttentionCatalog(attention.entries);
         if (lifecycle !== undefined) {
             const liveEvents = storage.getState().lifecycleEvents.filter((event) => !lifecycleBefore.has(event.eventId));
@@ -674,11 +703,14 @@ class MuxrSync {
             storage.getState().applyMachines([], true);
             storage.getState().applySessions([], true);
             storage.getState().applyHerdrTree([]);
+            storage.getState().applyHomeSnapshot(null);
         }
+        // The client refreshes the grant before every dial, so startup does
+        // not wait on the relay for it here.
         if (settings.mode === 'hosted' && settings.machineId !== '') {
             await loadHostedGrant(settings.machineId);
-            await refreshHostedGrant(settings.machineId);
         }
+        if (this.hasTransport() && !storage.getState().herdrTreeLoaded) storage.getState().restoreHome(settings.machineId);
         // Account validation and machine transport are deliberately independent.
         // Offline/account-only startup renders immediately; only a definite /v1/session
         // 401 clears credentials, through the AuthContext rejection handler.
@@ -688,6 +720,14 @@ class MuxrSync {
 
     async create(credentials: AuthCredentials): Promise<void> {
         await this.bootstrap(credentials);
+    }
+
+    invalidateCatalog(): void {
+        this.catalogRequest += 1;
+        this.herdrTreeRequest += 1;
+        this.client?.close();
+        this.client = undefined;
+        this.credentials = undefined;
     }
 
     async restore(credentials: AuthCredentials): Promise<void> {

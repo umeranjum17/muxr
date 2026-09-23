@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import deepEqual from 'fast-deep-equal';
 import { Platform } from 'react-native';
 import {
     deriveV2Key,
@@ -188,6 +189,7 @@ export async function removeHostedGrant(machineId: string): Promise<StoredHosted
     if (all[machineId] === undefined) return Object.values(all);
     const { clearArtifactDownloads } = await import('@/utils/artifactTransfer');
     await clearArtifactDownloads();
+    (await import('@/catalog')).clearHomeSnapshot(machineId);
     delete all[machineId];
     await Promise.all([
         secretDelete(grantKey(machineId)),
@@ -246,7 +248,8 @@ export async function refreshHostedGrant(
             ...(current.machineName === undefined ? {} : { machineName: current.machineName }),
             ...(current.source === undefined ? {} : { source: current.source }),
         };
-        await saveHostedGrant(next);
+        // Every dial refreshes; an unchanged grant costs no secure-store writes.
+        if (!deepEqual(next, current)) await saveHostedGrant(next);
         return next;
     } catch {
         // Offline startup may use the last valid grant. Keep the freshly
@@ -620,6 +623,7 @@ export class DeviceV2Crypto {
 export async function clearHostedE2ee(): Promise<void> {
     const { clearArtifactDownloads } = await import('@/utils/artifactTransfer');
     await clearArtifactDownloads();
+    (await import('@/catalog')).clearHomeSnapshot();
     // A queued trailing write must not resurrect the cache we are deleting.
     if (replayTimer !== undefined) clearTimeout(replayTimer);
     replayTimer = undefined;

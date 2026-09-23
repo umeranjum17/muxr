@@ -75,6 +75,7 @@ export async function listWebSecretNames(): Promise<string[]> {
 export async function resetWebSecureStore(): Promise<void> {
     const { clearArtifactDownloads } = await import('@/utils/artifactTransfer');
     await clearArtifactDownloads();
+    (await import('@/catalog')).clearHomeSnapshot();
     wrapKeyPending = undefined;
     return new Promise((resolve, reject) => {
         const request = indexedDB.deleteDatabase(DB_NAME);
