@@ -35,6 +35,7 @@ vi.mock('../../modules/ssh-tunnel', () => ({
 
 import {
     applySshAfterPairing,
+    channelRelayUrl,
     establishSshTunnel,
     parseSshFields,
     tunnelPairingUrl,
@@ -74,6 +75,19 @@ describe('SSH route applied after pairing', () => {    it('saves the credential 
         expect(result).toEqual({ ok: true });
         expect(secrets.setNativeSecret).toHaveBeenCalledWith('muxr.ssh.credential.v1.m1', JSON.stringify({ password: 'hunter2' }));
         expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792 });
+    });
+
+    it('routes a paired machine’s side channels through SSH without changing another machine’s relay', async () => {
+        await pairAs(true, 'm3');
+        await applySshAfterPairing(FIELDS);
+        secrets.getNativeSecret.mockResolvedValueOnce(JSON.stringify({ password: 'hunter2' }));
+        tunnel.openSshTunnel.mockResolvedValueOnce({ localPort: 49123, hostKey: 'SHA256:abc' });
+
+        expect(await channelRelayUrl('wss://public.example:8792/relay', 'm3')).toBe('ws://127.0.0.1:49123/relay');
+        expect(tunnel.openSshTunnel).toHaveBeenLastCalledWith(expect.objectContaining({
+            host: 'box.lan', remoteHost: '127.0.0.1', remotePort: 8792,
+        }));
+        expect(await channelRelayUrl('wss://public.example:8792/relay', 'other')).toBe('wss://public.example:8792/relay');
     });
 
     it('keeps a pinned host key for the same endpoint and pairs fresh for a new one', async () => {
