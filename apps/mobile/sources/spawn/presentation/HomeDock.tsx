@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { ActivityIndicator, Keyboard, Modal as RNModal, Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Keyboard, Modal as RNModal, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
+import { useKeyboardHandler, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, {
     Easing,
     Extrapolation,
@@ -23,6 +23,7 @@ import type { NativeSettingsMenuGroup } from '@/settings';
 import { AgentInputAttachmentStrip } from '@/terminal/ui';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
+import { FOCUS_BACK_SIZE, FOCUS_BACK_TOP, focusDockMaxHeight } from './focusDockLayout';
 import { t } from '@/text';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
@@ -287,9 +288,9 @@ const styles = StyleSheet.create((theme) => ({
         left: 20,
     },
     focusBackSurface: {
-        width: 52,
-        height: 52,
-        borderRadius: 26,
+        width: FOCUS_BACK_SIZE,
+        height: FOCUS_BACK_SIZE,
+        borderRadius: FOCUS_BACK_SIZE / 2,
         overflow: 'hidden',
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: theme.colors.glass.border,
@@ -598,6 +599,37 @@ export const HomeDock = React.memo(({
     const compact = useWindowDimensions().width < 330;
     const canSubmit = !isSubmitting && hasPrompt;
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
+    // On a short phone the keyboard would lift the pickers under the back
+    // control and the status bar, so the dock is bounded between the two and
+    // scrolls; its content stays anchored to the bottom, where you type. The
+    // bound follows the keyboard's target as it starts to open, and its
+    // release waits until it has closed, so the dock never outgrows the room
+    // it is moving through.
+    const [focusRootHeight, setFocusRootHeight] = React.useState<number>();
+    const [focusKeyboard, setFocusKeyboard] = React.useState(0);
+    useKeyboardHandler({
+        onStart: (event) => {
+            'worklet';
+            if (event.height > 0) runOnJS(setFocusKeyboard)(event.height);
+        },
+        onEnd: (event) => {
+            'worklet';
+            runOnJS(setFocusKeyboard)(event.height);
+        },
+    });
+    const focusDockMax = focusRootHeight === undefined ? undefined : focusDockMaxHeight({
+        height: focusRootHeight,
+        safeTop: safeArea.top,
+        safeBottom: safeArea.bottom,
+        keyboard: focusKeyboard,
+    });
+    const focusDockScroll = React.useRef<ScrollView>(null);
+    // A frame later, once native has applied the new viewport: scrolling in
+    // the same layout pass used the old one and left the composer's actions
+    // below the keyboard.
+    const keepComposerInView = React.useCallback(() => {
+        requestAnimationFrame(() => focusDockScroll.current?.scrollToEnd({ animated: false }));
+    }, []);
     const keyboardStyle = useAnimatedStyle(() => ({
         // Keyboard height includes the bottom safe area on iOS. The resting
         // dock keeps that inset, then gives it back while the keyboard opens
@@ -979,7 +1011,9 @@ export const HomeDock = React.memo(({
                 animationType="none"
                 onRequestClose={closeFocusMode}
             >
-                <View style={styles.modalRoot}>
+                <View style={styles.modalRoot} onLayout={(event) => {
+                    if (focusKeyboard === 0) setFocusRootHeight(event.nativeEvent.layout.height);
+                }}>
                     <Animated.View
                         pointerEvents="box-none"
                         style={[styles.modalBackdrop, styles.focusBackdrop, focusBackdropStyle]}
@@ -991,7 +1025,7 @@ export const HomeDock = React.memo(({
                     </Animated.View>
                     <Animated.View style={[
                         styles.focusBackPosition,
-                        { top: safeArea.top + 14 },
+                        { top: safeArea.top + FOCUS_BACK_TOP },
                         focusBackButtonStyle,
                     ]}>
                         <MobileGlassSurface
@@ -1014,29 +1048,38 @@ export const HomeDock = React.memo(({
                     </Animated.View>
 
                     <Animated.View style={[styles.focusDock, keyboardStyle]}>
-                        <View style={styles.focusConfig}>
-                            <View style={styles.focusConfigGroup}>
-                                {renderEnvironmentPickers()}
-                                <FocusConfigRevealRow progress={focusPresentation} index={3}>
-                                    <BubblePressable
-                                        onPress={startBlankSession}
-                                        disabled={isSubmitting}
-                                        style={styles.startRow}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`Start ${currentAgent.name} without a prompt`}
-                                    >
-                                        <Ionicons name="play" size={16} color={theme.colors.fab.icon} />
-                                        <Text style={styles.startRowText}>Start {currentAgent.name}</Text>
-                                    </BubblePressable>
-                                </FocusConfigRevealRow>
+                        <ScrollView
+                            ref={focusDockScroll}
+                            style={{ flexGrow: 0, maxHeight: focusDockMax }}
+                            keyboardShouldPersistTaps="handled"
+                            showsVerticalScrollIndicator={false}
+                            onLayout={keepComposerInView}
+                            onContentSizeChange={keepComposerInView}
+                        >
+                            <View style={styles.focusConfig}>
+                                <View style={styles.focusConfigGroup}>
+                                    {renderEnvironmentPickers()}
+                                    <FocusConfigRevealRow progress={focusPresentation} index={3}>
+                                        <BubblePressable
+                                            onPress={startBlankSession}
+                                            disabled={isSubmitting}
+                                            style={styles.startRow}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={`Start ${currentAgent.name} without a prompt`}
+                                        >
+                                            <Ionicons name="play" size={16} color={theme.colors.fab.icon} />
+                                            <Text style={styles.startRowText}>Start {currentAgent.name}</Text>
+                                        </BubblePressable>
+                                    </FocusConfigRevealRow>
+                                </View>
                             </View>
-                        </View>
-                        <View style={[
-                            styles.focusComposerArea,
-                            { paddingBottom: safeArea.bottom + 8 },
-                        ]}>
-                            {renderFocusedComposer()}
-                        </View>
+                            <View style={[
+                                styles.focusComposerArea,
+                                { paddingBottom: safeArea.bottom + 8 },
+                            ]}>
+                                {renderFocusedComposer()}
+                            </View>
+                        </ScrollView>
                     </Animated.View>
 
                     <OptionSheet
