@@ -53,9 +53,11 @@ or later, Arch — that is the whole install. npm also installs the optional
 platform package `@desklink/host-linux-x64-gnu`, which carries the prebuilt
 engine, and `resolveEngine()` finds it there. No Rust toolchain, compiler or
 install script is involved, so `--ignore-scripts` installs work. The engine
-loads libpipewire-0.3, libxkbcommon, libevdev and libstdc++ from the system,
-which a desktop running PipeWire already has; libvpx and inputtino are linked
-into it.
+requires the system's `libpipewire-0.3.so.0`, `libxkbcommon.so.0`,
+`libevdev.so.2` and `libstdc++.so.6` (normally supplied by a modern Linux
+desktop). If one is missing, the host reports `missing system library: <name>`
+with code `missing-system-library` rather than failing silently; it does not
+bundle these system libraries. libvpx and inputtino are linked into the engine.
 
 The one step no install does for you is [kernel input access](#kernel-input-access),
 and only the portal backend needs it.
@@ -92,8 +94,10 @@ project with CMake. On a clean machine, install:
 | xkbcommon | `libxkbcommon-dev` | `libxkbcommon-devel` | `libxkbcommon` |
 | Wayland (`wayland-client`) | `libwayland-dev` | `wayland-devel` | `wayland` |
 | libevdev | `libevdev-dev` | `libevdev-devel` | `libevdev` |
-| libxcb | `libxcb1-dev` | `libxcb-devel` | `libxcb` |
+| libxcb (source/container builds only) | `libxcb1-dev` | `libxcb-devel` | `libxcb` |
 
+These are build prerequisites, not additional runtime requirements for the
+prebuilt package; in particular, libxcb is not a prebuilt runtime requirement.
 Nothing is downloaded by the build itself. The engine step in `yarn run check`
 skips with a list of missing prerequisites when any of these is absent; direct
 `cargo test --manifest-path engine/Cargo.toml` does not skip and needs them
@@ -238,9 +242,10 @@ executable's SHA-256.
 `pack.mjs` writes `desklink-host-<version>.tgz` and
 `desklink-host-linux-x64-gnu-<version>.tgz` to `dist-desklink/` and publishes
 nothing. `check-install.sh` installs both into an empty project in a container
-with no Rust toolchain, no display and no `/dev/uinput`, and has the host package
-resolve the prebuilt engine, start it and answer the protocol handshake and a
-capabilities probe.
+with no Rust toolchain, no display and no `/dev/uinput`. It checks the typed
+missing-library error before installing the system runtime libraries, then has
+the host package resolve the prebuilt engine, start it and answer the protocol
+handshake and a capabilities probe.
 
 Publishing is by hand, platform package first, so `@desklink/host` never points
 at a version the registry does not have:
