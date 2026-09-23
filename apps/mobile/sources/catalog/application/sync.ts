@@ -455,12 +455,18 @@ class MuxrSync {
     }
 
     private async presentPendingLifecycleEvents(): Promise<void> {
-        const pending = [...storage.getState().pendingLifecycleEvents]
-            .sort((left, right) => {
-                const leftDone = left.state === 'done' ? 1 : 0;
-                const rightDone = right.state === 'done' ? 1 : 0;
-                return leftDone - rightDone;
-            });
+        const state = storage.getState();
+        const latestByAgent = new Map<string, LifecycleEvent>();
+        for (const event of state.lifecycleEvents) {
+            if (!latestByAgent.has(event.sessionId)) latestByAgent.set(event.sessionId, event);
+        }
+        for (const event of latestByAgent.values()) {
+            if (!lifecycleNotificationAllowed(state.localSettings.lifecycleNotificationLevel, event.state)) {
+                dismissAgentAlert(event.sessionId);
+            }
+        }
+        const pending = [...state.pendingLifecycleEvents]
+            .sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
         for (const event of pending) {
             if (this.presentingLifecycleIds.has(event.eventId)) continue;
             // Passes overlap when frames arrive together. The list above is this
@@ -468,11 +474,12 @@ class MuxrSync {
             if (!storage.getState().pendingLifecycleEvents.some((entry) => entry.eventId === event.eventId)) continue;
             this.presentingLifecycleIds.add(event.eventId);
             try {
-                if (!lifecycleNotificationAllowed(
-                    storage.getState().localSettings.lifecycleNotificationLevel,
+                const current = storage.getState();
+                const latest = current.lifecycleEvents.find((entry) => entry.sessionId === event.sessionId);
+                if (latest?.eventId !== event.eventId || !lifecycleNotificationAllowed(
+                    current.localSettings.lifecycleNotificationLevel,
                     event.state,
                 )) {
-                    // Suppressed history stays claimed: enabling later must not release backlog alerts.
                     storage.getState().markLifecyclePresented(event.eventId);
                     continue;
                 }

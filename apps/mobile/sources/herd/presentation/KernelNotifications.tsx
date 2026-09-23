@@ -65,6 +65,26 @@ export function KernelNotifications() {
     const backgroundPrompting = React.useRef(false);
     const keepalive = React.useRef(false);
     const herdActive = herd.mode === 'working' || herd.mode === 'attention';
+    const sendNotification = (focus = focusedAgentRoute()) => updateVoiceNotification(
+        nativeLifecycleNotificationState(herdActive ? nativeHerd : presentation, lifecycleNotificationLevel),
+        voiceState,
+        voiceName,
+        muted,
+        panes.filter((pane) => pane.agentStatus === 'blocked').map((pane) => ({
+            id: pane.id,
+            name: pane.agentName ?? 'Unnamed agent',
+            focused: pane.id === focus,
+        })),
+    );
+    const sendNotificationRef = React.useRef(sendNotification);
+    sendNotificationRef.current = sendNotification;
+    const connectedNotificationRef = React.useRef(sendNotification);
+    if (status === 'connected') connectedNotificationRef.current = sendNotification;
+    const clearNativeFocus = () => (keepalive.current ? connectedNotificationRef : sendNotificationRef).current(null);
+    const clearNativeFocusRef = React.useRef(clearNativeFocus);
+    clearNativeFocusRef.current = clearNativeFocus;
+    const authenticatedRef = React.useRef(isAuthenticated);
+    authenticatedRef.current = isAuthenticated;
 
     React.useEffect(() => {
         let next = herd;
@@ -96,17 +116,11 @@ export function KernelNotifications() {
         let live = true;
         void requestNotificationPermission(false).then(() => {
             if (!live) return;
-            updateVoiceNotification(
-                nativeLifecycleNotificationState(herdActive ? nativeHerd : presentation, lifecycleNotificationLevel),
-                voiceState,
-                voiceName,
-                muted,
-                panes.filter((pane) => pane.agentStatus === 'blocked').map((pane) => ({
-                    id: pane.id,
-                    name: pane.agentName ?? 'Unnamed agent',
-                    focused: pane.id === focusedRoute,
-                })),
-            );
+            if (AppState.currentState !== 'active' && keepalive.current) {
+                clearNativeFocusRef.current();
+                return;
+            }
+            sendNotificationRef.current();
             if (herdActive && !keepalive.current) keepalive.current = startHerdKeepalive();
         });
         return () => { live = false; };
@@ -117,11 +131,16 @@ export function KernelNotifications() {
         setAppActive(AppState.currentState === 'active');
         const subscription = AppState.addEventListener('change', (state) => {
             const active = state === 'active';
+            if (!active) clearNativeFocusRef.current();
             setAppActive(active);
             if (active && herdActive) keepalive.current = startHerdKeepalive();
         });
         return () => subscription.remove();
     }, [herdActive, isAuthenticated]);
+
+    React.useEffect(() => () => {
+        if (authenticatedRef.current) clearNativeFocusRef.current();
+    }, []);
 
     React.useEffect(() => {
         if (Platform.OS === 'ios' && isAuthenticated && appActive) {

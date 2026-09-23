@@ -13,6 +13,7 @@ const harness = vi.hoisted(() => ({
     appStateListeners: new Set<(state: string) => void>(),
     eventListeners: [] as Array<(sessionId: string, event: unknown) => void>,
     mmkv: new Map<string, string>(),
+    catalog: { revision: 1, events: [] as LifecycleEvent[] },
 }));
 
 vi.mock('expo-notifications', () => ({
@@ -78,7 +79,7 @@ vi.mock('@/pairing/infrastructure/muxrClient', () => ({
         async request(type: string) {
             if (type === 'herdr.tree') return { workspaces: [] };
             if (type === 'attention.catalog') return { revision: 0, entries: [] };
-            if (type === 'lifecycle.catalog') return { revision: 1, events: [] };
+            if (type === 'lifecycle.catalog') return harness.catalog;
             return [];
         }
     },
@@ -99,7 +100,7 @@ vi.mock('@/herd', async () => {
 });
 
 import { storage } from '@/catalog/store';
-import { syncCreate } from '@/catalog/sync';
+import { sync, syncCreate } from '@/catalog/sync';
 import { agentOnScreen, focusedAgentRoute, notificationResponseKey, subscribeFocusedAgent } from '@/watch/lifecycleAlert';
 
 let sequence = 0;
@@ -138,6 +139,7 @@ describe('agent lifecycle alerts on the phone', () => {
         harness.posted.length = 0;
         harness.issued.length = 0;
         harness.postGate = null;
+        harness.catalog = { revision: 1, events: [] };
         harness.appState = 'active';
     });
 
@@ -205,6 +207,27 @@ describe('agent lifecycle alerts on the phone', () => {
         await posting;
         agentChanges('route-ewe', 'ewe', 'working');
         release();
+        await settle();
+        expect(shade()).toEqual([]);
+
+        const replayEvent = (state: LifecycleEvent['state'], offset: number): LifecycleEvent => ({
+            eventId: `replay-${offset}`,
+            sessionId: 'route-ram',
+            agentName: 'ram',
+            state,
+            reasonCode: state === 'blocked' ? 'agent-blocked' : state === 'failed' ? 'agent-runtime-failed' : 'agent-working',
+            at: new Date(Date.now() + offset).toISOString(),
+        });
+        const blocked = replayEvent('blocked', 100);
+        const failed = replayEvent('failed', 101);
+        harness.catalog = { revision: 2, events: [failed, blocked] };
+        await sync.refreshSessions();
+        await settle();
+        expect(shade()).toEqual(['ram failed.']);
+        expect(harness.posted.filter((body) => body.startsWith('ram '))).toEqual(['ram failed.']);
+
+        harness.catalog = { revision: 3, events: [replayEvent('working', 102), failed, blocked] };
+        await sync.refreshSessions();
         await settle();
         expect(shade()).toEqual([]);
 
