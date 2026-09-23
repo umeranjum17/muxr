@@ -401,6 +401,13 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                     </Animated.View>
                 )}
 
+                {live && menu === 'clipboard' && clipboardAvailable && (
+                    <Animated.View entering={popIn} exiting={popOut} style={[card, styles.clipboardCard, { bottom: bottomInset + REST_GAP + BUTTON + 10 }, controlsMotion]}>
+                        {menuRow('Copy to Phone', 'copy-outline', () => void copyFromDesktop(), { disabled: clipboardBusy })}
+                        {menuRow('Paste from Phone', 'clipboard-outline', () => void pasteToDesktop(), { disabled: clipboardBusy })}
+                    </Animated.View>
+                )}
+
                 {live && (
                     <Animated.View pointerEvents="box-none" style={[styles.controls, { bottom: bottomInset + REST_GAP }, controlsMotion]}>
                         {shownNotice !== null && (
@@ -409,13 +416,6 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                                     <Text accessibilityLiveRegion="polite" numberOfLines={3} style={[styles.noticeText, { color: theme.colors.text }]}>{shownNotice}</Text>
                                 </View>
                             </View>
-                        )}
-
-                        {menu === 'clipboard' && clipboardAvailable && (
-                            <Animated.View entering={popIn} exiting={popOut} style={[card, styles.clipboardCard]}>
-                                {menuRow('Copy to Phone', 'copy-outline', () => void copyFromDesktop(), { disabled: clipboardBusy })}
-                                {menuRow('Paste from Phone', 'clipboard-outline', () => void pasteToDesktop(), { disabled: clipboardBusy })}
-                            </Animated.View>
                         )}
 
                         {clipboardAvailable ? (
@@ -470,7 +470,7 @@ const styles = StyleSheet.create({
     },
     actionLabel: { ...Typography.default('semiBold'), fontSize: 14 },
     topCard: { top: 4, right: 8, minWidth: 220, maxWidth: '88%' },
-    clipboardCard: { left: 0, bottom: BUTTON + 10, minWidth: 220, maxWidth: 300 },
+    clipboardCard: { left: EDGE, minWidth: 220, maxWidth: 300 },
     menuRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 18 },
     menuLabel: { ...Typography.default(), flex: 1, fontSize: 15 },
     helpRow: { flexDirection: 'row', alignItems: 'baseline', gap: 14, paddingHorizontal: 18, paddingVertical: 7 },

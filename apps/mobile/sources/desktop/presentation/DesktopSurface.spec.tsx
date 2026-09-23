@@ -97,7 +97,7 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     await TestRenderer.act(async () => view.update(<DesktopSurface onExit={() => undefined} />));
     expect(root().findAllByProps({ accessibilityLabel: 'Back to the conversation' })).toHaveLength(1);
     expect(root().findAllByProps({ accessibilityLabel: 'Desktop actions' })).toHaveLength(1);
-    expect(root().findAllByProps({ accessibilityLabel: 'Keyboard' })).toHaveLength(1);
+    expect(root().findAllByProps({ accessibilityLabel: 'Hide keyboard' })).toHaveLength(1);
     expect(view.root.findByType('DesktopView').props.keyboardClearance).toBe(96);
     expect(view.root.findByType('DesktopKeyRow')).toBeDefined();
     await TestRenderer.act(async () => view.unmount());
