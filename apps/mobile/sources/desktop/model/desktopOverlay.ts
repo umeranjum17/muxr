@@ -5,6 +5,8 @@ import { desktopCopy } from './desktopCopy';
 export interface DesktopOverlay {
     title: string;
     detail?: string;
+    /** One command to copy and run on the computer, shown with a Copy action. */
+    command?: string;
     spinner: boolean;
     canRetry: boolean;
 }
@@ -43,6 +45,9 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
         // The prompt was on the computer, where nobody answered it; the host's
         // own wording would only say that it timed out.
         return { title: desktopCopy.consentTitle, detail: desktopCopy.consentBody, spinner: false, canRetry: true };
+    }
+    if (snapshot.status === 'failed' && snapshot.failure?.code === 'no-screen') {
+        return { title: desktopCopy.noScreenTitle, detail: desktopCopy.noScreenBody, command: desktopCopy.noScreenCommand, spinner: false, canRetry: true };
     }
     if (snapshot.status === 'failed') {
         return {

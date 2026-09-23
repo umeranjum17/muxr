@@ -47,6 +47,7 @@ const OPEN_FAILURE_CODES: Record<string, SessionFailure['code']> = {
     permission: 'permission',
     'not-authorized': 'permission',
     'consent-timeout': 'consent',
+    'no-screen': 'no-screen',
     'input-unavailable': 'input-unavailable',
     'unsupported-codec': 'unsupported-codec',
     encode: 'unsupported-codec',

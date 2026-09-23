@@ -111,6 +111,12 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     const heading = title || computerName;
 
     const say = React.useCallback((text: string, ms = NOTICE_MS) => setNotice({ text, ms }), []);
+    const [commandCopied, setCommandCopied] = React.useState(false);
+    const copyCommand = React.useCallback(async (command: string) => {
+        await Clipboard.setStringAsync(command);
+        setCommandCopied(true);
+        setTimeout(() => setCommandCopied(false), 2000);
+    }, []);
 
     const session = useDesktopSession({
         // Ask the host what it can actually do before requesting scope: a host
@@ -372,6 +378,17 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                         {status.detail !== undefined && (
                             <Text style={[styles.overlayDetail, { color: theme.colors.textSecondary }]}>{status.detail}</Text>
                         )}
+                        {status.command !== undefined && (
+                            <Pressable
+                                onPress={() => void copyCommand(status.command!)}
+                                accessibilityRole="button"
+                                accessibilityLabel={commandCopied ? 'Copied' : 'Copy the command'}
+                                style={({ pressed }) => [styles.command, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }, pressed && styles.pressed]}
+                            >
+                                <Text numberOfLines={3} style={[styles.commandText, { color: theme.colors.text }]}>{status.command}</Text>
+                                <Text style={[styles.commandCopy, { color: theme.colors.textSecondary }]}>{commandCopied ? 'Copied' : 'Copy'}</Text>
+                            </Pressable>
+                        )}
                         {status.canRetry && (
                             <Pressable
                                 onPress={() => void connect()}
@@ -485,6 +502,9 @@ const styles = StyleSheet.create({
     },
     overlayTitle: { ...Typography.default(), fontSize: 16, lineHeight: 22, textAlign: 'center' },
     overlayDetail: { ...Typography.default(), fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: -4 },
+    command: { alignSelf: 'stretch', borderRadius: ui.radius.control, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 10, gap: 6 },
+    commandText: { ...Typography.mono(), fontSize: 12, lineHeight: 17 },
+    commandCopy: { ...Typography.default(), fontSize: 13, alignSelf: 'flex-end' },
     action: {
         marginTop: 6,
         height: 44,
