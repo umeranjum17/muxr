@@ -82,7 +82,7 @@ type Rendered = {
     props: { onPress(): void; style: unknown; keyboardClearance: number; pointerEvents?: string };
     children: (Rendered | string)[];
     parent: Rendered;
-    findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string }): Rendered[];
+    findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered[];
     findByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered;
     findByType(type: string): Rendered;
     findAllByType(type: string): Rendered[];
