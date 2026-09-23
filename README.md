@@ -44,7 +44,7 @@ It is self-hosted and open source. The agents, code, keys and model subscription
 
 ## Remote desktop
 
-Open **Computer** from an agent's conversation to see your computer's screen live. Look first; nothing is sent until you tap. Drag and the pointer follows your finger, tap to click, and open the keyboard or clipboard from the floating buttons. After you lock the phone or lose the connection, the picture comes back with control off until you tap **Tap to control**.
+Open **Computer** from an agent's conversation to see your computer's screen live. Look first; nothing is sent until you tap. Drag and the pointer follows your finger, tap to click, and open the keyboard or clipboard from the floating buttons (in a browser, allow clipboard access when it asks). After you lock the phone or lose the connection, the picture comes back with control off until you tap **Tap to control**.
 
 Pair once, and the desktop works over the same route as your agents:
 
