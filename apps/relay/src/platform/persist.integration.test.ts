@@ -414,7 +414,15 @@ it('delivers frames sent while relay ticket authentication is pending without ro
         await new Promise<void>((resolve) => setTimeout(resolve, 10));
         expect(received).toEqual([]);
         releaseAuthorized();
-        await vi.waitFor(() => expect(received).toEqual([envelope]));
+        await vi.waitFor(() => expect(received).toHaveLength(2));
+        const authorizedFrames = [...received];
+        const [joined, routed] = authorizedFrames.map((frame) => JSON.parse(frame)) as [
+            { type: string; connectionId: string }, Envelope,
+        ];
+        expect(joined).toEqual({ type: 'relay.client.joined', connectionId: expect.any(String) });
+        expect(joined.connectionId).not.toBe('');
+        const original = JSON.parse(envelope) as Envelope;
+        expect(routed).toEqual({ ...original, header: { ...original.header, connectionId: joined.connectionId } });
 
         const rejected = new WebSocket(`${url}?ticket=rejected-client`);
         sockets.push(rejected);
@@ -426,7 +434,7 @@ it('delivers frames sent while relay ticket authentication is pending without ro
         await vi.waitFor(() => expect(rejected.readyState).toBe(WebSocket.OPEN));
         releaseRejected();
         await expect(rejectedClose).resolves.toBe(1008);
-        expect(received).toEqual([envelope]);
+        expect(received).toEqual(authorizedFrames);
 
         const throwing = new WebSocket(`${url}?ticket=throwing-client`);
         sockets.push(throwing);
@@ -439,7 +447,7 @@ it('delivers frames sent while relay ticket authentication is pending without ro
             const response = await fetch(`http://127.0.0.1:${relay.port}/health`);
             await expect(response.json()).resolves.toMatchObject({ connectedPeers: 2 });
         });
-        expect(received).toEqual([envelope]);
+        expect(received).toEqual(authorizedFrames);
     } finally {
         for (const socket of sockets) socket.terminate();
         await relay.close();
