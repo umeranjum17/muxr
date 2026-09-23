@@ -35,7 +35,7 @@ vi.mock('@/components/ItemGroup', () => ({ ItemGroup: (props: Record<string, unk
 vi.mock('@/components/ItemList', () => ({ ItemList: (props: Record<string, unknown>) => React.createElement('ItemList', props, props.children as React.ReactNode) }));
 vi.mock('@/components/Switch', () => ({ Switch: (props: Record<string, unknown>) => React.createElement('Switch', props) }));
 
-import NotificationSettingsScreen from './notifications';
+import NotificationSettingsScreen from '../app/(app)/settings/notifications';
 import { refreshPushState, updateWebPushNotificationLevel } from '@/utils/pushNotifications';
 
 let rendered: ReturnType<typeof TestRenderer.create> | undefined;
@@ -118,7 +118,7 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
     const listeners: Record<string, (event: any) => void> = {};
     const shown = vi.fn(async () => {});
     let cacheFailure: 'open' | 'match' | 'text' | null = null;
-    vm.runInNewContext(readFileSync(new URL('../../../../public/sw.js', import.meta.url), 'utf8'), {
+    vm.runInNewContext(readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf8'), {
         self: { addEventListener: (name: string, listener: (event: any) => void) => { listeners[name] = listener; }, registration: { showNotification: shown } },
         caches: { open: async () => {
             if (cacheFailure === 'open') throw new Error('cache open failed');
