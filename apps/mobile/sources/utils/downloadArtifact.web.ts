@@ -6,11 +6,16 @@
  * and the page never holds the file in memory. The finished file goes to the
  * browser's own download manager. Metro picks downloadArtifact.ts on native.
  */
-import { LARGE_FILE_ERROR, transferArtifact, type DownloadableArtifact, type TransferPlatform, type TransferSink } from '@/utils/artifactTransfer';
+import { LARGE_FILE_ERROR, artifactTransferKey, transferArtifact, useArtifactTransfers, type DownloadableArtifact, type TransferPlatform, type TransferSink } from '@/utils/artifactTransfer';
 import { sweepPartialDownloads } from '@/utils/artifactPartialRetention';
 import { artifactDownloadKey } from '@/utils/artifactDownloadKey';
 
 const MEMORY_LIMIT = 64 * 1024 * 1024;
+const READY_SUFFIX = '.ready';
+
+function readyName(sessionId: string, artifact: DownloadableArtifact): string {
+    return `${artifactDownloadKey(sessionId, artifact)}${READY_SUFFIX}`;
+}
 
 let downloads: Promise<FileSystemDirectoryHandle | undefined> | undefined;
 
@@ -38,8 +43,8 @@ async function sweepDirectory(directory: FileSystemDirectoryHandle, clear = fals
     for await (const [name, handle] of (directory as unknown as AsyncIterable<[string, FileSystemHandle]>)) {
         if (handle.kind !== 'file') continue;
         const file = await (handle as FileSystemFileHandle).getFile();
-        const expected = Number(name.slice(name.lastIndexOf('-') + 1));
-        if (file.size === expected) await directory.removeEntry(name);
+        const expected = Number(name.slice(name.lastIndexOf('-') + 1, name.endsWith(READY_SUFFIX) ? -READY_SUFFIX.length : undefined));
+        if (!name.endsWith(READY_SUFFIX) && file.size === expected) await directory.removeEntry(name);
         else files.push({ modified: file.lastModified, remove: () => directory.removeEntry(name) });
     }
     await sweepPartialDownloads(files, clear);
@@ -54,10 +59,28 @@ export async function sweepArtifactDownloads(): Promise<void> {
     await downloadsDirectory();
 }
 
+export async function readyToSave(sessionId: string, artifact: DownloadableArtifact): Promise<boolean> {
+    const directory = await downloadsDirectory();
+    if (directory === undefined) return false;
+    try {
+        return (await (await directory.getFileHandle(readyName(sessionId, artifact))).getFile()).size === artifact.size;
+    } catch {
+        return false;
+    }
+}
+
+export async function restoreReadyArtifact(sessionId: string, artifact: DownloadableArtifact): Promise<void> {
+    if (!await readyToSave(sessionId, artifact)) return;
+    const key = artifactTransferKey(sessionId, artifact);
+    useArtifactTransfers.setState((all) => all[key] === undefined
+        ? { ...all, [key]: { status: 'ready', total: artifact.size } }
+        : all);
+}
+
 async function sink(artifact: DownloadableArtifact, sessionId: string): Promise<TransferSink> {
     const directory = await downloadsDirectory();
     if (directory === undefined) return fallbackSink(artifact);
-    const name = artifactDownloadKey(sessionId, artifact);
+    const name = readyName(sessionId, artifact);
     let handle: FileSystemFileHandle;
     let kept: number;
     try {
@@ -72,7 +95,7 @@ async function sink(artifact: DownloadableArtifact, sessionId: string): Promise<
         return fallbackSink(artifact);
     }
     if (kept === artifact.size) {
-        return { offset: kept, write() {}, pause() {}, discard: () => directory.removeEntry(name), finish: async () => URL.createObjectURL(await handle.getFile()) };
+        return { offset: kept, write() {}, pause() {}, discard: () => directory.removeEntry(name), finish: () => name };
     }
     const offset = kept < artifact.size ? kept : 0;
     let writable: FileSystemWritableFileStream;
@@ -94,7 +117,7 @@ async function sink(artifact: DownloadableArtifact, sessionId: string): Promise<
             await writable.close();
             const file = await handle.getFile();
             if (file.size !== artifact.size) throw new Error('The download was incomplete.');
-            return URL.createObjectURL(file);
+            return name;
         },
     };
 }
@@ -116,18 +139,27 @@ function memorySink(artifact: DownloadableArtifact): TransferSink {
     };
 }
 
-function open(uri: string, artifact: DownloadableArtifact): void {
+async function open(uri: string, artifact: DownloadableArtifact): Promise<void> {
+    const stored = !uri.startsWith('blob:');
+    const directory = stored ? await downloadsDirectory() : undefined;
+    if (stored && directory === undefined) throw new Error('Saved file unavailable');
+    const url = stored ? URL.createObjectURL(await (await directory!.getFileHandle(uri)).getFile()) : uri;
     const anchor = document.createElement('a');
-    anchor.href = uri;
+    anchor.href = url;
     anchor.download = artifact.name;
     anchor.click();
-    // The browser resolves the URL when the download starts; give a large
-    // file time to be copied out before letting go of it.
-    setTimeout(() => URL.revokeObjectURL(uri), 60_000);
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    if (stored) await directory!.removeEntry(uri);
 }
 
-const platform: TransferPlatform = { sink, open };
+const platform: TransferPlatform = { sink, open, deliverBeforeDone: true };
 
-export function downloadArtifact(sessionId: string, artifact: DownloadableArtifact): Promise<void> {
+export async function downloadArtifact(sessionId: string, artifact: DownloadableArtifact): Promise<void> {
+    if (await readyToSave(sessionId, artifact)) {
+        await open(readyName(sessionId, artifact), artifact);
+        const key = artifactTransferKey(sessionId, artifact);
+        useArtifactTransfers.setState((all) => ({ ...all, [key]: { status: 'done', total: artifact.size } }));
+        return;
+    }
     return transferArtifact(sessionId, artifact, platform);
 }

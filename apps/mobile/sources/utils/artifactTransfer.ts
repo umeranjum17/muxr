@@ -22,7 +22,7 @@ export type ArtifactTransfer =
     /** `waiting`: the connection dropped; resumes by itself when it returns. */
     | { status: 'downloading' | 'waiting'; received: number; total: number; bytesPerSecond?: number }
     | { status: 'failed'; received: number; total: number; message: string }
-    | { status: 'done'; total: number };
+    | { status: 'done' | 'ready'; total: number };
 
 /** Where a download's bytes land. `offset` is how many an earlier attempt kept. */
 export interface TransferSink {
@@ -39,7 +39,8 @@ export interface TransferSink {
 export interface TransferPlatform {
     sink(artifact: DownloadableArtifact, sessionId: string): TransferSink | Promise<TransferSink>;
     /** Hand a finished file to the OS: installer, viewer or share sheet. */
-    open(uri: string, artifact: DownloadableArtifact): void;
+    open(uri: string, artifact: DownloadableArtifact): void | Promise<void>;
+    deliverBeforeDone?: boolean;
 }
 
 /** The host serves at most 512 KiB per read; four in flight keep a slow link busy. */
@@ -253,13 +254,22 @@ async function run(job: Job): Promise<void> {
         const uri = await sink.finish();
         if (!owns(job)) throw new Error('Download cancelled.');
         clearTimeout(trailing);
-        jobs.delete(job.key);
-        publish(job.key, { status: 'done', total: artifact.size });
-        job.settle.resolve();
-        // Launching an installer or share sheet from the background is refused
-        // by the OS; the finished row opens it on the next tap instead.
-        if (AppState.currentState === 'active') {
-            try { job.platform.open(uri, artifact); } catch {}
+        if (job.platform.deliverBeforeDone) {
+            let delivered = false;
+            if (AppState.currentState === 'active' && document.visibilityState !== 'hidden') {
+                try { await job.platform.open(uri, artifact); delivered = true; } catch {}
+            }
+            if (!owns(job)) return;
+            jobs.delete(job.key);
+            publish(job.key, { status: delivered ? 'done' : 'ready', total: artifact.size });
+            job.settle.resolve();
+        } else {
+            jobs.delete(job.key);
+            publish(job.key, { status: 'done', total: artifact.size });
+            job.settle.resolve();
+            if (AppState.currentState === 'active') {
+                try { job.platform.open(uri, artifact); } catch {}
+            }
         }
     } catch (error) {
         clearTimeout(trailing);

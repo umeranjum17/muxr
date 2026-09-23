@@ -43,6 +43,8 @@ function partFile(sessionId: string, artifact: DownloadableArtifact): File {
 }
 
 /** Bytes an interrupted download left behind, e.g. before the app was closed. */
+export async function restoreReadyArtifact(_sessionId: string, _artifact: DownloadableArtifact): Promise<void> {}
+
 export function keptBytes(sessionId: string, artifact: DownloadableArtifact): number {
     const part = partFile(sessionId, artifact);
     return artifact.at !== undefined && part.exists && part.size < artifact.size ? part.size : 0;

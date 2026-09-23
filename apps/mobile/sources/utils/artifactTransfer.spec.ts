@@ -25,7 +25,8 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     } };
 });
 
-vi.mock('react-native', () => ({ AppState: { currentState: 'active' }, Platform: { OS: 'android' } }));
+const appState = vi.hoisted(() => ({ currentState: 'active' }));
+vi.mock('react-native', () => ({ AppState: appState, Platform: { OS: 'android' } }));
 vi.mock('@/catalog/store', async () => {
     const { create: createStore } = await import('zustand');
     const storage = createStore(() => ({ socketStatus: 'connected' }));
@@ -243,5 +244,91 @@ describe('progressive artifact download', () => {
         expect(link.requests.filter((request) => request.offset === 0)).toHaveLength(2);
         expect(useArtifactTransfers.getState()[artifactTransferKey('session-1', corrupt)]).toMatchObject({ status: 'failed', message: 'Download failed integrity check. Try again.' });
         expect(opened).toHaveLength(4);
+    });
+
+    it('keeps a hidden web download ready across reload until Save hands it to the browser', async () => {
+        const files = new Map<string, { bytes: Uint8Array; modified: number }>();
+        const directory = {
+            async getFileHandle(name: string, options?: { create: boolean }) {
+                if (!files.has(name)) {
+                    if (!options?.create) throw new Error('Missing file');
+                    files.set(name, { bytes: new Uint8Array(), modified: Date.now() });
+                }
+                return {
+                    kind: 'file',
+                    async getFile() {
+                        const file = files.get(name)!;
+                        return Object.assign(new Blob([file.bytes as Uint8Array<ArrayBuffer>]), { lastModified: file.modified });
+                    },
+                    async createWritable({ keepExistingData }: { keepExistingData: boolean }) {
+                        let bytes = keepExistingData ? files.get(name)!.bytes : new Uint8Array();
+                        let position = 0;
+                        return {
+                            async seek(offset: number) { position = offset; },
+                            async write(chunk: Uint8Array) {
+                                const next = new Uint8Array(Math.max(bytes.length, position + chunk.length));
+                                next.set(bytes);
+                                next.set(chunk, position);
+                                bytes = next;
+                                position += chunk.length;
+                            },
+                            async close() { files.set(name, { bytes, modified: Date.now() }); },
+                            async abort() {},
+                        };
+                    },
+                };
+            },
+            async removeEntry(name: string) { files.delete(name); },
+            async *[Symbol.asyncIterator]() {
+                for (const name of files.keys()) yield [name, await this.getFileHandle(name)];
+            },
+        };
+        const clicks: Array<{ href: string; download: string }> = [];
+        const document = {
+            visibilityState: 'hidden',
+            createElement: () => ({ href: '', download: '', click() { clicks.push({ href: this.href, download: this.download }); } }),
+        };
+        vi.stubGlobal('navigator', { storage: { getDirectory: async () => ({ getDirectoryHandle: async () => directory }) } });
+        vi.stubGlobal('document', document);
+        vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:download');
+        vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+        vi.useFakeTimers();
+        try {
+            appState.currentState = 'background';
+            link.dropAfter = Infinity;
+            link.requests.length = 0;
+            const bytes = Buffer.from('the complete file remains private until Save');
+            const artifact = { id: createHash('sha256').update(bytes).digest('hex'), name: 'ready.apk', size: bytes.length, at: Date.now(), mimeType: 'application/vnd.android.package-archive' };
+            link.reader = async (_sessionId, id, offset, length) => {
+                const chunk = bytes.subarray(offset, offset + length);
+                return { id, size: bytes.length, at: artifact.at, offset, data: chunk.toString('base64'), sha256: createHash('sha256').update(chunk).digest('hex') };
+            };
+            const web = await import('./downloadArtifact.web');
+            await web.downloadArtifact('session-ready', artifact);
+            expect(useArtifactTransfers.getState()[artifactTransferKey('session-ready', artifact)]).toMatchObject({ status: 'ready' });
+            expect(clicks).toHaveLength(0);
+            expect(files.size).toBe(1);
+
+            vi.resetModules();
+            const reloaded = await import('./downloadArtifact.web');
+            const state = await import('./artifactTransfer');
+            await reloaded.sweepArtifactDownloads();
+            expect(files.size).toBe(1);
+            await reloaded.restoreReadyArtifact('session-ready', artifact);
+            expect(state.useArtifactTransfers.getState()[state.artifactTransferKey('session-ready', artifact)]).toMatchObject({ status: 'ready' });
+            const reads = link.requests.length;
+            appState.currentState = 'active';
+            document.visibilityState = 'visible';
+            await reloaded.downloadArtifact('session-ready', artifact);
+            expect(clicks).toEqual([{ href: 'blob:download', download: 'ready.apk' }]);
+            expect(files.size).toBe(0);
+            expect(link.requests).toHaveLength(reads);
+            expect(state.useArtifactTransfers.getState()[state.artifactTransferKey('session-ready', artifact)]).toMatchObject({ status: 'done' });
+        } finally {
+            appState.currentState = 'active';
+            vi.useRealTimers();
+            vi.restoreAllMocks();
+            vi.unstubAllGlobals();
+        }
     });
 });

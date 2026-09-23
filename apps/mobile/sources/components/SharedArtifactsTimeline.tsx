@@ -17,7 +17,7 @@ import { decodeBase64 } from '@/encryption/base64';
 import { artifactKind } from '@/utils/artifactKind';
 import type { ArtifactAction } from '@/utils/artifactPreview';
 import { artifactTransferKey, cancelArtifactTransfer, useArtifactTransfers, type ArtifactTransfer } from '@/utils/artifactTransfer';
-import { downloadArtifact, keptBytes } from '@/utils/downloadArtifact';
+import { downloadArtifact, keptBytes, restoreReadyArtifact } from '@/utils/downloadArtifact';
 import { richPreviewKind } from '@/utils/richArtifactPreview';
 
 type ArtifactList = RequestResult<'artifact.list'>;
@@ -299,6 +299,7 @@ function remainingLabel(seconds: number): string {
 }
 
 function transferLine(transfer: ArtifactTransfer, artifact: SessionArtifact): string | undefined {
+    if (transfer.status === 'ready') return `Ready to save · ${sizeLabel(transfer.total)}`;
     if (transfer.status === 'done') {
         return Platform.OS === 'web'
             ? `Saved to Downloads · ${sizeLabel(transfer.total)}`
@@ -331,6 +332,9 @@ function useKeptBytes(sessionId: string, artifact: SessionArtifact, transfer: Ar
 
 function TransferMeta({ sessionId, artifact, subtitle, lines }: { sessionId: string; artifact: SessionArtifact; subtitle: string; lines: number }) {
     const transfer = useArtifactTransfers((all) => all[artifactTransferKey(sessionId, artifact)]);
+    React.useEffect(() => {
+        if (Platform.OS === 'web') void restoreReadyArtifact(sessionId, artifact);
+    }, [sessionId, artifact.id, artifact.name, artifact.at, artifact.size]);
     const kept = useKeptBytes(sessionId, artifact, transfer);
     let line = transfer === undefined ? undefined : transferLine(transfer, artifact);
     let bar = transfer !== undefined && (transfer.status === 'downloading' || transfer.status === 'waiting') && transfer.total > PROGRESS_BYTES
@@ -384,6 +388,8 @@ function TransferControl({ sessionId, artifact, onDownload }: { sessionId: strin
     else if (transfer?.status === 'failed') {
         label = `Retry downloading ${name}`;
         icon = 'refresh';
+    } else if (transfer?.status === 'ready') {
+        label = `Save ${name}`;
     } else if (transfer?.status === 'done' && Platform.OS === 'web') {
         label = `Save ${name} again`;
     } else if (transfer?.status === 'done') {
