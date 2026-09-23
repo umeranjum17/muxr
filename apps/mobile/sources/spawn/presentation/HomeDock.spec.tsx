@@ -1,5 +1,5 @@
 import React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
+import TestRenderer from 'react-test-renderer';
 import { expect, it, vi } from 'vitest';
 
 const keyboardHandler = vi.hoisted(() => ({ current: null as null | {
@@ -23,7 +23,7 @@ vi.mock('react-native', () => ({
     useWindowDimensions: () => ({ width: 270, height: 594 }),
 }));
 vi.mock('react-native-unistyles', () => ({
-    StyleSheet: { create: (make: (theme: typeof theme) => unknown) => make(theme), hairlineWidth: 1 },
+    StyleSheet: { create: (make: (value: typeof theme) => unknown) => make(theme), hairlineWidth: 1 },
     useUnistyles: () => ({ theme }),
 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 24, bottom: 0 }) }));
@@ -54,7 +54,7 @@ vi.mock('../application/useNewSessionDraft', () => {
         setMachineId: vi.fn(), setAgentType: vi.fn(), setPath: vi.fn(), setSessionType: vi.fn(),
         setWorktreeKey: vi.fn(), setAttachments: vi.fn(),
     };
-    return { useNewSessionDraft: Object.assign((select: (state: typeof state) => unknown) => select(state), { getState: () => state }) };
+    return { useNewSessionDraft: Object.assign((select: (snapshot: typeof state) => unknown) => select(state), { getState: () => state }) };
 });
 vi.mock('@/plugins/ui', () => ({ PluginSlot: () => null }));
 vi.mock('@/conversation/ui', () => ({ RealtimeTalkButton: () => null }));
@@ -82,28 +82,28 @@ it('keeps the short-screen composer below Back and makes Start reachable by scro
     globalThis.requestAnimationFrame = (callback) => { callback(0); return 1; };
     try {
         let screen: any;
-        act(() => { screen = TestRenderer.create(
+        TestRenderer.act(() => { screen = TestRenderer.create(
             <HomeDock prompt="" onPromptChange={vi.fn()} onSubmit={async () => true} onStartBlank={async () => true} isSubmitting={false} />,
             { createNodeMock: (node: any) => node.type === 'ScrollView' ? { scrollToEnd } : null },
         ); });
         const entry = screen.root.findAll((node: any) => node.props.onPress && node.props.style?.justifyContent === 'center')[0];
-        act(() => entry.props.onPress());
+        TestRenderer.act(() => entry.props.onPress());
         const modalRoot = screen.root.findAll((node: any) => node.type === 'View' && node.props.onLayout)[0];
-        act(() => modalRoot.props.onLayout({ nativeEvent: { layout: { height: 594 } } }));
-        act(() => keyboardHandler.current?.onStart({ height: 290 }));
-        act(() => modalRoot.props.onLayout({ nativeEvent: { layout: { height: 304 } } }));
+        TestRenderer.act(() => modalRoot.props.onLayout({ nativeEvent: { layout: { height: 594 } } }));
+        TestRenderer.act(() => keyboardHandler.current?.onStart({ height: 290 }));
+        TestRenderer.act(() => modalRoot.props.onLayout({ nativeEvent: { layout: { height: 304 } } }));
         const scroll = screen.root.findByType('ScrollView');
         expect(scroll.props.style.maxHeight).toBe(206);
         expect(scroll.props.keyboardShouldPersistTaps).toBe('handled');
         expect(scroll.findAll((node: any) => node.props.accessibilityLabel === 'Start Pi without a prompt')).toHaveLength(1);
         expect(scroll.findAllByType('TextInput')).toHaveLength(1);
-        act(() => scroll.props.onLayout());
+        TestRenderer.act(() => scroll.props.onLayout());
         expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
-        act(() => keyboardHandler.current?.onStart({ height: 340 }));
+        TestRenderer.act(() => keyboardHandler.current?.onStart({ height: 340 }));
         expect(screen.root.findByType('ScrollView').props.style.maxHeight).toBe(156);
-        act(() => keyboardHandler.current?.onEnd({ height: 0 }));
+        TestRenderer.act(() => keyboardHandler.current?.onEnd({ height: 0 }));
         expect(screen.root.findByType('ScrollView').props.style.maxHeight).toBe(496);
-        act(() => { screen.unmount(); });
+        TestRenderer.act(() => { screen.unmount(); });
     } finally {
         globalThis.requestAnimationFrame = previousFrame;
         scrollToEnd.mockClear();
