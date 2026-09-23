@@ -177,6 +177,16 @@ export class MuxrClient {
             if (this.options.ssh !== undefined) {
                 dialRelayUrl = await sshRelayUrl(relayUrl, machineId, this.options.ssh);
             }
+            const legacyToken = this.options.mode === 'local' && token?.startsWith('acctok_') === true;
+            const ticketFor = token === undefined || token === '' || legacyToken
+                ? undefined
+                : (dial: string) => issueWsTicket({ relayUrl: dial, credential: token, machineId, role: 'client', transport: 'relay' });
+            // A ticket depends on the credential, never on the grant, so it is
+            // requested alongside the grant refresh instead of one round trip
+            // after it. A failed refresh still decides the outcome first.
+            const earlyDial = dialRelayUrl;
+            const earlyTicket = this.options.mode === 'hosted' ? ticketFor?.(earlyDial) : undefined;
+            earlyTicket?.catch(() => undefined);
             if (this.options.mode === 'hosted') {
                 const latest = await refreshHostedGrant(machineId, token, relayUrl, dialRelayUrl);
                 if (latest !== undefined && latest.keyVersion >= (this.hosted?.grant.keyVersion ?? 0)) {
@@ -187,18 +197,11 @@ export class MuxrClient {
                 }
             }
             if (this.options.mode === 'hosted' && (!token || this.hosted === undefined)) throw new Error('hosted connection is missing its credential or grant');
-            const legacyToken = this.options.mode === 'local' && token?.startsWith('acctok_') === true;
-            if (token === undefined || token === '' || legacyToken) {
+            if (ticketFor === undefined) {
                 url = `${dialRelayUrl}?role=client&machineId=${encodeURIComponent(machineId)}${token === undefined || token === '' ? '' : `&token=${encodeURIComponent(token)}`}`;
             } else {
                 failureStage = 'ticket';
-                const ticket = await issueWsTicket({
-                    relayUrl: dialRelayUrl,
-                    credential: token,
-                    machineId,
-                    role: 'client',
-                    transport: 'relay',
-                });
+                const ticket = await (earlyTicket !== undefined && dialRelayUrl === earlyDial ? earlyTicket : ticketFor(dialRelayUrl));
                 url = ticketSocketUrl(dialRelayUrl, ticket, 'relay');
             }
         } catch (error) {

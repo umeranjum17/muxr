@@ -32,7 +32,7 @@ import {
     loadConnectionSettingsAsync,
     sshTunnelAvailable,
 } from '@/connection';
-import { getCachedHostedGrant, loadHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
+import { getCachedHostedGrant, loadHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
 import {
     applyStatusToSession,
@@ -675,9 +675,10 @@ class MuxrSync {
             storage.getState().applySessions([], true);
             storage.getState().applyHerdrTree([]);
         }
+        // The client refreshes the grant before every dial, so startup does
+        // not wait on the relay for it here.
         if (settings.mode === 'hosted' && settings.machineId !== '') {
             await loadHostedGrant(settings.machineId);
-            await refreshHostedGrant(settings.machineId);
         }
         // Account validation and machine transport are deliberately independent.
         // Offline/account-only startup renders immediately; only a definite /v1/session
