@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { DesktopSessions } from '../infrastructure/desktopSessions.js';
 
@@ -304,6 +305,55 @@ describe('desktop sessions, host side', () => {
         writeFileSync(join(runtime, 'wayland-1'), '');
         const wayland = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, { DISPLAY: ':0', XDG_RUNTIME_DIR: runtime });
         expect(await wayland.capabilities()).toMatchObject({ available: true, input: false });
+    }, 20_000);
+
+    it('discovers only the host account’s X socket while honoring explicit displays', async () => {
+        const directory = mkdtempSync(join(process.cwd(), 'x-'));
+        const socket = createServer();
+        const uid = process.getuid();
+        const hostUid = vi.spyOn(process, 'getuid');
+        const log = join(directory, 'received.jsonl');
+        const script = join(directory, 'engine.cjs');
+        writeFileSync(script, STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'));
+        writeFileSync(log, '');
+        const options = { enginePath: process.execPath, engineArguments: [script, log] };
+        const hosts: DesktopSessions[] = [];
+        try {
+            await new Promise<void>((resolve, reject) => {
+                socket.once('error', reject);
+                socket.listen(join(directory, 'X0'), resolve);
+            });
+            hostUid.mockReturnValue(uid + 1);
+            const foreign = new DesktopSessions(options, {}, directory);
+            hosts.push(foreign);
+            expect(await foreign.capabilities()).toMatchObject({ available: true, input: false });
+            await foreign.open({ permissions: ['view'] });
+            expect(JSON.parse(readFileSync(log, 'utf8').trim().split('\n').find((line) => JSON.parse(line).method === 'session.open')!).params.source).toBeUndefined();
+
+            const explicit = new DesktopSessions(options, { DISPLAY: ':88' }, directory);
+            hosts.push(explicit);
+            expect(await explicit.capabilities()).toMatchObject({ available: true, input: true });
+            await explicit.open({ permissions: ['view', 'control'] });
+            const configured = new DesktopSessions(options, { MUXR_DESKTOP_SOURCE: 'x11', MUXR_DESKTOP_X11_DISPLAY: ':99' }, directory);
+            hosts.push(configured);
+            await configured.open({ permissions: ['view'] });
+
+            hostUid.mockReturnValue(uid);
+            const owned = new DesktopSessions(options, {}, directory);
+            hosts.push(owned);
+            expect(await owned.capabilities()).toMatchObject({ available: true, input: true });
+            await owned.open({ permissions: ['view', 'control'] });
+            const sources = readFileSync(log, 'utf8').trim().split('\n')
+                .map((line) => JSON.parse(line) as { method: string; params: { source?: unknown } })
+                .filter((request) => request.method === 'session.open')
+                .map((request) => request.params.source);
+            expect(sources).toEqual([undefined, { kind: 'x11', display: ':88' }, { kind: 'x11', display: ':99' }, { kind: 'x11', display: ':0' }]);
+        } finally {
+            hostUid.mockRestore();
+            for (const host of hosts) await host.closeAll();
+            await new Promise<void>((resolve) => socket.close(() => resolve()));
+            rmSync(directory, { recursive: true, force: true });
+        }
     }, 20_000);
 
     it('forgets the session record once the engine revokes it', async () => {

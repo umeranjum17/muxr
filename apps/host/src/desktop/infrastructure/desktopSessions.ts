@@ -1,4 +1,5 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
 import type { SourceRequest } from '@desklink/host';
@@ -19,14 +20,14 @@ import { PortalGrant } from './portalGrant.js';
  * it, a machine with no Wayland session at all, such as a cloud server running
  * Xvfb, offers its X display.
  */
-function configuredSource(env: NodeJS.ProcessEnv): SourceRequest | undefined {
+function configuredSource(env: NodeJS.ProcessEnv, x11SocketDirectory: string): SourceRequest | undefined {
     const kind = env.MUXR_DESKTOP_SOURCE?.trim();
     if (kind === 'x11') {
         const display = env.MUXR_DESKTOP_X11_DISPLAY?.trim();
         return display === undefined || display === '' ? { kind: 'x11' } : { kind: 'x11', display };
     }
     if ((kind !== undefined && kind !== '') || waylandSession(env)) return undefined;
-    const display = env.DISPLAY?.trim() || firstXDisplay();
+    const display = env.DISPLAY?.trim() || firstXDisplay(x11SocketDirectory);
     return display === undefined || display === '' ? undefined : { kind: 'x11', display };
 }
 
@@ -45,10 +46,20 @@ function waylandSession(env: NodeJS.ProcessEnv): boolean {
     }
 }
 
-/** A service does not inherit DISPLAY, so find the server itself: the lowest-numbered one. */
-function firstXDisplay(): string | undefined {
+function firstXDisplay(directory: string): string | undefined {
     try {
-        const numbers = readdirSync('/tmp/.X11-unix').flatMap((name) => /^X(\d+)$/.exec(name)?.[1] ?? []).map(Number);
+        const uid = process.getuid?.();
+        if (uid === undefined) return undefined;
+        const numbers = readdirSync(directory).flatMap((name) => {
+            const number = /^X(\d+)$/.exec(name)?.[1];
+            if (number === undefined) return [];
+            try {
+                const socket = statSync(join(directory, name));
+                return socket.isSocket() && socket.uid === uid ? [Number(number)] : [];
+            } catch {
+                return [];
+            }
+        });
         return numbers.length === 0 ? undefined : `:${Math.min(...numbers)}`;
     } catch {
         return undefined;
@@ -118,7 +129,7 @@ export class DesktopSessions {
     private readonly environment: NodeJS.ProcessEnv;
     private readonly portalGrant: PortalGrant | undefined;
 
-    constructor(options: DesktopEngineOptions = {}, environment: NodeJS.ProcessEnv = process.env) {
+    constructor(options: DesktopEngineOptions = {}, environment: NodeJS.ProcessEnv = process.env, private readonly x11SocketDirectory = '/tmp/.X11-unix') {
         this.options = options;
         this.environment = environment;
         this.portalGrant = options.stateRoot === undefined ? undefined : new PortalGrant(options.stateRoot);
@@ -143,7 +154,7 @@ export class DesktopSessions {
             // The engine's input probe only knows about uinput; the X11 backend
             // injects through XTest and needs none, so the host's own configured
             // source is the only side that can answer for that machine.
-            const x11 = configuredSource(this.environment)?.kind === 'x11';
+            const x11 = configuredSource(this.environment, this.x11SocketDirectory)?.kind === 'x11';
             this.capabilitiesCache = {
                 available: true,
                 input: x11 || (reported.input.pointer && reported.input.keyboard),
@@ -187,7 +198,7 @@ export class DesktopSessions {
         if (client === null) {
             throw new EngineRefused('desktop-unavailable', this.startFailure ?? this.missingEngineReason());
         }
-        const source = configuredSource(this.environment);
+        const source = configuredSource(this.environment, this.x11SocketDirectory);
         let restoreToken: string | undefined;
         if (source?.kind !== 'x11') {
             try {
