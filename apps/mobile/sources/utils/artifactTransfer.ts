@@ -39,7 +39,8 @@ export interface TransferSink {
 export interface TransferPlatform {
     sink(artifact: DownloadableArtifact, sessionId: string): TransferSink | Promise<TransferSink>;
     /** Hand a finished file to the OS: installer, viewer or share sheet. */
-    open(uri: string, artifact: DownloadableArtifact): void | Promise<void>;
+    open(uri: string, artifact: DownloadableArtifact, sessionId: string): void | Promise<void>;
+    ready?(artifact: DownloadableArtifact, sessionId: string): Promise<string | undefined>;
     deliverBeforeDone?: boolean;
 }
 
@@ -177,6 +178,28 @@ async function readChunk(job: Job, at: number, length: number, requireTime = fal
     throw new ArtifactChanged();
 }
 
+async function deliver(job: Job, uri: string): Promise<void> {
+    if (!owns(job)) return;
+    const { artifact } = job;
+    if (job.platform.deliverBeforeDone) {
+        let delivered = false;
+        if (AppState.currentState === 'active' && document.visibilityState !== 'hidden') {
+            try { await job.platform.open(uri, artifact, job.sessionId); delivered = true; } catch {}
+        }
+        if (!owns(job)) return;
+        jobs.delete(job.key);
+        publish(job.key, { status: delivered ? 'done' : 'ready', total: artifact.size });
+        job.settle.resolve();
+    } else {
+        jobs.delete(job.key);
+        publish(job.key, { status: 'done', total: artifact.size });
+        job.settle.resolve();
+        if (AppState.currentState === 'active') {
+            try { job.platform.open(uri, artifact, job.sessionId); } catch {}
+        }
+    }
+}
+
 async function run(job: Job): Promise<void> {
     const { artifact } = job;
     await closing.get(job.key);
@@ -200,6 +223,11 @@ async function run(job: Job): Promise<void> {
         else trailing = setTimeout(show, wait);
     };
     try {
+        const ready = await job.platform.ready?.(artifact, job.sessionId);
+        if (ready !== undefined) {
+            await deliver(job, ready);
+            return;
+        }
         sink = await job.platform.sink(artifact, job.sessionId);
         if (!owns(job)) throw new Error('Download cancelled.');
         received = sink.offset;
@@ -254,23 +282,7 @@ async function run(job: Job): Promise<void> {
         const uri = await sink.finish();
         if (!owns(job)) throw new Error('Download cancelled.');
         clearTimeout(trailing);
-        if (job.platform.deliverBeforeDone) {
-            let delivered = false;
-            if (AppState.currentState === 'active' && document.visibilityState !== 'hidden') {
-                try { await job.platform.open(uri, artifact); delivered = true; } catch {}
-            }
-            if (!owns(job)) return;
-            jobs.delete(job.key);
-            publish(job.key, { status: delivered ? 'done' : 'ready', total: artifact.size });
-            job.settle.resolve();
-        } else {
-            jobs.delete(job.key);
-            publish(job.key, { status: 'done', total: artifact.size });
-            job.settle.resolve();
-            if (AppState.currentState === 'active') {
-                try { job.platform.open(uri, artifact); } catch {}
-            }
-        }
+        await deliver(job, uri);
     } catch (error) {
         clearTimeout(trailing);
         if (!owns(job)) {

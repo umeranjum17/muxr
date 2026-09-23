@@ -18,6 +18,7 @@ function readyName(sessionId: string, artifact: DownloadableArtifact): string {
 }
 
 let downloads: Promise<FileSystemDirectoryHandle | undefined> | undefined;
+const memoryReady = new Map<string, string>();
 
 /**
  * Names carry the expected size, so a file already the right size is a
@@ -51,6 +52,8 @@ async function sweepDirectory(directory: FileSystemDirectoryHandle, clear = fals
 }
 
 export async function clearPartialDownloads(): Promise<void> {
+    for (const uri of memoryReady.values()) URL.revokeObjectURL(uri);
+    memoryReady.clear();
     const directory = await downloadsDirectory();
     if (directory !== undefined) await sweepDirectory(directory, true);
 }
@@ -79,7 +82,7 @@ export async function restoreReadyArtifact(sessionId: string, artifact: Download
 
 async function sink(artifact: DownloadableArtifact, sessionId: string): Promise<TransferSink> {
     const directory = await downloadsDirectory();
-    if (directory === undefined) return fallbackSink(artifact);
+    if (directory === undefined) return fallbackSink(artifact, sessionId);
     const name = readyName(sessionId, artifact);
     let handle: FileSystemFileHandle;
     let kept: number;
@@ -92,7 +95,7 @@ async function sink(artifact: DownloadableArtifact, sessionId: string): Promise<
             kept = 0;
         }
     } catch {
-        return fallbackSink(artifact);
+        return fallbackSink(artifact, sessionId);
     }
     if (kept === artifact.size) {
         return { offset: kept, write() {}, pause() {}, discard: () => directory.removeEntry(name), finish: () => name };
@@ -103,7 +106,7 @@ async function sink(artifact: DownloadableArtifact, sessionId: string): Promise<
         writable = await handle.createWritable({ keepExistingData: offset > 0 });
         await writable.seek(offset);
     } catch {
-        return fallbackSink(artifact);
+        return fallbackSink(artifact, sessionId);
     }
     return {
         offset,
@@ -122,24 +125,34 @@ async function sink(artifact: DownloadableArtifact, sessionId: string): Promise<
     };
 }
 
-function fallbackSink(artifact: DownloadableArtifact): TransferSink {
+function fallbackSink(artifact: DownloadableArtifact, sessionId: string): TransferSink {
     if (artifact.size > MEMORY_LIMIT) throw new Error(LARGE_FILE_ERROR);
-    return memorySink(artifact);
+    return memorySink(artifact, sessionId);
 }
 
 /** ponytail: below 64 MB, private windows and older Safari buffer Blob parts and resume from zero. */
-function memorySink(artifact: DownloadableArtifact): TransferSink {
+function memorySink(artifact: DownloadableArtifact, sessionId: string): TransferSink {
     const parts: Blob[] = [];
+    const key = artifactTransferKey(sessionId, artifact);
     return {
         offset: 0,
         write: (bytes) => { parts.push(new Blob([bytes as Uint8Array<ArrayBuffer>])); },
         pause() {},
-        discard: () => { parts.length = 0; },
-        finish: () => URL.createObjectURL(new Blob(parts, { type: artifact.mimeType })),
+        discard: () => {
+            parts.length = 0;
+            const uri = memoryReady.get(key);
+            if (uri !== undefined) URL.revokeObjectURL(uri);
+            memoryReady.delete(key);
+        },
+        finish: () => {
+            const uri = URL.createObjectURL(new Blob(parts, { type: artifact.mimeType }));
+            memoryReady.set(key, uri);
+            return uri;
+        },
     };
 }
 
-async function open(uri: string, artifact: DownloadableArtifact): Promise<void> {
+async function open(uri: string, artifact: DownloadableArtifact, sessionId: string): Promise<void> {
     const stored = !uri.startsWith('blob:');
     const directory = stored ? await downloadsDirectory() : undefined;
     if (stored && directory === undefined) throw new Error('Saved file unavailable');
@@ -150,16 +163,17 @@ async function open(uri: string, artifact: DownloadableArtifact): Promise<void> 
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     if (stored) await directory!.removeEntry(uri);
+    else memoryReady.delete(artifactTransferKey(sessionId, artifact));
 }
 
-const platform: TransferPlatform = { sink, open, deliverBeforeDone: true };
+async function ready(artifact: DownloadableArtifact, sessionId: string): Promise<string | undefined> {
+    const memory = memoryReady.get(artifactTransferKey(sessionId, artifact));
+    if (memory !== undefined) return memory;
+    return await readyToSave(sessionId, artifact) ? readyName(sessionId, artifact) : undefined;
+}
 
-export async function downloadArtifact(sessionId: string, artifact: DownloadableArtifact): Promise<void> {
-    if (await readyToSave(sessionId, artifact)) {
-        await open(readyName(sessionId, artifact), artifact);
-        const key = artifactTransferKey(sessionId, artifact);
-        useArtifactTransfers.setState((all) => ({ ...all, [key]: { status: 'done', total: artifact.size } }));
-        return;
-    }
+const platform: TransferPlatform = { sink, open, ready, deliverBeforeDone: true };
+
+export function downloadArtifact(sessionId: string, artifact: DownloadableArtifact): Promise<void> {
     return transferArtifact(sessionId, artifact, platform);
 }

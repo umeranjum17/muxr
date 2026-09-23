@@ -284,9 +284,10 @@ describe('progressive artifact download', () => {
             },
         };
         const clicks: Array<{ href: string; download: string }> = [];
+        let onClick: (() => void) | undefined;
         const document = {
             visibilityState: 'hidden',
-            createElement: () => ({ href: '', download: '', click() { clicks.push({ href: this.href, download: this.download }); } }),
+            createElement: () => ({ href: '', download: '', click() { clicks.push({ href: this.href, download: this.download }); onClick?.(); } }),
         };
         vi.stubGlobal('navigator', { storage: { getDirectory: async () => ({ getDirectoryHandle: async () => directory }) } });
         vi.stubGlobal('document', document);
@@ -324,6 +325,63 @@ describe('progressive artifact download', () => {
             expect(files.size).toBe(0);
             expect(link.requests).toHaveLength(reads);
             expect(state.useArtifactTransfers.getState()[state.artifactTransferKey('session-ready', artifact)]).toMatchObject({ status: 'done' });
+
+            const race = { ...artifact, name: 'race.apk' };
+            const initialReads = link.requests.length;
+            const originalRemove = directory.removeEntry.bind(directory);
+            let release!: () => void;
+            const held = new Promise<void>((resolve) => { release = resolve; });
+            directory.removeEntry = async (name: string) => { await held; await originalRemove(name); };
+            const clicked = new Promise<void>((resolve) => { onClick = resolve; });
+            const first = reloaded.downloadArtifact('session-ready', race);
+            await clicked;
+            expect(files.size).toBe(1);
+            const second = reloaded.downloadArtifact('session-ready', race);
+            release();
+            await Promise.all([first, second]);
+            expect(clicks.filter((click) => click.download === 'race.apk')).toHaveLength(1);
+            expect(link.requests.length - initialReads).toBe(1);
+            expect(files.size).toBe(0);
+            onClick = undefined;
+
+            vi.resetModules();
+            vi.stubGlobal('navigator', { storage: { getDirectory: async () => { throw new Error('No private storage'); } } });
+            const memoryWeb = await import('./downloadArtifact.web');
+            const memoryState = await import('./artifactTransfer');
+            const memoryBytes = Buffer.from('memory-only download');
+            const memoryArtifact = { ...artifact, id: createHash('sha256').update(memoryBytes).digest('hex'), name: 'memory.apk', size: memoryBytes.length };
+            link.reader = async (_sessionId, id, offset, length) => {
+                const chunk = memoryBytes.subarray(offset, offset + length);
+                return { id, size: memoryBytes.length, at: memoryArtifact.at, offset, data: chunk.toString('base64'), sha256: createHash('sha256').update(chunk).digest('hex') };
+            };
+            appState.currentState = 'background';
+            document.visibilityState = 'hidden';
+            await memoryWeb.downloadArtifact('session-memory', memoryArtifact);
+            expect(memoryState.useArtifactTransfers.getState()[memoryState.artifactTransferKey('session-memory', memoryArtifact)]).toMatchObject({ status: 'ready' });
+            const memoryReads = link.requests.length;
+            const beforeSave = clicks.length;
+            appState.currentState = 'active';
+            document.visibilityState = 'visible';
+            await memoryWeb.downloadArtifact('session-memory', memoryArtifact);
+            expect(clicks.slice(beforeSave)).toEqual([{ href: 'blob:download', download: 'memory.apk' }]);
+            expect(link.requests).toHaveLength(memoryReads);
+            expect(memoryState.useArtifactTransfers.getState()[memoryState.artifactTransferKey('session-memory', memoryArtifact)]).toMatchObject({ status: 'done' });
+
+            appState.currentState = 'background';
+            document.visibilityState = 'hidden';
+            await memoryWeb.downloadArtifact('session-memory', memoryArtifact);
+            vi.resetModules();
+            const memoryReloaded = await import('./downloadArtifact.web');
+            const memoryReloadState = await import('./artifactTransfer');
+            await memoryReloaded.sweepArtifactDownloads();
+            await memoryReloaded.restoreReadyArtifact('session-memory', memoryArtifact);
+            expect(memoryReloadState.useArtifactTransfers.getState()[memoryReloadState.artifactTransferKey('session-memory', memoryArtifact)]).toBeUndefined();
+            const beforeRedownload = link.requests.length;
+            appState.currentState = 'active';
+            document.visibilityState = 'visible';
+            await memoryReloaded.downloadArtifact('session-memory', memoryArtifact);
+            expect(link.requests.length).toBeGreaterThan(beforeRedownload);
+            expect(memoryReloadState.useArtifactTransfers.getState()[memoryReloadState.artifactTransferKey('session-memory', memoryArtifact)]).toMatchObject({ status: 'done' });
         } finally {
             appState.currentState = 'active';
             vi.useRealTimers();
