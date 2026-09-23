@@ -249,6 +249,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // View commands keep a permanent route in Pane actions.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
     const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number }>();
+    const [choicesVisible, setChoicesVisible] = React.useState(false);
     // The ring is hosted by the screen, never by the terminal renderer. It owns
     // its own open state so that opening it re-renders one small component
     // rather than this whole screen on the frame the bloom starts; the screen
@@ -1434,9 +1435,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         {/* A question lives at the live edge, so its answers
                             stand down while the pane is scrolled back. */}
                         <PendingChoices
+                            key={props.id}
                             sessionId={props.id}
                             waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !showJump && !desktopVisible}
                             channel={channel}
+                            onVisibilityChange={setChoicesVisible}
                         />
                     </View>
 
@@ -1652,7 +1655,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         a link card is open. Its overlay extends through the
                         rails so the ring can borrow room below a short terminal;
                         the control itself stays on the terminal surface. */}
-                    {hasTools && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
+                    {hasTools && !choicesVisible && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
                         <View
                             aria-hidden={desktopVisible}
                             pointerEvents="box-none"

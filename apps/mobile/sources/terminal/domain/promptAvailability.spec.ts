@@ -42,7 +42,7 @@ describe('terminal prompt guard', () => {
         ].join('\n');
         expect(pendingChoices(claude)).toEqual([
             { key: '1', label: 'Yes' },
-            { key: '2', label: 'Yes, and switch to accept edits' },
+            { key: '2', label: 'Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)' },
             { key: '3', label: 'No' },
         ]);
 
@@ -59,6 +59,13 @@ describe('terminal prompt guard', () => {
         expect(pendingChoices(codex)).toEqual([
             { key: '1', label: 'Yes, continue' },
             { key: '2', label: 'No, quit' },
+        ]);
+        expect(pendingChoices('❯ 1) Yes\n  2) No')).toEqual([]);
+        expect(pendingChoices('▸ 1. Yes\n  2. No')).toEqual([]);
+        expect(pendingChoices('  1. Yes\n  2. No\n  ▸ 3. Approve all')).toEqual([]);
+        expect(pendingChoices('  1. Yes\n  2. No, and remember this\n     for this session\n Esc to cancel')).toEqual([
+            { key: '1', label: 'Yes' },
+            { key: '2', label: 'No, and remember this for this session' },
         ]);
 
         // A numbered list in the agent's own answer is not a question.

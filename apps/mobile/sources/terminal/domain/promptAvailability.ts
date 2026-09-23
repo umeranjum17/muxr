@@ -53,7 +53,7 @@ export interface PendingChoice {
     label: string;
 }
 
-const CHOICE_LINE = /^\s*(?:[❯›>▸▶→]\s*)?(\d)[.)]\s+(\S.*?)\s*$/;
+const CHOICE_LINE = /^\s*(?:[❯›]\s*)?(\d)\.\s+(\S.*?)\s*$/;
 /** Lines a question may show under its last choice: "Esc to cancel", "Press enter to continue". */
 const FOOTER_LINES = 6;
 /** Lines a long choice may wrap onto at phone width before the next one. */
@@ -69,18 +69,27 @@ const WRAP_LINES = 4;
 export function pendingChoices(screen: string): PendingChoice[] {
     const lines = screen.split('\n').filter((line) => line.trim() !== '');
     const found: PendingChoice[] = [];
-    let gap = 0;
+    let gap: string[] = [];
     for (let index = lines.length - 1; index >= 0; index--) {
-        const match = CHOICE_LINE.exec(lines[index]!);
+        const line = lines[index]!;
+        const match = CHOICE_LINE.exec(line);
         const expected = found.length === 0 ? undefined : String(Number(found[0]!.key) - 1);
-        if (match !== null && (expected === undefined || match[1] === expected)) {
-            found.unshift({ key: match[1]!, label: match[2]! });
+        if (match !== null) {
+            if (expected !== undefined && match[1] !== expected) return [];
+            const indent = line.length - line.trimStart().length;
+            if (gap.some((wrapped) => /^\s*(?:\S+\s+)?\d[.)]\s+/.test(wrapped))) return [];
+            const wrapLines = gap.reverse();
+            const footer = wrapLines.findIndex((wrapped) => wrapped.length - wrapped.trimStart().length <= indent);
+            if (found.length > 0 && footer !== -1) return [];
+            const continuation = found.length === 0 && footer !== -1 ? wrapLines.slice(0, footer) : wrapLines;
+            if (continuation.length > WRAP_LINES || wrapLines.length - continuation.length > FOOTER_LINES) return [];
+            found.unshift({ key: match[1]!, label: [match[2]!, ...continuation.map((wrapped) => wrapped.trim())].join(' ') });
             if (match[1] === '1') break;
-            gap = 0;
+            gap = [];
             continue;
         }
-        gap++;
-        if (gap > (found.length === 0 ? FOOTER_LINES : WRAP_LINES)) return [];
+        gap.push(line);
+        if (gap.length > (found.length === 0 ? FOOTER_LINES + WRAP_LINES : WRAP_LINES)) return [];
     }
     return found.length >= 2 && found[0]!.key === '1' ? found : [];
 }
