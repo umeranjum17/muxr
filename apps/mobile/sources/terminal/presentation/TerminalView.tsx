@@ -34,7 +34,7 @@ import {
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import { claimTerminalAhead, rememberTerminalGrid } from '../application/terminalAhead';
 import { createTerminalScrollGate } from '../application/terminalScrollGate';
-import { DEFAULT_FONT_INDEX, FONT_STEPS, clampFontIndex } from '../domain/fontSteps';
+import { DEFAULT_FONT_INDEX, FONT_STEPS, clampFontIndex, nearestFontIndex } from '../domain/fontSteps';
 import { openTerminalLink } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
@@ -128,6 +128,21 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const resetZoom = (): void => {
         fontIndexRef.current = DEFAULT_FONT_INDEX;
         setFontIndex(DEFAULT_FONT_INDEX);
+    };
+
+    // A pinch steps the one text size every terminal shares, from the size it
+    // began at, so the size it settles on survives a switch to the next agent.
+    // The grid reports the pinch and leaves its own size alone either way.
+    const pinchZoom = useLocalSetting('terminalPinchZoom');
+    const pinchFrom = React.useRef(0);
+    const pinch = ({ nativeEvent }: { nativeEvent: { phase: 'begin' | 'change' | 'end'; scale: number } }): void => {
+        if (!pinchZoom || nativeEvent.phase === 'end') return;
+        if (nativeEvent.phase === 'begin' || pinchFrom.current === 0) pinchFrom.current = FONT_STEPS[fontIndexRef.current];
+        if (nativeEvent.phase === 'begin') return;
+        const next = nearestFontIndex(pinchFrom.current * nativeEvent.scale);
+        if (next === fontIndexRef.current) return;
+        fontIndexRef.current = next;
+        setFontIndex(next);
     };
 
     const atMaxZoom = safeFontIndex >= FONT_STEPS.length - 1;
@@ -365,6 +380,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
                 onScroll={({ nativeEvent }) => scrollGate.queue(-nativeEvent.rows)}
+                onPinch={pinch}
                 onOpenLink={({ nativeEvent }) => {
                     if (props.onLinkPress !== undefined) { props.onLinkPress(nativeEvent.url); return; }
                     openTerminalLink(nativeEvent.url, openExternalUrl);

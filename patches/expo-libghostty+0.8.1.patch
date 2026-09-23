@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
-index b9c118ee074ba100136c20cc6fd5896b15c4bb33..620e92d0c553ae500d3ee6c337bf642ad034c1d7 100644
+index b9c118e..620e92d 100644
 --- a/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
 +++ b/node_modules/expo-libghostty/android/src/main/cpp/ghostty_jni.cpp
 @@ -18,7 +18,8 @@
@@ -148,7 +148,7 @@ index b9c118ee074ba100136c20cc6fd5896b15c4bb33..620e92d0c553ae500d3ee6c337bf642a
  Java_expo_modules_libghostty_GhosttyVt_nativeSelectWord(
      JNIEnv*, jobject, jlong handle, jint col, jint row) {
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
-index 1516400296a26128222f73aa35b79104d5a12fb0..394d5a9ff2783158fa1054d43a62869802e86858 100644
+index 1516400..42997c3 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyModule.kt
 @@ -12,13 +12,25 @@ class ExpoLibghosttyModule : Module() {
@@ -156,7 +156,7 @@ index 1516400296a26128222f73aa35b79104d5a12fb0..394d5a9ff2783158fa1054d43a628698
  
      View(ExpoLibghosttyView::class) {
 -      Events("onInput", "onResize")
-+      Events("onInput", "onResize", "onScroll", "onOpenLink")
++      Events("onInput", "onResize", "onScroll", "onOpenLink", "onPinch")
  
        // Base font size in dp (default 14); applied live, the grid reflows.
        Prop("fontSize") { view: ExpoLibghosttyView, size: Float ->
@@ -179,19 +179,20 @@ index 1516400296a26128222f73aa35b79104d5a12fb0..394d5a9ff2783158fa1054d43a628698
        Prop("theme") { view: ExpoLibghosttyView, theme: TerminalThemeRecord? ->
          view.setTheme(theme)
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
-index 2d3ed62314e39fd1ade0fa5d3d007d414c948600..7817212ea8e75c565b80a3ffd0895f53d023711a 100644
+index 2d3ed62..71e03cb 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
-@@ -19,6 +19,8 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -19,6 +19,9 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
  
    private val onInput by EventDispatcher<Map<String, Any>>()
    private val onResize by EventDispatcher<Map<String, Any>>()
 +  private val onScroll by EventDispatcher<Map<String, Any>>()
 +  private val onOpenLink by EventDispatcher<Map<String, Any>>()
++  private val onPinch by EventDispatcher<Map<String, Any>>()
  
    private val terminal = GhosttyTerminalView(context).also { view ->
      view.onInputBytes = { bytes ->
-@@ -32,6 +34,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -32,6 +35,15 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
      view.onGridResize = { cols, rows ->
        onResize(mapOf("cols" to cols, "rows" to rows))
      }
@@ -201,10 +202,13 @@ index 2d3ed62314e39fd1ade0fa5d3d007d414c948600..7817212ea8e75c565b80a3ffd0895f53
 +    view.onOpenLink = { url ->
 +      onOpenLink(mapOf("url" to url))
 +    }
++    view.onPinch = { phase, scale ->
++      onPinch(mapOf("phase" to phase, "scale" to scale.toDouble()))
++    }
    }
  
    private val accessoryBar = TerminalAccessoryBar(context).also { bar ->
-@@ -56,21 +64,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -56,21 +68,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
    }
  
    private fun syncAccessoryBar(insets: WindowInsetsCompat) {
@@ -232,7 +236,7 @@ index 2d3ed62314e39fd1ade0fa5d3d007d414c948600..7817212ea8e75c565b80a3ffd0895f53
    }
  
    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-@@ -82,6 +81,10 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -82,6 +85,10 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
    /** Base font size in dp; applied live (the grid reflows in place). */
    fun setFontSize(dp: Float) = terminal.setFontSize(dp)
  
@@ -244,7 +248,7 @@ index 2d3ed62314e39fd1ade0fa5d3d007d414c948600..7817212ea8e75c565b80a3ffd0895f53
    internal fun setTheme(theme: TerminalThemeRecord?) = terminal.setTheme(
      foreground = theme?.foreground,
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
-index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48ed4df9c37 100644
+index 9d6ad16..59e4085 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyTerminalView.kt
 @@ -9,7 +9,10 @@ import android.graphics.Canvas
@@ -258,7 +262,15 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
  import android.provider.Settings
  import android.text.InputType
  import android.view.ActionMode
-@@ -42,26 +45,58 @@ import kotlin.math.roundToInt
+@@ -30,6 +33,7 @@ import android.view.inputmethod.InputMethodManager
+ import android.widget.OverScroller
+ import java.nio.ByteBuffer
+ import java.nio.ByteOrder
++import kotlin.math.abs
+ import kotlin.math.ceil
+ import kotlin.math.floor
+ import kotlin.math.hypot
+@@ -42,26 +46,64 @@ import kotlin.math.roundToInt
   * Owns a libghostty-vt session via [GhosttyVt]. PTY output is fed in with
   * [write]; user input (IME text, key escape sequences, VT query responses)
   * comes back through [onInputBytes]. Rendering pulls flattened dirty-row
@@ -281,6 +293,12 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
 +  /** A link the user tapped in the grid. The string is exact output text or
 +   *  an OSC 8 URI; opening is validated and performed by the JS layer. */
 +  var onOpenLink: ((url: String) -> Unit)? = null
++
++  /** Set when the host owns text size: a pinch is reported ("begin",
++   *  "change" with the scale since it began, "end") and the grid leaves its
++   *  own size alone, so the host can step a ladder, keep the result and
++   *  hand it back through the fontSize prop -- or ignore the pinch. */
++  var onPinch: ((phase: String, scale: Float) -> Unit)? = null
 +
    private var handle: Long = GhosttyVt.nativeCreate(INITIAL_COLS, INITIAL_ROWS, MAX_SCROLLBACK)
    private var finished = false
@@ -323,7 +341,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
  
    // Nerd Font private-use glyphs (powerline, devicons, …) are absent from the
    // system fallback chain; route those cells to the bundled symbols-only font.
-@@ -72,7 +107,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -72,7 +114,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    }
    private val fillPaint = Paint()
    private val cursorPaint = Paint()
@@ -332,7 +350,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    private var cellHeight = ceil(
      textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent
    ).toInt()
-@@ -82,6 +117,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -82,6 +124,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    // ── Grid state ──
    private var cols = INITIAL_COLS
    private var rows = INITIAL_ROWS
@@ -346,7 +364,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    private var bitmap: Bitmap? = null
    private var bitmapCanvas: Canvas? = null
    private var snapshotBuf: ByteBuffer? = null
-@@ -95,6 +137,15 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -95,6 +144,15 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private var rowSelEnd = IntArray(0)
    private var rowSelEndWide = BooleanArray(0)
  
@@ -362,7 +380,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    // ── Selection state ──
    private var selectionMode = false
    private var actionMode: ActionMode? = null
-@@ -166,7 +217,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -166,7 +224,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        val deltaRows = (scrollAccum / cellHeight).toInt()
        if (deltaRows != 0) {
          scrollAccum -= deltaRows * cellHeight
@@ -371,7 +389,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
          markScrollActivity()
          scheduleFrame()
        }
-@@ -193,9 +244,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -193,9 +251,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
            clearSelection()
            return true
          }
@@ -388,7 +406,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
          return true
        }
  
-@@ -204,6 +260,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -204,6 +267,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          lastPressCol = (e.x / cellWidth).toInt().coerceIn(0, cols - 1)
          lastPressRow = (e.y / cellHeight).toInt().coerceIn(0, rows - 1)
          performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -401,7 +419,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
          selectionMode = GhosttyVt.nativeSelectWord(handle, lastPressCol, lastPressRow)
          scheduleFrame()
          if (selectionMode) {
-@@ -229,7 +291,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -229,7 +298,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          val deltaRows = (scrollAccum / cellHeight).toInt()
          if (deltaRows != 0) {
            scrollAccum -= deltaRows * cellHeight
@@ -410,7 +428,38 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
            markScrollActivity()
            scheduleFrame()
          }
-@@ -285,6 +347,28 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -262,11 +331,19 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+       override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+         pinchScale = 1f
+         pinchLastScale = 1f
++        onPinch?.invoke("begin", 1f)
+         return true
+       }
+ 
+       override fun onScale(detector: ScaleGestureDetector): Boolean {
+         pinchScale *= detector.scaleFactor
++        onPinch?.let { report ->
++          if (abs(pinchScale - pinchLastScale) >= PINCH_REPORT_STEP) {
++            pinchLastScale = pinchScale
++            report("change", pinchScale)
++          }
++          return true
++        }
+         val steps = ((pinchScale - pinchLastScale) / PINCH_SCALE_STEP).toInt()
+         if (steps != 0) {
+           pinchLastScale += steps * PINCH_SCALE_STEP
+@@ -274,6 +351,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+         }
+         return true
+       }
++
++      override fun onScaleEnd(detector: ScaleGestureDetector) {
++        onPinch?.invoke("end", pinchScale)
++      }
+     }
+   )
+ 
+@@ -285,6 +366,28 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private fun newTextPaint(typeface: Typeface) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
      this.typeface = typeface
      textSize = fontSizeDp * resources.displayMetrics.density
@@ -439,7 +488,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    }
  
    /**
-@@ -300,7 +384,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -300,7 +403,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      for (paint in arrayOf(textPaint, boldPaint, italicPaint, boldItalicPaint, symbolsPaint)) {
        paint?.textSize = px
      }
@@ -448,7 +497,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
      cellHeight = ceil(textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent).toInt()
      baseline = -textPaint.fontMetrics.ascent
      // Cell geometry moved under any active selection handles.
-@@ -365,6 +449,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -365,6 +468,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        GhosttyVt.nativeFree(handle)
        handle = 0
      }
@@ -456,7 +505,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    }
  
    private fun sendBytes(bytes: ByteArray) {
-@@ -454,7 +539,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -454,7 +558,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      val changed = newCols != cols || newRows != rows
      cols = newCols
      rows = newRows
@@ -465,7 +514,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
        GhosttyVt.nativeResize(handle, cols, rows, cellWidth.roundToInt(), cellHeight)
        allocateGridBuffers()
        onGridResize?.invoke(cols, rows)
-@@ -465,9 +550,27 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -465,9 +569,27 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private fun allocateGridBuffers() {
      val widthPx = max(1, ceil(cols * cellWidth).toInt())
      val heightPx = max(1, rows * cellHeight)
@@ -496,7 +545,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
      }
      val capacity = HEADER_BYTES +
        rows * (ROW_HEADER_BYTES + cols * CELL_RECORD_BYTES + cols * MAX_CELL_TEXT_UNITS * 2 + 4)
-@@ -481,6 +584,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -481,6 +603,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      rowSelStart = IntArray(rows) { -1 }
      rowSelEnd = IntArray(rows) { -1 }
      rowSelEndWide = BooleanArray(rows)
@@ -506,7 +555,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    }
  
    // ── Rendering ──
-@@ -493,7 +599,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -493,7 +618,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun renderFrame() {
      val buf = snapshotBuf ?: return
@@ -516,7 +565,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
      if (handle == 0L) return
  
      val rowCount = GhosttyVt.nativeSnapshot(handle, buf)
-@@ -520,12 +627,163 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -520,12 +646,163 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      cursorColor = buf.int
      syncBlinkTimer()
  
@@ -682,7 +731,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    // ── Selection ──
  
    /** Top-left / bottom-right cells of the rendered selection, or null. */
-@@ -777,11 +1035,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -777,11 +1054,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      syncBlinkTimer()
    }
  
@@ -697,7 +746,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
      if (rowIndex < rowSelStart.size) {
        rowSelStart[rowIndex] = selStart
        rowSelEnd[rowIndex] = selEnd
-@@ -836,12 +1096,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -836,12 +1115,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
      buf.position(nextRecord)
  
@@ -719,7 +768,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
      for (col in 0 until colCount) {
        val bg = cellBg[col]
        if (bg == defaultBg) continue
-@@ -851,12 +1117,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -851,12 +1136,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        canvas.drawRect(x, top, x + width, bottom, fillPaint)
      }
  
@@ -744,7 +793,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
        val paint = when {
          symbolsPaint != null &&
            (codepoint in PUA_BMP_FIRST..PUA_BMP_LAST || codepoint >= PUA_SUPPLEMENTARY_FIRST) ->
-@@ -868,23 +1142,122 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -868,23 +1161,122 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        }
        paint.color = cellFg[col]
        if (flags and FLAG_FAINT != 0) paint.alpha = 160
@@ -784,9 +833,9 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
        }
        paint.alpha = 255
 +      col = end
-     }
-   }
- 
++    }
++  }
++
 +  /** One UTF-16 unit of printable ASCII in a single-width, drawable cell. */
 +  private fun asciiCell(col: Int): Boolean {
 +    if (cellTextLen[col] != 1) return false
@@ -860,9 +909,9 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
 +        val node = nodes[row]
 +        if (node.hasDisplayList()) canvas.drawRenderNode(node)
 +      }
-+    }
-+  }
-+
+     }
+   }
+ 
    override fun onDraw(canvas: Canvas) {
      canvas.drawColor(defaultBg)
 -    bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
@@ -876,7 +925,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
      drawCursor(canvas)
      drawSelectionHandles(canvas)
      drawScrollIndicator(canvas)
-@@ -970,6 +1343,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -970,6 +1362,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -897,7 +946,14 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    // ── Input ──
  
    override fun onTouchEvent(event: MotionEvent): Boolean {
-@@ -1105,6 +1492,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1100,11 +1506,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+     const val MIN_FONT_SIZE_DP = 4f
+     const val MAX_FONT_SIZE_DP = 64f
+     const val PINCH_SCALE_STEP = 0.1f
++    // A reported pinch is quiet between changes smaller than this.
++    const val PINCH_REPORT_STEP = 0.02f
+     const val INITIAL_COLS = 80
+     const val INITIAL_ROWS = 24
      const val MAX_SCROLLBACK = 10_000L
      const val BLINK_INTERVAL_MS = 600L
      const val SYMBOLS_FONT_ASSET = "SymbolsNerdFontMono-Regular.ttf"
@@ -909,7 +965,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
  
      // Nerd Font glyph ranges: BMP private-use area plus the supplementary
      // private-use planes (material icons live at U+F0000+ since v3).
-@@ -1131,7 +1523,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1131,7 +1544,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
  
      const val HEADER_BYTES = 52
@@ -918,7 +974,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
      const val CELL_RECORD_BYTES = 16
      const val MAX_CELL_TEXT_UNITS = 32
  
-@@ -1153,5 +1545,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1153,5 +1566,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val FLAG_SPACER = 1 shl 8
      const val FLAG_FG_DEFAULT = 1 shl 9
      const val FLAG_BG_NONE = 1 shl 10
@@ -934,7 +990,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    }
  }
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt
-index 8cfe86e9277f7a773b1749be2dbd9f9921354ae7..5c399158f78276e3122b39ed79d1dc48ce780b67 100644
+index 8cfe86e..5c39915 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt
 @@ -75,6 +75,9 @@ internal object GhosttyVt {
@@ -948,7 +1004,7 @@ index 8cfe86e9277f7a773b1749be2dbd9f9921354ae7..5c399158f78276e3122b39ed79d1dc48
  
    /** Install a linear selection between two viewport cells (inclusive). */
 diff --git a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
-index 0969f137ea5482158fb577ef3eee6c9192b1da2e..038837f30931c4f9fadb5de5fe8528ec00a6c137 100644
+index 0969f13..f21ebb7 100644
 --- a/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 +++ b/node_modules/expo-libghostty/build/ExpoLibghostty.types.d.ts
 @@ -18,6 +18,10 @@ export type TerminalViewRef = {
@@ -971,7 +1027,7 @@ index 0969f137ea5482158fb577ef3eee6c9192b1da2e..038837f30931c4f9fadb5de5fe8528ec
      /** User keyboard/IME input to forward to the PTY. */
      onInput?: (event: {
          nativeEvent: TerminalInputEvent;
-@@ -60,6 +66,18 @@ export type TerminalViewProps = {
+@@ -60,6 +66,26 @@ export type TerminalViewProps = {
      onResize?: (event: {
          nativeEvent: TerminalResizeEvent;
      }) => void;
@@ -987,11 +1043,19 @@ index 0969f137ea5482158fb577ef3eee6c9192b1da2e..038837f30931c4f9fadb5de5fe8528ec
 +            url: string;
 +        };
 +    }) => void;
++    /** A pinch, reported instead of zooming when set: the host owns text size
++     *  and hands it back through `fontSize`. `scale` is since the pinch began. */
++    onPinch?: (event: {
++        nativeEvent: {
++            phase: 'begin' | 'change' | 'end';
++            scale: number;
++        };
++    }) => void;
      ref?: Ref<TerminalViewRef>;
      style?: StyleProp<ViewStyle>;
  };
 diff --git a/node_modules/expo-libghostty/build/ExpoLibghosttyView.js b/node_modules/expo-libghostty/build/ExpoLibghosttyView.js
-index e3bf3b8973c565cccfea1982e498d5d23bac1d8c..dc5b3670183dfe2d7484df683144cf63212ef593 100644
+index e3bf3b8..dc5b367 100644
 --- a/node_modules/expo-libghostty/build/ExpoLibghosttyView.js
 +++ b/node_modules/expo-libghostty/build/ExpoLibghosttyView.js
 @@ -19,6 +19,8 @@ export default function TerminalView({ ref, onResize, ...props }) {
@@ -1004,7 +1068,7 @@ index e3bf3b8973c565cccfea1982e498d5d23bac1d8c..dc5b3670183dfe2d7484df683144cf63
              writeText: whenReady((text) => native.current.writeText(text)),
              finish: whenReady((exitCode) => native.current.finish(exitCode)),
 diff --git a/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift b/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
-index 2f32970ab6b560820b12b8e17842ed05471ba8ec..c5e92a89906756f683904fb5d897f9d2de9cfaef 100644
+index 2f32970..5acecaa 100644
 --- a/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
 +++ b/node_modules/expo-libghostty/ios/ExpoLibghosttyModule.swift
 @@ -5,7 +5,7 @@ public class ExpoLibghosttyModule: Module {
@@ -1012,7 +1076,7 @@ index 2f32970ab6b560820b12b8e17842ed05471ba8ec..c5e92a89906756f683904fb5d897f9d2
  
      View(ExpoLibghosttyView.self) {
 -      Events("onInput", "onResize")
-+      Events("onInput", "onResize", "onScroll", "onOpenLink")
++      Events("onInput", "onResize", "onScroll", "onOpenLink", "onPinch")
  
        // Base font size in points (default 14). Changing it after mount
        // rebuilds the surface and resets the grid.
@@ -1043,7 +1107,7 @@ index 2f32970ab6b560820b12b8e17842ed05471ba8ec..c5e92a89906756f683904fb5d897f9d2
        AsyncFunction("finish") { (view: ExpoLibghosttyView, exitCode: UInt32) in
          view.finish(exitCode: exitCode)
 diff --git a/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift b/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
-index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..9b74fa3163fde7936c407ba279bd323cf7054d66 100644
+index 12925b5..91cefe9 100644
 --- a/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
 +++ b/node_modules/expo-libghostty/ios/ExpoLibghosttyView.swift
 @@ -1,5 +1,6 @@
@@ -1053,12 +1117,13 @@ index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..9b74fa3163fde7936c407ba279bd323c
  
  // Ghostty-backed terminal view. The JS side owns transport and session
  // lifecycle; this view only renders bytes pushed via `write` and reports
-@@ -44,6 +45,13 @@ class ExpoLibghosttyView: ExpoView {
+@@ -44,6 +45,14 @@ class ExpoLibghosttyView: ExpoView {
  
    let onInput = EventDispatcher()
    let onResize = EventDispatcher()
 +  let onScroll = EventDispatcher()
 +  let onOpenLink = EventDispatcher()
++  let onPinch = EventDispatcher()
 +  var autoShowKeyboard = true {
 +    didSet { terminalView.autoShowKeyboard = autoShowKeyboard }
 +  }
@@ -1067,7 +1132,7 @@ index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..9b74fa3163fde7936c407ba279bd323c
  
    required init(appContext: AppContext? = nil) {
      super.init(appContext: appContext)
-@@ -57,7 +65,14 @@ class ExpoLibghosttyView: ExpoView {
+@@ -57,7 +66,14 @@ class ExpoLibghosttyView: ExpoView {
          ])
        },
        resize: { [weak self] viewport in
@@ -1083,7 +1148,7 @@ index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..9b74fa3163fde7936c407ba279bd323c
        }
      )
      self.session = session
-@@ -65,8 +80,19 @@ class ExpoLibghosttyView: ExpoView {
+@@ -65,8 +81,22 @@ class ExpoLibghosttyView: ExpoView {
      // ("surface rebuild skipped: missing controller").
      terminalView.controller = TerminalController.shared
      terminalView.configuration = TerminalSurfaceOptions(backend: .inMemory(session))
@@ -1100,10 +1165,13 @@ index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..9b74fa3163fde7936c407ba279bd323c
 +        self.onScroll(["rows": rows])
 +      }
 +    }
++    terminalView.hostPinchHandler = { [weak self] phase, scale in
++      self?.onPinch(["phase": phase, "scale": Double(scale)])
++    }
    }
  
    /// Feed PTY output (terminal.output on the wire) into the grid.
-@@ -79,8 +105,33 @@ class ExpoLibghosttyView: ExpoView {
+@@ -79,8 +109,33 @@ class ExpoLibghosttyView: ExpoView {
      session?.receive(text)
    }
  
@@ -1138,7 +1206,7 @@ index 12925b541f7d4ebb98b5a9976486a561c69d6fe2..9b74fa3163fde7936c407ba279bd323c
 +  }
 +}
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
-index d90375aaf84b9191b8f107ab83869ce323a6a7f5..85a34b92dd47de75af27a1c752729aac317003f3 100644
+index d90375a..85a34b9 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/InMemory/TerminalCallbackBridge.swift
 @@ -20,6 +20,9 @@ final class TerminalCallbackBridge {
@@ -1160,7 +1228,7 @@ index d90375aaf84b9191b8f107ab83869ce323a6a7f5..85a34b92dd47de75af27a1c752729aac
          case GHOSTTY_ACTION_PWD:
              let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb202351f474526690dc27937df833bdd7e3..2e53ab74359832646fdd3e5a004add9f7c623e5e 100644
+index 3f3eeb2..2e53ab7 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 @@ -25,9 +25,22 @@
@@ -1355,15 +1423,63 @@ index 3f3eeb202351f474526690dc27937df833bdd7e3..2e53ab74359832646fdd3e5a004add9f
              }
              return true
          }
+diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift
+index 10834a3..80d4847 100644
+--- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift
++++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift
+@@ -8,6 +8,8 @@
+ 
+     extension UITerminalView {
+         private static let scaleStepThreshold: CGFloat = 0.1
++        /// A reported pinch is quiet between changes smaller than this.
++        private static let scaleReportThreshold: CGFloat = 0.02
+ 
+         func setupPinchZoomGesture() {
+             let pinch = UIPinchGestureRecognizer(
+@@ -21,12 +23,23 @@
+             switch gesture.state {
+             case .began:
+                 lastPinchScale = gesture.scale
++                if let hostPinchHandler {
++                    hostPinchHandler("begin", gesture.scale)
++                    return
++                }
+                 TerminalDebugLog.log(
+                     .actions,
+                     "pinch began scale=\(String(format: "%.3f", gesture.scale)) fontSize=\(currentFontSize)"
+                 )
+ 
+             case .changed:
++                if let hostPinchHandler {
++                    if abs(gesture.scale - lastPinchScale) >= Self.scaleReportThreshold {
++                        lastPinchScale = gesture.scale
++                        hostPinchHandler("change", gesture.scale)
++                    }
++                    return
++                }
+                 let delta = gesture.scale - lastPinchScale
+ 
+                 let steps = Int(delta / Self.scaleStepThreshold)
+@@ -66,6 +79,7 @@
+ 
+             case .ended, .cancelled, .failed:
+                 lastPinchScale = 1.0
++                hostPinchHandler?("end", gesture.scale)
+                 TerminalDebugLog.log(
+                     .actions,
+                     "pinch ended state=\(gesture.state.rawValue) fontSize=\(currentFontSize)"
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
-index 7bb1e9861c9640c197321a9eff2cd7f9e087c0a1..95013fd5530998430bed2c2588a581be598df78d 100644
+index 7bb1e98..a06f817 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
-@@ -36,13 +36,36 @@
+@@ -36,13 +36,39 @@
          lazy var inputHandler = TerminalTextInputHandler(view: self)
          weak var _inputDelegate: (any UITextInputDelegate)?
          var onFocusChange: ((Bool) -> Void)?
 +        open var hostScrollHandler: ((CGFloat) -> Void)?
++        /// Set when the host owns text size: a pinch is reported ("begin",
++        /// "change" with the scale since it began, "end") instead of zooming.
++        open var hostPinchHandler: ((String, CGFloat) -> Void)?
 +        /// Whether a tap raises the software keyboard, matching Android. Focus is
 +        /// taken either way, so hardware and accessory keys keep working while the
 +        /// software keyboard stays down.
@@ -1396,7 +1512,7 @@ index 7bb1e9861c9640c197321a9eff2cd7f9e087c0a1..95013fd5530998430bed2c2588a581be
          #endif
  
          #if !targetEnvironment(macCatalyst)
-@@ -86,6 +109,31 @@
+@@ -86,6 +112,31 @@
              true
          }
  
@@ -1428,7 +1544,7 @@ index 7bb1e9861c9640c197321a9eff2cd7f9e087c0a1..95013fd5530998430bed2c2588a581be
          override public init(frame: CGRect) {
              super.init(frame: frame)
              commonInit()
-@@ -128,6 +176,13 @@
+@@ -128,6 +179,13 @@
              core.onPostRender = { [weak self] in
                  self?.enforceSublayerScale()
              }
@@ -1443,7 +1559,7 @@ index 7bb1e9861c9640c197321a9eff2cd7f9e087c0a1..95013fd5530998430bed2c2588a581be
              setupApplicationLifecycleObservers()
              syncApplicationActiveState()
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift
-index 7a7b11d90f7fdaafbf984a331274378a92064be1..41910c707a9ee7c4646a34c7fafeec28aba2c715 100644
+index 7a7b11d..41910c7 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Surface/TerminalSurfaceViewDelegate.swift
 @@ -111,6 +111,13 @@ public protocol TerminalSurfaceHoverLinkDelegate: TerminalSurfaceViewDelegate {
@@ -1461,7 +1577,7 @@ index 7a7b11d90f7fdaafbf984a331274378a92064be1..41910c707a9ee7c4646a34c7fafeec28
  @MainActor
  public protocol TerminalSurfacePwdDelegate: TerminalSurfaceViewDelegate {
 diff --git a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
-index cbd0ab4128aa22b18c65f633dd81cbd0d737f51b..71230312ecb6316313222be337537853a253db42 100644
+index cbd0ab4..0a0ba5c 100644
 --- a/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 +++ b/node_modules/expo-libghostty/src/ExpoLibghostty.types.ts
 @@ -21,6 +21,10 @@ export type TerminalViewRef = {
@@ -1475,7 +1591,7 @@ index cbd0ab4128aa22b18c65f633dd81cbd0d737f51b..71230312ecb6316313222be337537853
  };
  
  export type TerminalTheme = {
-@@ -57,10 +61,17 @@ export type TerminalViewProps = {
+@@ -57,10 +61,20 @@ export type TerminalViewProps = {
     * pass undefined fields to keep ghostty's defaults.
     */
    theme?: TerminalTheme;
@@ -1490,11 +1606,14 @@ index cbd0ab4128aa22b18c65f633dd81cbd0d737f51b..71230312ecb6316313222be337537853
 +  /** The user activated a link printed in the grid (plain URL or OSC 8).
 +   *  The URL is exact terminal output; validate schemes before opening. */
 +  onOpenLink?: (event: { nativeEvent: { url: string } }) => void;
++  /** A pinch, reported instead of zooming when set: the host owns text size
++   *  and hands it back through `fontSize`. `scale` is since the pinch began. */
++  onPinch?: (event: { nativeEvent: { phase: 'begin' | 'change' | 'end'; scale: number } }) => void;
    ref?: Ref<TerminalViewRef>;
    style?: StyleProp<ViewStyle>;
  };
 diff --git a/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx b/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx
-index 80ad4b1600444c2fe9cc1e1bfd8058fba98e9546..3907cd3c5427f5fb15fb0d01b94ef7f5387d23b0 100644
+index 80ad4b1..3907cd3 100644
 --- a/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx
 +++ b/node_modules/expo-libghostty/src/ExpoLibghosttyView.tsx
 @@ -25,6 +25,8 @@ export default function TerminalView({ ref, onResize, ...props }: TerminalViewPr
@@ -1507,7 +1626,7 @@ index 80ad4b1600444c2fe9cc1e1bfd8058fba98e9546..3907cd3c5427f5fb15fb0d01b94ef7f5
        writeText: whenReady((text: string) => native.current!.writeText(text)),
        finish: whenReady((exitCode: number) => native.current!.finish(exitCode)),
 diff --git a/node_modules/expo-libghostty/vendor-manifest.json b/node_modules/expo-libghostty/vendor-manifest.json
-index 80bf1fb6c15686498e9d7b89b5568af40f6e6bc3..7af4b8b0c6bb3a124659f09dca836dbeb1dd7129 100644
+index 80bf1fb..7af4b8b 100644
 --- a/node_modules/expo-libghostty/vendor-manifest.json
 +++ b/node_modules/expo-libghostty/vendor-manifest.json
 @@ -3,8 +3,8 @@

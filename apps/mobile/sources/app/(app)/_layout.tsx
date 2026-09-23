@@ -162,6 +162,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/gestures"
+                options={{
+                    headerTitle: 'Gestures',
+                }}
+            />
+            <Stack.Screen
                 name="settings/plugins"
                 options={{
                     headerTitle: t('plugins.settingsTitle'),

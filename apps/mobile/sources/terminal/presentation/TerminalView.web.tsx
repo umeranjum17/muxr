@@ -22,8 +22,8 @@ import {
     type TerminalLinkRow,
 } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
-import { FONT_STEPS, TERMINAL_FONTS, clampFontIndex } from '../domain/fontSteps';
-import { useLocalSetting } from '@/catalog/store';
+import { FONT_STEPS, TERMINAL_FONTS, clampFontIndex, nearestFontIndex } from '../domain/fontSteps';
+import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
 export interface TerminalViewProps {
@@ -89,7 +89,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     React.useEffect(() => () => clearTimeout(hintTimer.current), []);
     // The size and face chosen in Settings. Read through a ref at creation so a
     // change restyles the open terminal instead of reconnecting it.
-    const fontSize = FONT_STEPS[clampFontIndex(useLocalSetting('terminalFontIndex'))];
+    const [fontIndex, setFontIndex] = useLocalSettingMutable('terminalFontIndex');
+    const fontSize = FONT_STEPS[clampFontIndex(fontIndex)];
+    // A pinch steps the one text size every terminal shares, so the size it
+    // settles on is still there after a switch to the next agent.
+    const pinchZoom = useLocalSetting('terminalPinchZoom');
+    const pinch = React.useRef({ enabled: pinchZoom, setFontIndex });
+    pinch.current = { enabled: pinchZoom, setFontIndex };
     const fontFamily = TERMINAL_FONTS[useLocalSetting('terminalFont')].family;
     const face = React.useRef({ fontSize, fontFamily });
     face.current = { fontSize, fontFamily };
@@ -445,18 +451,16 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 clearLongPress();
             }
             if (event.touches.length === 2) {
-                pinchStart = term.options.fontSize ?? 13;
+                pinchStart = face.current.fontSize;
                 pinchDistance = distance(event.touches);
             }
         };
         const onTouchMove = (event: TouchEvent): void => {
             if (event.touches.length === 2 && pinchDistance > 0) {
                 event.preventDefault();
-                const next = Math.min(28, Math.max(8, pinchStart * (distance(event.touches) / pinchDistance)));
-                term.options.fontSize = next;
-                fit.fit();
-                setTerminalColumns(sessionId, term.cols);
-                channel?.resize(term.cols, term.rows);
+                if (!pinch.current.enabled) return;
+                const next = nearestFontIndex(pinchStart * (distance(event.touches) / pinchDistance));
+                if (FONT_STEPS[next] !== face.current.fontSize) pinch.current.setFontIndex(next);
                 return;
             }
             if (touchY === null || event.touches.length !== 1) return;

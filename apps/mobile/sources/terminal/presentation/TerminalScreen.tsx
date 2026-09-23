@@ -240,9 +240,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         const timer = setInterval(() => setSwipeNow(Date.now()), 30_000);
         return () => clearInterval(timer);
     }, []);
+    const swipeScope = useLocalSettingMutable('terminalSwipeScope')[0];
     const swipeNeighbours = React.useMemo(
-        () => agentSwipeNeighbours(sharedLiveTerminalCards(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces))), props.id, swipeNow),
-        [props.id, sessions, swipeNow, workspaces],
+        () => agentSwipeNeighbours(sharedLiveTerminalCards(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces))), props.id, swipeScope, swipeNow),
+        [props.id, sessions, swipeNow, swipeScope, workspaces],
     );
     const [status, setStatus] = React.useState('connecting');
     // A fresh mount is the only retry a pane has before it ever attached: the
@@ -420,7 +421,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // pager settles before the route changes, so the switch itself is a
     // parameter, never a second screen animating in over this one.
     const switchAgent = React.useCallback((id: string) => router.setParams({ id }), []);
-    const nothingToSwipeTo = React.useCallback(() => showGestureHintRef.current('No other working or recently finished agent'), []);
+    const nothingToSwipeTo = React.useCallback(() => showGestureHintRef.current(swipeScope === 'all' ? 'No other agent' : 'No other working or recently finished agent'), [swipeScope]);
 
     // What the pane shows, as opposed to what it knows. The status itself stays
     // exact for everything that acts on it; only the announcement waits. A pane

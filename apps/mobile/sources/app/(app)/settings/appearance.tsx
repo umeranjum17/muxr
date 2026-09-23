@@ -80,6 +80,7 @@ export default function AppearanceSettingsScreen() {
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
     const [terminalFontIndex, setTerminalFontIndex] = useLocalSettingMutable('terminalFontIndex');
     const [terminalFont, setTerminalFont] = useLocalSettingMutable('terminalFont');
+    const [pinchZoom] = useLocalSettingMutable('terminalPinchZoom');
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
     const [sheet, setSheet] = React.useState<'theme' | 'size' | 'font' | 'avatar' | null>(null);
     const close = () => setSheet(null);
@@ -123,7 +124,7 @@ export default function AppearanceSettingsScreen() {
 
             <ItemGroup
                 title="Terminal"
-                footer={Platform.OS === 'web' ? undefined : 'Pinch a terminal to change its size there too.'}
+                footer={pinchZoom ? 'Pinch a terminal to change its size there too.' : undefined}
             >
                 <Item title="Text size" subtitle={`${FONT_STEPS[fontIndex]} pt`} onPress={() => setSheet('size')} />
                 {Platform.OS === 'web' && (
