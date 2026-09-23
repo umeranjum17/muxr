@@ -1412,15 +1412,8 @@ function webSocketOriginAllowed(req: import('node:http').IncomingMessage, config
  */
 function ownLoopbackOrigin(req: import('node:http').IncomingMessage, origin: string): boolean {
     if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
-    let parsed: URL;
-    try {
-        parsed = new URL(origin);
-    } catch {
-        return false;
-    }
-    return parsed.protocol === 'http:'
-        && ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname)
-        && parsed.host === req.headers.host;
+    const host = req.headers.host;
+    return /^127\.0\.0\.1:\d+$/.test(host ?? '') && origin === `http://${host}`;
 }
 
 const unauthorizedRejectLogs = new Map<string, { reason: string; transport: string; at: number; n: number }>();

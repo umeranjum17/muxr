@@ -75,14 +75,19 @@ try {
     // A phone on the Direct SSH route dials the relay through a local forward
     // and presents the relay's own loopback address as its Origin: serving
     // the PWA must not shut it out, while any other origin stays refused.
-    const originVerdict = (origin) => new Promise((resolve) => {
-        const socket = new WebSocket(`ws://127.0.0.1:${relayPort}/relay`, { headers: { origin } });
+    const originVerdict = (origin, host = `127.0.0.1:${relayPort}`) => new Promise((resolve) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${relayPort}/relay`, { headers: { origin, host } });
         socket.on('close', (_code, reason) => resolve(String(reason)));
         socket.on('error', () => undefined);
     });
     check('relay admits its own loopback origin past the origin check', await originVerdict(`http://127.0.0.1:${relayPort}`) !== 'origin not allowed');
     check('relay admits the published PWA origin', await originVerdict('https://desk.example.ts.net') !== 'origin not allowed');
     check('relay refuses another loopback port as origin', await originVerdict('http://127.0.0.1:1') === 'origin not allowed');
+    check('relay refuses loopback aliases and URL paths', (await Promise.all([
+        originVerdict(`http://localhost:${relayPort}`, `localhost:${relayPort}`),
+        originVerdict(`http://[::1]:${relayPort}`, `[::1]:${relayPort}`),
+        originVerdict(`http://127.0.0.1:${relayPort}/relay`),
+    ])).every((reason) => reason === 'origin not allowed'));
     check('relay refuses a foreign origin', await originVerdict('https://evil.example') === 'origin not allowed');
 
     const index = await get(relayBase, '/index.html');
