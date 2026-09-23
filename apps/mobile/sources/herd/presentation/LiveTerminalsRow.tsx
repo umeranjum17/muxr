@@ -16,7 +16,7 @@ import {
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
 import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
-import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
+import { lifecycleStateSince, unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { SectionLabel } from '@/components/ui';
 import { TerminalPreview } from '@/terminal/ui';
@@ -57,7 +57,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     attentionCard: { borderWidth: 1.5, borderColor: theme.colors.status.error },
     cardBody: { flex: 1, backgroundColor: '#0c0c0b' },
-    endedBody: { opacity: 0.48 },
     cardFooter: { minHeight: 48, paddingHorizontal: 10, paddingVertical: 6 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     footerCopy: { flex: 1, minWidth: 0, gap: 2 },
@@ -72,6 +71,10 @@ const stylesheet = StyleSheet.create((theme) => ({
 
 interface CardProps {
     card: LiveTerminalOrderCard;
+    /** When the host saw the agent enter its current state, when it knows. */
+    since?: number;
+    /** The minute the card's age is read against. */
+    now: number;
     width: number;
     height: number;
     paused: boolean;
@@ -83,26 +86,27 @@ function terminalIsLive(card: LiveTerminalOrderCard): boolean {
     return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
 }
 
-const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected, unseenDone }: CardProps) => {
+const LiveTerminalCard = React.memo(({ card, since, now, width, height, paused, disconnected, unseenDone }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
     const dot = agentStatusColor(card.agentStatus, theme);
     const live = terminalIsLive(card);
     const shell = isShellLabels(labels);
+    const changedAt = since ?? card.changedAt;
     return (
         <Pressable
             onPress={() => navigateToSession(card.id)}
             accessibilityRole="button"
-            accessibilityLabel={agentAccessibilityLabel(labels, card.agentStatus, card.changedAt)}
+            accessibilityLabel={agentAccessibilityLabel(labels, card.agentStatus, changedAt)}
             style={({ pressed }) => [
                 stylesheet.card,
                 liveTerminalBucket(card.agentStatus) === 'attention' && stylesheet.attentionCard,
                 { width, height, opacity: pressed ? 0.8 : disconnected ? 0.55 : 1 },
             ]}
         >
-            <View style={[stylesheet.cardBody, !live && !unseenDone && stylesheet.endedBody]}>
-                <TerminalPreview sessionId={card.id} paused={paused} live={live} />
+            <View style={stylesheet.cardBody}>
+                <TerminalPreview sessionId={card.id} paused={paused} live={live} dimmed={!live && !unseenDone} />
             </View>
             <View style={stylesheet.cardFooter}>
                 <View style={stylesheet.titleRow}>
@@ -113,7 +117,7 @@ const LiveTerminalCard = React.memo(({ card, width, height, paused, disconnected
                     </View>
                     <View style={stylesheet.status}>
                         <Text numberOfLines={1} style={[stylesheet.statusText, { color: dot.color }]}>
-                            {agentStateLabel(card.agentStatus, card.changedAt)}
+                            {agentStateLabel(card.agentStatus, changedAt, now)}
                         </Text>
                     </View>
                 </View>
@@ -147,7 +151,9 @@ export const LiveTerminalsRow = React.memo(({
     const [stripWidth, setStripWidth] = React.useState(0);
     const [firstVisible, setFirstVisible] = React.useState(0);
     const handleLayout = React.useCallback((event: LayoutChangeEvent) => setStripWidth(event.nativeEvent.layout.width), []);
-    const cardWidth = Math.min(CARD_WIDTH, Math.max(240, stripWidth - STRIP_GUTTER - 24));
+    // The next card always shows a hand's width: on a 270pt phone a 240 floor
+    // left a 2pt sliver that read as a rendering fault, not as more to swipe.
+    const cardWidth = Math.min(CARD_WIDTH, Math.max(200, stripWidth - STRIP_GUTTER - 24));
     const cardInterval = cardWidth + CARD_GAP;
     const getItemLayout = React.useCallback((_: ArrayLike<LiveTerminalOrderCard> | null | undefined, index: number) => ({
         length: cardInterval,
@@ -172,6 +178,21 @@ export const LiveTerminalsRow = React.memo(({
         }
         return titles;
     }, [panes]);
+    // Ages are read against a minute that ticks, so a card that says
+    // "Working · 4m" does not stay at 4m while nothing else changes.
+    const [minute, setMinute] = React.useState(Date.now);
+    React.useEffect(() => {
+        const timer = setInterval(() => setMinute(Date.now()), 60_000);
+        return () => clearInterval(timer);
+    }, []);
+    const sinceById = React.useMemo(() => {
+        const since = new Map<string, number>();
+        for (const card of cards) {
+            const at = lifecycleStateSince(lifecycleEvents, card.id, card.agentStatus);
+            if (at !== undefined) since.set(card.id, at);
+        }
+        return since;
+    }, [cards, lifecycleEvents]);
     const activityRows = React.useMemo(
         () => ready ? unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles) : [],
         [lifecycleEvents, liveTitles, ready, seenEventIds],
@@ -262,6 +283,8 @@ export const LiveTerminalsRow = React.memo(({
     const renderCard = ({ item: card, index }: { item: LiveTerminalOrderCard; index: number }) => (
         <LiveTerminalCard
             card={card}
+            since={sinceById.get(card.id)}
+            now={minute}
             width={cardWidth}
             height={CARD_HEIGHT}
             paused={Math.abs(index - firstVisible) > 2}

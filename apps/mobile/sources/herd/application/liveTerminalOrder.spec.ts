@@ -3,7 +3,7 @@ import type { LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import type { HerdPane } from '../domain/herd';
 import { agentAccessibilityLabel, agentLabels, agentStateLabel } from '../domain/agentPresentation';
-import { unseenActivityRows, unseenDoneSessionIds, type RecentActivityRow } from '../domain/recentActivity';
+import { lifecycleStateSince, unseenActivityRows, unseenDoneSessionIds, type RecentActivityRow } from '../domain/recentActivity';
 import {
     nextWorkingAgentId,
     orderLiveTerminalCards,
@@ -138,6 +138,20 @@ describe('agent lifecycle presentation', () => {
             event('seen', 'seen-agent', 'done', '2026-01-01T23:59:30.000Z'),
             event('older-unseen', 'seen-agent', 'blocked', '2026-01-01T23:58:30.000Z'),
         ], new Set(['seen']), now)).toEqual([]);
+
+        // A card is aged from the same transition its row reads, not from when
+        // this phone first saw the state: after a relaunch that was "now".
+        const events = [
+            event('latest', 'one', 'done', '2026-01-01T23:48:00.000Z'),
+            event('earlier', 'one', 'working', '2026-01-01T23:40:00.000Z'),
+            event('turn', 'two', 'working', '2026-01-01T23:56:00.000Z'),
+        ];
+        const reopenedAt = now - 5_000;
+        expect(agentStateLabel('done', lifecycleStateSince(events, 'one', 'done') ?? reopenedAt, now)).toBe('Done · 12m');
+        expect(agentStateLabel('idle', lifecycleStateSince(events, 'one', 'idle') ?? reopenedAt, now)).toBe('Idle · 12m');
+        expect(lifecycleStateSince(events, 'one', 'working')).toBeUndefined();
+        expect(agentStateLabel('working', lifecycleStateSince(events, 'two', 'working'), now)).toBe('Working · 4m');
+        expect(agentStateLabel('working', now - 20_000, now)).toBe('Working');
     });
 
     it('derives the unseen-done highlight set from the same rows as the tier', () => {

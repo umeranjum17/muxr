@@ -131,9 +131,13 @@ export function agentIdentityLine(labels: AgentLabels): string {
     return agentNameLine(labels);
 }
 
+/** Under this a turn's age says nothing; past it, how long it has run is the point. */
+const WORKING_AGE_MS = 60_000;
+
 export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
     const label = HERD_STATUS_LABELS[status];
-    if (status === 'working' || status === 'starting' || changedAt === undefined) return label;
+    if (status === 'starting' || changedAt === undefined) return label;
+    if (status === 'working' && now - changedAt < WORKING_AGE_MS) return label;
     return `${label} · ${compactAge(now - changedAt)}`;
 }
 
