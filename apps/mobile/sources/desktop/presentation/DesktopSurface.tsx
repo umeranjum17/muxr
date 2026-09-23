@@ -72,10 +72,12 @@ function useKeyboardMotion(): { height: SharedValue<number>; progress: SharedVal
     React.useEffect(() => {
         const viewport = Platform.OS === 'web' ? globalThis.visualViewport : undefined;
         if (viewport === undefined || viewport === null) return;
+        let largestCovered = Math.max(1, globalThis.innerHeight / 2);
         const follow = () => {
             const covered = Math.max(0, globalThis.innerHeight - viewport.offsetTop - viewport.height);
+            largestCovered = Math.max(largestCovered, covered);
             height.value = -covered;
-            progress.value = covered > 0 ? 1 : 0;
+            progress.value = Math.min(1, covered / largestCovered);
         };
         viewport.addEventListener('resize', follow);
         viewport.addEventListener('scroll', follow);

@@ -275,10 +275,23 @@ describe('the pointer above the keyboard', () => {
         expect(tip().y).toBeCloseTo(Number.parseFloat(picture!.style.top) + clickedY + 0.5, 5);
 
         (document as unknown as { activeElement: unknown }).activeElement = null;
-        viewport.height = 720;
+        const beforeBlur = Number.parseFloat(picture!.style.top);
         dispatch(keyboard, 'blur', {});
+        expect(Number.parseFloat(picture!.style.top)).toBe(beforeBlur);
+        viewport.height = 510;
+        dispatch(viewport, 'resize', {});
+        const returningTop = Number.parseFloat(picture!.style.top);
+        expect(returningTop).toBeGreaterThan(beforeBlur);
+        sent = [];
+        touch(video, 'pointerdown', 500, 220);
+        touch(video, 'pointerup', 500, 220);
+        const returningY = Math.floor(220 - returningTop);
+        expect(sent).toEqual(click(500, returningY, 1));
+        expect(tip().y).toBeCloseTo(returningTop + returningY + 0.5, 5);
+        viewport.height = 720;
+        dispatch(viewport, 'resize', {});
         expect(picture!.style.top).toBe('0px');
-        expect(tip()).toEqual({ x: 400.5, y: clickedY + 0.5 });
+        expect(tip()).toEqual({ x: 500.5, y: returningY + 0.5 });
     });
 });
 

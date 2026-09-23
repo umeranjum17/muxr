@@ -291,9 +291,8 @@ function coverBottom(session: WebSession, covered: number): void {
     session.covered = covered;
     const visible = visibleHeight(session);
     const { view, pointerAt } = session;
-    if (pointerAt === null) {
-        view.originY += (visible - before) / 2;
-    } else {
+    if (pointerAt === null || visible > before) view.originY += (visible - before) / 2;
+    if (pointerAt !== null) {
         const y = view.originY + (pointerAt.y + 0.5) * view.scale;
         const margin = Math.min(56, visible / 4);
         if (y > visible - margin) view.originY -= y - (visible - margin);
@@ -642,10 +641,6 @@ function attachGestures(session: WebSession): () => void {
     // so the covered part is what the visual viewport no longer shows.
     const viewport = (globalThis as { visualViewport?: VisualViewport }).visualViewport;
     const followKeyboard = (): void => {
-        if (document.activeElement !== keyboard) {
-            coverBottom(session, 0);
-            return;
-        }
         const rect = surfaceRect(session);
         const shown = viewport === undefined ? rect.top + rect.height : viewport.offsetTop + viewport.height;
         const overlap = Math.max(0, rect.top + rect.height - shown);
