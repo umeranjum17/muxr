@@ -32,6 +32,7 @@ import {
     recordTerminalScrollTimeout,
 } from '@/catalog/diagnostics';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
+import { claimTerminalAhead, rememberTerminalGrid } from '../application/terminalAhead';
 import { createTerminalScrollGate } from '../application/terminalScrollGate';
 import { DEFAULT_FONT_INDEX, FONT_STEPS, clampFontIndex } from '../domain/fontSteps';
 import { openTerminalLink } from '../domain/safeTerminalLink';
@@ -43,6 +44,7 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
+    onFirstFrameWritten?: () => void;
     /** The pane hosts the control, so the ring can cover the accessory row. */
     onViewControls?: (controls: TerminalViewControls) => void;
     /**
@@ -85,6 +87,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const terminalKeyboardDisabled = useLocalSetting('terminalKeyboardDisabled');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const firstFrameCallback = React.useRef(props.onFirstFrameWritten);
+    firstFrameCallback.current = props.onFirstFrameWritten;
     const openAbortRef = React.useRef<AbortController | undefined>(undefined);
     const openedRef = React.useRef(false);
     const lastSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
@@ -157,6 +161,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         (cols: number, rows: number) => {
             recordTerminalResize(cols, rows);
             setTerminalColumns(sessionId, cols);
+            rememberTerminalGrid(cols, rows);
             const last = lastSizeRef.current;
             lastSizeRef.current = { cols, rows };
             if (!focused) return;
@@ -178,7 +183,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             openedRef.current = true;
             onStatus?.('connecting');
             const attachGen = writeGenerationRef.current;
-            const controller = new AbortController();
+            // A page turn may already have opened this pane while it settled.
+            const ahead = claimTerminalAhead(sessionId);
+            const opened = ahead?.size ?? { cols, rows };
+            const controller = ahead?.controller ?? new AbortController();
             openAbortRef.current = controller;
             // Nothing may be written to this terminal but herdr's own frames.
             // herdr paints cells at absolute coordinates and then sends diffs
@@ -186,7 +194,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // -- seeded history, a repaint, a cleared screen -- lands those
             // diffs on the wrong cells and quietly eats lines.
             void Promise.resolve()
-                .then(() => openTerminal({
+                .then(() => ahead?.channel ?? openTerminal({
                     agentRoute: sessionId,
                     signal: controller.signal,
                     size: { cols, rows },
@@ -199,18 +207,27 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     channelRef.current = channel;
                     void writePumpRef.current?.cancel();
                     let recoveryRequested = false;
+                    let firstFrameWritten = false;
+                    const latest = lastSizeRef.current ?? opened;
+                    const needsRepaint = latest.cols !== opened.cols || latest.rows !== opened.rows;
+                    let readyForFrame = !needsRepaint;
+                    let repaintRequested = false;
                     // Nothing re-scrolls on attach. The pane's viewport belongs
                     // to herdr, which reports it back on `terminal.scroll-state`;
                     // a phone replaying a remembered distance was inventing a
                     // position, and on a pane with no scrollback that replay
                     // went to the program as a 5 000-row wheel burst.
                     writePumpRef.current = createTerminalWritePump({
-                        write: async (bytes) => {
+                        write: async (bytes, ready) => {
                             const view = termRef.current;
                             if (view === null) return;
                             await view.write(bytes);
                             recoveryRequested = false;
                             channel.recordFrameWritten();
+                            if (ready && !firstFrameWritten && writeGenerationRef.current === attachGen) {
+                                firstFrameWritten = true;
+                                firstFrameCallback.current?.();
+                            }
                         },
                         combineText: combineTextFrames,
                         schedule: (run) => requestAnimationFrame(() => run()),
@@ -231,7 +248,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         // so this is flow control and nothing more: which frame
                         // answered which scroll is not knowable here.
                         scrollGate.release();
-                        writePumpRef.current?.push({ bytes: base64 });
+                        writePumpRef.current?.push({ bytes: base64, ready: readyForFrame });
                     });
                     // Predicted echo rides the same ordered pump but is not
                     // host output: it never releases the scroll gate and is
@@ -239,18 +256,21 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     channel.onPredictedData((base64) => {
                         writePumpRef.current?.push({ bytes: base64 });
                     });
-                    channel.onState((state) => onStatus?.(state));
+                    channel.onState((state) => {
+                        if (repaintRequested && state === 'live') readyForFrame = true;
+                        onStatus?.(state);
+                    });
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
                     onChannel?.(channel);
                     // The keyboard can resize Ghostty while hosted attach is
                     // still waiting. Its debounce then has no channel to call;
                     // replay the latest size now or the prompt is painted below
                     // the visible grid until this screen is reopened.
-                    const latest = lastSizeRef.current;
-                    if (latest !== null && (latest.cols !== cols || latest.rows !== rows)) {
+                    if (needsRepaint) {
                         if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                         resizeTimerRef.current = undefined;
                         channel.resize(latest.cols, latest.rows);
+                        repaintRequested = true;
                         channel.repaint();
                     }
                 })

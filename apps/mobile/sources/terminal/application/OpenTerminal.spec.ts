@@ -174,6 +174,7 @@ describe('openTerminal reconnect ownership', () => {
         socket.open();
 
         const writes: string[] = [];
+        const readyWrites: boolean[] = [];
         let concurrent = 0;
         let maxConcurrent = 0;
         const gates: Array<{ resolve: () => void; reject: (error: unknown) => void }> = [];
@@ -181,7 +182,8 @@ describe('openTerminal reconnect ownership', () => {
         let scheduledId = 0;
         const scheduled = new Set<number>();
         const pump = createTerminalWritePump({
-            write: (bytes) => {
+            write: (bytes, ready) => {
+                readyWrites.push(ready);
                 concurrent += 1;
                 maxConcurrent = Math.max(maxConcurrent, concurrent);
                 writes.push(bytes);
@@ -207,7 +209,7 @@ describe('openTerminal reconnect ownership', () => {
             onRejected: (error) => { recoveries.push(error); },
         });
         channel.onData((bytes) => {
-            pump.push({ bytes });
+            pump.push({ bytes, ready: bytes === 'text-C' });
         });
 
         const frame = (bytes: string) => {
@@ -224,6 +226,7 @@ describe('openTerminal reconnect ownership', () => {
         expect(maxConcurrent).toBe(1);
         gates[0]!.resolve();
         await vi.waitFor(() => expect(writes).toEqual(['text-A', 'text-Btext-C']));
+        expect(readyWrites).toEqual([false, true]);
         expect(maxConcurrent).toBe(1);
         gates[1]!.resolve();
         await vi.waitFor(() => expect(concurrent).toBe(0));

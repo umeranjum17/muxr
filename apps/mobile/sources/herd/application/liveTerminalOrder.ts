@@ -1,6 +1,6 @@
 import type { AgentInfo, AgentLifecycle } from '@muxr/contract';
 import type { Session } from '@/catalog';
-import { paneStatus, type HerdPane } from '../domain/herd';
+import type { HerdPane } from '../domain/herd';
 import { agentLabels, isShellLabels } from '../domain/agentPresentation';
 import type { RecentActivityRow } from '../domain/recentActivity';
 
@@ -88,6 +88,13 @@ export function reconcileLiveTerminalCards(
     return unchanged ? previous : next;
 }
 
+let stripCards: readonly LiveTerminalOrderCard[] = [];
+
+export function sharedLiveTerminalCards(candidate: readonly LiveTerminalOrderCard[]): readonly LiveTerminalOrderCard[] {
+    stripCards = reconcileLiveTerminalCards(stripCards, candidate);
+    return stripCards;
+}
+
 export interface ActivityAcknowledgementViewport {
     focused: boolean;
     foreground: boolean;
@@ -120,38 +127,36 @@ export function visibleActivityEventIds(
     return rows.filter((row) => visibleRoutes.has(row.sessionId)).map((row) => row.eventId);
 }
 
-/** The one-swipe buffer: active agents, then agents that finished very recently. */
-export function workingAgentSwipeIds(sessions: readonly Session[], now = Date.now()): string[] {
-    return sessions
-        .filter((session) => session.presence === 'online')
-        .map((session) => ({
-            id: session.id,
-            status: paneStatus(session),
-            changedAt: session.metadata?.lifecycleStateSince ?? session.updatedAt,
-        }))
-        .filter(({ status, changedAt }) =>
-            status === 'working'
-            || status === 'blocked'
-            || (status === 'done' && now - changedAt <= RECENTLY_DONE_SWIPE_MS),
-        )
-        .sort((left, right) => {
-            const leftActive = left.status === 'working' || left.status === 'blocked';
-            const rightActive = right.status === 'working' || right.status === 'blocked';
-            return Number(rightActive) - Number(leftActive)
-                || right.changedAt - left.changedAt
-                || left.id.localeCompare(right.id);
-        })
-        .map(({ id }) => id);
+export interface AgentSwipeNeighbours {
+    previous?: LiveTerminalOrderCard;
+    next?: LiveTerminalOrderCard;
 }
 
-export function nextWorkingAgentId(
-    ids: readonly string[],
+function swipeStop(card: LiveTerminalOrderCard, now: number): boolean {
+    const status = card.agentStatus;
+    return status === 'working' || status === 'starting' || status === 'blocked'
+        || (status === 'done' && card.changedAt !== undefined && now - card.changedAt <= RECENTLY_DONE_SWIPE_MS);
+}
+
+/**
+ * The agents either side of the open one, in the Live strip's own left-to-right
+ * order. A pager whose pages reorder themselves when an agent changes state
+ * cannot be learned -- swiping back must return to where you came from -- so
+ * the order is the strip's, which never moves a card for its lifecycle. The
+ * lifecycle decides which of those agents the swipe stops at. There is no
+ * wrap: the first and last agent are ends, and the pager says so by resisting.
+ */
+export function agentSwipeNeighbours(
+    cards: readonly LiveTerminalOrderCard[],
     currentId: string,
-    step: 1 | -1,
-): string | undefined {
-    if (ids.length === 0) return undefined;
-    const index = ids.indexOf(currentId);
-    if (index === -1) return step === 1 ? ids[0] : ids.at(-1);
-    if (ids.length === 1) return undefined;
-    return ids[(index + step + ids.length) % ids.length];
+    now = Date.now(),
+): AgentSwipeNeighbours {
+    const index = cards.findIndex((card) => card.id === currentId);
+    const stops = (from: readonly LiveTerminalOrderCard[]) =>
+        from.find((card) => card.id !== currentId && swipeStop(card, now));
+    if (index === -1) return { previous: stops([...cards].reverse()), next: stops(cards) };
+    return {
+        previous: stops(cards.slice(0, index).reverse()),
+        next: stops(cards.slice(index + 1)),
+    };
 }

@@ -9,7 +9,7 @@ import { agentStatusColor } from '../application/sessionUtils';
 import { herdPanes } from '../domain/herd';
 import {
     liveTerminalBucket,
-    reconcileLiveTerminalCards,
+    sharedLiveTerminalCards,
     selectLiveTerminalCards,
     visibleActivityEventIds,
     type LiveTerminalOrderCard,
@@ -167,12 +167,7 @@ export const LiveTerminalsRow = React.memo(({
         () => selectLiveTerminalCards(sessions, panes),
         [panes, sessions],
     );
-    const cardsRef = React.useRef<readonly LiveTerminalOrderCard[]>([]);
-    const cards = React.useMemo(() => {
-        const next = reconcileLiveTerminalCards(cardsRef.current, candidateCards);
-        cardsRef.current = next;
-        return next;
-    }, [candidateCards]);
+    const cards = React.useMemo(() => sharedLiveTerminalCards(candidateCards), [candidateCards]);
     const liveTitles = React.useMemo(() => {
         const titles = new Map<string, string>();
         for (const pane of panes) {

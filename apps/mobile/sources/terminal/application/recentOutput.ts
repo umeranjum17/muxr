@@ -135,6 +135,11 @@ export function setTerminalColumns(sessionId: string, columns: number): void {
     touch(sessionId).columns = Number.isFinite(columns) ? Math.max(0, Math.floor(columns)) : 0;
 }
 
+/** The pane's grid width as its terminal last laid it out; 0 if never. */
+export function terminalColumns(sessionId: string): number {
+    return tails.get(sessionId)?.columns ?? 0;
+}
+
 // A visual wrap fills the terminal row; a hard newline usually does not. Join
 // only full-width rows while already inside a URL, never arbitrary lines.
 function unwrapTerminalLinks(text: string, columns: number): string {

@@ -6,6 +6,10 @@ const link = vi.hoisted(() => ({
     options: null as null | { linkHandler: { activate: (event: MouseEvent, url: string) => void; hover?: (event: MouseEvent, url: string, range: { start: { x: number; y: number }; end: { x: number; y: number } }) => void; leave?: () => void } },
     plainTap: null as null | ((event: MouseEvent, url: string) => void),
     onData: null as null | ((base64: string) => void),
+    state: null as null | ((state: string) => void),
+    aheadSize: null as null | { cols: number; rows: number },
+    channel: null as null | object,
+    writes: [] as Array<() => void>,
     grid: { cols: 80, cellWidth: 10, linkCol: 2 },
 }));
 
@@ -32,7 +36,7 @@ vi.mock('@xterm/xterm', () => ({
         open() {}
         onRender() {}
         onData() {}
-        write() {}
+        write(_bytes: Uint8Array, callback: () => void) { link.writes.push(callback); }
         dispose() {}
     },
 }));
@@ -41,20 +45,31 @@ vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {
     constructor(tap: typeof link.plainTap) { link.plainTap = tap; }
 } }));
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: class { dispose() {} } }));
-vi.mock('../application/OpenTerminal', () => ({ openTerminal: () => Promise.resolve({
-    onData: (callback: (base64: string) => void) => { link.onData = callback; },
-    onPredictedData() {}, onState() {}, onClose() {}, resize() {}, sendText() {}, close() {},
-}) }));
+vi.mock('../application/OpenTerminal', () => {
+    link.channel = {
+        onData: (callback: (base64: string) => void) => { link.onData = callback; },
+        onPredictedData() {}, onState: (callback: (state: string) => void) => { link.state = callback; callback('live'); },
+        onClose() {}, resize() {}, repaint: () => link.state?.('reconnecting'), sendText() {}, close() {},
+    };
+    return { openTerminal: () => Promise.resolve(link.channel) };
+});
+vi.mock('../application/terminalAhead', () => ({
+    claimTerminalAhead: () => link.aheadSize === null ? undefined : {
+        size: link.aheadSize, channel: Promise.resolve(link.channel), controller: new AbortController(),
+    },
+    rememberTerminalGrid() {},
+}));
 vi.mock('../application/recentOutput', () => ({ setTerminalColumns: () => undefined, recordTerminalOutput: () => undefined }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: () => Promise.resolve() }));
 vi.mock('@/catalog/store', () => ({ useLocalSetting: (key: string) => (key === 'terminalFont' ? 'system' : 3) }));
 
 import { TerminalView } from './TerminalView.web';
 
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { link.aheadSize = null; link.writes.length = 0; vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 it('resolves a held OSC 8 cell after repeat holds and unrelated output while taps keep their card', async () => {
     vi.useFakeTimers();
+    link.aheadSize = { cols: 100, rows: 24 };
     const scheduled: Array<() => void> = [];
     const listeners = new Map<string, (event: any) => void>();
     const rect = { left: 10, top: 5, width: 800, height: 432 };
@@ -95,9 +110,10 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
     vi.stubGlobal('window', { devicePixelRatio: 1, addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ addEventListener() {}, removeEventListener() {} }) });
     vi.stubGlobal('document', { addEventListener() {}, removeEventListener() {} });
     const reached = vi.fn();
+    const firstFrameWritten = vi.fn();
     let renderer: ReturnType<typeof TestRenderer.create>;
     await TestRenderer.act(async () => {
-        renderer = TestRenderer.create(<TerminalView sessionId="pane" onLinkPress={reached} />, {
+        renderer = TestRenderer.create(<TerminalView sessionId="pane" onLinkPress={reached} onFirstFrameWritten={firstFrameWritten} />, {
             createNodeMock: ({ type, props }) => type === 'View' && props.style?.position !== 'relative' ? host : null,
         });
         await Promise.resolve();
@@ -112,7 +128,16 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
         vi.advanceTimersByTime(501);
         listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });
         link.onData!('eA==');
+        expect(firstFrameWritten).not.toHaveBeenCalled();
         for (const frame of scheduled.splice(0)) frame();
+        expect(firstFrameWritten).not.toHaveBeenCalled();
+        link.writes.shift()!();
+        expect(firstFrameWritten).not.toHaveBeenCalled();
+        link.state?.('live');
+        link.onData!('eA==');
+        for (const frame of scheduled.splice(0)) frame();
+        link.writes.shift()!();
+        expect(firstFrameWritten).toHaveBeenCalledTimes(1);
         listeners.get('touchstart')!({ touches: [{ clientX: 34, clientY: 23 }] });
         vi.advanceTimersByTime(501);
         listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });

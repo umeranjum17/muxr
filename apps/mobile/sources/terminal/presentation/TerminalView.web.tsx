@@ -12,6 +12,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import { claimTerminalAhead, rememberTerminalGrid } from '../application/terminalAhead';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import {
     joinedTerminalUrlRanges,
@@ -29,6 +30,7 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
+    onFirstFrameWritten?: () => void;
     /** Same contract as the native view; the browser has no view commands and
      *  no terminal IME, so the pane keeps its own keyboard fallback and the
      *  ring carries only the screen's own slots. */
@@ -46,6 +48,12 @@ function decodeBase64(value: string): Uint8Array {
 }
 
 const LONG_PRESS_MS = 500;
+/**
+ * A touch that travels this far sideways before 8px of scroll belongs to the
+ * agent pager, which takes a drag at the same distance and steps aside at 8px
+ * of vertical travel: whichever line a finger crosses first owns the drag.
+ */
+const SIDEWAYS_PX = 12;
 
 /** Cell ranges of plain http(s) URLs to underline on one buffer row. The
  *  OSC 8 URI has no public per-cell API, so those links keep xterm's hover
@@ -68,6 +76,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
     const { sessionId, onStatus, onChannel, onLinkPress } = props;
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const firstFrameCallback = React.useRef(props.onFirstFrameWritten);
+    firstFrameCallback.current = props.onFirstFrameWritten;
     // Quiet, immediate confirmation for the long-press link copy.
     const [linkCopied, setLinkCopied] = React.useState(false);
     const hintTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -213,12 +223,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         let channel: TerminalChannel | undefined;
 
         onStatus?.('connecting');
-        const controller = new AbortController();
-        void openTerminal({
+        rememberTerminalGrid(term.cols, term.rows);
+        // A page turn may already have opened this pane while it settled.
+        const ahead = claimTerminalAhead(sessionId);
+        const controller = ahead?.controller ?? new AbortController();
+        void (ahead?.channel ?? openTerminal({
             agentRoute: sessionId,
             signal: controller.signal,
             size: { cols: term.cols, rows: term.rows },
-        })
+        }))
             .then((opened) => {
                 if (disposed) {
                     opened.close();
@@ -229,18 +242,26 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 onChannel?.(opened);
                 // Nothing re-scrolls on attach: the pane's viewport belongs to
                 // herdr, which reports it back on `terminal.scroll-state`.
-                let pending: string[] = [];
+                let pending: { data: string; ready: boolean }[] = [];
+                let firstFrameWritten = false;
+                const needsRepaint = ahead !== undefined && (ahead.size.cols !== term.cols || ahead.size.rows !== term.rows);
+                let readyForFrame = !needsRepaint;
+                let repaintRequested = false;
                 let frameScheduled = false;
                 const flushFrames = (): void => {
                     frameScheduled = false;
                     if (disposed || pending.length === 0) return;
                     const chunks = pending;
                     pending = [];
-                    for (const chunk of chunks) term.write(decodeBase64(chunk));
+                    for (const chunk of chunks) term.write(decodeBase64(chunk.data), () => {
+                        if (!chunk.ready || disposed || firstFrameWritten) return;
+                        firstFrameWritten = true;
+                        firstFrameCallback.current?.();
+                    });
                 };
                 opened.onData((base64) => {
                     recordTerminalOutput(sessionId, base64);
-                    pending.push(base64);
+                    pending.push({ data: base64, ready: readyForFrame });
                     if (!frameScheduled) {
                         frameScheduled = true;
                         requestAnimationFrame(flushFrames);
@@ -249,16 +270,24 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Predicted echo joins the same ordered frame queue; it is not
                 // host output, so it is never recorded as pane output.
                 opened.onPredictedData((base64) => {
-                    pending.push(base64);
+                    pending.push({ data: base64, ready: false });
                     if (!frameScheduled) {
                         frameScheduled = true;
                         requestAnimationFrame(flushFrames);
                     }
                 });
-                opened.onState((state) => onStatus?.(state));
+                opened.onState((state) => {
+                    if (repaintRequested && state === 'live') readyForFrame = true;
+                    onStatus?.(state);
+                });
                 opened.onClose((reason) => onStatus?.(reason ?? 'closed'));
                 term.onData((data) => opened.sendText(data));
                 opened.resize(term.cols, term.rows);
+                // Opened ahead at another size, herdr's screen is the old one's.
+                if (needsRepaint) {
+                    repaintRequested = true;
+                    opened.repaint();
+                }
             })
             .catch((error: unknown) => {
                 if (disposed) return;
@@ -272,6 +301,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 if (disposed) return;
                 fit.fit();
                 setTerminalColumns(sessionId, term.cols);
+                rememberTerminalGrid(term.cols, term.rows);
                 channel?.resize(term.cols, term.rows);
             });
         };
@@ -380,6 +410,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             scheduleScroll();
         };
         let touchY: number | null = null;
+        let touchX = 0;
         let touchT = 0;
         let gesturePx = 0;
         let pinchStart = 0;
@@ -395,6 +426,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             momentumRunning = false;
             longPressLink = null;
             touchY = event.touches.length === 1 ? event.touches[0]!.clientY : null;
+            touchX = event.touches.length === 1 ? event.touches[0]!.clientX : 0;
             touchT = performance.now();
             scrollAcc = 0;
             gesturePx = 0;
@@ -428,6 +460,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 return;
             }
             if (touchY === null || event.touches.length !== 1) return;
+            const sideways = Math.abs(event.touches[0]!.clientX - touchX);
+            if (Math.abs(gesturePx) < 8 && sideways >= SIDEWAYS_PX) {
+                // The page is turning; this touch no longer scrolls or presses.
+                clearLongPress();
+                touchY = null;
+                return;
+            }
             const y = event.touches[0]!.clientY;
             const now = performance.now();
             const dy = y - touchY;
