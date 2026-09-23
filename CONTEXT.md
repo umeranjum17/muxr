@@ -113,7 +113,7 @@ Home chrome that picks Machine, project path, Worktree, and Agent Kind for the n
 _Avoid_: composer, launcher, FAB sheet
 
 **Terminal Link**:
-A URL an Agent printed. Loopback HTML can open as Preview; web links open outside the app, other schemes never do. The terminal asks before opening a link; see [terminal usage](README.md#what-you-can-do).
+A URL an Agent printed. Loopback HTML can open as Preview; web links open outside the app, other schemes never do. The terminal asks before opening a link; see [terminal usage](README.md#a-real-terminal-built-for-thumbs).
 _Avoid_: chip URL, detected hyperlink
 
 **Collaboration**:

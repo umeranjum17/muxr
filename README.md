@@ -1,130 +1,160 @@
-<div align="center">
+<h1 align="center">
+  <a href="https://trymuxr.com"><img src="docs/play/store-assets/store-icon.png" width="72" alt="muxr" valign="middle" /></a> muxr
+</h1>
 
-<pre>
-███╗   ███╗██╗   ██╗██╗  ██╗██████╗
-████╗ ████║██║   ██║╚██╗██╔╝██╔══██╗
-██╔████╔██║██║   ██║ ╚███╔╝ ██████╔╝
-██║╚██╔╝██║██║   ██║ ██╔██╗ ██╔══██╗
-██║ ╚═╝ ██║╚██████╔╝██╔╝ ██╗██║  ██║
-╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
-</pre>
+<p align="center">
+  <a href="https://www.npmjs.com/package/@trymuxr/cli"><img alt="npm" src="https://img.shields.io/npm/v/@trymuxr/cli?style=flat&label=npm" /></a>
+  <a href="https://github.com/umeranjum17/muxr/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/muxr/ci.yml?style=flat&branch=main" /></a>
+  <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat" /></a>
+  <img alt="iOS and Android" src="https://img.shields.io/badge/iOS%20%7C%20Android-111?style=flat" />
+</p>
 
-**Your coding agents, their real terminals, and your computer's screen — on your phone.**
+<p align="center">
+  <strong>Every agent. The real terminal. In your pocket.</strong><br/>
+  muxr is a mobile-first client for the coding agents running on your computers. See the whole herd at a glance — who's working, who needs you, who's done. Open any agent's exact live terminal, prompt it like you're at the desk, and watch it keep executing on your machine. Not a dashboard about your agents — the same session, built for a thumb.
+</p>
 
-<a href="https://www.npmjs.com/package/@trymuxr/cli"><img alt="npm" src="https://img.shields.io/npm/v/@trymuxr/cli?style=flat&label=npm" /></a>
-<a href="https://github.com/umeranjum17/muxr/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/muxr/ci.yml?style=flat&branch=main" /></a>
-<a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat" /></a>
-<img alt="iOS, Android and web" src="https://img.shields.io/badge/iOS%20%7C%20Android%20%7C%20web-111?style=flat" />
+<h3 align="center"><a href="https://trymuxr.com/docs/quickstart"><ins>Get muxr</ins></a></h3>
 
-[**Get muxr**](https://trymuxr.com/docs/quickstart) · [Android APK](https://trymuxr.com/downloads/stable/android) · [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN) · [All downloads](https://trymuxr.com/downloads)
+<p align="center">
+  <a href="https://play.google.com/apps/testing/com.trymuxr.app">Google Play testing</a> ·
+  <a href="https://testflight.apple.com/join/aJSbs8pN">iOS TestFlight</a> ·
+  <a href="https://trymuxr.com/downloads/stable/android">Download the Android APK</a> ·
+  <a href="https://trymuxr.com/downloads">Stable and nightly</a>
+</p>
 
-<!-- Hero: every phone screen here is a real capture of the app. Add the launch loop once it is rendered from real app footage. -->
-<img src="docs/assets/readme/real/computer-live.webp" alt="The muxr app showing the computer's desktop live from inside an agent's conversation" width="270" />
-&nbsp;&nbsp;
-<img src="docs/assets/readme/real/gestures.webp" alt="The Gestures settings screen: one-finger swipe between agents and pinch to zoom" width="270" />
+<p align="center">
+  <img src="docs/demo/muxr-loop.webp" alt="The muxr herd, an agent's exact live terminal, and a prompt continuing on the computer" width="960" />
+</p>
 
-</div>
+## Why muxr exists
 
-## What it is
+Coding agents made programming asynchronous: they work for minutes or hours, then stop and wait for you. Your phone is where you already are during those waits — but a terminal squeezed into a phone browser is unusable, and a notification app cannot actually answer.
 
-Coding agents work for minutes or hours, then stop and wait for you. muxr puts every one of them on your phone: see who is working, who needs you and who is done, open the agent's exact live terminal, and answer it with your thumb. When you want the whole picture, peek at your computer's screen and watch what the agent is doing right now.
+muxr is the control surface built natively for the phone: the full agent lifecycle on one screen, the exact terminal when you tap in, and a prompt box that talks to the same session. Execution, code, credentials, and model subscriptions stay on your computers.
 
-It is self-hosted and open source. The agents, code, keys and model subscriptions stay on your computer, and muxr runs no server your sessions pass through.
+## See it in action
 
-## What you can do
+### A real terminal, built for thumbs
 
-- **Peek at your computer.** Tap **Computer** inside an agent's conversation and your own desktop appears live — see what the agent is up to, then take over with a pointer that follows your finger, a keyboard and a shared clipboard.
-- **Every agent at a glance.** Home and the Herd show each agent's live terminal and state across repositories and machines. Inbox collects the ones that need you.
-- **The real terminal.** The same session the agent runs at your desk, with scrollback, modifier keys and a prompt box. When an agent asks a numbered question, tap the answer.
-- **Swipe between agents.** One finger sideways moves to the next working or waiting agent. **Settings → Gestures** switches to a two-finger swipe, turns swiping off, and turns pinch-to-zoom on or off.
-- **Know your limits.** The **Right now** card on Home shows every connected plan's limits at a glance; **Usage** shows each window's percent left, reset time and pace.
-- **Start and review work.** Start a new agent in any repository or worktree, read its diff, and accept or reject the changes.
-- **Talk to the herd.** Native realtime voice when typing is the slow part. [Voice setup →](docs/VOICE-SETUP.md)
-- **Phone or browser.** The Android and iOS apps, or pair a browser for full control or view-only access.
+Open the same live terminal the agent owns on your computer, with native Ghostty rendering, scrollback, and sticky modifier keys. A floating control and a key row you can reorder keep actions within reach, and the composer keeps attachments and dictation beside the prompt. When a blocked Claude Code or Codex agent shows numbered answers, tap one instead of finding its key. Tap a printed link to open, copy, or insert it into the prompt.
 
-## Remote desktop
+<p align="center">
+  <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="muxr's redesigned terminal with compact header, floating quick actions, key row, and prompt composer" width="100%" /></picture></a>
+</p>
 
-Open **Computer** from an agent's conversation to see your computer's screen live. Look first; nothing is sent until you tap. Drag and the pointer follows your finger, tap to click, and open the keyboard or clipboard from the floating buttons (in a browser, allow clipboard access when it asks). After you lock the phone or lose the connection, the picture comes back with control off until you tap **Tap to control**, and that tap never reaches the desktop. A restored desktop, or one opened from a link, waits for **Start desktop** before it captures anything.
+### Every agent, every machine
 
-Pair once, and the desktop works over the same route as your agents:
+The Herd groups agents by repository and nests spawned workspaces when their lineage is declared. See real terminal thumbnails and agent lifecycle: working, needs you, done. Tap any agent and you are back in the same session.
 
-| Your phone reaches the computer over | Agents and terminal | Desktop |
-|---|---|---|
-| Tailscale | Android, iOS, browser | Android, browser — direct, peer to peer |
-| Any mesh VPN or a LAN address | Android, iOS, browser | Android, browser — direct, peer to peer |
-| SSH only, such as a cloud server with just port 22 open | Android app | Android app — carried inside the same SSH connection |
+<p align="center">
+  <picture><source srcset="docs/assets/readme/herd.webp" type="image/webp"><img src="docs/assets/readme/herd.jpg" alt="The muxr Herd with live terminal thumbnails, repository spaces, and agent lifecycle states" width="100%" /></picture>
+</p>
 
-A cloud server with no screen needs the virtual-display packages installed once; muxr then starts a private screen for it. See [remote desktop on a cloud server](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server).
+### Swipe between agents
 
-## How it fits together
+Swipe sideways with one finger to move to the next working, waiting, or just-finished agent; the next terminal follows your finger. In **Settings → Gestures**, switch to a two-finger swipe or turn swiping off, choose which agents a swipe stops at, and turn pinch-to-zoom on or off. Vertical drags still scroll, and a resting finger still selects text.
 
-```text
-  phone or browser              relay                         your computer
- ┌───────────────┐   E2EE   ┌──────────────┐    E2EE    ┌───────────────────────────┐
- │ muxr app      │◄────────►│ routes       │◄──────────►│ muxr host                 │
- │  agents       │          │ ciphertext   │            │  ├─ Herdr ─► your agents  │
- │  terminals    │          │ it can't read│            │  └─ desktop engine        │
- │  Computer     │          └──────────────┘            │       screen, pointer,    │
- └───────┬───────┘                                      │       keys, clipboard     │
-         │   peek / control: encrypted WebRTC,          └─────────────▲─────────────┘
-         └── direct, or inside your SSH connection ───────────────────┘
-```
+<p align="center">
+  <picture><source srcset="docs/assets/readme/gestures.webp" type="image/webp"><img src="docs/assets/readme/gestures.jpg" alt="The muxr Gestures settings: one-finger swipe between agents, where swipes stop, and pinch to zoom" width="100%" /></picture>
+</p>
 
-The relay runs on your computer or on a server you own. It forwards sealed envelopes and never sees terminal text, prompts, keystrokes or files. The desktop picture does not go through the relay at all.
+### Know who needs you
 
-## Install and pair once
+Inbox collects attention across every repository. Open the waiting agent directly instead of hunting through terminals or notification history.
 
-On the computer that runs your agents (Linux, macOS or WSL, with [Node.js 22 or newer](https://nodejs.org/)):
+<p align="center">
+  <picture><source srcset="docs/assets/readme/inbox.webp" type="image/webp"><img src="docs/assets/readme/inbox.jpg" alt="muxr Inbox sorting agents that need attention from agents that finished" width="100%" /></picture>
+</p>
+
+### Review before it ships
+
+Open the real diff, inspect every changed line, then accept or reject it without waiting to get back to your desk.
+
+<p align="center">
+  <picture><source srcset="docs/assets/readme/changes.webp" type="image/webp"><img src="docs/assets/readme/changes.jpg" alt="Reviewing an agent's code changes in muxr" width="100%" /></picture>
+</p>
+
+### Peek at your computer
+
+Tap **Computer** inside an agent's conversation to see your own desktop live and check what the agent is doing. Tap in to take over: the pointer follows your finger, with a keyboard and a shared clipboard. It works over Tailscale, any mesh VPN or LAN address, or SSH alone, including a cloud server. [Routes and setup →](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server)
+
+<p align="center">
+  <picture><source srcset="docs/assets/readme/computer.webp" type="image/webp"><img src="docs/assets/readme/computer.jpg" alt="An agent's computer desktop shown live in muxr: the agent's progress above the page it is editing" width="100%" /></picture>
+</p>
+
+### Talk to the herd
+
+Use native realtime speech-to-speech when typing is the slow part. Ask what changed, give a follow-up, and keep the same agent context.
+
+[Voice setup →](docs/VOICE-SETUP.md)
+
+<p align="center">
+  <picture><source srcset="docs/assets/readme/voice.webp" type="image/webp"><img src="docs/assets/readme/voice.jpg" alt="A native realtime voice session in muxr" width="100%" /></picture>
+</p>
+
+**Also on your phone:**
+
+- **New agents and worktrees** — open the home composer to choose the machine, repository, worktree, and one of 20+ agent CLIs. The resting dock hides Send until there's a draft or a submission in progress. On a short phone, scroll the open composer to reach its options and Start when the keyboard is visible. On a later launch, Home can show the last confirmed agents and spaces while reconnecting; they appear dimmed until the host responds, and closing a remembered space is unavailable.
+- **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone; download an agent's Shared Artifacts with progress and resume after a lost connection. On web, a download finished in the background offers **Save** when you return.
+- **Settings** — under Appearance, choose a theme and terminal text size; the browser terminal also offers System or IBM Plex Mono. Gestures lists terminal actions and the swipe and zoom choices. Under Notifications, choose alerts for agents needing you or finishing; enable browser notifications in the web app or manage permission and sound in your phone's system settings.
+- **Usage** — see each plan window's percent left, reset time, and pace when known; Home shows every connected plan's limits at a glance, each plan's mark over what is left of its windows, alongside machine health.
+- **Desktop control (Linux)** — see **Peek at your computer** above. Remote desktop needs a Linux x64 host today (macOS later; Arm servers build the engine from source), and a cloud server needs the virtual-display packages once. Android and web have desktop clients; iOS does not yet. [Remote desktop setup and limits](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server) · [Host engine](packages/desktop-host/README.md)
+- **[Extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
+
+The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
+
+## The whole party, in one place
+
+Parallel agents work like a party: each has a job, a state, and moments when it needs you. muxr keeps the real terminals, diffs, inbox, and voice together without hiding what is happening.
+
+![muxr as an RPG party command center with the Herd, terminal, changes, Inbox, and voice](docs/art/rpg-cover.png)
+
+## Your machines, your relay
+
+Your phone and computer stay connected over Wi-Fi, Tailscale, any mesh VPN, SSH alone, or a VPS you run. Pair once and every route carries your agents, terminals, and desktop. Nobody else runs your agents.
+
+Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
+
+[Privacy and trust →](https://trymuxr.com/docs/privacy) · [Self-hosting →](docs/SELF-HOSTING.md)
+
+## Install
+
+You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. muxr installs [Herdr](https://herdr.dev) during setup if it is missing.
 
 ```bash
 npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
 
-Setup looks at the machine without changing anything, shows the six ways your phone can reach it, and recommends one. Nothing changes until **Apply setup**. muxr installs [Herdr](https://herdr.dev), which runs the agents, if it is missing.
+Want the newest build? Install it with `npm install -g --ignore-scripts @trymuxr/cli@nightly` and take its APK from the [nightly channel](https://trymuxr.com/downloads/nightly). The **Android app** installs alongside a stable one rather than replacing it, so you can keep both on the phone. On your computer both channels are the same CLI, so switching npm tags replaces the host you already run rather than adding a second one. Beta and dev are retired: moving across is that one install, and an older binary will not upgrade itself to a `-nightly` version.
 
-Then scan the one-use QR code with the app. The phone stays paired until you revoke it with `muxr devices revoke`. To pair a browser instead, run `muxr pair --browser` (full control) or `muxr pair --browser-view` (view only).
+Then install the mobile companion:
 
-Get the app:
+- **Android (stable):** [download the stable APK](https://trymuxr.com/downloads/stable/android) · [stable checksum](https://trymuxr.com/downloads/stable/checksums)
+- **Google Play testing:** [join the testing track](https://play.google.com/apps/testing/com.trymuxr.app) — availability depends on Google review and testing access
+- **iOS TestFlight:** [open the public link](https://testflight.apple.com/join/aJSbs8pN) — build availability depends on Apple review and tester capacity. Store tracks review and roll out on their own schedule, so they do not move with the nightly APK
+- **Web:** pair an eight-hour control or view-only browser during self-hosted setup. On compact screens, Home opens running agents and a control grant adds the bottom composer to start one, instead of bottom tabs. Search, Panes, and Settings live in the header; Usage opens from Home or Settings.
+- **All builds:** [every download channel](https://trymuxr.com/downloads)
 
-- **Android:** [stable APK](https://trymuxr.com/downloads/stable/android) ([checksum](https://trymuxr.com/downloads/stable/checksums)) or [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app)
-- **iOS:** [TestFlight](https://testflight.apple.com/join/aJSbs8pN)
-- **Newest builds:** `npm install -g --ignore-scripts @trymuxr/cli@nightly` and the [nightly APK](https://trymuxr.com/downloads/nightly), which installs alongside the stable app
+Save the channel's checksum next to the downloaded APK as `SHA256SUMS`, verify it with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Each channel publishes its own checksum, so verify against the channel you downloaded from. Setup shows six routes with their requirements, recommends a ready route, and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
 
-To verify an APK, save the channel's checksum next to it as `SHA256SUMS` and run `sha256sum --ignore-missing -c SHA256SUMS`.
-
-[Step-by-step quickstart →](https://trymuxr.com/docs/quickstart) · [Self-hosting →](docs/SELF-HOSTING.md)
-
-## Honest limits
-
-- **Remote desktop host:** Linux x64 today (glibc 2.36 or newer). macOS comes later. An Arm server needs the desktop engine [built from source](packages/desktop-host/README.md#building-from-source).
-- **Remote desktop release:** the desktop engine ships with the next CLI release; earlier releases have agents and terminals only.
-- **Cloud servers:** install the virtual-display packages once ([one command](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server)).
-- **Desktop control on a normal Linux desktop:** viewing works out of the box; control needs a one-time [input permission](packages/desktop-host/README.md#kernel-input-access) you grant yourself.
-- **Desktop clients:** the Android app and the browser. The iOS app has agents and terminals but no desktop yet.
-- **SSH route:** the Android app only, with RSA or ECDSA keys.
-- **No video relay:** the desktop needs a direct path (mesh, LAN) or SSH. If the phone and computer can only meet through a relay, the terminal works but the picture will not connect.
-
-## Private by design
-
-- Self-hosted: your relay, your computer, your pairing. muxr operates no backend your sessions pass through.
-- End-to-end encrypted: terminal text, prompts, keystrokes, files and pairing secrets are sealed on your devices.
-- Nothing leaves the computer: agents, repositories, credentials, model subscriptions and encryption keys stay where they are.
-
-[Privacy and trust →](https://trymuxr.com/docs/privacy) · [Security policy →](SECURITY.md)
+[Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
 
 ## Use the agents you already have
 
-muxr connects to the agents [Herdr](https://github.com/herdrdev/herdr) runs: 20+ agent CLIs and plain shells. Your CLIs, subscriptions, configuration, skills and tools stay as they are, and muxr never edits agent instruction files. Agents can load muxr's own guide with `muxr --skill` when they need it.
+muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already runs. Your CLIs, subscriptions, configuration, skills, and MCP servers stay as they are. muxr never edits agent instruction files; load the compact `muxr --skill`, then request one focused topic with `muxr skill <topic>` only when needed.
 
 <p align="center">
-  <img src="docs/agents/icons/agent-grid-light.svg#gh-light-mode-only" width="760" alt="The agent CLIs muxr recognizes" />
-  <img src="docs/agents/icons/agent-grid-dark.svg#gh-dark-mode-only" width="760" alt="The agent CLIs muxr recognizes" />
+  <img src="docs/agents/icons/agent-grid-light.svg#gh-light-mode-only" width="760" alt="Pi, OMP, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes Agent, Amp, Factory Droid, Devin, Cline, Kiro, Kilo Code, Qoder CLI, Antigravity, MastraCode, Maki, and Shell" />
+  <img src="docs/agents/icons/agent-grid-dark.svg#gh-dark-mode-only" width="760" alt="Pi, OMP, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes Agent, Amp, Factory Droid, Devin, Cline, Kiro, Kilo Code, Qoder CLI, Antigravity, MastraCode, Maki, and Shell" />
 </p>
 
 ## Extensions
 
-Add phone-native controls, screens, files, diffs, metrics, shortcuts and realtime streams without forking the app. [Extension guide →](https://trymuxr.com/docs/plugins)
+Add phone-native controls, screens, files, diffs, metrics, shortcuts, and realtime streams through the public extension API.
+
+[Extension guide →](https://trymuxr.com/docs/plugins)
 
 ## Development
 
@@ -136,8 +166,12 @@ yarn typecheck
 yarn run check
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Merging into `main` advances development, not production; releases follow the [release channel workflow](docs/RELEASING.md). The [release history](https://github.com/umeranjum17/muxr/releases) is the full feature list.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and pull requests.
 
 ## License
 
-[Apache License 2.0](LICENSE). Third-party notices are in [NOTICE](NOTICE) and the [license inventory](docs/license-inventory.md). The muxr name and marks are covered by [TRADEMARK.md](TRADEMARK.md).
+muxr is licensed under [Apache License 2.0](LICENSE). Third-party notices are recorded in [NOTICE](NOTICE) and the [license inventory](docs/license-inventory.md). The muxr name and marks are covered by [TRADEMARK.md](TRADEMARK.md).
+
+## Development and nightly builds
+
+Merging into `main` advances development, not production. Use the [release channel workflow](docs/RELEASING.md) for signed nightly APKs, verified npm artifacts and explicit stable promotion. Emulator acceptance stays local.
