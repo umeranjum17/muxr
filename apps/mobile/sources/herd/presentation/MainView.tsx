@@ -10,6 +10,7 @@ import {
     NativeScrollEvent,
     NativeSyntheticEvent,
     ScrollView,
+    useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -29,6 +30,7 @@ import { HeaderLogo } from '@/components/HeaderLogo';
 import { StatusDot } from '@/components/StatusDot';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
+import { SectionLabel } from '@/components/ui';
 import { t } from '@/text';
 
 import { MOBILE_GLASS_HEADER_HEIGHT } from '@/components/navigation/headerMetrics';
@@ -133,15 +135,10 @@ const styles = StyleSheet.create((theme) => ({
         alignSelf: 'center',
         paddingTop: 12,
     },
+    // The shared section label, not a tracked-out capital one of its own.
     recentTitle: {
         paddingHorizontal: 16,
-        paddingBottom: 6,
-        fontSize: 11,
-        fontWeight: '700',
-        letterSpacing: 1.5,
-        textTransform: 'uppercase',
-        color: theme.colors.textSecondary,
-        ...Typography.default('semiBold'),
+        paddingBottom: 10,
     },
     machineTitleButton: {
         flexDirection: 'row',
@@ -169,11 +166,19 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         gap: 8,
     },
+    headerActionsCompact: {
+        gap: 6,
+    },
     headerActionGlass: {
         width: 40,
         height: 40,
         borderRadius: 20,
         overflow: 'hidden',
+    },
+    headerActionGlassCompact: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
     },
     headerActionButton: {
         width: '100%',
@@ -341,16 +346,19 @@ const HeaderSearch = React.memo(({
 const HeaderRight = React.memo(({
     searchActive,
     onSearchPress,
+    compact,
 }: {
     searchActive: boolean;
     onSearchPress: () => void;
+    compact: boolean;
 }) => {
     const router = useRouter();
     const { theme } = useUnistyles();
+    const glass = [styles.headerActionGlass, compact && styles.headerActionGlassCompact];
 
     return (
-        <View style={styles.headerActions}>
-            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
+        <View style={[styles.headerActions, compact && styles.headerActionsCompact]}>
+            <MobileGlassSurface nativeEffect interactive style={glass}>
                 <Pressable
                     onPress={() => router.push('/panes')}
                     style={styles.headerActionButton}
@@ -365,7 +373,7 @@ const HeaderRight = React.memo(({
                     />
                 </Pressable>
             </MobileGlassSurface>
-            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
+            <MobileGlassSurface nativeEffect interactive style={glass}>
                 <Pressable
                     onPress={onSearchPress}
                     style={styles.headerActionButton}
@@ -380,7 +388,7 @@ const HeaderRight = React.memo(({
                     />
                 </Pressable>
             </MobileGlassSurface>
-            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
+            <MobileGlassSurface nativeEffect interactive style={glass}>
                 <Pressable
                     onPress={() => router.push('/settings')}
                     style={styles.headerActionButton}
@@ -395,10 +403,24 @@ const HeaderRight = React.memo(({
     );
 });
 
+// The mark shares the action circles' size and material so the header reads as
+// one row of four. It is not a control, so it carries no press response: the
+// shared header's interactive glass made it swell under a finger and do nothing.
+const HeaderMark = React.memo(({ compact }: { compact: boolean }) => (
+    <MobileGlassSurface nativeEffect style={[styles.headerActionGlass, compact && styles.headerActionGlassCompact]}>
+        <View style={styles.headerActionButton}>
+            <HeaderLogo />
+        </View>
+    </MobileGlassSurface>
+));
+
 let lastTerminalLaunchClaimed = false;
 
 export const MainView = React.memo(() => {
     useUnistyles();
+    // Four 40pt circles leave the title 50pt on a 270pt phone, and the
+    // connection line reads "connect…". Narrow phones get 36pt circles.
+    const compactHeader = useWindowDimensions().width < 330;
     const useSplitView = useSplitViewLayout();
     const router = useRouter();
     const socketStatus = useSocketStatus();
@@ -609,7 +631,7 @@ export const MainView = React.memo(() => {
                     <DeclarativeHomeCards />
                     {recentSessions.length > 0 && (
                         <View style={styles.recentSection}>
-                            <Text style={styles.recentTitle}>Recent</Text>
+                            <SectionLabel style={styles.recentTitle}>Recent</SectionLabel>
                             {recentSessions.map((session, index) => (
                                 <SessionItem
                                     key={session.id}
@@ -637,11 +659,12 @@ export const MainView = React.memo(() => {
                     <HeaderRight
                         searchActive={searchActive}
                         onSearchPress={handleSearchPress}
+                        compact={compactHeader}
                     />
                 )}
                 headerRightGlass={false}
-                headerLeft={() => <HeaderLogo />}
-                headerLeftGlass={Platform.OS !== 'web'}
+                headerLeft={() => (Platform.OS === 'web' ? <HeaderLogo /> : <HeaderMark compact={compactHeader} />)}
+                headerLeftGlass={false}
                 headerBackdropVisible={headerBackdropVisible}
                 headerShadowVisible={false}
                 headerTransparent={true}

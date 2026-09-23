@@ -19,8 +19,9 @@ const COLLAPSED_ROWS = 3;
  * said once — by the heading, or by the row's own status word when failed.
  */
 const styles = StyleSheet.create((theme) => ({
-    section: { marginHorizontal: 16, marginVertical: 8 },
-    card: { marginTop: 8, overflow: 'hidden' },
+    // The same rhythm as the Live strip above: 20pt to the label, 10pt below it.
+    section: { marginHorizontal: 16, marginTop: 20 },
+    card: { marginTop: 10, overflow: 'hidden' },
     row: {
         minHeight: 52,
         paddingHorizontal: 12,
