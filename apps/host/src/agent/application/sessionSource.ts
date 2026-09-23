@@ -201,7 +201,7 @@ export interface SessionSource {
     /** Mint a one-time local-only download ticket for the artifact's original bytes. */
     artifactPrepare(options: { sessionId: string; artifactId: string }): Promise<{ token: string; name: string; mimeType: string; size: number } | null>;
     /** Read one bounded chunk; hosted transport encrypts the request and response envelope. */
-    artifactRead(options: { sessionId: string; artifactId: string; offset: number; length: number }): Promise<{ id: string; name: string; mimeType: string; size: number; offset: number; data: string } | null>;
+    artifactRead(options: { sessionId: string; artifactId: string; offset: number; length: number }): Promise<{ id: string; name: string; mimeType: string; size: number; at?: number; offset: number; data: string; sha256?: string } | null>;
     subscribe(listener: (sessionId: string, event: SessionEventBody) => void): () => void;
     /** Machine-scoped frames share the encrypted session stream and are additive. */
     subscribeMachine?(listener: (frame: PluginsInvalidatedFrame) => void): () => void;

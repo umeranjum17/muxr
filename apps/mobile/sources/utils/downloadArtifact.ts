@@ -39,7 +39,8 @@ function safeName(name: string): string {
 
 /** Content ids name their bytes; anything else is only trusted with its size. */
 function downloadKey(artifact: DownloadableArtifact): string {
-    return /^[0-9a-f]{64}$/.test(artifact.id) ? artifact.id : `${safeName(artifact.id)}-${artifact.size}`;
+    const id = /^[0-9a-f]{64}$/.test(artifact.id) ? artifact.id : safeName(artifact.id);
+    return `${id}-${artifact.size}-${artifact.at ?? 'unknown'}`;
 }
 
 function partFile(artifact: DownloadableArtifact): File {
@@ -49,17 +50,18 @@ function partFile(artifact: DownloadableArtifact): File {
 /** Bytes an interrupted download left behind, e.g. before the app was closed. */
 export function keptBytes(artifact: DownloadableArtifact): number {
     const part = partFile(artifact);
-    return part.exists && part.size < artifact.size ? part.size : 0;
+    return artifact.at !== undefined && part.exists && part.size < artifact.size ? part.size : 0;
 }
 
 function sink(artifact: DownloadableArtifact): TransferSink {
     const key = downloadKey(artifact);
     const finished = new File(Paths.cache, DOWNLOADS, key, safeName(artifact.name));
+    if (artifact.at === undefined && finished.exists) finished.delete();
     if (finished.exists && finished.size === artifact.size) {
-        return { offset: artifact.size, write() {}, pause() {}, discard() {}, finish: () => finished.uri };
+        return { offset: artifact.size, write() {}, pause() {}, discard: () => finished.delete(), finish: () => finished.uri };
     }
     const part = partFile(artifact);
-    if (part.exists && part.size > artifact.size) part.delete();
+    if (part.exists && (part.size > artifact.size || artifact.at === undefined)) part.delete();
     if (!part.exists) part.create({ intermediates: true });
     const handle = part.open();
     // Append after whatever an interrupted attempt already wrote.

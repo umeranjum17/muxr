@@ -55,7 +55,7 @@ export async function sweepArtifactDownloads(): Promise<void> {
 
 function fileName(artifact: DownloadableArtifact): string {
     const id = /^[0-9a-f]{64}$/.test(artifact.id) ? artifact.id : artifact.id.replace(/[^A-Za-z0-9._]/g, '_');
-    return `${id}-${artifact.size}`;
+    return `${id}-${artifact.at ?? 'unknown'}-${artifact.size}`;
 }
 
 async function sink(artifact: DownloadableArtifact): Promise<TransferSink> {
@@ -67,11 +67,16 @@ async function sink(artifact: DownloadableArtifact): Promise<TransferSink> {
     try {
         handle = await directory.getFileHandle(name, { create: true });
         kept = (await handle.getFile()).size;
+        if (artifact.at === undefined && kept > 0) {
+            await directory.removeEntry(name);
+            handle = await directory.getFileHandle(name, { create: true });
+            kept = 0;
+        }
     } catch {
         return fallbackSink(artifact);
     }
     if (kept === artifact.size) {
-        return { offset: kept, write() {}, pause() {}, discard() {}, finish: async () => URL.createObjectURL(await handle.getFile()) };
+        return { offset: kept, write() {}, pause() {}, discard: () => directory.removeEntry(name), finish: async () => URL.createObjectURL(await handle.getFile()) };
     }
     const offset = kept < artifact.size ? kept : 0;
     let writable: FileSystemWritableFileStream;

@@ -30,8 +30,10 @@ export interface ArtifactChunk {
     name: string;
     mimeType: string;
     size: number;
+    at?: number;
     offset: number;
     data: string;
+    sha256?: string;
 }
 
 export interface ArtifactWire {

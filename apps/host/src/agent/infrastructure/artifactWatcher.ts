@@ -5,7 +5,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { createReadStream, mkdirSync, readdirSync, watch, type FSWatcher } from 'node:fs';
+import { createReadStream, mkdirSync, readdirSync, watch, type FSWatcher, type Stats } from 'node:fs';
 import { open as openAsync, readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import type { SessionArtifact, SessionArtifactMetadata } from '@muxr/contract';
@@ -66,6 +66,10 @@ function compareNames(a: string, b: string): number {
     return 0;
 }
 
+function fileSignature(info: Stats): string {
+    return `${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+}
+
 async function statCandidates(dir: string, names: string[]): Promise<Array<{ name: string; path: string; size: number; at: number; signature: string }>> {
     const found: Array<{ name: string; path: string; size: number; at: number; signature: string }> = [];
     let next = 0;
@@ -76,7 +80,7 @@ async function statCandidates(dir: string, names: string[]): Promise<Array<{ nam
             try {
                 const path = join(dir, name);
                 const info = await stat(path);
-                if (info.isFile()) found.push({ name, path, size: info.size, at: Math.floor(info.mtimeMs), signature: `${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}` });
+                if (info.isFile()) found.push({ name, path, size: info.size, at: Math.floor(info.mtimeMs), signature: fileSignature(info) });
             } catch {
                 // A file that vanished after readdir is not a scan failure.
             }
@@ -350,7 +354,7 @@ export class ArtifactWatcher {
 
     /** Bounded read for large hosted artifacts; the RPC envelope encrypts every chunk. */
     async read(paneId: string, artifactId: string, offset: number, length: number): Promise<{
-        id: string; name: string; mimeType: string; size: number; offset: number; data: string;
+        id: string; name: string; mimeType: string; size: number; at: number; offset: number; data: string; sha256: string;
     } | null> {
         if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 1 || length > 512 * 1024) {
             throw new Error('artifact.read: invalid range');
@@ -361,13 +365,18 @@ export class ArtifactWatcher {
             (entry) => entry.id === artifactId || entry.name === artifactId,
         );
         if (found === undefined || offset >= found.size) return null;
+        const signature = cache.get(found.name)?.signature;
+        if (signature === undefined) return null;
         const path = join(this.rootDir, paneId, found.name);
         const bytes = Buffer.alloc(Math.min(length, found.size - offset));
         let descriptor: Awaited<ReturnType<typeof openAsync>> | undefined;
         try {
             descriptor = await openAsync(path, 'r');
+            if (fileSignature(await descriptor.stat()) !== signature) return null;
             const { bytesRead } = await descriptor.read(bytes, 0, bytes.length, offset);
-            return { id: found.id, name: found.name, mimeType: found.mimeType, size: found.size, offset, data: bytes.subarray(0, bytesRead).toString('base64') };
+            if (fileSignature(await descriptor.stat()) !== signature) return null;
+            const chunk = bytes.subarray(0, bytesRead);
+            return { id: found.id, name: found.name, mimeType: found.mimeType, size: found.size, at: found.at, offset, data: chunk.toString('base64'), sha256: createHash('sha256').update(chunk).digest('hex') };
         } catch {
             return null;
         } finally {

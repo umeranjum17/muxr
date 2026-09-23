@@ -4,7 +4,7 @@ import { decodeBase64 } from '@/encryption/base64';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 
-export type ArtifactAction = Extract<PluginAction, { type: 'attachment' }>;
+export type ArtifactAction = Extract<PluginAction, { type: 'attachment' }> & { at?: number };
 export type ArtifactPreviewSource = { uri: string; dispose?: () => void };
 
 const CHUNK_BYTES = 512 * 1024;

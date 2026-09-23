@@ -33,6 +33,7 @@ function artifactAction(artifact: SessionArtifact): ArtifactAction {
         name: artifact.name,
         mimeType: artifact.mimeType,
         size: artifact.size,
+        at: artifact.at,
     };
 }
 

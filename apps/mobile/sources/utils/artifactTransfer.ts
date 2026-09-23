@@ -14,8 +14,9 @@ import { create } from 'zustand';
 import { storage } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { decodeBase64 } from '@/encryption/base64';
+import { artifactChunkHash } from '@/utils/artifactChunkHash';
 
-export type DownloadableArtifact = { id: string; name: string; mimeType: string; size: number };
+export type DownloadableArtifact = { id: string; name: string; mimeType: string; size: number; at?: number };
 
 export type ArtifactTransfer =
     /** `waiting`: the connection dropped; resumes by itself when it returns. */
@@ -51,8 +52,8 @@ export const LARGE_FILE_ERROR = "This browser can't save large files here";
 export const useArtifactTransfers = create<Record<string, ArtifactTransfer>>(() => ({}));
 
 class ArtifactChanged extends Error {
-    constructor() {
-        super('Changed on the computer. Refresh and try again.');
+    constructor(message = 'Changed on the computer. Download it again.') {
+        super(message);
     }
 }
 
@@ -149,14 +150,24 @@ export async function clearArtifactDownloads(): Promise<void> {
     await clearPartialDownloads();
 }
 
-async function readChunk(job: Job, at: number, length: number): Promise<Uint8Array> {
-    const chunk = await sync.artifactRead(job.sessionId, job.pinnedId ?? job.artifact.id, at, length, 60_000);
-    if (chunk === null || chunk.offset !== at || chunk.size !== job.artifact.size) throw new ArtifactChanged();
-    job.pinnedId ??= chunk.id;
-    if (chunk.id !== job.pinnedId) throw new ArtifactChanged();
-    const bytes = decodeBase64(chunk.data);
-    if (bytes.length !== length) throw new ArtifactChanged();
-    return bytes;
+class MissingArtifactTime extends Error {}
+
+async function readChunk(job: Job, at: number, length: number, requireTime = false): Promise<Uint8Array> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const chunk = await sync.artifactRead(job.sessionId, job.pinnedId ?? job.artifact.id, at, length, 60_000);
+        if (chunk === null || chunk.offset !== at || chunk.size !== job.artifact.size) throw new ArtifactChanged();
+        job.pinnedId ??= chunk.id;
+        if (chunk.id !== job.pinnedId || (job.artifact.at !== undefined && chunk.at !== undefined && chunk.at !== job.artifact.at)) throw new ArtifactChanged();
+        if (requireTime && chunk.at === undefined) throw new MissingArtifactTime();
+        const bytes = decodeBase64(chunk.data);
+        if (bytes.length !== length) throw new ArtifactChanged();
+        if (chunk.sha256 !== undefined && await artifactChunkHash(bytes) !== chunk.sha256) {
+            if (attempt === 0) continue;
+            throw new ArtifactChanged('Download failed integrity check. Try again.');
+        }
+        return bytes;
+    }
+    throw new ArtifactChanged();
 }
 
 async function run(job: Job): Promise<void> {
@@ -185,6 +196,19 @@ async function run(job: Job): Promise<void> {
         sink = await job.platform.sink(artifact);
         if (!owns(job)) throw new Error('Download cancelled.');
         received = sink.offset;
+        if (received > 0) {
+            try {
+                await readChunk(job, 0, Math.min(CHUNK_BYTES, artifact.size), true);
+            } catch (error) {
+                if (!(error instanceof MissingArtifactTime)) throw error;
+                await sink.discard();
+                if (!owns(job)) return;
+                sink = await job.platform.sink(artifact);
+                if (!owns(job)) throw new Error('Download cancelled.');
+                received = sink.offset;
+            }
+        }
+        if (!owns(job)) throw new Error('Download cancelled.');
         let next = received;
         let sampleAt = Date.now();
         let sampleBytes = received;
@@ -248,9 +272,13 @@ async function run(job: Job): Promise<void> {
         }
         try { await sink?.pause(); } catch (pauseError) {
             if (owns(job)) fail(job, received, 'Download stopped', pauseError);
+            else try { await sink?.discard(); } catch {}
             return;
         }
-        if (!owns(job)) return;
+        if (!owns(job)) {
+            try { await sink?.discard(); } catch {}
+            return;
+        }
         if (storage.getState().socketStatus !== 'connected' || connectionEpoch !== epoch) {
             job.resumeOnConnect = true;
             publish(artifact.id, { status: 'waiting', received, total: artifact.size });
