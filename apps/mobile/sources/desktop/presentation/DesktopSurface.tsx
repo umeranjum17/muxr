@@ -1,12 +1,12 @@
 import * as React from 'react';
 import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
-import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { DesktopView, useDesktopSession } from '@desklink/react-native';
+import { DesktopView, observeWebKeyboardMotion, useDesktopSession } from '@desklink/react-native';
 
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
@@ -35,8 +35,6 @@ const REST_GAP = 12;
 const ABOVE_KEYS = 8;
 /** Between the picture and the round controls while the keyboard is up. */
 const PICTURE_GAP = 8;
-/** The keyboard's own travel time, which the controls and the picture share. */
-const KEYBOARD_MOVE_MS = 250;
 
 type DesktopPermission = 'view' | 'control' | 'clipboard';
 type Menu = 'clipboard' | 'help' | 'more';
@@ -65,29 +63,20 @@ export interface DesktopSurfaceProps {
  * values the UI thread moves with it. A phone browser reports neither: there
  * the visual viewport says how much of the page the keyboard covers.
  */
-function useKeyboardMotion(): { height: SharedValue<number>; progress: SharedValue<number> } {
+function useKeyboardMotion(): { height: SharedValue<number>; progress: SharedValue<number>; visible: boolean } {
     const native = useReanimatedKeyboardAnimation();
     const height = useSharedValue(0);
     const progress = useSharedValue(0);
+    const [visible, setVisible] = React.useState(false);
     React.useEffect(() => {
-        const viewport = Platform.OS === 'web' ? globalThis.visualViewport : undefined;
-        if (viewport === undefined || viewport === null) return;
-        let largestCovered = Math.max(1, globalThis.innerHeight / 2);
-        const follow = () => {
-            const covered = Math.max(0, globalThis.innerHeight - viewport.offsetTop - viewport.height);
-            largestCovered = Math.max(largestCovered, covered);
+        if (Platform.OS !== 'web') return;
+        return observeWebKeyboardMotion(({ covered, phase }) => {
             height.value = -covered;
-            progress.value = Math.min(1, covered / largestCovered);
-        };
-        viewport.addEventListener('resize', follow);
-        viewport.addEventListener('scroll', follow);
-        follow();
-        return () => {
-            viewport.removeEventListener('resize', follow);
-            viewport.removeEventListener('scroll', follow);
-        };
+            progress.value = phase;
+            setVisible(covered > 0);
+        });
     }, [height, progress]);
-    return Platform.OS === 'web' ? { height, progress } : native;
+    return Platform.OS === 'web' ? { height, progress, visible } : { ...native, visible: false };
 }
 
 /**
@@ -247,8 +236,8 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     const status = describeDesktopOverlay(snapshot, openedBefore);
     const shownNotice = live ? notice?.text ?? null : null;
     // The row stays while the keyboard is still on its way down, fading with it.
-    const keyRowShown = live && (keyboardOpen || keyboard.isVisible);
     const web = Platform.OS === 'web';
+    const keyRowShown = live && (keyboardOpen || keyboard.isVisible || (web && motion.visible));
     // A phone on its side has little height once the keyboard is up: the
     // header steps aside, and the round controls sit at the ends of the key
     // row instead of above it.
@@ -263,21 +252,15 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     // controls rise over it by the same measure, so the keyboard, the row,
     // the controls and the picture arrive as one movement. The keyboard's
     // height already covers the home indicator, so the inset that lifts them
-    // at rest is let go as the keyboard comes up. A browser reports no
-    // keyboard motion, so there the row's own opening drives the rise.
-    const opened = useSharedValue(0);
-    React.useEffect(() => {
-        opened.value = withTiming(keyRowShown ? 1 : 0, { duration: KEYBOARD_MOVE_MS, reduceMotion: ReduceMotion.System });
-    }, [keyRowShown, opened]);
+    // at rest is let go as the keyboard comes up.
     const { height: keyboardOffset, progress: keyboardShown } = motion;
-    const risen = web ? opened : keyboardShown;
     const bottomInset = insets.bottom;
     const keyRowMotion = useAnimatedStyle(() => ({
-        opacity: risen.value,
+        opacity: keyboardShown.value,
         transform: [{ translateY: keyboardOffset.value + bottomInset * keyboardShown.value }],
     }));
     const controlsMotion = useAnimatedStyle(() => ({
-        transform: [{ translateY: keyboardOffset.value + bottomInset * keyboardShown.value - risen.value * (rise - REST_GAP) }],
+        transform: [{ translateY: keyboardOffset.value + bottomInset * keyboardShown.value - keyboardShown.value * (rise - REST_GAP) }],
     }));
 
     const control = (pressed: boolean, on = false): ViewStyle => ({

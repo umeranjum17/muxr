@@ -1,4 +1,5 @@
 import type { NativeDesklinkModule, NativeEventName, NativeSessionEvent } from './native';
+import { observeWebKeyboardMotion } from './webKeyboardMotion';
 
 /**
  * The browser implementation of the client's session interface.
@@ -640,16 +641,18 @@ function attachGestures(session: WebSession): () => void {
     // A phone browser lays its keyboard over the page rather than resizing it,
     // so the covered part is what the visual viewport no longer shows.
     const viewport = (globalThis as { visualViewport?: VisualViewport }).visualViewport;
+    let phase = 0;
     const followKeyboard = (): void => {
         const rect = surfaceRect(session);
         const shown = viewport === undefined ? rect.top + rect.height : viewport.offsetTop + viewport.height;
         const overlap = Math.max(0, rect.top + rect.height - shown);
-        coverBottom(session, overlap > 0 ? overlap + session.clearance : 0);
+        coverBottom(session, overlap > 0 ? overlap + session.clearance * phase : 0);
     };
-    viewport?.addEventListener('resize', followKeyboard);
-    viewport?.addEventListener('scroll', followKeyboard);
     session.followKeyboard = followKeyboard;
-    followKeyboard();
+    const stopFollowing = observeWebKeyboardMotion((motion) => {
+        phase = motion.phase;
+        followKeyboard();
+    });
 
     // What the phone types goes to the desktop, or, while a sticky modifier
     // waits for its key, to the session, which sends it as that key's chord.
@@ -757,16 +760,11 @@ function attachGestures(session: WebSession): () => void {
     keyboard.addEventListener('beforeinput', beforeInput);
     keyboard.addEventListener('keydown', keyDown);
     keyboard.addEventListener('keyup', keyUp);
-    keyboard.addEventListener('focus', followKeyboard);
-    keyboard.addEventListener('blur', followKeyboard);
 
     return () => {
         cancelLongPress(session);
         resize?.disconnect();
-        viewport?.removeEventListener('resize', followKeyboard);
-        viewport?.removeEventListener('scroll', followKeyboard);
-        keyboard.removeEventListener('focus', followKeyboard);
-        keyboard.removeEventListener('blur', followKeyboard);
+        stopFollowing();
         session.followKeyboard = null;
         surface.removeEventListener('pointerdown', pointerDown as EventListener);
         surface.removeEventListener('pointermove', pointerMove as EventListener);

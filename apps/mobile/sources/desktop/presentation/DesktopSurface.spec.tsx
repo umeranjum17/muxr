@@ -53,6 +53,7 @@ vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Icon', MaterialCommunityIcons:
 vi.mock('expo-clipboard', () => ({ getStringAsync: async () => '', setStringAsync: async () => undefined }));
 vi.mock('@desklink/react-native', () => ({
     DesktopView: 'DesktopView',
+    observeWebKeyboardMotion: () => () => undefined,
     useDesktopSession: (options: { authorize: () => Promise<unknown> }) => {
         authorize = options.authorize;
         return session;

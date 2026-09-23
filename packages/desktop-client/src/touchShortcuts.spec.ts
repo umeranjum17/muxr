@@ -4,7 +4,8 @@ import TestRenderer from 'react-test-renderer';
 
 import type { Signaling } from './protocol';
 import { useDesktopSession, type DesktopSession } from './useDesktopSession';
-import { attachSurface, setKeyboardClearance } from './native.web';
+import { attachSurface, nativeDesklink, setKeyboardClearance } from './native.web';
+import { observeWebKeyboardMotion } from './webKeyboardMotion';
 
 /** `act` refuses to flush state updates unless React is told this is a test. */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,10 +50,13 @@ class FakePeer {
 
 let created: FakeElement[] = [];
 let sent: Record<string, unknown>[] = [];
+let sessionIds: string[] = [];
+let stopObservation: (() => void) | null = null;
 
 beforeEach(() => {
     created = [];
     sent = [];
+    sessionIds = [];
     vi.stubGlobal('document', {
         createElement: () => {
             const element = new FakeElement();
@@ -64,6 +68,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    stopObservation?.();
+    stopObservation = null;
+    for (const id of sessionIds) nativeDesklink.closeSession(id);
     vi.useRealTimers();
     vi.unstubAllGlobals();
 });
@@ -107,6 +114,7 @@ async function liveDesktop() {
         await held.current?.connect();
     });
     const session = held as { current: DesktopSession };
+    sessionIds.push(session.current.nativeId!);
     const channel = {
         readyState: 'open',
         onmessage: null as ((message: { data: string }) => void) | null,
@@ -236,6 +244,20 @@ describe('the pointer above the keyboard', () => {
     it('keeps the painted picture, taps and pointer together while the keyboard moves', async () => {
         const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 720 });
         vi.stubGlobal('visualViewport', viewport);
+        vi.stubGlobal('innerHeight', 720);
+        let phase = 0;
+        stopObservation = observeWebKeyboardMotion((motion) => { phase = motion.phase; });
+        let frame: FrameRequestCallback | null = null;
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frame = callback; return 1; });
+        vi.stubGlobal('cancelAnimationFrame', () => { frame = null; });
+        const settle = () => {
+            const first = frame;
+            frame = null;
+            first?.(0);
+            const second = frame;
+            frame = null;
+            second?.(0);
+        };
         const { session, video, keyboard } = await liveDesktop();
         const [picture, , mark] = created;
         const tip = () => {
@@ -259,6 +281,7 @@ describe('the pointer above the keyboard', () => {
         dispatch(viewport, 'resize', {});
         const firstTop = Number.parseFloat(picture!.style.top);
         expect(firstTop).toBeLessThan(0);
+        expect(phase).toBe(1);
         viewport.height = 510;
         dispatch(viewport, 'resize', {});
         const paintedTop = Number.parseFloat(picture!.style.top);
@@ -273,6 +296,7 @@ describe('the pointer above the keyboard', () => {
         viewport.height = 420;
         dispatch(viewport, 'resize', {});
         expect(tip().y).toBeCloseTo(Number.parseFloat(picture!.style.top) + clickedY + 0.5, 5);
+        settle();
 
         (document as unknown as { activeElement: unknown }).activeElement = null;
         const beforeBlur = Number.parseFloat(picture!.style.top);
@@ -292,6 +316,17 @@ describe('the pointer above the keyboard', () => {
         dispatch(viewport, 'resize', {});
         expect(picture!.style.top).toBe('0px');
         expect(tip()).toEqual({ x: 500.5, y: returningY + 0.5 });
+
+        touch(video, 'pointerdown', 600, 600);
+        touch(video, 'pointerup', 600, 600);
+        viewport.height = 600;
+        dispatch(viewport, 'resize', {});
+        const shorterOpening = Number.parseFloat(picture!.style.top);
+        expect(phase).toBeCloseTo(0.4, 5);
+        expect(shorterOpening).toBeCloseTo(-76.5, 5);
+        settle();
+        expect(phase).toBe(1);
+        expect(Number.parseFloat(picture!.style.top)).toBeCloseTo(-106.5, 5);
     });
 });
 
