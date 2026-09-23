@@ -162,6 +162,7 @@ export function AgentPager({ sessionId, previous, next, status, onNothingThere, 
     const hasNext = useSharedValue(next !== undefined);
     const startedAt = useSharedValue(0);
     const startSpread = useSharedValue(0);
+    const startCentroidX = useSharedValue(0);
     const committed = useSharedValue(0);
     const [arrived] = React.useState(() => arrivingBySwipe(sessionId));
     // The picture holds until the terminal has painted once: through the
@@ -220,6 +221,7 @@ export function AgentPager({ sessionId, previous, next, status, onNothingThere, 
         .enabled(swipe !== 'off')
         .minPointers(fingers)
         .maxPointers(fingers)
+        .manualActivation(fingers === 2)
         .activeOffsetX([-X_ACTIVATE, X_ACTIVATE])
         .failOffsetY([-Y_FAIL, Y_FAIL])
         .hitSlop({ horizontal: -EDGE_INSET })
@@ -231,16 +233,24 @@ export function AgentPager({ sessionId, previous, next, status, onNothingThere, 
                 return;
             }
             const [a, b] = event.allTouches;
-            if (a !== undefined && b !== undefined) startSpread.value = Math.hypot(a.x - b.x, a.y - b.y);
+            if (a !== undefined && b !== undefined) {
+                startSpread.value = Math.hypot(a.x - b.x, a.y - b.y);
+                startCentroidX.value = (a.x + b.x) / 2;
+            }
         })
         .onTouchesMove((event, manager) => {
             if (event.state === STATE_ACTIVE) return;
             // Resting first and then moving is the terminal's text selection.
             if (fingers === 1 && Date.now() - startedAt.value > INTENT_WINDOW) manager.fail();
-            // Two fingers moving apart or together are zooming, not switching.
             const [a, b] = event.allTouches;
-            if (fingers === 2 && a !== undefined && b !== undefined && startSpread.value > 0
-                && Math.abs(Math.hypot(a.x - b.x, a.y - b.y) / startSpread.value - 1) > PINCH_SPREAD) manager.fail();
+            if (fingers !== 2 || a === undefined || b === undefined || startSpread.value <= 0) return;
+            const travel = Math.abs((a.x + b.x) / 2 - startCentroidX.value);
+            const spread = Math.abs(Math.hypot(a.x - b.x, a.y - b.y) - startSpread.value);
+            if ((spread > 6 && spread > travel / 2) || spread > startSpread.value * PINCH_SPREAD) {
+                manager.fail();
+                return;
+            }
+            if (travel >= X_ACTIVATE) manager.activate();
         })
         .onBegin(() => {
             startedAt.value = Date.now();
@@ -269,7 +279,7 @@ export function AgentPager({ sessionId, previous, next, status, onNothingThere, 
         .onFinalize((event) => {
             if (committed.value === 1 || event.state !== STATE_CANCELLED) return;
             offset.value = withSpring(0, SETTLE);
-        }), [arrive, commit, committed, fingers, hasNext, hasPrevious, offset, release, startSpread, startedAt, swipe, warm, width]);
+        }), [arrive, commit, committed, fingers, hasNext, hasPrevious, offset, release, startCentroidX, startSpread, startedAt, swipe, warm, width]);
 
     // Android's terminal is a native view with its own touch handling. Once
     // the pager takes a drag, this hands the terminal a cancel for it, so a
