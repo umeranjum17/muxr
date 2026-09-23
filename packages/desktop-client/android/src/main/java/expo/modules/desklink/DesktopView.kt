@@ -115,7 +115,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
    */
   private val doubleTapSlop = dp(40f).toFloat()
 
-  private enum class Gesture { NONE, PENDING, PAN, HOVER, ARMED, DRAG, TWO, PINCH, SCROLL, SPENT }
+  private enum class Gesture { NONE, PENDING, LETTERBOX, PAN, HOVER, ARMED, DRAG, TWO, PINCH, SCROLL, SPENT }
 
   private var gesture = Gesture.NONE
   private var downX = 0f
@@ -506,7 +506,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
         downOnPicture = point(event.x, event.y) != null
-        gesture = if (fitted && !downOnPicture) Gesture.SPENT else Gesture.PENDING
+        gesture = if (fitted && !downOnPicture) Gesture.LETTERBOX else Gesture.PENDING
         downX = event.x
         downY = event.y
         lastX = event.x
@@ -523,6 +523,10 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
           // A second finger ends a drag where the first one is.
           Gesture.DRAG -> endDrag(active, lastX, lastY)
           Gesture.PENDING, Gesture.PAN, Gesture.HOVER, Gesture.ARMED -> {}
+          Gesture.LETTERBOX -> if (event.pointerCount != 2 || point(event.getX(event.actionIndex), event.getY(event.actionIndex)) == null) {
+            gesture = Gesture.SPENT
+            return true
+          }
           // A third finger is no gesture of ours; nothing it does is sent.
           Gesture.SCROLL -> {
             flushWheel(active, force = true)
@@ -557,7 +561,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
           lastTapPoint = null
           // The whole desktop has nowhere to move to, so the finger moves the
           // desktop's pointer instead, without a button.
-          gesture = if (!fitted) Gesture.PAN else if (downOnPicture) Gesture.HOVER else Gesture.SPENT
+          gesture = if (!fitted) Gesture.PAN else if (downOnPicture) Gesture.HOVER else Gesture.LETTERBOX
           lastX = event.x
           lastY = event.y
           if (gesture == Gesture.HOVER) hoverTo(active, event.x, event.y)

@@ -55,7 +55,7 @@ const POINTER_MARK = '<svg width="28" height="28" viewBox="0 0 28 28" aria-hidde
     + '<path d="M3 3 L3 22.25 L7.73 17.96 L10.92 25.22 L14 23.9 L10.92 16.86 L17.08 16.86 Z" '
     + 'fill="#000" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" paint-order="stroke"/></svg>';
 
-type Gesture = 'none' | 'pending' | 'pan' | 'hover' | 'armed' | 'drag' | 'two' | 'pinch' | 'scroll' | 'spent' | 'mouse';
+type Gesture = 'none' | 'pending' | 'letterbox' | 'pan' | 'hover' | 'armed' | 'drag' | 'two' | 'pinch' | 'scroll' | 'spent' | 'mouse';
 
 const MODIFIER_NAMES = new Set(['Control', 'Shift', 'Alt', 'Meta']);
 
@@ -509,7 +509,7 @@ function attachGestures(session: WebSession): () => void {
         session.touches.set(event.pointerId, { x, y });
         if (session.touches.size === 1) {
             session.downOnPicture = desktopPoint(session, x, y) !== null;
-            session.gesture = session.view.fitted && !session.downOnPicture ? 'spent' : 'pending';
+            session.gesture = session.view.fitted && !session.downOnPicture ? 'letterbox' : 'pending';
             session.downX = x;
             session.downY = y;
             session.lastX = x;
@@ -522,7 +522,8 @@ function attachGestures(session: WebSession): () => void {
         cancelLongPress(session);
         session.lastTap = null;
         if (session.gesture === 'drag') endDrag(session.lastX, session.lastY);
-        if (session.touches.size === 2 && ['pending', 'pan', 'hover', 'armed', 'drag'].includes(session.gesture)) {
+        if (session.touches.size === 2 && (['pending', 'pan', 'hover', 'armed', 'drag'].includes(session.gesture)
+            || (session.gesture === 'letterbox' && desktopPoint(session, x, y) !== null))) {
             const [a, b] = pair();
             session.gesture = 'two';
             session.twoStart = Date.now();
@@ -561,7 +562,7 @@ function attachGestures(session: WebSession): () => void {
                     // The whole desktop has nowhere to move to, so the finger
                     // moves the desktop's pointer instead, without a button.
                     session.gesture = session.view.fitted
-                        ? (session.downOnPicture ? 'hover' : 'spent')
+                        ? (session.downOnPicture ? 'hover' : 'letterbox')
                         : 'pan';
                     session.lastX = x;
                     session.lastY = y;
