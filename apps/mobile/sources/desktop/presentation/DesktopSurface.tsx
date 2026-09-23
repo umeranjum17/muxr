@@ -60,9 +60,8 @@ const GESTURES: readonly [gesture: string, effect: string][] = [
  * before or while the site is allowed, so say what to do instead.
  */
 function describeClipboardError(error: unknown, fallback: string): string {
-    const refused = error as { name?: unknown; code?: unknown } | null;
-    // The clipboard module reports the browser's NotAllowedError as its own code.
-    if (refused?.code === 'ERR_NO_PERMISSION' || refused?.name === 'NotAllowedError') return desktopCopy.clipboardBlocked;
+    const refused = error as { code?: unknown } | null;
+    if (refused?.code === 'ERR_NO_PERMISSION') return desktopCopy.clipboardBlocked;
     return error instanceof Error ? error.message : fallback;
 }
 
@@ -204,7 +203,15 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
         setNotice(null);
         try {
             const { text, truncated } = await session.copyRemoteToLocal();
-            await Clipboard.setStringAsync(text);
+            if (Platform.OS === 'web') {
+                try {
+                    await navigator.clipboard.writeText(text);
+                } catch {
+                    throw new Error(desktopCopy.clipboardBlocked);
+                }
+            } else {
+                await Clipboard.setStringAsync(text);
+            }
             if (truncated) say('Copied the start of the desktop clipboard; the rest was too large.');
             else if (text === '') say('The desktop clipboard was empty.');
             else say('Copied to this phone.');
