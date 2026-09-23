@@ -65,7 +65,8 @@ private const val MIN_WHEEL_STEP = 0.05f
  *  - tap: click where the finger lands; two taps: a double click on the same spot;
  *  - press and hold: a right click on release, or drag after it to hold the left
  *    button (select text, move a window);
- *  - one finger: move around a zoomed-in desktop;
+ *  - one finger: move around a zoomed-in desktop; on the whole desktop,
+ *    move its pointer, which follows the finger without pressing a button;
  *  - two fingers: scroll the desktop under them, or pinch to zoom (and move) the
  *    picture; a quick two-finger tap is a right click.
  */
@@ -114,7 +115,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
    */
   private val doubleTapSlop = dp(40f).toFloat()
 
-  private enum class Gesture { NONE, PENDING, PAN, ARMED, DRAG, TWO, PINCH, SCROLL, SPENT }
+  private enum class Gesture { NONE, PENDING, PAN, HOVER, ARMED, DRAG, TWO, PINCH, SCROLL, SPENT }
 
   private var gesture = Gesture.NONE
   private var downX = 0f
@@ -516,7 +517,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         when (gesture) {
           // A second finger ends a drag where the first one is.
           Gesture.DRAG -> endDrag(active, lastX, lastY)
-          Gesture.PENDING, Gesture.PAN, Gesture.ARMED -> {}
+          Gesture.PENDING, Gesture.PAN, Gesture.HOVER, Gesture.ARMED -> {}
           // A third finger is no gesture of ours; nothing it does is sent.
           Gesture.SCROLL -> {
             flushWheel(active, force = true)
@@ -548,10 +549,17 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
       MotionEvent.ACTION_MOVE -> when (gesture) {
         Gesture.PENDING -> if (hypot(event.x - downX, event.y - downY) > touchSlop) {
           removeCallbacks(longPress)
-          gesture = Gesture.PAN
+          // The whole desktop has nowhere to move to, so the finger moves the
+          // desktop's pointer instead, without a button.
+          gesture = if (fitted) Gesture.HOVER else Gesture.PAN
           lastX = event.x
           lastY = event.y
+          if (gesture == Gesture.HOVER) hoverTo(active, event.x, event.y)
         }
+
+        // One move per touch batch: the platform hands the view every frame's
+        // latest position, and each one goes at once.
+        Gesture.HOVER -> hoverTo(active, event.x, event.y)
 
         Gesture.PAN -> {
           panBy(event.x - lastX, event.y - lastY)
@@ -620,6 +628,10 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     lastTapX = x
     lastTapY = y
     lastTapPoint = at
+  }
+
+  private fun hoverTo(active: DesktopSession, x: Float, y: Float) {
+    clampedPoint(x, y)?.let { pointerTo(active, "move", it) }
   }
 
   private fun dragTo(active: DesktopSession, x: Float, y: Float) {

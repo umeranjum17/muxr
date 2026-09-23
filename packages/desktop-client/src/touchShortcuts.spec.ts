@@ -154,9 +154,9 @@ const click = (x: number, y: number, button: number) => [
 ];
 
 describe('touch on the desktop', () => {
-    it('taps a click, holds for a right click or a drag, and keeps a moving finger for the view', async () => {
+    it('taps a click, holds for a right click or a drag, and lets a moving finger carry the pointer', async () => {
         vi.useFakeTimers();
-        const { video } = await liveDesktop();
+        const { session, video } = await liveDesktop();
 
         touch(video, 'pointerdown', 100, 100);
         touch(video, 'pointerup', 100, 100);
@@ -168,15 +168,28 @@ describe('touch on the desktop', () => {
         touch(video, 'pointerup', 104, 102);
         expect(sent).toEqual(click(100, 100, 1));
 
-        // A finger that moves at once moves the view, never the desktop's pointer:
-        // at the whole-desktop fit there is nowhere to go, and nothing is sent.
+        // On the whole desktop a finger that moves at once carries the pointer,
+        // every move as it comes and without a button; lifting it clicks nothing.
         sent = [];
         vi.advanceTimersByTime(1000);
         touch(video, 'pointerdown', 100, 100);
         touch(video, 'pointermove', 140, 100);
+        touch(video, 'pointermove', 150, 104);
         vi.advanceTimersByTime(1000);
+        touch(video, 'pointerup', 150, 104);
+        expect(sent).toEqual([
+            { kind: 'pointer', phase: 'move', x: 140, y: 100 },
+            { kind: 'pointer', phase: 'move', x: 150, y: 104 },
+        ]);
+
+        // Zoomed in, the same finger moves the view instead, and sends nothing.
+        dispatch(video, 'wheel', { ctrlKey: true, deltaY: -200, deltaX: 0, deltaMode: 0, clientX: 640, clientY: 360 });
+        sent = [];
+        touch(video, 'pointerdown', 100, 100);
+        touch(video, 'pointermove', 140, 100);
         touch(video, 'pointerup', 140, 100);
         expect(sent).toEqual([]);
+        nativeDesklink.fitToView(session.current.nativeId!);
 
         // Hold, then drag: the left button is held from where the finger rested.
         touch(video, 'pointerdown', 300, 200);
