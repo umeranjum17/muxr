@@ -16,7 +16,7 @@ import { agentLabels, agentNameLine, herdrPaneForSession, isShellLabels } from '
 import { decodeBase64 } from '@/encryption/base64';
 import { artifactKind } from '@/utils/artifactKind';
 import type { ArtifactAction } from '@/utils/artifactPreview';
-import { cancelArtifactTransfer, useArtifactTransfers, type ArtifactTransfer } from '@/utils/artifactTransfer';
+import { artifactTransferKey, cancelArtifactTransfer, useArtifactTransfers, type ArtifactTransfer } from '@/utils/artifactTransfer';
 import { downloadArtifact, keptBytes } from '@/utils/downloadArtifact';
 import { richPreviewKind } from '@/utils/richArtifactPreview';
 
@@ -212,9 +212,9 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
             >
                 <Text numberOfLines={snippets[artifact.id] === undefined ? 2 : 1} style={styles.title}>{sharedArtifactDisplayName(artifact.name)}</Text>
                 {snippets[artifact.id] !== undefined && <Text numberOfLines={1} style={styles.snippet}>{snippets[artifact.id]}</Text>}
-                <TransferMeta artifact={artifact} subtitle={subtitle} lines={snippets[artifact.id] === undefined ? 2 : 1} />
+                <TransferMeta key={sessionId} sessionId={sessionId} artifact={artifact} subtitle={subtitle} lines={snippets[artifact.id] === undefined ? 2 : 1} />
             </Pressable>
-            <TransferControl artifact={artifact} onDownload={download} />
+            <TransferControl key={sessionId} sessionId={sessionId} artifact={artifact} onDownload={download} />
         </View>;
     };
 
@@ -320,8 +320,8 @@ function transferLine(transfer: ArtifactTransfer, artifact: SessionArtifact): st
  * per row: after a download in this run the row follows that download, and a
  * cancelled one is still deleting its file when the row goes idle.
  */
-function useKeptBytes(artifact: SessionArtifact, transfer: ArtifactTransfer | undefined): number {
-    const [kept, setKept] = React.useState(() => Platform.OS !== 'web' && artifact.size > PROGRESS_BYTES ? keptBytes(artifact) : 0);
+function useKeptBytes(sessionId: string, artifact: SessionArtifact, transfer: ArtifactTransfer | undefined): number {
+    const [kept, setKept] = React.useState(() => Platform.OS !== 'web' && artifact.size > PROGRESS_BYTES ? keptBytes(sessionId, artifact) : 0);
     const active = transfer !== undefined;
     React.useEffect(() => {
         if (active) setKept(0);
@@ -329,9 +329,9 @@ function useKeptBytes(artifact: SessionArtifact, transfer: ArtifactTransfer | un
     return active ? 0 : kept;
 }
 
-function TransferMeta({ artifact, subtitle, lines }: { artifact: SessionArtifact; subtitle: string; lines: number }) {
-    const transfer = useArtifactTransfers((all) => all[artifact.id]);
-    const kept = useKeptBytes(artifact, transfer);
+function TransferMeta({ sessionId, artifact, subtitle, lines }: { sessionId: string; artifact: SessionArtifact; subtitle: string; lines: number }) {
+    const transfer = useArtifactTransfers((all) => all[artifactTransferKey(sessionId, artifact)]);
+    const kept = useKeptBytes(sessionId, artifact, transfer);
     let line = transfer === undefined ? undefined : transferLine(transfer, artifact);
     let bar = transfer !== undefined && (transfer.status === 'downloading' || transfer.status === 'waiting') && transfer.total > PROGRESS_BYTES
         ? { received: transfer.received, paused: transfer.status === 'waiting' }
@@ -371,10 +371,10 @@ function ProgressRing({ progress, color, track }: { progress: number; color: str
     </Svg>;
 }
 
-function TransferControl({ artifact, onDownload }: { artifact: SessionArtifact; onDownload: (artifact: SessionArtifact) => void }) {
+function TransferControl({ sessionId, artifact, onDownload }: { sessionId: string; artifact: SessionArtifact; onDownload: (artifact: SessionArtifact) => void }) {
     const { theme } = useUnistyles();
-    const transfer = useArtifactTransfers((all) => all[artifact.id]);
-    const kept = useKeptBytes(artifact, transfer);
+    const transfer = useArtifactTransfers((all) => all[artifactTransferKey(sessionId, artifact)]);
+    const kept = useKeptBytes(sessionId, artifact, transfer);
     const name = sharedArtifactDisplayName(artifact.name);
     const inProgress = transfer?.status === 'downloading' || transfer?.status === 'waiting';
     const percent = inProgress ? percentOf(transfer.received, transfer.total) : undefined;
@@ -399,7 +399,7 @@ function TransferControl({ artifact, onDownload }: { artifact: SessionArtifact; 
         </>;
     }
     return <Pressable
-        onPress={() => inProgress ? cancelArtifactTransfer(artifact.id) : onDownload(artifact)}
+        onPress={() => inProgress ? cancelArtifactTransfer(artifactTransferKey(sessionId, artifact)) : onDownload(artifact)}
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ busy: transfer?.status === 'downloading' }}

@@ -37,7 +37,7 @@ export interface TransferSink {
 }
 
 export interface TransferPlatform {
-    sink(artifact: DownloadableArtifact): TransferSink | Promise<TransferSink>;
+    sink(artifact: DownloadableArtifact, sessionId: string): TransferSink | Promise<TransferSink>;
     /** Hand a finished file to the OS: installer, viewer or share sheet. */
     open(uri: string, artifact: DownloadableArtifact): void;
 }
@@ -58,6 +58,7 @@ class ArtifactChanged extends Error {
 }
 
 interface Job {
+    key: string;
     sessionId: string;
     artifact: DownloadableArtifact;
     platform: TransferPlatform;
@@ -76,8 +77,12 @@ const jobs = new Map<string, Job>();
 const closing = new Map<string, Promise<void>>();
 let connectionEpoch = 0;
 
+export function artifactTransferKey(sessionId: string, artifact: Pick<DownloadableArtifact, 'id' | 'name'>): string {
+    return JSON.stringify([sessionId, artifact.id, artifact.name]);
+}
+
 function owns(job: Job): boolean {
-    return !job.cancelled && jobs.get(job.artifact.id) === job;
+    return !job.cancelled && jobs.get(job.key) === job;
 }
 
 function start(job: Job): void {
@@ -91,11 +96,11 @@ function start(job: Job): void {
     });
 }
 
-function publish(id: string, transfer: ArtifactTransfer | undefined): void {
+function publish(key: string, transfer: ArtifactTransfer | undefined): void {
     useArtifactTransfers.setState((all) => {
         const next = { ...all };
-        if (transfer === undefined) delete next[id];
-        else next[id] = transfer;
+        if (transfer === undefined) delete next[key];
+        else next[key] = transfer;
         return next;
     }, true);
 }
@@ -106,7 +111,8 @@ function publish(id: string, transfer: ArtifactTransfer | undefined): void {
  * pending while it waits for a dropped connection.
  */
 export function transferArtifact(sessionId: string, artifact: DownloadableArtifact, platform: TransferPlatform): Promise<void> {
-    const existing = jobs.get(artifact.id);
+    const key = artifactTransferKey(sessionId, artifact);
+    const existing = jobs.get(key);
     if (existing !== undefined) {
         start(existing);
         return existing.done;
@@ -114,33 +120,33 @@ export function transferArtifact(sessionId: string, artifact: DownloadableArtifa
     let settle!: Job['settle'];
     const done = new Promise<void>((resolve, reject) => { settle = { resolve, reject }; });
     const job: Job = {
-        sessionId, artifact, platform, settle, done,
+        key, sessionId, artifact, platform, settle, done,
         pinnedId: CONTENT_HASH.test(artifact.id) ? artifact.id : undefined,
         attempt: undefined,
         cancelled: false,
         resumeOnConnect: false,
     };
-    jobs.set(artifact.id, job);
+    jobs.set(key, job);
     watchConnection();
     start(job);
     return done;
 }
 
 /** Stop a running or paused download and delete what it kept. */
-export function cancelArtifactTransfer(artifactId: string): void {
-    const job = jobs.get(artifactId);
+export function cancelArtifactTransfer(key: string): void {
+    const job = jobs.get(key);
     if (job === undefined) return;
-    jobs.delete(artifactId);
-    publish(artifactId, undefined);
+    jobs.delete(key);
+    publish(key, undefined);
     job.cancelled = true;
     job.settle.reject(new Error('Download cancelled.'));
     // A running attempt deletes its bytes once the chunk it is waiting on
     // lands; a paused one has nobody left to, so open its file and drop it.
-    const cleanup = job.attempt ?? Promise.resolve(job.platform.sink(job.artifact)).then((sink) => sink.discard());
+    const cleanup = job.attempt ?? Promise.resolve(job.platform.sink(job.artifact, job.sessionId)).then((sink) => sink.discard());
     const closed: Promise<void> = cleanup.catch(() => undefined).finally(() => {
-        if (closing.get(artifactId) === closed) closing.delete(artifactId);
+        if (closing.get(key) === closed) closing.delete(key);
     });
-    closing.set(artifactId, closed);
+    closing.set(key, closed);
 }
 
 export async function clearArtifactDownloads(): Promise<void> {
@@ -172,7 +178,7 @@ async function readChunk(job: Job, at: number, length: number, requireTime = fal
 
 async function run(job: Job): Promise<void> {
     const { artifact } = job;
-    await closing.get(artifact.id);
+    await closing.get(job.key);
     let sink: TransferSink | undefined;
     let received = 0;
     const epoch = connectionEpoch;
@@ -187,13 +193,13 @@ async function run(job: Job): Promise<void> {
         const show = (): void => {
             trailing = undefined;
             publishedAt = Date.now();
-            if (owns(job)) publish(artifact.id, { status: 'downloading', received, total: artifact.size, bytesPerSecond: rate });
+            if (owns(job)) publish(job.key, { status: 'downloading', received, total: artifact.size, bytesPerSecond: rate });
         };
         if (wait <= 0) show();
         else trailing = setTimeout(show, wait);
     };
     try {
-        sink = await job.platform.sink(artifact);
+        sink = await job.platform.sink(artifact, job.sessionId);
         if (!owns(job)) throw new Error('Download cancelled.');
         received = sink.offset;
         if (received > 0) {
@@ -203,7 +209,7 @@ async function run(job: Job): Promise<void> {
                 if (!(error instanceof MissingArtifactTime)) throw error;
                 await sink.discard();
                 if (!owns(job)) return;
-                sink = await job.platform.sink(artifact);
+                sink = await job.platform.sink(artifact, job.sessionId);
                 if (!owns(job)) throw new Error('Download cancelled.');
                 received = sink.offset;
             }
@@ -212,7 +218,7 @@ async function run(job: Job): Promise<void> {
         let next = received;
         let sampleAt = Date.now();
         let sampleBytes = received;
-        if (received < artifact.size) publish(artifact.id, { status: 'downloading', received, total: artifact.size });
+        if (received < artifact.size) publish(job.key, { status: 'downloading', received, total: artifact.size });
         // Requests go out in order and are written in order; a window of them
         // hides the round trip without holding more than WINDOW chunks.
         const inflight: Promise<Uint8Array>[] = [];
@@ -247,8 +253,8 @@ async function run(job: Job): Promise<void> {
         const uri = await sink.finish();
         if (!owns(job)) throw new Error('Download cancelled.');
         clearTimeout(trailing);
-        jobs.delete(artifact.id);
-        publish(artifact.id, { status: 'done', total: artifact.size });
+        jobs.delete(job.key);
+        publish(job.key, { status: 'done', total: artifact.size });
         job.settle.resolve();
         // Launching an installer or share sheet from the background is refused
         // by the OS; the finished row opens it on the next tap instead.
@@ -281,7 +287,7 @@ async function run(job: Job): Promise<void> {
         }
         if (storage.getState().socketStatus !== 'connected' || connectionEpoch !== epoch) {
             job.resumeOnConnect = true;
-            publish(artifact.id, { status: 'waiting', received, total: artifact.size });
+            publish(job.key, { status: 'waiting', received, total: artifact.size });
             return;
         }
         fail(job, received, 'Download stopped', error);
@@ -290,8 +296,8 @@ async function run(job: Job): Promise<void> {
 
 function fail(job: Job, received: number, message: string, cause: unknown): void {
     if (!owns(job)) return;
-    jobs.delete(job.artifact.id);
-    publish(job.artifact.id, { status: 'failed', received, total: job.artifact.size, message });
+    jobs.delete(job.key);
+    publish(job.key, { status: 'failed', received, total: job.artifact.size, message });
     job.settle.reject(cause instanceof Error ? cause : new Error(String(cause)));
 }
 

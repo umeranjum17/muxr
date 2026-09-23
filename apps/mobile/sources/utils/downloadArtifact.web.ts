@@ -53,15 +53,14 @@ export async function sweepArtifactDownloads(): Promise<void> {
     await downloadsDirectory();
 }
 
-function fileName(artifact: DownloadableArtifact): string {
-    const id = /^[0-9a-f]{64}$/.test(artifact.id) ? artifact.id : artifact.id.replace(/[^A-Za-z0-9._]/g, '_');
-    return `${id}-${artifact.at ?? 'unknown'}-${artifact.size}`;
+function fileName(sessionId: string, artifact: DownloadableArtifact): string {
+    return `${encodeURIComponent(sessionId)}-${encodeURIComponent(artifact.id)}-${encodeURIComponent(artifact.name)}-${artifact.at ?? 'unknown'}-${artifact.size}`;
 }
 
-async function sink(artifact: DownloadableArtifact): Promise<TransferSink> {
+async function sink(artifact: DownloadableArtifact, sessionId: string): Promise<TransferSink> {
     const directory = await downloadsDirectory();
     if (directory === undefined) return fallbackSink(artifact);
-    const name = fileName(artifact);
+    const name = fileName(sessionId, artifact);
     let handle: FileSystemFileHandle;
     let kept: number;
     try {

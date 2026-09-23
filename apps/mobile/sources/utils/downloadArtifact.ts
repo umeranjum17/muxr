@@ -38,29 +38,28 @@ function safeName(name: string): string {
 }
 
 /** Content ids name their bytes; anything else is only trusted with its size. */
-function downloadKey(artifact: DownloadableArtifact): string {
-    const id = /^[0-9a-f]{64}$/.test(artifact.id) ? artifact.id : safeName(artifact.id);
-    return `${id}-${artifact.size}-${artifact.at ?? 'unknown'}`;
+function downloadKey(sessionId: string, artifact: DownloadableArtifact): string {
+    return `${encodeURIComponent(sessionId)}-${encodeURIComponent(artifact.id)}-${encodeURIComponent(artifact.name)}-${artifact.size}-${artifact.at ?? 'unknown'}`;
 }
 
-function partFile(artifact: DownloadableArtifact): File {
-    return new File(Paths.cache, DOWNLOADS, `${downloadKey(artifact)}.part`);
+function partFile(sessionId: string, artifact: DownloadableArtifact): File {
+    return new File(Paths.cache, DOWNLOADS, `${downloadKey(sessionId, artifact)}.part`);
 }
 
 /** Bytes an interrupted download left behind, e.g. before the app was closed. */
-export function keptBytes(artifact: DownloadableArtifact): number {
-    const part = partFile(artifact);
+export function keptBytes(sessionId: string, artifact: DownloadableArtifact): number {
+    const part = partFile(sessionId, artifact);
     return artifact.at !== undefined && part.exists && part.size < artifact.size ? part.size : 0;
 }
 
-function sink(artifact: DownloadableArtifact): TransferSink {
-    const key = downloadKey(artifact);
+function sink(artifact: DownloadableArtifact, sessionId: string): TransferSink {
+    const key = downloadKey(sessionId, artifact);
     const finished = new File(Paths.cache, DOWNLOADS, key, safeName(artifact.name));
     if (artifact.at === undefined && finished.exists) finished.delete();
     if (finished.exists && finished.size === artifact.size) {
         return { offset: artifact.size, write() {}, pause() {}, discard: () => finished.delete(), finish: () => finished.uri };
     }
-    const part = partFile(artifact);
+    const part = partFile(sessionId, artifact);
     if (part.exists && (part.size > artifact.size || artifact.at === undefined)) part.delete();
     if (!part.exists) part.create({ intermediates: true });
     const handle = part.open();

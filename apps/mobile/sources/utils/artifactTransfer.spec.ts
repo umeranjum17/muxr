@@ -10,7 +10,7 @@ import { ArtifactWatcher } from '../../../host/src/agent/infrastructure/artifact
 // artifact.read, and the test can drop the connection under it the way a
 // relay restart or a backgrounded phone does.
 const link = vi.hoisted(() => ({
-    reader: undefined as undefined | ((artifactId: string, offset: number, length: number) => Promise<unknown>),
+    reader: undefined as undefined | ((sessionId: string, artifactId: string, offset: number, length: number) => Promise<unknown>),
     requests: [] as Array<{ offset: number; length: number }>,
     dropAfter: Infinity,
     pending: [] as Array<(error: Error) => void>,
@@ -34,13 +34,13 @@ vi.mock('@/catalog/store', async () => {
 });
 vi.mock('@/catalog/sync', () => ({
     sync: {
-        artifactRead: (_sessionId: string, artifactId: string, offset: number, length: number) => {
+        artifactRead: (sessionId: string, artifactId: string, offset: number, length: number) => {
             link.requests.push({ offset, length });
             if (link.requests.length > link.dropAfter) {
                 // Everything in flight dies with the socket.
                 return new Promise((_, reject) => link.pending.push(reject));
             }
-            return link.reader!(artifactId, offset, length);
+            return link.reader!(sessionId, artifactId, offset, length);
         },
     },
 }));
@@ -52,16 +52,36 @@ vi.mock('expo-crypto', async () => {
         digest: async (_algorithm: string, bytes: Uint8Array) => createHash('sha256').update(bytes).digest(),
     };
 });
-const pairing = vi.hoisted(() => ({ stored: null as string | null, clear: undefined as undefined | (() => Promise<void>) }));
+const pairing = vi.hoisted(() => ({ stored: null as string | null, cache: '' }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: {
     getItem: async () => pairing.stored,
     setItem: async (_key: string, value: string) => { pairing.stored = value; },
 } }));
 vi.mock('@/pairing/secrets', () => ({ getWebSecret: async () => null, setWebSecret: async () => undefined }));
-vi.mock('@/utils/downloadArtifact', () => ({ clearPartialDownloads: () => pairing.clear?.() }));
+vi.mock('expo-file-system', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    class File {
+        readonly path: string;
+        constructor(...parts: string[]) { this.path = path.join(...parts); }
+        get name() { return path.basename(this.path); }
+        get exists() { return fs.existsSync(this.path); }
+        get modificationTime() { return fs.statSync(this.path).mtimeMs; }
+        delete() { fs.rmSync(this.path); }
+    }
+    class Directory {
+        readonly path: string;
+        constructor(...parts: string[]) { this.path = path.join(...parts); }
+        get exists() { return fs.existsSync(this.path); }
+        list() { return fs.readdirSync(this.path).map((name) => new File(this.path, name)); }
+    }
+    return { File, Directory, Paths: { get cache() { return pairing.cache; } } };
+});
+vi.mock('expo-sharing', () => ({ isAvailableAsync: async () => false, shareAsync: async () => undefined }));
+vi.mock('@/../modules/artifact-open', () => ({ openWithSystem: () => false }));
+vi.mock('@/modal', () => ({ Modal: { alert: () => undefined } }));
 
-import { transferArtifact, useArtifactTransfers, type TransferPlatform, type TransferSink } from './artifactTransfer';
-import { sweepPartialDownloads } from './artifactPartialRetention';
+import { artifactTransferKey, transferArtifact, useArtifactTransfers, type TransferPlatform, type TransferSink } from './artifactTransfer';
 
 const root = mkdtempSync(join(tmpdir(), 'muxr-transfer-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -71,8 +91,8 @@ function diskPlatform(opened: string[]): TransferPlatform {
     const dir = join(root, 'phone');
     mkdirSync(dir, { recursive: true });
     return {
-        sink(artifact): TransferSink {
-            const part = join(dir, `${artifact.id}-${artifact.size}-${artifact.at ?? 'unknown'}.part`);
+        sink(artifact, sessionId): TransferSink {
+            const part = join(dir, `${sessionId}-${artifact.id}-${artifact.name}-${artifact.size}-${artifact.at ?? 'unknown'}.part`);
             const finished = join(dir, artifact.name);
             if (!existsSync(part)) writeFileSync(part, '');
             const fd = openSync(part, 'a');
@@ -94,21 +114,19 @@ function diskPlatform(opened: string[]): TransferPlatform {
 
 describe('progressive artifact download', () => {
     it('retains fresh partials at startup and clears them when pairing changes', async () => {
-        const dir = join(root, 'retention');
-        mkdirSync(dir);
+        pairing.cache = join(root, 'retention');
+        const dir = join(pairing.cache, 'artifact-downloads');
+        mkdirSync(dir, { recursive: true });
         const old = join(dir, 'old.part');
         const fresh = join(dir, 'fresh.part');
         writeFileSync(old, 'old bytes');
         writeFileSync(fresh, 'fresh bytes');
         const nineDaysAgo = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000);
         utimesSync(old, nineDaysAgo, nineDaysAgo);
-        const entries = () => [old, fresh].filter(existsSync).map((path) => ({
-            modified: statSync(path).mtimeMs, remove: () => rmSync(path),
-        }));
-        await sweepPartialDownloads(entries());
+        const { sweepArtifactDownloads } = await import('@/utils/downloadArtifact');
+        await sweepArtifactDownloads();
         expect(existsSync(old)).toBe(false);
         expect(readFileSync(fresh, 'utf8')).toBe('fresh bytes');
-        pairing.clear = () => sweepPartialDownloads(entries(), true);
         pairing.stored = JSON.stringify({ mode: 'hosted', machineId: 'first', relayUrl: 'ws://127.0.0.1:8792', token: '', lastSessionCwd: '', recentSessionCwds: [] });
         const { loadConnectionSettingsAsync, saveConnectionSettings } = await import('@/connection/connectionSettings');
         await saveConnectionSettings({ ...await loadConnectionSettingsAsync(), machineId: 'second' });
@@ -122,7 +140,7 @@ describe('progressive artifact download', () => {
         writeFileSync(join(paneDir, 'release.apk'), bytes);
         const id = createHash('sha256').update(bytes).digest('hex');
         const watcher = new ArtifactWatcher(join(root, 'host'), () => undefined);
-        link.reader = (artifactId, offset, length) => watcher.read('pane-1', artifactId, offset, length);
+        link.reader = (_sessionId, artifactId, offset, length) => watcher.read('pane-1', artifactId, offset, length);
         link.dropAfter = 3;
         const opened: string[] = [];
         const artifact = { id, name: 'release.apk', mimeType: 'application/vnd.android.package-archive', size: bytes.length, at: (await watcher.scanPane('pane-1')).artifacts[0]!.at };
@@ -131,11 +149,11 @@ describe('progressive artifact download', () => {
 
         // Three chunks land, the fourth request never answers, and the socket goes.
         await vi.waitFor(() => expect(link.pending.length).toBeGreaterThan(0));
-        await vi.waitFor(() => expect(useArtifactTransfers.getState()[id]).toMatchObject({ status: 'downloading', received: 3 * 512 * 1024 }));
+        await vi.waitFor(() => expect(useArtifactTransfers.getState()[artifactTransferKey('session-1', artifact)]).toMatchObject({ status: 'downloading', received: 3 * 512 * 1024 }));
         connection.store.setState({ socketStatus: 'disconnected' });
         for (const reject of link.pending.splice(0)) reject(new Error('connection lost'));
-        await vi.waitFor(() => expect(useArtifactTransfers.getState()[id]).toEqual({ status: 'waiting', received: 3 * 512 * 1024, total: bytes.length }));
-        expect(statSync(join(root, 'phone', `${id}-${bytes.length}-${artifact.at}.part`)).size).toBe(3 * 512 * 1024);
+        await vi.waitFor(() => expect(useArtifactTransfers.getState()[artifactTransferKey('session-1', artifact)]).toEqual({ status: 'waiting', received: 3 * 512 * 1024, total: bytes.length }));
+        expect(statSync(join(root, 'phone', `session-1-${id}-${artifact.name}-${bytes.length}-${artifact.at}.part`)).size).toBe(3 * 512 * 1024);
 
         // Reconnect: the download picks up at the first byte it does not have.
         const beforeResume = link.requests.length;
@@ -146,9 +164,27 @@ describe('progressive artifact download', () => {
         expect(link.requests[beforeResume]).toEqual({ offset: 0, length: 512 * 1024 });
         expect(link.requests[beforeResume + 1]).toEqual({ offset: 3 * 512 * 1024, length: 512 * 1024 });
         expect(link.requests.every(({ length }) => length <= 512 * 1024)).toBe(true);
-        expect(useArtifactTransfers.getState()[id]).toEqual({ status: 'done', total: bytes.length });
+        expect(useArtifactTransfers.getState()[artifactTransferKey('session-1', artifact)]).toEqual({ status: 'done', total: bytes.length });
         expect(opened).toEqual([join(root, 'phone', 'release.apk')]);
         expect(readFileSync(opened[0]!).equals(bytes)).toBe(true);
+
+        for (const [pane, name] of [['pane-2', 'copy.apk'], ['pane-3', 'mirror.apk']]) {
+            const other = join(root, 'host', pane);
+            mkdirSync(other);
+            writeFileSync(join(other, name), bytes);
+        }
+        const copy = { ...artifact, name: 'copy.apk', at: (await watcher.scanPane('pane-2')).artifacts[0]!.at };
+        const mirror = { ...artifact, name: 'mirror.apk', at: (await watcher.scanPane('pane-3')).artifacts[0]!.at };
+        link.reader = (sessionId, artifactId, offset, length) => watcher.read(sessionId === 'session-2' ? 'pane-2' : 'pane-3', artifactId, offset, length);
+        await Promise.all([
+            transferArtifact('session-2', copy, diskPlatform(opened)),
+            transferArtifact('session-3', mirror, diskPlatform(opened)),
+        ]);
+        expect(useArtifactTransfers.getState()[artifactTransferKey('session-2', copy)]).toMatchObject({ status: 'done' });
+        expect(useArtifactTransfers.getState()[artifactTransferKey('session-3', mirror)]).toMatchObject({ status: 'done' });
+        expect(new Set(opened)).toEqual(new Set(['release.apk', 'copy.apk', 'mirror.apk'].map((name) => join(root, 'phone', name))));
+        expect(['copy.apk', 'mirror.apk'].every((name) => readFileSync(join(root, 'phone', name)).equals(bytes))).toBe(true);
+        link.reader = (_sessionId, artifactId, offset, length) => watcher.read('pane-1', artifactId, offset, length);
 
         const changedPath = join(paneDir, 'changed.apk');
         const oldBytes = randomBytes(3 * 512 * 1024);
@@ -157,13 +193,13 @@ describe('progressive artifact download', () => {
         const changed = { ...artifact, id: changedId, name: 'changed.apk', size: oldBytes.length, at: (await watcher.scanPane('pane-1')).artifacts.find((item) => item.id === changedId)!.at };
         let release!: () => void;
         const held = new Promise<void>((resolve) => { release = resolve; });
-        link.reader = async (artifactId, offset, length) => {
+        link.reader = async (_sessionId, artifactId, offset, length) => {
             if (offset > 0) await held;
             return watcher.read('pane-1', artifactId, offset, length);
         };
         link.requests.length = 0;
         const interrupted = transferArtifact('session-1', changed, diskPlatform(opened));
-        await vi.waitFor(() => expect(useArtifactTransfers.getState()[changedId]).toMatchObject({ received: 512 * 1024 }));
+        await vi.waitFor(() => expect(useArtifactTransfers.getState()[artifactTransferKey('session-1', changed)]).toMatchObject({ received: 512 * 1024 }));
         const nextPath = join(paneDir, 'changed.next');
         writeFileSync(nextPath, randomBytes(oldBytes.length));
         fsRead.block = true;
@@ -173,8 +209,8 @@ describe('progressive artifact download', () => {
         fsRead.block = false;
         for (const resume of fsRead.pending.splice(0)) resume();
         await expect(interrupted).rejects.toThrow('Changed on the computer');
-        expect(existsSync(join(root, 'phone', `${changedId}-${changed.size}-${changed.at}.part`))).toBe(false);
-        expect(opened).toHaveLength(1);
+        expect(existsSync(join(root, 'phone', `session-1-${changedId}-${changed.name}-${changed.size}-${changed.at}.part`))).toBe(false);
+        expect(opened).toHaveLength(3);
 
         const corruptPath = join(paneDir, 'corrupt.apk');
         const correct = randomBytes(2 * 512 * 1024);
@@ -182,13 +218,13 @@ describe('progressive artifact download', () => {
         const corruptId = createHash('sha256').update(correct).digest('hex');
         const corrupt = { ...artifact, id: corruptId, name: 'corrupt.apk', size: correct.length, at: (await watcher.scanPane('pane-1')).artifacts.find((item) => item.id === corruptId)!.at };
         link.requests.length = 0;
-        link.reader = async (artifactId, offset, length) => {
+        link.reader = async (_sessionId, artifactId, offset, length) => {
             const chunk = await watcher.read('pane-1', artifactId, offset, length);
             return chunk && offset === 0 ? { ...chunk, data: randomBytes(length).toString('base64') } : chunk;
         };
         await expect(transferArtifact('session-1', corrupt, diskPlatform(opened))).rejects.toThrow('integrity check');
         expect(link.requests.filter((request) => request.offset === 0)).toHaveLength(2);
-        expect(useArtifactTransfers.getState()[corruptId]).toMatchObject({ status: 'failed', message: 'Download failed integrity check. Try again.' });
-        expect(opened).toHaveLength(1);
+        expect(useArtifactTransfers.getState()[artifactTransferKey('session-1', corrupt)]).toMatchObject({ status: 'failed', message: 'Download failed integrity check. Try again.' });
+        expect(opened).toHaveLength(3);
     });
 });
