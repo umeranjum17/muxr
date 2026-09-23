@@ -67,6 +67,7 @@ vi.mock('react-native', () => ({
     ScrollView: 'ScrollView',
     StyleSheet: { create: (styles: Record<string, unknown>) => styles, hairlineWidth: 1 },
     Text: 'Text',
+    useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: 1 }),
     View: 'View',
 }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
@@ -90,15 +91,20 @@ vi.mock('@/components/ui', () => ({
 }));
 vi.mock('@/components/AgentGlyph', () => ({ AgentGlyph: 'AgentGlyph' }));
 vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}), default: () => ({}) } }));
-vi.mock('@/plugins', () => ({ toneColor: () => '#000' }));
+vi.mock('@/plugins', () => ({ toneColor: (_theme: unknown, tone?: string) => `tone:${tone}` }));
 vi.mock('@/plugins/ui', () => ({
     ScreenChart: 'ScreenChart',
     ScreenLimits: 'ScreenLimits',
     VERDICT_KEYS: { limited: 'plugins.limits.limited' },
     verdictTone: () => undefined,
 }));
-// Keys stand in for words; a share keeps its figure, as every real string does.
-vi.mock('@/text', () => ({ t: (key: string, params?: { percent?: number }) => (params?.percent === undefined ? key : `${params.percent}% ${key}`) }));
+// Keys stand in for words; a share keeps its figure, as every real string does,
+// and a sentence keeps what it was given to say.
+vi.mock('@/text', () => ({
+    t: (key: string, params?: Record<string, unknown>) => (params === undefined ? key
+        : params.percent !== undefined ? `${params.percent}% ${key}`
+            : `${key}(${Object.values(params).join(' | ')})`),
+}));
 
 const { useUsageNow } = await import('./useUsageNow');
 const { RightNowCard } = await import('../presentation/RightNowCard');
@@ -830,22 +836,62 @@ describe('the usage screen read path', () => {
         expect(request.mock.calls.at(-1)?.[1]).toEqual({ provider: 'opencode', refresh: true });
     });
 
-    it('shows the unrounded tightest window and its visible tag on Home', async () => {
-        const session = { label: 'Session', window: '5h', used: 89.6, resetsIn: '1h' };
-        const weekly = { label: 'Weekly', window: '7d', used: 89.9, resetsIn: '2d' };
+    it('shows every plan\'s limits at once, in places a reader can learn, coloured only where little is left', async () => {
+        // The host lists plans most urgent first and each plan's windows in its
+        // own order. The card holds its own order instead: plans by name, so a
+        // plan keeps its place as its figures move, and windows shortest first.
         const now: UsageNow = {
-            limits: { verdict: 'low', windows: [weekly] },
-            connected: [{ id: 'codex', label: 'Codex', windows: [session, weekly] }],
+            limits: { verdict: 'limited', windows: [{ label: 'Weekly', window: '7d', used: 100 }] },
+            connected: [
+                { id: 'opencode', label: 'OpenCode', glyph: 'opencode', plan: 'OpenCode Go', windows: [
+                    // A billing month publishes no length and no pace, and is no less low for it.
+                    { label: 'Monthly', used: 92, pace: null, resetsIn: '18d' },
+                    { label: 'Weekly', window: '7d', used: 100, pace: 'limited', resetsIn: '1d 5h' },
+                    { label: 'Rolling', window: '5h', used: 7, pace: 'on pace' },
+                ] },
+                { id: 'codex', label: 'Codex', glyph: 'codex', plan: 'OpenAI Codex', windows: [
+                    { label: 'Weekly', window: '7d', used: 11 },
+                    // A model's own allowance shares its length's row, and the
+                    // tighter of the two is the one that stops work first.
+                    { label: 'Spark · Session', window: '5h', used: 40 },
+                    { label: 'Session', window: '5h', used: 2 },
+                ] },
+                // A share that is not a number is not a reading: it is left out,
+                // never printed, and a plan with nothing readable has no column.
+                { id: 'claude', label: 'Claude', glyph: 'claude', plan: 'Claude plan', windows: [
+                    { label: 'Weekly', window: '7d', used: 64 },
+                    { label: 'Session', window: '5h', used: Number.NaN },
+                ] },
+                { id: 'zai', label: 'Z.ai', windows: [{ label: 'Session', window: '5h', used: Number.NaN }] },
+            ],
             vitals: VITALS,
         };
         noteAsked('', Date.now());
         rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, now) });
         const card = renderCard();
         await tick();
-        // The bar drains with what is left: its fill is the figure it stands beside.
-        expect(screenText(card)).toContain('7d');
-        expect(screenText(card)).toContain('10% plugins.limits.percentLeft');
-        expect(card.root.findAllByType('Meter')[0].props.ratio).toBeCloseTo(0.101);
+
+        expect(card.root.findAllByType('AgentGlyph').map((mark: any) => mark.props.name)).toEqual(['claude', 'codex', 'opencode']);
+        // The row names, then each plan's column top to bottom; a plan with no
+        // limit of a length leaves that cell empty rather than inventing one.
+        const figures = card.root.findAllByType('Text')
+            .filter((node: any) => typeof node.props.children === 'string' && !node.props.children.startsWith('plugins.rightNow.memory'))
+            .map((node: any) => [node.props.children, node.props.style?.color]);
+        expect(figures).toEqual([
+            ['5h', '#000'], ['7d', '#000'], ['Monthly', '#000'],
+            ['36%', '#fff'],
+            ['60%', '#fff'], ['89%', '#fff'],
+            ['93%', '#fff'], ['0%', 'tone:danger'], ['8%', 'tone:warning'],
+        ]);
+        // Read aloud in the same order, and a coloured figure says why and
+        // when it comes back, which its colour cannot.
+        const summary: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button' && node.props?.onPress !== undefined
+            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
+        expect(summary.indexOf('Claude plan')).toBeLessThan(summary.indexOf('OpenAI Codex'));
+        expect(summary.indexOf('OpenAI Codex')).toBeLessThan(summary.indexOf('OpenCode Go'));
+        expect(summary).toContain('7d 0% plugins.limits.percentLeft (plugins.limits.paceExhausted, plugins.rightNow.resetsIn(1d 5h))');
+        expect(summary).toContain('Monthly 8% plugins.limits.percentLeft (plugins.limits.low, plugins.rightNow.resetsIn(18d))');
+        expect(summary).not.toContain('Z.ai');
     });
 
     it('shows a single plan with matching visible, spoken and metered remaining share on Home', async () => {

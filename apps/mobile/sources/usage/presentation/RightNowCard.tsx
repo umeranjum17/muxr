@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
-import type { UsageConnectedProvider, UsageLimitsWindow } from '@muxr/contract';
+import type { UsageLimitsWindow } from '@muxr/contract';
 import type { UsageFigures } from '../application/freshnessWindow';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
@@ -13,7 +13,7 @@ import { VERDICT_KEYS, verdictTone } from '@/plugins/ui';
 import { t } from '@/text';
 import { compactAge } from '@/utils/compactAge';
 import { useUsageNow } from '../application/useUsageNow';
-import { vitalsFacts } from '../domain/usageModel';
+import { columnsPerBand, limitGrid, vitalsFacts, type LimitColumn, type LimitGrid } from '../domain/usageModel';
 
 /** The card refreshes itself on a slow cadence while someone is looking at it,
  *  so a few minutes behind is normal here and says nothing. Past this the age
@@ -21,8 +21,8 @@ import { vitalsFacts } from '../domain/usageModel';
 const AGE_WORTH_MENTIONING_SECONDS = 600;
 
 /**
- * The top of Home as figures: each connected plan as a neutral meter with what
- * is left and when it resets, then one quieter vitals line. The section label
+ * The top of Home as figures: every connected plan's limits in one grid of
+ * what is left, then one quieter vitals line. The section label
  * is the title and carries the refresh control; the whole card opens the
  * Usage screen. Served by the host's typed usage.now method -- product code,
  * no plugin in the path.
@@ -76,20 +76,18 @@ export function RightNowCard() {
     const payload = display.figures;
     const verdict = payload.limits.verdict;
     // Real quota windows for more than the selected tab turn the first row
-    // into one restrained provider strip; Memory/Disk/Load/Uptime stay the
-    // quiet row beneath it. A plan tab's own failure message keeps its row.
-    const strip = hasConnectedStrip(payload);
-    const limit = strip ? undefined : (payload.cardWindow ?? payload.limits.windows[0]);
+    // into one restrained grid of every plan's limits; Memory/Disk/Load/Uptime
+    // stay the quiet row beneath it. A plan tab's own failure message keeps its row.
+    const grid = connectedGrid(payload);
+    const limit = grid !== undefined ? undefined : (payload.cardWindow ?? payload.limits.windows[0]);
     const verdictWord = verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]);
     const tone = verdict === 'unknown' ? undefined : verdictTone(verdict);
     const dot = tone === undefined ? undefined : <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, tone) }} />;
     // A refresh that failed says so on the refresh control above, in words and
     // with the action attached. Reddening figures that are still the best
     // known answer would report the wrong thing: they are old, not wrong.
-    const line = strip
-        ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <ConnectedStrip providers={payload.connected!} />
-        </View>
+    const line = grid !== undefined
+        ? <LimitsGrid grid={grid} />
         : limit !== undefined
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {dot}
@@ -182,72 +180,103 @@ function FreshnessControl({ payload, failed, refreshing, throttledSeconds, onRef
     );
 }
 
-/** The height of a provider's name line; the mark is locked to it so every
- *  provider shares a baseline. */
-const FIGURE_LINE = 18;
-
-/** Below this share remaining a plan is close enough to its ceiling to be worth
- *  reading before the others. Presentation only -- what the windows mean is the
- *  host's to decide; this is only which figure the eye should land on. */
-const LOW_REMAINING = 15;
-
-/** Room for the widest share ("100% left"), so every plan's meter ends at the
- *  same x and the shares read down one column. */
-const SHARE_COLUMN = 70;
+/** The figures, set in the mono face so every digit is the same width and a
+ *  figure that changes never shifts its neighbours. */
+const FIGURE_SIZE = 12.5;
+const FIGURE_LINE = 17;
+const LEGEND_SIZE = 10;
+/** Every glyph of the mono face is this share of its size wide, which is what
+ *  lets the card know how much room "100%" takes before anything is measured. */
+const MONO_ADVANCE = 0.6;
+/** The least room between two plans' figures before they read as one number. */
+const FIGURE_GAP = 9;
+const LEGEND_GAP = 8;
+/** A plan's slot stops growing here, so two plans sit together rather than at
+ *  opposite edges of a wide card. */
+const SLOT_MAX = 120;
+const MARK = 16;
+const MARK_ROW = MARK + 5;
+/** The card's margins, padding and border: its content width on a phone until
+ *  layout has measured it. */
+const CARD_INSET = 2 * (16 + 14 + 1);
 
 /**
- * One row per connected plan, in the Usage screen's vocabulary: the plan's mark
- * and name with when its tightest window resets, then that window as a neutral
- * meter against 100 with what is left of it. The other windows are one tap
- * away on Usage, and in the row's spoken summary.
+ * Every connected plan's limits at once: a column per plan under its mark, a
+ * row per window, shortest first, named once at the left. Figures are what is
+ * left, in one neutral voice until one is actually low. The plans spread
+ * across the card and break into balanced bands only when they no longer fit
+ * side by side, so the card never scrolls and never overlaps.
  *
- * What this replaces was one line of bare percentages per plan ("0% Monthly
- * 100% 5h 100% 7d"): no name, no reset, and nothing saying which figure
- * answered the question.
+ * What this replaces was one meter per plan for its tightest window only: the
+ * other windows were a tap away, and six plans made the card six rows tall.
  */
-function ConnectedStrip({ providers }: { providers: UsageConnectedProvider[] }) {
+function LimitsGrid({ grid }: { grid: LimitGrid }) {
+    const screen = useWindowDimensions();
+    const [measured, setMeasured] = React.useState<number>();
+    const char = MONO_ADVANCE * screen.fontScale;
+    const legend = Math.max(0, ...grid.rows.map((row) => row.length)) * LEGEND_SIZE * char + LEGEND_GAP;
+    // Every column is as wide as "100%", so the plans' marks and the right
+    // edges of their figures fall at even steps whatever the digits are.
+    const figure = Math.ceil(4 * FIGURE_SIZE * char);
+    const fits = Math.floor(((measured ?? screen.width - CARD_INSET) - legend) / (figure + FIGURE_GAP));
+    const size = columnsPerBand(grid.columns.length, fits);
+    const bands = Array.from({ length: Math.ceil(grid.columns.length / size) }, (_, band) => grid.columns.slice(band * size, (band + 1) * size));
     return (
-        <View style={{ flex: 1, rowGap: 12 }}>
-            {providers.map((provider) => <ProviderRow key={provider.id} provider={provider} />)}
+        <View onLayout={(event) => setMeasured(event.nativeEvent.layout.width)} style={{ rowGap: 14 }}>
+            {bands.map((columns) => <LimitBand key={columns[0]!.provider.id} rows={grid.rows} columns={columns} slots={size} figure={figure} />)}
         </View>
     );
 }
 
-function ProviderRow({ provider }: { provider: UsageConnectedProvider }) {
+/** One band of the grid. It names only the rows its own plans have, and keeps
+ *  a slot for every column a full band holds, so a shorter last band's plans
+ *  stand under the ones above them. */
+function LimitBand({ rows, columns, slots, figure }: { rows: string[]; columns: LimitColumn[]; slots: number; figure: number }) {
     const { theme } = useUnistyles();
-    const lead = leadWindow(provider.windows);
-    if (lead === undefined) return null;
-    const left = remainingOf(lead);
-    const tone = lead.pace == null ? undefined : left === 0 ? 'danger' : left <= LOW_REMAINING ? 'warning' : undefined;
+    const shown = rows.flatMap((row, index) => (columns.some((column) => column.cells[index] !== undefined) ? [{ row, index }] : []));
     return (
-        <View accessible accessibilityLabel={providerSummary(provider)}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, height: FIGURE_LINE }}>
-                <AgentGlyph name={provider.glyph ?? provider.id} size={14} />
-                <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, lineHeight: FIGURE_LINE }}>{provider.label}</Text>
-                <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>{windowTag(lead)}</Text>
-                {lead.resetsIn !== undefined && (
-                    <Text numberOfLines={1} style={{ marginLeft: 'auto', flexShrink: 1, color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>
-                        {t('plugins.rightNow.resetsIn', { time: lead.resetsIn })}
-                    </Text>
-                )}
+        <View style={{ flexDirection: 'row' }}>
+            <View style={{ marginRight: LEGEND_GAP, paddingTop: MARK_ROW }}>
+                {shown.map(({ row }) => (
+                    <Text key={row} numberOfLines={1} style={{ color: withAlpha(theme.colors.textSecondary, 0.75), fontSize: LEGEND_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular') }}>{row}</Text>
+                ))}
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 5, marginLeft: 21 }}>
-                <LeftMeter window={lead} style={{ flex: 1 }} />
-                <Text numberOfLines={1} style={{ minWidth: SHARE_COLUMN, textAlign: 'right', fontSize: 12.5, ...Typography.mono('semiBold'),
-                    color: tone === undefined ? theme.colors.text : toneColor(theme, tone) }}>
-                    {t('plugins.limits.percentLeft', { percent: left })}
-                </Text>
-            </View>
+            {Array.from({ length: slots }, (_, slot) => {
+                const column = columns[slot];
+                return (
+                    <View key={column?.provider.id ?? `slot-${slot}`} style={{ flex: 1, maxWidth: SLOT_MAX, alignItems: 'center' }}>
+                        {column !== undefined && (
+                            <View style={{ minWidth: figure }}>
+                                <View style={{ height: MARK_ROW, alignItems: 'center' }}>
+                                    <AgentGlyph name={column.provider.glyph ?? column.provider.id} size={MARK} />
+                                </View>
+                                {shown.map(({ row, index }) => {
+                                    const cell = column.cells[index];
+                                    // A plan with no limit of this length leaves its cell
+                                    // empty: the row's name says what is not there, and a
+                                    // mark in every gap would outweigh the figures.
+                                    if (cell === undefined) return <View key={row} style={{ height: FIGURE_LINE }} />;
+                                    return (
+                                        <Text key={row} numberOfLines={1} style={{ color: cell.tone === undefined ? theme.colors.text : toneColor(theme, cell.tone), textAlign: 'right', fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('semiBold') }}>
+                                            {`${cell.left}%`}
+                                        </Text>
+                                    );
+                                })}
+                            </View>
+                        )}
+                    </View>
+                );
+            })}
         </View>
     );
 }
 
-/** The window that runs out first: the one worth leading with. */
-function leadWindow(windows: UsageLimitsWindow[]): UsageLimitsWindow | undefined {
-    return windows.reduce<UsageLimitsWindow | undefined>(
-        (tightest, window) => (tightest === undefined || window.used > tightest.used ? window : tightest),
-        undefined,
-    );
+/** The grid answers only when the payload itself leads with a real window and
+ *  some plan has a figure to show: a plan tab's own failure keeps its honest row. */
+function connectedGrid(payload: UsageFigures): LimitGrid | undefined {
+    if (payload.connected === undefined || payload.limits.windows.length === 0) return undefined;
+    const grid = limitGrid(payload.connected);
+    return grid.columns.length === 0 ? undefined : grid;
 }
 
 /** A window's bar drains with what is left, as its figure says; the tick
@@ -260,34 +289,19 @@ function remainingOf(window: UsageLimitsWindow): number {
     return Math.max(0, 100 - Math.round(window.used));
 }
 
-/** The shortest name that still says which window a figure belongs to. */
-function windowTag(window: UsageLimitsWindow): string {
-    return window.window ?? window.label;
-}
-
-/** The strip answers only when the payload itself leads with a real window:
- *  a plan tab's own failure keeps its honest row. */
-function hasConnectedStrip(payload: UsageFigures): boolean {
-    return (payload.connected?.length ?? 0) > 0 && payload.limits.windows.length > 0;
-}
-
-/** One sentence per provider for the reader: "OpenCode Go: 5h 100% left, 7d
- *  32% left". The window names the figures carry on screen are read out too;
- *  a list of bare percentages says as little aloud as it does in print. */
-function orderedWindows(provider: UsageConnectedProvider): UsageLimitsWindow[] {
-    // Read in the order the row shows them, tightest first: the figure the eye
-    // lands on and the one a reader hears should be the same one.
-    const lead = leadWindow(provider.windows);
-    return lead === undefined ? provider.windows : [lead, ...provider.windows.filter((window) => window !== lead)];
-}
-
-function providerSummary(provider: UsageConnectedProvider): string {
-    return t('plugins.rightNow.planRemaining', {
-        plan: provider.plan ?? provider.label,
-        remainings: orderedWindows(provider)
-            .map((window) => `${windowTag(window)} ${t('plugins.limits.percentLeft', { percent: remainingOf(window) })}`)
-            .join(', '),
+/** One sentence per plan, in the order the card shows them: "Claude plan: 5h
+ *  100% left, 7d 36% left". A low figure also says why it is coloured and when
+ *  it comes back, which the colour alone cannot say aloud. */
+function columnSummary(column: LimitColumn, rows: string[]): string {
+    const remainings = column.cells.flatMap((cell, index) => {
+        if (cell === undefined) return [];
+        const figure = `${rows[index]} ${t('plugins.limits.percentLeft', { percent: cell.left })}`;
+        if (cell.tone === undefined) return [figure];
+        const why = t(cell.left === 0 ? 'plugins.limits.paceExhausted' : cell.window.pace === 'limited' ? 'plugins.limits.limited' : 'plugins.limits.low');
+        const back = cell.window.resetsIn === undefined ? '' : `, ${t('plugins.rightNow.resetsIn', { time: cell.window.resetsIn })}`;
+        return [`${figure} (${why}${back})`];
     });
+    return t('plugins.rightNow.planRemaining', { plan: column.provider.plan ?? column.provider.label, remainings: remainings.join(', ') });
 }
 
 /** One mono line in the card's quiet voice: a machine at 80% memory is a
@@ -301,7 +315,7 @@ function FactsLine({ parts, style }: { parts: string[]; style?: object }) {
     // stranded "·".
     const line = parts.map((part) => part.replace(/ /g, '\u00a0')).join('\u00a0· ');
     return (
-        <Text style={[{ color: withAlpha(theme.colors.textSecondary, 0.8), fontSize: 11.5, lineHeight: 15, ...Typography.mono('regular') }, style]}>
+        <Text style={[{ color: withAlpha(theme.colors.textSecondary, 0.7), fontSize: 11, lineHeight: 15, ...Typography.mono('regular') }, style]}>
             {line}
         </Text>
     );
@@ -346,8 +360,9 @@ function emptyLine(payload: UsageFigures): string {
  *  are, and what to do about it, is the refresh control's own button to announce. */
 function cardAccessibilityLabel(payload: UsageFigures): string {
     const parts: string[] = [t('plugins.rightNow.title')];
-    if (hasConnectedStrip(payload)) {
-        parts.push(payload.connected!.map(providerSummary).join(', '));
+    const grid = connectedGrid(payload);
+    if (grid !== undefined) {
+        parts.push(...grid.columns.map((column) => columnSummary(column, grid.rows)));
     } else if (payload.limits.windows[0] !== undefined) {
         const limit = payload.limits.windows[0];
         const verdict = payload.limits.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.limits.verdict]);
