@@ -215,8 +215,8 @@ function LimitsGrid({ grid }: { grid: LimitGrid }) {
     const [measured, setMeasured] = React.useState<number>();
     const char = MONO_ADVANCE * screen.fontScale;
     const width = measured ?? screen.width - CARD_INSET;
-    // Every column is as wide as "100%", so the plans' marks and the right
-    // edges of their figures fall at even steps whatever the digits are.
+    // Budget for the widest figure (including a multiple-limits marker), so
+    // the plans' marks and figure edges align within this grid.
     const figure = Math.ceil(Math.max(4, ...grid.columns.flatMap((column) => column.cells.map((cell) =>
         cell.length === 0 ? 0 : `${cell[0]!.left}%${cell.length > 1 ? `×${cell.length}` : ''}`.length))) * FIGURE_SIZE * char);
     const legendWidth = Math.min(LEGEND_MAX, Math.max(0, ...grid.rows.map((row) => row.length)) * LEGEND_SIZE * char,

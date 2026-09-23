@@ -58,13 +58,12 @@ export interface UsageActivity {
 
 /** One machine's tab, as figures: the limits and plans both surfaces show, the
  *  machine facts the card measures, and the local activity the screen shows.
- *  ONE projection rather than a payload per surface, so the last writer cannot
- *  narrow what the other had: a read fills in the part it knows and leaves the
- *  rest of what is held standing. */
+ *  ONE projection rather than a payload per surface: a read fills in the part
+ *  it knows and leaves the rest standing unless its answer rules it out. */
 export interface UsageFigures {
     limits: UsageLimitsPayload;
-    /** The host's whole window list, once a report has named it: usage.now
-     *  names one window, so a card read keeps this rather than narrowing it. */
+    /** The host's whole window list, once a report has named it: a usage.now
+     *  read naming one window keeps the list; one naming none clears it. */
     windows?: UsageLimitsPayload['windows'];
     /** The one window usage.now names for the card's verdict line. A report
      *  cannot name it, so a report read keeps it. */
@@ -91,16 +90,16 @@ export type UsageDisplay =
     | { status: 'unavailable'; reason: string; vitals?: UsageVitals };
 
 /** A projection may only write what it can answer for. The merge keeps, from
- *  the record already held, every field the writer did not speak for -- so a
- *  narrower read can never narrow a wider one, and a field added later never
- *  has to rediscover this. */
+ *  the record already held, every field the writer did not speak for; a fresh
+ *  answer naming no window or connected plan clears the fields it contradicts. */
 function mergeFigures(held: UsageFigures | undefined, spoken: Pick<UsageFigures, 'limits'> & Partial<UsageFigures>): UsageFigures {
     return { ...held, ...spoken };
 }
 
-/** The figures a usage.now read answers for: the machine facts it measured, and
- *  the one window its verdict describes. It cannot speak for the host's whole
- *  window list, the tab list, or the measured activity. */
+/** The figures a settled usage.now read answers for: machine facts, connected
+ *  plans, and the window its verdict describes. A windowless answer clears the
+ *  held full-window list; otherwise it leaves that list, the tab list, and
+ *  measured activity alone. Collecting answers never reach this merge. */
 export function withNow(previous: UsageFigures | undefined, value: UsageNow): UsageFigures {
     return mergeFigures(previous, {
         limits: value.limits,

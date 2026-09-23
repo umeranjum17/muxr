@@ -59,9 +59,8 @@ export interface LimitColumn {
 
 /**
  * Every connected plan's limits as one grid: a row per window length, shortest
- * first, so the top figure is always the window that comes back soonest; a
- * column per plan, in name order, so a plan keeps its place however its
- * figures move and the eye learns where to look.
+ * first (unknown lengths last); a column per plan, in name order, so a plan
+ * keeps its place however its figures move and the eye learns where to look.
  */
 export interface LimitGrid {
     /** Each row's name, the one the card prints beside it ("5h", "7d", "Monthly"). */
