@@ -145,14 +145,14 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     TestRenderer.act(() => { vi.advanceTimersByTime(90); reportKeyboardMotion({ covered: 30, phase: 0.25 }); });
     expect(rowOpacity()).toBe(0.25);
     expect(root().findByType('DesktopKeyRow').parent.props.pointerEvents).toBe('auto');
-    TestRenderer.act(() => vi.advanceTimersByTime(180));
+    TestRenderer.act(() => { vi.advanceTimersByTime(180); });
     expect(rowOpacity()).toBe(0.25);
     // A hardware keyboard leaves the viewport unchanged; after quiet, its keys become usable.
     TestRenderer.act(() => reportKeyboardMotion({ covered: 0, phase: 0 }));
     expect(rowOpacity()).toBe(0);
-    TestRenderer.act(() => vi.advanceTimersByTime(179));
+    TestRenderer.act(() => { vi.advanceTimersByTime(179); });
     expect(rowOpacity()).toBe(0);
-    TestRenderer.act(() => vi.advanceTimersByTime(1));
+    TestRenderer.act(() => { vi.advanceTimersByTime(1); });
     expect(rowOpacity()).toBe(1);
     expect(root().findByType('DesktopKeyRow').parent.props.pointerEvents).toBe('auto');
     expect(controlsY()).toBeLessThan(0);
