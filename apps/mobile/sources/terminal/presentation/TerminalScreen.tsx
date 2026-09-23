@@ -11,7 +11,7 @@ import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { useKeyboardHandler, useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
+import { useKeyboardHandler, useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
@@ -183,17 +183,34 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const keyboardHeight = useKeyboardState((state) => state.height);
     // Keep the settled resize and its rail compensation on the same UI frame.
     // Only resize Ghostty at the end of the keyboard motion, not on every frame.
-    const keyboardMotion = useReanimatedKeyboardAnimation();
+    const railHeight = useSharedValue(-keyboardHeight);
+    const railProgress = useSharedValue(keyboardVisible ? 1 : 0);
     const settledRaise = useSharedValue(0);
     useKeyboardHandler({
+        onStart: (event) => {
+            'worklet';
+            if (event.height > 0 && railHeight.value === 0) railProgress.value = 0;
+        },
+        onMove: (event) => {
+            'worklet';
+            railHeight.value = -event.height;
+            railProgress.value = event.progress;
+        },
+        onInteractive: (event) => {
+            'worklet';
+            railHeight.value = -event.height;
+            railProgress.value = event.progress;
+        },
         onEnd: (event) => {
             'worklet';
+            railHeight.value = -event.height;
+            railProgress.value = event.progress;
             settledRaise.value = event.height > 0 ? event.height - insets.bottom : 0;
         },
     }, [insets.bottom]);
     const settledLayout = useAnimatedStyle(() => ({ paddingBottom: settledRaise.value }));
     const railsFollowKeyboard = useAnimatedStyle(() => ({
-        transform: [{ translateY: keyboardMotion.height.value + insets.bottom * keyboardMotion.progress.value + settledRaise.value }],
+        transform: [{ translateY: railHeight.value + insets.bottom * railProgress.value + settledRaise.value }],
     }), [insets.bottom]);
     const session = useSession(props.id);
     const sessions = useSessions();
