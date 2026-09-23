@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, Keyboard, Modal as RNModal, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Modal as RNModal, Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -128,6 +128,11 @@ const styles = StyleSheet.create((theme) => ({
     },
     inputEntryPlaceholder: {
         color: theme.colors.textSecondary,
+    },
+    // The terminal composer's size: at 17 the prompt line cannot hold
+    // "Plan, ask, build…" in a 270pt phone's dock.
+    inputEntryTextCompact: {
+        fontSize: 15,
     },
     focusedComposerSurface: {
         width: '100%',
@@ -591,6 +596,7 @@ export const HomeDock = React.memo(({
     );
     const currentAgent = currentDockAgent(availableAgents, agentType);
     const hasPrompt = prompt.trim().length > 0 || selectedImages.length > 0;
+    const compact = useWindowDimensions().width < 330;
     const canSubmit = !isSubmitting && hasPrompt;
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     const keyboardStyle = useAnimatedStyle(() => ({
@@ -797,7 +803,7 @@ export const HomeDock = React.memo(({
                 {activateOnPress ? (
                     <Pressable onPress={activateOnPress} style={styles.inputEntry}>
                         <Text
-                            style={[styles.inputEntryText, !prompt && styles.inputEntryPlaceholder]}
+                            style={[styles.inputEntryText, compact && styles.inputEntryTextCompact, !prompt && styles.inputEntryPlaceholder]}
                             numberOfLines={1}
                         >
                             {prompt || t('homeDock.inputPlaceholder')}
@@ -821,7 +827,11 @@ export const HomeDock = React.memo(({
                 )}
                 {Platform.OS !== 'web' && <DictateButton context={composerDraft} />}
                 <PluginSlot slot="home.composer.trailing" context={composerDraft} />
-                <BubblePressable
+                {/* The resting dock only opens the composer, so an empty one has
+                    nothing to send: a greyed send circle there was a control that
+                    could never be used, and on a 270pt phone it cost the prompt
+                    line its own words. It returns with a kept draft. */}
+                {(hasPrompt || isSubmitting || activateOnPress === undefined) && <BubblePressable
                     onPress={onSend}
                     disabled={!canSubmit}
                     style={[styles.sendButton, canSubmit && styles.sendButtonActive]}
@@ -837,7 +847,7 @@ export const HomeDock = React.memo(({
                             color={canSubmit ? theme.colors.fab.icon : theme.colors.textSecondary}
                         />
                     )}
-                </BubblePressable>
+                </BubblePressable>}
             </View>
         </MobileGlassSurface>
     );
