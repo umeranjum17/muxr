@@ -208,19 +208,23 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     void writePumpRef.current?.cancel();
                     let recoveryRequested = false;
                     let firstFrameWritten = false;
+                    const latest = lastSizeRef.current ?? opened;
+                    const needsRepaint = latest.cols !== opened.cols || latest.rows !== opened.rows;
+                    let readyForFrame = !needsRepaint;
+                    let repaintRequested = false;
                     // Nothing re-scrolls on attach. The pane's viewport belongs
                     // to herdr, which reports it back on `terminal.scroll-state`;
                     // a phone replaying a remembered distance was inventing a
                     // position, and on a pane with no scrollback that replay
                     // went to the program as a 5 000-row wheel burst.
                     writePumpRef.current = createTerminalWritePump({
-                        write: async (bytes) => {
+                        write: async (bytes, ready) => {
                             const view = termRef.current;
                             if (view === null) return;
                             await view.write(bytes);
                             recoveryRequested = false;
                             channel.recordFrameWritten();
-                            if (!firstFrameWritten && writeGenerationRef.current === attachGen) {
+                            if (ready && !firstFrameWritten && writeGenerationRef.current === attachGen) {
                                 firstFrameWritten = true;
                                 firstFrameCallback.current?.();
                             }
@@ -244,7 +248,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         // so this is flow control and nothing more: which frame
                         // answered which scroll is not knowable here.
                         scrollGate.release();
-                        writePumpRef.current?.push({ bytes: base64 });
+                        writePumpRef.current?.push({ bytes: base64, ready: readyForFrame });
                     });
                     // Predicted echo rides the same ordered pump but is not
                     // host output: it never releases the scroll gate and is
@@ -252,18 +256,21 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     channel.onPredictedData((base64) => {
                         writePumpRef.current?.push({ bytes: base64 });
                     });
-                    channel.onState((state) => onStatus?.(state));
+                    channel.onState((state) => {
+                        if (repaintRequested && state === 'live') readyForFrame = true;
+                        onStatus?.(state);
+                    });
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
                     onChannel?.(channel);
                     // The keyboard can resize Ghostty while hosted attach is
                     // still waiting. Its debounce then has no channel to call;
                     // replay the latest size now or the prompt is painted below
                     // the visible grid until this screen is reopened.
-                    const latest = lastSizeRef.current;
-                    if (latest !== null && (latest.cols !== opened.cols || latest.rows !== opened.rows)) {
+                    if (needsRepaint) {
                         if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                         resizeTimerRef.current = undefined;
                         channel.resize(latest.cols, latest.rows);
+                        repaintRequested = true;
                         channel.repaint();
                     }
                 })

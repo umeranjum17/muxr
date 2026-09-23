@@ -154,8 +154,7 @@ export function agentSwipeNeighbours(
     const index = cards.findIndex((card) => card.id === currentId);
     const stops = (from: readonly LiveTerminalOrderCard[]) =>
         from.find((card) => card.id !== currentId && swipeStop(card, now));
-    // A pane outside the strip (a shell) sits before its first agent.
-    if (index === -1) return { next: stops(cards) };
+    if (index === -1) return { previous: stops([...cards].reverse()), next: stops(cards) };
     return {
         previous: stops(cards.slice(0, index).reverse()),
         next: stops(cards.slice(index + 1)),

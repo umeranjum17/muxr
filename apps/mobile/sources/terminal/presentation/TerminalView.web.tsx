@@ -242,8 +242,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 onChannel?.(opened);
                 // Nothing re-scrolls on attach: the pane's viewport belongs to
                 // herdr, which reports it back on `terminal.scroll-state`.
-                let pending: { data: string; host: boolean }[] = [];
+                let pending: { data: string; ready: boolean }[] = [];
                 let firstFrameWritten = false;
+                const needsRepaint = ahead !== undefined && (ahead.size.cols !== term.cols || ahead.size.rows !== term.rows);
+                let readyForFrame = !needsRepaint;
+                let repaintRequested = false;
                 let frameScheduled = false;
                 const flushFrames = (): void => {
                     frameScheduled = false;
@@ -251,14 +254,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     const chunks = pending;
                     pending = [];
                     for (const chunk of chunks) term.write(decodeBase64(chunk.data), () => {
-                        if (!chunk.host || disposed || firstFrameWritten) return;
+                        if (!chunk.ready || disposed || firstFrameWritten) return;
                         firstFrameWritten = true;
                         firstFrameCallback.current?.();
                     });
                 };
                 opened.onData((base64) => {
                     recordTerminalOutput(sessionId, base64);
-                    pending.push({ data: base64, host: true });
+                    pending.push({ data: base64, ready: readyForFrame });
                     if (!frameScheduled) {
                         frameScheduled = true;
                         requestAnimationFrame(flushFrames);
@@ -267,18 +270,24 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Predicted echo joins the same ordered frame queue; it is not
                 // host output, so it is never recorded as pane output.
                 opened.onPredictedData((base64) => {
-                    pending.push({ data: base64, host: false });
+                    pending.push({ data: base64, ready: false });
                     if (!frameScheduled) {
                         frameScheduled = true;
                         requestAnimationFrame(flushFrames);
                     }
                 });
-                opened.onState((state) => onStatus?.(state));
+                opened.onState((state) => {
+                    if (repaintRequested && state === 'live') readyForFrame = true;
+                    onStatus?.(state);
+                });
                 opened.onClose((reason) => onStatus?.(reason ?? 'closed'));
                 term.onData((data) => opened.sendText(data));
                 opened.resize(term.cols, term.rows);
                 // Opened ahead at another size, herdr's screen is the old one's.
-                if (ahead !== undefined && (ahead.size.cols !== term.cols || ahead.size.rows !== term.rows)) opened.repaint();
+                if (needsRepaint) {
+                    repaintRequested = true;
+                    opened.repaint();
+                }
             })
             .catch((error: unknown) => {
                 if (disposed) return;

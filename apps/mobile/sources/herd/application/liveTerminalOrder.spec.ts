@@ -280,8 +280,7 @@ describe('agent lifecycle presentation', () => {
         const settled = cards.map((item) => (item.id === 'working' ? { ...item, agentStatus: 'blocked' as const, changedAt: now } : item));
         expect(around('recent', settled)).toEqual(['working', 'blocked']);
         expect(around('blocked', [...cards, card('starting', now, 'starting', 6)])).toEqual(['recent', 'starting']);
-        // A pane outside the strip sits before its first agent.
-        expect(around('shell:1')).toEqual([undefined, 'working']);
+        expect(around('shell:1')).toEqual(['blocked', 'working']);
 
         sharedLiveTerminalCards([]);
         const treeOnly = sharedLiveTerminalCards([
