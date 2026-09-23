@@ -38,16 +38,16 @@ const flatten = (style: any): Record<string, any> => Object.assign({}, ...(Array
 describe('compact home header actions', () => {
     it('keeps 36pt glass inside three separate 44pt targets at 270pt and routes each action', () => {
         const search = vi.fn();
-        let renderer: TestRenderer.ReactTestRenderer;
+        let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(<HomeHeaderActions searchActive={false} onSearchPress={search} />);
         });
-        const buttons = renderer!.root.findAllByType('Pressable');
+        const buttons: any[] = renderer.root.findAllByType('Pressable');
         expect(buttons).toHaveLength(3);
         expect(buttons.map((button) => button.props.accessibilityLabel)).toEqual([
             'Panes', 'tools.names.search', 'settings.title',
         ]);
-        expect(flatten(renderer!.root.findAllByType('View')[0].props.style).gap).toBe(8);
+        expect(flatten(renderer.root.findAllByType('View')[0].props.style).gap).toBe(8);
         for (const button of buttons) {
             expect(flatten(button.props.style)).toMatchObject({ width: 44, height: 44, marginHorizontal: -4 });
             expect(flatten(button.findByType('Glass').props.style)).toMatchObject({ width: 36, height: 36 });
@@ -67,5 +67,4 @@ describe('compact home header actions', () => {
         expect(push.mock.calls).toEqual([['/panes'], ['/settings']]);
         expect(search).toHaveBeenCalledOnce();
     });
-
 });
