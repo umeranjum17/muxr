@@ -18,7 +18,10 @@
 
 [**Get muxr**](https://trymuxr.com/docs/quickstart) · [Android APK](https://trymuxr.com/downloads/stable/android) · [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) · [iOS TestFlight](https://testflight.apple.com/join/aJSbs8pN) · [All downloads](https://trymuxr.com/downloads)
 
-<img src="docs/demo/muxr-launch-loop.webp" alt="A phone opens Computer and shows the laptop's screen live, where an agent is editing a page" width="960" />
+<!-- Hero: every phone screen here is a real capture of the app. Add the launch loop once it is rendered from real app footage. -->
+<img src="docs/assets/readme/real/computer-live.webp" alt="The muxr app showing the computer's desktop live from inside an agent's conversation" width="270" />
+&nbsp;&nbsp;
+<img src="docs/assets/readme/real/gestures.webp" alt="The Gestures settings screen: one-finger swipe between agents and pinch to zoom" width="270" />
 
 </div>
 
@@ -38,57 +41,6 @@ It is self-hosted and open source. The agents, code, keys and model subscription
 - **Start and review work.** Start a new agent in any repository or worktree, read its diff, and accept or reject the changes.
 - **Talk to the herd.** Native realtime voice when typing is the slow part. [Voice setup →](docs/VOICE-SETUP.md)
 - **Phone or browser.** The Android and iOS apps, or pair a browser for full control or view-only access.
-
-<table>
-<tr>
-<td width="45%" valign="middle">
-
-### A real terminal, built for thumbs
-
-The agent's own live terminal, not a summary. Swipe to the next agent, tap an answer, tap a link to open or copy it, and prompt from the composer with attachments and dictation beside it.
-
-</td>
-<td width="55%">
-  <picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="The muxr terminal with a compact header, floating quick actions, key row and prompt composer" width="100%" /></picture>
-</td>
-</tr>
-<tr>
-<td width="45%" valign="middle">
-
-### Every agent, every machine
-
-The Herd groups agents by repository with live terminal thumbnails and lifecycle: working, needs you, done.
-
-</td>
-<td width="55%">
-  <picture><source srcset="docs/assets/readme/herd.webp" type="image/webp"><img src="docs/assets/readme/herd.jpg" alt="The muxr Herd with live terminal thumbnails, repository spaces and agent lifecycle states" width="100%" /></picture>
-</td>
-</tr>
-<tr>
-<td width="45%" valign="middle">
-
-### Know who needs you
-
-Inbox sorts the agents waiting on you from the ones that finished. Open one and you are in its session.
-
-</td>
-<td width="55%">
-  <picture><source srcset="docs/assets/readme/inbox.webp" type="image/webp"><img src="docs/assets/readme/inbox.jpg" alt="muxr Inbox sorting agents that need attention from agents that finished" width="100%" /></picture>
-</td>
-</tr>
-<tr>
-<td width="45%" valign="middle">
-
-### Review before it ships
-
-Read every changed line, then accept or reject it from wherever you are.
-
-</td>
-<td width="55%">
-  <picture><source srcset="docs/assets/readme/changes.webp" type="image/webp"><img src="docs/assets/readme/changes.jpg" alt="Reviewing an agent's code changes in muxr" width="100%" /></picture>
-</td>
-</tr>
-</table>
 
 ## Remote desktop
 
