@@ -313,13 +313,13 @@ export async function executeSshCommand(machineId: string, target: SshTarget, co
     }
 }
 
+const pendingRelayTunnels = new Map<string, Promise<number>>();
+
 /**
  * Open or reuse the tunnel and return the URL to dial. Callers run this
  * immediately before every dial, so a tunnel dropped by a network change is
  * rebuilt by the same retry that reopens the socket.
  */
-const pendingRelayTunnels = new Map<string, Promise<number>>();
-
 export async function sshRelayUrl(relayUrl: string, machineId: string, target: SshTarget): Promise<string> {
     if (!isSshTunnelSupported()) {
         throw new SshConnectionError('ssh-unsupported', 'this build has no SSH support', true);
