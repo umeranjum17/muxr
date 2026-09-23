@@ -426,11 +426,7 @@ class MuxrSync {
         }
     }
 
-    /**
-     * One source of truth for the inbox, the badge and the alert. A session that
-     * newly needs a human is exactly what is worth interrupting for, so the
-     * notification fires off the set entering, not off a separate event.
-     */
+    /** Keep the legacy attention catalog's local alerts in step with its entries. */
     private applyAttentionCatalog(entries: readonly AttentionEntry[]): void {
         const previous = new Set(storage.getState().attentionEntries.map((entry) => entry.sessionId));
         storage.getState().applyAttentionCatalog([...entries]);

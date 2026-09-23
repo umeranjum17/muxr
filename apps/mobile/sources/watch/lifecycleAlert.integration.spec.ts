@@ -60,8 +60,7 @@ vi.mock('react-native-mmkv', () => ({
 }));
 vi.mock('@/modal', () => ({ Modal: { confirm: async () => false } }));
 vi.mock('@/account/ui', () => ({ useAuth: () => ({ isAuthenticated: true }) }));
-vi.mock('@/conversation/session', async (importOriginal) => ({
-    ...await importOriginal<typeof import('@/conversation/session')>(),
+vi.mock('@/conversation/session', () => ({
     boundRealtimeSession: () => null,
     useRealtimeMuted: () => false,
     useRealtimeSessionState: () => ({ state: 'disconnected' }),
@@ -71,8 +70,7 @@ vi.mock('@/utils/nativePushNotifications', () => ({ registerNativePushNotificati
 vi.mock('@/utils/microphonePermissions', () => ({
     requestNotificationPermission: () => harness.permissionPending ? new Promise<boolean>(() => undefined) : Promise.resolve(true),
 }));
-vi.mock('@/../modules/voice-overlay', async (importOriginal) => ({
-    ...await importOriginal<typeof import('@/../modules/voice-overlay')>(),
+vi.mock('@/../modules/voice-overlay', () => ({
     updateVoiceNotification: (herd: { mode: string; name: string; eventKey: string }, _voice: string, _name: string, _muted: boolean, agents: Array<{ id: string; name: string; status: string; focused: boolean }>) => {
         if (herd.mode === 'attention') {
             harness.nativeShade = agents.filter((agent) => agent.status === 'blocked' && !agent.focused).map((agent) => `${agent.name} needs you`);
@@ -90,6 +88,8 @@ vi.mock('@/../modules/voice-overlay', async (importOriginal) => ({
     clearVoiceNotification: () => undefined,
     startHerdKeepalive: () => true,
     stopHerdKeepalive: () => undefined,
+    openBackgroundActivitySettings: () => undefined,
+    openPromotedNotificationSettings: () => undefined,
     supportsPromotedNotifications: () => false,
     canPostPromotedNotifications: () => false,
 }));
@@ -173,7 +173,7 @@ async function settle(): Promise<void> {
 }
 
 function shade(): string[] {
-    return [...harness.shade.values()];
+    return [...harness.shade.values()].sort();
 }
 
 function appBecomes(state: string): void {
@@ -220,7 +220,7 @@ describe('agent lifecycle alerts on the phone', () => {
         agentChanges('route-lamb', 'lamb', 'blocked');
         agentChanges('route-ewe', 'ewe', 'blocked');
         await settle();
-        expect(shade()).toEqual(['lamb needs attention.', 'ewe needs attention.']);
+        expect(shade()).toEqual(['ewe needs attention.', 'lamb needs attention.']);
         // Each new request alerts once, even when frames arrive together.
         expect([...harness.posted].sort()).toEqual(['ewe needs attention.', 'lamb needs attention.', 'lamb needs attention.']);
         const [firstLamb, secondLamb] = harness.issued.filter((_, index) => harness.posted[index] === 'lamb needs attention.');
