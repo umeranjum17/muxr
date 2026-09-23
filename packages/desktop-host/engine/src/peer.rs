@@ -738,7 +738,11 @@ mod tests {
         let offered = |loopback_tcp: bool| async move {
             let (events, mut events_rx) = tokio::sync::mpsc::unbounded_channel();
             let (_peer, offer) = VideoPeer::offer(
-                TransportOptions { ice_servers: Vec::new(), loopback_tcp, pace_bps: 20_000_000.0 },
+                TransportOptions {
+                    ice_servers: Vec::new(),
+                    loopback_tcp,
+                    pace_bps: 20_000_000.0,
+                },
                 events,
             )
             .await
@@ -753,9 +757,19 @@ mod tests {
             candidates.join("\n")
         };
         let passive = |text: &str| {
-            text.lines().any(|line| line.contains(" tcp ") && line.contains(" 127.0.0.1 ") && line.contains("tcptype passive"))
+            text.lines().any(|line| {
+                line.contains(" tcp ")
+                    && line.contains(" 127.0.0.1 ")
+                    && line.contains("tcptype passive")
+            })
         };
-        assert!(passive(&offered(true).await), "a client behind a forward needs a passive TCP candidate on the loopback");
-        assert!(!passive(&offered(false).await), "no one else is offered a port on the loopback");
+        assert!(
+            passive(&offered(true).await),
+            "a client behind a forward needs a passive TCP candidate on the loopback"
+        );
+        assert!(
+            !passive(&offered(false).await),
+            "no one else is offered a port on the loopback"
+        );
     }
 }
