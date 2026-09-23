@@ -19,8 +19,8 @@ const ENDED: Record<string, { detail: string; canRetry: boolean }> = {
     'replaced by a new session': { detail: desktopCopy.endedTakeover, canRetry: true },
     'another device opened this computer': { detail: desktopCopy.endedTakeover, canRetry: true },
     'the desktop engine stopped': { detail: desktopCopy.endedEngineStopped, canRetry: true },
-    // The picture travels directly, not through the relay: a phone that reaches
-    // the computer only through SSH (or not at all) never connects it.
+    // The picture travels directly, or through the Direct SSH connection when
+    // that is the route; either way this is the path to the computer dropping.
     'the connection to the phone was lost': { detail: desktopCopy.endedUnreachable, canRetry: true },
     'the encoder rejected a frame': { detail: desktopCopy.endedUnencodable, canRetry: false },
 };

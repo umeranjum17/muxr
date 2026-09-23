@@ -133,7 +133,8 @@ trigger a capture request.
   "max_fps": 30,
   "ice_servers": [{"urls":["stun:..."],"username":null,"credential":null}],
   "restore_token": null,                // from a previous session.restoreToken
-  "ttl_seconds": 3600                  // session lease; default 3600
+  "ttl_seconds": 3600,                 // session lease; default 3600
+  "loopback_tcp": false                // also offer ICE over TCP on 127.0.0.1; default false
 }}
 ```
 
@@ -190,6 +191,14 @@ the SDP and candidates to the client and brings back the answer.
 ```
 
 A candidate that arrives before the remote description is buffered, not dropped.
+
+With `loopback_tcp`, the engine also listens for ICE over TCP on
+`127.0.0.1` and offers that passive candidate. It is for a client whose only
+way to this computer is a forward of its loopback, such as an SSH tunnel: the
+client forwards that port over the connection it already has and connects to
+its own end of the forward. The picture and control channel then ride that
+forward, still inside DTLS. A client with a UDP path prefers it, as ICE
+always does.
 
 ### State
 

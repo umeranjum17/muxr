@@ -40,6 +40,8 @@ interface SshTunnelNative {
     execCommand: (config: SshTunnelConfig, command: string) => Promise<SshCommandResult>;
     closeTunnel: () => Promise<void>;
     tunnelPort: () => number;
+    openForward: (remotePort: number) => Promise<{ localPort: number }>;
+    closeForward: (localPort: number) => Promise<void>;
 }
 
 let native: SshTunnelNative | null | undefined;
@@ -92,6 +94,26 @@ export async function closeSshTunnel(): Promise<void> {
     const module = nativeModule();
     if (module === null) return;
     await module.closeTunnel().catch(() => undefined);
+}
+
+/**
+ * Forward one more host-loopback port over the live tunnel's own connection;
+ * resolves to the device-local port to dial.
+ */
+export async function openSshForward(remotePort: number): Promise<number> {
+    const module = nativeModule();
+    if (module === null) throw new SshTunnelError('ssh-unsupported', 'this build has no SSH support');
+    try {
+        return (await module.openForward(remotePort)).localPort;
+    } catch (error) {
+        throw SshTunnelError.from(error);
+    }
+}
+
+export async function closeSshForward(localPort: number): Promise<void> {
+    const module = nativeModule();
+    if (module === null) return;
+    await module.closeForward(localPort).catch(() => undefined);
 }
 
 /** Device-local port of the live tunnel, or 0 when there is none. */

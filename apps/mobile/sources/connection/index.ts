@@ -9,7 +9,7 @@ export {
     type ConnectionSettings,
     type SshTarget,
 } from './connectionSettings';
-export { executeSshCommand, forgetSshCredential, hasSshCredential, parseSshFields, pinSshHostKey, saveSshCredential, savedSshPublicKey, sshRelayUrl, sshTunnelAvailable, stopSshTunnel, applySshAfterPairing, channelRelayUrl, establishSshTunnel, tunnelPairingUrl, SshConnectionError, type SshCredential, type SshFieldInput } from './sshTunnel';
+export { closeSshForward, openSshForward, sshRouteActive, executeSshCommand, forgetSshCredential, hasSshCredential, parseSshFields, pinSshHostKey, saveSshCredential, savedSshPublicKey, sshRelayUrl, sshTunnelAvailable, stopSshTunnel, applySshAfterPairing, channelRelayUrl, establishSshTunnel, tunnelPairingUrl, SshConnectionError, type SshCredential, type SshFieldInput } from './sshTunnel';
 export {
     buildSshInstallCommand,
     buildSshRollbackCommand,

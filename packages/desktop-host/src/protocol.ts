@@ -69,6 +69,8 @@ export interface OpenSessionRequest {
     iceServers?: Array<{ urls: string[]; username?: string; credential?: string }>;
     restoreToken?: string;
     ttlSeconds?: number;
+    /** Also listen for ICE over TCP on the loopback, for a client behind a local forward. */
+    loopbackTcp?: boolean;
 }
 
 export interface OpenedSession {

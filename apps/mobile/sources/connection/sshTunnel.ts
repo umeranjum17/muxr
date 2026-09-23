@@ -1,8 +1,11 @@
 import {
+    closeSshForward,
     closeSshTunnel,
     execSshCommand,
     isSshTunnelSupported,
+    openSshForward,
     openSshTunnel,
+    sshTunnelPort,
     SshTunnelError,
     type SshCommandResult,
     type SshTunnelErrorCode,
@@ -118,6 +121,17 @@ function describe(error: SshTunnelError, target: SshTarget): SshConnectionError 
             );
     }
 }
+
+/**
+ * The relay is reached through the Direct SSH tunnel right now. The remote
+ * desktop then cannot count on a UDP path of its own, so its picture is also
+ * offered over TCP and carried through this same SSH connection.
+ */
+export function sshRouteActive(): boolean {
+    return isSshTunnelSupported() && sshTunnelPort() > 0;
+}
+
+export { closeSshForward, openSshForward };
 
 /** True when this connection reaches its relay through SSH. */
 export function sshTunnelAvailable(): boolean {

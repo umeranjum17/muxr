@@ -214,6 +214,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 ...(params.maxHeight === undefined ? {} : { maxHeight: params.maxHeight }),
                 ...(params.bitrateKbps === undefined ? {} : { bitrateKbps: params.bitrateKbps }),
                 ...(params.maxFps === undefined ? {} : { maxFps: params.maxFps }),
+                ...(params.loopbackTcp === true ? { loopbackTcp: true } : {}),
             }, connectionId === undefined ? undefined : {
                 connectionId,
                 isConnected: () => options.isDesktopConnectionActive?.(connectionId) === true,

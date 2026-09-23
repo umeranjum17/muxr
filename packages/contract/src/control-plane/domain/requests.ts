@@ -254,6 +254,12 @@ export interface RequestMap extends PeerRequestMap {
             maxHeight?: number;
             bitrateKbps?: number;
             maxFps?: number;
+            /**
+             * The phone reaches this computer only through a forward of the
+             * host's loopback (the Direct SSH route): also offer the picture
+             * over TCP there, for the phone to carry through that forward.
+             */
+            loopbackTcp?: boolean;
         };
         result: {
             desktopId: string;

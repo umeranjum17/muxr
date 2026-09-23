@@ -108,6 +108,10 @@ pub struct OpenParams {
     pub restore_token: Option<String>,
     #[serde(default)]
     pub ttl_seconds: Option<u64>,
+    /// Also listen for ICE over TCP on this computer's loopback, for a client
+    /// whose only way here is a local forward (an SSH tunnel).
+    #[serde(default)]
+    pub loopback_tcp: bool,
 }
 
 /// The encode box when the consumer names none: a desktop's own pixels up to

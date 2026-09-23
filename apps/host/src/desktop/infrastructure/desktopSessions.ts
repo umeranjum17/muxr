@@ -185,6 +185,7 @@ export class DesktopSessions {
         maxHeight?: number;
         bitrateKbps?: number;
         maxFps?: number;
+        loopbackTcp?: boolean;
     }, owner?: { connectionId: string; isConnected: () => boolean }): Promise<{ desktopId: string; generation: number; geometry: DesktopSurfaceGeometry; source: LiveSession['source'] }> {
         if (owner !== undefined && !owner.isConnected()) throw new EngineRefused('session', 'the requesting phone disconnected');
         const capabilities = await this.capabilities();
@@ -222,6 +223,7 @@ export class DesktopSessions {
             ...(request.maxHeight === undefined ? {} : { maxHeight: request.maxHeight }),
             ...(request.bitrateKbps === undefined ? {} : { bitrateKbps: request.bitrateKbps }),
             ...(request.maxFps === undefined ? {} : { maxFps: request.maxFps }),
+            ...(request.loopbackTcp === true ? { loopbackTcp: true } : {}),
             ttlSeconds: DESKTOP_SESSION_LEASE_SECONDS,
         }).finally(() => {
             for (const existing of this.sessions.values()) {

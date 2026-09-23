@@ -438,6 +438,7 @@ async fn dispatch(
                 max_fps: params.max_fps,
                 restore_token: params.restore_token,
                 ttl: params.ttl_seconds.map(Duration::from_secs),
+                loopback_tcp: params.loopback_tcp,
                 ice_servers: params
                     .ice_servers
                     .into_iter()

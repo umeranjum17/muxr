@@ -85,6 +85,10 @@ pub enum PeerEvent {
 /// Transport settings the consumer chose for this session.
 pub struct TransportOptions {
     pub ice_servers: Vec<(String, Option<String>, Option<String>)>,
+    /// Listen for ICE over TCP on the loopback too. A phone that reaches this
+    /// computer only through SSH has no UDP path; it forwards this port over
+    /// the SSH connection it already has, and the picture rides that.
+    pub loopback_tcp: bool,
     /// The rate video packets are released at, in bits per second.
     pub pace_bps: f64,
 }
@@ -447,6 +451,11 @@ impl VideoPeer {
             // candidates from, and the peer needs no fixed port because the
             // consumer's authenticated channel carries the candidates.
             .with_udp_addrs(vec![std::net::SocketAddr::from(([0, 0, 0, 0], 0))])
+            .with_tcp_addrs(if options.loopback_tcp {
+                vec![std::net::SocketAddr::from(([127, 0, 0, 1], 0))]
+            } else {
+                Vec::new()
+            })
             .build()
             .await
             .context("failed to create the peer connection")?;
@@ -669,6 +678,7 @@ mod tests {
         let (peer, _offer) = VideoPeer::offer(
             TransportOptions {
                 ice_servers: Vec::new(),
+                loopback_tcp: false,
                 pace_bps: 20_000_000.0,
             },
             events,
@@ -693,6 +703,7 @@ mod tests {
         let (peer, offer) = VideoPeer::offer(
             TransportOptions {
                 ice_servers: Vec::new(),
+                loopback_tcp: false,
                 pace_bps: 20_000_000.0,
             },
             events,
@@ -720,5 +731,31 @@ mod tests {
             .await
             .expect("the answer is accepted");
         assert_eq!(applied, 1, "the held candidate must reach the peer");
+    }
+
+    #[tokio::test]
+    async fn a_forwarded_client_is_offered_ice_over_tcp_on_the_loopback() {
+        let offered = |loopback_tcp: bool| async move {
+            let (events, mut events_rx) = tokio::sync::mpsc::unbounded_channel();
+            let (_peer, offer) = VideoPeer::offer(
+                TransportOptions { ice_servers: Vec::new(), loopback_tcp, pace_bps: 20_000_000.0 },
+                events,
+            )
+            .await
+            .expect("a peer connection");
+            let mut candidates = vec![offer];
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+            while let Ok(Some(event)) = tokio::time::timeout_at(deadline, events_rx.recv()).await {
+                if let PeerEvent::Candidate { candidate, .. } = event {
+                    candidates.push(candidate);
+                }
+            }
+            candidates.join("\n")
+        };
+        let passive = |text: &str| {
+            text.lines().any(|line| line.contains(" tcp ") && line.contains(" 127.0.0.1 ") && line.contains("tcptype passive"))
+        };
+        assert!(passive(&offered(true).await), "a client behind a forward needs a passive TCP candidate on the loopback");
+        assert!(!passive(&offered(false).await), "no one else is offered a port on the loopback");
     }
 }
