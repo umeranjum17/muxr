@@ -12,6 +12,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
+import { claimTerminalAhead, rememberTerminalGrid } from '../application/terminalAhead';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import {
     joinedTerminalUrlRanges,
@@ -46,6 +47,12 @@ function decodeBase64(value: string): Uint8Array {
 }
 
 const LONG_PRESS_MS = 500;
+/**
+ * A touch that travels this far sideways before 8px of scroll belongs to the
+ * agent pager, which takes a drag at the same distance and steps aside at 8px
+ * of vertical travel: whichever line a finger crosses first owns the drag.
+ */
+const SIDEWAYS_PX = 12;
 
 /** Cell ranges of plain http(s) URLs to underline on one buffer row. The
  *  OSC 8 URI has no public per-cell API, so those links keep xterm's hover
@@ -213,12 +220,15 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         let channel: TerminalChannel | undefined;
 
         onStatus?.('connecting');
-        const controller = new AbortController();
-        void openTerminal({
+        rememberTerminalGrid(term.cols, term.rows);
+        // A page turn may already have opened this pane while it settled.
+        const ahead = claimTerminalAhead(sessionId);
+        const controller = ahead?.controller ?? new AbortController();
+        void (ahead?.channel ?? openTerminal({
             agentRoute: sessionId,
             signal: controller.signal,
             size: { cols: term.cols, rows: term.rows },
-        })
+        }))
             .then((opened) => {
                 if (disposed) {
                     opened.close();
@@ -259,6 +269,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 opened.onClose((reason) => onStatus?.(reason ?? 'closed'));
                 term.onData((data) => opened.sendText(data));
                 opened.resize(term.cols, term.rows);
+                // Opened ahead at another size, herdr's screen is the old one's.
+                if (ahead !== undefined && (ahead.size.cols !== term.cols || ahead.size.rows !== term.rows)) opened.repaint();
             })
             .catch((error: unknown) => {
                 if (disposed) return;
@@ -272,6 +284,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 if (disposed) return;
                 fit.fit();
                 setTerminalColumns(sessionId, term.cols);
+                rememberTerminalGrid(term.cols, term.rows);
                 channel?.resize(term.cols, term.rows);
             });
         };
@@ -380,6 +393,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             scheduleScroll();
         };
         let touchY: number | null = null;
+        let touchX = 0;
         let touchT = 0;
         let gesturePx = 0;
         let pinchStart = 0;
@@ -395,6 +409,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             momentumRunning = false;
             longPressLink = null;
             touchY = event.touches.length === 1 ? event.touches[0]!.clientY : null;
+            touchX = event.touches.length === 1 ? event.touches[0]!.clientX : 0;
             touchT = performance.now();
             scrollAcc = 0;
             gesturePx = 0;
@@ -428,6 +443,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 return;
             }
             if (touchY === null || event.touches.length !== 1) return;
+            const sideways = Math.abs(event.touches[0]!.clientX - touchX);
+            if (Math.abs(gesturePx) < 8 && sideways >= SIDEWAYS_PX) {
+                // The page is turning; this touch no longer scrolls or presses.
+                clearLongPress();
+                touchY = null;
+                return;
+            }
             const y = event.touches[0]!.clientY;
             const now = performance.now();
             const dy = y - touchY;

@@ -32,7 +32,7 @@ import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/session
 import { PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
 import type { HerdrTreeTab } from '@muxr/contract';
 import { TerminalView, type TerminalViewControls } from './TerminalView';
-import { usePaneGestures } from '../application/usePaneGestures';
+import { AgentPager, arrivingBySwipe } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentLabels, agentNameLine, agentStatusColor, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, resolveTabPane, tabLabel, useNavigateToSession } from '@/herd';
@@ -51,7 +51,7 @@ import { ComposerAttachments, type ComposerAttachment } from '@/components/Compo
 import { withAlpha } from '@/components/ui';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
-import { nextWorkingAgentId, workingAgentSwipeIds } from '@/herd';
+import { agentSwipeNeighbours, herdPanes, selectLiveTerminalCards } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
@@ -240,7 +240,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         const timer = setInterval(() => setSwipeNow(Date.now()), 30_000);
         return () => clearInterval(timer);
     }, []);
-    const swipeIds = React.useMemo(() => workingAgentSwipeIds(sessions, swipeNow), [sessions, swipeNow]);
+    const swipeNeighbours = React.useMemo(
+        () => agentSwipeNeighbours(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces)), props.id, 'working', swipeNow),
+        [props.id, sessions, swipeNow, workspaces],
+    );
     const [status, setStatus] = React.useState('connecting');
     // A fresh mount is the only retry a pane has before it ever attached: the
     // channel that reconnect() would use does not exist yet.
@@ -412,22 +415,18 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         ]);
     }, [showDialogMessage]);
 
-    // One horizontal swipe pages through active agents and agents that finished
-    // in the last two minutes. Old shells never sit between live work.
-    const paneGestures = usePaneGestures({
-        onAgentSwipe: (direction) => {
-            const next = nextWorkingAgentId(swipeIds, props.id, direction === 'next' ? 1 : -1);
-            if (next === undefined) {
-                showGestureHint('No other working or recently finished agent');
-                return;
-            }
-            router.replace(`/session/${encodeURIComponent(next)}`);
-        },
-    });
+    // A horizontal swipe pages through active agents and agents that finished
+    // in the last two minutes. Old shells never sit between live work. The
+    // pager settles before the route changes, so the switch itself is a
+    // parameter, never a second screen animating in over this one.
+    const switchAgent = React.useCallback((id: string) => router.setParams({ id }), []);
+    const nothingToSwipeTo = React.useCallback(() => showGestureHintRef.current('No other working or recently finished agent'), []);
 
     // What the pane shows, as opposed to what it knows. The status itself stays
-    // exact for everything that acts on it; only the announcement waits.
-    const [shownStatus, setShownStatus] = React.useState(status);
+    // exact for everything that acts on it; only the announcement waits. A pane
+    // a swipe arrived at is already showing its screen, so its first connect
+    // waits out the same grace instead of announcing itself over the picture.
+    const [shownStatus, setShownStatus] = React.useState(() => (arrivingBySwipe(props.id) ? 'live' : status));
     React.useEffect(() => {
         if (status === 'live') { setShownStatus('live'); return; }
         const timer = setTimeout(() => setShownStatus(status), STATUS_GRACE_MS);
@@ -793,8 +792,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
      */
     // Where the last touch landed inside the terminal, so a link menu opens on
     // the link rather than at a screen edge. The native grid reports which link
-    // was reached for but not where, and this is already being observed for the
-    // pane swipe, so nothing new is watched.
+    // was reached for but not where.
     const terminalTouch = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const [linkMenu, setLinkMenu] = React.useState<{ url: string; at: { x: number; y: number } } | null>(null);
     const showLinkActions = React.useCallback((url: string, at?: { x: number; y: number }) => {
@@ -1311,7 +1309,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
                     <View
                         aria-hidden={desktopVisible}
-                        ref={paneGestures.ref}
                         // A new object every layout would re-render this whole
                         // screen on each one, and layout fires repeatedly while
                         // the keyboard is arriving — the transition he called
@@ -1326,13 +1323,18 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         onTouchStart={(event) => {
                             const touch = event.nativeEvent.touches[0];
                             if (touch !== undefined) terminalTouch.current = { x: touch.locationX, y: touch.locationY };
-                            paneGestures.onTouchStart(event);
                         }}
-                        onTouchMove={paneGestures.onTouchMove}
-                        onTouchEnd={paneGestures.onTouchEnd}
                         style={{ flex: 1 }}
                     >
-                        <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} onLinkPress={showLinkActions} />
+                        <AgentPager
+                            sessionId={props.id}
+                            previous={swipeNeighbours.previous}
+                            next={swipeNeighbours.next}
+                            status={status}
+                            onNothingThere={nothingToSwipeTo}
+                            onSwitch={switchAgent}
+                            terminal={<TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} onLinkPress={showLinkActions} />}
+                        >
                         {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu
                                 url={linkMenu.url}
@@ -1477,6 +1479,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             channel={channel}
                             onVisibilityChange={setChoicesVisible}
                         />
+                        </AgentPager>
                     </View>
 
                     {/* Everything below the terminal is one surface in the

@@ -32,6 +32,7 @@ import {
     recordTerminalScrollTimeout,
 } from '@/catalog/diagnostics';
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
+import { claimTerminalAhead, rememberTerminalGrid } from '../application/terminalAhead';
 import { createTerminalScrollGate } from '../application/terminalScrollGate';
 import { DEFAULT_FONT_INDEX, FONT_STEPS, clampFontIndex } from '../domain/fontSteps';
 import { openTerminalLink } from '../domain/safeTerminalLink';
@@ -157,6 +158,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         (cols: number, rows: number) => {
             recordTerminalResize(cols, rows);
             setTerminalColumns(sessionId, cols);
+            rememberTerminalGrid(cols, rows);
             const last = lastSizeRef.current;
             lastSizeRef.current = { cols, rows };
             if (!focused) return;
@@ -178,7 +180,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             openedRef.current = true;
             onStatus?.('connecting');
             const attachGen = writeGenerationRef.current;
-            const controller = new AbortController();
+            // A page turn may already have opened this pane while it settled.
+            const ahead = claimTerminalAhead(sessionId);
+            const opened = ahead?.size ?? { cols, rows };
+            const controller = ahead?.controller ?? new AbortController();
             openAbortRef.current = controller;
             // Nothing may be written to this terminal but herdr's own frames.
             // herdr paints cells at absolute coordinates and then sends diffs
@@ -186,7 +191,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             // -- seeded history, a repaint, a cleared screen -- lands those
             // diffs on the wrong cells and quietly eats lines.
             void Promise.resolve()
-                .then(() => openTerminal({
+                .then(() => ahead?.channel ?? openTerminal({
                     agentRoute: sessionId,
                     signal: controller.signal,
                     size: { cols, rows },
@@ -247,7 +252,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     // replay the latest size now or the prompt is painted below
                     // the visible grid until this screen is reopened.
                     const latest = lastSizeRef.current;
-                    if (latest !== null && (latest.cols !== cols || latest.rows !== rows)) {
+                    if (latest !== null && (latest.cols !== opened.cols || latest.rows !== opened.rows)) {
                         if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                         resizeTimerRef.current = undefined;
                         channel.resize(latest.cols, latest.rows);

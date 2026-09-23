@@ -3,7 +3,6 @@ export * from './application/OpenTerminal';
 export * from './application/recentOutput';
 export * from './application/sessionOverlayNav';
 export * from './application/useGitStatusFiles';
-export * from './application/usePaneGestures';
 export * from './domain/TerminalLink';
 export * from './domain/fontSteps';
 export * from './domain/parseLocalCommandMessage';

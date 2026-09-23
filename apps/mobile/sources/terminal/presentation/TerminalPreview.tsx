@@ -13,6 +13,7 @@ import * as React from 'react';
 import { AppState, Text, View } from 'react-native';
 import { sync } from '@/catalog/sync';
 import { Typography } from '@/constants/Typography';
+import { rememberPaneSnapshot } from '../application/paneSnapshots';
 
 // ponytail: fixed interval, no backoff. Make it adaptive if tile counts grow
 // enough that the polling itself shows up in host CPU.
@@ -66,6 +67,7 @@ export const TerminalPreview = React.memo((props: {
                 .request('pane.read', { sessionId: props.sessionId, source: 'visible' })
                 .then((result) => {
                     if (!alive) return;
+                    rememberPaneSnapshot(props.sessionId, result.text);
                     const next = tail(result.text, maxLines, nonEmpty);
                     setText(next);
                     onStateRef.current?.(next === '' ? { kind: 'empty', at: Date.now() } : { kind: 'ready', at: Date.now() });

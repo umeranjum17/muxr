@@ -5,12 +5,11 @@ import type { HerdPane } from '../domain/herd';
 import { agentAccessibilityLabel, agentLabels, agentStateLabel, liveCardState } from '../domain/agentPresentation';
 import { lifecycleStateSince, unseenActivityRows, unseenDoneSessionIds, type RecentActivityRow } from '../domain/recentActivity';
 import {
-    nextWorkingAgentId,
+    agentSwipeNeighbours,
     orderLiveTerminalCards,
     reconcileLiveTerminalCards,
     selectLiveTerminalCards,
     visibleActivityEventIds,
-    workingAgentSwipeIds,
     type LiveTerminalOrderCard,
 } from './liveTerminalOrder';
 
@@ -260,18 +259,28 @@ describe('agent lifecycle presentation', () => {
         expect(visibleActivityEventIds(rows, cards, { ...viewport, scrollX: 20 })).toEqual([]);
     });
 
-    it('keeps terminal swipe navigation on active and two-minute-recent agents', () => {
+    it('pages the terminal swipe along the strip, stopping at active and two-minute-recent agents', () => {
         const now = 300_000;
-        const ids = workingAgentSwipeIds([
-            session('old', now - 120_001, 'done'),
-            session('recent', now - 30_000, 'done'),
-            session('idle', now, 'idle'),
-            session('working', now - 5_000, 'working'),
-            session('blocked', now, 'blocked'),
-        ], now);
+        const cards = [
+            card('old', now - 120_001, 'done', 1),
+            card('working', now - 5_000, 'working', 2),
+            card('idle', now, 'idle', 3),
+            card('recent', now - 30_000, 'done', 4),
+            card('blocked', now, 'blocked', 5),
+        ];
+        const around = (id: string, from = cards, scope: 'working' | 'all' = 'working') => {
+            const { previous, next } = agentSwipeNeighbours(from, id, scope, now);
+            return [previous?.id, next?.id];
+        };
 
-        expect(ids).toEqual(['blocked', 'working', 'recent']);
-        expect(nextWorkingAgentId(ids, 'working', 1)).toBe('recent');
-        expect(nextWorkingAgentId(ids, 'missing', -1)).toBe('recent');
+        // The first agent is an end, not a wrap.
+        expect(around('working')).toEqual([undefined, 'recent']);
+        // Swiping back returns where it came from, whatever that agent did meanwhile.
+        const settled = cards.map((item) => (item.id === 'working' ? { ...item, agentStatus: 'blocked' as const, changedAt: now } : item));
+        expect(around('recent', settled)).toEqual(['working', 'blocked']);
+        // Idle agents are passed over until the scope asks for every agent.
+        expect(around('working', cards, 'all')).toEqual(['old', 'idle']);
+        // A pane outside the strip sits before its first agent.
+        expect(around('shell:1')).toEqual([undefined, 'working']);
     });
 });
