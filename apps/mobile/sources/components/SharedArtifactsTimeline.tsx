@@ -320,7 +320,7 @@ function transferLine(transfer: ArtifactTransfer, artifact: SessionArtifact): st
  * cancelled one is still deleting its file when the row goes idle.
  */
 function useKeptBytes(artifact: SessionArtifact, transfer: ArtifactTransfer | undefined): number {
-    const [kept, setKept] = React.useState(() => artifact.size > PROGRESS_BYTES ? keptBytes(artifact) : 0);
+    const [kept, setKept] = React.useState(() => Platform.OS !== 'web' && artifact.size > PROGRESS_BYTES ? keptBytes(artifact) : 0);
     const active = transfer !== undefined;
     React.useEffect(() => {
         if (active) setKept(0);

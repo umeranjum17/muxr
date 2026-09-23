@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync, closeSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync, writeSync, closeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -38,6 +38,7 @@ vi.mock('@/catalog/sync', () => ({
 }));
 
 import { transferArtifact, useArtifactTransfers, type TransferPlatform, type TransferSink } from './artifactTransfer';
+import { sweepPartialDownloads } from './artifactPartialRetention';
 
 const root = mkdtempSync(join(tmpdir(), 'muxr-transfer-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -69,6 +70,25 @@ function diskPlatform(opened: string[]): TransferPlatform {
 }
 
 describe('progressive artifact download', () => {
+    it('retains fresh partials at startup and clears them when pairing changes', async () => {
+        const dir = join(root, 'retention');
+        mkdirSync(dir);
+        const old = join(dir, 'old.part');
+        const fresh = join(dir, 'fresh.part');
+        writeFileSync(old, 'old bytes');
+        writeFileSync(fresh, 'fresh bytes');
+        const nineDaysAgo = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000);
+        utimesSync(old, nineDaysAgo, nineDaysAgo);
+        const entries = () => [old, fresh].filter(existsSync).map((path) => ({
+            modified: statSync(path).mtimeMs, remove: () => rmSync(path),
+        }));
+        await sweepPartialDownloads(entries());
+        expect(existsSync(old)).toBe(false);
+        expect(readFileSync(fresh, 'utf8')).toBe('fresh bytes');
+        await sweepPartialDownloads(entries(), true);
+        expect(existsSync(fresh)).toBe(false);
+    });
+
     it('streams bounded chunks to disk and resumes from the kept bytes after the connection drops', async () => {
         const paneDir = join(root, 'host', 'pane-1');
         mkdirSync(paneDir, { recursive: true });

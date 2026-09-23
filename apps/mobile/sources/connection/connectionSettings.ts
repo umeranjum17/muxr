@@ -197,6 +197,11 @@ export async function loadConnectionSettingsAsync(): Promise<ConnectionSettings>
 }
 
 export async function saveConnectionSettings(settings: ConnectionSettings): Promise<void> {
+    const previous = await loadConnectionSettingsAsync();
+    if (previous.machineId !== settings.machineId || previous.mode !== settings.mode) {
+        const { clearArtifactDownloads } = await import('@/utils/artifactTransfer');
+        await clearArtifactDownloads();
+    }
     await writeRaw(JSON.stringify(settings));
     memoryCache = settings;
 }

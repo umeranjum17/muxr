@@ -252,6 +252,12 @@ export default function RootLayout() {
             try {
                 await loadFonts();
                 await sodium.ready;
+                try {
+                    const { sweepArtifactDownloads } = await import('@/utils/downloadArtifact');
+                    await sweepArtifactDownloads();
+                } catch (error) {
+                    console.warn('Could not clear old partial artifact downloads:', error);
+                }
                 // Skia draws the gauge and ring charts. Native ships it in the
                 // binary; the browser has to fetch CanvasKit first, and without
                 // this every plugin panel holding one of those charts died on

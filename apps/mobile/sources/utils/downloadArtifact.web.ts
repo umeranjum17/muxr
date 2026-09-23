@@ -6,7 +6,10 @@
  * and the page never holds the file in memory. The finished file goes to the
  * browser's own download manager. Metro picks downloadArtifact.ts on native.
  */
-import { transferArtifact, type DownloadableArtifact, type TransferPlatform, type TransferSink } from '@/utils/artifactTransfer';
+import { LARGE_FILE_ERROR, transferArtifact, type DownloadableArtifact, type TransferPlatform, type TransferSink } from '@/utils/artifactTransfer';
+import { sweepPartialDownloads } from '@/utils/artifactPartialRetention';
+
+const MEMORY_LIMIT = 64 * 1024 * 1024;
 
 let downloads: Promise<FileSystemDirectoryHandle | undefined> | undefined;
 
@@ -20,17 +23,34 @@ function downloadsDirectory(): Promise<FileSystemDirectoryHandle | undefined> {
         try {
             const root = await navigator.storage.getDirectory();
             const directory = await root.getDirectoryHandle('artifact-downloads', { create: true });
-            for await (const [name, handle] of (directory as unknown as AsyncIterable<[string, FileSystemHandle]>)) {
-                if (handle.kind !== 'file') continue;
-                const expected = Number(name.slice(name.lastIndexOf('-') + 1));
-                if ((await (handle as FileSystemFileHandle).getFile()).size === expected) await directory.removeEntry(name);
-            }
+            await sweepDirectory(directory);
             return directory;
         } catch {
             return undefined;
         }
     })();
     return downloads;
+}
+
+async function sweepDirectory(directory: FileSystemDirectoryHandle, clear = false): Promise<void> {
+    const files = [];
+    for await (const [name, handle] of (directory as unknown as AsyncIterable<[string, FileSystemHandle]>)) {
+        if (handle.kind !== 'file') continue;
+        const file = await (handle as FileSystemFileHandle).getFile();
+        const expected = Number(name.slice(name.lastIndexOf('-') + 1));
+        if (file.size === expected) await directory.removeEntry(name);
+        else files.push({ modified: file.lastModified, remove: () => directory.removeEntry(name) });
+    }
+    await sweepPartialDownloads(files, clear);
+}
+
+export async function clearPartialDownloads(): Promise<void> {
+    const directory = await downloadsDirectory();
+    if (directory !== undefined) await sweepDirectory(directory, true);
+}
+
+export async function sweepArtifactDownloads(): Promise<void> {
+    await downloadsDirectory();
 }
 
 function fileName(artifact: DownloadableArtifact): string {
@@ -40,22 +60,33 @@ function fileName(artifact: DownloadableArtifact): string {
 
 async function sink(artifact: DownloadableArtifact): Promise<TransferSink> {
     const directory = await downloadsDirectory();
-    if (directory === undefined) return memorySink(artifact);
+    if (directory === undefined) return fallbackSink(artifact);
     const name = fileName(artifact);
-    const handle = await directory.getFileHandle(name, { create: true });
-    const kept = (await handle.getFile()).size;
+    let handle: FileSystemFileHandle;
+    let kept: number;
+    try {
+        handle = await directory.getFileHandle(name, { create: true });
+        kept = (await handle.getFile()).size;
+    } catch {
+        return fallbackSink(artifact);
+    }
     if (kept === artifact.size) {
         return { offset: kept, write() {}, pause() {}, discard() {}, finish: async () => URL.createObjectURL(await handle.getFile()) };
     }
     const offset = kept < artifact.size ? kept : 0;
-    const writable = await handle.createWritable({ keepExistingData: offset > 0 });
-    await writable.seek(offset);
+    let writable: FileSystemWritableFileStream;
+    try {
+        writable = await handle.createWritable({ keepExistingData: offset > 0 });
+        await writable.seek(offset);
+    } catch {
+        return fallbackSink(artifact);
+    }
     return {
         offset,
         write: (bytes) => writable.write(bytes as Uint8Array<ArrayBuffer>),
         pause: () => writable.close(),
         discard: async () => {
-            await writable.abort();
+            try { await writable.abort(); } catch {}
             await directory.removeEntry(name);
         },
         finish: async () => {
@@ -67,7 +98,12 @@ async function sink(artifact: DownloadableArtifact): Promise<TransferSink> {
     };
 }
 
-/** ponytail: without a private file system (private windows, older Safari) bytes sit in Blob parts and a resume starts over. */
+function fallbackSink(artifact: DownloadableArtifact): TransferSink {
+    if (artifact.size > MEMORY_LIMIT) throw new Error(LARGE_FILE_ERROR);
+    return memorySink(artifact);
+}
+
+/** ponytail: below 64 MB, private windows and older Safari buffer Blob parts and resume from zero. */
 function memorySink(artifact: DownloadableArtifact): TransferSink {
     const parts: Blob[] = [];
     return {
@@ -90,11 +126,6 @@ function open(uri: string, artifact: DownloadableArtifact): void {
 }
 
 const platform: TransferPlatform = { sink, open };
-
-/** The private file system answers asynchronously; a kept partial shows once the download resumes. */
-export function keptBytes(_artifact: DownloadableArtifact): number {
-    return 0;
-}
 
 export function downloadArtifact(sessionId: string, artifact: DownloadableArtifact): Promise<void> {
     return transferArtifact(sessionId, artifact, platform);

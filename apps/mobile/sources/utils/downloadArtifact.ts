@@ -7,14 +7,30 @@
  *
  * Metro picks downloadArtifact.web.ts on web.
  */
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 import { isAvailableAsync, shareAsync } from 'expo-sharing';
 import { Platform } from 'react-native';
 import { openWithSystem } from '@/../modules/artifact-open';
 import { Modal } from '@/modal';
 import { transferArtifact, type DownloadableArtifact, type TransferPlatform, type TransferSink } from '@/utils/artifactTransfer';
+import { sweepPartialDownloads } from '@/utils/artifactPartialRetention';
 
 const DOWNLOADS = 'artifact-downloads';
+
+async function sweepDownloads(clear = false): Promise<void> {
+    const directory = new Directory(Paths.cache, DOWNLOADS);
+    if (!directory.exists) return;
+    await sweepPartialDownloads(directory.list().filter((entry): entry is File => entry instanceof File && entry.name.endsWith('.part'))
+        .map((file) => ({ modified: file.modificationTime, remove: () => file.delete() })), clear);
+}
+
+export function sweepArtifactDownloads(): Promise<void> {
+    return sweepDownloads();
+}
+
+export function clearPartialDownloads(): Promise<void> {
+    return sweepDownloads(true);
+}
 
 function safeName(name: string): string {
     const cleaned = name.replace(/[^A-Za-z0-9._-]/g, '_');
@@ -53,8 +69,9 @@ function sink(artifact: DownloadableArtifact): TransferSink {
         write: (bytes) => handle.writeBytes(bytes),
         pause: () => handle.close(),
         discard: () => {
-            handle.close();
+            try { handle.close(); } catch {}
             if (part.exists) part.delete();
+            if (finished.exists) finished.delete();
         },
         finish: () => {
             handle.close();

@@ -46,6 +46,7 @@ const CHUNK_BYTES = 512 * 1024;
 const WINDOW = 4;
 const PUBLISH_MS = 250;
 const CONTENT_HASH = /^[0-9a-f]{64}$/;
+export const LARGE_FILE_ERROR = "This browser can't save large files here";
 
 export const useArtifactTransfers = create<Record<string, ArtifactTransfer>>(() => ({}));
 
@@ -64,6 +65,7 @@ interface Job {
     /** The attempt in flight; none while paused. */
     attempt: Promise<void> | undefined;
     cancelled: boolean;
+    resumeOnConnect: boolean;
     settle: { resolve: () => void; reject: (error: Error) => void };
     done: Promise<void>;
 }
@@ -71,10 +73,21 @@ interface Job {
 const jobs = new Map<string, Job>();
 /** Cancelled downloads still closing their file; a new attempt at the same file waits for them. */
 const closing = new Map<string, Promise<void>>();
+let connectionEpoch = 0;
+
+function owns(job: Job): boolean {
+    return !job.cancelled && jobs.get(job.artifact.id) === job;
+}
 
 function start(job: Job): void {
-    if (job.attempt !== undefined) return;
-    job.attempt = run(job).finally(() => { job.attempt = undefined; });
+    if (job.attempt !== undefined || !owns(job)) return;
+    job.attempt = run(job).finally(() => {
+        job.attempt = undefined;
+        if (job.resumeOnConnect && storage.getState().socketStatus === 'connected' && owns(job)) {
+            job.resumeOnConnect = false;
+            start(job);
+        }
+    });
 }
 
 function publish(id: string, transfer: ArtifactTransfer | undefined): void {
@@ -104,6 +117,7 @@ export function transferArtifact(sessionId: string, artifact: DownloadableArtifa
         pinnedId: CONTENT_HASH.test(artifact.id) ? artifact.id : undefined,
         attempt: undefined,
         cancelled: false,
+        resumeOnConnect: false,
     };
     jobs.set(artifact.id, job);
     watchConnection();
@@ -128,6 +142,13 @@ export function cancelArtifactTransfer(artifactId: string): void {
     closing.set(artifactId, closed);
 }
 
+export async function clearArtifactDownloads(): Promise<void> {
+    for (const id of jobs.keys()) cancelArtifactTransfer(id);
+    await Promise.all(closing.values());
+    const { clearPartialDownloads } = await import('@/utils/downloadArtifact');
+    await clearPartialDownloads();
+}
+
 async function readChunk(job: Job, at: number, length: number): Promise<Uint8Array> {
     const chunk = await sync.artifactRead(job.sessionId, job.pinnedId ?? job.artifact.id, at, length, 60_000);
     if (chunk === null || chunk.offset !== at || chunk.size !== job.artifact.size) throw new ArtifactChanged();
@@ -143,6 +164,7 @@ async function run(job: Job): Promise<void> {
     await closing.get(artifact.id);
     let sink: TransferSink | undefined;
     let received = 0;
+    const epoch = connectionEpoch;
     let rate: number | undefined;
     let publishedAt = 0;
     let trailing: ReturnType<typeof setTimeout> | undefined;
@@ -154,14 +176,14 @@ async function run(job: Job): Promise<void> {
         const show = (): void => {
             trailing = undefined;
             publishedAt = Date.now();
-            publish(artifact.id, { status: 'downloading', received, total: artifact.size, bytesPerSecond: rate });
+            if (owns(job)) publish(artifact.id, { status: 'downloading', received, total: artifact.size, bytesPerSecond: rate });
         };
         if (wait <= 0) show();
         else trailing = setTimeout(show, wait);
     };
     try {
         sink = await job.platform.sink(artifact);
-        if (job.cancelled) throw new Error('Download cancelled.');
+        if (!owns(job)) throw new Error('Download cancelled.');
         received = sink.offset;
         let next = received;
         let sampleAt = Date.now();
@@ -184,8 +206,9 @@ async function run(job: Job): Promise<void> {
             // Never race each chunk against one long-lived cancel promise: every
             // race leaves a reaction on it that keeps that chunk's bytes alive.
             const bytes = await inflight.shift()!;
-            if (job.cancelled) throw new Error('Download cancelled.');
+            if (!owns(job)) throw new Error('Download cancelled.');
             await sink.write(bytes);
+            if (!owns(job)) throw new Error('Download cancelled.');
             received += bytes.length;
             fill();
             const now = Date.now();
@@ -198,26 +221,38 @@ async function run(job: Job): Promise<void> {
             showProgress();
         }
         const uri = await sink.finish();
+        if (!owns(job)) throw new Error('Download cancelled.');
         clearTimeout(trailing);
         jobs.delete(artifact.id);
         publish(artifact.id, { status: 'done', total: artifact.size });
         job.settle.resolve();
         // Launching an installer or share sheet from the background is refused
         // by the OS; the finished row opens it on the next tap instead.
-        if (AppState.currentState === 'active') job.platform.open(uri, artifact);
+        if (AppState.currentState === 'active') {
+            try { job.platform.open(uri, artifact); } catch {}
+        }
     } catch (error) {
         clearTimeout(trailing);
-        if (job.cancelled) {
-            await sink?.discard();
+        if (!owns(job)) {
+            try { await sink?.discard(); } catch {}
             return;
         }
         if (error instanceof ArtifactChanged) {
-            await sink?.discard();
-            fail(job, 0, error.message, error);
+            try { await sink?.discard(); } catch {}
+            if (owns(job)) fail(job, 0, error.message, error);
             return;
         }
-        await sink?.pause();
-        if (storage.getState().socketStatus !== 'connected') {
+        if (error instanceof Error && error.message === LARGE_FILE_ERROR) {
+            fail(job, received, error.message, error);
+            return;
+        }
+        try { await sink?.pause(); } catch (pauseError) {
+            if (owns(job)) fail(job, received, 'Download stopped', pauseError);
+            return;
+        }
+        if (!owns(job)) return;
+        if (storage.getState().socketStatus !== 'connected' || connectionEpoch !== epoch) {
+            job.resumeOnConnect = true;
             publish(artifact.id, { status: 'waiting', received, total: artifact.size });
             return;
         }
@@ -226,6 +261,7 @@ async function run(job: Job): Promise<void> {
 }
 
 function fail(job: Job, received: number, message: string, cause: unknown): void {
+    if (!owns(job)) return;
     jobs.delete(job.artifact.id);
     publish(job.artifact.id, { status: 'failed', received, total: job.artifact.size, message });
     job.settle.reject(cause instanceof Error ? cause : new Error(String(cause)));
@@ -238,7 +274,11 @@ function watchConnection(): void {
     if (watching) return;
     watching = true;
     storage.subscribe((state, previous) => {
-        if (state.socketStatus !== 'connected' || previous.socketStatus === 'connected') return;
-        for (const job of jobs.values()) start(job);
+        if (state.socketStatus === previous.socketStatus) return;
+        if (state.socketStatus !== 'connected') {
+            connectionEpoch++;
+            return;
+        }
+        for (const job of jobs.values()) if (job.resumeOnConnect) start(job);
     });
 }
