@@ -363,3 +363,15 @@ export async function sshRelayUrl(relayUrl: string, machineId: string, target: S
     const path = remote.pathname === '/' ? '' : remote.pathname;
     return `ws://127.0.0.1:${handle.localPort}${path}`;
 }
+
+/**
+ * Where a side channel (terminal, preview, stream) to `machineId` dials its
+ * relay: through the same SSH tunnel as sync when SSH is that machine's route,
+ * because over SSH alone the relay's own address is not reachable at all.
+ */
+export async function channelRelayUrl(relayUrl: string, machineId: string): Promise<string> {
+    const { getCachedConnectionSettings } = await import('./connectionSettings');
+    const settings = getCachedConnectionSettings();
+    if (settings.machineId !== machineId || settings.selfhost !== true || settings.ssh === undefined || !isSshTunnelSupported()) return relayUrl;
+    return sshRelayUrl(relayUrl, machineId, settings.ssh);
+}

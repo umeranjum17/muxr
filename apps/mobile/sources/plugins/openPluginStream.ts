@@ -10,7 +10,7 @@ import {
     type RealtimeHostFrame,
     type RequestParams,
 } from '@muxr/contract';
-import { getCachedConnectionSettings } from '@/connection';
+import { channelRelayUrl, getCachedConnectionSettings } from '@/connection';
 import {
     DeviceV2Crypto,
     getCachedHostedGrant,
@@ -162,7 +162,7 @@ export async function openRealtimeStream(
     });
     if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
 
-    const relayUrl = snapshot.relayUrl;
+    const relayUrl = await channelRelayUrl(snapshot.relayUrl, snapshot.machineId);
     const ticketInput = grant !== undefined
         ? { credential: grant.credential }
         : snapshot.token !== '' && !snapshot.token.startsWith('acctok_')

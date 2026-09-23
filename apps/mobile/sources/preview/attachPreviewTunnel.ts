@@ -8,7 +8,7 @@
 
 import { newPreviewKey } from '@muxr/crypto';
 import { issueWsTicket, newPreviewChannel, ticketSocketUrl } from '@muxr/contract';
-import { getCachedConnectionSettings } from '@/connection';
+import { channelRelayUrl, getCachedConnectionSettings } from '@/connection';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { sync } from '@/catalog/sync';
 
@@ -71,8 +71,9 @@ export async function attachPreviewTunnel(port: number): Promise<PreviewTunnel> 
     const key = previewBridgeAvailable ? newPreviewKey() : undefined;
     await sync.request('preview.attach', { channel, port, ...(key === undefined ? {} : { key }) });
 
-    const socketUrl = ticketSocketUrl(relay.url, await issueWsTicket({
-        relayUrl: relay.url,
+    const relayUrl = await channelRelayUrl(relay.url, settings.machineId);
+    const socketUrl = ticketSocketUrl(relayUrl, await issueWsTicket({
+        relayUrl,
         credential: relay.credential,
         machineId: settings.machineId,
         role: 'client',

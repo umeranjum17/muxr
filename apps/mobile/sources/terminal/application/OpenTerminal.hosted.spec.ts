@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/connection', () => ({
+    channelRelayUrl: async (relayUrl: string) => relayUrl,
     getCachedConnectionSettings: () => ({
         mode: 'hosted',
         relayUrl: 'ws://relay.test',
