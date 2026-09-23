@@ -2,14 +2,17 @@ import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { expect, it, vi } from 'vitest';
 
-const keyboardListeners = vi.hoisted(() => new Map<string, (event: { height: number }) => void>());
+const keyboardHandler = vi.hoisted(() => ({ current: null as null | {
+    onStart: (event: { height: number }) => void;
+    onEnd: (event: { height: number }) => void;
+} }));
 const scrollToEnd = vi.hoisted(() => vi.fn());
-const theme = { colors: {
+const theme = vi.hoisted(() => ({ colors: {
     glass: { border: '#333', backgroundStrong: '#222', backgroundSubtle: '#222' },
     text: '#fff', textSecondary: '#aaa', surface: '#000', surfaceHighest: '#222',
     surfacePressedOverlay: '#333', fab: { background: '#fff', icon: '#000' },
     status: { error: '#f00' },
-} };
+} }));
 
 vi.mock('react-native', () => ({
     ActivityIndicator: 'ActivityIndicator',
@@ -25,10 +28,7 @@ vi.mock('react-native-unistyles', () => ({
 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 24, bottom: 0 }) }));
 vi.mock('react-native-keyboard-controller', () => ({
-    KeyboardEvents: { addListener: (name: string, listener: (event: { height: number }) => void) => {
-        keyboardListeners.set(name, listener);
-        return { remove: () => keyboardListeners.delete(name) };
-    } },
+    useKeyboardHandler: (handler: NonNullable<typeof keyboardHandler.current>) => { keyboardHandler.current = handler; },
     useReanimatedKeyboardAnimation: () => ({ height: { value: 0 }, progress: { value: 0 } }),
 }));
 vi.mock('react-native-reanimated', () => ({
@@ -81,25 +81,28 @@ it('keeps the short-screen composer below Back and makes Start reachable by scro
     const previousFrame = globalThis.requestAnimationFrame;
     globalThis.requestAnimationFrame = (callback) => { callback(0); return 1; };
     try {
-        let screen!: ReturnType<typeof TestRenderer.create>;
+        let screen: any;
         act(() => { screen = TestRenderer.create(
             <HomeDock prompt="" onPromptChange={vi.fn()} onSubmit={async () => true} onStartBlank={async () => true} isSubmitting={false} />,
-            { createNodeMock: (node) => node.type === 'ScrollView' ? { scrollToEnd } : null },
+            { createNodeMock: (node: any) => node.type === 'ScrollView' ? { scrollToEnd } : null },
         ); });
-        const entry = screen.root.findAll((node) => node.props.onPress && node.props.style?.justifyContent === 'center')[0];
+        const entry = screen.root.findAll((node: any) => node.props.onPress && node.props.style?.justifyContent === 'center')[0];
         act(() => entry.props.onPress());
-        const modalRoot = screen.root.findAll((node) => node.type === 'View' && node.props.onLayout)[0];
+        const modalRoot = screen.root.findAll((node: any) => node.type === 'View' && node.props.onLayout)[0];
         act(() => modalRoot.props.onLayout({ nativeEvent: { layout: { height: 594 } } }));
-        act(() => keyboardListeners.get('keyboardWillShow')?.({ height: 290 }));
+        act(() => keyboardHandler.current?.onStart({ height: 290 }));
+        act(() => modalRoot.props.onLayout({ nativeEvent: { layout: { height: 304 } } }));
         const scroll = screen.root.findByType('ScrollView');
         expect(scroll.props.style.maxHeight).toBe(206);
         expect(scroll.props.keyboardShouldPersistTaps).toBe('handled');
-        expect(scroll.findAll((node) => node.props.accessibilityLabel === 'Start Pi without a prompt')).toHaveLength(1);
+        expect(scroll.findAll((node: any) => node.props.accessibilityLabel === 'Start Pi without a prompt')).toHaveLength(1);
         expect(scroll.findAllByType('TextInput')).toHaveLength(1);
         act(() => scroll.props.onLayout());
         expect(scrollToEnd).toHaveBeenCalledWith({ animated: false });
-        act(() => keyboardListeners.get('keyboardDidShow')?.({ height: 340 }));
+        act(() => keyboardHandler.current?.onStart({ height: 340 }));
         expect(screen.root.findByType('ScrollView').props.style.maxHeight).toBe(156);
+        act(() => keyboardHandler.current?.onEnd({ height: 0 }));
+        expect(screen.root.findByType('ScrollView').props.style.maxHeight).toBe(496);
         act(() => { screen.unmount(); });
     } finally {
         globalThis.requestAnimationFrame = previousFrame;

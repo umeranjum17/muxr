@@ -3,7 +3,7 @@ import { ActivityIndicator, Keyboard, Modal as RNModal, Platform, Pressable, Scr
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { KeyboardEvents, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
+import { useKeyboardHandler, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import Animated, {
     Easing,
     Extrapolation,
@@ -607,13 +607,16 @@ export const HomeDock = React.memo(({
     // it is moving through.
     const [focusRootHeight, setFocusRootHeight] = React.useState<number>();
     const [focusKeyboard, setFocusKeyboard] = React.useState(0);
-    React.useEffect(() => {
-        const onShow = (event: { height: number }) => setFocusKeyboard(event.height);
-        const willShow = KeyboardEvents.addListener('keyboardWillShow', onShow);
-        const didShow = KeyboardEvents.addListener('keyboardDidShow', onShow);
-        const hide = KeyboardEvents.addListener('keyboardDidHide', () => setFocusKeyboard(0));
-        return () => { willShow.remove(); didShow.remove(); hide.remove(); };
-    }, []);
+    useKeyboardHandler({
+        onStart: (event) => {
+            'worklet';
+            if (event.height > 0) runOnJS(setFocusKeyboard)(event.height);
+        },
+        onEnd: (event) => {
+            'worklet';
+            runOnJS(setFocusKeyboard)(event.height);
+        },
+    });
     const focusDockMax = focusRootHeight === undefined ? undefined : focusDockMaxHeight({
         height: focusRootHeight,
         safeTop: safeArea.top,
@@ -1008,7 +1011,9 @@ export const HomeDock = React.memo(({
                 animationType="none"
                 onRequestClose={closeFocusMode}
             >
-                <View style={styles.modalRoot} onLayout={(event) => setFocusRootHeight(event.nativeEvent.layout.height)}>
+                <View style={styles.modalRoot} onLayout={(event) => {
+                    if (focusKeyboard === 0) setFocusRootHeight(event.nativeEvent.layout.height);
+                }}>
                     <Animated.View
                         pointerEvents="box-none"
                         style={[styles.modalBackdrop, styles.focusBackdrop, focusBackdropStyle]}
