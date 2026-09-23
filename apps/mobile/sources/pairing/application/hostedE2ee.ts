@@ -456,6 +456,10 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     url = prepareHostedPairingInput(url);
     const initial = new URL(url);
     let expectedAuthority = initial.searchParams.get('role');
+    // The relay that answered the code holds the pair session too. Over Direct
+    // SSH it is the tunnel, and the relay the payload advertises may not be
+    // reachable from the phone at all, so the claim goes back the same way.
+    let answeringRelay: string | undefined;
     if (expectedAuthority !== null && expectedAuthority !== 'control' && expectedAuthority !== 'observe') {
         throw new Error('pairing link has an invalid browser role');
     }
@@ -465,6 +469,7 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
         locator.searchParams.set('pair', initial.searchParams.get('pair')!);
         url = prepareHostedPairingInput(await resolvePairingCode(locator.toString()));
     } else if (/^wss?:\/\//i.test(url)) {
+        answeringRelay = url;
         url = prepareHostedPairingInput(await resolvePairingCode(url));
     }
     const isSelfhostLink = url.startsWith('muxr://pair?') || url.startsWith('muxr://pair#');
@@ -502,7 +507,8 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
     }
     const selfhostRelay = selfhostRelayParam;
     // Self-host links carry the relay in `r`; the control base derives via the canonical helper.
-    const controlBase = selfhostRelay !== null ? relayControlUrl(selfhostRelay) : parsed.origin;
+    const controlBase = answeringRelay !== undefined ? relayControlUrl(answeringRelay)
+        : selfhostRelay !== null ? relayControlUrl(selfhostRelay) : parsed.origin;
     const keys = await getOrCreateHostedDeviceKey();
     const deviceName = hostedDeviceName();
     const mailbox = sealV2(JSON.stringify({
