@@ -54,6 +54,18 @@ const GESTURES: readonly [gesture: string, effect: string][] = [
     ['Drag on the whole desktop', 'Move the pointer'],
 ];
 
+/**
+ * A browser that refuses the phone's clipboard explains in its own words, which
+ * read like a verdict ("User denied permission"). It is usually the first try,
+ * before or while the site is allowed, so say what to do instead.
+ */
+function describeClipboardError(error: unknown, fallback: string): string {
+    const refused = error as { name?: unknown; code?: unknown } | null;
+    // The clipboard module reports the browser's NotAllowedError as its own code.
+    if (refused?.code === 'ERR_NO_PERMISSION' || refused?.name === 'NotAllowedError') return desktopCopy.clipboardBlocked;
+    return error instanceof Error ? error.message : fallback;
+}
+
 export interface DesktopSurfaceProps {
     onExit: () => void;
     /** The conversation the desktop was opened from; the computer's name without one. */
@@ -197,7 +209,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
             else if (text === '') say('The desktop clipboard was empty.');
             else say('Copied to this phone.');
         } catch (error) {
-            say(error instanceof Error ? error.message : 'Could not copy from the desktop.');
+            say(describeClipboardError(error, 'Could not copy from the desktop.'));
         } finally {
             setClipboardBusy(false);
         }
@@ -211,7 +223,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
             await session.pasteLocalToRemote(text);
             say('On the desktop clipboard. Hold on a field and choose Paste.');
         } catch (error) {
-            say(error instanceof Error ? error.message : 'Could not paste to the desktop.');
+            say(describeClipboardError(error, 'Could not paste to the desktop.'));
         } finally {
             setClipboardBusy(false);
         }

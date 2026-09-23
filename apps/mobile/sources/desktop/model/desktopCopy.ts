@@ -26,6 +26,7 @@ export const desktopCopy = {
     endedEngineStopped: 'The computer stopped sharing this desktop.',
     endedUnreachable: "The phone lost its connection to this computer's desktop. Check that it can still reach the computer, then try again.",
     clipboardUnavailable: 'This computer cannot share its clipboard.',
+    clipboardBlocked: "The browser didn't allow this site to use the phone's clipboard. Allow it, then try again.",
     liveLabel: 'Live',
     connectingLabel: 'Connecting',
     gestureHint: 'Drag to move the pointer; when zoomed, drag to move around. Two fingers scroll. Pinch to zoom. Hold for right-click, or hold and drag to select.',
