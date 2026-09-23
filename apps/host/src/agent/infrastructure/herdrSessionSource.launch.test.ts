@@ -16,8 +16,17 @@ function fakeHerdr(dir: string, cwd: string) {
     const tabs: Record<string, unknown>[] = [];
     const panes: Record<string, unknown>[] = [];
     const agents: Record<string, unknown>[] = [];
-    const subscribers = new Set<Socket>();
-    const state = { failSnapshot: false, failSnapshotAfterPrompt: false };
+    /** Like herdr, a pushed event reaches only the sockets subscribed to it; status is per pane. */
+    const subscribers = new Map<Socket, Array<{ type: string; pane_id?: string }>>();
+    const state: {
+        failSnapshot: boolean;
+        failSnapshotAfterPrompt: boolean;
+        snapshotCount: number;
+        holdNextSnapshot: boolean;
+        releaseSnapshot?: () => void;
+        holdStatusAck: boolean;
+        releaseStatusAck?: () => void;
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false };
     let next = 1;
     const handleSnapshot = () => ({ snapshot: { workspaces, tabs, panes, agents } });
     const handlePluginList = () => ({ plugins: [] });
@@ -63,18 +72,30 @@ function fakeHerdr(dir: string, cwd: string) {
                 if (line.trim() === '') continue;
                 const { id, method, params } = JSON.parse(line) as { id: string; method: string; params?: Record<string, unknown> };
                 if (method === 'events.subscribe') {
-                    socket.write(`${JSON.stringify({ id, result: {} })}\n`);
-                    subscribers.add(socket);
+                    const accept = () => {
+                        subscribers.set(socket, (params?.subscriptions ?? []) as Array<{ type: string; pane_id?: string }>);
+                        socket.write(`${JSON.stringify({ id, result: {} })}\n`);
+                    };
+                    if (state.holdStatusAck && id === 'pph_status') state.releaseStatusAck = accept;
+                    else accept();
                     continue;
                 }
                 const p = params ?? {};
                 let reply: unknown;
                 switch (method) {
-                    case 'session.snapshot':
+                    case 'session.snapshot': {
+                        state.snapshotCount += 1;
+                        const result = structuredClone(handleSnapshot());
                         reply = state.failSnapshot
                             ? { id, error: { code: 'snapshot_failed', message: 'snapshot failed' } }
-                            : { id, result: handleSnapshot() };
+                            : { id, result };
+                        if (state.holdNextSnapshot) {
+                            state.holdNextSnapshot = false;
+                            state.releaseSnapshot = () => socket.end(`${JSON.stringify(reply)}\n`);
+                            continue;
+                        }
                         break;
+                    }
                     case 'plugin.list':
                         reply = { id, result: handlePluginList() };
                         break;
@@ -108,16 +129,24 @@ function fakeHerdr(dir: string, cwd: string) {
     });
     const socketPath = join(dir, 'herdr.sock');
     server.listen(socketPath);
+    const wants = (subscriptions: Array<{ type: string; pane_id?: string }>, type: string, paneId: unknown) =>
+        subscriptions.some((sub) => sub.type === type && (sub.pane_id === undefined || sub.pane_id === paneId));
     return {
         socketPath,
         state,
         agents,
         tabs,
+        panes,
         emit(type: string, data: Record<string, unknown>): void {
-            for (const socket of subscribers) socket.write(`${JSON.stringify({ event: type, data })}\n`);
+            for (const [socket, subscriptions] of subscribers) {
+                if (wants(subscriptions, type, data.pane_id)) socket.write(`${JSON.stringify({ event: type, data })}\n`);
+            }
+        },
+        watching(type: string, paneId: string): boolean {
+            return [...subscribers.values()].some((subscriptions) => wants(subscriptions, type, paneId));
         },
         close(): void {
-            for (const socket of subscribers) socket.destroy();
+            for (const socket of subscribers.keys()) socket.destroy();
             server.close();
         },
     };
@@ -186,6 +215,102 @@ describe('phone launch before herdr detects the agent', () => {
         } finally {
             unsubscribe();
             vi.restoreAllMocks();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});
+
+describe('agent started at the desk in an existing pane', () => {
+    it('lists the agent once its first turn reports a session, without a host restart', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-desk-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        herdr.tabs.push({ tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' });
+        herdr.panes.push({ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId: 'shell:w1:p1' });
+
+            // Codex starts in the shell. Herdr detects its kind and name, but
+            // Codex has no session until its first turn.
+            herdr.state.holdStatusAck = true;
+            herdr.agents.push({ pane_id: 'w1:p1', agent: 'codex', name: 'ram', agent_status: 'idle' });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1', agent: 'codex' });
+            await vi.waitFor(() => expect(herdr.state.releaseStatusAck).toBeDefined(), { timeout: 3_000 });
+            await new Promise((resolve) => setTimeout(resolve, 600));
+
+            // The first turn: Herdr takes the session report with no bus
+            // event, so the pane's status watch is the only frame that moves.
+            Object.assign(herdr.agents[0]!, {
+                agent_status: 'done',
+                agent_session: { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'codex-1' },
+            });
+            herdr.emit('pane.agent_status_changed', { pane_id: 'w1:p1', agent: 'codex', agent_status: 'done' });
+            herdr.state.releaseStatusAck?.();
+            await vi.waitFor(async () => {
+                expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({
+                    agentKind: 'codex',
+                    agentName: 'ram',
+                    agentStatus: 'done',
+                    sessionId: expect.stringMatching(/^pp_/),
+                });
+            }, { timeout: 3_000 });
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            const reads = herdr.state.snapshotCount;
+            herdr.emit('pane.agent_status_changed', { pane_id: 'w1:p1', agent: 'codex', agent_status: 'working' });
+            await vi.waitFor(async () => expect(treePane(await source.herdrTree(), 'w1:p1').agentStatus).toBe('working'));
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            expect(herdr.state.snapshotCount).toBe(reads);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+
+    it('reads again when a missing session appears during an older snapshot', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-desk-snapshot-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        herdr.tabs.push({ tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' });
+        herdr.panes.push({ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            herdr.agents.push({ pane_id: 'w1:p1', agent: 'codex', name: 'ram', agent_status: 'idle' });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1', agent: 'codex' });
+            await vi.waitFor(() => expect(herdr.watching('pane.agent_status_changed', 'w1:p1')).toBe(true));
+            await new Promise((resolve) => setTimeout(resolve, 600));
+
+            herdr.state.holdNextSnapshot = true;
+            const stale = source.refreshHerdr();
+            await vi.waitFor(() => expect(herdr.state.releaseSnapshot).toBeDefined());
+            Object.assign(herdr.agents[0]!, {
+                agent_status: 'done',
+                agent_session: { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'codex-1' },
+            });
+            herdr.emit('pane.agent_status_changed', { pane_id: 'w1:p1', agent_status: 'done' });
+            await new Promise((resolve) => setTimeout(resolve, 600));
+            herdr.state.releaseSnapshot?.();
+            await stale;
+            await vi.waitFor(async () => {
+                expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({
+                    agentKind: 'codex', sessionId: expect.stringMatching(/^pp_/),
+                });
+            }, { timeout: 3_000 });
+        } finally {
+            herdr.state.releaseSnapshot?.();
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });

@@ -1036,11 +1036,21 @@ export async function createHerdrSessionSource(
             setLifecycle(paneId, agentStatus);
             const session = currentSessionByPane(paneId);
             if (session !== undefined) emitState(session.sessionId);
+            if (needsSessionDiscovery(paneId)) scheduleResnapshot();
+        }, () => {
+            if (needsSessionDiscovery(paneId)) scheduleResnapshot();
         });
         statusWatches.set(paneId, close);
     }
+    function needsSessionDiscovery(paneId: string): boolean {
+        const agent = agentsByPane.get(paneId);
+        return agent !== undefined && publishedAgentSession(agent) === undefined;
+    }
+
     const modifiedBySession = new Map<string, string>();
     let resnapshotTimer: NodeJS.Timeout | undefined;
+    let resnapshotRunning = false;
+    let resnapshotQueued = false;
 
     function publish(sessionId: string, event: SessionEventBody): void {
         modifiedBySession.set(sessionId, new Date().toISOString());
@@ -1467,10 +1477,26 @@ export async function createHerdrSessionSource(
     }
 
     function scheduleResnapshot(): void {
+        if (resnapshotRunning) {
+            resnapshotQueued = true;
+            return;
+        }
         if (resnapshotTimer !== undefined) return;
         resnapshotTimer = setTimeout(() => {
             resnapshotTimer = undefined;
-            void refreshSnapshot().then(emitAllStates).catch(() => {});
+            resnapshotRunning = true;
+            void (async () => {
+                const older = snapshotInFlight;
+                if (older !== undefined) await older.catch(() => {});
+                await refreshSnapshot();
+                emitAllStates();
+            })().catch(() => {}).finally(() => {
+                resnapshotRunning = false;
+                if (resnapshotQueued) {
+                    resnapshotQueued = false;
+                    scheduleResnapshot();
+                }
+            });
         }, 500);
     }
 

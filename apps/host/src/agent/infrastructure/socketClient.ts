@@ -114,7 +114,7 @@ export class HerdrClient {
      * putting it in the batch rejects everything. One socket per pane instead --
      * unix sockets are cheap, and herdr answers one subscribe per socket.
      */
-    watchPaneStatus(paneId: string, onStatus: (agentStatus: string) => void): () => void {
+    watchPaneStatus(paneId: string, onStatus: (agentStatus: string) => void, onReady: () => void): () => void {
         let socket: Socket | undefined;
         let stopped = false;
         let retry: NodeJS.Timeout | undefined;
@@ -156,7 +156,10 @@ export class HerdrClient {
                         next.destroy();
                         return;
                     }
-                    if (typeof message.id === 'string') continue;
+                    if (typeof message.id === 'string') {
+                        if (message.id === 'pph_status' && !stopped && socket === next) onReady();
+                        continue;
+                    }
                     const data = (message.data ?? message) as { agent_status?: unknown };
                     if (typeof data.agent_status === 'string') onStatus(data.agent_status);
                 }
