@@ -21,11 +21,11 @@ import { columnsPerBand, limitPlans, vitalsFacts, type LimitCell, type LimitFigu
 const AGE_WORTH_MENTIONING_SECONDS = 600;
 
 /**
- * The top of Home as figures: every connected plan's mark beside what is left
- * of each of its windows, then one quieter vitals line. The section label
- * is the title and carries the refresh control; the whole card opens the
- * Usage screen. Served by the host's typed usage.now method -- product code,
- * no plugin in the path.
+ * The top of Home as figures: each connected plan's mark beside its readable
+ * limits, with same-length limits grouped by their tightest share, then one
+ * quieter vitals line. The section label is the title and carries the refresh
+ * control; the whole card opens Usage. The host's typed usage.now method
+ * serves it directly, without a plugin.
  */
 export function RightNowCard() {
     const { theme } = useUnistyles();
@@ -198,15 +198,11 @@ const PLAN_GAP = 14;
 
 /**
  * Every connected plan's limits at once, the way a menu bar shows them: a
- * plan's mark, then what is left of each of its windows stacked shortest
- * first, each figure tagged with its window. Plans sit side by side in name
- * order, so each keeps its place as its figures move, and break into balanced
- * rows only when they no longer fit. Figures stay one neutral voice until a
- * limit is actually low.
- *
- * What this replaces was a table: marks as column headers over a row per
- * window length, with an empty cell wherever a plan had no window of that
- * length.
+ * plan's mark, then the tightest share left for each window length or name,
+ * shortest first, with a count for grouped limits. Plans sit side by side in
+ * name order and break into balanced rows only when they no longer fit.
+ * Figures stay neutral until a limit is low; the spoken summary names every
+ * limit, including those grouped on screen.
  */
 function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: boolean }) {
     const { theme } = useUnistyles();

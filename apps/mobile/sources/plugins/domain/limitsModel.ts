@@ -19,8 +19,7 @@ export { bounded as boundedText };
 const finiteIn = (value: unknown, low: number, high: number): value is number =>
     typeof value === 'number' && Number.isFinite(value) && value >= low && value <= high;
 
-/** Bounded quota windows: the exact shape the `limits` payload carries, shared
- *  by the payload parser and the Home card's connected strip. */
+/** Bound quota windows from an untrusted `limits` payload before rendering. */
 export function asLimitsWindows(value: unknown): PluginLimitsWindow[] {
     return (Array.isArray(value) ? value : []).flatMap((entry): PluginLimitsWindow[] => {
         if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return [];
