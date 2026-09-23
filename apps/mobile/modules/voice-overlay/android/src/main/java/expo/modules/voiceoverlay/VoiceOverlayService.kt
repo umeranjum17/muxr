@@ -52,6 +52,7 @@ class VoiceOverlayService : Service() {
     private var herdNames = ""
     private var herdEventKey = ""
     private var lastAttentionKeys = emptySet<String>()
+    private var lastFocusedRoute: String? = null
     private var lastFinishedKey = ""
     private var pendingEventAlert = false
     /**
@@ -107,6 +108,8 @@ class VoiceOverlayService : Service() {
       val appContext = context.applicationContext
       mainHandler.post {
         val focusedRoute = blockedAgents.firstOrNull { it["focused"] == true }?.get("id") as? String
+        val focusChanged = focusedRoute != lastFocusedRoute
+        lastFocusedRoute = focusedRoute
         val remaining = if (mode == "attention" && focusedRoute != null) {
           blockedAgents.filter { it["id"] != focusedRoute }
         } else blockedAgents
@@ -149,7 +152,7 @@ class VoiceOverlayService : Service() {
         if (state == "disconnected") voiceStartedAt = 0L
 
         if (mode != "working" && mode != "attention") herdKeepalive = false
-        doRequestPost(appContext)
+        doRequestPost(appContext, focusChanged)
       }
       return true
     }
@@ -169,11 +172,15 @@ class VoiceOverlayService : Service() {
       }
     }
 
-    private fun doRequestPost(context: Context) {
+    private fun doRequestPost(context: Context, immediate: Boolean = false) {
+      if (immediate) {
+        pendingFlush?.let(mainHandler::removeCallbacks)
+        pendingFlush = null
+      }
       val signature = visibleSignature()
       if (signature == lastPostedSignature) return
       val wait = lastPostAt + MIN_POST_INTERVAL_MS - SystemClock.uptimeMillis()
-      if (wait > 0) {
+      if (!immediate && wait > 0) {
         // One trailing flush at most; it re-reads the latest state when it
         // fires, and clearNotification can cancel it.
         if (pendingFlush != null) return
@@ -211,6 +218,7 @@ class VoiceOverlayService : Service() {
         lastPostAt = 0L
         pendingEventAlert = false
         lastAttentionKeys = emptySet()
+        lastFocusedRoute = null
         lastFinishedKey = ""
         manager(appContext).run {
           cancel(HERD_NOTIFICATION_ID)

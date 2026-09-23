@@ -8,6 +8,7 @@ const harness = vi.hoisted(() => ({
     // Every post, including one that replaces a row: each one alerts again.
     posted: [] as string[],
     issued: [] as Array<{ identifier: string; date: number }>,
+    postGate: null as null | { started: () => void; wait: Promise<void> },
     appState: 'active',
     appStateListeners: new Set<(state: string) => void>(),
     eventListeners: [] as Array<(sessionId: string, event: unknown) => void>,
@@ -16,6 +17,12 @@ const harness = vi.hoisted(() => ({
 
 vi.mock('expo-notifications', () => ({
     scheduleNotificationAsync: vi.fn(async (request: { identifier?: string; content: { body: string } }) => {
+        const gate = harness.postGate;
+        harness.postGate = null;
+        if (gate) {
+            gate.started();
+            await gate.wait;
+        }
         // Expo invents a fresh identifier when the caller gives none.
         const identifier = request.identifier ?? `expo-${Math.random()}`;
         harness.shade.set(identifier, request.content.body);
@@ -130,6 +137,7 @@ describe('agent lifecycle alerts on the phone', () => {
         harness.shade.clear();
         harness.posted.length = 0;
         harness.issued.length = 0;
+        harness.postGate = null;
         harness.appState = 'active';
     });
 
@@ -187,6 +195,19 @@ describe('agent lifecycle alerts on the phone', () => {
         agentChanges('route-ewe', 'ewe', 'working');
         await settle();
         expect(shade()).toEqual([]);
+
+        let started!: () => void;
+        let release!: () => void;
+        const posting = new Promise<void>((resolve) => { started = resolve; });
+        const wait = new Promise<void>((resolve) => { release = resolve; });
+        harness.postGate = { started, wait };
+        agentChanges('route-ewe', 'ewe', 'blocked');
+        await posting;
+        agentChanges('route-ewe', 'ewe', 'working');
+        release();
+        await settle();
+        expect(shade()).toEqual([]);
+
         expect(focusHistory).toEqual(['route-lamb', null, 'route-lamb', null, 'route-lamb', null]);
         unsubscribe();
     });

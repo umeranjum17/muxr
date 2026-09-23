@@ -4,6 +4,7 @@ import { AppState, Platform } from 'react-native';
 /** The Agent whose terminal is on screen, if any. */
 let onScreen: string | null = null;
 const focusListeners = new Set<() => void>();
+const alertOperations = new Map<string, Promise<void>>();
 
 export function focusedAgentRoute(): string | null {
     return AppState.currentState === 'active' ? onScreen : null;
@@ -29,9 +30,19 @@ function alertId(agentRoute: string): string {
     return `agent:${agentRoute}`;
 }
 
+function orderedAlert(agentRoute: string, operation: () => Promise<void>): Promise<void> {
+    const next = (alertOperations.get(agentRoute) ?? Promise.resolve()).then(operation);
+    const settled = next.catch(() => undefined);
+    alertOperations.set(agentRoute, settled);
+    void settled.then(() => {
+        if (alertOperations.get(agentRoute) === settled) alertOperations.delete(agentRoute);
+    });
+    return next;
+}
+
 function dismissAlert(agentRoute: string): void {
     if (Platform.OS === 'web') return;
-    void Notifications.dismissNotificationAsync(alertId(agentRoute)).catch(() => undefined);
+    void orderedAlert(agentRoute, () => Notifications.dismissNotificationAsync(alertId(agentRoute))).catch(() => undefined);
 }
 
 /**
@@ -56,17 +67,19 @@ export function agentOnScreen(agentRoute: string): () => void {
     };
 }
 
-/** Post an Agent's lifecycle alert unless its terminal is in front of the person. */
 export function dismissAgentAlert(agentRoute: string): void {
     dismissAlert(agentRoute);
 }
 
+/** Post an Agent's lifecycle alert unless its terminal is in front of the person. */
 export async function alertAgent(agentRoute: string, title: string, body: string): Promise<void> {
     if (Platform.OS === 'web') return;
-    if (focusedAgentRoute() === agentRoute) return;
-    await Notifications.scheduleNotificationAsync({
-        identifier: alertId(agentRoute),
-        content: { title, body, data: { url: `/session/${encodeURIComponent(agentRoute)}` } },
-        trigger: null,
+    await orderedAlert(agentRoute, async () => {
+        if (focusedAgentRoute() === agentRoute) return;
+        await Notifications.scheduleNotificationAsync({
+            identifier: alertId(agentRoute),
+            content: { title, body, data: { url: `/session/${encodeURIComponent(agentRoute)}` } },
+            trigger: null,
+        });
     });
 }
