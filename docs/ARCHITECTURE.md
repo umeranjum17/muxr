@@ -232,8 +232,9 @@ purpose, because nothing on the other side can be told to change:
 - `attachment.list`, `attachment.fetch`, `attachment.prepare` and
   `attachment.read` remain wired to the same host handlers, with the old
   `attachmentId` param and the old `attachments` listing field. A host answers
-  them for an app built before the rename; an app reaches for them after a
-  `host-contract-mismatch` and remembers the answer.
+  them for an app built before the rename; the current app falls back to the
+  list, fetch and read aliases after a `host-contract-mismatch` and remembers
+  the answer.
 - `attachments.update` is published beside `artifacts.update` from the same
   publish site, carrying the same `total` and `truncated` under the old
   `attachments` field, so a pre-rename app's open timeline still updates live.
