@@ -2,7 +2,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
-import type { SourceRequest } from '@desklink/host';
+import type { EngineCapabilities, SourceRequest } from '@desklink/host';
 import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@muxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
@@ -128,7 +128,7 @@ const UNAVAILABLE_INPUT = 'This computer cannot inject input, so there is nothin
 export class DesktopSessions {
     private readonly options: DesktopEngineOptions;
     private client: EngineClient | null = null;
-    private capabilitiesCache: DesktopCapabilities | null = null;
+    private engineCapabilities: EngineCapabilities | null = null;
     private sessions = new Map<string, LiveSession>();
     private starting: Promise<EngineClient | null> | null = null;
     private opening = 0;
@@ -145,7 +145,6 @@ export class DesktopSessions {
     }
 
     async capabilities(): Promise<DesktopCapabilities> {
-        if (this.capabilitiesCache !== null) return this.capabilitiesCache;
         const client = await this.ensureClient();
         if (client === null) {
             // A probe that failed is not cached: the engine may be built or
@@ -159,12 +158,13 @@ export class DesktopSessions {
             };
         }
         try {
-            const reported = await client.capabilities();
+            const reported = this.engineCapabilities ?? await client.capabilities();
+            this.engineCapabilities = reported;
             // The engine's input probe only knows about uinput; the X11 backend
             // injects through XTest and needs none, so the host's own configured
             // source is the only side that can answer for that machine.
             const x11 = configuredSource(this.environment, this.x11SocketDirectory)?.kind === 'x11';
-            this.capabilitiesCache = {
+            return {
                 available: true,
                 input: x11 || (reported.input.pointer && reported.input.keyboard),
                 ...(x11 || reported.input.unavailable_reason === null
@@ -181,7 +181,6 @@ export class DesktopSessions {
                 clipboard: false,
             };
         }
-        return this.capabilitiesCache;
     }
 
     async open(request: {
@@ -343,7 +342,7 @@ export class DesktopSessions {
         if (this.sessions.size !== 0 || this.opening !== 0) return;
         const client = this.client;
         this.client = null;
-        this.capabilitiesCache = null;
+        this.engineCapabilities = null;
         await client?.stop().catch(() => undefined);
     }
 
@@ -420,7 +419,7 @@ export class DesktopSessions {
                             // session is gone, and keep the record so the next
                             // poll can deliver that before it is forgotten.
                             this.client = null;
-                            this.capabilitiesCache = null;
+                            this.engineCapabilities = null;
                             for (const session of this.sessions.values()) {
                                 session.revoked = true;
                                 session.appended += 1;

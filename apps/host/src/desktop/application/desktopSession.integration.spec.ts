@@ -327,7 +327,7 @@ describe('desktop sessions, host side', () => {
     it('discovers only the host account’s X socket while honoring explicit displays', async () => {
         const directory = mkdtempSync(join(process.cwd(), 'x-'));
         const socket = createServer();
-        const uid = process.getuid();
+        const uid = process.getuid!();
         const hostUid = vi.spyOn(process, 'getuid');
         const log = join(directory, 'received.jsonl');
         const script = join(directory, 'engine.cjs');
@@ -369,6 +369,38 @@ describe('desktop sessions, host side', () => {
             hostUid.mockRestore();
             for (const host of hosts) await host.closeAll();
             await new Promise<void>((resolve) => socket.close(() => resolve()));
+            rmSync(directory, { recursive: true, force: true });
+        }
+    }, 20_000);
+
+    it('updates desktop permissions as a headless X display starts and stops', async () => {
+        const directory = mkdtempSync(join(process.cwd(), 'x-'));
+        const socket = createServer();
+        const script = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(script, STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'));
+        writeFileSync(log, '');
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [script, log] }, { XDG_RUNTIME_DIR: directory }, directory);
+        try {
+            expect(await desktop.capabilities()).toMatchObject({ input: false, clipboard: true });
+            await desktop.open({ permissions: ['view'] });
+            await new Promise<void>((resolve, reject) => {
+                socket.once('error', reject);
+                socket.listen(join(directory, 'X77'), resolve);
+            });
+            expect(await desktop.capabilities()).toMatchObject({ input: true, clipboard: false });
+            await desktop.open({ permissions: ['view', 'control'] });
+            const requests = readFileSync(log, 'utf8').trim().split('\n')
+                .map((line) => JSON.parse(line) as { method: string; params: { source?: unknown } })
+                .filter((request) => request.method === 'session.open');
+            expect(requests.at(-1)?.params.source).toEqual({ kind: 'x11', display: ':77' });
+
+            await new Promise<void>((resolve) => socket.close(() => resolve()));
+            expect(await desktop.capabilities()).toMatchObject({ input: false, clipboard: true });
+            await expect(desktop.open({ permissions: ['view', 'control'] })).rejects.toMatchObject({ code: 'input-unavailable' });
+        } finally {
+            await desktop.closeAll();
+            if (socket.listening) await new Promise<void>((resolve) => socket.close(() => resolve()));
             rmSync(directory, { recursive: true, force: true });
         }
     }, 20_000);
