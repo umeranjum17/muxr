@@ -53,7 +53,7 @@ Open the same live terminal the agent owns on your computer — native Ghostty r
 
 ### Every agent, every machine
 
-The Herd groups agents by repository and shows their real terminal thumbnails and lifecycle: working, needs you, done. Tap any one and you are back in the same session.
+The Herd groups agents by repository and nests spawned workspaces when their lineage is declared. See real terminal thumbnails and agent lifecycle: working, needs you, done. Tap any agent and you are back in the same session.
 
 </td>
 <td width="55%">

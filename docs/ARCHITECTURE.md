@@ -180,11 +180,15 @@ Beyond the session basics, the host exposes herdr's topology to the app:
   checkout under the unlinked workspace sharing its `repoKey`) — folds inside
   its top-level ancestor's card, nested one step under the workspace that
   spawned it, beneath a quiet group subheader, instead of getting a card of its
-  own; the card header is the single disclosure control, and a card with more
-  than a few descendants starts folded to a one-line family summary. A cycle or
-  a parent missing from the tree makes a card, never hides one. Labels are
-  never parsed to guess lineage; display names drop a drawn `└` prefix and an
-  opaque ` · p:<token>` correlator, and name path labels by their folder.
+  own; the card header is the single disclosure control. Families with four or
+  more descendants default to a tappable one-line count and status summary;
+  live defaults follow family size, but a person's explicit open or close wins.
+  Search keeps a matching descendant's spawning chain visible. A cycle or a
+  parent missing from the tree makes a card, never hides one. Labels are never
+  parsed to guess lineage; display names drop a drawn `└` prefix and an opaque
+  ` · p:<token>` correlator, and name path labels by their folder. Only names
+  visible in the current list are disambiguated; a close confirmation identifies
+  the selected workspace by name and its worktree/root path, or by host.
 - `herdr.layout` — a tab's split rects (terminal cells), still served for
   layout-aware callers; the tab grid and pane overview render uniform cards
   from `herdr.tree` with snapshot previews instead of the BSP geometry.

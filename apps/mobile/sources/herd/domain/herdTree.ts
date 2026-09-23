@@ -210,7 +210,7 @@ export function effectiveExpandedSpaces(defaults: readonly string[], choices: Re
     return expanded;
 }
 
-/** Cards open on first load: ones with agents in them, unless their family is too big to stay calm. */
+/** Live card defaults: open ones with agents or small families; fold families above the limit. */
 export function defaultExpandedSpaces(workspaces: HerdrTreeWorkspace[]): string[] {
     const byId = new Map(workspaces.map((ws) => [ws.workspaceId, ws] as const));
     const family = new Map<string, number>();
