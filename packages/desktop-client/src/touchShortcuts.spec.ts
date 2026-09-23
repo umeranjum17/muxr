@@ -267,7 +267,7 @@ describe('touch on the desktop', () => {
         // Hold, then drag: the left button is held from where the finger rested.
         touch(video, 'pointerdown', 300, 200);
         touch(video, 'pointermove', 303, 202);
-        vi.advanceTimersByTime(400);
+        vi.advanceTimersByTime(416);
         expect(sent).toEqual([{ kind: 'pointer', phase: 'move', x: 300, y: 200 }]);
         touch(video, 'pointermove', 360, 200);
         touch(video, 'pointerup', 360, 200);

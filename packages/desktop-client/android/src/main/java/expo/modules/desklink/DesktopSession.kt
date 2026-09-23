@@ -3,7 +3,6 @@ package expo.modules.desklink
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.view.Choreographer
 import android.util.Log
 import org.json.JSONObject
 import org.webrtc.DataChannel
@@ -62,7 +61,6 @@ class DesktopSession(
   private val ui = Handler(Looper.getMainLooper())
   private var inputSeq = 0L
   private var pendingMove: JSONObject? = null
-  private var moveScheduled = false
 
   @Volatile private var factory: PeerConnectionFactory? = null
   @Volatile private var peer: PeerConnection? = null
@@ -197,25 +195,6 @@ class DesktopSession(
     }
   }
 
-  private fun scheduleMove() {
-    if (moveScheduled || pendingMove == null) return
-    moveScheduled = true
-    ui.post {
-      Choreographer.getInstance().postFrameCallback {
-        synchronized(this) {
-          moveScheduled = false
-          val active = channel
-          if (!closed && active?.state() == DataChannel.State.OPEN && active.bufferedAmount() <= MOVE_BUFFER_LIMIT) {
-            pendingMove?.let {
-              pendingMove = null
-              sendNow(active, it)
-            }
-          }
-        }
-      }
-    }
-  }
-
   /** Stamp and send under one lock: UI gestures and JS use different threads. */
   @Synchronized
   private fun send(message: JSONObject) {
@@ -223,8 +202,11 @@ class DesktopSession(
     val active = channel ?: return
     if (active.state() != DataChannel.State.OPEN) return
     if (message.optString("kind") == "pointer" && message.optString("phase") == "move") {
-      pendingMove = message
-      scheduleMove()
+      if (active.bufferedAmount() > MOVE_BUFFER_LIMIT) pendingMove = message
+      else {
+        pendingMove = null
+        sendNow(active, message)
+      }
       return
     }
     pendingMove?.let {
@@ -436,7 +418,14 @@ class DesktopSession(
       dataChannel.registerObserver(object : DataChannel.Observer {
         override fun onBufferedAmountChange(amount: Long) {
           synchronized(this@DesktopSession) {
-            if (!closed && channel === dataChannel && dataChannel.bufferedAmount() <= MOVE_BUFFER_LIMIT) scheduleMove()
+            if (!closed && channel === dataChannel && dataChannel.state() == DataChannel.State.OPEN &&
+              dataChannel.bufferedAmount() <= MOVE_BUFFER_LIMIT
+            ) {
+              pendingMove?.let {
+                pendingMove = null
+                sendNow(dataChannel, it)
+              }
+            }
           }
         }
 
