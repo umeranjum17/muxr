@@ -70,6 +70,7 @@ vi.mock('react-native-mmkv', () => ({
     },
 }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
+vi.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en', languageTag: 'en-US' }] }));
 const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
 vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
 vi.mock('@/herd', async () => {

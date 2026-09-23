@@ -155,9 +155,9 @@ describe('visible herd tree flow', () => {
         const invalidById = new Map(invalid.map((entry) => [entry.workspaceId, entry] as const));
         expect(parentOf(closedParent, invalidById)).toBeUndefined();
         expect(parentOf(selfParent, invalidById)).toBeUndefined();
-        expect(buildSpaceRows(invalid, new Set(), '').map((row) => row.workspace.workspaceId)).toEqual(['w1', 'w2', 'w9']);
-        expect(spaceExpansionDefaults(invalid, 'w2')).toEqual(['w2']);
-        expect(defaultExpandedSpaces(invalid)).toEqual(['w1', 'w2', 'w9']);
+        expect(buildSpaceRows(invalid, new Set(), '').map((row) => row.workspace.workspaceId)).toEqual(['w1', 'w3', 'w9']);
+        expect(spaceExpansionDefaults(invalid, 'w3')).toEqual(['w3']);
+        expect(defaultExpandedSpaces(invalid)).toEqual(['w1', 'w3', 'w9']);
     });
 
     it('never hides a workspace, whatever lineage the producer declares', () => {
@@ -260,6 +260,8 @@ describe('visible herd tree flow', () => {
     });
 });
 
+vi.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en', languageTag: 'en-US' }] }));
+vi.mock('@/catalog/application/persistence', () => ({ loadSettings: () => ({ settings: {}, version: null }) }));
 const installedBuild = vi.hoisted(() => ({ version: '0.1.26' as string | null, build: '356' as string | null }));
 vi.mock('expo-application', () => ({ get nativeApplicationVersion() { return installedBuild.version; }, get nativeBuildVersion() { return installedBuild.build; } }));
 vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '0.1.12' } } }));
