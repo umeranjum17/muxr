@@ -881,7 +881,7 @@ describe('the usage screen read path', () => {
         expect(figures()).toEqual([
             ['36%', '#fff'], ['7d', '#999'],
             ['60%', '#fff'], ['5h×2', '#999'], ['89%', '#fff'], ['7d', '#999'],
-            ['93%', '#fff'], ['5h', '#999'], ['0%', 'tone:danger'], ['7d', '#999'], ['8%', 'tone:warning'], ['Monthly', '#999'],
+            ['93%', '#fff'], ['5h', '#999'], ['0%', 'tone:danger'], ['7d', '#999'], ['8%', 'tone:warning'], ['Month…', '#999'],
         ]);
         // Read aloud in the same order, naming every limit, and a coloured
         // figure says why and when it comes back, which its colour cannot.
@@ -896,7 +896,7 @@ describe('the usage screen read path', () => {
 
         // Plans sit side by side while they fit and wrap when they do not.
         const planWidths = () => card.root.findAllByType('AgentGlyph').map((mark: any) => mark.parent.parent.props.style.width);
-        expect(planWidths()).toEqual(['50%', '50%', '50%']);
+        expect(planWidths()).toEqual(['33.333333333333336%', '33.333333333333336%', '33.333333333333336%']);
         const longName = `${'model-'.repeat(12)}session`;
         const otherName = `${'model-'.repeat(12)}weekly`;
         screenWidth = 270;
@@ -909,15 +909,15 @@ describe('the usage screen read path', () => {
                 ] }
                 : provider),
         }) }); });
-        expect(planWidths()).toEqual(['100%', '100%', '100%']);
+        expect(planWidths()).toEqual(['50%', '50%', '50%']);
         const codexTags = card.root.findAllByType('AgentGlyph')[1]!.parent.parent.findAllByType('Text')
             .map((node: any) => node.props.children)
             .filter((text: unknown) => typeof text === 'string' && !String(text).endsWith('%'));
         expect(codexTags).toContain('gpt-4');
         expect(codexTags).toContain('gpt-5');
-        expect(screenText(card)).toContain('Monthly');
+        expect(screenText(card)).toContain('Month…');
         expect(new Set(codexTags).size).toBe(codexTags.length);
-        expect(codexTags.every((tag: string) => tag.length <= 6 || tag === 'Monthly')).toBe(true);
+        expect(codexTags.every((tag: string) => tag.length <= 6)).toBe(true);
         expect(figures()).toContainEqual(['83%', '#fff']);
         expect(screenText(card)).not.toContain(longName);
         const cardButton = () => card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'

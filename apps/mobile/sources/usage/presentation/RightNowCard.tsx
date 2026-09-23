@@ -214,9 +214,8 @@ function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: 
     const [measured, setMeasured] = React.useState<number>();
     const char = MONO_ADVANCE * screen.fontScale;
     const tags = plans.map((plan) => figureTags(plan.figures));
-    const tagChars = Math.max(2, ...plans.flatMap((plan, index) => tags[index]!.map((name, i) => name.length + (plan.figures[i]!.cells.length > 1 ? `×${plan.figures[i]!.cells.length}`.length : 0))));
     const number = Math.ceil(4 * FIGURE_SIZE * char);
-    const unit = MARK + MARK_GAP + number + 3 + tagChars * TAG_SIZE * char;
+    const unit = MARK + MARK_GAP + number + 3 + 4 * TAG_SIZE * char;
     const width = measured ?? screen.width - CARD_INSET;
     const perRow = namesVisible ? 1 : columnsPerBand(plans.length, Math.floor((width + PLAN_GAP) / (unit + PLAN_GAP)));
     return (
