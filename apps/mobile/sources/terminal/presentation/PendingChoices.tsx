@@ -89,6 +89,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                 right: 0,
                 bottom: 0,
                 flexDirection: 'row',
+                flexWrap: 'wrap',
                 gap: 6,
                 paddingHorizontal: 8,
                 paddingVertical: 8,
@@ -104,8 +105,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                     accessibilityLabel={`Answer ${choice.label}`}
                     accessibilityHint={`Types ${choice.key}`}
                     style={({ pressed }) => ({
-                        flex: 1,
-                        minWidth: 0,
+                        maxWidth: '100%',
                         minHeight: 36,
                         flexDirection: 'row',
                         alignItems: 'center',
@@ -116,7 +116,7 @@ export const PendingChoices = React.memo(function PendingChoices({ sessionId, wa
                     })}
                 >
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 11, ...Typography.mono() }}>{choice.key}</Text>
-                    <Text numberOfLines={2} style={{ flex: 1, color: theme.colors.text, fontSize: 13 }}>{choice.label}</Text>
+                    <Text numberOfLines={2} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13 }}>{choice.label}</Text>
                 </Pressable>
             ))}
         </Animated.View>
