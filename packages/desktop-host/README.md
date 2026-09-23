@@ -51,7 +51,8 @@ install today.
 The engine is a native binary. Building it from this package:
 
 ```sh
-cargo build --release            # inside engine/
+cd packages/desktop-host        # from the repository root
+cargo build --release --manifest-path engine/Cargo.toml
 ./bin/desklink-host.mjs path     # prints the binary this package will run
 ./bin/desklink-host.mjs capabilities
 ```
@@ -78,10 +79,10 @@ project with CMake. On a clean machine, install:
 | Wayland (`wayland-client`) | `libwayland-dev` | `wayland-devel` | `wayland` |
 | libevdev | `libevdev-dev` | `libevdev-devel` | `libevdev` |
 
-Nothing is downloaded by the build itself. `cargo test` — including the engine
-step in `yarn run check` — reports a loud skip that names the missing piece when
-any of these is absent, instead of failing as though the engine's code broke.
-Only a machine with all of them compiles and tests the crate.
+Nothing is downloaded by the build itself. The engine step in `yarn run check`
+skips with a list of missing prerequisites when any of these is absent; direct
+`cargo test --manifest-path engine/Cargo.toml` does not skip and needs them
+installed. Only a machine with all of them compiles and tests the crate.
 
 ### Kernel input access
 

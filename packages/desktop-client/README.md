@@ -60,10 +60,9 @@ import { desktopAvailable } from '@desklink/react-native/availability';
 
 ### What the package guarantees
 
-- **Hardware decoding.** The session builds its own peer connection with a
-  hardware-first decoder factory, so a VP9 desktop decodes on the phone's video
-  hardware rather than on the CPU, and no other WebRTC user in the app is
-  affected.
+- **Hardware-first decoding.** The session builds its own peer connection with
+  a hardware-first decoder factory for VP9, falling back to software on phones
+  without a VP9 hardware decoder. No other WebRTC user in the app is affected.
 - **A sharp, zoomable picture.** The desktop fits the view by default; a pinch
   zooms up to 2.5 view pixels per desktop pixel and one finger moves around the
   zoomed desktop. On Android the decoded frame is copied once into the view's
