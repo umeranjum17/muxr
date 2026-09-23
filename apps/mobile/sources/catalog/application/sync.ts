@@ -34,6 +34,7 @@ import {
 } from '@/connection';
 import { getCachedHostedGrant, loadHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
+import { saveHomeSnapshot } from './persistence';
 import {
     applyStatusToSession,
     machineInfoToMachine,
@@ -586,7 +587,7 @@ class MuxrSync {
                 }
             }
         }
-        storage.getState().applySessions(sessions.map((info) => {
+        const confirmedSessions = sessions.map((info) => {
             const state = stateBySession.get(info.id);
             return sessionInfoToSession(info, state === undefined ? undefined : {
                 sessionId: info.id,
@@ -595,9 +596,12 @@ class MuxrSync {
                 isStreaming: lifecycleIsWorking(state.agentStatus),
                 tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
             });
-        }), true);
+        });
+        storage.getState().applySessions(confirmedSessions, true);
         storage.getState().markSessionsLoaded();
-        this.persistHome();
+        if (tree !== undefined && this.hasTransport()) {
+            saveHomeSnapshot(this.getConnection().machineId, tree.workspaces, confirmedSessions);
+        }
         storage.getState().applyAttentionCatalog(attention.entries);
         if (lifecycle !== undefined) {
             const liveEvents = storage.getState().lifecycleEvents.filter((event) => !lifecycleBefore.has(event.eventId));
@@ -692,11 +696,6 @@ class MuxrSync {
 
     async create(credentials: AuthCredentials): Promise<void> {
         await this.bootstrap(credentials);
-    }
-
-    /** Keep the last Home the host confirmed, so the next cold start can draw it at once. */
-    persistHome(): void {
-        if (this.hasTransport()) storage.getState().persistHome(this.getConnection().machineId);
     }
 
     async restore(credentials: AuthCredentials): Promise<void> {

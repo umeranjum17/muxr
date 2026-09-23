@@ -10,7 +10,8 @@ type PermissionModeKey = string;
 const mmkv = new MMKV();
 const NEW_SESSION_DRAFT_KEY = 'new-session-draft-v1';
 const REGISTERED_PUSH_TOKEN_KEY = 'registered-push-token-v1';
-const HOME_SNAPSHOT_KEY = 'home-snapshot-v1';
+const HOME_SNAPSHOT_KEY = 'home-snapshot-v2';
+const OLD_HOME_SNAPSHOT_KEY = 'home-snapshot-v1';
 
 /**
  * Supported launch kinds passed through as session.start `kind`.
@@ -228,13 +229,18 @@ export function saveSessionLastMessageSentAt(timestamps: Record<string, number>)
  * The last Home the host confirmed for one machine. A cold start draws it,
  * marked stale, while the connection comes up; nothing else reads it.
  */
+export type HomeSession = Pick<Session, 'id' | 'updatedAt'> & {
+    metadata: Pick<NonNullable<Session['metadata']>, 'lifecycleStateSince'> | null;
+};
+
 export interface HomeSnapshot {
     machineId: string;
     workspaces: HerdrTreeWorkspace[];
-    sessions: Record<string, Session>;
+    sessions: Record<string, HomeSession>;
 }
 
 export function loadHomeSnapshot(machineId: string): HomeSnapshot | null {
+    mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
     const raw = mmkv.getString(HOME_SNAPSHOT_KEY);
     if (!raw) return null;
     try {
@@ -247,12 +253,65 @@ export function loadHomeSnapshot(machineId: string): HomeSnapshot | null {
     }
 }
 
-export function saveHomeSnapshot(snapshot: HomeSnapshot): void {
+export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspace[], sessions: Session[]): void {
+    mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
+    const snapshot: HomeSnapshot = {
+        machineId,
+        workspaces: workspaces.map((workspace) => ({
+            workspaceId: workspace.workspaceId,
+            label: workspace.label,
+            focused: workspace.focused,
+            agentStatus: workspace.agentStatus,
+            order: workspace.order,
+            worktree: workspace.worktree && {
+                repo: workspace.worktree.repo,
+                branch: workspace.worktree.branch,
+                path: workspace.worktree.path,
+                repoKey: workspace.worktree.repoKey,
+                linked: workspace.worktree.linked,
+            },
+            tokens: workspace.tokens && {
+                parent: workspace.tokens.parent,
+                kind: workspace.tokens.kind,
+                projection: workspace.tokens.projection,
+            },
+            tabs: workspace.tabs.map((tab) => ({
+                tabId: tab.tabId,
+                label: tab.label,
+                focused: tab.focused,
+                agentStatus: tab.agentStatus,
+                panes: tab.panes.map((pane) => ({
+                    paneId: pane.paneId,
+                    tabId: pane.tabId,
+                    sessionId: pane.sessionId,
+                    label: pane.label,
+                    cwd: pane.cwd,
+                    terminalTitle: pane.terminalTitle,
+                    focused: pane.focused,
+                    agentName: pane.agentName,
+                    taskTitle: pane.taskTitle,
+                    agentKind: pane.agentKind,
+                    provider: pane.provider,
+                    model: pane.model,
+                    displayAgent: pane.displayAgent,
+                    agentStatus: pane.agentStatus,
+                    promptable: pane.promptable,
+                })),
+            })),
+        })),
+        sessions: Object.fromEntries(sessions.map((session) => [session.id, {
+            id: session.id,
+            updatedAt: session.updatedAt,
+            metadata: session.metadata?.lifecycleStateSince === undefined
+                ? null : { lifecycleStateSince: session.metadata.lifecycleStateSince },
+        }])),
+    };
     mmkv.set(HOME_SNAPSHOT_KEY, JSON.stringify(snapshot));
 }
 
 /** Forgetting a machine forgets what its Home looked like. */
 export function clearHomeSnapshot(machineId?: string): void {
+    mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
     if (machineId === undefined || loadHomeSnapshot(machineId) !== null) mmkv.delete(HOME_SNAPSHOT_KEY);
 }
 

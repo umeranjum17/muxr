@@ -346,7 +346,6 @@ export default function RootLayout() {
             // runs; leaving the foreground is the last chance to land them.
             if (left) {
                 void flushReplay().catch(() => undefined);
-                sync.persistHome();
             }
         });
         return () => subscription.remove();

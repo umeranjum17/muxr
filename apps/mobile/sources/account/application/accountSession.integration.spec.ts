@@ -129,7 +129,6 @@ vi.mock('../../catalog/application/storage', () => ({
             applyHerdrTree: vi.fn(),
             applyHomeSnapshot: vi.fn(),
             restoreHome: vi.fn(),
-            persistHome: vi.fn(),
             markSessionsLoaded: vi.fn(),
             applyAttentionCatalog: vi.fn(),
             applyLifecycleCatalog: vi.fn(),

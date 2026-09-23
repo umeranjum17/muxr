@@ -845,7 +845,7 @@ describe('session sync flow', () => {
     });
 
     it('draws the last Home the host confirmed, stale, until the host answers', async () => {
-        const { clearHomeSnapshot } = await import('./persistence');
+        const { clearHomeSnapshot, saveHomeSnapshot } = await import('./persistence');
         const tree = (sessionId: string, agentStatus: AgentLifecycle): HerdrTreeWorkspace[] => [{
             workspaceId: 'workspace-a',
             label: '/work/muxr',
@@ -875,7 +875,6 @@ describe('session sync flow', () => {
         // Half a Home is never kept: the host has sent its tree, not its agents yet.
         coldStart();
         storage.getState().applyHerdrTree(tree('old', 'working'));
-        storage.getState().persistHome('machine');
         coldStart();
         storage.getState().restoreHome('machine');
         expect(homeShowsSnapshot(storage.getState())).toBe(false);
@@ -884,7 +883,7 @@ describe('session sync flow', () => {
         storage.getState().applyHerdrTree(tree('old', 'working'));
         storage.getState().applySessions([agent('old')], true);
         storage.getState().markSessionsLoaded();
-        storage.getState().persistHome('machine');
+        saveHomeSnapshot('machine', tree('old', 'working'), [agent('old')]);
 
         // Another machine's cold start has no Home to draw.
         coldStart();
@@ -913,6 +912,36 @@ describe('session sync flow', () => {
         coldStart();
         storage.getState().restoreHome('machine');
         expect(homeShowsSnapshot(storage.getState())).toBe(false);
+    });
+
+    it('keeps only confirmed Home display fields when saving a sensitive session', async () => {
+        const { saveHomeSnapshot } = await import('./persistence');
+        const secret = 'private-prompt-and-tool-arguments';
+        const session = sessionInfoToSession({
+            id: 'agent', cwd: '/work', messageCount: 1, firstMessage: secret,
+            agentName: 'Maria', taskTitle: 'Build Home', agentStatus: 'working', promptable: true,
+        });
+        session.draft = secret;
+        session.metadata = { ...session.metadata!, summary: { text: secret, updatedAt: 1 }, secret };
+        session.agentState = { requests: [{ arguments: secret }], completedRequests: [{ arguments: secret }] } as unknown as Session['agentState'];
+        session.extensionStatus = { private: secret };
+        const confirmed = [{
+            workspaceId: 'workspace', label: 'Home', focused: true, agentStatus: 'working' as const,
+            tabs: [{ tabId: 'tab', focused: true, agentStatus: 'working' as const,
+                panes: [{ paneId: 'pane', tabId: 'tab', sessionId: 'agent', agentName: 'Maria',
+                    taskTitle: 'Build Home', agentStatus: 'working' as const, promptable: true, focused: true }],
+            }],
+        }];
+        saveHomeSnapshot('machine', confirmed, [session]);
+        const serialized = mmkvValues.get('home-snapshot-v2')!;
+        expect(serialized).not.toContain(secret);
+        expect(JSON.parse(serialized).sessions.agent).toEqual({
+            id: 'agent', updatedAt: session.updatedAt, metadata: null,
+        });
+        confirmed[0]!.tabs[0]!.panes.splice(0, 1);
+        storage.getState().restoreHome('machine');
+        expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes).toHaveLength(1);
+        expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[0]!.taskTitle).toBe('Build Home');
     });
 
     it('carries changelog unread state across the release-keyed storage change', async () => {

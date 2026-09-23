@@ -14,8 +14,8 @@ import {
     saveSettings,
     saveLocalSettings,
     loadHomeSnapshot,
-    saveHomeSnapshot,
     type HomeSnapshot,
+    type HomeSession,
 } from './persistence';
 import {
     createAgentWatch,
@@ -206,8 +206,6 @@ interface StorageState extends WatchSnapshot {
     applyHomeSnapshot: (snapshot: HomeSnapshot | null) => void;
     /** Draw this machine's last confirmed Home until the host answers. */
     restoreHome: (machineId: string) => void;
-    /** Keep the Home the host just confirmed for the next cold start. */
-    persistHome: (machineId: string) => void;
     applyMachines: (machines: Machine[], replace?: boolean) => void;
     deleteMachine: (machineId: string) => void;
     applyReady: () => void;
@@ -336,11 +334,6 @@ export const storage = create<StorageState>()((set, get) => ({
               }),
     applyHomeSnapshot: (homeSnapshot) => set({ homeSnapshot }),
     restoreHome: (machineId) => set({ homeSnapshot: loadHomeSnapshot(machineId) }),
-    persistHome: (machineId) => {
-        const state = get();
-        if (!state.herdrTreeLoaded || !state.sessionsLoaded) return;
-        saveHomeSnapshot({ machineId, workspaces: state.herdrWorkspaces, sessions: state.sessions });
-    },
     applyMachines: (machines, replace = false) => set((state) => {
         const next = replace ? {} as Record<string, Machine> : { ...state.machines };
         for (const machine of machines) next[machine.id] = machine;
@@ -518,7 +511,7 @@ export function homeShowsSnapshot(state: Pick<StorageState, 'homeSnapshot' | 'he
  * this is the last Home the device saw for the machine, flagged `stale` so
  * Home can say so. Everything outside Home reads the host's state only.
  */
-export function useHomeHerd(): { workspaces: HerdrTreeWorkspace[]; sessions: Session[]; loaded: boolean; stale: boolean } {
+export function useHomeHerd(): { workspaces: HerdrTreeWorkspace[]; sessions: (Session | HomeSession)[]; loaded: boolean; stale: boolean } {
     const stale = storage(homeShowsSnapshot);
     const workspaces = storage((state) => homeShowsSnapshot(state) ? state.homeSnapshot!.workspaces : state.herdrWorkspaces);
     const sessions = storage(useShallow((state) => Object.values(homeShowsSnapshot(state) ? state.homeSnapshot!.sessions : state.sessions)));
