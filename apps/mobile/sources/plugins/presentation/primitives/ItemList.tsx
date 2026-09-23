@@ -4,8 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
-import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { DarkScope } from '@/components/DarkScope';
+import { ScopedTheme, StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { ActionShortcut } from '@/components/ActionShortcut';
 import { hapticsError, hapticsLight } from '@/components/haptics';
@@ -32,7 +31,7 @@ const EMPTY_MODEL: PluginItemListModel = { items: [], actions: [] };
 
 /** The session's dark surface, re-asserted by a list that mounts on its own loads. */
 function SurfaceScope({ dark, children }: { dark: boolean; children: React.ReactNode }): React.JSX.Element {
-    return dark ? <DarkScope>{children}</DarkScope> : <>{children}</>;
+    return dark ? <ScopedTheme name="dark">{children}</ScopedTheme> : <>{children}</>;
 }
 function SurfaceContent({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();

@@ -12,8 +12,7 @@
 
 import * as React from 'react';
 import { FlatList, Pressable, View, useWindowDimensions, type ViewToken } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
-import { DarkScope } from '@/components/DarkScope';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/StyledText';
 import { StatusDot } from '@/components/StatusDot';
@@ -163,7 +162,7 @@ export interface PaneGridViewProps {
 }
 
 function CardSurface({ name, children }: { name?: 'dark'; children: React.ReactNode }): React.JSX.Element {
-    return name === undefined ? <>{children}</> : <DarkScope>{children}</DarkScope>;
+    return name === undefined ? <>{children}</> : <ScopedTheme name={name}>{children}</ScopedTheme>;
 }
 
 /** The cards, virtualized; the caller owns the tab, the sheet and the actions. */
