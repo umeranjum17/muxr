@@ -831,7 +831,7 @@ export const HomeDock = React.memo(({
                     nothing to send: a greyed send circle there was a control that
                     could never be used, and on a 270pt phone it cost the prompt
                     line its own words. It returns with a kept draft. */}
-                {(hasPrompt || isSubmitting || activateOnPress === undefined) && <BubblePressable
+                {(hasPrompt || isSubmitting) && <BubblePressable
                     onPress={onSend}
                     disabled={!canSubmit}
                     style={[styles.sendButton, canSubmit && styles.sendButtonActive]}
