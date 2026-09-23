@@ -62,7 +62,7 @@ export async function captureStreamTransport(capability: string, machineId: stri
     if (settings.mode === 'hosted' && cachedGrant === undefined) throw new Error('stream: hosted machine grant is missing');
     const latestGrant = cachedGrant === undefined
         ? undefined
-        : await refreshHostedGrant(machineId, cachedGrant.credential, cachedGrant.relayUrl) ?? cachedGrant;
+        : await refreshHostedGrant(machineId, cachedGrant.credential, cachedGrant.relayUrl, await channelRelayUrl(cachedGrant.relayUrl, machineId)) ?? cachedGrant;
     if (getCachedConnectionSettings().machineId !== machineId) throw new Error('End voice before switching computers.');
     const grant = latestGrant === undefined ? undefined : JSON.parse(JSON.stringify(latestGrant)) as StoredHostedGrant;
     if (grant !== undefined && grant.expiresAt <= Date.now()) throw new Error('stream: device grant expired; pair again');
@@ -94,7 +94,7 @@ export async function capturePluginStreamSnapshot(capability: string, machineId:
 /** Refresh only the pinned machine's grant generation; never re-read the active machine or provider. */
 export async function refreshPluginStreamSnapshot<T extends RealtimeStreamSnapshot>(snapshot: T): Promise<T> {
     if (snapshot.grant === undefined) return snapshot;
-    const refreshed = await refreshHostedGrant(snapshot.machineId, snapshot.token, snapshot.relayUrl);
+    const refreshed = await refreshHostedGrant(snapshot.machineId, snapshot.token, snapshot.relayUrl, await channelRelayUrl(snapshot.relayUrl, snapshot.machineId));
     if (refreshed === undefined || refreshed.machineId !== snapshot.machineId || refreshed.deviceId !== snapshot.grant.deviceId) {
         throw new Error('stream: pinned machine grant could not be refreshed');
     }
