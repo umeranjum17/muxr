@@ -70,9 +70,11 @@ vi.mock('react-native-unistyles', () => {
             const previous = scope.current;
             return <><Apply name={name} />{children}<Apply name={previous} /></>;
         },
+        // The phone runs the light theme, which is what the scope exists for.
+        UnistylesRuntime: { themeName: 'light' },
         useUnistyles: () => {
             const [name] = React.useState(() => scope.current);
-            return { theme: name === 'dark' ? terminalTheme : theme };
+            return { theme: name === 'dark' ? terminalTheme : theme, rt: { themeName: name ?? 'light' } };
         },
     };
 });

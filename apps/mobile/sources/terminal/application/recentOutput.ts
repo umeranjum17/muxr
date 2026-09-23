@@ -140,15 +140,20 @@ export function setTerminalColumns(sessionId: string, columns: number): void {
 function unwrapTerminalLinks(text: string, columns: number): string {
     const lines = text.replace(/\r/g, '').split('\n');
     if (columns === 0 || lines.length === 1) return lines.join('\n');
-    let result = lines[0] ?? '';
+    // Only the line being joined can end inside a URL, since the pattern
+    // stops at a newline. Testing the whole joined text rescanned the tail
+    // once per line, and the terminal asks for its links on every render.
+    const joined = [lines[0] ?? ''];
     for (let index = 1; index < lines.length; index++) {
         const previous = lines[index - 1] ?? '';
         const next = lines[index] ?? '';
-        const insideUrl = /https?:\/\/[^\s"'`<>]*$/.test(result);
+        const current = joined[joined.length - 1]!;
+        const insideUrl = /https?:\/\/[^\s"'`<>]*$/.test(current);
         const softWrap = insideUrl && previous.length === columns && /^[^\s"'`<>]/.test(next);
-        result += `${softWrap ? '' : '\n'}${next}`;
+        if (softWrap) joined[joined.length - 1] = current + next;
+        else joined.push(next);
     }
-    return result;
+    return joined.join('\n');
 }
 
 /** Latest-first, deduped and canonical URLs from the given text. */

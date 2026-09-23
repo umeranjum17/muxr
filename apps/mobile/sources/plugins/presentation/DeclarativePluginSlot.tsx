@@ -4,7 +4,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { OptionSheet } from '@/components/OptionSheet';
-import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
+import { useUnistyles } from 'react-native-unistyles';
+import { DarkScope } from '@/components/DarkScope';
 import type { PluginDataCard, PluginNativeContribution, PluginNavigationItem, PluginTerminalKeyRow } from '@muxr/contract';
 import { MAX_RPC_DISPLAY_BYTES, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
 import type { PluginTerminalChannel } from '../domain/slotTypes';
@@ -196,7 +197,7 @@ function DataActionRow({ contribution, pluginId, manifestHash }: { contribution:
     // sit on the session's dark surface, and this row mounts and opens on its
     // own loads outside the screen's render pass, so it names that theme for
     // what it mounts itself.
-    return <ScopedTheme name="dark"><DataActionScope>{(theme) => {
+    return <DarkScope><DataActionScope>{(theme) => {
         const style = ({ pressed = false } = {}) => ({ minHeight: 44, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh });
         const body = <>
             {/* A named action row is words; the declared glyph stays metadata. */}
@@ -212,7 +213,7 @@ function DataActionRow({ contribution, pluginId, manifestHash }: { contribution:
             {contribution.presentation === 'sheet' && <OptionSheet visible={open} title={label} options={[]} onSelect={() => {}} onClose={() => setOpen(false)}
                 body={<View style={{ paddingHorizontal: 16, paddingBottom: 12 }}><Text style={{ color: theme.colors.text, fontSize: 13, lineHeight: 20 }}>{shown}</Text></View>} />}
         </>;
-    }}</DataActionScope></ScopedTheme>;
+    }}</DataActionScope></DarkScope>;
 }
 
 type DeclarativeSessionAction = (
