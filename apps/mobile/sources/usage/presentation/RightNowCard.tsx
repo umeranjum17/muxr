@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
@@ -94,7 +94,7 @@ export function RightNowCard() {
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {dot}
             <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, lineHeight: 18 }}>
-                {[verdictWord, `${limit.label}${limit.window === undefined ? '' : ` · ${limit.window}`} ${Math.round(limit.used)}%`].filter((part) => part !== undefined).join(' · ')}
+                {[verdictWord, `${limit.label}${limit.window === undefined ? '' : ` · ${limit.window}`} ${t('plugins.limits.percentLeft', { percent: remainingOf(limit) })}`].filter((part) => part !== undefined).join(' · ')}
             </Text>
             {limit.resetsIn !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 }}>{` · ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`}</Text>}
             <View style={{ marginLeft: 'auto' }}>
@@ -126,7 +126,7 @@ function CardBody({ limit, line, quiet }: { limit?: UsageLimitsWindow; line: Rea
     const { theme } = useUnistyles();
     return <>
         {line}
-        {limit !== undefined && <Meter ratio={limit.used / 100} emphasis={0.9} marker={limit.elapsed} style={{ marginTop: 8 }} />}
+        {limit !== undefined && <LeftMeter window={limit} style={{ marginTop: 8 }} />}
         {quiet.length > 0 && <>
             <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginTop: 12, marginBottom: 10 }} />
             <FactsLine parts={quiet} />
@@ -232,7 +232,7 @@ function ProviderRow({ provider }: { provider: UsageConnectedProvider }) {
                 )}
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 5, marginLeft: 21 }}>
-                <Meter ratio={lead.used / 100} emphasis={0.9} marker={lead.elapsed} style={{ flex: 1 }} />
+                <LeftMeter window={lead} style={{ flex: 1 }} />
                 <Text numberOfLines={1} style={{ minWidth: SHARE_COLUMN, textAlign: 'right', fontSize: 12.5, ...Typography.mono('semiBold'),
                     color: tone === undefined ? theme.colors.text : toneColor(theme, tone) }}>
                     {t('plugins.limits.percentLeft', { percent: left })}
@@ -248,6 +248,12 @@ function leadWindow(windows: UsageLimitsWindow[]): UsageLimitsWindow | undefined
         (tightest, window) => (tightest === undefined || window.used > tightest.used ? window : tightest),
         undefined,
     );
+}
+
+/** A window's bar drains with what is left, as its figure says; the tick
+ *  marks the time left, so a bar short of it is running ahead of pace. */
+function LeftMeter({ window, style }: { window: UsageLimitsWindow; style: StyleProp<ViewStyle> }) {
+    return <Meter ratio={1 - window.used / 100} emphasis={0.9} marker={window.elapsed === undefined ? undefined : 1 - window.elapsed} style={style} />;
 }
 
 function remainingOf(window: UsageLimitsWindow): number {
@@ -345,7 +351,7 @@ function cardAccessibilityLabel(payload: UsageFigures): string {
     } else if (payload.limits.windows[0] !== undefined) {
         const limit = payload.limits.windows[0];
         const verdict = payload.limits.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.limits.verdict]);
-        const line = [verdict, [limit.label, limit.window, t('plugins.limits.percentUsed', { percent: Math.round(limit.used) })].filter(Boolean).join(' ')]
+        const line = [verdict, [limit.label, limit.window, t('plugins.limits.percentLeft', { percent: remainingOf(limit) })].filter(Boolean).join(' ')]
             .filter((part) => part !== undefined).join(', ');
         parts.push(limit.resetsIn === undefined ? line : `${line}, ${t('plugins.rightNow.resetsIn', { time: limit.resetsIn })}`);
     } else {

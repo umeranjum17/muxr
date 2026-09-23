@@ -65,7 +65,7 @@ export function SectionLabel({ children, style, numberOfLines }: { children: Rea
  * One bar for meters, limits and row progress. Always neutral: rank comes from
  * `emphasis`, and whatever the bar is warning about says so in its number.
  */
-export function Meter({ ratio, emphasis = 1, delay = 0, marker, style }: { ratio: number; emphasis?: number; delay?: number; /** Static 1pt tick at `marker × width` (0..1): where the window stands, e.g. elapsed pace. */ marker?: number; style?: StyleProp<ViewStyle> }) {
+export function Meter({ ratio, emphasis = 1, delay = 0, marker, style }: { ratio: number; emphasis?: number; delay?: number; /** Static 1pt tick at `marker × width` (0..1). */ marker?: number; style?: StyleProp<ViewStyle> }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
     const target = Math.max(0, Math.min(1, ratio));
