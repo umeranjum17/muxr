@@ -933,9 +933,13 @@ describe('session sync flow', () => {
             tabs: [{ tabId: 'tab', label: `/private/${secret}/unused-tab`, focused: true, agentStatus: 'working' as const,
                 panes: [
                     { paneId: 'pane', tabId: 'tab', sessionId: 'agent', agentName: 'Maria',
-                        taskTitle: 'Build Home', cwd: `/private/${secret}/named`,
+                        taskTitle: 'Build Home', label: `/private/${secret}/hidden-label`,
+                        terminalTitle: `/private/${secret}/hidden-title`, cwd: `/private/${secret}/named`,
                         agentStatus: 'working' as const, promptable: true, focused: true },
                     { paneId: 'shell', tabId: 'tab', cwd: `/private/${secret}/fallback`,
+                        agentStatus: 'idle' as const, promptable: false, focused: false },
+                    { paneId: 'labeled-shell', tabId: 'tab', label: 'Visible shell',
+                        terminalTitle: `/private/${secret}/hidden-terminal`, cwd: `/private/${secret}/hidden-cwd`,
                         agentStatus: 'idle' as const, promptable: false, focused: false },
                 ],
             }],
@@ -961,12 +965,21 @@ describe('session sync flow', () => {
         expect(saved.workspaces[0].tokens).not.toHaveProperty('projection');
         expect(saved.workspaces[0].tabs[0]).not.toHaveProperty('label');
         expect(saved.workspaces[0].tabs[0].panes[0]).not.toHaveProperty('cwd');
+        expect(saved.workspaces[0].tabs[0].panes[0]).not.toHaveProperty('label');
+        expect(saved.workspaces[0].tabs[0].panes[0]).not.toHaveProperty('terminalTitle');
+        expect(saved.workspaces[0].tabs[0].panes[0].taskTitle).toBe('Build Home');
         expect(saved.workspaces[0].tabs[0].panes[1]).not.toHaveProperty('cwd');
-        expect(saved.workspaces[0].tabs[0].panes[1].label).toBe('fallback');
+        expect(saved.workspaces[0].tabs[0].panes[1]).not.toHaveProperty('label');
+        expect(saved.workspaces[0].tabs[0].panes[1].taskTitle).toBe('fallback');
+        expect(saved.workspaces[0].tabs[0].panes[2]).not.toHaveProperty('label');
+        expect(saved.workspaces[0].tabs[0].panes[2]).not.toHaveProperty('terminalTitle');
+        expect(saved.workspaces[0].tabs[0].panes[2].taskTitle).toBe('Visible shell');
         confirmed[0]!.tabs[0]!.panes.splice(0, 1);
         storage.getState().restoreHome('machine');
-        expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes).toHaveLength(2);
-        expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[0]!.taskTitle).toBe('Build Home');
+        expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes).toHaveLength(3);
+        expect(agentLabels(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[0]!).taskTitle).toBe('Build Home');
+        expect(agentLabels(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[1]!).taskTitle).toBe('fallback');
+        expect(agentLabels(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[2]!).taskTitle).toBe('Visible shell');
         expect(workspaceName(storage.getState().homeSnapshot!.workspaces[1]! as HerdrTreeWorkspace)).toBe('visible');
     });
 

@@ -547,6 +547,7 @@ class MuxrSync {
 
     private async refreshCatalog(): Promise<void> {
         const request = ++this.catalogRequest;
+        if (this.credentials === undefined) return;
         if (!this.hasTransport()) {
             storage.getState().setSocketStatus('disconnected');
             storage.getState().applyMachines([], true);
@@ -559,6 +560,7 @@ class MuxrSync {
         const client = this.ensureClient();
         if (!client.isLive()) await waitUntilClientOpen(client, 5000);
         const lifecycleBefore = new Set(storage.getState().lifecycleEvents.map((event) => event.eventId));
+        const treeRequest = this.herdrTreeRequest + 1;
         const [machines, sessions, attention, lifecycle, tree] = await Promise.all([
             client.request('machines.list', {}),
             client.request('session.list', {}),
@@ -578,7 +580,8 @@ class MuxrSync {
         // real transition. The herd tree fetched alongside is the same host
         // truth the Spaces/notification surfaces use; fold it in.
         const stateBySession = new Map<string, Pick<SessionStatus, 'agentStatus' | 'promptable'>>();
-        for (const workspace of tree?.workspaces ?? []) {
+        const confirmedTree = treeRequest === this.herdrTreeRequest ? tree : undefined;
+        for (const workspace of confirmedTree?.workspaces ?? []) {
             for (const tab of workspace.tabs) {
                 for (const pane of tab.panes) {
                     if (pane.sessionId !== undefined) {
@@ -602,14 +605,14 @@ class MuxrSync {
         });
         storage.getState().applySessions(confirmedSessions, true);
         storage.getState().markSessionsLoaded();
-        if (tree !== undefined && this.hasTransport()) {
-            const byId = new Map(tree.workspaces.map((workspace) => [workspace.workspaceId, workspace] as const));
+        if (confirmedTree !== undefined && this.hasTransport()) {
+            const byId = new Map(confirmedTree.workspaces.map((workspace) => [workspace.workspaceId, workspace] as const));
             const parents = new Map<string, string>();
-            for (const workspace of tree.workspaces) {
+            for (const workspace of confirmedTree.workspaces) {
                 const parent = spawnerOf(workspace, byId);
                 if (parent !== undefined) parents.set(workspace.workspaceId, parent);
             }
-            saveHomeSnapshot(this.getConnection().machineId, tree.workspaces, confirmedSessions, workspaceNames(tree.workspaces), parents);
+            saveHomeSnapshot(this.getConnection().machineId, confirmedTree.workspaces, confirmedSessions, workspaceNames(confirmedTree.workspaces), parents);
         }
         storage.getState().applyAttentionCatalog(attention.entries);
         if (lifecycle !== undefined) {
@@ -705,6 +708,14 @@ class MuxrSync {
 
     async create(credentials: AuthCredentials): Promise<void> {
         await this.bootstrap(credentials);
+    }
+
+    invalidateCatalog(): void {
+        this.catalogRequest += 1;
+        this.herdrTreeRequest += 1;
+        this.client?.close();
+        this.client = undefined;
+        this.credentials = undefined;
     }
 
     async restore(credentials: AuthCredentials): Promise<void> {

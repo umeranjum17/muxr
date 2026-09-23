@@ -282,13 +282,9 @@ export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspa
                     paneId: pane.paneId,
                     tabId: pane.tabId,
                     sessionId: pane.sessionId,
-                    label: pane.label || (pane.cwd && !pane.agentName?.trim() && !pane.agentKind?.trim()
-                        && !pane.terminalTitle?.trim() && !pane.taskTitle?.trim()
-                        ? agentLabels(pane).taskTitle : undefined),
-                    terminalTitle: pane.terminalTitle,
+                    taskTitle: agentLabels(pane).taskTitle,
                     focused: pane.focused,
                     agentName: pane.agentName,
-                    taskTitle: pane.taskTitle,
                     agentKind: pane.agentKind,
                     provider: pane.provider,
                     model: pane.model,
