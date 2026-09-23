@@ -851,8 +851,6 @@ describe('the usage screen read path', () => {
                 ] },
                 { id: 'codex', label: 'Codex', glyph: 'codex', plan: 'OpenAI Codex', windows: [
                     { label: 'Weekly', window: '7d', used: 11 },
-                    // A model's own allowance shares its length's row, and the
-                    // tighter of the two is the one that stops work first.
                     { label: 'Spark · Session', window: '5h', used: 40 },
                     { label: 'Session', window: '5h', used: 2 },
                 ] },
@@ -875,12 +873,14 @@ describe('the usage screen read path', () => {
         // The row names, then each plan's column top to bottom; a plan with no
         // limit of a length leaves that cell empty rather than inventing one.
         const figures = card.root.findAllByType('Text')
-            .filter((node: any) => typeof node.props.children === 'string' && !node.props.children.startsWith('plugins.rightNow.memory'))
-            .map((node: any) => [node.props.children, node.props.style?.color]);
+            .map((node: any) => [Array.isArray(node.props.children)
+                ? node.props.children.filter((part: unknown) => typeof part === 'string').join('')
+                : node.props.children, node.props.style?.color])
+            .filter(([text]: any) => typeof text === 'string' && text !== '' && !text.startsWith('plugins.rightNow.memory'));
         expect(figures).toEqual([
             ['5h', '#000'], ['7d', '#000'], ['Monthly', '#000'],
             ['36%', '#fff'],
-            ['60%', '#fff'], ['89%', '#fff'],
+            ['60%', '#fff'], ['×2', '#999'], ['89%', '#fff'],
             ['93%', '#fff'], ['0%', 'tone:danger'], ['8%', 'tone:warning'],
         ]);
         // Read aloud in the same order, and a coloured figure says why and
@@ -889,9 +889,39 @@ describe('the usage screen read path', () => {
             && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
         expect(summary.indexOf('Claude plan')).toBeLessThan(summary.indexOf('OpenAI Codex'));
         expect(summary.indexOf('OpenAI Codex')).toBeLessThan(summary.indexOf('OpenCode Go'));
+        expect(summary).toContain('Spark · Session 5h 60% plugins.limits.percentLeft, Session 5h 98% plugins.limits.percentLeft');
         expect(summary).toContain('7d 0% plugins.limits.percentLeft (plugins.limits.paceExhausted, plugins.rightNow.resetsIn(1d 5h))');
         expect(summary).toContain('Monthly 8% plugins.limits.percentLeft (plugins.limits.low, plugins.rightNow.resetsIn(18d))');
         expect(summary).not.toContain('Z.ai');
+    });
+
+    it('shows connected limits even when the selected plan has no windows', async () => {
+        const now: UsageNow = {
+            limits: { verdict: 'unknown', windows: [], message: 'Selected plan unavailable' },
+            connected: [{ id: 'codex', label: 'Codex', windows: [
+                { label: 'Session', window: '5h', used: 20 },
+                { label: 'Weekly', window: '7d', used: 60 },
+            ] }],
+        };
+        noteAsked('', Date.now());
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, now) });
+        const card = renderCard();
+        await tick();
+
+        expect(card.root.findAllByType('AgentGlyph').map((mark: any) => mark.props.name)).toEqual(['codex']);
+        expect(screenText(card)).toContain('80%');
+        expect(screenText(card)).toContain('40%');
+        expect(screenText(card)).not.toContain('Selected plan unavailable');
+        const label: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
+        expect(label).toContain('5h 80% plugins.limits.percentLeft');
+        expect(label).toContain('7d 40% plugins.limits.percentLeft');
+        expect(label).not.toContain('Selected plan unavailable');
+
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1,
+            figures: withNow(undefined, { ...now, connected: [] }) }); });
+        expect(screenText(card)).toContain('Selected plan unavailable');
+        expect(card.root.findAllByType('AgentGlyph')).toHaveLength(0);
     });
 
     it('shows a single plan with matching visible, spoken and metered remaining share on Home', async () => {

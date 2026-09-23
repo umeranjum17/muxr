@@ -50,11 +50,11 @@ export interface LimitCell {
     tone?: LimitTone;
 }
 
-/** One plan's column: its cells line up with the grid's rows, and a row this
- *  plan has no limit for is `undefined`. */
+/** One plan's column: its cells line up with the grid's rows. A row this
+ *  plan has no limit for has an empty cell. */
 export interface LimitColumn {
     provider: UsageConnectedProvider;
-    cells: (LimitCell | undefined)[];
+    cells: LimitCell[][];
 }
 
 /**
@@ -88,9 +88,7 @@ export function limitGrid(providers: readonly UsageConnectedProvider[]): LimitGr
         cells: rows.map((row) => windows
             .filter((window) => rowName(window) === row)
             .map(limitCell)
-            // Two limits of one length on one plan (a model with its own
-            // allowance) share the row; the tighter is what stops work first.
-            .reduce<LimitCell | undefined>((tightest, cell) => (tightest === undefined || cell.left < tightest.left ? cell : tightest), undefined)),
+            .sort((a, b) => a.left - b.left)),
     }));
     return { rows, columns };
 }

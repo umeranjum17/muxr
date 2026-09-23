@@ -75,9 +75,8 @@ export function RightNowCard() {
 
     const payload = display.figures;
     const verdict = payload.limits.verdict;
-    // Real quota windows for more than the selected tab turn the first row
-    // into one restrained grid of every plan's limits; Memory/Disk/Load/Uptime
-    // stay the quiet row beneath it. A plan tab's own failure message keeps its row.
+    // Connected quota windows turn the first row into one restrained grid;
+    // Memory/Disk/Load/Uptime stay the quiet row beneath it.
     const grid = connectedGrid(payload);
     const limit = grid !== undefined ? undefined : (payload.cardWindow ?? payload.limits.windows[0]);
     const verdictWord = verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]);
@@ -217,7 +216,8 @@ function LimitsGrid({ grid }: { grid: LimitGrid }) {
     const legend = Math.max(0, ...grid.rows.map((row) => row.length)) * LEGEND_SIZE * char + LEGEND_GAP;
     // Every column is as wide as "100%", so the plans' marks and the right
     // edges of their figures fall at even steps whatever the digits are.
-    const figure = Math.ceil(4 * FIGURE_SIZE * char);
+    const figure = Math.ceil(Math.max(4, ...grid.columns.flatMap((column) => column.cells.map((cell) =>
+        cell.length === 0 ? 0 : `${cell[0]!.left}%${cell.length > 1 ? `×${cell.length}` : ''}`.length))) * FIGURE_SIZE * char);
     const fits = Math.floor(((measured ?? screen.width - CARD_INSET) - legend) / (figure + FIGURE_GAP));
     const size = columnsPerBand(grid.columns.length, fits);
     const bands = Array.from({ length: Math.ceil(grid.columns.length / size) }, (_, band) => grid.columns.slice(band * size, (band + 1) * size));
@@ -233,7 +233,7 @@ function LimitsGrid({ grid }: { grid: LimitGrid }) {
  *  stand under the ones above them. */
 function LimitBand({ rows, columns, slots, figure }: { rows: string[]; columns: LimitColumn[]; slots: number; figure: number }) {
     const { theme } = useUnistyles();
-    const shown = rows.flatMap((row, index) => (columns.some((column) => column.cells[index] !== undefined) ? [{ row, index }] : []));
+    const shown = rows.flatMap((row, index) => (columns.some((column) => column.cells[index]!.length > 0) ? [{ row, index }] : []));
     return (
         <View style={{ flexDirection: 'row' }}>
             <View style={{ marginRight: LEGEND_GAP, paddingTop: MARK_ROW }}>
@@ -251,14 +251,18 @@ function LimitBand({ rows, columns, slots, figure }: { rows: string[]; columns: 
                                     <AgentGlyph name={column.provider.glyph ?? column.provider.id} size={MARK} />
                                 </View>
                                 {shown.map(({ row, index }) => {
-                                    const cell = column.cells[index];
+                                    const cell = column.cells[index]!;
                                     // A plan with no limit of this length leaves its cell
                                     // empty: the row's name says what is not there, and a
                                     // mark in every gap would outweigh the figures.
-                                    if (cell === undefined) return <View key={row} style={{ height: FIGURE_LINE }} />;
+                                    if (cell.length === 0) return <View key={row} style={{ height: FIGURE_LINE }} />;
+                                    const tightest = cell[0]!;
                                     return (
-                                        <Text key={row} numberOfLines={1} style={{ color: cell.tone === undefined ? theme.colors.text : toneColor(theme, cell.tone), textAlign: 'right', fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('semiBold') }}>
-                                            {`${cell.left}%`}
+                                        <Text key={row} numberOfLines={1} style={{ color: tightest.tone === undefined ? theme.colors.text : toneColor(theme, tightest.tone), textAlign: 'right', fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('semiBold') }}>
+                                            {cell.length === 1 ? `${tightest.left}%` : [
+                                                `${tightest.left}%`,
+                                                <Text key="count" style={{ color: theme.colors.textSecondary, fontSize: LEGEND_SIZE }}>{`×${cell.length}`}</Text>,
+                                            ]}
                                         </Text>
                                     );
                                 })}
@@ -271,10 +275,9 @@ function LimitBand({ rows, columns, slots, figure }: { rows: string[]; columns: 
     );
 }
 
-/** The grid answers only when the payload itself leads with a real window and
- *  some plan has a figure to show: a plan tab's own failure keeps its honest row. */
+/** The grid answers when any connected plan has a readable figure. */
 function connectedGrid(payload: UsageFigures): LimitGrid | undefined {
-    if (payload.connected === undefined || payload.limits.windows.length === 0) return undefined;
+    if (payload.connected === undefined) return undefined;
     const grid = limitGrid(payload.connected);
     return grid.columns.length === 0 ? undefined : grid;
 }
@@ -293,14 +296,15 @@ function remainingOf(window: UsageLimitsWindow): number {
  *  100% left, 7d 36% left". A low figure also says why it is coloured and when
  *  it comes back, which the colour alone cannot say aloud. */
 function columnSummary(column: LimitColumn, rows: string[]): string {
-    const remainings = column.cells.flatMap((cell, index) => {
-        if (cell === undefined) return [];
-        const figure = `${rows[index]} ${t('plugins.limits.percentLeft', { percent: cell.left })}`;
-        if (cell.tone === undefined) return [figure];
+    const remainings = column.cells.flatMap((limits, index) => limits.map((cell) => {
+        const row = rows[index]!;
+        const name = limits.length > 1 ? `${cell.window.label} ${row}` : row;
+        const figure = `${name} ${t('plugins.limits.percentLeft', { percent: cell.left })}`;
+        if (cell.tone === undefined) return figure;
         const why = t(cell.left === 0 ? 'plugins.limits.paceExhausted' : cell.window.pace === 'limited' ? 'plugins.limits.limited' : 'plugins.limits.low');
         const back = cell.window.resetsIn === undefined ? '' : `, ${t('plugins.rightNow.resetsIn', { time: cell.window.resetsIn })}`;
-        return [`${figure} (${why}${back})`];
-    });
+        return `${figure} (${why}${back})`;
+    }));
     return t('plugins.rightNow.planRemaining', { plan: column.provider.plan ?? column.provider.label, remainings: remainings.join(', ') });
 }
 

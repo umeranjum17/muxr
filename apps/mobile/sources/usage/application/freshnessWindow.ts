@@ -134,7 +134,7 @@ export function withReport(previous: UsageFigures | undefined, value: UsageRepor
             ...(value.noProvidersTitle === undefined ? {} : { noProvidersTitle: value.noProvidersTitle }),
             ...(value.noProviders === undefined ? {} : { noProviders: value.noProviders }),
         },
-        ...(value.connected === undefined ? {} : { connected: value.connected }),
+        connected: value.connected,
         ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds }),
         ...(value.capturedAt === undefined ? {} : { capturedAt: value.capturedAt }),
     });
