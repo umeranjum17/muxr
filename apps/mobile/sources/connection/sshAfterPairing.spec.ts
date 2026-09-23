@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 const secrets = vi.hoisted(() => ({
     setNativeSecret: vi.fn(async (_key: string, _value: string) => undefined),
-    getNativeSecret: vi.fn(async (_key: string) => null),
+    getNativeSecret: vi.fn<(_key: string) => Promise<string | null>>(async () => null),
     deleteNativeSecret: vi.fn(async (_key: string) => undefined),
 }));
 
