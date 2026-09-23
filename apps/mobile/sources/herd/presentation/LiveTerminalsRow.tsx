@@ -3,7 +3,7 @@ import { AppState, FlatList, Pressable, View, useWindowDimensions, type LayoutCh
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsFocused } from '@react-navigation/native';
 import { Text } from '@/components/StyledText';
-import { useHerdrTree, useLifecycleEvents, useSessions, useSocketStatus } from '@/catalog/store';
+import { useHomeHerd, useLifecycleEvents, useSocketStatus } from '@/catalog/store';
 import { t } from '@/text';
 import { agentStatusColor } from '../application/sessionUtils';
 import { herdPanes } from '../domain/herd';
@@ -141,9 +141,8 @@ export const LiveTerminalsRow = React.memo(({
     const navigateToSession = useNavigateToSession();
     const screenFocused = useIsFocused();
     const { height: windowHeight } = useWindowDimensions();
-    const sessions = useSessions();
+    const { sessions, workspaces, stale } = useHomeHerd();
     const lifecycleEvents = useLifecycleEvents();
-    const { workspaces } = useHerdrTree();
     const { status: socketStatus } = useSocketStatus();
     const { ready, seenEventIds, markSeen } = useActivityAcknowledgements();
     const scrollRef = React.useRef<FlatList<LiveTerminalOrderCard>>(null);
@@ -276,8 +275,9 @@ export const LiveTerminalsRow = React.memo(({
             now={minute}
             width={cardWidth}
             height={CARD_HEIGHT}
-            paused={Math.abs(index - firstVisible) > 2}
-            disconnected={socketStatus !== 'connected'}
+            // A remembered card has nothing live to show; its preview waits for the host.
+            paused={stale || Math.abs(index - firstVisible) > 2}
+            disconnected={socketStatus !== 'connected' || stale}
             unseenDone={readySessionIds.has(card.id)}
         />
     );

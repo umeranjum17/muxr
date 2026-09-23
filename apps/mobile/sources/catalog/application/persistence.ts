@@ -3,11 +3,14 @@ import { Settings, settingsDefaults, settingsParse, SettingsSchema } from './set
 import { LocalSettings, localSettingsDefaults, localSettingsParse } from './localSettings';
 import { Profile, profileDefaults, profileParse } from '../domain/profile';
 import { AGENT_KINDS } from '../domain/agentKinds';
+import type { Session } from '../domain/sessionTypes';
+import type { HerdrTreeWorkspace } from '@muxr/contract';
 type PermissionModeKey = string;
 
 const mmkv = new MMKV();
 const NEW_SESSION_DRAFT_KEY = 'new-session-draft-v1';
 const REGISTERED_PUSH_TOKEN_KEY = 'registered-push-token-v1';
+const HOME_SNAPSHOT_KEY = 'home-snapshot-v1';
 
 /**
  * Supported launch kinds passed through as session.start `kind`.
@@ -219,6 +222,38 @@ export function loadSessionLastMessageSentAt(): Record<string, number> {
 
 export function saveSessionLastMessageSentAt(timestamps: Record<string, number>) {
     mmkv.set('session-last-message-sent-at', JSON.stringify(timestamps));
+}
+
+/**
+ * The last Home the host confirmed for one machine. A cold start draws it,
+ * marked stale, while the connection comes up; nothing else reads it.
+ */
+export interface HomeSnapshot {
+    machineId: string;
+    workspaces: HerdrTreeWorkspace[];
+    sessions: Record<string, Session>;
+}
+
+export function loadHomeSnapshot(machineId: string): HomeSnapshot | null {
+    const raw = mmkv.getString(HOME_SNAPSHOT_KEY);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw) as HomeSnapshot;
+        if (parsed.machineId !== machineId || !Array.isArray(parsed.workspaces)
+            || parsed.sessions === null || typeof parsed.sessions !== 'object') return null;
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+export function saveHomeSnapshot(snapshot: HomeSnapshot): void {
+    mmkv.set(HOME_SNAPSHOT_KEY, JSON.stringify(snapshot));
+}
+
+/** Forgetting a machine forgets what its Home looked like. */
+export function clearHomeSnapshot(machineId?: string): void {
+    if (machineId === undefined || loadHomeSnapshot(machineId) !== null) mmkv.delete(HOME_SNAPSHOT_KEY);
 }
 
 export function loadProfile(): Profile {

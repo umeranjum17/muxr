@@ -13,6 +13,9 @@ import {
     loadProfile,
     saveSettings,
     saveLocalSettings,
+    loadHomeSnapshot,
+    saveHomeSnapshot,
+    type HomeSnapshot,
 } from './persistence';
 import {
     createAgentWatch,
@@ -164,6 +167,8 @@ interface StorageState extends WatchSnapshot {
     sessions: Record<string, Session>;
     herdrWorkspaces: HerdrTreeWorkspace[];
     herdrTreeLoaded: boolean;
+    /** The last confirmed Home for this machine, drawn until the host answers. */
+    homeSnapshot: HomeSnapshot | null;
     sessionListViewData: SessionListViewItem[] | null;
     sessionMessages: Record<string, SessionMessagesState>;
     pathGitStatus: Record<string, GitStatus | null>;
@@ -198,6 +203,11 @@ interface StorageState extends WatchSnapshot {
     discardVoiceReport: (identity: string) => void;
     applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: 'online' | number })[], replace?: boolean) => void;
     applyHerdrTree: (workspaces: HerdrTreeWorkspace[]) => void;
+    applyHomeSnapshot: (snapshot: HomeSnapshot | null) => void;
+    /** Draw this machine's last confirmed Home until the host answers. */
+    restoreHome: (machineId: string) => void;
+    /** Keep the Home the host just confirmed for the next cold start. */
+    persistHome: (machineId: string) => void;
     applyMachines: (machines: Machine[], replace?: boolean) => void;
     deleteMachine: (machineId: string) => void;
     applyReady: () => void;
@@ -262,6 +272,7 @@ export const storage = create<StorageState>()((set, get) => ({
     sessions: {},
     herdrWorkspaces: [],
     herdrTreeLoaded: false,
+    homeSnapshot: null,
     machines: {},
     sessionListViewData: null,
     sessionMessages: {},
@@ -323,6 +334,13 @@ export const storage = create<StorageState>()((set, get) => ({
                   herdrTreeLoaded: true,
                   sessionListViewData: buildSessionListViewData(state.sessions, herdrWorkspaces),
               }),
+    applyHomeSnapshot: (homeSnapshot) => set({ homeSnapshot }),
+    restoreHome: (machineId) => set({ homeSnapshot: loadHomeSnapshot(machineId) }),
+    persistHome: (machineId) => {
+        const state = get();
+        if (!state.herdrTreeLoaded || !state.sessionsLoaded) return;
+        saveHomeSnapshot({ machineId, workspaces: state.herdrWorkspaces, sessions: state.sessions });
+    },
     applyMachines: (machines, replace = false) => set((state) => {
         const next = replace ? {} as Record<string, Machine> : { ...state.machines };
         for (const machine of machines) next[machine.id] = machine;
@@ -488,6 +506,24 @@ export function useSessions(): Session[] {
 
 export function useHerdrTree(): { workspaces: HerdrTreeWorkspace[]; loaded: boolean } {
     return storage(useShallow((state) => ({ workspaces: state.herdrWorkspaces, loaded: state.herdrTreeLoaded })));
+}
+
+/** Home draws its snapshot until the host has sent both its tree and its agents. */
+export function homeShowsSnapshot(state: Pick<StorageState, 'homeSnapshot' | 'herdrTreeLoaded' | 'sessionsLoaded'>): boolean {
+    return state.homeSnapshot !== null && !(state.herdrTreeLoaded && state.sessionsLoaded);
+}
+
+/**
+ * Home's herd. Until a cold start has both the host's tree and its agents,
+ * this is the last Home the device saw for the machine, flagged `stale` so
+ * Home can say so. Everything outside Home reads the host's state only.
+ */
+export function useHomeHerd(): { workspaces: HerdrTreeWorkspace[]; sessions: Session[]; loaded: boolean; stale: boolean } {
+    const stale = storage(homeShowsSnapshot);
+    const workspaces = storage((state) => homeShowsSnapshot(state) ? state.homeSnapshot!.workspaces : state.herdrWorkspaces);
+    const sessions = storage(useShallow((state) => Object.values(homeShowsSnapshot(state) ? state.homeSnapshot!.sessions : state.sessions)));
+    const loaded = storage((state) => state.herdrTreeLoaded);
+    return { workspaces, sessions, loaded: loaded || stale, stale };
 }
 
 export function useSession(id: string): Session | null {

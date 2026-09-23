@@ -41,6 +41,10 @@ const dotCenter = (depth: number) => childInset(depth) + DOT / 2;
 const railLeft = (depth: number) => (depth <= 1 ? 17 : dotCenter(depth - 1) - RAIL / 2);
 
 const stylesheet = StyleSheet.create((theme) => ({
+    // Matches a Live card while the host is away.
+    stale: {
+        opacity: 0.55,
+    },
     contentContainer: {
         flex: 1,
         width: '100%',
@@ -365,6 +369,8 @@ interface SpacesTreeProps {
     listFooterComponent?: React.ReactNode;
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
     emptyText?: string;
+    /** Drawn from the last Home this device saw: dimmed, and nothing closes until the host answers. */
+    stale?: boolean;
 }
 
 const AgentRow = React.memo(({
@@ -820,11 +826,12 @@ export const SpacesTree = React.memo(({
     listFooterComponent,
     onScroll,
     emptyText,
+    stale = false,
 }: SpacesTreeProps) => {
     const styles = stylesheet;
     const compact = density === 'compact';
     const { authority, loading: authorityLoading } = useDeviceAuthority();
-    const canClose = authority === 'control' && !authorityLoading;
+    const canClose = authority === 'control' && !authorityLoading && !stale;
     const unseenDoneSessionIds = useUnseenDoneSessionIds();
     const [choices, setChoices] = React.useState<ReadonlyMap<string, boolean>>(() => new Map());
     const expanded = React.useMemo(
@@ -898,27 +905,29 @@ export const SpacesTree = React.memo(({
     }, [refresh]);
 
     const renderItem = React.useCallback(({ item }: { item: HerdSpaceRow }) => (
-        <WorkspaceCard
-            workspace={item.workspace}
-            name={names.get(item.workspace.workspaceId)!}
-            names={names}
-            expanded={item.expanded}
-            agentCount={item.agentCount}
-            panes={item.panes}
-            childSpaces={item.children}
-            searchForced={searching && item.children.length > 0}
-            onToggle={() => toggleWorkspace(item.workspace.workspaceId)}
-            onToggleChild={(workspaceId) => toggleWorkspace(`child:${workspaceId}`)}
-            onClose={() => confirmCloseWorkspace(item.workspace)}
-            onCloseChild={confirmCloseWorkspace}
-            onClosePane={confirmClosePane}
-            onNavigatePane={onNavigatePane}
-            compact={compact}
-            selectedSessionId={selectedSessionId}
-            canClose={canClose}
-            unseenDoneSessionIds={unseenDoneSessionIds}
-        />
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, names, onNavigatePane, searching, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
+        <View style={stale && styles.stale}>
+            <WorkspaceCard
+                workspace={item.workspace}
+                name={names.get(item.workspace.workspaceId)!}
+                names={names}
+                expanded={item.expanded}
+                agentCount={item.agentCount}
+                panes={item.panes}
+                childSpaces={item.children}
+                searchForced={searching && item.children.length > 0}
+                onToggle={() => toggleWorkspace(item.workspace.workspaceId)}
+                onToggleChild={(workspaceId) => toggleWorkspace(`child:${workspaceId}`)}
+                onClose={() => confirmCloseWorkspace(item.workspace)}
+                onCloseChild={confirmCloseWorkspace}
+                onClosePane={confirmClosePane}
+                onNavigatePane={onNavigatePane}
+                compact={compact}
+                selectedSessionId={selectedSessionId}
+                canClose={canClose}
+                unseenDoneSessionIds={unseenDoneSessionIds}
+            />
+        </View>
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, names, onNavigatePane, searching, selectedSessionId, stale, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (

@@ -189,6 +189,7 @@ export async function removeHostedGrant(machineId: string): Promise<StoredHosted
     if (all[machineId] === undefined) return Object.values(all);
     const { clearArtifactDownloads } = await import('@/utils/artifactTransfer');
     await clearArtifactDownloads();
+    (await import('@/catalog')).clearHomeSnapshot(machineId);
     delete all[machineId];
     await Promise.all([
         secretDelete(grantKey(machineId)),
@@ -616,6 +617,7 @@ export class DeviceV2Crypto {
 export async function clearHostedE2ee(): Promise<void> {
     const { clearArtifactDownloads } = await import('@/utils/artifactTransfer');
     await clearArtifactDownloads();
+    (await import('@/catalog')).clearHomeSnapshot();
     // A queued trailing write must not resurrect the cache we are deleting.
     if (replayTimer !== undefined) clearTimeout(replayTimer);
     replayTimer = undefined;

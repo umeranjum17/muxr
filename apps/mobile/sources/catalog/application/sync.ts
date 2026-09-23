@@ -597,6 +597,7 @@ class MuxrSync {
             });
         }), true);
         storage.getState().markSessionsLoaded();
+        this.persistHome();
         storage.getState().applyAttentionCatalog(attention.entries);
         if (lifecycle !== undefined) {
             const liveEvents = storage.getState().lifecycleEvents.filter((event) => !lifecycleBefore.has(event.eventId));
@@ -674,12 +675,14 @@ class MuxrSync {
             storage.getState().applyMachines([], true);
             storage.getState().applySessions([], true);
             storage.getState().applyHerdrTree([]);
+            storage.getState().applyHomeSnapshot(null);
         }
         // The client refreshes the grant before every dial, so startup does
         // not wait on the relay for it here.
         if (settings.mode === 'hosted' && settings.machineId !== '') {
             await loadHostedGrant(settings.machineId);
         }
+        if (this.hasTransport() && !storage.getState().herdrTreeLoaded) storage.getState().restoreHome(settings.machineId);
         // Account validation and machine transport are deliberately independent.
         // Offline/account-only startup renders immediately; only a definite /v1/session
         // 401 clears credentials, through the AuthContext rejection handler.
@@ -689,6 +692,11 @@ class MuxrSync {
 
     async create(credentials: AuthCredentials): Promise<void> {
         await this.bootstrap(credentials);
+    }
+
+    /** Keep the last Home the host confirmed, so the next cold start can draw it at once. */
+    persistHome(): void {
+        if (this.hasTransport()) storage.getState().persistHome(this.getConnection().machineId);
     }
 
     async restore(credentials: AuthCredentials): Promise<void> {

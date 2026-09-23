@@ -86,7 +86,7 @@ vi.mock('@/herd', async () => {
 import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
 import { applyHostInfoToAgent } from '../domain/agent';
 import { reconcileLiveTerminalCards } from '@/herd/application/liveTerminalOrder';
-import { storage } from './storage';
+import { homeShowsSnapshot, storage } from './storage';
 
 async function spawn(options: { modelMode?: string; effortLevel?: string }) {
     const { machineSpawnNewSession } = await import('./ops');
@@ -842,6 +842,77 @@ describe('session sync flow', () => {
         expect(next[1]).toBe(cards[1]);
 
         vi.useRealTimers();
+    });
+
+    it('draws the last Home the host confirmed, stale, until the host answers', async () => {
+        const { clearHomeSnapshot } = await import('./persistence');
+        const tree = (sessionId: string, agentStatus: AgentLifecycle): HerdrTreeWorkspace[] => [{
+            workspaceId: 'workspace-a',
+            label: '/work/muxr',
+            focused: true,
+            agentStatus,
+            tabs: [{
+                tabId: 'tab-a',
+                focused: true,
+                agentStatus,
+                panes: [{ paneId: `pane-${sessionId}`, tabId: 'tab-a', sessionId, agentName: 'Maria', agentKind: 'pi', agentStatus, promptable: true, focused: true }],
+            }],
+        }];
+        const agent = (id: string) => sessionInfoToSession({
+            id,
+            paneId: `pane-${id}`,
+            cwd: '/work/muxr',
+            path: '/work/muxr',
+            messageCount: 0,
+            firstMessage: '',
+            agentName: 'Maria',
+            taskTitle: id,
+            promptable: true,
+            agentStatus: 'working',
+        });
+        const coldStart = () => storage.setState({ sessions: {}, sessionsLoaded: false, herdrWorkspaces: [], herdrTreeLoaded: false, homeSnapshot: null });
+
+        // Half a Home is never kept: the host has sent its tree, not its agents yet.
+        coldStart();
+        storage.getState().applyHerdrTree(tree('old', 'working'));
+        storage.getState().persistHome('machine');
+        coldStart();
+        storage.getState().restoreHome('machine');
+        expect(homeShowsSnapshot(storage.getState())).toBe(false);
+
+        // The host confirmed a whole Home, one working agent, before the app closed.
+        storage.getState().applyHerdrTree(tree('old', 'working'));
+        storage.getState().applySessions([agent('old')], true);
+        storage.getState().markSessionsLoaded();
+        storage.getState().persistHome('machine');
+
+        // Another machine's cold start has no Home to draw.
+        coldStart();
+        storage.getState().restoreHome('another-machine');
+        expect(homeShowsSnapshot(storage.getState())).toBe(false);
+
+        // This machine's cold start draws that Home, stale, before the host answers.
+        coldStart();
+        storage.getState().restoreHome('machine');
+        expect(homeShowsSnapshot(storage.getState())).toBe(true);
+        expect(Object.keys(storage.getState().homeSnapshot!.sessions)).toEqual(['old']);
+
+        // The tree alone is half a Home, so the snapshot stays until the agents arrive too.
+        storage.getState().applyHerdrTree(tree('new', 'idle'));
+        expect(homeShowsSnapshot(storage.getState())).toBe(true);
+        storage.getState().applySessions([agent('new')], true);
+        storage.getState().markSessionsLoaded();
+        expect(homeShowsSnapshot(storage.getState())).toBe(false);
+
+        // Forgetting a machine forgets its Home, and only its Home.
+        clearHomeSnapshot('another-machine');
+        coldStart();
+        storage.getState().restoreHome('machine');
+        expect(homeShowsSnapshot(storage.getState())).toBe(true);
+        clearHomeSnapshot('machine');
+        coldStart();
+        storage.getState().restoreHome('machine');
+        expect(homeShowsSnapshot(storage.getState())).toBe(false);
     });
 
     it('carries changelog unread state across the release-keyed storage change', async () => {

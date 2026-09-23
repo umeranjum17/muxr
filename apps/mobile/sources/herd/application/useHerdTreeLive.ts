@@ -1,13 +1,13 @@
 import * as React from 'react';
 import { useFocusEffect } from 'expo-router';
-import { storage, useHerdrTree } from '@/catalog/store';
+import { storage, useHomeHerd } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { listPairedGrants } from '@/pairing/e2ee';
 import { getCachedConnectionSettings } from '@/connection';
 import { defaultExpandedSpaces } from '../domain/herdTree';
 
 export function useHerdTreeLive() {
-    const { workspaces, loaded } = useHerdrTree();
+    const { workspaces, loaded, stale } = useHomeHerd();
     const [attempted, setAttempted] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
     const [herdrConnected, setHerdrConnected] = React.useState<boolean | undefined>(undefined);
@@ -70,6 +70,7 @@ export function useHerdTreeLive() {
     return {
         workspaces,
         loaded,
+        stale,
         attempted,
         error,
         herdrConnected,
