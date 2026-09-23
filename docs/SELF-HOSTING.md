@@ -82,7 +82,7 @@ Once the SSH route is saved, muxr opens a device-local SSH forward to `127.0.0.1
 The paired machine's terminal, preview, and plugin-stream connections use that forward alongside sync,
 even if its advertised relay URL is unreachable from the phone. The relay ticket, pairing grant,
 and E2EE protections stay the same; see [the SSH transport decision](decisions/0006-ssh-loopback-transport.md)
-for the routing contract.
+for the routing contract. Desktop media has [a separate reachability requirement](../README.md#talk-to-the-herd).
 
 Connection & updates also exports and installs the login key. The private key's public half — pasted on that screen or saved on this device — can be copied, shared, or saved as a `.pub` file for any algorithm, including Ed25519. For RSA and ECDSA keys, **Install public key** shows its exact shell command first and runs it only after you confirm: it appends the key to `~/.ssh/authorized_keys` on the paired computer's confirmed SSH account, preserves existing entries and permissions, skips a key that is already present, and records a guarded undo that refuses to roll back if `authorized_keys` changed after the install. Ed25519 stays export-only because the native SSH path cannot use it as a login key. Installation is native-Android only; the browser keeps pairing and relay access and says so instead.
 

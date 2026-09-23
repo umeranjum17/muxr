@@ -153,7 +153,7 @@ The spoken-name, coding-tool, and redaction rules every realtime voice adapter m
 _Avoid_: prompt, system prompt, provider policy
 
 **Ingress**:
-The published path phones use to reach a Self-host relay: Tailscale Serve, a Cloudflare tunnel, an external reverse proxy, or Direct SSH (an Android-native SSH forward to the host-loopback relay, configured on the phone after pairing).
+The published path phones use to reach a Self-host relay: Tailscale Serve, a Cloudflare tunnel, an external reverse proxy, or Direct SSH (an Android-native SSH forward to the host-loopback relay, configured on the phone during or after pairing).
 _Avoid_: tunnel, proxy, advertise URL
 
 **Self-host**:
