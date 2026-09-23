@@ -44,6 +44,7 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
+    onFirstFrameWritten?: () => void;
     /** The pane hosts the control, so the ring can cover the accessory row. */
     onViewControls?: (controls: TerminalViewControls) => void;
     /**
@@ -86,6 +87,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const terminalKeyboardDisabled = useLocalSetting('terminalKeyboardDisabled');
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const firstFrameCallback = React.useRef(props.onFirstFrameWritten);
+    firstFrameCallback.current = props.onFirstFrameWritten;
     const openAbortRef = React.useRef<AbortController | undefined>(undefined);
     const openedRef = React.useRef(false);
     const lastSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
@@ -204,6 +207,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     channelRef.current = channel;
                     void writePumpRef.current?.cancel();
                     let recoveryRequested = false;
+                    let firstFrameWritten = false;
                     // Nothing re-scrolls on attach. The pane's viewport belongs
                     // to herdr, which reports it back on `terminal.scroll-state`;
                     // a phone replaying a remembered distance was inventing a
@@ -216,6 +220,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                             await view.write(bytes);
                             recoveryRequested = false;
                             channel.recordFrameWritten();
+                            if (!firstFrameWritten && writeGenerationRef.current === attachGen) {
+                                firstFrameWritten = true;
+                                firstFrameCallback.current?.();
+                            }
                         },
                         combineText: combineTextFrames,
                         schedule: (run) => requestAnimationFrame(() => run()),

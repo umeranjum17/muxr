@@ -9,6 +9,7 @@ import {
     orderLiveTerminalCards,
     reconcileLiveTerminalCards,
     selectLiveTerminalCards,
+    sharedLiveTerminalCards,
     visibleActivityEventIds,
     type LiveTerminalOrderCard,
 } from './liveTerminalOrder';
@@ -268,8 +269,8 @@ describe('agent lifecycle presentation', () => {
             card('recent', now - 30_000, 'done', 4),
             card('blocked', now, 'blocked', 5),
         ];
-        const around = (id: string, from = cards, scope: 'working' | 'all' = 'working') => {
-            const { previous, next } = agentSwipeNeighbours(from, id, scope, now);
+        const around = (id: string, from = cards) => {
+            const { previous, next } = agentSwipeNeighbours(from, id, now);
             return [previous?.id, next?.id];
         };
 
@@ -278,9 +279,21 @@ describe('agent lifecycle presentation', () => {
         // Swiping back returns where it came from, whatever that agent did meanwhile.
         const settled = cards.map((item) => (item.id === 'working' ? { ...item, agentStatus: 'blocked' as const, changedAt: now } : item));
         expect(around('recent', settled)).toEqual(['working', 'blocked']);
-        // Idle agents are passed over until the scope asks for every agent.
-        expect(around('working', cards, 'all')).toEqual(['old', 'idle']);
+        expect(around('blocked', [...cards, card('starting', now, 'starting', 6)])).toEqual(['recent', 'starting']);
         // A pane outside the strip sits before its first agent.
         expect(around('shell:1')).toEqual([undefined, 'working']);
+
+        sharedLiveTerminalCards([]);
+        const treeOnly = sharedLiveTerminalCards([
+            { ...card('first', now, 'working'), createdAt: undefined },
+            { ...card('second', now, 'blocked'), createdAt: undefined },
+        ]);
+        const joined = sharedLiveTerminalCards([
+            card('first', now, 'working', 20), card('second', now, 'blocked', 10),
+        ]);
+        expect(treeOnly.map((item) => item.id)).toEqual(['first', 'second']);
+        expect(joined.map((item) => item.id)).toEqual(['first', 'second']);
+        expect(agentSwipeNeighbours(joined, 'first', now).next?.id).toBe('second');
+        sharedLiveTerminalCards([]);
     });
 });

@@ -138,7 +138,7 @@ export interface AgentPagerProps {
     onNothingThere: () => void;
     onSwitch: (sessionId: string) => void;
     /** The live terminal, beneath everything the pane draws over it. */
-    terminal: React.ReactNode;
+    terminal: (onFirstFrameWritten: () => void) => React.ReactNode;
     children?: React.ReactNode;
 }
 
@@ -162,8 +162,8 @@ export function AgentPager({ sessionId, previous, next, status, onNothingThere, 
     // The picture holds until the terminal has painted once: through the
     // attach and the wait for its first frame, never over an error or later.
     const [painted, setPainted] = React.useState(false);
-    React.useEffect(() => { if (status === 'live') setPainted(true); }, [status]);
-    const holdPicture = arrived && !painted && (status === 'connecting' || status === 'reconnecting');
+    const onFirstFrameWritten = React.useCallback(() => setPainted(true), []);
+    const holdPicture = arrived && !painted && (status === 'connecting' || status === 'reconnecting' || status === 'live');
     React.useEffect(() => {
         if (arriving === sessionId) arriving = null;
     }, [sessionId]);
@@ -275,8 +275,8 @@ export function AgentPager({ sessionId, previous, next, status, onNothingThere, 
 
     const page = <Animated.View style={[styles.page, current]}>
         {Platform.OS === 'android'
-            ? <GestureDetector gesture={terminalTouch}><View collapsable={false} style={styles.page}>{terminal}</View></GestureDetector>
-            : terminal}
+            ? <GestureDetector gesture={terminalTouch}><View collapsable={false} style={styles.page}>{terminal(onFirstFrameWritten)}</View></GestureDetector>
+            : terminal(onFirstFrameWritten)}
         {holdPicture && (
             <Animated.View pointerEvents="none" exiting={FadeOut.duration(140).reduceMotion(ReduceMotion.System)} style={StyleSheet.absoluteFill}>
                 <PaneSnapshot sessionId={sessionId} fontSize={fontSize} />

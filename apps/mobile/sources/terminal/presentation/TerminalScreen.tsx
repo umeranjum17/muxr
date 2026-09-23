@@ -51,7 +51,7 @@ import { ComposerAttachments, type ComposerAttachment } from '@/components/Compo
 import { withAlpha } from '@/components/ui';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
-import { agentSwipeNeighbours, herdPanes, selectLiveTerminalCards } from '@/herd';
+import { agentSwipeNeighbours, herdPanes, selectLiveTerminalCards, sharedLiveTerminalCards } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
@@ -241,7 +241,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         return () => clearInterval(timer);
     }, []);
     const swipeNeighbours = React.useMemo(
-        () => agentSwipeNeighbours(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces)), props.id, 'working', swipeNow),
+        () => agentSwipeNeighbours(sharedLiveTerminalCards(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces))), props.id, swipeNow),
         [props.id, sessions, swipeNow, workspaces],
     );
     const [status, setStatus] = React.useState('connecting');
@@ -1327,13 +1327,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         style={{ flex: 1 }}
                     >
                         <AgentPager
+                            key={props.id}
                             sessionId={props.id}
                             previous={swipeNeighbours.previous}
                             next={swipeNeighbours.next}
                             status={status}
                             onNothingThere={nothingToSwipeTo}
                             onSwitch={switchAgent}
-                            terminal={<TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onViewControls={setViewControls} onLinkPress={showLinkActions} />}
+                            terminal={(onFirstFrameWritten) => <TerminalView key={attempt} sessionId={props.id} onStatus={onStatus} onChannel={onChannel} onFirstFrameWritten={onFirstFrameWritten} onViewControls={setViewControls} onLinkPress={showLinkActions} />}
                         >
                         {linkMenu !== null && terminalBox !== undefined && terminalLinkCardFits(terminalBox.height, linkActions.length) && (
                             <TerminalLinkMenu

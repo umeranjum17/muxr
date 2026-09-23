@@ -30,6 +30,7 @@ export interface TerminalViewProps {
     sessionId: string;
     onStatus?: (status: string) => void;
     onChannel?: (channel: TerminalChannel | undefined) => void;
+    onFirstFrameWritten?: () => void;
     /** Same contract as the native view; the browser has no view commands and
      *  no terminal IME, so the pane keeps its own keyboard fallback and the
      *  ring carries only the screen's own slots. */
@@ -75,6 +76,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const hostRef = React.useRef<View | null>(null);
     const { sessionId, onStatus, onChannel, onLinkPress } = props;
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const firstFrameCallback = React.useRef(props.onFirstFrameWritten);
+    firstFrameCallback.current = props.onFirstFrameWritten;
     // Quiet, immediate confirmation for the long-press link copy.
     const [linkCopied, setLinkCopied] = React.useState(false);
     const hintTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -239,18 +242,23 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 onChannel?.(opened);
                 // Nothing re-scrolls on attach: the pane's viewport belongs to
                 // herdr, which reports it back on `terminal.scroll-state`.
-                let pending: string[] = [];
+                let pending: { data: string; host: boolean }[] = [];
+                let firstFrameWritten = false;
                 let frameScheduled = false;
                 const flushFrames = (): void => {
                     frameScheduled = false;
                     if (disposed || pending.length === 0) return;
                     const chunks = pending;
                     pending = [];
-                    for (const chunk of chunks) term.write(decodeBase64(chunk));
+                    for (const chunk of chunks) term.write(decodeBase64(chunk.data), () => {
+                        if (!chunk.host || disposed || firstFrameWritten) return;
+                        firstFrameWritten = true;
+                        firstFrameCallback.current?.();
+                    });
                 };
                 opened.onData((base64) => {
                     recordTerminalOutput(sessionId, base64);
-                    pending.push(base64);
+                    pending.push({ data: base64, host: true });
                     if (!frameScheduled) {
                         frameScheduled = true;
                         requestAnimationFrame(flushFrames);
@@ -259,7 +267,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // Predicted echo joins the same ordered frame queue; it is not
                 // host output, so it is never recorded as pane output.
                 opened.onPredictedData((base64) => {
-                    pending.push(base64);
+                    pending.push({ data: base64, host: false });
                     if (!frameScheduled) {
                         frameScheduled = true;
                         requestAnimationFrame(flushFrames);

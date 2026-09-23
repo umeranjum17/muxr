@@ -6,6 +6,7 @@ const link = vi.hoisted(() => ({
     options: null as null | { linkHandler: { activate: (event: MouseEvent, url: string) => void; hover?: (event: MouseEvent, url: string, range: { start: { x: number; y: number }; end: { x: number; y: number } }) => void; leave?: () => void } },
     plainTap: null as null | ((event: MouseEvent, url: string) => void),
     onData: null as null | ((base64: string) => void),
+    writes: [] as Array<() => void>,
     grid: { cols: 80, cellWidth: 10, linkCol: 2 },
 }));
 
@@ -32,7 +33,7 @@ vi.mock('@xterm/xterm', () => ({
         open() {}
         onRender() {}
         onData() {}
-        write() {}
+        write(_bytes: Uint8Array, callback: () => void) { link.writes.push(callback); }
         dispose() {}
     },
 }));
@@ -95,9 +96,10 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
     vi.stubGlobal('window', { devicePixelRatio: 1, addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ addEventListener() {}, removeEventListener() {} }) });
     vi.stubGlobal('document', { addEventListener() {}, removeEventListener() {} });
     const reached = vi.fn();
+    const firstFrameWritten = vi.fn();
     let renderer: ReturnType<typeof TestRenderer.create>;
     await TestRenderer.act(async () => {
-        renderer = TestRenderer.create(<TerminalView sessionId="pane" onLinkPress={reached} />, {
+        renderer = TestRenderer.create(<TerminalView sessionId="pane" onLinkPress={reached} onFirstFrameWritten={firstFrameWritten} />, {
             createNodeMock: ({ type, props }) => type === 'View' && props.style?.position !== 'relative' ? host : null,
         });
         await Promise.resolve();
@@ -112,7 +114,15 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
         vi.advanceTimersByTime(501);
         listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });
         link.onData!('eA==');
+        expect(firstFrameWritten).not.toHaveBeenCalled();
         for (const frame of scheduled.splice(0)) frame();
+        expect(firstFrameWritten).not.toHaveBeenCalled();
+        link.writes.shift()!();
+        expect(firstFrameWritten).toHaveBeenCalledTimes(1);
+        link.onData!('eA==');
+        for (const frame of scheduled.splice(0)) frame();
+        link.writes.shift()!();
+        expect(firstFrameWritten).toHaveBeenCalledTimes(1);
         listeners.get('touchstart')!({ touches: [{ clientX: 34, clientY: 23 }] });
         vi.advanceTimersByTime(501);
         listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });

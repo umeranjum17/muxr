@@ -88,6 +88,13 @@ export function reconcileLiveTerminalCards(
     return unchanged ? previous : next;
 }
 
+let stripCards: readonly LiveTerminalOrderCard[] = [];
+
+export function sharedLiveTerminalCards(candidate: readonly LiveTerminalOrderCard[]): readonly LiveTerminalOrderCard[] {
+    stripCards = reconcileLiveTerminalCards(stripCards, candidate);
+    return stripCards;
+}
+
 export interface ActivityAcknowledgementViewport {
     focused: boolean;
     foreground: boolean;
@@ -120,16 +127,12 @@ export function visibleActivityEventIds(
     return rows.filter((row) => visibleRoutes.has(row.sessionId)).map((row) => row.eventId);
 }
 
-/** Which agents the terminal swipe pages through. */
-export type AgentSwipeScope = 'working' | 'all';
-
 export interface AgentSwipeNeighbours {
     previous?: LiveTerminalOrderCard;
     next?: LiveTerminalOrderCard;
 }
 
-function swipeStop(card: LiveTerminalOrderCard, scope: AgentSwipeScope, now: number): boolean {
-    if (scope === 'all') return true;
+function swipeStop(card: LiveTerminalOrderCard, now: number): boolean {
     const status = card.agentStatus;
     return status === 'working' || status === 'starting' || status === 'blocked'
         || (status === 'done' && card.changedAt !== undefined && now - card.changedAt <= RECENTLY_DONE_SWIPE_MS);
@@ -140,23 +143,21 @@ function swipeStop(card: LiveTerminalOrderCard, scope: AgentSwipeScope, now: num
  * order. A pager whose pages reorder themselves when an agent changes state
  * cannot be learned -- swiping back must return to where you came from -- so
  * the order is the strip's, which never moves a card for its lifecycle. The
- * scope only decides which of those agents the swipe stops at. There is no
+ * lifecycle decides which of those agents the swipe stops at. There is no
  * wrap: the first and last agent are ends, and the pager says so by resisting.
  */
 export function agentSwipeNeighbours(
     cards: readonly LiveTerminalOrderCard[],
     currentId: string,
-    scope: AgentSwipeScope,
     now = Date.now(),
 ): AgentSwipeNeighbours {
-    const ordered = orderLiveTerminalCards(cards);
-    const index = ordered.findIndex((card) => card.id === currentId);
+    const index = cards.findIndex((card) => card.id === currentId);
     const stops = (from: readonly LiveTerminalOrderCard[]) =>
-        from.find((card) => card.id !== currentId && swipeStop(card, scope, now));
+        from.find((card) => card.id !== currentId && swipeStop(card, now));
     // A pane outside the strip (a shell) sits before its first agent.
-    if (index === -1) return { next: stops(ordered) };
+    if (index === -1) return { next: stops(cards) };
     return {
-        previous: stops(ordered.slice(0, index).reverse()),
-        next: stops(ordered.slice(index + 1)),
+        previous: stops(cards.slice(0, index).reverse()),
+        next: stops(cards.slice(index + 1)),
     };
 }
