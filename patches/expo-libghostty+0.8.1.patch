@@ -757,7 +757,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
 -      if (flags and FLAG_UNDERLINE != 0) {
 -        canvas.drawRect(x, bottom - underlineThickness, x + runWidth, bottom, paint)
 +      var end = col + 1
-+      var inked = codepoint != SPACE
++      var inked = len != 1 || codepoint != SPACE
 +      if (asciiCell(col) && advancesOneCell(paint)) {
 +        while (end < colCount && asciiCell(end) && cellTextOff[end] == offset + (end - col) &&
 +          cellFg[end] == cellFg[col] && cellFlags[end] and RUN_STYLE == flags and RUN_STYLE
