@@ -137,7 +137,8 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
                                     {window.pace != null && <Text style={{ color: tone === undefined ? theme.colors.text : toneColor(theme, tone), fontSize: 11.5 }}>{t(PACE_KEYS[window.pace])}</Text>}
                                 </View>
                             )}
-                            <Meter ratio={window.used / 100} emphasis={0.9} marker={window.elapsed} />
+                            {/* Drains with what is left, as its figure says; the tick marks the time left. */}
+                            <Meter ratio={1 - window.used / 100} emphasis={0.9} marker={window.elapsed === undefined ? undefined : 1 - window.elapsed} />
                         </View>
                     );
                 })}

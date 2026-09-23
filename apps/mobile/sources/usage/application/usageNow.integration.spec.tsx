@@ -840,9 +840,10 @@ describe('the usage screen read path', () => {
         rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, now) });
         const card = renderCard();
         await tick();
-        expect(card.root.findAllByType('Meter')[0].props.ratio).toBe(0.899);
+        // The bar drains with what is left: its fill is the figure it stands beside.
         expect(screenText(card)).toContain('7d');
         expect(screenText(card)).toContain('10% plugins.limits.percentLeft');
+        expect(card.root.findAllByType('Meter')[0].props.ratio).toBeCloseTo(0.101);
     });
 
     it('says what it holds when the figures name no connected plan', async () => {
