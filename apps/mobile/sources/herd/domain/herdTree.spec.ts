@@ -1,7 +1,7 @@
 import { herdPanes } from './herd';
 import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it, vi } from 'vitest';
-import { buildSpaceRows, defaultExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceName } from './herdTree';
+import { buildSpaceRows, defaultExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceName, workspaceNames, workspacePath } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
 
@@ -148,6 +148,16 @@ describe('visible herd tree flow', () => {
         const pair = [secondUnlinked, byWorktree, firstUnlinked];
         expect(parentOf(byWorktree, new Map(pair.map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
         expect(parentOf(byWorktree, new Map([...pair].reverse().map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
+
+        const closedParent = { ...byWorktree, tokens: { parent: 'w-gone', kind: 'task' } };
+        const selfParent = { ...byWorktree, workspaceId: 'w9', tokens: { parent: 'w9', kind: 'task' } };
+        const invalid = [firstUnlinked, closedParent, selfParent];
+        const invalidById = new Map(invalid.map((entry) => [entry.workspaceId, entry] as const));
+        expect(parentOf(closedParent, invalidById)).toBeUndefined();
+        expect(parentOf(selfParent, invalidById)).toBeUndefined();
+        expect(buildSpaceRows(invalid, new Set(), '').map((row) => row.workspace.workspaceId)).toEqual(['w1', 'w2', 'w9']);
+        expect(spaceExpansionDefaults(invalid, 'w2')).toEqual(['w2']);
+        expect(defaultExpandedSpaces(invalid)).toEqual(['w1', 'w2', 'w9']);
     });
 
     it('never hides a workspace, whatever lineage the producer declares', () => {
@@ -190,6 +200,18 @@ describe('visible herd tree flow', () => {
         expect(named('/')).toBe('Root folder');
         expect(named(undefined, '/srv/app')).toBe('app');
         expect(named('   ')).toBe('Untitled workspace');
+        const workspaces = [
+            { ...ws('a', '/srv/client/app', []), order: 1 },
+            { ...ws('b', '/home/umer/app', []), order: 2 },
+            { ...ws('c', '   ', []), order: 3 },
+            { ...ws('d', undefined, []), order: 4 },
+            ws('e', 'Fix login · issue:ABCDEF1234567890', []),
+        ];
+        const names = workspaceNames(workspaces);
+        expect([...names.values()]).toEqual(['client/app', 'umer/app', 'Untitled workspace 1', 'Untitled workspace 2', 'Fix login · issue:ABCDEF1234567890']);
+        expect(workspacePath(workspaces[0]!)).toBe('/srv/client/app');
+        expect(buildSpaceRows(workspaces, new Set(), '/srv/client/app').map((row) => row.workspace.workspaceId)).toEqual(['a']);
+        expect(buildSpaceRows(workspaces, new Set(), 'issue:ABCDEF1234567890').map((row) => row.workspace.workspaceId)).toEqual(['e']);
         expect(middleTruncate('short')).toBe('short');
         expect(middleTruncate('abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz', 20)).toBe('abcdefghi…rstuvwxyz');
     });

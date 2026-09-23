@@ -8,7 +8,9 @@ import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
 // box-drawing glyphs, and may append an opaque correlator (` · p:<22 chars>`).
 // Spaces draws the tree itself and never shows an id, so both stay off screen.
 const DRAWN_TREE_PREFIX = /^[\s└├│┌┬┴┼─╰╭]+/u;
-const CORRELATOR_SUFFIX = /\s+·\s+[a-z]{1,12}:[A-Za-z0-9_-]{16,}$/;
+const CORRELATOR_SUFFIX = /\s+·\s+p:[A-Za-z0-9_-]{22}$/;
+const cleanLabel = (ws: HerdrTreeWorkspace): string =>
+    (ws.label ?? '').replace(DRAWN_TREE_PREFIX, '').replace(CORRELATOR_SUFFIX, '').trim();
 
 /** A path label as a person names the folder: its last segment, or Home/Root. */
 function folderName(path: string): string | undefined {
@@ -25,10 +27,47 @@ function folderName(path: string): string | undefined {
  * by its first pane's folder. Never the workspace id.
  */
 export function workspaceName(ws: HerdrTreeWorkspace): string {
-    const label = (ws.label ?? '').replace(DRAWN_TREE_PREFIX, '').replace(CORRELATOR_SUFFIX, '').trim();
+    const label = cleanLabel(ws);
     if (label !== '') return folderName(label) ?? label;
-    const cwd = ws.tabs.flatMap((tab) => tab.panes).find((pane) => pane.cwd !== undefined && pane.cwd !== '')?.cwd;
-    return (cwd === undefined ? undefined : folderName(cwd)) ?? 'Untitled workspace';
+    return folderName(workspacePath(ws) ?? '') ?? 'Untitled workspace';
+}
+
+export function workspacePath(ws: HerdrTreeWorkspace): string | undefined {
+    const label = cleanLabel(ws);
+    if (folderName(label) !== undefined) return label;
+    return ws.worktree?.path ?? ws.tabs.flatMap((tab) => tab.panes).find((pane) => pane.cwd)?.cwd;
+}
+
+export function workspaceNames(workspaces: readonly HerdrTreeWorkspace[]): ReadonlyMap<string, string> {
+    const names = new Map(workspaces.map((ws) => [ws.workspaceId, workspaceName(ws)]));
+    const groups = new Map<string, HerdrTreeWorkspace[]>();
+    for (const ws of workspaces) groups.set(names.get(ws.workspaceId)!, [...(groups.get(names.get(ws.workspaceId)!) ?? []), ws]);
+    for (const [name, peers] of groups) {
+        if (peers.length < 2) continue;
+        for (const ws of peers) {
+            const path = workspacePath(ws);
+            if (name === 'Untitled workspace' || path === undefined || folderName(path) !== name) continue;
+            const parts = path.replace(/\/+$/, '').split('/');
+            for (let depth = 2; depth <= parts.length; depth++) {
+                const suffix = parts.slice(-depth).join('/');
+                if (peers.every((other) => other === ws || workspacePath(other)?.replace(/\/+$/, '').split('/').slice(-depth).join('/') !== suffix)) {
+                    names.set(ws.workspaceId, suffix);
+                    break;
+                }
+            }
+        }
+        const duplicates = new Map<string, number>();
+        for (const ws of peers) duplicates.set(names.get(ws.workspaceId)!, (duplicates.get(names.get(ws.workspaceId)!) ?? 0) + 1);
+        const ordinals = new Map<string, number>();
+        for (const ws of [...peers].sort((a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER))) {
+            const resolved = names.get(ws.workspaceId)!;
+            if ((duplicates.get(resolved) ?? 0) < 2) continue;
+            const number = (ordinals.get(resolved) ?? 0) + 1;
+            ordinals.set(resolved, number);
+            names.set(ws.workspaceId, `${resolved} ${number}`);
+        }
+    }
+    return names;
 }
 
 export function hasAgent(ws: HerdrTreeWorkspace): boolean {
@@ -45,7 +84,7 @@ export function middleTruncate(value: string, max = 44): string {
 
 function declaredParent(ws: HerdrTreeWorkspace, byId: ReadonlyMap<string, HerdrTreeWorkspace>): string | undefined {
     const token = ws.tokens?.parent;
-    if (token !== undefined && token !== ws.workspaceId && byId.has(token)) return token;
+    if (token !== undefined) return token !== ws.workspaceId && byId.has(token) ? token : undefined;
     // Herdr's worktree group: a linked checkout's parent is the unlinked
     // checkout of the same repo. Both declarations are data Herdr or the
     // producer wrote down; the label is never parsed.
@@ -189,8 +228,11 @@ export function buildSpaceRows(
     const matches = (pane: HerdrTreePane): boolean =>
         query === '' || [pane.taskTitle, pane.agentName, pane.agentKind, pane.label]
             .some((value) => value !== undefined && value.toLocaleLowerCase().includes(query));
+    const names = workspaceNames(workspaces);
     const selfMatches = (ws: HerdrTreeWorkspace): boolean =>
-        workspaceName(ws).toLocaleLowerCase().includes(query) || ws.tabs.some((tab) => tab.panes.some(matches));
+        (names.get(ws.workspaceId) ?? '').toLocaleLowerCase().includes(query)
+        || ws.label?.toLocaleLowerCase().includes(query) === true
+        || ws.tabs.some((tab) => tab.panes.some(matches));
 
     const byId = new Map(workspaces.map((ws) => [ws.workspaceId, ws] as const));
     // Herdr's creation order; a workspace Herdr did not number sorts last, in snapshot order.

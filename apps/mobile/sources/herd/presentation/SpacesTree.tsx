@@ -16,7 +16,7 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceNames, workspacePath, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
 import { agentIdentityLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -561,6 +561,7 @@ const GroupSubheader = React.memo(({ groupChildren, compact }: { groupChildren: 
 
 const ChildRow = React.memo(({
     child,
+    name,
     onToggle,
     onClose,
     onClosePane,
@@ -570,6 +571,7 @@ const ChildRow = React.memo(({
     unseenDoneSessionIds,
 }: {
     child: HerdChildSpace;
+    name: string;
     onToggle: () => void;
     onClose: () => void;
     onClosePane: (pane: HerdrTreePane) => void;
@@ -588,7 +590,7 @@ const ChildRow = React.memo(({
     const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
     const singleAgent = agentPanes.length === 1 ? agentPanes[0] : undefined;
     const singleSessionId = singleAgent?.sessionId;
-    const label = workspaceName(child.workspace);
+    const label = name;
     const parts = childLine2Parts(child);
     const line2 = parts.join(' · ');
     const onPress = singleSessionId !== undefined
@@ -653,6 +655,8 @@ const ChildRow = React.memo(({
 
 const WorkspaceCard = React.memo(({
     workspace,
+    name,
+    names,
     expanded,
     agentCount,
     panes,
@@ -670,6 +674,8 @@ const WorkspaceCard = React.memo(({
     unseenDoneSessionIds,
 }: {
     workspace: HerdrTreeWorkspace;
+    name: string;
+    names: ReadonlyMap<string, string>;
     expanded: boolean;
     agentCount: number;
     panes: HerdrTreePane[];
@@ -701,7 +707,7 @@ const WorkspaceCard = React.memo(({
     const folded = !expanded && childSpaces.length > 0;
     const headerInteractive = !searchForced || canClose;
     const headerLabel = [
-        `${workspaceName(workspace)} workspace`,
+        `${name} workspace`,
         countLabel,
         folded ? familySummary(childSpaces).spoken : undefined,
     ].filter((part) => part !== undefined).join(', ');
@@ -739,7 +745,7 @@ const WorkspaceCard = React.memo(({
                     </View>
                     <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
                     <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
-                        {workspaceName(workspace)}
+                        {name}
                     </Text>
                     {branch !== undefined && (
                         <View style={styles.branchPill}>
@@ -774,6 +780,7 @@ const WorkspaceCard = React.memo(({
                 <ChildRow
                     key={child.workspace.workspaceId}
                     child={child}
+                    name={names.get(child.workspace.workspaceId)!}
                     onToggle={() => onToggleChild(child.workspace.workspaceId)}
                     onClose={() => onCloseChild(child.workspace)}
                     onClosePane={onClosePane}
@@ -830,9 +837,11 @@ export const SpacesTree = React.memo(({
         });
     }, []);
 
+    const names = React.useMemo(() => workspaceNames(workspaces), [workspaces]);
     const confirmCloseWorkspace = React.useCallback((workspace: HerdrTreeWorkspace) => {
-        const name = workspaceName(workspace);
-        Modal.alert('Close workspace?', `Closes only the "${name}" workspace in herdr. If that would close its worktree group, nothing closes.`, [
+        const name = names.get(workspace.workspaceId)!;
+        const location = workspacePath(workspace) ?? 'this host';
+        Modal.alert('Close workspace?', `Closes only the "${name}" workspace (${location}) in herdr. If that would close its worktree group, nothing closes.`, [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Close',
@@ -850,7 +859,7 @@ export const SpacesTree = React.memo(({
                 },
             },
         ]);
-    }, [refresh]);
+    }, [names, refresh]);
 
     const confirmClosePane = React.useCallback((pane: HerdrTreePane) => {
         const sessionId = pane.sessionId;
@@ -891,6 +900,8 @@ export const SpacesTree = React.memo(({
     const renderItem = React.useCallback(({ item }: { item: HerdSpaceRow }) => (
         <WorkspaceCard
             workspace={item.workspace}
+            name={names.get(item.workspace.workspaceId)!}
+            names={names}
             expanded={item.expanded}
             agentCount={item.agentCount}
             panes={item.panes}
@@ -907,7 +918,7 @@ export const SpacesTree = React.memo(({
             canClose={canClose}
             unseenDoneSessionIds={unseenDoneSessionIds}
         />
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, searching, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, names, onNavigatePane, searching, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
