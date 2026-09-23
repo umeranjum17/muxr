@@ -1,4 +1,4 @@
-import { NativeScrollEvent, NativeSyntheticEvent, View, Pressable, Platform, Text } from 'react-native';
+import { AppState, NativeScrollEvent, NativeSyntheticEvent, View, Pressable, Platform, Text } from 'react-native';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import * as React from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -214,16 +214,25 @@ export const SettingsView = React.memo(function SettingsView({
     // system's settings, so read it whenever Settings comes back into view.
     useFocusEffect(React.useCallback(() => {
         let cancelled = false;
-        if (Platform.OS === 'web') {
-            void refreshPushState().then((state) => {
-                if (!cancelled) setPushState(state);
-            });
-        } else {
-            void Notifications.getPermissionsAsync().then((permission) => {
-                if (!cancelled) setNotificationsAllowed(permission.granted);
-            }, () => {});
-        }
-        return () => { cancelled = true; };
+        const read = () => {
+            if (Platform.OS === 'web') {
+                void refreshPushState().then((state) => {
+                    if (!cancelled) setPushState(state);
+                });
+            } else {
+                void Notifications.getPermissionsAsync().then((permission) => {
+                    if (!cancelled) setNotificationsAllowed(permission.granted);
+                }, () => {});
+            }
+        };
+        read();
+        const subscription = AppState.addEventListener('change', (state) => {
+            if (state === 'active') read();
+        });
+        return () => {
+            cancelled = true;
+            subscription.remove();
+        };
     }, []));
 
     const appConfig = loadAppConfig();
