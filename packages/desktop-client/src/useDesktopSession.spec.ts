@@ -44,6 +44,7 @@ vi.mock('./native', () => ({
             sent.push(message);
             return true;
         },
+        setInputEnabled: () => true,
         showKeyboard: () => true,
         hideKeyboard: () => true,
         setSurfaceSize: () => true,
@@ -119,6 +120,7 @@ function sentKinds(): string[] {
 describe('control messages', () => {
     it('leaves the sequence to the platform so input and app messages share one counter', async () => {
         const session = await connectedSession();
+        session.current.setInputEnabled(true);
         sent.length = 0;
 
         TestRenderer.act(() => {
@@ -139,6 +141,7 @@ describe('control messages', () => {
 describe('held input across a background transition', () => {
     it('releases a pointer that is still down when the app leaves the foreground', async () => {
         const session = await connectedSession();
+        session.current.setInputEnabled(true);
         sent.length = 0;
 
         // A drag in progress: the button is down on the desktop.

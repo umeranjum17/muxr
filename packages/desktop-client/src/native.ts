@@ -36,6 +36,7 @@ export interface NativeDesklinkModule {
     addRemoteCandidate(id: string, candidate: string, sdpMid: string | null, sdpMLineIndex: number | null): boolean;
     /** Send one control message; the platform stamps it with the session's next sequence. */
     sendControl(id: string, message: string): boolean;
+    setInputEnabled(id: string, enabled: boolean): boolean;
     showKeyboard(id: string): boolean;
     hideKeyboard(id: string): boolean;
     /**

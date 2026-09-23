@@ -119,6 +119,7 @@ export interface DesktopSession {
     pasteLocalToRemote: (text: string) => Promise<void>;
     /** Release anything the desktop is holding, without ending the session. */
     releaseHeld: () => void;
+    setInputEnabled: (enabled: boolean) => void;
     /** Show the whole desktop again after the user zoomed in. */
     fitToView: () => void;
     /** Hold the screen in landscape while the desktop is shown, or follow the phone again. */
@@ -162,6 +163,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     const opened = useRef<SessionOpenResult | null>(null);
     const signaling = useRef<Signaling | null>(null);
     const nativeRef = useRef<string | null>(null);
+    const inputEnabled = useRef(false);
     const pendingClipboard = useRef(new Map<string, (reply: { text: string; truncated: boolean; error?: string }) => void>());
     const attempts = useRef(0);
     /**
@@ -195,8 +197,19 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
 
     const send = useCallback((message: ControlMessage) => {
         const id = nativeRef.current;
-        if (id == null || nativeDesklink === null) return;
+        if (id == null || nativeDesklink === null || (!inputEnabled.current && message.kind !== 'release_all')) return;
         nativeDesklink.sendControl(id, JSON.stringify(message));
+    }, []);
+
+    const setInputEnabled = useCallback((enabled: boolean) => {
+        inputEnabled.current = enabled;
+        const id = nativeRef.current;
+        if (!enabled && modifiersRef.current !== NO_MODIFIERS) {
+            modifiersRef.current = NO_MODIFIERS;
+            setModifiers(NO_MODIFIERS);
+            if (id != null) nativeDesklink?.captureKeyboard(id, false);
+        }
+        if (id != null) nativeDesklink?.setInputEnabled(id, enabled);
     }, []);
 
     const releaseHeld = useCallback(() => {
@@ -260,6 +273,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         generationToken.current += 1;
         const id = nativeRef.current;
         nativeRef.current = null;
+        inputEnabled.current = false;
         for (const resolve of pendingClipboard.current.values()) resolve({ text: '', truncated: false, error: 'the session ended' });
         pendingClipboard.current.clear();
         opened.current = null;
@@ -353,6 +367,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
                 return;
             }
             nativeRef.current = id;
+            platform?.setInputEnabled(id, inputEnabled.current);
             setNativeId(id);
 
             authorization.signaling.subscribe((event) => {
@@ -504,6 +519,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     }, [refuse, teardown, update, pressKey, typeText]);
 
     const copyRemoteToLocal = useCallback(async () => {
+        if (!inputEnabled.current) throw new Error('Desktop control is off.');
         const id = nativeRef.current;
         if (id == null || nativeDesklink == null) throw new Error('No desktop session is open.');
         const request = randomId();
@@ -520,6 +536,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
     }, []);
 
     const pasteLocalToRemote = useCallback(async (text: string) => {
+        if (!inputEnabled.current) throw new Error('Desktop control is off.');
         const id = nativeRef.current;
         if (id == null || nativeDesklink == null) throw new Error('No desktop session is open.');
         const request = randomId();
@@ -572,6 +589,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         generationToken.current += 1;
         const id = nativeRef.current;
         nativeRef.current = null;
+        inputEnabled.current = false;
         if (id != null) nativeDesklink?.closeSession(id);
         const openedRef = opened.current;
         const owner = signaling.current;
@@ -600,6 +618,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         copyRemoteToLocal,
         pasteLocalToRemote,
         releaseHeld,
+        setInputEnabled,
         fitToView,
         setOrientation,
         send,
@@ -616,6 +635,7 @@ export function useDesktopSession(options: DesktopSessionOptions): DesktopSessio
         copyRemoteToLocal,
         pasteLocalToRemote,
         releaseHeld,
+        setInputEnabled,
         fitToView,
         setOrientation,
         send,

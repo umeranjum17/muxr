@@ -25,14 +25,15 @@ vi.mock('react-native', () => ({
 vi.mock('./native', async () => await import('./native.web'));
 
 class FakeElement extends EventTarget {
+    blurred = false;
     style: Record<string, string> = {};
     value = '';
     autocapitalize = '';
     height = 720;
     setAttribute(): void {}
     setPointerCapture(): void {}
-    focus(): void {}
-    blur(): void {}
+    focus(): void { this.blurred = false; }
+    blur(): void { this.blurred = true; }
     remove(): void {}
     appendChild(): void {}
     getBoundingClientRect() {
@@ -118,6 +119,7 @@ async function liveDesktop() {
     });
     const session = held as { current: DesktopSession };
     sessionIds.push(session.current.nativeId!);
+    session.current.setInputEnabled(true);
     const channel = {
         readyState: 'open',
         bufferedAmount: 0,
@@ -464,6 +466,58 @@ describe('the pointer above the keyboard', () => {
         vi.advanceTimersByTime(180);
         expect(phase).toBe(1);
     });
+});
+
+it('drops control and stale keyboard input while disarmed, then resumes only after arming', async () => {
+    vi.useFakeTimers();
+    const { session, video, keyboard, reply } = await liveDesktop();
+    touch(video, 'pointerdown', 100, 100);
+    touch(video, 'pointerup', 100, 100);
+    expect(sent).toEqual(click(100, 100, 1));
+    sent = [];
+    session.current.setInputEnabled(false);
+    expect(sent).toEqual([{ kind: 'release_all' }]);
+    expect(keyboard.blurred).toBe(true);
+    sent = [];
+    touch(video, 'pointerdown', 110, 110);
+    touch(video, 'pointerup', 110, 110);
+    dispatch(video, 'wheel', { clientX: 100, clientY: 100, ctrlKey: false, deltaMode: 0, deltaX: 0, deltaY: 100 });
+    dispatch(keyboard, 'keydown', { key: 'Enter', code: 'Enter', ctrlKey: false, shiftKey: false, metaKey: false, altKey: false });
+    dispatch(keyboard, 'beforeinput', { inputType: 'insertText', data: 'x' });
+    dispatch(keyboard, 'compositionstart', {});
+    dispatch(keyboard, 'compositionupdate', { data: 'x' });
+    dispatch(keyboard, 'compositionend', { data: 'x' });
+    session.current.send({ kind: 'key', name: 'Escape', down: true });
+    session.current.pressKey('Enter')();
+    await expect(session.current.copyRemoteToLocal()).rejects.toThrow('Desktop control is off.');
+    await expect(session.current.pasteLocalToRemote('phone')).rejects.toThrow('Desktop control is off.');
+    nativeDesklink.sendControl(session.current.nativeId!, JSON.stringify({ kind: 'clipboard_read', request: 'blocked' }));
+    nativeDesklink.sendControl(session.current.nativeId!, JSON.stringify({ kind: 'clipboard_write', request: 'blocked', text: 'phone' }));
+    expect(sent).toEqual([]);
+    session.current.releaseHeld();
+    expect(sent).toEqual([{ kind: 'release_all' }]);
+    sent = [];
+    session.current.setInputEnabled(true);
+    touch(video, 'pointerdown', 120, 120);
+    touch(video, 'pointerup', 120, 120);
+    touch(video, 'pointerdown', 124, 122);
+    touch(video, 'pointerup', 124, 122);
+    expect(sent).toEqual([...click(120, 120, 1), ...click(120, 120, 1)]);
+    sent = [];
+    touch(video, 'pointerdown', 200, 200);
+    touch(video, 'pointerup', 200, 200);
+    dispatch(keyboard, 'beforeinput', { inputType: 'insertText', data: 'z' });
+    expect(sent).toEqual([...click(200, 200, 1), { kind: 'text', text: 'z' }]);
+    const read = session.current.copyRemoteToLocal();
+    const readRequest = sent.at(-1)!.request as string;
+    expect(sent.at(-1)).toEqual({ kind: 'clipboard_read', request: readRequest });
+    reply({ kind: 'clipboard', request: readRequest, text: 'desktop' });
+    await expect(read).resolves.toEqual({ text: 'desktop', truncated: false });
+    const write = session.current.pasteLocalToRemote('phone');
+    const writeRequest = sent.at(-1)!.request as string;
+    expect(sent.at(-1)).toEqual({ kind: 'clipboard_write', request: writeRequest, text: 'phone' });
+    reply({ kind: 'clipboard', request: writeRequest, text: '' });
+    await expect(write).resolves.toBeUndefined();
 });
 
 describe('the keys a phone keyboard lacks', () => {
