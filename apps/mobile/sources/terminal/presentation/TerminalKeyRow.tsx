@@ -1,9 +1,11 @@
 import * as React from 'react';
-import { Pressable, ScrollView, Text } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
+import { withAlpha } from '@/components/ui';
 import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
 import { BUILTIN_KEY_CATALOG, modifiedSend, resolveKeyRow, type RowEntry, type TerminalKey, type TerminalKeyAction } from '../domain/keyRow';
 
@@ -24,6 +26,10 @@ const ACTION_ICONS: Record<TerminalKeyAction, React.ComponentProps<typeof Ionico
 /** An icon carries less ink than a mono glyph, so it is drawn larger to weigh
  *  the same beside one. */
 const KEY_ICON_SIZE = 18;
+/** The row's trailing inset, and the fade drawn over it: a key running off
+ *  the edge dissolves into the chrome instead of being cut through its glyph,
+ *  and at the end of the row the fade covers only this empty inset. */
+const TRAILING_EDGE = 18;
 
 // Sticky modifiers: tap = applies to the next key, tap again =
 // locked until tapped once more. A touchscreen makes hold-and-reach a
@@ -108,14 +114,15 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
         stopRepeat();
         onEdit?.();
     }, [stopRepeat, onEdit]);
+    const chrome = theme.colors.terminalChrome.chrome;
     return (
-        <>
+        <View>
             <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
                 style={{ flexGrow: 0, maxHeight: 36 }}
-                contentContainerStyle={{ alignItems: 'center', gap: 10, paddingLeft: 8, paddingRight: 18, paddingVertical: 0 }}
+                contentContainerStyle={{ alignItems: 'center', gap: 10, paddingLeft: 8, paddingRight: TRAILING_EDGE, paddingVertical: 0 }}
             >
             <Pressable
                 onPress={() => { hapticsSelection(); applyMods(cycle(ctrlRef.current), shiftRef.current); }}
@@ -175,7 +182,17 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
             })}
             {children}
             </ScrollView>
-
-        </>
+            {/* The live row sits on the terminal chrome; the editor's preview
+                (`entries`) sits on its own sheet and keeps a plain edge. */}
+            {entries === undefined && (
+                <LinearGradient
+                    pointerEvents="none"
+                    colors={[withAlpha(chrome, 0), chrome]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: TRAILING_EDGE }}
+                />
+            )}
+        </View>
     );
 });
