@@ -239,6 +239,7 @@ export function startHost(options: HostOptions): Host {
             unsubscribeMachine?.();
             link?.close();
             await desktop.closeAll();
+            desktop.stopVirtualDisplay();
             await source.dispose();
         },
     };

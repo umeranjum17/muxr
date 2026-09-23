@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -344,8 +344,8 @@ describe('desktop sessions, host side', () => {
             const foreign = new DesktopSessions(options, { XDG_RUNTIME_DIR: directory }, directory);
             hosts.push(foreign);
             expect(await foreign.capabilities()).toMatchObject({ available: true, input: false });
-            await foreign.open({ permissions: ['view'] });
-            expect(JSON.parse(readFileSync(log, 'utf8').trim().split('\n').find((line) => JSON.parse(line).method === 'session.open')!).params.source).toBeUndefined();
+            // Another account's display is not this host's screen, and there is nothing else to show.
+            await expect(foreign.open({ permissions: ['view'] })).rejects.toMatchObject({ code: 'no-screen' });
 
             const explicit = new DesktopSessions(options, { DISPLAY: ':88' }, directory);
             hosts.push(explicit);
@@ -364,7 +364,7 @@ describe('desktop sessions, host side', () => {
                 .map((line) => JSON.parse(line) as { method: string; params: { source?: unknown } })
                 .filter((request) => request.method === 'session.open')
                 .map((request) => request.params.source);
-            expect(sources).toEqual([undefined, { kind: 'x11', display: ':88' }, { kind: 'x11', display: ':99' }, { kind: 'x11', display: ':0' }]);
+            expect(sources).toEqual([{ kind: 'x11', display: ':88' }, { kind: 'x11', display: ':99' }, { kind: 'x11', display: ':0' }]);
         } finally {
             hostUid.mockRestore();
             for (const host of hosts) await host.closeAll();
@@ -383,7 +383,7 @@ describe('desktop sessions, host side', () => {
         const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [script, log] }, { XDG_RUNTIME_DIR: directory }, directory);
         try {
             expect(await desktop.capabilities()).toMatchObject({ input: false, clipboard: true });
-            await desktop.open({ permissions: ['view'] });
+            await expect(desktop.open({ permissions: ['view'] })).rejects.toMatchObject({ code: 'no-screen' });
             await new Promise<void>((resolve, reject) => {
                 socket.once('error', reject);
                 socket.listen(join(directory, 'X77'), resolve);
@@ -397,10 +397,62 @@ describe('desktop sessions, host side', () => {
 
             await new Promise<void>((resolve) => socket.close(() => resolve()));
             expect(await desktop.capabilities()).toMatchObject({ input: false, clipboard: true });
-            await expect(desktop.open({ permissions: ['view', 'control'] })).rejects.toMatchObject({ code: 'input-unavailable' });
+            await expect(desktop.open({ permissions: ['view', 'control'] })).rejects.toMatchObject({ code: 'no-screen' });
         } finally {
             await desktop.closeAll();
             if (socket.listening) await new Promise<void>((resolve) => socket.close(() => resolve()));
+            rmSync(directory, { recursive: true, force: true });
+        }
+    }, 20_000);
+
+    it('gives a server without a screen its own display, or says what to install', async () => {
+        // Outside the package, whose ESM scope would take the stand-in for a module.
+        const directory = mkdtempSync(join(tmpdir(), 'v-'));
+        const bin = join(directory, 'bin');
+        const nodeBin = join(directory, 'node');
+        const sockets = join(directory, 'x');
+        const runtime = join(directory, 'run');
+        for (const path of [bin, nodeBin, sockets, runtime]) mkdirSync(path);
+        // Only node on PATH, so a real Xvfb on this machine is never found.
+        symlinkSync(process.execPath, join(nodeBin, 'node'));
+        const script = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(script, STUB);
+        writeFileSync(log, '');
+        // A stand-in Xvfb: opens its display's socket and records each start.
+        writeFileSync(join(bin, 'Xvfb'), `#!/usr/bin/env node
+const { createServer } = require('node:net'), { appendFileSync, writeFileSync } = require('node:fs');
+const number = process.argv[2].slice(1);
+appendFileSync(${JSON.stringify(join(directory, 'starts'))}, number + '\\n');
+writeFileSync(${JSON.stringify(join(directory, 'pid'))}, String(process.pid));
+createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
+`);
+        chmodSync(join(bin, 'Xvfb'), 0o755);
+        const server = { XDG_RUNTIME_DIR: runtime, PATH: nodeBin };
+        const opened = () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> })
+            .filter((request) => request.method === 'session.open').map((request) => request.params.source);
+        try {
+            const bare = new DesktopSessions({ enginePath: process.execPath, engineArguments: [script, log] }, server, sockets);
+            await expect(bare.open({ permissions: ['view', 'control'] })).rejects.toMatchObject({ code: 'no-screen' });
+            expect(opened()).toEqual([]);
+
+            const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [script, log] }, { ...server, PATH: `${bin}:${server.PATH}` }, sockets);
+            await desktop.open({ permissions: ['view', 'control'] });
+            await desktop.closeAll();
+            // Killed outright, as a reboot or a crash would: the next open starts it again.
+            process.kill(Number(readFileSync(join(directory, 'pid'), 'utf8')), 'SIGKILL');
+            await vi.waitFor(() => expect(() => process.kill(Number(readFileSync(join(directory, 'pid'), 'utf8')), 0)).toThrow());
+            await desktop.open({ permissions: ['view', 'control'] });
+            await desktop.closeAll();
+            // Started twice, on the same free display number both times.
+            const starts = readFileSync(join(directory, 'starts'), 'utf8').trim().split('\n');
+            expect(starts).toHaveLength(2);
+            expect(starts[1]).toBe(starts[0]);
+            expect(opened()).toEqual(starts.map((number) => ({ kind: 'x11', display: `:${number}` })));
+
+            desktop.stopVirtualDisplay();
+            await vi.waitFor(() => expect(existsSync(join(sockets, `X${starts[0]}`))).toBe(false));
+        } finally {
             rmSync(directory, { recursive: true, force: true });
         }
     }, 20_000);

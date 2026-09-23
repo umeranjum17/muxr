@@ -68,7 +68,7 @@ vi.mock('@desklink/react-native', () => ({
     },
 }));
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
-vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }));
+vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}), mono: () => ({}) } }));
 vi.mock('@/components/ui', () => ({ ui: { radius: { control: 8 } } }));
 vi.mock('@/catalog', () => ({ sync: { request: async () => ({ clipboard: available }) } }));
 vi.mock('@/catalog/store', () => ({ useLocalSettingMutable: () => [openedBefore, (value: boolean) => { openedBefore = value; }], useMachine: () => null }));

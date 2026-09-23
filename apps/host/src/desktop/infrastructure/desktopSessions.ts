@@ -7,6 +7,7 @@ import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfa
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
 import { PortalGrant } from './portalGrant.js';
+import { VirtualDisplay } from './virtualDisplay.js';
 
 /**
  * Which desktop this host offers.
@@ -49,6 +50,17 @@ function waylandSession(env: NodeJS.ProcessEnv): boolean {
     } catch {
         return false;
     }
+}
+
+/** Nothing set, no Wayland session and no DISPLAY: a server, whose screen, if any, the host finds or starts. */
+function headless(env: NodeJS.ProcessEnv): boolean {
+    const kind = env.MUXR_DESKTOP_SOURCE?.trim();
+    return (kind === undefined || kind === '') && !waylandSession(env) && !env.DISPLAY?.trim();
+}
+
+/** A headless machine with no X display at all: a server without a screen. */
+function screenless(env: NodeJS.ProcessEnv, x11SocketDirectory: string): boolean {
+    return headless(env) && firstXDisplay(x11SocketDirectory) === undefined;
 }
 
 function firstXDisplay(directory: string): string | undefined {
@@ -112,6 +124,7 @@ const DESKTOP_SESSION_LEASE_SECONDS = 3600;
 const ENGINE_REQUEST_TIMEOUT_MS = 15_000;
 
 const UNAVAILABLE_INPUT = 'This computer cannot inject input, so there is nothing to control.';
+const NO_SCREEN = 'This computer has no screen to share, and Xvfb is not installed to give it one.';
 
 /**
  * Host-side owner of the desktop engine.
@@ -133,11 +146,23 @@ export class DesktopSessions {
 
     private readonly environment: NodeJS.ProcessEnv;
     private readonly portalGrant: PortalGrant | undefined;
+    private readonly virtualDisplay: VirtualDisplay;
 
     constructor(options: DesktopEngineOptions = {}, environment: NodeJS.ProcessEnv = process.env, private readonly x11SocketDirectory = '/tmp/.X11-unix') {
         this.options = options;
         this.environment = environment;
         this.portalGrant = options.stateRoot === undefined ? undefined : new PortalGrant(options.stateRoot);
+        this.virtualDisplay = new VirtualDisplay(environment, x11SocketDirectory);
+    }
+
+    /** Stop the screen this host started, if any; the host calls this as it stops. */
+    stopVirtualDisplay(): void {
+        this.virtualDisplay.stop();
+    }
+
+    /** A server without a screen that this host can give one. */
+    private startsOwnDisplay(): boolean {
+        return screenless(this.environment, this.x11SocketDirectory) && this.virtualDisplay.installed();
     }
 
     async capabilities(): Promise<DesktopCapabilities> {
@@ -159,7 +184,8 @@ export class DesktopSessions {
             // The engine's input probe only knows about uinput; the X11 backend
             // injects through XTest and needs none, so the host's selected
             // source is the only side that can answer for that machine.
-            const x11 = configuredSource(this.environment, this.x11SocketDirectory)?.kind === 'x11';
+            this.virtualDisplay.reap();
+            const x11 = configuredSource(this.environment, this.x11SocketDirectory)?.kind === 'x11' || this.startsOwnDisplay();
             return {
                 available: true,
                 input: x11 || (reported.input.pointer && reported.input.keyboard),
@@ -188,6 +214,10 @@ export class DesktopSessions {
         loopbackTcp?: boolean;
     }, owner?: { connectionId: string; isConnected: () => boolean }): Promise<{ desktopId: string; generation: number; geometry: DesktopSurfaceGeometry; source: LiveSession['source'] }> {
         if (owner !== undefined && !owner.isConnected()) throw new EngineRefused('session', 'the requesting phone disconnected');
+        // Before the engine: on a bare server its libraries are missing too, and
+        // the one step that fixes both is the one this refusal carries.
+        this.virtualDisplay.reap();
+        if (screenless(this.environment, this.x11SocketDirectory) && !this.virtualDisplay.installed()) throw new EngineRefused('no-screen', NO_SCREEN);
         const capabilities = await this.capabilities();
         if (!capabilities.available) {
             throw new EngineRefused('desktop-unavailable', capabilities.unavailableReason ?? 'the desktop engine is unavailable');
@@ -203,7 +233,14 @@ export class DesktopSessions {
         if (client === null) {
             throw new EngineRefused('desktop-unavailable', this.startFailure ?? this.missingEngineReason());
         }
-        const source = configuredSource(this.environment, this.x11SocketDirectory);
+        let source = configuredSource(this.environment, this.x11SocketDirectory);
+        if (source === undefined && this.startsOwnDisplay()) {
+            try {
+                source = { kind: 'x11', display: await this.virtualDisplay.ensure() };
+            } catch (error) {
+                throw new EngineRefused('desktop-unavailable', error instanceof Error ? error.message : 'the virtual screen did not start');
+            }
+        }
         let restoreToken: string | undefined;
         if (source?.kind !== 'x11') {
             try {
@@ -425,6 +462,10 @@ export class DesktopSessions {
                             }
                         },
                     },
+                    // The engine reaches this host's own screen with its cookie. A
+                    // headless host may start that screen after the engine, so
+                    // the engine always carries it there.
+                    headless(this.environment) ? { ...process.env, XAUTHORITY: this.virtualDisplay.authorityFile } : process.env,
                 );
                 this.client = client;
                 this.startFailure = null;

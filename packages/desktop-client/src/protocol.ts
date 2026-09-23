@@ -99,6 +99,8 @@ export type SessionFailure =
     | { code: 'permission'; message: string }
     /** Nobody approved the desktop's own screen-sharing prompt in time. */
     | { code: 'consent'; message: string }
+    /** The computer has no screen at all and cannot start one (a server without Xvfb). */
+    | { code: 'no-screen'; message: string }
     | { code: 'unsupported-codec'; message: string }
     | { code: 'incompatible-version'; message: string }
     | { code: 'source-changed'; message: string }
