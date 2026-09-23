@@ -221,16 +221,17 @@ Render, replace, replay and delete for RGBA all pass at runtime on the current h
 - `apps/mobile/modules/voice-overlay/ios/VoiceOverlayModule.swift` — Unit 2, Mac.
 - `HerdLiveActivity` target, attributes, widget, config plugin, `app.config.js` — Mac.
 - Terminal sources and signing configuration — Units 4 and 5, opus-verification, separate branch.
-- `KernelNotifications.tsx` — unchanged, and should stay unchanged unless evidence requires it.
+- `KernelNotifications.tsx` — shared bridge driver; later Android alert-focus work also changed it.
 
 ## Correction carried from the original inventory
 
 The first inventory claimed iOS receives no local session notifications. **That was wrong. Local
 lifecycle notifications already exist on iOS.** `catalog/application/sync.ts`
-`presentPendingLifecycleEvents` (`:425-460`) schedules on every non-web platform including iOS, and
-Android's `scheduleSessionNotification` returns early as well. The iOS skip at `:414` is in
-`applyAttentionCatalog`, a fallback used only when the lifecycle catalog is unavailable. No
-notification-delivery change should be made on the strength of the withdrawn claim.
+`presentPendingLifecycleEvents` posts on non-web platforms including iOS; Android's
+`scheduleSessionNotification` fallback returns early because native owns its session alerts.
+The iOS skip in `applyAttentionCatalog` applies only to that legacy fallback when the lifecycle
+catalog is unavailable. No notification-delivery change should be made on the strength of the
+withdrawn claim.
 
 ## Status
 

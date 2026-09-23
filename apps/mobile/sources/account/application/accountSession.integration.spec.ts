@@ -116,6 +116,7 @@ vi.mock('../../catalog/application/storage', () => ({
         getState: () => ({
             sessions: harness.sessions,
             sessionsLoaded: false,
+            lifecycleEvents: [],
             setSocketStatus: (status: string) => { harness.socketStatus = status; },
             setSocketError: (message: string | null) => { harness.socketError = message; },
             applyMachines: (machines: unknown[], replace = false) => {

@@ -25,7 +25,6 @@ import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../i
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
 import { MuxrClient } from '@/pairing/client';
-import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
 import {
     DEFAULT_CONNECTION,
@@ -43,6 +42,8 @@ import {
 import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
 import type { SessionInfo } from '@muxr/contract';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
+// Its own entry, like wakeAndReport: it pulls in expo-notifications, which the barrel keeps out.
+import { alertAgent, dismissAgentAlert } from '@/watch/lifecycleAlert';
 import { promptAgent } from './promptAgent';
 import type { Settings } from './settings';
 import { lifecycleNotificationCopy } from '@/herd';
@@ -395,6 +396,9 @@ class MuxrSync {
 
         if (event.type === 'lifecycle.update') {
             storage.getState().applyLifecycleEvent(event.event);
+            if (event.event.state !== 'blocked' && event.event.state !== 'failed') {
+                dismissAgentAlert(event.event.sessionId);
+            }
             void this.presentPendingLifecycleEvents();
         }
 
@@ -412,6 +416,7 @@ class MuxrSync {
             // A queued frame must never resurrect a session the host retired.
             this.pendingSessionInfo.delete(sessionId);
             storage.getState().deleteSession(sessionId);
+            dismissAgentAlert(sessionId);
         }
 
         // Only creation and removal change topology. Metadata/output updates are
@@ -421,14 +426,14 @@ class MuxrSync {
         }
     }
 
-    /**
-     * One source of truth for the inbox, the badge and the alert. A session that
-     * newly needs a human is exactly what is worth interrupting for, so the
-     * notification fires off the set entering, not off a separate event.
-     */
+    /** Keep the legacy attention catalog's local alerts in step with its entries. */
     private applyAttentionCatalog(entries: readonly AttentionEntry[]): void {
         const previous = new Set(storage.getState().attentionEntries.map((entry) => entry.sessionId));
         storage.getState().applyAttentionCatalog([...entries]);
+        if (!storage.getState().lifecycleCatalogAvailable) {
+            const current = new Set(entries.map((entry) => entry.sessionId));
+            for (const sessionId of previous) if (!current.has(sessionId)) dismissAgentAlert(sessionId);
+        }
         if (storage.getState().lifecycleCatalogAvailable) return;
         if (AppState.currentState === 'active') return;
         for (const entry of entries) {
@@ -447,33 +452,24 @@ class MuxrSync {
 
     private async presentPendingLifecycleEvents(): Promise<void> {
         const pending = [...storage.getState().pendingLifecycleEvents]
-            .sort((left, right) => {
-                const leftDone = left.state === 'done' ? 1 : 0;
-                const rightDone = right.state === 'done' ? 1 : 0;
-                return leftDone - rightDone;
-            });
+            .sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
         for (const event of pending) {
             if (this.presentingLifecycleIds.has(event.eventId)) continue;
+            // Passes overlap when frames arrive together. The list above is this
+            // pass's snapshot; another pass may have presented the event since.
+            if (!storage.getState().pendingLifecycleEvents.some((entry) => entry.eventId === event.eventId)) continue;
             this.presentingLifecycleIds.add(event.eventId);
             try {
-                if (!lifecycleNotificationAllowed(
-                    storage.getState().localSettings.lifecycleNotificationLevel,
+                const current = storage.getState();
+                const latest = current.lifecycleEvents.find((entry) => entry.sessionId === event.sessionId);
+                if (latest?.eventId !== event.eventId || !lifecycleNotificationAllowed(
+                    current.localSettings.lifecycleNotificationLevel,
                     event.state,
                 )) {
-                    // Suppressed history stays claimed: enabling later must not release backlog alerts.
                     storage.getState().markLifecyclePresented(event.eventId);
                     continue;
                 }
-                if (Platform.OS !== 'web') {
-                    await Notifications.scheduleNotificationAsync({
-                        content: {
-                            title: 'muxr',
-                            body: lifecycleNotificationCopy(event),
-                            data: { url: `/session/${encodeURIComponent(event.sessionId)}` },
-                        },
-                        trigger: null,
-                    });
-                }
+                await alertAgent(event.sessionId, 'muxr', lifecycleNotificationCopy(event));
                 storage.getState().markLifecyclePresented(event.eventId);
             } catch (error) {
                 console.error('lifecycle notification failed', error);
@@ -494,15 +490,7 @@ class MuxrSync {
         // second notification for every transition.
         if (Platform.OS === 'android') return;
         try {
-            const title = currentAgentName(sessionId);
-            await Notifications.scheduleNotificationAsync({
-                content: {
-                    title,
-                    body,
-                    data: { url: `/session/${encodeURIComponent(sessionId)}` },
-                },
-                trigger: null,
-            });
+            await alertAgent(sessionId, currentAgentName(sessionId), body);
         } catch (error) {
             console.error('session notification failed', sessionId, error);
         }
@@ -566,6 +554,7 @@ class MuxrSync {
         }
         const client = this.ensureClient();
         if (!client.isLive()) await waitUntilClientOpen(client, 5000);
+        const lifecycleBefore = new Set(storage.getState().lifecycleEvents.map((event) => event.eventId));
         const [machines, sessions, attention, lifecycle, tree] = await Promise.all([
             client.request('machines.list', {}),
             client.request('session.list', {}),
@@ -610,7 +599,8 @@ class MuxrSync {
         storage.getState().markSessionsLoaded();
         storage.getState().applyAttentionCatalog(attention.entries);
         if (lifecycle !== undefined) {
-            storage.getState().applyLifecycleCatalog(lifecycle);
+            const liveEvents = storage.getState().lifecycleEvents.filter((event) => !lifecycleBefore.has(event.eventId));
+            storage.getState().applyLifecycleCatalog({ ...lifecycle, events: [...liveEvents, ...lifecycle.events] });
             void this.presentPendingLifecycleEvents();
         }
     }

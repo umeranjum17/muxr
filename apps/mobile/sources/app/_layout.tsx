@@ -38,6 +38,7 @@ import { useTauriZoom } from '@/hooks/useTauriZoom';
 import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
 import { KernelNotifications } from '@/herd/ui';
+import { notificationResponseKey } from '@/watch/lifecycleAlert';
 import { acknowledgeLifecyclePush } from '@/utils/nativePushNotifications';
 import { realtimeAppController } from '@/conversation/application/realtimeAppControl';
 
@@ -347,7 +348,7 @@ export default function RootLayout() {
             return;
         }
 
-        const responseId = response.notification.request.identifier;
+        const responseId = notificationResponseKey(response.notification);
         if (handledNotificationIds.current.has(responseId)) {
             console.log(`[PUSH ROUTING] Duplicate notification response ignored: ${responseId}`);
             return;

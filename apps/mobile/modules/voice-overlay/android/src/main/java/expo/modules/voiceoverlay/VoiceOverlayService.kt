@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioManager
+import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
@@ -51,7 +52,10 @@ class VoiceOverlayService : Service() {
     private var herdNames = ""
     private var herdEventKey = ""
     private var lastAttentionKeys = emptySet<String>()
+    private var lastFocusedRoute: String? = null
     private var lastFinishedKey = ""
+    private var pendingAttentionKeys = emptySet<String>()
+    private var pendingFinishedIds = emptySet<String>()
     private var pendingEventAlert = false
     /**
      * True while the app wants the herd link kept alive: the service stays
@@ -101,35 +105,77 @@ class VoiceOverlayService : Service() {
       state: String,
       activeVoiceName: String,
       muted: Boolean,
+      agents: List<Map<String, Any?>>,
     ): Boolean {
       val appContext = context.applicationContext
       mainHandler.post {
-        herdMode = mode
-        herdCount = count.coerceAtLeast(0)
-        herdNames = names.trim().replace(Regex("\\s+"), " ").take(160)
-        herdName = herdNames.substringBefore(',').trim().take(80)
-        herdEventKey = eventKey.trim().take(200)
-        val newEventAlert = when (mode) {
+        val focusedRoute = agents.firstOrNull { it["focused"] == true }?.get("id") as? String
+        val focusChanged = focusedRoute != lastFocusedRoute
+        lastFocusedRoute = focusedRoute
+        val visible = agents.filter { it["id"] != focusedRoute }
+        val blocked = visible.filter { it["status"] == "blocked" }
+        val working = visible.filter { it["status"] == "working" || it["status"] == "starting" }
+        val finishedIds = if (mode == "finished") eventKey.removePrefix("finished:").split(",")
+          .filter(String::isNotBlank).map(Uri::decode).toSet() else emptySet()
+        val finished = visible.filter { pane -> finishedIds.any { it == pane["id"] } }
+        val focusedInEvent = focusedRoute != null && eventKey.substringAfter(':').split(',')
+          .any { it.isNotBlank() && Uri.decode(it) == focusedRoute }
+        val suppressFocused = when (mode) {
+          "attention" -> focusedInEvent || agents.any { it["id"] == focusedRoute && it["status"] == "blocked" }
+          "working" -> focusedInEvent || agents.any { it["id"] == focusedRoute && (it["status"] == "working" || it["status"] == "starting") }
+          "finished" -> focusedRoute != null && focusedRoute in finishedIds
+          else -> false
+        }
+        val shown = when (mode) {
+          "attention" -> blocked.ifEmpty { working }
+          "working" -> working
+          "finished" -> finished.ifEmpty { working }
+          else -> emptyList()
+        }
+        herdMode = if (!suppressFocused) mode else when {
+          shown.isEmpty() -> if (mode == "finished") "idle" else "working"
+          mode == "finished" && finished.isNotEmpty() -> "finished"
+          mode == "attention" && blocked.isNotEmpty() -> "attention"
+          else -> "working"
+        }
+        herdCount = if (suppressFocused) shown.size else count.coerceAtLeast(0)
+        herdNames = (if (suppressFocused) shown.joinToString(", ") { it["name"] as? String ?: "" } else names)
+          .trim().replace(Regex("\\s+"), " ").take(160)
+        herdName = (if (suppressFocused) shown.firstOrNull()?.get("name") as? String else herdNames.substringBefore(','))
+          .orEmpty().trim().take(80)
+        herdEventKey = (if (!suppressFocused) eventKey else when (herdMode) {
+          "attention", "finished" -> herdMode + ":" + eventKey.substringAfter(':').split(",")
+            .filter { it.isNotBlank() && Uri.decode(it) != focusedRoute }.joinToString(",")
+          else -> "working:" + shown.joinToString(",") { it["id"].toString() }
+        }).trim().take(200)
+        when (mode) {
           "attention" -> {
-            val current = herdEventKey.removePrefix("attention:").split(",").filter(String::isNotBlank).toSet()
-            val alert = current.any { it !in lastAttentionKeys }
+            val current = eventKey.removePrefix("attention:").split(",").filter(String::isNotBlank).toSet()
+            pendingAttentionKeys = ((pendingAttentionKeys intersect current) + (current - lastAttentionKeys))
+              .filterNot { Uri.decode(it) == focusedRoute }.toSet()
+            pendingFinishedIds = emptySet()
             lastAttentionKeys = current
             lastFinishedKey = ""
-            alert
           }
           "finished" -> {
+            pendingFinishedIds = (if (eventKey != lastFinishedKey) finishedIds else pendingFinishedIds intersect finishedIds)
+              .filterNot { it == focusedRoute }.toSet()
+            pendingAttentionKeys = emptySet()
             lastAttentionKeys = emptySet()
-            val alert = herdEventKey.isNotBlank() && herdEventKey != lastFinishedKey
-            lastFinishedKey = herdEventKey
-            alert
+            lastFinishedKey = eventKey
           }
           else -> {
+            pendingAttentionKeys = emptySet()
+            pendingFinishedIds = emptySet()
             lastAttentionKeys = emptySet()
             lastFinishedKey = ""
-            false
           }
         }
-        pendingEventAlert = if (mode == "attention" || mode == "finished") pendingEventAlert || newEventAlert else false
+        pendingEventAlert = when (herdMode) {
+          "attention" -> pendingAttentionKeys.isNotEmpty()
+          "finished" -> pendingFinishedIds.isNotEmpty()
+          else -> false
+        }
         voiceState = state
         voiceName = activeVoiceName.trim().take(80)
         voiceMuted = muted
@@ -137,7 +183,7 @@ class VoiceOverlayService : Service() {
         if (state == "disconnected") voiceStartedAt = 0L
 
         if (mode != "working" && mode != "attention") herdKeepalive = false
-        doRequestPost(appContext)
+        doRequestPost(appContext, focusChanged)
       }
       return true
     }
@@ -157,11 +203,15 @@ class VoiceOverlayService : Service() {
       }
     }
 
-    private fun doRequestPost(context: Context) {
+    private fun doRequestPost(context: Context, immediate: Boolean = false) {
+      if (immediate) {
+        pendingFlush?.let(mainHandler::removeCallbacks)
+        pendingFlush = null
+      }
       val signature = visibleSignature()
       if (signature == lastPostedSignature) return
       val wait = lastPostAt + MIN_POST_INTERVAL_MS - SystemClock.uptimeMillis()
-      if (wait > 0) {
+      if (!immediate && wait > 0) {
         // One trailing flush at most; it re-reads the latest state when it
         // fires, and clearNotification can cancel it.
         if (pendingFlush != null) return
@@ -198,7 +248,10 @@ class VoiceOverlayService : Service() {
         lastPostedSignature = ""
         lastPostAt = 0L
         pendingEventAlert = false
+        pendingAttentionKeys = emptySet()
+        pendingFinishedIds = emptySet()
         lastAttentionKeys = emptySet()
+        lastFocusedRoute = null
         lastFinishedKey = ""
         manager(appContext).run {
           cancel(HERD_NOTIFICATION_ID)
@@ -274,7 +327,7 @@ class VoiceOverlayService : Service() {
       }
       return when (herdMode) {
         "attention" -> "Needs"
-        "working" -> if (herdCount in 1..9) "$herdCount busy" else "Busy"
+        "working" -> if (herdCount == 0) null else if (herdCount in 1..9) "$herdCount busy" else "Busy"
         "offline" -> "Offline"
         "connecting" -> "Linking"
         else -> null
@@ -291,7 +344,7 @@ class VoiceOverlayService : Service() {
 
     private fun herdTitle(): String = when (herdMode) {
       "attention" -> if (herdCount == 1) "${herdName.ifBlank { "An agent" }} needs you" else "$herdCount agents need you"
-      "working" -> if (herdCount == 1) "${herdName.ifBlank { "An agent" }} is working" else "$herdCount agents working"
+      "working" -> if (herdCount == 0) "muxr" else if (herdCount == 1) "${herdName.ifBlank { "An agent" }} is working" else "$herdCount agents working"
       "finished" -> if (herdCount == 1) "${herdName.ifBlank { "An agent" }} finished" else "$herdCount agents finished"
       "offline" -> "Host unreachable"
       "connecting" -> "Connecting to host"
@@ -300,7 +353,7 @@ class VoiceOverlayService : Service() {
 
     private fun herdBody(): String = when (herdMode) {
       "attention" -> "Open muxr to respond"
-      "working" -> if (herdCount > 1 && herdNames.isNotBlank()) herdNames else "Work in progress"
+      "working" -> if (herdCount == 0) "Keeping agents connected" else if (herdCount > 1 && herdNames.isNotBlank()) herdNames else "Work in progress"
       "finished" -> if (herdCount > 1 && herdNames.isNotBlank()) herdNames else "Work completed"
       "offline" -> "Check the host or network connection"
       "connecting" -> "Reconnecting…"
@@ -309,7 +362,7 @@ class VoiceOverlayService : Service() {
 
     private fun publicHerdStatus(): String = when (herdMode) {
       "attention" -> if (herdCount == 1) "An agent needs you" else "$herdCount agents need you"
-      "working" -> if (herdCount == 1) "1 agent working" else "$herdCount agents working"
+      "working" -> if (herdCount == 0) "Agents connected" else if (herdCount == 1) "1 agent working" else "$herdCount agents working"
       "finished" -> if (herdCount == 1) "Work finished" else "$herdCount agents finished"
       "offline" -> "Host unreachable"
       "connecting" -> "Connecting to host"
@@ -376,6 +429,8 @@ class VoiceOverlayService : Service() {
       runCatching {
         manager(context).notify(HERD_NOTIFICATION_ID, buildNotification(context, false))
         pendingEventAlert = false
+        pendingAttentionKeys = emptySet()
+        pendingFinishedIds = emptySet()
       }.onFailure { Log.w("VoiceOverlay", "herd notification failed", it) }
     }
 
@@ -589,6 +644,8 @@ class VoiceOverlayService : Service() {
         startForeground(HERD_NOTIFICATION_ID, notification)
       }
       pendingEventAlert = false
+      pendingAttentionKeys = emptySet()
+      pendingFinishedIds = emptySet()
     }.onFailure {
       Log.w("VoiceOverlay", "herd foreground service refused", it)
       herdKeepalive = false
@@ -604,6 +661,8 @@ class VoiceOverlayService : Service() {
       } else if (herdMode == "working" || herdMode == "attention") {
         manager(this).notify(HERD_NOTIFICATION_ID, buildNotification(this, false))
         pendingEventAlert = false
+        pendingAttentionKeys = emptySet()
+        pendingFinishedIds = emptySet()
       } else {
         // A settled lifecycle is no longer a foreground-service reason. Remove
         // the ongoing card, replace it once with the dismissible completion,
@@ -613,6 +672,8 @@ class VoiceOverlayService : Service() {
         if (herdMode == "finished") {
           manager(this).notify(HERD_NOTIFICATION_ID, buildNotification(this, false))
           pendingEventAlert = false
+          pendingAttentionKeys = emptySet()
+          pendingFinishedIds = emptySet()
         } else {
           manager(this).cancel(HERD_NOTIFICATION_ID)
         }
