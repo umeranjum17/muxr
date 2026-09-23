@@ -6,14 +6,20 @@
 # capabilities probe once runtime libraries are present. Opens no portal,
 # captures nothing and creates no input device.
 #
-#   release/check-install.sh [tarball-dir]
+#   release/check-install.sh
 #
-# tarball-dir holds what release/pack.mjs --engine wrote (default:
-# dist-desklink/ at the repository root).
+# Reads the current version's two tarballs from dist-desklink/ at the
+# repository root.
 set -euo pipefail
+if [ "$#" -ne 0 ]; then echo 'usage: release/check-install.sh' >&2; exit 2; fi
 
 release="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-tarballs="$(cd "${1:-$(git -C "$release" rev-parse --show-toplevel)/dist-desklink}" && pwd)"
+root="$(git -C "$release" rev-parse --show-toplevel)"
+tarballs="$root/dist-desklink"
+version="$(node -p 'require(process.argv[1]).version' "$root/packages/desktop-host/package.json")"
+for tarball in "desklink-host-$version.tgz" "desklink-host-linux-x64-gnu-$version.tgz"; do
+    if [ ! -f "$tarballs/$tarball" ]; then echo "missing release tarball: $tarballs/$tarball" >&2; exit 1; fi
+done
 image=node:22-bookworm-slim@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9
 
 docker run --rm --platform linux/amd64 --volume "$tarballs:/tarballs:ro" "$image" bash -euo pipefail -c '
@@ -21,7 +27,14 @@ docker run --rm --platform linux/amd64 --volume "$tarballs:/tarballs:ro" "$image
 
     mkdir /project && cd /project
     npm init -y >/dev/null
-    npm install --ignore-scripts --no-audit --no-fund /tarballs/*.tgz
+    npm install --ignore-scripts --no-audit --no-fund "/tarballs/desklink-host-$1.tgz" "/tarballs/desklink-host-linux-x64-gnu-$1.tgz"
+    node -e "
+        const { version: host } = require(\"@desklink/host/package.json\");
+        const { version: platform } = require(\"@desklink/host-linux-x64-gnu/package.json\");
+        if (host !== process.argv[1] || platform !== process.argv[1]) {
+            throw new Error(\"installed desktop packages do not match release \" + process.argv[1] + \": \" + host + \", \" + platform);
+        }
+    " "$1"
     ls -l node_modules/@desklink/host-linux-x64-gnu/desklink-host
     npx desklink-host path
 
@@ -53,4 +66,4 @@ docker run --rm --platform linux/amd64 --volume "$tarballs:/tarballs:ro" "$image
         await client.stop();
         console.log(JSON.stringify({ resolved: engine, capabilities }, null, 2));
     "
-'
+' bash "$version"

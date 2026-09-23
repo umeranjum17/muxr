@@ -239,13 +239,16 @@ glibc newer than 2.36, or if any crate's licence is not permissive
 `provenance.json` records the source commit, the pinned inputs and the
 executable's SHA-256.
 
-`pack.mjs` requires the verified engine output and writes both
-`desklink-host-<version>.tgz` and `desklink-host-linux-x64-gnu-<version>.tgz`
-to `dist-desklink/`; it cannot pack a host-only release and publishes nothing.
+The scripts use only the repository's `dist-desklink/` paths shown above; none
+accepts an alternate output or tarball directory. `pack.mjs` requires the
+verified engine output and replaces older desklink tarballs with the current
+`desklink-host-<version>.tgz` and `desklink-host-linux-x64-gnu-<version>.tgz`.
+It cannot pack a host-only release and publishes nothing.
 The package smoke instead uses `npm pack` on this checkout's host package as a
 registry stand-in, without Docker or a native build. `check-install.sh` installs
-both release tarballs into an empty project in a container
-with no Rust toolchain, no display and no `/dev/uinput`. It checks the typed
+only the current version's two tarballs into an empty project in a container
+with no Rust toolchain, no display and no `/dev/uinput`, and checks both
+installed versions. It checks the typed
 missing-library error before installing the system runtime libraries, then has
 the host package resolve the prebuilt engine, start it and answer the protocol
 handshake and a capabilities probe.

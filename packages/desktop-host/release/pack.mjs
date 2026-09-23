@@ -3,21 +3,21 @@
  * Pack this package's publishable tarballs. Publishes nothing: whoever releases
  * them runs `npm publish` by hand, platform package first.
  *
- *   node release/pack.mjs --engine <dir> [--out <dir>]
+ *   node release/pack.mjs --engine dist-desklink/engine-linux-x64-gnu
  *
- * `--engine` is the output of `release/build-engine.sh`. `--out` defaults to
+ * The engine comes from `release/build-engine.sh`; tarballs go to
  * `dist-desklink/` at the repository root. Compile the package (`tsc --build`) first.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const { values } = parseArgs({ options: { engine: { type: 'string' }, out: { type: 'string' } } });
-const out = resolve(values.out ?? join(execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: packageRoot, encoding: 'utf8' }).trim(), 'dist-desklink'));
+const { values } = parseArgs({ options: { engine: { type: 'string' } } });
+const out = join(execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: packageRoot, encoding: 'utf8' }).trim(), 'dist-desklink');
 const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
 if (!values.engine) throw new Error('engine output missing: pass --engine <dir> from release/build-engine.sh');
 const engine = resolve(values.engine);
@@ -69,7 +69,9 @@ writeJson(join(hostStage, 'package.json'), {
     ...manifest,
     optionalDependencies: { ...manifest.optionalDependencies, [platformName]: manifest.version },
 });
-pack(hostStage);
+for (const name of readdirSync(out)) {
+    if (name.startsWith('desklink-host-') && name.endsWith('.tgz')) rmSync(join(out, name));
+}
 
 const platformStage = join(stage, 'platform');
 mkdirSync(platformStage);
@@ -102,4 +104,5 @@ writeJson(join(platformStage, 'package.json'), {
     files: ['desklink-host', ...notices, 'provenance.json', 'NOTICE'],
 });
 pack(platformStage);
+pack(hostStage);
 rmSync(stage, { recursive: true, force: true });

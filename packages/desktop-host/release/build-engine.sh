@@ -3,16 +3,16 @@
 # pinned container of linux-x64-gnu.Dockerfile. Needs Docker with BuildKit and
 # network access; needs no Rust toolchain or system libraries on this machine.
 #
-#   release/build-engine.sh [output-dir]
+#   release/build-engine.sh
 #
 # Writes desklink-host, THIRD_PARTY_LICENSES.txt and provenance.json to
-# output-dir (default: dist-desklink/engine-linux-x64-gnu at the repository
-# root). Publishes nothing.
+# dist-desklink/engine-linux-x64-gnu at the repository root. Publishes nothing.
 set -euo pipefail
+if [ "$#" -ne 0 ]; then echo 'usage: release/build-engine.sh' >&2; exit 2; fi
 
 release="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 package="$(dirname "$release")"
-out="${1:-$(git -C "$package" rev-parse --show-toplevel)/dist-desklink/engine-linux-x64-gnu}"
+out="$(git -C "$package" rev-parse --show-toplevel)/dist-desklink/engine-linux-x64-gnu"
 commit="$(git -C "$package" rev-parse HEAD)"
 dirty=false
 if [ -n "$(git -C "$package" status --porcelain -- .)" ]; then dirty=true; fi
