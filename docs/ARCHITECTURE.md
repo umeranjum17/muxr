@@ -269,5 +269,5 @@ opaque `e2ee:v2` ciphertext. Terminal frames stay off replay on the separate
 
 - **Per-agent transcript adapters** stay out by design — the terminal is the source
   of truth.
-- **iOS-native push surface** (Live Activity, watch) is out of scope; Web Push covers
-  Android/desktop browsers and PWAs.
+- **Push-started or push-updated iOS Live Activities and watch delivery** are not
+  built. In-app Live Activities are implemented; see [iOS feature parity](specs/ios-feature-parity.md).

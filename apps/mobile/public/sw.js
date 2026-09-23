@@ -23,7 +23,9 @@ self.addEventListener('push', (event) => {
         try {
             const response = await (await caches.open('muxr-push-level')).match('/muxr-push-level');
             level = response ? await response.text() : null;
-        } catch {}
+        } catch {
+            // An unreadable cache is an unknown preference, not an opt-out.
+        }
         if (level === 'off' || (level === 'important' && payload.kind === 'done')) return;
         await self.registration.showNotification(title, {
             body,
