@@ -91,6 +91,11 @@ export const DEFAULT_CONNECTION: ConnectionSettings = {
 
 let memoryCache: ConnectionSettings | undefined;
 let hydrated = false;
+let onConnectionTargetChange: (() => Promise<void>) | undefined;
+
+export function registerConnectionTargetChange(listener: () => Promise<void>): void {
+    onConnectionTargetChange = listener;
+}
 
 export function isConnectionSettingsHydrated(): boolean {
     return hydrated;
@@ -199,8 +204,7 @@ export async function loadConnectionSettingsAsync(): Promise<ConnectionSettings>
 export async function saveConnectionSettings(settings: ConnectionSettings): Promise<void> {
     const previous = await loadConnectionSettingsAsync();
     if (previous.machineId !== settings.machineId || previous.mode !== settings.mode) {
-        const { clearArtifactDownloads } = await import('@/utils/artifactTransfer');
-        await clearArtifactDownloads();
+        await onConnectionTargetChange?.();
     }
     await writeRaw(JSON.stringify(settings));
     memoryCache = settings;

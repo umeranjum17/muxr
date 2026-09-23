@@ -13,6 +13,7 @@ import { storage } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { decodeBase64 } from '@/encryption/base64';
 import { artifactChunkHash } from '@/utils/artifactChunkHash';
+import { registerConnectionTargetChange } from '@/connection/connectionSettings';
 
 export type DownloadableArtifact = { id: string; name: string; mimeType: string; size: number; at?: number };
 
@@ -156,6 +157,8 @@ export async function clearArtifactDownloads(): Promise<void> {
     await clearPartialDownloads();
     useArtifactTransfers.setState({}, true);
 }
+
+registerConnectionTargetChange(clearArtifactDownloads);
 
 class MissingArtifactTime extends Error {}
 
