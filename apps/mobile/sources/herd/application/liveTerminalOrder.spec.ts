@@ -260,7 +260,7 @@ describe('agent lifecycle presentation', () => {
         expect(visibleActivityEventIds(rows, cards, { ...viewport, scrollX: 20 })).toEqual([]);
     });
 
-    it('pages the terminal swipe along the strip, stopping at active and two-minute-recent agents', () => {
+    it('pages the terminal swipe along the strip, stopping at active and two-minute-recent agents or at every agent', () => {
         const now = 300_000;
         const cards = [
             card('old', now - 120_001, 'done', 1),
@@ -269,8 +269,8 @@ describe('agent lifecycle presentation', () => {
             card('recent', now - 30_000, 'done', 4),
             card('blocked', now, 'blocked', 5),
         ];
-        const around = (id: string, from = cards) => {
-            const { previous, next } = agentSwipeNeighbours(from, id, now);
+        const around = (id: string, from = cards, scope: 'working' | 'all' = 'working') => {
+            const { previous, next } = agentSwipeNeighbours(from, id, scope, now);
             return [previous?.id, next?.id];
         };
 
@@ -281,6 +281,8 @@ describe('agent lifecycle presentation', () => {
         expect(around('recent', settled)).toEqual(['working', 'blocked']);
         expect(around('blocked', [...cards, card('starting', now, 'starting', 6)])).toEqual(['recent', 'starting']);
         expect(around('shell:1')).toEqual(['blocked', 'working']);
+        // Every agent: idle and long-finished agents are pages too.
+        expect(around('working', cards, 'all')).toEqual(['old', 'idle']);
 
         sharedLiveTerminalCards([]);
         const treeOnly = sharedLiveTerminalCards([
@@ -292,7 +294,7 @@ describe('agent lifecycle presentation', () => {
         ]);
         expect(treeOnly.map((item) => item.id)).toEqual(['first', 'second']);
         expect(joined.map((item) => item.id)).toEqual(['first', 'second']);
-        expect(agentSwipeNeighbours(joined, 'first', now).next?.id).toBe('second');
+        expect(agentSwipeNeighbours(joined, 'first', 'working', now).next?.id).toBe('second');
         sharedLiveTerminalCards([]);
     });
 });

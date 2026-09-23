@@ -7,6 +7,15 @@ export function clampFontIndex(index: number): number {
     return Math.max(0, Math.min(FONT_STEPS.length - 1, Math.trunc(index)));
 }
 
+/** The ladder step closest to a size a pinch has carried the text to. */
+export function nearestFontIndex(size: number): number {
+    let nearest = 0;
+    for (let index = 1; index < FONT_STEPS.length; index++) {
+        if (Math.abs(FONT_STEPS[index]! - size) < Math.abs(FONT_STEPS[nearest]! - size)) nearest = index;
+    }
+    return nearest;
+}
+
 /** Faces the browser terminal can draw. The phone's native terminal has its own
  *  built-in face, so this choice only reaches the web. */
 export const TERMINAL_FONTS = {

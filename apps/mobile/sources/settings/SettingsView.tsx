@@ -51,16 +51,21 @@ export const SettingsView = React.memo(function SettingsView({
     const openAppearance = React.useCallback(() => router.push('/settings/appearance' as never), [router]);
     const openPreferences = React.useCallback(() => router.push('/settings/features' as never), [router]);
     const openNotifications = React.useCallback(() => router.push('/settings/notifications' as never), [router]);
+    const openGestures = React.useCallback(() => router.push('/settings/gestures' as never), [router]);
     useRealtimeAppControl('Connection', openConnection, '/settings');
     useRealtimeAppControl('Voice & dictation', openVoice, '/settings');
     useRealtimeAppControl('Plugins', openPlugins, '/settings');
     useRealtimeAppControl('Appearance', openAppearance, '/settings');
     useRealtimeAppControl('Preferences', openPreferences, '/settings');
     useRealtimeAppControl('Notifications', openNotifications, '/settings');
+    useRealtimeAppControl('Gestures', openGestures, '/settings');
     const lifecycleNotificationLevel = useLocalSettingMutable('lifecycleNotificationLevel')[0];
     const themePreference = useLocalSettingMutable('themePreference')[0];
     const terminalFontSize = FONT_STEPS[clampFontIndex(useLocalSettingMutable('terminalFontIndex')[0])];
     const sortSessionsByActivity = useSettingMutable('sortSessionsByActivity')[0];
+    const swipeFingers = useLocalSettingMutable('terminalSwipeFingers')[0];
+    const pinchZoom = useLocalSettingMutable('terminalPinchZoom')[0];
+    const swipeText = swipeFingers === 'off' ? 'Swipe off' : `${swipeFingers === 'two' ? 'Two-finger' : 'One-finger'} swipe`;
     const socketStatus = useSocketStatus().status;
     const socketStatusText = socketStatus === 'connected' ? 'Connected' : socketStatus === 'connecting' ? 'Connecting' : 'Offline';
     const themePreferenceText = themePreference === 'adaptive'
@@ -392,6 +397,13 @@ export const SettingsView = React.memo(function SettingsView({
                     detail={sortSessionsByActivity ? 'Recent activity' : 'Created'}
                     icon={<Ionicons name="options-outline" size={29} color="#FF9500" />}
                     onPress={openPreferences}
+                />
+                <Item
+                    title="Gestures"
+                    subtitle={`${swipeText} · Pinch to zoom ${pinchZoom ? 'on' : 'off'}`}
+                    subtitleLines={2}
+                    icon={<Ionicons name="hand-left-outline" size={29} color="#007AFF" />}
+                    onPress={openGestures}
                 />
                 <Item
                     title="Voice & dictation"

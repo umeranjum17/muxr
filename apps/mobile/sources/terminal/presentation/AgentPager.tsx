@@ -42,6 +42,8 @@ const X_ACTIVATE = Platform.OS === 'ios' ? 8 : 12;
 const Y_FAIL = Platform.OS === 'web' ? 8 : 12;
 /** A finger that rests this long before travelling is selecting text. */
 const INTENT_WINDOW = 400;
+/** Two fingers that spread or close this much before travelling are a pinch. */
+const PINCH_SPREAD = 0.15;
 /** The seam between two terminals, in the chrome's ink. */
 const PAGE_GAP = 12;
 /**
@@ -151,12 +153,16 @@ export function AgentPager({ sessionId, previous, next, status, onNothingThere, 
     const columns = terminalColumns(sessionId);
     if (columns > 0 && pageWidth > 0) lastCellWidth = pageWidth / columns;
     const settingSize = FONT_STEPS[clampFontIndex(useLocalSetting('terminalFontIndex'))];
+    const swipe = useLocalSetting('terminalSwipeFingers');
+    const fingers = swipe === 'two' ? 2 : 1;
     const fontSize = lastCellWidth > 0 ? lastCellWidth / MONO_ADVANCE : settingSize;
     const width = useSharedValue(0);
     const offset = useSharedValue(0);
     const hasPrevious = useSharedValue(previous !== undefined);
     const hasNext = useSharedValue(next !== undefined);
     const startedAt = useSharedValue(0);
+    const startSpread = useSharedValue(0);
+    const startCentroidX = useSharedValue(0);
     const committed = useSharedValue(0);
     const [arrived] = React.useState(() => arrivingBySwipe(sessionId));
     // The picture holds until the terminal has painted once: through the
@@ -212,8 +218,10 @@ export function AgentPager({ sessionId, previous, next, status, onNothingThere, 
     }, []);
 
     const pan = React.useMemo(() => Gesture.Pan()
-        .minPointers(1)
-        .maxPointers(1)
+        .enabled(swipe !== 'off')
+        .minPointers(fingers)
+        .maxPointers(fingers)
+        .manualActivation(fingers === 2)
         .activeOffsetX([-X_ACTIVATE, X_ACTIVATE])
         .failOffsetY([-Y_FAIL, Y_FAIL])
         .hitSlop({ horizontal: -EDGE_INSET })
@@ -224,13 +232,28 @@ export function AgentPager({ sessionId, previous, next, status, onNothingThere, 
                 manager.fail();
                 return;
             }
-            startedAt.value = Date.now();
+            const [a, b] = event.allTouches;
+            if (a !== undefined && b !== undefined) {
+                startSpread.value = Math.hypot(a.x - b.x, a.y - b.y);
+                startCentroidX.value = (a.x + b.x) / 2;
+            }
         })
         .onTouchesMove((event, manager) => {
+            if (event.state === STATE_ACTIVE) return;
             // Resting first and then moving is the terminal's text selection.
-            if (event.state !== STATE_ACTIVE && Date.now() - startedAt.value > INTENT_WINDOW) manager.fail();
+            if (fingers === 1 && Date.now() - startedAt.value > INTENT_WINDOW) manager.fail();
+            const [a, b] = event.allTouches;
+            if (fingers !== 2 || a === undefined || b === undefined || startSpread.value <= 0) return;
+            const travel = Math.abs((a.x + b.x) / 2 - startCentroidX.value);
+            const spread = Math.abs(Math.hypot(a.x - b.x, a.y - b.y) - startSpread.value);
+            if ((spread > 6 && spread > travel / 2) || spread > startSpread.value * PINCH_SPREAD) {
+                manager.fail();
+                return;
+            }
+            if (travel >= X_ACTIVATE) manager.activate();
         })
         .onBegin(() => {
+            startedAt.value = Date.now();
             scheduleOnRN(warm, WARM_ON_TOUCH_MS);
         })
         .onUpdate((event) => {
@@ -256,7 +279,7 @@ export function AgentPager({ sessionId, previous, next, status, onNothingThere, 
         .onFinalize((event) => {
             if (committed.value === 1 || event.state !== STATE_CANCELLED) return;
             offset.value = withSpring(0, SETTLE);
-        }), [arrive, commit, committed, hasNext, hasPrevious, offset, release, startedAt, warm, width]);
+        }), [arrive, commit, committed, fingers, hasNext, hasPrevious, offset, release, startCentroidX, startSpread, startedAt, swipe, warm, width]);
 
     // Android's terminal is a native view with its own touch handling. Once
     // the pager takes a drag, this hands the terminal a cancel for it, so a

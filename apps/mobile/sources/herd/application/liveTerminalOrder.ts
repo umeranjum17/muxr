@@ -127,12 +127,16 @@ export function visibleActivityEventIds(
     return rows.filter((row) => visibleRoutes.has(row.sessionId)).map((row) => row.eventId);
 }
 
+/** Which agents the terminal swipe stops at: active/recent agents, or every agent in the strip. */
+export type AgentSwipeScope = 'working' | 'all';
+
 export interface AgentSwipeNeighbours {
     previous?: LiveTerminalOrderCard;
     next?: LiveTerminalOrderCard;
 }
 
-function swipeStop(card: LiveTerminalOrderCard, now: number): boolean {
+function swipeStop(card: LiveTerminalOrderCard, scope: AgentSwipeScope, now: number): boolean {
+    if (scope === 'all') return true;
     const status = card.agentStatus;
     return status === 'working' || status === 'starting' || status === 'blocked'
         || (status === 'done' && card.changedAt !== undefined && now - card.changedAt <= RECENTLY_DONE_SWIPE_MS);
@@ -149,11 +153,12 @@ function swipeStop(card: LiveTerminalOrderCard, now: number): boolean {
 export function agentSwipeNeighbours(
     cards: readonly LiveTerminalOrderCard[],
     currentId: string,
+    scope: AgentSwipeScope,
     now = Date.now(),
 ): AgentSwipeNeighbours {
     const index = cards.findIndex((card) => card.id === currentId);
     const stops = (from: readonly LiveTerminalOrderCard[]) =>
-        from.find((card) => card.id !== currentId && swipeStop(card, now));
+        from.find((card) => card.id !== currentId && swipeStop(card, scope, now));
     if (index === -1) return { previous: stops([...cards].reverse()), next: stops(cards) };
     return {
         previous: stops(cards.slice(0, index).reverse()),
