@@ -75,6 +75,14 @@ Open the real diff, inspect every changed line, then accept or reject it without
   <picture><source srcset="docs/assets/readme/changes.webp" type="image/webp"><img src="docs/assets/readme/changes.jpg" alt="Reviewing an agent's code changes in muxr" width="100%" /></picture>
 </p>
 
+### Peek at your computer
+
+Tap **Computer** inside an agent's conversation to see your own desktop live and check what the agent is doing. Tap in to take over: the pointer follows your finger, with a keyboard and a shared clipboard. It works over Tailscale, any mesh VPN or LAN address, or SSH alone, including a cloud server. [Routes and setup →](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server)
+
+<p align="center">
+  <picture><source srcset="docs/assets/readme/computer.webp" type="image/webp"><img src="docs/assets/readme/computer.jpg" alt="An agent's computer desktop shown live in muxr: the agent's progress above the page it is editing" width="100%" /></picture>
+</p>
+
 ### Talk to the herd
 
 Use native realtime speech-to-speech when typing is the slow part. Ask what changed, give a follow-up, and keep the same agent context.
@@ -91,7 +99,7 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 - **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone; download an agent's Shared Artifacts with progress and resume after a lost connection. On web, a download finished in the background offers **Save** when you return.
 - **Settings** — under Appearance, choose a theme and terminal text size; the browser terminal also offers System or IBM Plex Mono. Gestures lists terminal actions and the swipe and zoom choices. Under Notifications, choose alerts for agents needing you or finishing; enable browser notifications in the web app or manage permission and sound in your phone's system settings.
 - **Usage** — see each plan window's percent left, reset time, and pace when known; Home shows every connected plan's limits at a glance, each plan's mark over what is left of its windows, alongside machine health.
-- **Peek at your computer (Linux)** — tap **Computer** inside an agent's conversation to see your desktop live and check what the agent is doing, then tap in to take over with a pointer that follows your finger, a keyboard and a shared clipboard. Remote desktop needs a Linux x64 host today (macOS later; Arm servers build the engine from source), and a cloud server needs the virtual-display packages once. Android and web have desktop clients; iOS does not yet. [Remote desktop setup and limits](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server) · [Host engine](packages/desktop-host/README.md)
+- **Desktop control (Linux)** — see **Peek at your computer** above. Remote desktop needs a Linux x64 host today (macOS later; Arm servers build the engine from source), and a cloud server needs the virtual-display packages once. Android and web have desktop clients; iOS does not yet. [Remote desktop setup and limits](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server) · [Host engine](packages/desktop-host/README.md)
 - **[Extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
