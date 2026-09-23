@@ -19,12 +19,7 @@ import { desktopCopy } from '../model/desktopCopy';
 import { describeDesktopOverlay, describeInputRejection } from '../model/desktopOverlay';
 import { DESKTOP_KEY_ROW_HEIGHT, DesktopKeyRow } from './DesktopKeyRow';
 
-/**
- * The picture's rate. The pointer, a dragged window and scrolling text move
- * with it, and at the engine's default 30 they visibly step. Frames are only
- * sent when the screen changes, so a still desktop costs nothing more; a
- * moving 4K desktop costs the computer about half as much again in encoding.
- */
+/** Request smoother motion than the engine's default; still frames are not repeated. */
 const DESKTOP_FPS = 60;
 
 /** How long a notice stays over the desktop before it gets out of the way. */

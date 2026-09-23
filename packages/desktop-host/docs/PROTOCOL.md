@@ -160,6 +160,10 @@ peer or an SDP. `control` without a working input backend is refused at
 `session.open` with `error.code = "input-unavailable"` — the consumer must ask
 for `view` explicitly instead.
 
+`max_fps` defaults to 30. It caps the encoded frame rate and the X11 capture
+loop; portal capture requests it as the preferred PipeWire frame rate (within
+the portal's 0–1000 fps range). The source may still supply fewer frames.
+
 `session.open` is where the capture request happens, which is where the user's
 consent appears. It is not implicit and it is not retried silently.
 

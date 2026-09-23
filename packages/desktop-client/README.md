@@ -78,8 +78,9 @@ import { desktopAvailable } from '@desklink/react-native/availability';
   tall for what is left keeps the pointer, where a tap just put the caret, in
   sight.
 - **Contained geometry.** Touch maps through the picture's actual placement.
-  A touch in the letterbox is not a desktop coordinate, and a drag that leaves
-  the picture is held to its edge rather than released somewhere unseen.
+  A one-finger drag starting in the letterbox does not move the pointer; a
+  second finger on the picture can still start a pinch or scroll. A drag that
+  leaves the picture is held to its edge rather than released somewhere unseen.
 - **The gestures remote-desktop viewers settled on,** decided natively with a
   slop threshold: tap to click, and a second tap close by is a double click on
   the same point; hold and release for a right click where the finger rested
@@ -89,7 +90,8 @@ import { desktopAvailable } from '@desklink/react-native/availability';
   under the finger while the picture catches up; two fingers scroll the desktop
   under them, or pinch; a quick two-finger tap is a right click too. Scrolling
   is fractional wheel steps, smooth where the desktop supports high-resolution
-  wheels. Only the latest unsent pointer move is sent each frame; a congested control channel keeps just the latest position.
+  wheels. Under congestion, only the latest unsent pointer position is kept;
+  other input follows that position in order.
 - **The keys a phone lacks.** `modifiers`, `tapModifier` and `pressKey` give
   sticky Ctrl and Shift: tap arms one for the next key, tap again locks it.
   While one is armed, the next key or character the phone's keyboard types is
