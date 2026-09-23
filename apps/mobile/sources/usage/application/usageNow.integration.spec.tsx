@@ -23,6 +23,7 @@ const request = vi.fn();
 const hapticsSelection = vi.fn();
 const connection = { machineId: 'machine-1' };
 const appState = { currentState: 'active' as string, listeners: new Set<(next: string) => void>() };
+let screenWidth = 393;
 const theme = {
     colors: {
         text: '#fff',
@@ -67,6 +68,7 @@ vi.mock('react-native', () => ({
     ScrollView: 'ScrollView',
     StyleSheet: { create: (styles: Record<string, unknown>) => styles, hairlineWidth: 1 },
     Text: 'Text',
+    useWindowDimensions: () => ({ width: screenWidth, height: 852, scale: 3, fontScale: 1 }),
     View: 'View',
 }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
@@ -90,15 +92,20 @@ vi.mock('@/components/ui', () => ({
 }));
 vi.mock('@/components/AgentGlyph', () => ({ AgentGlyph: 'AgentGlyph' }));
 vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}), default: () => ({}) } }));
-vi.mock('@/plugins', () => ({ toneColor: () => '#000' }));
+vi.mock('@/plugins', () => ({ toneColor: (_theme: unknown, tone?: string) => `tone:${tone}` }));
 vi.mock('@/plugins/ui', () => ({
     ScreenChart: 'ScreenChart',
     ScreenLimits: 'ScreenLimits',
     VERDICT_KEYS: { limited: 'plugins.limits.limited' },
     verdictTone: () => undefined,
 }));
-// Keys stand in for words; a share keeps its figure, as every real string does.
-vi.mock('@/text', () => ({ t: (key: string, params?: { percent?: number }) => (params?.percent === undefined ? key : `${params.percent}% ${key}`) }));
+// Keys stand in for words; a share keeps its figure, as every real string does,
+// and a sentence keeps what it was given to say.
+vi.mock('@/text', () => ({
+    t: (key: string, params?: Record<string, unknown>) => (params === undefined ? key
+        : params.percent !== undefined ? `${params.percent}% ${key}`
+            : `${key}(${Object.values(params).join(' | ')})`),
+}));
 
 const { useUsageNow } = await import('./useUsageNow');
 const { RightNowCard } = await import('../presentation/RightNowCard');
@@ -220,6 +227,7 @@ beforeEach(() => {
     hapticsSelection.mockClear();
     appState.currentState = 'active';
     appState.listeners.clear();
+    screenWidth = 393;
 });
 afterEach(() => {
     for (const renderer of mounted.splice(0)) TestRenderer.act(() => { renderer.unmount(); });
@@ -830,22 +838,155 @@ describe('the usage screen read path', () => {
         expect(request.mock.calls.at(-1)?.[1]).toEqual({ provider: 'opencode', refresh: true });
     });
 
-    it('shows the unrounded tightest window and its visible tag on Home', async () => {
-        const session = { label: 'Session', window: '5h', used: 89.6, resetsIn: '1h' };
-        const weekly = { label: 'Weekly', window: '7d', used: 89.9, resetsIn: '2d' };
+    it('shows every plan\'s limits at once, in places a reader can learn, coloured only where little is left', async () => {
+        // The host lists plans most urgent first and each plan's windows in its
+        // own order. The card holds its own order instead: plans by name, so a
+        // plan keeps its place as its figures move, and windows shortest first.
         const now: UsageNow = {
-            limits: { verdict: 'low', windows: [weekly] },
-            connected: [{ id: 'codex', label: 'Codex', windows: [session, weekly] }],
+            limits: { verdict: 'limited', windows: [{ label: 'Weekly', window: '7d', used: 100 }] },
+            connected: [
+                { id: 'opencode', label: 'OpenCode', glyph: 'opencode', plan: 'OpenCode Go', windows: [
+                    // A billing month publishes no length and no pace, and is no less low for it.
+                    { label: 'Monthly', used: 92, pace: null, resetsIn: '18d' },
+                    { label: 'Weekly', window: '7d', used: 100, pace: 'limited', resetsIn: '1d 5h' },
+                    { label: 'Rolling', window: '5h', used: 7, pace: 'on pace' },
+                ] },
+                { id: 'codex', label: 'Codex', glyph: 'codex', plan: 'OpenAI Codex', windows: [
+                    { label: 'Weekly', window: '7d', used: 11 },
+                    { label: 'Spark · Session', window: '5h', used: 40 },
+                    { label: 'Session', window: '5h', used: 2 },
+                ] },
+                // A share that is not a number is not a reading: it is left out,
+                // never printed, and a plan with nothing readable has no column.
+                { id: 'claude', label: 'Claude', glyph: 'claude', plan: 'Claude plan', windows: [
+                    { label: 'Weekly', window: '7d', used: 64 },
+                    { label: 'Session', window: '5h', used: Number.NaN },
+                ] },
+                { id: 'zai', label: 'Z.ai', windows: [{ label: 'Session', window: '5h', used: Number.NaN }] },
+            ],
             vitals: VITALS,
         };
         noteAsked('', Date.now());
         rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, now) });
         const card = renderCard();
         await tick();
-        // The bar drains with what is left: its fill is the figure it stands beside.
-        expect(screenText(card)).toContain('7d');
-        expect(screenText(card)).toContain('10% plugins.limits.percentLeft');
-        expect(card.root.findAllByType('Meter')[0].props.ratio).toBeCloseTo(0.101);
+
+        expect(card.root.findAllByType('AgentGlyph').map((mark: any) => mark.props.name)).toEqual(['claude', 'codex', 'opencode']);
+        // Each plan's figures under its mark, shortest window first, each tagged
+        // with its window: no table, so no empty cell for a length a plan lacks.
+        // Two limits of one length show the tighter and say there are two.
+        const figures = () => card.root.findAllByType('Text')
+            .map((node: any) => [node.props.children, node.props.style?.color])
+            .filter(([text]: any) => typeof text === 'string' && !text.startsWith('plugins.rightNow.memory'));
+        expect(figures()).toEqual([
+            ['36%', '#fff'], ['7d', '#999'],
+            ['60%', '#fff'], ['5h×2', '#999'], ['89%', '#fff'], ['7d', '#999'],
+            ['93%', '#fff'], ['5h', '#999'], ['0%', 'tone:danger'], ['7d', '#999'], ['8%', 'tone:warning'], ['Month…', '#999'],
+        ]);
+        // Read aloud in the same order, naming every limit, and a coloured
+        // figure says why and when it comes back, which its colour cannot.
+        const summary: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button' && node.props?.onPress !== undefined
+            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
+        expect(summary.indexOf('Claude plan')).toBeLessThan(summary.indexOf('OpenAI Codex'));
+        expect(summary.indexOf('OpenAI Codex')).toBeLessThan(summary.indexOf('OpenCode Go'));
+        expect(summary).toContain('Spark · Session 5h 60% plugins.limits.percentLeft, Session 5h 98% plugins.limits.percentLeft');
+        expect(summary).toContain('7d 0% plugins.limits.percentLeft (plugins.limits.paceExhausted, plugins.rightNow.resetsIn(1d 5h))');
+        expect(summary).toContain('Monthly 8% plugins.limits.percentLeft (plugins.limits.low, plugins.rightNow.resetsIn(18d))');
+        expect(summary).not.toContain('Z.ai');
+
+        // Plans sit side by side while they fit and wrap when they do not.
+        const planWidths = () => card.root.findAllByType('AgentGlyph').map((mark: any) => mark.parent.parent.props.style.width);
+        expect(planWidths()).toEqual(['33.333333333333336%', '33.333333333333336%', '33.333333333333336%']);
+        const longName = `${'model-'.repeat(12)}session`;
+        const otherName = `${'model-'.repeat(12)}weekly`;
+        screenWidth = 270;
+        const namedNow: UsageNow = {
+            ...now,
+            connected: now.connected!.map((provider) => provider.id === 'codex'
+                ? { ...provider, windows: [...provider.windows,
+                    { label: 'gpt-4', used: 17 }, { label: 'gpt-5', used: 23 },
+                    { label: 'gpt-4-turbo', used: 52 }, { label: 'gpt-4-vision', used: 71 },
+                    { label: 'GPT-5.3-Codex-Spark · Limit', used: 65 }, { label: 'GPT-5.3-Codex-Mini · Limit', used: 76 },
+                    { label: longName, used: 31 }, { label: otherName, used: 42 },
+                ] }
+                : provider),
+        };
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, namedNow) }); });
+        expect(planWidths()).toEqual(['50%', '50%', '50%']);
+        const codexText = () => card.root.findAllByType('AgentGlyph')[1]!.parent.parent.findAllByType('Text')
+            .map((node: any) => node.props.children) as string[];
+        const codexTags = codexText().filter((text) => !text.endsWith('%'));
+        expect(codexTags).toContain('gpt-4');
+        expect(codexTags).toContain('gpt-5');
+        expect(screenText(card)).toContain('Month…');
+        expect(new Set(codexTags).size).toBe(codexTags.length);
+        expect(codexTags.every((tag) => tag.length <= 6)).toBe(true);
+        const namedShares = () => Object.fromEntries(codexText().filter((_, index) => index % 2 === 1)
+            .map((tag, index) => [tag, codexText()[index * 2]]));
+        expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 2, figures: withNow(undefined, {
+            ...namedNow,
+            connected: namedNow.connected!.map((provider) => provider.id === 'codex'
+                ? { ...provider, windows: [...provider.windows].reverse() }
+                : provider),
+        }) }); });
+        expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
+        expect(figures()).toContainEqual(['83%', '#fff']);
+        expect(screenText(card)).not.toContain(longName);
+        const cardButton = () => card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!;
+        const updatedLabel: string = cardButton().props.accessibilityLabel;
+        expect(updatedLabel).toContain('gpt-4');
+        expect(updatedLabel).toContain('gpt-5');
+        expect(updatedLabel).toContain('gpt-4-turbo');
+        expect(updatedLabel).toContain('GPT-5.3-Codex-Spark · Limit');
+        expect(updatedLabel).toContain(longName);
+        expect(updatedLabel).toContain(otherName);
+        TestRenderer.act(() => { cardButton().props.onLongPress(); });
+        expect(screenText(card)).toContain(longName);
+        expect(screenText(card)).toContain(otherName);
+        TestRenderer.act(() => { cardButton().props.onPress(); });
+        expect(screenText(card)).not.toContain(longName);
+    });
+
+    it('shows connected limits even when the selected plan has no windows', async () => {
+        const now: UsageNow = {
+            limits: { verdict: 'unknown', windows: [], message: 'Selected plan unavailable' },
+            connected: [{ id: 'codex', label: 'Codex', windows: [
+                { label: 'Session', window: '5h', used: 20 },
+                { label: 'Weekly', window: '7d', used: 60 },
+            ] }],
+        };
+        request.mockResolvedValueOnce(now).mockResolvedValueOnce(COLLECTING).mockResolvedValueOnce({
+            limits: { verdict: 'unknown', windows: [], message: 'Selected plan unavailable' },
+        } satisfies UsageNow);
+        const card = renderCard();
+        await tick();
+
+        expect(card.root.findAllByType('AgentGlyph').map((mark: any) => mark.props.name)).toEqual(['codex']);
+        expect(screenText(card)).toContain('80%');
+        expect(screenText(card)).toContain('40%');
+        expect(screenText(card)).not.toContain('Selected plan unavailable');
+        const label: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
+        expect(label).toContain('5h 80% plugins.limits.percentLeft');
+        expect(label).toContain('7d 40% plugins.limits.percentLeft');
+        expect(label).not.toContain('Selected plan unavailable');
+
+        await tick(11_000);
+        pressRefresh(card);
+        await tick();
+        expect(screenText(card)).toContain('80%');
+        expect(card.root.findAllByType('AgentGlyph')).toHaveLength(1);
+
+        await tick(6_000);
+        expect(screenText(card)).toContain('Selected plan unavailable');
+        expect(screenText(card)).not.toContain('80%');
+        expect(card.root.findAllByType('AgentGlyph')).toHaveLength(0);
+        const disconnectedLabel: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
+        expect(disconnectedLabel).toContain('Selected plan unavailable');
+        expect(disconnectedLabel).not.toContain('Codex');
     });
 
     it('shows a single plan with matching visible, spoken and metered remaining share on Home', async () => {
@@ -1072,6 +1213,15 @@ describe('the usage screen read path', () => {
         expect(windows()).toBe(2);
         const figures = shownUsage('');
         expect(figures?.status === 'figures' ? figures.figures.cardWindow?.used : undefined).toBe(20);
+
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: claimed + 2, figures: withNow(
+            figures?.status === 'figures' ? figures.figures : undefined,
+            { limits: { verdict: 'unknown', windows: [], message: 'Plan limits unavailable' } },
+        ) }); });
+        expect(windows()).toBe(0);
+        expect(screen.root.findAllByType('ScreenLimits')[0].props.data.limits.message).toBe('Plan limits unavailable');
+        const emptied = shownUsage('');
+        expect(emptied?.status === 'figures' ? emptied.figures.cardWindow : undefined).toBeUndefined();
     });
 
     it('asks once for the tab list, and not again when that ask fails', async () => {
