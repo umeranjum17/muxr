@@ -59,11 +59,13 @@ export const HomeHeaderActions = React.memo(({
                 accessibilityRole="button"
                 accessibilityLabel="Panes"
             >
-                <MobileGlassSurface nativeEffect pointerEvents="none" style={glass}>
-                    <View style={styles.content}>
-                        <Ionicons name="grid-outline" size={21} color={theme.colors.header.tint} />
-                    </View>
-                </MobileGlassSurface>
+                {({ pressed }) => (
+                    <MobileGlassSurface nativeEffect interactive pressed={pressed} pointerEvents="none" style={glass}>
+                        <View style={styles.content}>
+                            <Ionicons name="grid-outline" size={21} color={theme.colors.header.tint} />
+                        </View>
+                    </MobileGlassSurface>
+                )}
             </Pressable>
             <Pressable
                 onPress={onSearchPress}
@@ -71,11 +73,13 @@ export const HomeHeaderActions = React.memo(({
                 accessibilityRole="button"
                 accessibilityLabel={t('tools.names.search')}
             >
-                <MobileGlassSurface nativeEffect pointerEvents="none" style={glass}>
-                    <View style={styles.content}>
-                        <Ionicons name={searchActive ? 'close' : 'search'} size={searchActive ? 24 : 21} color={theme.colors.header.tint} />
-                    </View>
-                </MobileGlassSurface>
+                {({ pressed }) => (
+                    <MobileGlassSurface nativeEffect interactive pressed={pressed} pointerEvents="none" style={glass}>
+                        <View style={styles.content}>
+                            <Ionicons name={searchActive ? 'close' : 'search'} size={searchActive ? 24 : 21} color={theme.colors.header.tint} />
+                        </View>
+                    </MobileGlassSurface>
+                )}
             </Pressable>
             <Pressable
                 onPress={() => router.push('/settings')}
@@ -83,11 +87,13 @@ export const HomeHeaderActions = React.memo(({
                 accessibilityRole="button"
                 accessibilityLabel={t('settings.title')}
             >
-                <MobileGlassSurface nativeEffect pointerEvents="none" style={glass}>
-                    <View style={styles.content}>
-                        <Ionicons name="settings-outline" size={21} color={theme.colors.header.tint} />
-                    </View>
-                </MobileGlassSurface>
+                {({ pressed }) => (
+                    <MobileGlassSurface nativeEffect interactive pressed={pressed} pointerEvents="none" style={glass}>
+                        <View style={styles.content}>
+                            <Ionicons name="settings-outline" size={21} color={theme.colors.header.tint} />
+                        </View>
+                    </MobileGlassSurface>
+                )}
             </Pressable>
         </View>
     );

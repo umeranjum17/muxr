@@ -5,7 +5,14 @@ import TestRenderer from 'react-test-renderer';
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock('react-native', () => ({
     View: 'View',
-    Pressable: 'Pressable',
+    Pressable: ({ children, ...props }: any) => {
+        const [pressed, setPressed] = React.useState(false);
+        return React.createElement('Pressable', {
+            ...props,
+            onPressIn: () => setPressed(true),
+            onPressOut: () => setPressed(false),
+        }, typeof children === 'function' ? children({ pressed }) : children);
+    },
     useWindowDimensions: () => ({ width: 270, height: 594 }),
 }));
 vi.mock('react-native-unistyles', () => ({
@@ -41,6 +48,12 @@ describe('compact home header actions', () => {
             expect(flatten(button.props.style)).toMatchObject({ width: 44, height: 44 });
             expect(flatten(button.findByType('Glass').props.style)).toMatchObject({ width: 36, height: 36 });
             expect(button.findByType('Glass').props.pointerEvents).toBe('none');
+            expect(button.findByType('Glass').props.interactive).toBe(true);
+            expect(button.findByType('Glass').props.pressed).toBe(false);
+            TestRenderer.act(() => { button.props.onPressIn(); });
+            expect(button.findByType('Glass').props.pressed).toBe(true);
+            TestRenderer.act(() => { button.props.onPressOut(); });
+            expect(button.findByType('Glass').props.pressed).toBe(false);
         }
         TestRenderer.act(() => {
             buttons[0].props.onPress();
