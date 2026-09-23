@@ -12,10 +12,10 @@ choice for Android native builds. The phone opens a normal SSH client session to
 The existing relay ticket, device grant, and E2EE WebSocket then run unchanged
 through that local forward.
 
-The route is configured after the phone has been paired through an existing
-route. PWA and iPhone builds do not advertise SSH because this native SSH
-implementation is not available there; they keep Tailscale and the existing
-private-network, LAN, tunnel, and custom WSS choices.
+Android may pair through the SSH forward itself; see [Direct SSH from Android](../SELF-HOSTING.md#direct-ssh-from-android)
+for the pairing flow. PWA and iPhone builds do not advertise SSH because this
+native SSH implementation is not available there; they keep Tailscale and the
+existing private-network, LAN, tunnel, and custom WSS choices.
 
 ## Invariants
 

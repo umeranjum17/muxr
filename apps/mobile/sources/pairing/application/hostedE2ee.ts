@@ -506,7 +506,7 @@ export async function claimHostedPairing(url: string): Promise<StoredHostedGrant
         catch (cause) { throw new Error(cause instanceof Error ? cause.message : 'pairing link has an invalid relay URL'); }
     }
     const selfhostRelay = selfhostRelayParam;
-    // Self-host links carry the relay in `r`; the control base derives via the canonical helper.
+    // Direct links derive the control base from `r`; resolved codes claim through their answering relay.
     const controlBase = answeringRelay !== undefined ? relayControlUrl(answeringRelay)
         : selfhostRelay !== null ? relayControlUrl(selfhostRelay) : parsed.origin;
     const keys = await getOrCreateHostedDeviceKey();

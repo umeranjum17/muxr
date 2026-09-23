@@ -60,7 +60,7 @@ Automation uses:
 | `--tailscale-direct` | Rollback path using the tailnet IP directly. |
 | *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
 | *(choose Same Wi-Fi)* | Local network address. Phone must be on the same trusted network. |
-| *(choose Direct SSH in the Android app)* | The phone's native SSH client forwards the host's loopback relay. Choose **Connect over SSH** on the pairing screen to enter the SSH host, user, authentication, and relay port together with the pairing string; muxr applies the route once pairing lands. Later changes live in **Settings → Connection & updates**. |
+| *(choose Direct SSH in the Android app)* | Pair through the host's loopback relay over SSH; see [Direct SSH from Android](#direct-ssh-from-android). |
 
 For either Tailscale route, connect the phone to the same tailnet before pairing.
 Nearby mDNS discovery is only a locator for an already-paired native app; it
@@ -73,10 +73,10 @@ Before applying Serve, the wizard checks that it is available and not already ow
 
 Direct SSH is an Android-native alternative to Tailscale, not a replacement for it. Set it up either way:
 
-- **While pairing:** choose **Connect over SSH** on the pairing screen, enter the machine's SSH details, and paste the pairing string from `muxr pair`. muxr completes the end-to-end encrypted pairing first, then applies the SSH route.
+- **While pairing:** choose **Connect over SSH** on the pairing screen, enter the machine's SSH details, and paste the pairing string from `muxr pair`. muxr opens the SSH forward first; both the one-time code lookup and pairing claim use that forward, even if the relay URL in the pairing payload is unreachable from the phone. After the grant arrives, muxr saves the SSH route.
 - **After pairing:** open **Settings → Connection & updates → Direct SSH** and save the SSH details.
 
-Either way, enter the machine's SSH host, SSH username and port, and the relay port as seen from the machine's loopback (normally `8792`). Choose either a password or an OpenSSH private key; credentials stay in the device secure store and are never written to muxr settings, logs, or the repository. Use an RSA or ECDSA host key and login key: Ed25519 is not supported by this build yet, and muxr says so explicitly instead of failing to connect. Once the SSH route is saved, muxr opens a device-local SSH forward to `127.0.0.1:<relay-port>` and then uses the same relay ticket, pairing grant, and E2EE socket as every other route.
+Either way, enter the machine's SSH host, SSH username and port, and the relay port as seen from the machine's loopback (normally `8792`). Choose either a password or an OpenSSH private key; credentials stay in the device secure store and are never written to muxr settings, logs, or the repository. Use an RSA or ECDSA host key and login key: Ed25519 is not supported by this build yet, and muxr says so explicitly instead of failing to connect. For subsequent connections, muxr uses the saved SSH route to forward to `127.0.0.1:<relay-port>` and uses the same relay ticket, pairing grant, and E2EE socket as every other route.
 
 Connection & updates also exports and installs the login key. The private key's public half — pasted on that screen or saved on this device — can be copied, shared, or saved as a `.pub` file for any algorithm, including Ed25519. For RSA and ECDSA keys, **Install public key** shows its exact shell command first and runs it only after you confirm: it appends the key to `~/.ssh/authorized_keys` on the paired computer's confirmed SSH account, preserves existing entries and permissions, skips a key that is already present, and records a guarded undo that refuses to roll back if `authorized_keys` changed after the install. Ed25519 stays export-only because the native SSH path cannot use it as a login key. Installation is native-Android only; the browser keeps pairing and relay access and says so instead.
 
