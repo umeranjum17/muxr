@@ -198,7 +198,6 @@ export const ca: TranslationStructure = {
         account: 'Compte',
         accountSubtitle: 'Gestiona els detalls del teu compte',
         appearance: 'Aparença',
-        appearanceSubtitle: 'Personalitza l\'aspecte de l\'aplicació',
         featuresTitle: 'Funcions',
         featuresSubtitle: 'Activa o desactiva les funcions de l\'aplicació',
         about: 'Quant a',
@@ -210,10 +209,6 @@ export const ca: TranslationStructure = {
         connection: 'Connexió',
         connectionSubtitle: 'URL del relay, màquina i token',
         pushNotifications: 'Notificacions push',
-        pushSubtitleSubscribed: 'Activades — reps un avís quan un agent necessita una resposta',
-        pushSubtitleDenied: 'Blocades pel navegador — permet les notificacions per activar-les',
-        pushSubtitleUnsupported: 'No disponible en aquest navegador',
-        pushSubtitleDefault: 'Toca per rebre un avís quan un agent necessiti una resposta',
         license: 'Llicència i avisos',
         // Dynamic settings messages
     },
@@ -221,7 +216,6 @@ export const ca: TranslationStructure = {
     settingsAppearance: {
         // Appearance settings screen
         theme: 'Tema',
-        themeDescription: 'Tria el teu esquema de colors preferit',
         themeOptions: {
             adaptive: 'Adaptatiu',
             light: 'Clar', 
@@ -229,21 +223,15 @@ export const ca: TranslationStructure = {
         },
         themeDescriptions: {
             adaptive: 'Segueix la configuració del sistema',
-            light: 'Usa sempre el tema clar',
-            dark: 'Usa sempre el tema fosc',
         },
-        display: 'Pantalla',
-        displayDescription: 'Controla la disposició i l\'espaiat',
 
         avatarStyle: 'Estil d\'avatar',
-        avatarStyleDescription: 'Tria l\'aparença de l\'avatar de la sessió',
         avatarOptions: {
             pixelated: 'Pixelat',
             gradient: 'Gradient',
             brutalist: 'Brutalista',
         },
         showFlavorIcons: "Mostrar icones de proveïdors d'IA",
-        showFlavorIconsDescription: "Mostrar icones del proveïdor d'IA als avatars de sessió",
     },
 
     settingsFeatures: {

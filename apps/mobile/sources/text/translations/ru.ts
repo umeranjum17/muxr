@@ -185,7 +185,6 @@ export const ru: TranslationStructure = {
         account: 'Аккаунт',
         accountSubtitle: 'Управление учётной записью',
         appearance: 'Внешний вид',
-        appearanceSubtitle: 'Настройка внешнего вида приложения',
         featuresTitle: 'Возможности',
         featuresSubtitle: 'Включить или отключить функции приложения',
         about: 'О программе',
@@ -197,10 +196,6 @@ export const ru: TranslationStructure = {
         connection: 'Подключение',
         connectionSubtitle: 'URL relay-сервера, машина и токен',
         pushNotifications: 'Push-уведомления',
-        pushSubtitleSubscribed: 'Включены — уведомление, когда агенту нужен ответ',
-        pushSubtitleDenied: 'Заблокировано браузером — разрешите уведомления, чтобы включить',
-        pushSubtitleUnsupported: 'Недоступно в этом браузере',
-        pushSubtitleDefault: 'Нажмите, чтобы получать уведомления, когда агенту нужен ответ',
         license: 'Лицензия и уведомления',
         // Dynamic settings messages
     },
@@ -208,7 +203,6 @@ export const ru: TranslationStructure = {
     settingsAppearance: {
         // Appearance settings screen
         theme: 'Тема',
-        themeDescription: 'Выберите предпочтительную цветовую схему',
         themeOptions: {
             adaptive: 'Адаптивная',
             light: 'Светлая', 
@@ -216,21 +210,15 @@ export const ru: TranslationStructure = {
         },
         themeDescriptions: {
             adaptive: 'Следовать настройкам системы',
-            light: 'Всегда использовать светлую тему',
-            dark: 'Всегда использовать тёмную тему',
         },
-        display: 'Отображение',
-        displayDescription: 'Управление макетом и интервалами',
 
         avatarStyle: 'Стиль аватара',
-        avatarStyleDescription: 'Выберите внешний вид аватара сессии',
         avatarOptions: {
             pixelated: 'Пиксельная',
             gradient: 'Градиентная',
             brutalist: 'Бруталистская',
         },
         showFlavorIcons: 'Показывать иконки провайдеров ИИ',
-        showFlavorIconsDescription: 'Отображать иконки провайдеров ИИ на аватарах сессий',
     },
 
     settingsFeatures: {

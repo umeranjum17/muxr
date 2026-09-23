@@ -200,7 +200,6 @@ export const zhHans: TranslationStructure = {
         account: '账户',
         accountSubtitle: '管理您的账户详情',
         appearance: '外观',
-        appearanceSubtitle: '自定义应用外观',
         featuresTitle: '功能',
         featuresSubtitle: '启用或禁用应用功能',
         about: '关于',
@@ -212,10 +211,6 @@ export const zhHans: TranslationStructure = {
         connection: '连接',
         connectionSubtitle: '中继 URL、设备和令牌',
         pushNotifications: '推送通知',
-        pushSubtitleSubscribed: '已开启 — 当代理需要回答时通知您',
-        pushSubtitleDenied: '已被浏览器阻止 — 请允许通知以启用',
-        pushSubtitleUnsupported: '此浏览器不支持',
-        pushSubtitleDefault: '点按以在代理需要回答时收到通知',
         license: '许可证与声明',
         // Dynamic settings messages
     },
@@ -223,7 +218,6 @@ export const zhHans: TranslationStructure = {
     settingsAppearance: {
         // Appearance settings screen
         theme: '主题',
-        themeDescription: '选择您喜欢的配色方案',
         themeOptions: {
             adaptive: '自适应',
             light: '浅色', 
@@ -231,21 +225,15 @@ export const zhHans: TranslationStructure = {
         },
         themeDescriptions: {
             adaptive: '跟随系统设置',
-            light: '始终使用浅色主题',
-            dark: '始终使用深色主题',
         },
-        display: '显示',
-        displayDescription: '控制布局和间距',
 
         avatarStyle: '头像风格',
-        avatarStyleDescription: '选择会话头像外观',
         avatarOptions: {
             pixelated: '像素化',
             gradient: '渐变',
             brutalist: '粗糙风格',
         },
         showFlavorIcons: '显示 AI 提供商图标',
-        showFlavorIconsDescription: '在会话头像上显示 AI 提供商图标',
     },
 
     settingsFeatures: {

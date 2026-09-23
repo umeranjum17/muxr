@@ -200,7 +200,6 @@ export const ja: TranslationStructure = {
         account: 'アカウント',
         accountSubtitle: 'アカウントの詳細を管理',
         appearance: '外観',
-        appearanceSubtitle: 'アプリの見た目をカスタマイズ',
         featuresTitle: '機能',
         featuresSubtitle: 'アプリ機能の有効/無効を切り替え',
         about: 'このアプリについて',
@@ -212,10 +211,6 @@ export const ja: TranslationStructure = {
         connection: '接続',
         connectionSubtitle: 'リレーURL、マシン、トークン',
         pushNotifications: 'プッシュ通知',
-        pushSubtitleSubscribed: 'オン — エージェントが回答を必要とするときに通知',
-        pushSubtitleDenied: 'ブラウザにブロックされています — 有効にするには通知を許可してください',
-        pushSubtitleUnsupported: 'このブラウザでは利用できません',
-        pushSubtitleDefault: 'タップするとエージェントが回答を必要としたときに通知されます',
         license: 'ライセンスと通知',
         // Dynamic settings messages
     },
@@ -223,7 +218,6 @@ export const ja: TranslationStructure = {
     settingsAppearance: {
         // Appearance settings screen
         theme: 'テーマ',
-        themeDescription: 'お好みの配色を選択',
         themeOptions: {
             adaptive: '自動',
             light: 'ライト',
@@ -231,21 +225,15 @@ export const ja: TranslationStructure = {
         },
         themeDescriptions: {
             adaptive: 'システム設定に合わせる',
-            light: '常にライトテーマを使用',
-            dark: '常にダークテーマを使用',
         },
-        display: '表示',
-        displayDescription: 'レイアウトと間隔を調整',
 
         avatarStyle: 'アバタースタイル',
-        avatarStyleDescription: 'セッションアバターの外観を選択',
         avatarOptions: {
             pixelated: 'ピクセル',
             gradient: 'グラデーション',
             brutalist: 'ブルータリスト',
         },
         showFlavorIcons: 'AIプロバイダーアイコンを表示',
-        showFlavorIconsDescription: 'セッションアバターにAIプロバイダーアイコンを表示',
     },
 
     settingsFeatures: {

@@ -199,7 +199,6 @@ export const zhHant: TranslationStructure = {
         account: '帳戶',
         accountSubtitle: '管理您的帳戶詳情',
         appearance: '外觀',
-        appearanceSubtitle: '自訂應用程式外觀',
         featuresTitle: '功能',
         featuresSubtitle: '啟用或停用應用程式功能',
         about: '關於',
@@ -211,10 +210,6 @@ export const zhHant: TranslationStructure = {
         connection: '連線',
         connectionSubtitle: '中繼 URL、機器與權杖',
         pushNotifications: '推播通知',
-        pushSubtitleSubscribed: '已開啟 — 當代理需要回答時通知您',
-        pushSubtitleDenied: '已被瀏覽器封鎖 — 請允許通知以啟用',
-        pushSubtitleUnsupported: '此瀏覽器不支援',
-        pushSubtitleDefault: '點選以在代理需要回答時收到通知',
         license: '授權條款與聲明',
         // Dynamic settings messages
     },
@@ -222,7 +217,6 @@ export const zhHant: TranslationStructure = {
     settingsAppearance: {
         // Appearance settings screen
         theme: '主題',
-        themeDescription: '選擇您喜歡的配色方案',
         themeOptions: {
             adaptive: '自適應',
             light: '淺色',
@@ -230,21 +224,15 @@ export const zhHant: TranslationStructure = {
         },
         themeDescriptions: {
             adaptive: '跟隨系統設定',
-            light: '始終使用淺色主題',
-            dark: '始終使用深色主題',
         },
-        display: '顯示',
-        displayDescription: '控制版面配置和間距',
 
         avatarStyle: '頭像風格',
-        avatarStyleDescription: '選擇工作階段頭像外觀',
         avatarOptions: {
             pixelated: '像素化',
             gradient: '漸層',
             brutalist: '粗獷風格',
         },
         showFlavorIcons: '顯示 AI 提供者圖示',
-        showFlavorIconsDescription: '在工作階段頭像上顯示 AI 提供者圖示',
     },
 
     settingsFeatures: {

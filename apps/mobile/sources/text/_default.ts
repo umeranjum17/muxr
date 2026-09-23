@@ -195,7 +195,6 @@ export const en = {
         account: 'Account',
         accountSubtitle: 'Manage your account details',
         appearance: 'Appearance',
-        appearanceSubtitle: 'Customize how the app looks',
         featuresTitle: 'Features',
         featuresSubtitle: 'Enable or disable app features',
         about: 'About',
@@ -207,10 +206,6 @@ export const en = {
         connection: 'Connection',
         connectionSubtitle: 'Relay URL, machine and token',
         pushNotifications: 'Push notifications',
-        pushSubtitleSubscribed: 'On — pinged when an agent needs an answer',
-        pushSubtitleDenied: 'Blocked by the browser — allow notifications to enable',
-        pushSubtitleUnsupported: 'Not available in this browser',
-        pushSubtitleDefault: 'Tap to get notified when an agent needs an answer',
         license: 'License & notices',
         // Dynamic settings messages
     },
@@ -218,7 +213,6 @@ export const en = {
     settingsAppearance: {
         // Appearance settings screen
         theme: 'Theme',
-        themeDescription: 'Choose your preferred color scheme',
         themeOptions: {
             adaptive: 'Automatic',
             light: 'Light',
@@ -226,21 +220,15 @@ export const en = {
         },
         themeDescriptions: {
             adaptive: 'Follows your device',
-            light: 'Always use light theme',
-            dark: 'Always use dark theme',
         },
-        display: 'Display',
-        displayDescription: 'Control layout and spacing',
 
         avatarStyle: 'Avatar style',
-        avatarStyleDescription: 'Choose session avatar appearance',
         avatarOptions: {
             pixelated: 'Pixelated',
             gradient: 'Gradient',
             brutalist: 'Brutalist',
         },
         showFlavorIcons: 'Provider icons',
-        showFlavorIconsDescription: 'Display AI provider icons on session avatars',
     },
 
     settingsFeatures: {
