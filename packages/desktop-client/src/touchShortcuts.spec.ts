@@ -225,11 +225,17 @@ describe('touch on the desktop', () => {
 });
 
 describe('the pointer above the keyboard', () => {
-    it('marks where a tap sent the pointer, and keeps it in sight while the keyboard is up', async () => {
-        // The phone's keyboard lays itself over the page; the visual viewport
-        // is what says how much of it is still showing.
+    it('keeps the painted picture, taps and pointer together while the keyboard moves', async () => {
         const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 720 });
         vi.stubGlobal('visualViewport', viewport);
+        let frame: FrameRequestCallback | null = null;
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frame = callback; return 1; });
+        vi.stubGlobal('cancelAnimationFrame', () => { frame = null; });
+        const draw = (time: number) => {
+            const callback = frame;
+            frame = null;
+            callback?.(time);
+        };
         const { session, video, keyboard } = await liveDesktop();
         const [picture, , mark] = created;
         const tip = () => {
@@ -244,23 +250,37 @@ describe('the pointer above the keyboard', () => {
         expect(mark!.style.display).toBe('block');
         expect(tip()).toEqual({ x: 640.5, y: 600.5 });
 
-        // The keyboard covers the bottom 300 pixels and the app keeps 50 above
-        // it for its controls. The pointer was near the bottom; the picture
-        // moves up under it so it stays in sight, the mark riding along.
         setKeyboardClearance(session.current.nativeId!, 50);
         (document as unknown as { activeElement: unknown }).activeElement = keyboard;
+        dispatch(keyboard, 'focus', {});
+        expect(picture!.style.top).toBe('0px');
+        expect(frame).toBeNull();
+
         viewport.height = 420;
+        const start = performance.now();
         dispatch(viewport, 'resize', {});
+        expect(picture!.style.top).toBe('0px');
+        draw(start + 125);
+        const paintedTop = Number.parseFloat(picture!.style.top);
+        expect(paintedTop).toBeLessThan(0);
+        expect(paintedTop).toBeGreaterThan(-286);
         expect(tip().y).toBeGreaterThan(0);
         expect(tip().y).toBeLessThan(720 - 350);
-        expect(picture!.style.top).toBe(`${tip().y - 600.5}px`);
+        sent = [];
+        touch(video, 'pointerdown', 400, 200);
+        touch(video, 'pointerup', 400, 200);
+        const clickedY = Math.floor(200 - paintedTop);
+        expect(sent).toEqual(click(400, clickedY, 1));
+        expect(tip().y).toBeCloseTo(paintedTop + clickedY + 0.5, 5);
+        draw(start + 250);
+        expect(tip().y).toBeCloseTo(Number.parseFloat(picture!.style.top) + clickedY + 0.5, 5);
 
-        // Keyboard down: the whole picture comes back, and the mark with it.
         (document as unknown as { activeElement: unknown }).activeElement = null;
         viewport.height = 720;
         dispatch(keyboard, 'blur', {});
+        draw(performance.now() + 250);
         expect(picture!.style.top).toBe('0px');
-        expect(tip()).toEqual({ x: 640.5, y: 600.5 });
+        expect(tip()).toEqual({ x: 400.5, y: clickedY + 0.5 });
     });
 });
 

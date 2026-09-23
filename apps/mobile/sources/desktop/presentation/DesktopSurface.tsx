@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -109,7 +109,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     const keyboard = useKeyboardState();
     const motion = useKeyboardMotion();
     const insets = useSafeAreaInsets();
-    const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+    const { width: windowWidth } = useWindowDimensions();
     const [openedBefore, setOpenedBefore] = useLocalSettingMutable('desktopOpenedBefore');
     const machine = useMachine(getCachedConnectionSettings().machineId ?? '');
     const computerName = machine?.metadata?.displayName || machine?.metadata?.host || 'Computer';
@@ -161,9 +161,13 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
 
     React.useEffect(() => {
         if (notice === null) return;
-        const timer = setTimeout(() => setNotice(null), notice.ms);
+        const timer = setTimeout(() => {
+            setNotice(notice.text === desktopCopy.gestureHint && !clipboardAvailable
+                ? { text: desktopCopy.clipboardUnavailable, ms: NOTICE_MS }
+                : null);
+        }, notice.ms);
         return () => clearTimeout(timer);
-    }, [notice]);
+    }, [notice, clipboardAvailable]);
 
     const toggleKeyboard = React.useCallback(() => {
         setMenu(null);
@@ -246,7 +250,8 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     // A phone on its side has little height once the keyboard is up: the
     // header steps aside, and the round controls sit at the ends of the key
     // row instead of above it.
-    const compact = windowHeight < 480;
+    const screen = Dimensions.get('screen');
+    const compact = screen.width > screen.height;
     const headerShown = !(keyboard.isVisible && compact);
     const rise = compact ? (DESKTOP_KEY_ROW_HEIGHT - BUTTON) / 2 : DESKTOP_KEY_ROW_HEIGHT + ABOVE_KEYS;
     const clearance = compact ? (DESKTOP_KEY_ROW_HEIGHT + BUTTON) / 2 + PICTURE_GAP / 2 : rise + BUTTON + PICTURE_GAP;

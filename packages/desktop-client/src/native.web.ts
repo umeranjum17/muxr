@@ -87,6 +87,7 @@ interface WebSession {
      * controls above it cover, in CSS pixels. The picture is placed in the rest.
      */
     covered: number;
+    keyboardMove: { frame: number; target: number } | null;
     /** Space the app keeps above the keyboard for its controls. */
     clearance: number;
     gesture: Gesture;
@@ -253,28 +254,24 @@ function clampOrigin(session: WebSession): void {
 }
 
 /** Place the video where the view says; the browser scales it on the GPU. */
-function layoutPicture(session: WebSession, animate = false): void {
+function layoutPicture(session: WebSession): void {
     if (session.width === 0 || session.height === 0) return;
     const fit = fitScale(session);
     const { view } = session;
     view.scale = view.fitted ? fit : Math.min(Math.max(view.scale, fit), Math.max(fit, MAX_SCALE));
     view.fitted = view.scale <= fit * 1.001;
     clampOrigin(session);
-    // Only the keyboard's move is animated: a pinch or a pan follows the
-    // fingers, and easing it would put the picture behind them.
-    const transition = animate ? `${KEYBOARD_MOVE_MS}ms cubic-bezier(0.2, 0, 0, 1)` : '';
     const { style } = session.video;
-    style.transition = animate ? `${REVEAL}, left ${transition}, top ${transition}, width ${transition}, height ${transition}` : REVEAL;
     style.objectFit = 'fill';
     style.left = `${view.originX}px`;
     style.top = `${view.originY}px`;
     style.width = `${session.width * view.scale}px`;
     style.height = `${session.height * view.scale}px`;
-    placePointer(session, animate ? `transform ${transition}` : 'none');
+    placePointer(session);
 }
 
 /** Put the pointer mark on the desktop point it was last sent to. */
-function placePointer(session: WebSession, transition = 'none'): void {
+function placePointer(session: WebSession): void {
     const { mark, pointerAt, view } = session;
     if (pointerAt === null) {
         mark.style.display = 'none';
@@ -282,7 +279,6 @@ function placePointer(session: WebSession, transition = 'none'): void {
     }
     const x = view.originX + (pointerAt.x + 0.5) * view.scale - POINTER_HOTSPOT;
     const y = view.originY + (pointerAt.y + 0.5) * view.scale - POINTER_HOTSPOT;
-    mark.style.transition = transition;
     mark.style.transform = `translate3d(${x}px, ${y}px, 0)`;
     mark.style.display = 'block';
 }
@@ -293,8 +289,7 @@ function placePointer(session: WebSession, transition = 'none'): void {
  * the pointer, where a click just put the caret, stays in sight — or, with no
  * pointer yet, so the middle of what was shown stays in the middle.
  */
-function coverBottom(session: WebSession, covered: number): void {
-    if (Math.abs(covered - session.covered) < 0.5) return;
+function moveCover(session: WebSession, covered: number): void {
     const before = visibleHeight(session);
     session.covered = covered;
     const visible = visibleHeight(session);
@@ -306,7 +301,26 @@ function coverBottom(session: WebSession, covered: number): void {
         const margin = Math.min(56, visible / 4);
         if (y > visible - margin) view.originY -= y - (visible - margin);
     }
-    layoutPicture(session, true);
+    layoutPicture(session);
+}
+
+function coverBottom(session: WebSession, covered: number): void {
+    if (session.keyboardMove?.target === covered) return;
+    if (session.keyboardMove !== null) cancelAnimationFrame(session.keyboardMove.frame);
+    session.keyboardMove = null;
+    if (Math.abs(covered - session.covered) < 0.5) {
+        moveCover(session, covered);
+        return;
+    }
+    const from = session.covered;
+    const start = performance.now();
+    const step = (now: number): void => {
+        const progress = Math.min(1, Math.max(0, (now - start) / KEYBOARD_MOVE_MS));
+        moveCover(session, from + (covered - from) * (1 - (1 - progress) ** 3));
+        if (progress < 1) session.keyboardMove!.frame = requestAnimationFrame(step);
+        else session.keyboardMove = null;
+    };
+    session.keyboardMove = { frame: requestAnimationFrame(step), target: covered };
 }
 
 function zoomAround(session: WebSession, focusX: number, focusY: number, factor: number): void {
@@ -642,9 +656,7 @@ function attachGestures(session: WebSession): () => void {
     resize?.observe(surface as Element);
 
     // A phone browser lays its keyboard over the page rather than resizing it,
-    // so the covered part is what the visual viewport no longer shows. While
-    // the desktop's keyboard is focused, the app's controls above it cover
-    // their share too, keyboard or none (a hardware keyboard shows no panel).
+    // so the covered part is what the visual viewport no longer shows.
     const viewport = (globalThis as { visualViewport?: VisualViewport }).visualViewport;
     const followKeyboard = (): void => {
         if (document.activeElement !== keyboard) {
@@ -653,11 +665,13 @@ function attachGestures(session: WebSession): () => void {
         }
         const rect = surfaceRect(session);
         const shown = viewport === undefined ? rect.top + rect.height : viewport.offsetTop + viewport.height;
-        coverBottom(session, Math.max(0, rect.top + rect.height - shown) + session.clearance);
+        const overlap = Math.max(0, rect.top + rect.height - shown);
+        coverBottom(session, overlap > 0 ? overlap + session.clearance : 0);
     };
     viewport?.addEventListener('resize', followKeyboard);
     viewport?.addEventListener('scroll', followKeyboard);
     session.followKeyboard = followKeyboard;
+    followKeyboard();
 
     // What the phone types goes to the desktop, or, while a sticky modifier
     // waits for its key, to the session, which sends it as that key's chord.
@@ -770,6 +784,8 @@ function attachGestures(session: WebSession): () => void {
 
     return () => {
         cancelLongPress(session);
+        if (session.keyboardMove !== null) cancelAnimationFrame(session.keyboardMove.frame);
+        session.keyboardMove = null;
         resize?.disconnect();
         viewport?.removeEventListener('resize', followKeyboard);
         viewport?.removeEventListener('scroll', followKeyboard);
@@ -830,6 +846,7 @@ export const nativeDesklink: NativeDesklinkModule = {
             height: 0,
             view: { scale: 1, originX: 0, originY: 0, fitted: true },
             covered: 0,
+            keyboardMove: null,
             clearance: 0,
             followKeyboard: null,
             gesture: 'none',
