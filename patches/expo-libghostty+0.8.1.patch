@@ -264,8 +264,8 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
   * comes back through [onInputBytes]. Rendering pulls flattened dirty-row
 - * snapshots from JNI once per Choreographer frame and patches them onto a
 - * grid-sized bitmap; [onDraw] blits the bitmap and overlays the cursor.
-+ * snapshots from JNI once per Choreographer frame and re-records only the
-+ * rows that changed; [onDraw] replays the grid and overlays the cursor.
++ * snapshots from JNI once per Choreographer frame. API 29+ records dirty
++ * rows; older releases patch a bitmap. [onDraw] paints the cursor on top.
   */
  internal class GhosttyTerminalView(context: Context) : View(context) {
    var onInputBytes: ((ByteArray) -> Unit)? = null
@@ -472,7 +472,7 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
 -    bitmap = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888).also {
 -      bitmapCanvas = Canvas(it)
 -      bitmapCanvas?.drawColor(defaultBg)
-+    // Rebuilding the grid surface here used to publish a blank background
++    // On older releases, rebuilding the bitmap used to publish a blank
 +    // frame: the fresh bitmap replaced the presented one during layout, but
 +    // the repaint that refills it only lands on the next Choreographer frame
 +    // — and animated layouts cross many intermediate sizes. Seed the new
@@ -866,8 +866,8 @@ index 9d6ad1671c843b7cd75e08639906a9065b984210..fd2a5d9cdc68f75b1290d006e26ef48e
    override fun onDraw(canvas: Canvas) {
      canvas.drawColor(defaultBg)
 -    bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-+    // Row display lists replay only on a hardware canvas; the terminal is
-+    // never drawn into a software one.
++    // Row display lists replay only on a hardware canvas; older releases
++    // use the bitmap fallback.
 +    if (rowDisplayLists != null && canvas.isHardwareAccelerated) {
 +      rowDisplayLists.draw(canvas, rows)
 +    } else {
