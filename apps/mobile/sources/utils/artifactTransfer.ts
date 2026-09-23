@@ -1,13 +1,11 @@
 /**
  * Progressive artifact downloads over the encrypted artifact channel.
  *
- * Bytes arrive as bounded `artifact.read` chunks and go straight to a sink the
- * platform owns (a device file, the browser's private file system), so no layer
- * ever holds the whole file. Progress lives in a small store the Shared
- * Artifacts rows read. A dropped connection pauses at the last written byte and
- * resumes from it on reconnect; a later attempt resumes from whatever an earlier
- * one kept on disk. Artifact ids are content hashes, so kept bytes are only
- * ever resumed into the same content.
+ * Bytes arrive as bounded `artifact.read` chunks and go to a platform sink:
+ * a device file, browser private storage, or the bounded in-memory web fallback.
+ * Progress lives in a small store the Shared Artifacts rows read. A dropped
+ * connection resumes from kept file bytes on reconnect; memory-only downloads
+ * restart from zero. Content ids identify the file across attempts.
  */
 import { AppState } from 'react-native';
 import { create } from 'zustand';

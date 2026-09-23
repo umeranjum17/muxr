@@ -1,10 +1,10 @@
 /**
  * Download an artifact — web implementation.
  *
- * Chunks land in the origin's private file system, one file per artifact
- * content id, so a dropped connection resumes from the bytes already written
- * and the page never holds the file in memory. The finished file goes to the
- * browser's own download manager. Metro picks downloadArtifact.ts on native.
+ * Chunks land in the origin's private file system and resume from kept bytes.
+ * Browsers without that storage buffer files up to 64 MiB in memory instead;
+ * those bytes do not survive a reload. Completed files go to the browser's
+ * download manager. Metro picks downloadArtifact.ts on native.
  */
 import { LARGE_FILE_ERROR, artifactTransferKey, transferArtifact, useArtifactTransfers, type DownloadableArtifact, type TransferPlatform, type TransferSink } from '@/utils/artifactTransfer';
 import { sweepPartialDownloads } from '@/utils/artifactPartialRetention';
@@ -22,9 +22,9 @@ let downloads: Promise<FileSystemDirectoryHandle | undefined> | undefined;
 const memoryReady = new Map<string, string>();
 
 /**
- * Names carry the expected size, so a file already the right size is a
- * finished download. Those were handed to the browser in an earlier visit and
- * are cleared once per page; partial ones stay to be resumed.
+ * Names carry the expected size. Keep complete `.ready` files for a later
+ * Save; `.sent` markers identify browser handoffs to clear on the next visit.
+ * Incomplete files remain resumable until the retention sweep removes them.
  */
 function downloadsDirectory(): Promise<FileSystemDirectoryHandle | undefined> {
     downloads ??= (async () => {

@@ -8,7 +8,7 @@ function shortHash(value: string): string {
     return hash.toString(16).padStart(16, '0');
 }
 
-export function artifactDownloadKey(sessionId: string, artifact: DownloadableArtifact): string {
+export function artifactDownloadKey(sessionId: string, artifact: Pick<DownloadableArtifact, 'id' | 'name' | 'size' | 'at'>): string {
     const id = /^[0-9a-f]{64}$/.test(artifact.id) ? artifact.id : shortHash(artifact.id);
     return `${id}-${artifact.at ?? 'unknown'}-${shortHash(JSON.stringify([sessionId, artifact.name]))}-${artifact.size}`;
 }

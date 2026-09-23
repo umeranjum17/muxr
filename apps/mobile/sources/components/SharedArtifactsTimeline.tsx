@@ -305,6 +305,7 @@ function transferLine(transfer: ArtifactTransfer, artifact: SessionArtifact): st
             ? `Saved to Downloads · ${sizeLabel(transfer.total)}`
             : `Downloaded · ${sizeLabel(transfer.total)} · ${kindLabel(artifact)}`;
     }
+    if (!('received' in transfer)) return undefined;
     const percent = percentOf(transfer.received, transfer.total);
     if (transfer.status === 'failed') return transfer.received > 0 ? `${transfer.message} at ${percent}%` : transfer.message;
     if (transfer.total <= PROGRESS_BYTES) return undefined;
