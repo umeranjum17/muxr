@@ -54,6 +54,8 @@ class VoiceOverlayService : Service() {
     private var lastAttentionKeys = emptySet<String>()
     private var lastFocusedRoute: String? = null
     private var lastFinishedKey = ""
+    private var pendingAttentionKeys = emptySet<String>()
+    private var pendingFinishedIds = emptySet<String>()
     private var pendingEventAlert = false
     /**
      * True while the app wants the herd link kept alive: the service stays
@@ -146,29 +148,34 @@ class VoiceOverlayService : Service() {
             .filter { it.isNotBlank() && Uri.decode(it) != focusedRoute }.joinToString(",")
           else -> "working:" + shown.joinToString(",") { it["id"].toString() }
         }).trim().take(200)
-        val newEventAlert = when (mode) {
+        when (mode) {
           "attention" -> {
             val current = eventKey.removePrefix("attention:").split(",").filter(String::isNotBlank).toSet()
-            val alert = current.any { it !in lastAttentionKeys && Uri.decode(it) != focusedRoute }
+            pendingAttentionKeys = ((pendingAttentionKeys intersect current) + (current - lastAttentionKeys))
+              .filterNot { Uri.decode(it) == focusedRoute }.toSet()
+            pendingFinishedIds = emptySet()
             lastAttentionKeys = current
             lastFinishedKey = ""
-            alert
           }
           "finished" -> {
+            pendingFinishedIds = (if (eventKey != lastFinishedKey) finishedIds else pendingFinishedIds intersect finishedIds)
+              .filterNot { it == focusedRoute }.toSet()
+            pendingAttentionKeys = emptySet()
             lastAttentionKeys = emptySet()
-            val alert = eventKey.isNotBlank() && eventKey != lastFinishedKey && (!suppressFocused || finished.isNotEmpty())
             lastFinishedKey = eventKey
-            alert
           }
           else -> {
+            pendingAttentionKeys = emptySet()
+            pendingFinishedIds = emptySet()
             lastAttentionKeys = emptySet()
             lastFinishedKey = ""
-            false
           }
         }
-        pendingEventAlert = if (herdMode == "attention" || herdMode == "finished") {
-          (if (focusChanged) false else pendingEventAlert) || newEventAlert
-        } else false
+        pendingEventAlert = when (herdMode) {
+          "attention" -> pendingAttentionKeys.isNotEmpty()
+          "finished" -> pendingFinishedIds.isNotEmpty()
+          else -> false
+        }
         voiceState = state
         voiceName = activeVoiceName.trim().take(80)
         voiceMuted = muted
@@ -241,6 +248,8 @@ class VoiceOverlayService : Service() {
         lastPostedSignature = ""
         lastPostAt = 0L
         pendingEventAlert = false
+        pendingAttentionKeys = emptySet()
+        pendingFinishedIds = emptySet()
         lastAttentionKeys = emptySet()
         lastFocusedRoute = null
         lastFinishedKey = ""
@@ -420,6 +429,8 @@ class VoiceOverlayService : Service() {
       runCatching {
         manager(context).notify(HERD_NOTIFICATION_ID, buildNotification(context, false))
         pendingEventAlert = false
+        pendingAttentionKeys = emptySet()
+        pendingFinishedIds = emptySet()
       }.onFailure { Log.w("VoiceOverlay", "herd notification failed", it) }
     }
 
@@ -633,6 +644,8 @@ class VoiceOverlayService : Service() {
         startForeground(HERD_NOTIFICATION_ID, notification)
       }
       pendingEventAlert = false
+      pendingAttentionKeys = emptySet()
+      pendingFinishedIds = emptySet()
     }.onFailure {
       Log.w("VoiceOverlay", "herd foreground service refused", it)
       herdKeepalive = false
@@ -648,6 +661,8 @@ class VoiceOverlayService : Service() {
       } else if (herdMode == "working" || herdMode == "attention") {
         manager(this).notify(HERD_NOTIFICATION_ID, buildNotification(this, false))
         pendingEventAlert = false
+        pendingAttentionKeys = emptySet()
+        pendingFinishedIds = emptySet()
       } else {
         // A settled lifecycle is no longer a foreground-service reason. Remove
         // the ongoing card, replace it once with the dismissible completion,
@@ -657,6 +672,8 @@ class VoiceOverlayService : Service() {
         if (herdMode == "finished") {
           manager(this).notify(HERD_NOTIFICATION_ID, buildNotification(this, false))
           pendingEventAlert = false
+          pendingAttentionKeys = emptySet()
+          pendingFinishedIds = emptySet()
         } else {
           manager(this).cancel(HERD_NOTIFICATION_ID)
         }
