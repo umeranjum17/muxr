@@ -54,11 +54,7 @@ const GESTURES: readonly [gesture: string, effect: string][] = [
     ['Drag on the whole desktop', 'Move the pointer'],
 ];
 
-/**
- * A browser that refuses the phone's clipboard explains in its own words, which
- * read like a verdict ("User denied permission"). It is usually the first try,
- * before or while the site is allowed, so say what to do instead.
- */
+/** Expo reports a blocked browser clipboard read as ERR_NO_PERMISSION. */
 function describeClipboardError(error: unknown, fallback: string): string {
     const refused = error as { code?: unknown } | null;
     if (refused?.code === 'ERR_NO_PERMISSION') return desktopCopy.clipboardBlocked;
@@ -206,6 +202,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
             let written: Promise<boolean> | undefined;
             if (Platform.OS === 'web') {
                 try {
+                    // Start the write in the tap's user gesture; the remote reply can arrive later.
                     const write = typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write
                         ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': remote.then(({ text }) => new Blob([text], { type: 'text/plain' })) })])
                         : remote.then(({ text }) => navigator.clipboard.writeText(text));
