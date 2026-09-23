@@ -3,7 +3,6 @@ type KeyboardMotion = { covered: number; phase: number };
 const subscribers = new Set<(motion: KeyboardMotion) => void>();
 let viewport: VisualViewport | null = null;
 let settledHeight = 0;
-let peak = 0;
 let settling: number | null = null;
 let motion: KeyboardMotion = { covered: 0, phase: 0 };
 
@@ -18,10 +17,7 @@ function measure(): void {
     publish(covered, covered > 0 ? Math.min(1, covered / (settledHeight || covered)) : 0);
     if (settling !== null) cancelAnimationFrame(settling);
     settling = null;
-    if (covered === 0) {
-        peak = 0;
-    } else if (covered >= peak) {
-        peak = covered;
+    if (covered > 0) {
         settling = requestAnimationFrame(() => {
             settling = requestAnimationFrame(() => {
                 settling = null;
@@ -52,7 +48,6 @@ export function observeWebKeyboardMotion(subscriber: (motion: KeyboardMotion) =>
         viewport = null;
         settling = null;
         settledHeight = 0;
-        peak = 0;
         motion = { covered: 0, phase: 0 };
     };
 }

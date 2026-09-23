@@ -306,12 +306,16 @@ describe('the pointer above the keyboard', () => {
         dispatch(viewport, 'resize', {});
         const returningTop = Number.parseFloat(picture!.style.top);
         expect(returningTop).toBeGreaterThan(beforeBlur);
+        expect(phase).toBeCloseTo(210 / 300, 5);
         sent = [];
         touch(video, 'pointerdown', 500, 220);
         touch(video, 'pointerup', 500, 220);
         const returningY = Math.floor(220 - returningTop);
         expect(sent).toEqual(click(500, returningY, 1));
         expect(tip().y).toBeCloseTo(returningTop + returningY + 0.5, 5);
+        viewport.height = 600;
+        dispatch(viewport, 'resize', {});
+        expect(phase).toBeCloseTo(120 / 300, 5);
         viewport.height = 720;
         dispatch(viewport, 'resize', {});
         expect(picture!.style.top).toBe('0px');
@@ -327,6 +331,11 @@ describe('the pointer above the keyboard', () => {
         settle();
         expect(phase).toBe(1);
         expect(Number.parseFloat(picture!.style.top)).toBeCloseTo(-106.5, 5);
+        viewport.height = 640;
+        dispatch(viewport, 'resize', {});
+        expect(phase).toBeCloseTo(80 / 120, 5);
+        settle();
+        expect(phase).toBe(1);
     });
 });
 

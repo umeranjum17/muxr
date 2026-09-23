@@ -7,6 +7,8 @@ import { expect, it, vi } from 'vitest';
 let available = false;
 let openedBefore = false;
 let keyboardVisible = false;
+let screenWidth = 270;
+let screenHeight = 594;
 let authorize: () => Promise<unknown>;
 const session = {
     snapshot: { status: 'live', failure: null, diagnostics: {}, presented: true },
@@ -24,8 +26,8 @@ vi.mock('react-native', () => ({
     BackHandler: { addEventListener: () => ({ remove: () => undefined }) },
     Platform: { OS: 'web' },
     StyleSheet: { create: (styles: unknown) => styles, absoluteFill: {}, hairlineWidth: 1 },
-    useWindowDimensions: () => ({ width: 270, height: keyboardVisible ? 304 : 594 }),
-    Dimensions: { get: () => ({ width: 270, height: 594 }) },
+    useWindowDimensions: () => ({ width: screenWidth, height: keyboardVisible ? screenHeight - Math.min(290, screenHeight - 80) : screenHeight }),
+    Dimensions: { get: () => ({ width: screenWidth, height: screenHeight }) },
 }));
 vi.mock('react-native-reanimated', () => {
     const fade = { delay: () => fade, duration: () => fade, reduceMotion: () => fade };
@@ -41,7 +43,7 @@ vi.mock('react-native-reanimated', () => {
 });
 vi.mock('react-native-keyboard-controller', () => ({
     useKeyboardState: () => ({ isVisible: keyboardVisible }),
-    useReanimatedKeyboardAnimation: () => ({ height: { value: keyboardVisible ? -290 : 0 }, progress: { value: keyboardVisible ? 1 : 0 } }),
+    useReanimatedKeyboardAnimation: () => ({ height: { value: keyboardVisible ? -Math.min(290, screenHeight - 80) : 0 }, progress: { value: keyboardVisible ? 1 : 0 } }),
 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: {
@@ -73,10 +75,12 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     available = false;
     openedBefore = false;
     keyboardVisible = false;
+    screenWidth = 270;
+    screenHeight = 594;
     vi.useFakeTimers();
     let view!: ReturnType<typeof TestRenderer.create>;
     const root = () => view.root as {
-        findAllByProps(props: { accessibilityLabel: string }): unknown[];
+        findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string }): unknown[];
         findByProps(props: { accessibilityLabel: string }): { props: { onPress(): void } };
     };
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={() => undefined} />); });
@@ -90,18 +94,36 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     await TestRenderer.act(async () => view.unmount());
 
     available = true;
-    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={() => undefined} />); });
+    const exit = vi.fn();
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={exit} />); });
     await TestRenderer.act(async () => root().findByProps({ accessibilityLabel: 'Clipboard' }).props.onPress());
     expect(root().findAllByProps({ accessibilityLabel: 'Copy to Phone' })).toHaveLength(1);
     expect(root().findAllByProps({ accessibilityLabel: 'Paste from Phone' })).toHaveLength(1);
     keyboardVisible = true;
-    await TestRenderer.act(async () => view.update(<DesktopSurface onExit={() => undefined} />));
+    await TestRenderer.act(async () => view.update(<DesktopSurface onExit={exit} />));
     expect(root().findAllByProps({ accessibilityLabel: 'Back to the conversation' })).toHaveLength(1);
     expect(root().findAllByProps({ accessibilityLabel: 'Desktop actions' })).toHaveLength(1);
     expect(root().findAllByProps({ accessibilityLabel: 'Hide keyboard' })).toHaveLength(1);
     expect(view.root.findByType('DesktopView').props.keyboardClearance).toBe(96);
     expect(view.root.findByType('DesktopKeyRow')).toBeDefined();
-    await TestRenderer.act(async () => view.unmount());
+
+    screenWidth = 594;
+    screenHeight = 270;
+    await TestRenderer.act(async () => view.update(<DesktopSurface onExit={exit} />));
+    expect(root().findAllByProps({ accessibilityRole: 'header' })).toHaveLength(0);
+    expect(root().findAllByProps({ accessibilityLabel: 'Back to the conversation' })).toHaveLength(1);
+    expect(root().findAllByProps({ accessibilityLabel: 'Desktop actions' })).toHaveLength(1);
+    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Desktop actions' }).props.onPress());
+    expect(root().findAllByProps({ accessibilityLabel: 'Gestures' })).toHaveLength(1);
+    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Gestures' }).props.onPress());
+    expect(root().findAllByProps({ accessibilityLabel: 'Tap: Click' })).toHaveLength(1);
+    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Back to the conversation' }).props.onPress());
+    expect(exit).toHaveBeenCalledTimes(1);
+
     keyboardVisible = false;
+    await TestRenderer.act(async () => view.update(<DesktopSurface onExit={exit} />));
+    expect(root().findAllByProps({ accessibilityRole: 'header' })).toHaveLength(1);
+    expect(root().findAllByProps({ accessibilityLabel: 'Desktop actions' })).toHaveLength(1);
+    await TestRenderer.act(async () => view.unmount());
     vi.useRealTimers();
 });

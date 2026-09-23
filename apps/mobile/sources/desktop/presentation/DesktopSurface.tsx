@@ -243,7 +243,8 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     // row instead of above it.
     const screen = Dimensions.get('screen');
     const compact = screen.width > screen.height;
-    const headerShown = !(keyboard.isVisible && compact);
+    const compactKeyboard = compact && (keyboard.isVisible || (web && motion.visible));
+    const headerShown = !compactKeyboard;
     const rise = compact ? (DESKTOP_KEY_ROW_HEIGHT - BUTTON) / 2 : DESKTOP_KEY_ROW_HEIGHT + ABOVE_KEYS;
     const clearance = compact ? (DESKTOP_KEY_ROW_HEIGHT + BUTTON) / 2 + PICTURE_GAP / 2 : rise + BUTTON + PICTURE_GAP;
     const statusLabel = live ? desktopCopy.liveLabel : snapshot.status === 'reconnecting' ? desktopCopy.reconnectingTitle : status.spinner ? desktopCopy.connectingLabel : null;
@@ -303,6 +304,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
         </Pressable>
     );
     const headerMark = ({ pressed }: { pressed: boolean }) => [styles.headerButton, pressed && styles.pressed];
+    const toggleMore = () => setMenu((open) => (open === 'more' ? null : 'more'));
     const popIn = FadeIn.duration(140).reduceMotion(ReduceMotion.System);
     const popOut = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
 
@@ -323,7 +325,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                     <Ionicons name="help-circle-outline" size={19} color={theme.colors.text} />
                 </Pressable>
                 {live && <Animated.View entering={popIn}>
-                    <Pressable onPress={() => setMenu((open) => (open === 'more' ? null : 'more'))} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} hitSlop={8} style={headerMark}>
+                    <Pressable onPress={toggleMore} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} hitSlop={8} style={headerMark}>
                         <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
                     </Pressable>
                 </Animated.View>}
@@ -357,6 +359,17 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                     </Animated.View>
                 )}
 
+                {compactKeyboard && (
+                    <View pointerEvents="box-none" style={styles.compactHeader}>
+                        <Pressable onPress={onExit} accessibilityRole="button" accessibilityLabel="Back to the conversation" style={({ pressed }) => control(pressed)}>
+                            <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
+                        </Pressable>
+                        {live && <Pressable onPress={toggleMore} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} style={({ pressed }) => control(pressed, menu === 'more')}>
+                            <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
+                        </Pressable>}
+                    </View>
+                )}
+
                 {menu !== null && <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenu(null)} accessibilityLabel="Close menu" />}
 
                 {menu === 'help' && (
@@ -372,6 +385,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
 
                 {menu === 'more' && live && (
                     <Animated.View entering={popIn} exiting={popOut} style={[card, styles.topCard]}>
+                        {compactKeyboard && menuRow('Gestures', 'help-circle-outline', () => setMenu('help'))}
                         {menuRow('Fit to screen', 'scan-outline', session.fitToView)}
                         {Platform.OS === 'android' && menuRow('Landscape', 'phone-landscape-outline', toggleLandscape, { selected: landscape })}
                         {menuRow('Disconnect', 'power-outline', onExit)}
@@ -431,6 +445,7 @@ const styles = StyleSheet.create({
     titleText: { flexShrink: 1, fontSize: 13, fontWeight: '500', opacity: 0.88 },
     body: { flex: 1, minHeight: 0 },
     surface: { flex: 1 },
+    compactHeader: { position: 'absolute', top: 8, left: EDGE, right: EDGE, height: BUTTON, flexDirection: 'row', justifyContent: 'space-between', zIndex: 2 },
     overlay: {
         position: 'absolute',
         left: 0,
