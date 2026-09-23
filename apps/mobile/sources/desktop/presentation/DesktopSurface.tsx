@@ -202,13 +202,21 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
         setClipboardBusy(true);
         setNotice(null);
         try {
-            const { text, truncated } = await session.copyRemoteToLocal();
+            const remote = session.copyRemoteToLocal();
+            let written: Promise<boolean> | undefined;
             if (Platform.OS === 'web') {
                 try {
-                    await navigator.clipboard.writeText(text);
+                    const write = typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write
+                        ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': remote.then(({ text }) => new Blob([text], { type: 'text/plain' })) })])
+                        : remote.then(({ text }) => navigator.clipboard.writeText(text));
+                    written = write.then(() => true, () => false);
                 } catch {
-                    throw new Error(desktopCopy.clipboardBlocked);
+                    written = Promise.resolve(false);
                 }
+            }
+            const { text, truncated } = await remote;
+            if (written !== undefined) {
+                if (!await written) throw new Error(desktopCopy.clipboardBlocked);
             } else {
                 await Clipboard.setStringAsync(text);
             }

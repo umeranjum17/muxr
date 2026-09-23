@@ -21,6 +21,7 @@ const session = {
     showKeyboard: vi.fn(() => undefined),
     setOrientation: () => undefined,
     fitToView: () => undefined,
+    copyRemoteToLocal: vi.fn(async (): Promise<{ text: string; truncated: boolean }> => ({ text: '', truncated: false })),
 };
 
 vi.mock('react-native', () => ({
@@ -76,6 +77,38 @@ vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId
 vi.mock('./DesktopKeyRow', () => ({ DesktopKeyRow: 'DesktopKeyRow', DESKTOP_KEY_ROW_HEIGHT: 36 }));
 
 import { DesktopSurface } from './DesktopSurface';
+
+it('starts web clipboard copy in the tap and waits for the write before reporting success', async () => {
+    available = true;
+    openedBefore = true;
+    session.snapshot.status = 'live';
+    let resolveRemote!: (value: { text: string; truncated: boolean }) => void;
+    let resolveWrite!: () => void;
+    const remote = new Promise<{ text: string; truncated: boolean }>((resolve) => { resolveRemote = resolve; });
+    const webWrite = vi.fn((_items: FakeClipboardItem[]) => new Promise<void>((resolve) => { resolveWrite = resolve; }));
+    class FakeClipboardItem {
+        constructor(readonly data: Record<string, Promise<Blob>>) {}
+    }
+    vi.stubGlobal('ClipboardItem', FakeClipboardItem);
+    vi.stubGlobal('navigator', { clipboard: { write: webWrite } });
+    session.copyRemoteToLocal.mockImplementation(() => remote);
+    let view!: ReturnType<typeof TestRenderer.create>;
+    try {
+        await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={() => undefined} />); });
+        TestRenderer.act(() => view.root.findByProps({ accessibilityLabel: 'Clipboard' }).props.onPress());
+        TestRenderer.act(() => view.root.findByProps({ accessibilityLabel: 'Copy to Phone' }).props.onPress());
+        expect(webWrite).toHaveBeenCalledTimes(1);
+        expect(view.root.findAllByProps({ accessibilityLiveRegion: 'polite' })).toHaveLength(0);
+        await TestRenderer.act(async () => { resolveRemote({ text: 'remote text', truncated: false }); await Promise.resolve(); });
+        expect(await webWrite.mock.calls[0][0][0].data['text/plain'].then((blob) => blob.text())).toBe('remote text');
+        expect(view.root.findAllByProps({ accessibilityLiveRegion: 'polite' })).toHaveLength(0);
+        await TestRenderer.act(async () => { resolveWrite(); });
+        expect(view.root.findByProps({ accessibilityLiveRegion: 'polite' }).children.join('')).toBe('Copied to this phone.');
+    } finally {
+        await TestRenderer.act(async () => { if (view) view.unmount(); });
+        vi.unstubAllGlobals();
+    }
+});
 
 it('keeps a portrait desktop usable with the keyboard up and explains unavailable clipboard after the first hint', async () => {
     available = false;
