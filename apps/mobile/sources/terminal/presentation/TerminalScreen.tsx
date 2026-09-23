@@ -416,9 +416,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         ]);
     }, [showDialogMessage]);
 
-    // A horizontal swipe pages through active agents and agents that finished
-    // in the last two minutes. Old shells never sit between live work. The
-    // pager settles before the route changes, so the switch itself is a
+    // The selected swipe stops follow Live order; the default skips old shells.
+    // The pager settles before the route changes, so the switch itself is a
     // parameter, never a second screen animating in over this one.
     const switchAgent = React.useCallback((id: string) => router.setParams({ id }), []);
     const nothingToSwipeTo = React.useCallback(() => showGestureHintRef.current(swipeScope === 'all' ? 'No other agent' : 'No other working or recently finished agent'), [swipeScope]);

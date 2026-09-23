@@ -127,7 +127,7 @@ export function visibleActivityEventIds(
     return rows.filter((row) => visibleRoutes.has(row.sessionId)).map((row) => row.eventId);
 }
 
-/** Which agents the terminal swipe stops at: the ones at work, or every agent in the strip. */
+/** Which agents the terminal swipe stops at: active/recent agents, or every agent in the strip. */
 export type AgentSwipeScope = 'working' | 'all';
 
 export interface AgentSwipeNeighbours {
