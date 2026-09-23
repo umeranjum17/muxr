@@ -65,26 +65,27 @@ export function KernelNotifications() {
     const backgroundPrompting = React.useRef(false);
     const keepalive = React.useRef(false);
     const herdActive = herd.mode === 'working' || herd.mode === 'attention';
-    const sendNotification = (focus = focusedAgentRoute()) => updateVoiceNotification(
-        nativeLifecycleNotificationState(herdActive ? nativeHerd : presentation, lifecycleNotificationLevel),
+    const notification = {
+        herd: nativeLifecycleNotificationState(herdActive ? nativeHerd : presentation, lifecycleNotificationLevel),
         voiceState,
         voiceName,
         muted,
-        panes.filter((pane) => pane.agentStatus === 'blocked').map((pane) => ({
+        blocked: panes.filter((pane) => pane.agentStatus === 'blocked').map((pane) => ({
             id: pane.id,
             name: pane.agentName ?? 'Unnamed agent',
-            focused: pane.id === focus,
         })),
-    );
-    const sendNotificationRef = React.useRef(sendNotification);
-    sendNotificationRef.current = sendNotification;
-    const connectedNotificationRef = React.useRef(sendNotification);
-    if (status === 'connected') connectedNotificationRef.current = sendNotification;
-    const clearNativeFocus = () => (keepalive.current ? connectedNotificationRef : sendNotificationRef).current(null);
-    const clearNativeFocusRef = React.useRef(clearNativeFocus);
-    clearNativeFocusRef.current = clearNativeFocus;
-    const authenticatedRef = React.useRef(isAuthenticated);
-    authenticatedRef.current = isAuthenticated;
+    };
+    const native = React.useRef({ current: notification, connected: notification, authenticated: isAuthenticated, focus: undefined as string | null | undefined });
+    native.current.current = notification;
+    native.current.authenticated = isAuthenticated;
+    if (status === 'connected') native.current.connected = notification;
+    const sendNative = React.useCallback((focus: string | null, retain = false) => {
+        const { herd: state, voiceState: voice, voiceName: name, muted: isMuted, blocked } = retain
+            ? native.current.connected : native.current.current;
+        updateVoiceNotification(state, voice, name, isMuted, blocked.map((pane) => ({
+            ...pane, focused: pane.id === focus,
+        })));
+    }, []);
 
     React.useEffect(() => {
         let next = herd;
@@ -117,30 +118,41 @@ export function KernelNotifications() {
         void requestNotificationPermission(false).then(() => {
             if (!live) return;
             if (AppState.currentState !== 'active' && keepalive.current) {
-                clearNativeFocusRef.current();
+                sendNative(null, true);
                 return;
             }
-            sendNotificationRef.current();
+            sendNative(focusedAgentRoute());
             if (herdActive && !keepalive.current) keepalive.current = startHerdKeepalive();
         });
         return () => { live = false; };
-    }, [appActive, focusedRoute, herdActive, isAuthenticated, lifecycleNotificationLevel, muted, nativeHerd, panes, presentation, status, voiceName, voiceState]);
+    }, [appActive, focusedRoute, herdActive, isAuthenticated, lifecycleNotificationLevel, muted, nativeHerd, panes, presentation, sendNative, status, voiceName, voiceState]);
+
+    React.useEffect(() => {
+        if (!isAuthenticated || !herdActive) return;
+        const previous = native.current.focus;
+        if (previous === focusedRoute) return;
+        native.current.focus = focusedRoute;
+        if (previous !== undefined || focusedRoute !== null) sendNative(focusedRoute, !appActive && keepalive.current);
+    }, [appActive, focusedRoute, herdActive, isAuthenticated, sendNative]);
 
     React.useEffect(() => {
         if (!isAuthenticated) return;
         setAppActive(AppState.currentState === 'active');
         const subscription = AppState.addEventListener('change', (state) => {
             const active = state === 'active';
-            if (!active) clearNativeFocusRef.current();
+            if (!active) {
+                native.current.focus = null;
+                sendNative(null, keepalive.current);
+            }
             setAppActive(active);
             if (active && herdActive) keepalive.current = startHerdKeepalive();
         });
         return () => subscription.remove();
-    }, [herdActive, isAuthenticated]);
+    }, [herdActive, isAuthenticated, sendNative]);
 
     React.useEffect(() => () => {
-        if (authenticatedRef.current) clearNativeFocusRef.current();
-    }, []);
+        if (native.current.authenticated && native.current.focus) sendNative(null, keepalive.current);
+    }, [sendNative]);
 
     React.useEffect(() => {
         if (Platform.OS === 'ios' && isAuthenticated && appActive) {

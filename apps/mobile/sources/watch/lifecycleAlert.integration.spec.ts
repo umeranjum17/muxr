@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as React from 'react';
+import TestRenderer, { act } from 'react-test-renderer';
 import type { LifecycleEvent } from '@muxr/contract';
 
 const harness = vi.hoisted(() => ({
@@ -14,6 +16,10 @@ const harness = vi.hoisted(() => ({
     eventListeners: [] as Array<(sessionId: string, event: unknown) => void>,
     mmkv: new Map<string, string>(),
     catalog: { revision: 1, events: [] as LifecycleEvent[] },
+    catalogRead: null as null | (() => void),
+    machinesGate: null as null | Promise<void>,
+    permissionPending: false,
+    nativeShade: [] as string[],
 }));
 
 vi.mock('expo-notifications', () => ({
@@ -50,7 +56,30 @@ vi.mock('react-native-mmkv', () => ({
         delete(key: string) { harness.mmkv.delete(key); }
     },
 }));
-vi.mock('@/modal', () => ({ Modal: {} }));
+vi.mock('@/modal', () => ({ Modal: { confirm: async () => false } }));
+vi.mock('@/account/ui', () => ({ useAuth: () => ({ isAuthenticated: true }) }));
+vi.mock('@/conversation/session', async (importOriginal) => ({
+    ...await importOriginal<typeof import('@/conversation/session')>(),
+    boundRealtimeSession: () => null,
+    useRealtimeMuted: () => false,
+    useRealtimeSessionState: () => ({ state: 'disconnected' }),
+    retryVadStandby: async () => undefined,
+}));
+vi.mock('@/utils/nativePushNotifications', () => ({ registerNativePushNotifications: async () => undefined }));
+vi.mock('@/utils/microphonePermissions', () => ({
+    requestNotificationPermission: () => harness.permissionPending ? new Promise<boolean>(() => undefined) : Promise.resolve(true),
+}));
+vi.mock('@/../modules/voice-overlay', () => ({
+    updateVoiceNotification: (herd: { mode: string }, _voice: string, _name: string, _muted: boolean, blocked: Array<{ name: string; focused: boolean }>) => {
+        harness.nativeShade = herd.mode === 'attention' ? blocked.filter((agent) => !agent.focused).map((agent) => `${agent.name} needs you`) : [];
+        return true;
+    },
+    clearVoiceNotification: () => undefined,
+    startHerdKeepalive: () => true,
+    stopHerdKeepalive: () => undefined,
+    supportsPromotedNotifications: () => false,
+    canPostPromotedNotifications: () => false,
+}));
 vi.mock('@/connection', () => {
     const settings = { mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-a', token: 'device', lastSessionCwd: '', recentSessionCwds: [] };
     return {
@@ -77,9 +106,14 @@ vi.mock('@/pairing/infrastructure/muxrClient', () => ({
             return () => undefined;
         }
         async request(type: string) {
+            if (type === 'machines.list' && harness.machinesGate) await harness.machinesGate;
             if (type === 'herdr.tree') return { workspaces: [] };
             if (type === 'attention.catalog') return { revision: 0, entries: [] };
-            if (type === 'lifecycle.catalog') return harness.catalog;
+            if (type === 'lifecycle.catalog') {
+                const catalog = harness.catalog;
+                harness.catalogRead?.();
+                return catalog;
+            }
             return [];
         }
     },
@@ -100,6 +134,7 @@ vi.mock('@/herd', async () => {
 });
 
 import { storage } from '@/catalog/store';
+import { KernelNotifications } from '@/herd/presentation/KernelNotifications';
 import { sync, syncCreate } from '@/catalog/sync';
 import { agentOnScreen, focusedAgentRoute, notificationResponseKey, subscribeFocusedAgent } from '@/watch/lifecycleAlert';
 
@@ -140,6 +175,10 @@ describe('agent lifecycle alerts on the phone', () => {
         harness.issued.length = 0;
         harness.postGate = null;
         harness.catalog = { revision: 1, events: [] };
+        harness.catalogRead = null;
+        harness.machinesGate = null;
+        harness.permissionPending = false;
+        harness.nativeShade = [];
         harness.appState = 'active';
     });
 
@@ -226,12 +265,58 @@ describe('agent lifecycle alerts on the phone', () => {
         expect(shade()).toEqual(['ram failed.']);
         expect(harness.posted.filter((body) => body.startsWith('ram '))).toEqual(['ram failed.']);
 
-        harness.catalog = { revision: 3, events: [replayEvent('working', 102), failed, blocked] };
+        const resolved = replayEvent('working', 102);
+        harness.catalog = { revision: 3, events: [resolved, failed, blocked] };
         await sync.refreshSessions();
         await settle();
         expect(shade()).toEqual([]);
 
+        let catalogRead!: () => void;
+        let releaseCatalog!: () => void;
+        const read = new Promise<void>((resolve) => { catalogRead = resolve; });
+        harness.catalogRead = catalogRead;
+        harness.machinesGate = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+        harness.catalog = { revision: 4, events: [resolved, failed, blocked] };
+        const refresh = sync.refreshSessions();
+        await read;
+        sequence += 200;
+        agentChanges('route-ram', 'ram', 'blocked');
+        await settle();
+        releaseCatalog();
+        await refresh;
+        await settle();
+        expect(shade()).toEqual(['ram needs attention.']);
+
         expect(focusHistory).toEqual(['route-lamb', null, 'route-lamb', null, 'route-lamb', null]);
         unsubscribe();
+    });
+
+    it('clears native attention on focus before permission resolves', async () => {
+        harness.permissionPending = true;
+        storage.setState({
+            socketStatus: 'connected',
+            herdrWorkspaces: [{
+                workspaceId: 'workspace-a', label: 'Work', focused: true, agentStatus: 'blocked',
+                tabs: [{ tabId: 'tab-a', focused: true, agentStatus: 'blocked', panes: [{
+                    paneId: 'pane-a', tabId: 'tab-a', sessionId: 'route-lamb',
+                    agentName: 'lamb', agentStatus: 'blocked', promptable: true, focused: true,
+                }] }],
+            }],
+            localSettings: {
+                ...storage.getState().localSettings,
+                backgroundConnectionPrompted: true,
+                promotedNotificationsPrompted: true,
+            },
+        });
+        harness.nativeShade = ['lamb needs you'];
+        let screen!: ReturnType<typeof TestRenderer.create>;
+        await act(async () => { screen = TestRenderer.create(React.createElement(KernelNotifications)); });
+        expect(harness.nativeShade).toEqual(['lamb needs you']);
+        let leave!: () => void;
+        await act(async () => { leave = agentOnScreen('route-lamb'); });
+        expect(harness.nativeShade).toEqual([]);
+        await act(async () => { leave(); });
+        expect(harness.nativeShade).toEqual(['lamb needs you']);
+        await act(async () => { screen.unmount(); });
     });
 });

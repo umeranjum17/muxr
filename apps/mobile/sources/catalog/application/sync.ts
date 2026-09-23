@@ -455,17 +455,7 @@ class MuxrSync {
     }
 
     private async presentPendingLifecycleEvents(): Promise<void> {
-        const state = storage.getState();
-        const latestByAgent = new Map<string, LifecycleEvent>();
-        for (const event of state.lifecycleEvents) {
-            if (!latestByAgent.has(event.sessionId)) latestByAgent.set(event.sessionId, event);
-        }
-        for (const event of latestByAgent.values()) {
-            if (!lifecycleNotificationAllowed(state.localSettings.lifecycleNotificationLevel, event.state)) {
-                dismissAgentAlert(event.sessionId);
-            }
-        }
-        const pending = [...state.pendingLifecycleEvents]
+        const pending = [...storage.getState().pendingLifecycleEvents]
             .sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
         for (const event of pending) {
             if (this.presentingLifecycleIds.has(event.eventId)) continue;
@@ -568,6 +558,7 @@ class MuxrSync {
         }
         const client = this.ensureClient();
         if (!client.isLive()) await waitUntilClientOpen(client, 5000);
+        const lifecycleBefore = new Set(storage.getState().lifecycleEvents.map((event) => event.eventId));
         const [machines, sessions, attention, lifecycle, tree] = await Promise.all([
             client.request('machines.list', {}),
             client.request('session.list', {}),
@@ -612,7 +603,8 @@ class MuxrSync {
         storage.getState().markSessionsLoaded();
         storage.getState().applyAttentionCatalog(attention.entries);
         if (lifecycle !== undefined) {
-            storage.getState().applyLifecycleCatalog(lifecycle);
+            const liveEvents = storage.getState().lifecycleEvents.filter((event) => !lifecycleBefore.has(event.eventId));
+            storage.getState().applyLifecycleCatalog({ ...lifecycle, events: [...liveEvents, ...lifecycle.events] });
             void this.presentPendingLifecycleEvents();
         }
     }
