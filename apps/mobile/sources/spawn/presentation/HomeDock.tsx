@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, Keyboard, Modal as RNModal, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, Modal as RNModal, Platform, Pressable, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -128,6 +128,10 @@ const styles = StyleSheet.create((theme) => ({
     },
     inputEntryPlaceholder: {
         color: theme.colors.textSecondary,
+    },
+    // Preserve the resting prompt label on narrow phone viewports.
+    inputEntryTextCompact: {
+        fontSize: 15,
     },
     focusedComposerSurface: {
         width: '100%',
@@ -591,6 +595,7 @@ export const HomeDock = React.memo(({
     );
     const currentAgent = currentDockAgent(availableAgents, agentType);
     const hasPrompt = prompt.trim().length > 0 || selectedImages.length > 0;
+    const compact = useWindowDimensions().width < 330;
     const canSubmit = !isSubmitting && hasPrompt;
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     const keyboardStyle = useAnimatedStyle(() => ({
@@ -797,7 +802,7 @@ export const HomeDock = React.memo(({
                 {activateOnPress ? (
                     <Pressable onPress={activateOnPress} style={styles.inputEntry}>
                         <Text
-                            style={[styles.inputEntryText, !prompt && styles.inputEntryPlaceholder]}
+                            style={[styles.inputEntryText, compact && styles.inputEntryTextCompact, !prompt && styles.inputEntryPlaceholder]}
                             numberOfLines={1}
                         >
                             {prompt || t('homeDock.inputPlaceholder')}
@@ -821,7 +826,8 @@ export const HomeDock = React.memo(({
                 )}
                 {Platform.OS !== 'web' && <DictateButton context={composerDraft} />}
                 <PluginSlot slot="home.composer.trailing" context={composerDraft} />
-                <BubblePressable
+                {/* A draft can remain after the focused composer closes. */}
+                {(hasPrompt || isSubmitting) && <BubblePressable
                     onPress={onSend}
                     disabled={!canSubmit}
                     style={[styles.sendButton, canSubmit && styles.sendButtonActive]}
@@ -837,7 +843,7 @@ export const HomeDock = React.memo(({
                             color={canSubmit ? theme.colors.fab.icon : theme.colors.textSecondary}
                         />
                     )}
-                </BubblePressable>
+                </BubblePressable>}
             </View>
         </MobileGlassSurface>
     );
