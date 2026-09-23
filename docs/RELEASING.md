@@ -67,7 +67,7 @@ Build numbers are reserved through the `release-build-numbers` Git branch. Fast-
 
 ### Desktop engine packages come first
 
-The CLI depends on `@desklink/host` at the exact version in `packages/desktop-host/package.json`, and that package's optional `@desklink/host-linux-x64-gnu` carries the prebuilt engine. Neither is published by any workflow. Before dispatching a candidate whose `@desklink/host` version is not on npm yet, build, pack, check and publish both by hand, platform package first, as `packages/desktop-host/README.md` ("Building and packing a release") describes. Otherwise the candidate's install step fails on the missing dependency. `desklink-engine.yml` is a manual dispatch that rebuilds and checks the same tarballs on GitHub and prints their digests to compare with the ones being published; it uploads and publishes nothing.
+The CLI depends on `@desklink/host` at the exact version in `packages/desktop-host/package.json`, and that package's optional `@desklink/host-linux-x64-gnu` carries the prebuilt engine. Neither is published by any workflow. Before dispatching a candidate whose `@desklink/host` version is not on npm yet, build, pack, check and publish both by hand, platform package first, as `packages/desktop-host/README.md` ("Building and packing a release") describes. Otherwise the candidate's install step fails on the missing dependency. The pinned container script is the sole engine build entry point; there is no workflow to rebuild or publish these packages.
 
 ## Public channel record
 
