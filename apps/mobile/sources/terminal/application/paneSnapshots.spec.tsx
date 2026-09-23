@@ -20,7 +20,7 @@ function SnapshotText() {
 }
 
 it('keeps the latest accepted pane read in the tile and pager when replies cross', async () => {
-    let renderer: ReturnType<typeof TestRenderer.create>;
+    let renderer: ReturnType<typeof TestRenderer.create> | undefined;
     TestRenderer.act(() => {
         renderer = TestRenderer.create(<><TerminalPreview sessionId="pane-order-flow" live={false} /><SnapshotText /></>);
     });
