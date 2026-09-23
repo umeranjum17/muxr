@@ -109,6 +109,10 @@ class DesklinkModule : Module() {
         if (id != null) views[id] = view
       }
 
+      Prop("keyboardClearance") { view: DesktopView, clearance: Float? ->
+        view.setKeyboardClearance(clearance ?: 0f)
+      }
+
       OnViewDestroys { view: DesktopView -> view.release() }
 
       OnViewDidUpdateProps { view: DesktopView ->

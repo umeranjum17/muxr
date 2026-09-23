@@ -1,4 +1,5 @@
 import type { NativeDesklinkModule, NativeEventName, NativeSessionEvent } from './native';
+import { observeWebKeyboardMotion } from './webKeyboardMotion';
 
 /**
  * The browser implementation of the client's session interface.
@@ -41,6 +42,19 @@ const PIXELS_PER_DETENT = 120;
 /** Wheel steps smaller than this wait for more movement. */
 const MIN_WHEEL_STEP = 0.05;
 
+/** The first picture comes up out of black rather than cutting in. */
+const REVEAL = 'opacity 280ms ease-out';
+
+/**
+ * The pointer, drawn at a size a phone can see: black with a white edge, so it
+ * reads on a light page and a dark one. The tip is the hotspot, 3 px in from
+ * the element's corner to leave room for the edge and its shadow.
+ */
+const POINTER_HOTSPOT = 3;
+const POINTER_MARK = '<svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">'
+    + '<path d="M3 3 L3 22.25 L7.73 17.96 L10.92 25.22 L14 23.9 L10.92 16.86 L17.08 16.86 Z" '
+    + 'fill="#000" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" paint-order="stroke"/></svg>';
+
 type Gesture = 'none' | 'pending' | 'pan' | 'armed' | 'drag' | 'two' | 'pinch' | 'scroll' | 'spent' | 'mouse';
 
 const MODIFIER_NAMES = new Set(['Control', 'Shift', 'Alt', 'Meta']);
@@ -51,6 +65,12 @@ interface WebSession {
     channel: RTCDataChannel | null;
     video: HTMLVideoElement;
     keyboard: HTMLTextAreaElement;
+    /** Where the next click lands, drawn over the picture once a touch has put it somewhere. */
+    mark: HTMLDivElement;
+    /** The desktop point the pointer was last sent to by touch; null hides the mark. */
+    pointerAt: { x: number; y: number } | null;
+    /** The last press came from a mouse, whose own cursor needs no mark. */
+    mouse: boolean;
     surface: HTMLDivElement | null;
     width: number;
     height: number;
@@ -60,6 +80,13 @@ interface WebSession {
      * the whole desktop showing it when the surface changes size.
      */
     view: { scale: number; originX: number; originY: number; fitted: boolean };
+    /**
+     * How much of the surface's bottom the phone's keyboard and the app's own
+     * controls above it cover, in CSS pixels. The picture is placed in the rest.
+     */
+    covered: number;
+    /** Space the app keeps above the keyboard for its controls. */
+    clearance: number;
     gesture: Gesture;
     /** Touches on the surface, by pointer id, in surface coordinates. */
     touches: Map<number, { x: number; y: number }>;
@@ -88,6 +115,8 @@ interface WebSession {
     compositionSent: string;
     /** Chorded keys that are down on the desktop, by the character sent for them. */
     chordsDown: Set<string>;
+    /** Re-measure what the keyboard covers; null until a surface is attached. */
+    followKeyboard: (() => void) | null;
     /** Candidates that arrived before the offer; applied once it is set. */
     remoteDescriptionSet: boolean;
     pendingCandidates: RTCIceCandidateInit[];
@@ -132,7 +161,7 @@ function heldModifiers(event: KeyboardEvent): string[] {
     return modifiers;
 }
 
-function createSessionElements(): { video: HTMLVideoElement; keyboard: HTMLTextAreaElement } {
+function createSessionElements(): { video: HTMLVideoElement; keyboard: HTMLTextAreaElement; mark: HTMLDivElement } {
     const video = document.createElement('video');
     video.autoplay = true;
     video.muted = true;
@@ -146,6 +175,8 @@ function createSessionElements(): { video: HTMLVideoElement; keyboard: HTMLTextA
     video.style.objectFit = 'contain';
     video.style.touchAction = 'none';
     video.style.display = 'block';
+    video.style.opacity = '0';
+    video.style.transition = REVEAL;
 
     // A real focusable element is what raises the platform keyboard on a phone
     // browser and what owns the composing region; it is invisible because the
@@ -160,7 +191,18 @@ function createSessionElements(): { video: HTMLVideoElement; keyboard: HTMLTextA
     // No automatic capitals: the desktop decides what a word is, and a shell
     // command that arrives as "Ls" is wrong.
     keyboard.autocapitalize = 'off';
-    return { video, keyboard };
+
+    const mark = document.createElement('div');
+    mark.innerHTML = POINTER_MARK;
+    mark.style.position = 'absolute';
+    mark.style.left = '0px';
+    mark.style.top = '0px';
+    mark.style.width = '28px';
+    mark.style.height = '28px';
+    mark.style.pointerEvents = 'none';
+    mark.style.display = 'none';
+    mark.style.filter = 'drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.35))';
+    return { video, keyboard, mark };
 }
 
 function control(session: WebSession, message: Record<string, unknown>): void {
@@ -182,20 +224,30 @@ function surfaceRect(session: WebSession): { left: number; top: number; width: n
     return (session.surface ?? session.video).getBoundingClientRect();
 }
 
+/**
+ * The whole surface decides the fitted size, so the keyboard coming up moves
+ * the picture rather than shrinking it.
+ */
 function fitScale(session: WebSession): number {
     const rect = surfaceRect(session);
     if (session.width === 0 || session.height === 0 || rect.width === 0 || rect.height === 0) return 1;
     return Math.min(rect.width / session.width, rect.height / session.height);
 }
 
-/** Centre a picture smaller than the surface on that axis; keep a larger one covering it. */
+/** The height the keyboard leaves uncovered, which is where the picture is placed. */
+function visibleHeight(session: WebSession): number {
+    return Math.max(1, surfaceRect(session).height - session.covered);
+}
+
+/** Centre a picture smaller than what is visible on that axis; keep a larger one covering it. */
 function clampOrigin(session: WebSession): void {
     const rect = surfaceRect(session);
+    const visible = visibleHeight(session);
     const { view } = session;
     const width = session.width * view.scale;
     const height = session.height * view.scale;
     view.originX = width <= rect.width ? (rect.width - width) / 2 : Math.min(0, Math.max(rect.width - width, view.originX));
-    view.originY = height <= rect.height ? (rect.height - height) / 2 : Math.min(0, Math.max(rect.height - height, view.originY));
+    view.originY = height <= visible ? (visible - height) / 2 : Math.min(0, Math.max(visible - height, view.originY));
 }
 
 /** Place the video where the view says; the browser scales it on the GPU. */
@@ -212,6 +264,41 @@ function layoutPicture(session: WebSession): void {
     style.top = `${view.originY}px`;
     style.width = `${session.width * view.scale}px`;
     style.height = `${session.height * view.scale}px`;
+    placePointer(session);
+}
+
+/** Put the pointer mark on the desktop point it was last sent to. */
+function placePointer(session: WebSession): void {
+    const { mark, pointerAt, view } = session;
+    if (pointerAt === null) {
+        mark.style.display = 'none';
+        return;
+    }
+    const x = view.originX + (pointerAt.x + 0.5) * view.scale - POINTER_HOTSPOT;
+    const y = view.originY + (pointerAt.y + 0.5) * view.scale - POINTER_HOTSPOT;
+    mark.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    mark.style.display = 'block';
+}
+
+/**
+ * The keyboard took (or gave back) the bottom of the surface. A picture that
+ * fits what is left is centred in it by the layout; a larger one is moved so
+ * the pointer, where a click just put the caret, stays in sight — or, with no
+ * pointer yet, so the middle of what was shown stays in the middle.
+ */
+function coverBottom(session: WebSession, covered: number): void {
+    if (Math.abs(covered - session.covered) < 0.5) return;
+    const before = visibleHeight(session);
+    session.covered = covered;
+    const visible = visibleHeight(session);
+    const { view, pointerAt } = session;
+    if (pointerAt === null || visible > before) view.originY += (visible - before) / 2;
+    if (pointerAt !== null) {
+        const y = view.originY + (pointerAt.y + 0.5) * view.scale;
+        const margin = Math.min(56, visible / 4);
+        if (y > visible - margin) view.originY -= y - (visible - margin);
+    }
+    layoutPicture(session);
 }
 
 function zoomAround(session: WebSession, focusX: number, focusY: number, factor: number): void {
@@ -263,6 +350,11 @@ function cancelLongPress(session: WebSession): void {
 
 function pointer(session: WebSession, phase: 'move' | 'down' | 'up' | 'cancel', at: { x: number; y: number }, button?: number): void {
     control(session, { kind: 'pointer', phase, x: at.x, y: at.y, ...(button === undefined ? {} : { button }), seq: seq(session) });
+    // A mouse brings its own cursor; a finger leaves nothing on the glass to
+    // show where the desktop's pointer went, so the mark does.
+    if (session.mouse || phase === 'cancel') return;
+    session.pointerAt = { x: at.x, y: at.y };
+    placePointer(session);
 }
 
 function click(session: WebSession, at: { x: number; y: number }, button: number): void {
@@ -371,13 +463,26 @@ function attachGestures(session: WebSession): () => void {
         session.lastFocusY = fy;
     };
 
+    const useMouse = (): void => {
+        session.mouse = true;
+        if (session.pointerAt === null) return;
+        session.pointerAt = null;
+        placePointer(session);
+    };
+
     const pointerDown = (event: PointerEvent): void => {
+        // A press on the desktop is the desktop's: it must not take focus from
+        // the remote keyboard, or the phone's keyboard closes under a tap that
+        // only meant to put the caret somewhere.
+        event.preventDefault();
         try {
             (surface as Element).setPointerCapture(event.pointerId);
         } catch {
             // A synthetic event has no real pointer behind it.
         }
         const { x, y } = local(session, event.clientX, event.clientY);
+        if (event.pointerType === 'mouse') useMouse();
+        else session.mouse = false;
         if (event.pointerType === 'mouse') {
             const at = desktopPoint(session, x, y);
             if (at === null) return;
@@ -425,6 +530,7 @@ function attachGestures(session: WebSession): () => void {
     const pointerMove = (event: PointerEvent): void => {
         const { x, y } = local(session, event.clientX, event.clientY);
         if (event.pointerType === 'mouse') {
+            useMouse();
             if (session.gesture !== 'mouse') return;
             const at = desktopPoint(session, x, y, true);
             if (at === null) return;
@@ -531,6 +637,22 @@ function attachGestures(session: WebSession): () => void {
     const Observer = (globalThis as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
     const resize = Observer === undefined ? null : new Observer(() => layoutPicture(session));
     resize?.observe(surface as Element);
+
+    // A phone browser lays its keyboard over the page rather than resizing it,
+    // so the covered part is what the visual viewport no longer shows.
+    const viewport = (globalThis as { visualViewport?: VisualViewport }).visualViewport;
+    let phase = 0;
+    const followKeyboard = (): void => {
+        const rect = surfaceRect(session);
+        const shown = viewport === undefined ? rect.top + rect.height : viewport.offsetTop + viewport.height;
+        const overlap = Math.max(0, rect.top + rect.height - shown);
+        coverBottom(session, overlap > 0 ? overlap + session.clearance * phase : 0);
+    };
+    session.followKeyboard = followKeyboard;
+    const stopFollowing = observeWebKeyboardMotion((motion) => {
+        phase = motion.phase;
+        followKeyboard();
+    });
 
     // What the phone types goes to the desktop, or, while a sticky modifier
     // waits for its key, to the session, which sends it as that key's chord.
@@ -642,6 +764,8 @@ function attachGestures(session: WebSession): () => void {
     return () => {
         cancelLongPress(session);
         resize?.disconnect();
+        stopFollowing();
+        session.followKeyboard = null;
         surface.removeEventListener('pointerdown', pointerDown as EventListener);
         surface.removeEventListener('pointermove', pointerMove as EventListener);
         surface.removeEventListener('pointerup', pointerUp as EventListener);
@@ -675,7 +799,7 @@ export const nativeDesklink: NativeDesklinkModule = {
     createSession(iceServersJson: string): string | null {
         counter += 1;
         const id = `web-${counter}`;
-        const { video, keyboard } = createSessionElements();
+        const { video, keyboard, mark } = createSessionElements();
         const servers = JSON.parse(iceServersJson === '' ? '[]' : iceServersJson) as Array<{
             urls: string[];
             username?: string;
@@ -688,10 +812,16 @@ export const nativeDesklink: NativeDesklinkModule = {
             channel: null,
             video,
             keyboard,
+            mark,
+            pointerAt: null,
+            mouse: false,
             surface: null,
             width: 0,
             height: 0,
             view: { scale: 1, originX: 0, originY: 0, fitted: true },
+            covered: 0,
+            clearance: 0,
+            followKeyboard: null,
             gesture: 'none',
             touches: new Map(),
             downX: 0,
@@ -736,7 +866,9 @@ export const nativeDesklink: NativeDesklinkModule = {
             // Readiness is a rendered frame, not a track: a decoder can accept a
             // track and produce nothing.
             const presented = (): void => {
-                if (sessions.get(id) === session) emit(id, 'presented', {});
+                if (sessions.get(id) !== session) return;
+                video.style.opacity = '1';
+                emit(id, 'presented', {});
             };
             if (typeof video.requestVideoFrameCallback === 'function') {
                 video.requestVideoFrameCallback(presented);
@@ -830,6 +962,8 @@ export const nativeDesklink: NativeDesklinkModule = {
         session.width = width;
         session.height = height;
         session.view.fitted = true;
+        // A point on the old geometry says nothing about the new one.
+        session.pointerAt = null;
         layoutPicture(session);
         return true;
     },
@@ -881,6 +1015,7 @@ export const nativeDesklink: NativeDesklinkModule = {
         session.video.srcObject = null;
         session.video.remove();
         session.keyboard.remove();
+        session.mark.remove();
         return true;
     },
 
@@ -912,8 +1047,20 @@ export function attachSurface(id: string, container: HTMLElement | null): void {
     // Pinches and pans are the desktop's, not the page's.
     container.style.touchAction = 'none';
     container.appendChild(session.video);
+    container.appendChild(session.mark);
     container.appendChild(session.keyboard);
     session.surface = container;
     session.detach = attachGestures(session);
     layoutPicture(session);
+}
+
+/**
+ * How much room the app keeps above the keyboard for its own controls; while
+ * the desktop's keyboard is up, the picture sits above that too.
+ */
+export function setKeyboardClearance(id: string, clearance: number): void {
+    const session = sessions.get(id);
+    if (session === undefined || session.clearance === clearance) return;
+    session.clearance = clearance;
+    session.followKeyboard?.();
 }

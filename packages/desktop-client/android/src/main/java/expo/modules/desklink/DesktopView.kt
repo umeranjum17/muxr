@@ -1,15 +1,23 @@
 package expo.modules.desklink
 
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Point
+import android.os.Build
 import android.os.SystemClock
 import android.text.InputType
 import android.util.Log
 import android.view.HapticFeedbackConstants
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceView
+import android.view.View
 import android.view.ViewConfiguration
+import android.view.WindowManager
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -17,6 +25,9 @@ import android.view.inputmethod.InputConnectionWrapper
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.view.ViewGroup.LayoutParams
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsAnimationCompat
+import androidx.core.view.WindowInsetsCompat
 import expo.modules.kotlin.AppContext
 import expo.modules.kotlin.views.ExpoView
 import org.webrtc.VideoTrack
@@ -77,6 +88,24 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   private var originY = 0f
   private var fitted = true
 
+  /**
+   * How much of this view's bottom the phone's keyboard, and the app's own
+   * controls above it, cover. The picture is placed in the rest, so it rises
+   * with the keyboard instead of going under it.
+   */
+  private var covered = 0f
+
+  /** Room the app keeps above the keyboard for its own controls, in view pixels. */
+  private var keyboardClearance = 0f
+
+  /** The keyboard's full height while it moves, from the animation's bounds. */
+  private var keyboardTravel = 0
+
+  /** Where the desktop's pointer was last sent, in desktop pixels; null until a touch sends it. */
+  private var pointerAt: Pair<Int, Int>? = null
+  private var mouseInput = false
+  private val pointerMark = PointerMark(context)
+
   private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
   /**
    * How close a second tap lands to count as a double click on the first
@@ -111,7 +140,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     if (gesture != Gesture.PENDING) return@Runnable
     val at = point(downX, downY) ?: return@Runnable
     gesture = Gesture.ARMED
-    session?.sendPointer("move", at.first, at.second)
+    session?.let { pointerTo(it, "move", at) }
     performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
   }
 
@@ -121,11 +150,40 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   /** Chorded keys that are down on the desktop, by Android key code. */
   private val chordKeysDown = mutableSetOf<Int>()
 
+  /**
+   * The keyboard's own animation, frame by frame: the picture moves with it
+   * rather than jumping once the keyboard has finished arriving.
+   */
+  private val keyboardFollower = object : WindowInsetsAnimationCompat.Callback(
+    WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE,
+  ) {
+    override fun onStart(
+      animation: WindowInsetsAnimationCompat,
+      bounds: WindowInsetsAnimationCompat.BoundsCompat,
+    ): WindowInsetsAnimationCompat.BoundsCompat {
+      if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) keyboardTravel = bounds.upperBound.bottom
+      return bounds
+    }
+
+    override fun onProgress(insets: WindowInsetsCompat, running: List<WindowInsetsAnimationCompat>): WindowInsetsCompat {
+      if (running.any { it.typeMask and WindowInsetsCompat.Type.ime() != 0 }) {
+        followKeyboard(insets.getInsets(WindowInsetsCompat.Type.ime()).bottom)
+      }
+      return insets
+    }
+
+    override fun onEnd(animation: WindowInsetsAnimationCompat) {
+      if (animation.typeMask and WindowInsetsCompat.Type.ime() != 0) settleKeyboard()
+    }
+  }
+
   init {
     setBackgroundColor(Color.BLACK)
     clipChildren = true
     addView(keyboard, LayoutParams(dp(1f), dp(1f)))
+    addView(pointerMark, LayoutParams(pointerMark.size, pointerMark.size))
     setOnTouchListener { _, event -> handleTouch(event) }
+    ViewCompat.setWindowInsetsAnimationCallback(this, keyboardFollower)
   }
 
   fun setSession(next: DesktopSession?) {
@@ -141,6 +199,9 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     renderer = null
     surfaceView = null
     session = next
+    pointerAt = null
+    mouseInput = false
+    placePointer()
     if (next != null) {
       // Hardware decoder frames are GPU textures; the renderer shares the
       // session's EGL context so it can read them.
@@ -171,6 +232,8 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     surfaceWidth = width
     surfaceHeight = height
     fitted = true
+    // A point on the old geometry says nothing about the new one.
+    pointerAt = null
     layoutPicture()
   }
 
@@ -204,6 +267,70 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     layoutPicture()
   }
 
+  /** Room the app keeps above the keyboard for its own controls, in points. */
+  fun setKeyboardClearance(points: Float) {
+    val next = points * resources.displayMetrics.density
+    if (next == keyboardClearance) return
+    keyboardClearance = next
+    settleKeyboard()
+  }
+
+  /** Where the keyboard is now, with no animation running. */
+  private fun settleKeyboard() {
+    keyboardTravel = 0
+    val insets = ViewCompat.getRootWindowInsets(this)
+    val ime = WindowInsetsCompat.Type.ime()
+    followKeyboard(if (insets != null && insets.isVisible(ime)) insets.getInsets(ime).bottom else 0)
+  }
+
+  /**
+   * Place the picture above a keyboard whose top is `bottom` pixels up from the
+   * window's edge. The app's controls ride on the keyboard, so their share
+   * grows with it: nothing is reserved for them while the keyboard is down.
+   */
+  private fun followKeyboard(bottom: Int) {
+    if (!isAttachedToWindow || height == 0) return
+    val travel = if (keyboardTravel > 0) keyboardTravel else bottom
+    val shown = if (travel > 0) (bottom.toFloat() / travel).coerceIn(0f, 1f) else 0f
+    val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    val windowBottom = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      windowManager.currentWindowMetrics.bounds.bottom
+    } else {
+      val size = Point()
+      @Suppress("DEPRECATION")
+      windowManager.defaultDisplay.getRealSize(size)
+      size.y
+    }
+    val location = IntArray(2)
+    getLocationOnScreen(location)
+    val overlap = (location[1] + height - (windowBottom - bottom)).coerceAtLeast(0)
+    coverBottom(if (overlap > 0) overlap + keyboardClearance * shown else 0f)
+  }
+
+  /**
+   * The keyboard took (or gave back) the bottom of the view. A picture that
+   * fits what is left is centred in it; a larger one is moved so the pointer,
+   * where a tap just put the caret, stays in sight — or, with no pointer yet,
+   * so the middle of what was shown stays in the middle.
+   */
+  private fun coverBottom(next: Float) {
+    if (abs(next - covered) < 0.5f) return
+    val before = visibleHeight()
+    covered = next
+    val visible = visibleHeight()
+    val at = pointerAt
+    if (at == null) {
+      originY += (visible - before) / 2f
+    } else {
+      val y = originY + (at.second + 0.5f) * scale
+      val margin = min(dp(56f).toFloat(), visible / 4f)
+      if (y > visible - margin) originY -= y - (visible - margin)
+    }
+    layoutPicture()
+  }
+
+  private fun visibleHeight(): Float = max(1f, height - covered)
+
   private fun inputMethods() = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
 
   private fun attachSink() {
@@ -227,16 +354,34 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
     super.onSizeChanged(w, h, oldw, oldh)
-    // A rotation or the keyboard coming up: keep what the user was looking at.
+    // A rotation: keep what the user was looking at.
     if (oldw > 0 && oldh > 0 && !fitted) {
       originX += (w - oldw) / 2f
       originY += (h - oldh) / 2f
     }
     layoutPicture()
+    // The view's place in the window moved, and with it what the keyboard covers.
+    post { settleKeyboard() }
+  }
+
+  override fun onAttachedToWindow() {
+    super.onAttachedToWindow()
+    post { settleKeyboard() }
+  }
+
+  override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+    super.onLayout(changed, l, t, r, b)
+    // This view is a linear layout, which would line the mark up after the
+    // picture; it belongs at the origin, moved by its translation alone.
+    pointerMark.layout(0, 0, pointerMark.size, pointerMark.size)
   }
 
   // ---- Zoom and position -------------------------------------------------
 
+  /**
+   * The whole view decides the fitted size, so the keyboard coming up moves
+   * the picture rather than shrinking it.
+   */
   private fun fitScale(): Float {
     if (width == 0 || height == 0 || surfaceWidth == 0 || surfaceHeight == 0) return 1f
     return min(width.toFloat() / surfaceWidth, height.toFloat() / surfaceHeight)
@@ -252,12 +397,16 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     publishTransform()
   }
 
-  /** A picture smaller than the view is centred on that axis; a larger one covers it. */
+  /**
+   * A picture smaller than what is visible is centred on that axis; a larger
+   * one covers it. Above the keyboard, only the uncovered part counts.
+   */
   private fun clampOrigin() {
     val pictureWidth = surfaceWidth * scale
     val pictureHeight = surfaceHeight * scale
+    val visible = visibleHeight()
     originX = if (pictureWidth <= width) (width - pictureWidth) / 2f else originX.coerceIn(width - pictureWidth, 0f)
-    originY = if (pictureHeight <= height) (height - pictureHeight) / 2f else originY.coerceIn(height - pictureHeight, 0f)
+    originY = if (pictureHeight <= visible) (visible - pictureHeight) / 2f else originY.coerceIn(visible - pictureHeight, 0f)
   }
 
   private fun zoomAround(focusX: Float, focusY: Float, factor: Float) {
@@ -281,9 +430,44 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   private fun publishTransform() {
     renderer?.setTransform(scale, originX, originY)
+    placePointer()
+  }
+
+  /** Send the desktop's pointer somewhere, and show it there. */
+  private fun pointerTo(active: DesktopSession, phase: String, at: Pair<Int, Int>, withButton: Boolean = false) {
+    active.sendPointer(phase, at.first, at.second, withButton)
+    if (!mouseInput) showPointer(at)
+  }
+
+  private fun showPointer(at: Pair<Int, Int>) {
+    pointerAt = at
+    placePointer()
+  }
+
+  /** Put the pointer mark's tip on the desktop point the pointer was last sent to. */
+  private fun placePointer() {
+    val at = pointerAt
+    if (at == null || surfaceWidth == 0 || surfaceHeight == 0) {
+      pointerMark.visibility = INVISIBLE
+      return
+    }
+    pointerMark.translationX = originX + (at.first + 0.5f) * scale - pointerMark.hotspot
+    pointerMark.translationY = originY + (at.second + 0.5f) * scale - pointerMark.hotspot
+    pointerMark.visibility = VISIBLE
   }
 
   private fun dp(value: Float): Int = Math.round(value * resources.displayMetrics.density)
+
+  override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+    if (event.isFromSource(InputDevice.SOURCE_MOUSE) &&
+      (event.actionMasked == MotionEvent.ACTION_HOVER_ENTER || event.actionMasked == MotionEvent.ACTION_HOVER_MOVE)
+    ) {
+      mouseInput = true
+      pointerAt = null
+      placePointer()
+    }
+    return super.dispatchGenericMotionEvent(event)
+  }
 
   /** A point in this view → desktop pixels, or null when it is off the picture. */
   private fun point(x: Float, y: Float): Pair<Int, Int>? {
@@ -311,6 +495,11 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   private fun handleTouch(event: MotionEvent): Boolean {
     val active = session ?: return true
+    mouseInput = event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE || event.isFromSource(InputDevice.SOURCE_MOUSE)
+    if (mouseInput && pointerAt != null) {
+      pointerAt = null
+      placePointer()
+    }
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
         gesture = Gesture.PENDING
@@ -372,7 +561,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
         Gesture.ARMED -> if (hypot(event.x - downX, event.y - downY) > touchSlop) {
           val start = clampedPoint(downX, downY) ?: return true
-          active.sendPointer("down", start.first, start.second)
+          pointerTo(active, "down", start)
           gesture = Gesture.DRAG
           dragTo(active, event.x, event.y)
         }
@@ -388,7 +577,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         if (gesture == Gesture.TWO && SystemClock.uptimeMillis() - twoStart < ViewConfiguration.getDoubleTapTimeout()) {
           // Two fingers that landed and lifted without moving: a right click,
           // on the picture only — the letterbox is not the desktop's edge.
-          point(startFocusX, startFocusY)?.let { (x, y) -> active.sendRightClick(x, y) }
+          point(startFocusX, startFocusY)?.let { rightClick(active, it) }
         }
         if (gesture == Gesture.SCROLL) flushWheel(active, force = true)
         // What the remaining finger does next is not a new gesture.
@@ -399,7 +588,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         removeCallbacks(longPress)
         when (gesture) {
           Gesture.PENDING -> tap(active, event.x, event.y)
-          Gesture.ARMED -> point(downX, downY)?.let { (x, y) -> active.sendRightClick(x, y) }
+          Gesture.ARMED -> point(downX, downY)?.let { rightClick(active, it) }
           Gesture.DRAG -> endDrag(active, event.x, event.y)
           else -> {}
         }
@@ -425,8 +614,8 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     val repeat = now - lastTapAt < ViewConfiguration.getDoubleTapTimeout() &&
       hypot(x - lastTapX, y - lastTapY) < doubleTapSlop
     val at = (if (repeat) lastTapPoint else null) ?: point(x, y) ?: return
-    active.sendPointer("down", at.first, at.second)
-    active.sendPointer("up", at.first, at.second)
+    pointerTo(active, "down", at)
+    pointerTo(active, "up", at)
     lastTapAt = now
     lastTapX = x
     lastTapY = y
@@ -436,11 +625,16 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   private fun dragTo(active: DesktopSession, x: Float, y: Float) {
     lastX = x
     lastY = y
-    clampedPoint(x, y)?.let { (px, py) -> active.sendPointer("move", px, py, withButton = true) }
+    clampedPoint(x, y)?.let { pointerTo(active, "move", it, withButton = true) }
   }
 
   private fun endDrag(active: DesktopSession, x: Float, y: Float) {
-    clampedPoint(x, y)?.let { (px, py) -> active.sendPointer("up", px, py) } ?: active.sendCancel()
+    clampedPoint(x, y)?.let { pointerTo(active, "up", it) } ?: active.sendCancel()
+  }
+
+  private fun rightClick(active: DesktopSession, at: Pair<Int, Int>) {
+    active.sendRightClick(at.first, at.second)
+    if (!mouseInput) showPointer(at)
   }
 
   private fun twoFingers(active: DesktopSession, event: MotionEvent) {
@@ -455,7 +649,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
       } else if (hypot(fx - startFocusX, fy - startFocusY) > touchSlop) {
         gesture = Gesture.SCROLL
         // The desktop scrolls whatever is under its pointer.
-        point(fx, fy)?.let { (x, y) -> active.sendPointer("move", x, y) }
+        point(fx, fy)?.let { pointerTo(active, "move", it) }
       }
       lastSpan = currentSpan
       lastFocusX = fx
@@ -736,4 +930,48 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
   }
 
+}
+
+/**
+ * The desktop's pointer, drawn at a size a phone can see. A desktop's own
+ * cursor is a few screen pixels tall once a large desktop is fitted to a phone,
+ * and some capture sources leave it out altogether; this shows where the next
+ * click lands. Black with a white edge, so it reads on light and dark pages.
+ */
+private class PointerMark(context: Context) : View(context) {
+  private val unit = context.resources.displayMetrics.density
+
+  /** Where the tip sits inside this view, leaving room for the edge and its shadow. */
+  val hotspot = 3f * unit
+  val size = Math.round(28f * unit)
+
+  private val arrow = Path().apply {
+    // An arrow pointer, tip first, in points.
+    val outline = floatArrayOf(0f, 0f, 0f, 19.25f, 4.73f, 14.96f, 7.92f, 22.22f, 11f, 20.9f, 7.92f, 13.86f, 14.08f, 13.86f)
+    moveTo(hotspot + outline[0] * unit, hotspot + outline[1] * unit)
+    for (index in 2 until outline.size step 2) lineTo(hotspot + outline[index] * unit, hotspot + outline[index + 1] * unit)
+    close()
+  }
+  private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    style = Paint.Style.STROKE
+    color = Color.WHITE
+    strokeWidth = 2.2f * unit
+    strokeJoin = Paint.Join.ROUND
+    setShadowLayer(1.5f * unit, 0f, 1f * unit, Color.argb(90, 0, 0, 0))
+  }
+  private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    style = Paint.Style.FILL
+    color = Color.BLACK
+  }
+
+  init {
+    visibility = INVISIBLE
+    importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+  }
+
+  override fun onDraw(canvas: Canvas) {
+    // The edge is stroked on the outline and the fill covers its inner half.
+    canvas.drawPath(arrow, edge)
+    canvas.drawPath(arrow, fill)
+  }
 }

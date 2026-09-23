@@ -1,11 +1,12 @@
 import * as React from 'react';
-import { ActivityIndicator, BackHandler, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { useKeyboardState } from 'react-native-keyboard-controller';
+import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import { DesktopView, useDesktopSession } from '@desklink/react-native';
+import { DesktopView, observeWebKeyboardMotion, useDesktopSession } from '@desklink/react-native';
 
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
@@ -16,7 +17,7 @@ import { getCachedConnectionSettings } from '@/connection';
 import { createDesktopSignaling } from '../application/desktopSignaling';
 import { desktopCopy } from '../model/desktopCopy';
 import { describeDesktopOverlay, describeInputRejection } from '../model/desktopOverlay';
-import { DesktopKeyRow } from './DesktopKeyRow';
+import { DESKTOP_KEY_ROW_HEIGHT, DesktopKeyRow } from './DesktopKeyRow';
 
 /** How long a notice stays over the desktop before it gets out of the way. */
 const NOTICE_MS = 4000;
@@ -24,41 +25,86 @@ const NOTICE_MS = 4000;
 /** The first live desktop on a device explains its gestures once, for longer. */
 const HINT_MS = 7000;
 
-/** The chrome floats over the desktop: dark glass, legible over a white page. */
-const GLASS = 'rgba(22,22,24,0.86)';
-const GLASS_EDGE = 'rgba(255,255,255,0.14)';
-const ON_GLASS = '#f4f4f5';
-const ON_GLASS_MUTED = '#a1a1aa';
+/** The two round controls: a thumb's size, in the terminal's floating material. */
+const BUTTON = 44;
+/** From the screen's sides. */
+const EDGE = 16;
+/** Above the home indicator while the keyboard is down. */
+const REST_GAP = 12;
+/** Between the round controls and the key row riding on the keyboard. */
+const ABOVE_KEYS = 8;
+/** Between the picture and the round controls while the keyboard is up. */
+const PICTURE_GAP = 8;
 
 type DesktopPermission = 'view' | 'control' | 'clipboard';
+type Menu = 'clipboard' | 'help' | 'more';
+
+/** What each gesture does, for the help the header's "?" opens. */
+const GESTURES: readonly [gesture: string, effect: string][] = [
+    ['Tap', 'Click'],
+    ['Double-tap', 'Double-click'],
+    ['Hold', 'Right-click'],
+    ['Hold and drag', 'Select or drag'],
+    ['Two fingers', 'Scroll'],
+    ['Pinch', 'Zoom'],
+    ['Drag', 'Move around when zoomed'],
+];
 
 export interface DesktopSurfaceProps {
     onExit: () => void;
+    /** The conversation the desktop was opened from; the computer's name without one. */
+    title?: string;
+    /** The conversation's mark, drawn before the title the way its own header draws it. */
+    leading?: React.ReactNode;
+}
+
+/**
+ * The keyboard's offset (negative while it is up) and how far up it is, as
+ * values the UI thread moves with it. A phone browser reports neither: there
+ * the visual viewport says how much of the page the keyboard covers.
+ */
+function useKeyboardMotion(): { height: SharedValue<number>; progress: SharedValue<number>; visible: boolean } {
+    const native = useReanimatedKeyboardAnimation();
+    const height = useSharedValue(0);
+    const progress = useSharedValue(0);
+    const [visible, setVisible] = React.useState(false);
+    React.useEffect(() => {
+        if (Platform.OS !== 'web') return;
+        return observeWebKeyboardMotion(({ covered, phase }) => {
+            height.value = -covered;
+            progress.value = phase;
+            setVisible(covered > 0);
+        });
+    }, [height, progress]);
+    return Platform.OS === 'web' ? { height, progress, visible } : { ...native, visible: false };
 }
 
 /**
  * The live desktop, inside the conversation.
  *
- * One controller, one surface: the desktop fills the screen under a slim bar
- * that names the computer and returns to the conversation. The picture fits the
- * whole desktop and zooms with a pinch; the rest of the chrome is what a phone
- * cannot do with the desktop's own keyboard — the native keyboard and the keys
- * it lacks, and the two explicit clipboard directions.
+ * The screen is the desktop: fitted to the width on black, under the
+ * conversation's own header line. Two round controls float in the bottom
+ * corners, for what a phone cannot do with the desktop's own hands — the
+ * clipboard, both ways, and the keyboard. With the keyboard up, the key row a
+ * phone keyboard lacks rides on it, the controls above that, and the picture
+ * moves up to sit over all of them with the pointer still in sight.
  */
-export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
+export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) {
     const { theme } = useUnistyles();
     const [clipboardBusy, setClipboardBusy] = React.useState(false);
     const [notice, setNotice] = React.useState<{ text: string; ms: number } | null>(null);
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     const [clipboardAvailable, setClipboardAvailable] = React.useState(false);
-    const [clipboardOpen, setClipboardOpen] = React.useState(false);
+    const [menu, setMenu] = React.useState<Menu | null>(null);
     const [landscape, setLandscape] = React.useState(false);
     const keyboard = useKeyboardState();
+    const motion = useKeyboardMotion();
     const insets = useSafeAreaInsets();
-    const { height: windowHeight } = useWindowDimensions();
+    const { width: windowWidth } = useWindowDimensions();
     const [openedBefore, setOpenedBefore] = useLocalSettingMutable('desktopOpenedBefore');
     const machine = useMachine(getCachedConnectionSettings().machineId ?? '');
     const computerName = machine?.metadata?.displayName || machine?.metadata?.host || 'Computer';
+    const heading = title || computerName;
 
     const say = React.useCallback((text: string, ms = NOTICE_MS) => setNotice({ text, ms }), []);
 
@@ -106,12 +152,16 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
 
     React.useEffect(() => {
         if (notice === null) return;
-        const timer = setTimeout(() => setNotice(null), notice.ms);
+        const timer = setTimeout(() => {
+            setNotice(notice.text === desktopCopy.gestureHint && !clipboardAvailable
+                ? { text: desktopCopy.clipboardUnavailable, ms: NOTICE_MS }
+                : null);
+        }, notice.ms);
         return () => clearTimeout(timer);
-    }, [notice]);
+    }, [notice, clipboardAvailable]);
 
     const toggleKeyboard = React.useCallback(() => {
-        setClipboardOpen(false);
+        setMenu(null);
         if (keyboardOpen) {
             session.hideKeyboard();
             setKeyboardOpen(false);
@@ -160,64 +210,159 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
     React.useEffect(() => {
         if (Platform.OS !== 'android') return;
         const back = BackHandler.addEventListener('hardwareBackPress', () => {
-            if (clipboardOpen) setClipboardOpen(false);
+            if (menu !== null) setMenu(null);
             else onExit();
             return true;
         });
         return () => back.remove();
-    }, [clipboardOpen, onExit]);
+    }, [menu, onExit]);
 
     const live = snapshot.status === 'live';
-    // Once a desktop has been live here, stop showing the one-time gesture hint.
-    // Portal consent may still be requested on later sessions.
+    // The first desktop on a device explains its gestures; after that, a
+    // computer that cannot share its clipboard says so once per opening
+    // rather than for as long as the desktop is up.
+    const explained = React.useRef(false);
     React.useEffect(() => {
-        if (!live || openedBefore) return;
-        setOpenedBefore(true);
-        say(desktopCopy.gestureHint, HINT_MS);
-    }, [live, openedBefore, setOpenedBefore, say]);
+        if (!live || explained.current) return;
+        explained.current = true;
+        if (!openedBefore) {
+            setOpenedBefore(true);
+            say(desktopCopy.gestureHint, HINT_MS);
+        } else if (!clipboardAvailable) {
+            say(desktopCopy.clipboardUnavailable);
+        }
+    }, [live, openedBefore, setOpenedBefore, clipboardAvailable, say]);
 
     const status = describeDesktopOverlay(snapshot, openedBefore);
-    const clipboardUnavailable = live && !clipboardAvailable;
-    const shownNotice = live ? notice?.text ?? (clipboardUnavailable ? desktopCopy.clipboardUnavailable : null) : null;
-    const keyRowShown = live && keyboardOpen;
-    // A short screen with the keyboard up (a phone on its side) keeps what
-    // height it has for the desktop; the bar comes back with the keyboard down.
-    const barShown = !(keyboard.isVisible && windowHeight < 480);
-    const dockBottom = keyboard.isVisible ? 10 : Math.max(insets.bottom, 8) + 10;
+    const shownNotice = live ? notice?.text ?? null : null;
+    // The row stays while the keyboard is still on its way down, fading with it.
+    const web = Platform.OS === 'web';
+    const keyRowShown = live && (keyboardOpen || keyboard.isVisible || (web && motion.visible));
+    // A phone on its side has little height once the keyboard is up: the
+    // header steps aside, and the round controls sit at the ends of the key
+    // row instead of above it.
+    const screen = Dimensions.get('screen');
+    const compact = screen.width > screen.height;
+    const compactKeyboard = compact && (keyboard.isVisible || (web && motion.visible));
+    const headerShown = !compactKeyboard;
+    const popupReady = !keyboard.isVisible && !(web && motion.visible);
+    const rise = compact ? (DESKTOP_KEY_ROW_HEIGHT - BUTTON) / 2 : DESKTOP_KEY_ROW_HEIGHT + ABOVE_KEYS;
+    const clearance = compact ? (DESKTOP_KEY_ROW_HEIGHT + BUTTON) / 2 + PICTURE_GAP / 2 : rise + BUTTON + PICTURE_GAP;
     const statusLabel = live ? desktopCopy.liveLabel : snapshot.status === 'reconnecting' ? desktopCopy.reconnectingTitle : status.spinner ? desktopCopy.connectingLabel : null;
+
+    // The key row rides on the keyboard and fades in as it rises; the
+    // controls rise over it by the same measure, so the keyboard, the row,
+    // the controls and the picture arrive as one movement. The keyboard's
+    // height already covers the home indicator, so the inset that lifts them
+    // at rest is let go as the keyboard comes up.
+    const { height: keyboardOffset, progress: keyboardShown } = motion;
+    const [noOverlapReady, setNoOverlapReady] = React.useState(false);
+    React.useEffect(() => {
+        setNoOverlapReady(false);
+        if (!web || motion.visible || !(keyboardOpen || keyboard.isVisible)) return;
+        // Wait for the phone's viewport to move before treating focus as a hardware keyboard.
+        const timer = setTimeout(() => setNoOverlapReady(true), 180);
+        return () => clearTimeout(timer);
+    }, [web, motion.visible, keyboardOpen, keyboard.isVisible]);
+    const noOverlapKeys = web && !motion.visible && (keyboardOpen || keyboard.isVisible) && noOverlapReady;
+    const bottomInset = insets.bottom;
+    const keyRowMotion = useAnimatedStyle(() => {
+        const shown = noOverlapKeys ? 1 : keyboardShown.value;
+        return {
+            opacity: shown,
+            transform: [{ translateY: keyboardOffset.value + bottomInset * shown }],
+        };
+    });
+    const controlsMotion = useAnimatedStyle(() => {
+        const shown = noOverlapKeys ? 1 : keyboardShown.value;
+        return {
+            transform: [{ translateY: keyboardOffset.value + bottomInset * shown - shown * (rise - REST_GAP) }],
+        };
+    });
+
+    const control = (pressed: boolean, on = false): ViewStyle => ({
+        width: BUTTON,
+        height: BUTTON,
+        borderRadius: BUTTON / 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.glass.border,
+        backgroundColor: pressed || on ? theme.colors.terminalChrome.clusterPressed : theme.colors.terminalChrome.cluster,
+    });
+    const card: ViewStyle = {
+        position: 'absolute',
+        borderRadius: 20,
+        paddingVertical: 6,
+        backgroundColor: theme.colors.surfaceHighest,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: theme.colors.glass.border,
+        shadowColor: '#000',
+        shadowOpacity: 0.4,
+        shadowRadius: 16,
+        shadowOffset: { width: 0, height: 6 },
+        elevation: 12,
+        zIndex: 3,
+    };
+    const toggleMenu = (target: 'more' | 'help') => {
+        if (menu !== target && (keyboardOpen || keyboard.isVisible || motion.visible)) {
+            session.hideKeyboard();
+            setKeyboardOpen(false);
+        }
+        setMenu((open) => (open === target ? null : target));
+    };
+    const menuRow = (label: string, icon: React.ComponentProps<typeof Ionicons>['name'], onPress: () => void, options: { selected?: boolean; disabled?: boolean } = {}) => (
+        <Pressable
+            key={label}
+            onPress={() => { setMenu(null); onPress(); }}
+            disabled={options.disabled}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityState={{ selected: options.selected, disabled: options.disabled }}
+            style={({ pressed }) => [styles.menuRow, pressed && { backgroundColor: theme.colors.surfacePressed }, options.disabled && styles.disabled]}
+        >
+            <Ionicons name={icon} size={18} color={theme.colors.textSecondary} />
+            <Text style={[styles.menuLabel, { color: theme.colors.text }]}>{label}</Text>
+            {options.selected === true && <Ionicons name="checkmark" size={17} color={theme.colors.text} />}
+        </Pressable>
+    );
+    const headerMark = ({ pressed }: { pressed: boolean }) => [styles.headerButton, pressed && styles.pressed];
+    const popIn = FadeIn.duration(140).reduceMotion(ReduceMotion.System);
+    const popOut = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
 
     return (
         <View style={styles.screen}>
-            {barShown && <View style={styles.bar}>
-                <Pressable onPress={onExit} accessibilityRole="button" accessibilityLabel="Back to the conversation" hitSlop={10} style={({ pressed }) => [styles.barButton, pressed && styles.pressed]}>
-                    <Ionicons name="arrow-back" size={20} color={ON_GLASS} />
+            {/* The conversation's own header line, so opening the desktop
+                changes what is under it and nothing above: back, the
+                conversation, help, and the less-used actions. */}
+            {headerShown && <View style={styles.header}>
+                <Pressable onPress={onExit} accessibilityRole="button" accessibilityLabel="Back to the conversation" hitSlop={12} style={headerMark}>
+                    <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                 </Pressable>
-                <View style={styles.title} accessible accessibilityRole="header" accessibilityLabel={`${computerName}${statusLabel === null ? '' : `, ${statusLabel}`}`}>
-                    <Ionicons name="desktop-outline" size={15} color={ON_GLASS_MUTED} />
-                    <Text numberOfLines={1} style={styles.titleText}>{computerName}</Text>
-                    {statusLabel !== null && (
-                        <View style={styles.status}>
-                            <View style={[styles.statusDot, { backgroundColor: live ? '#34d399' : ON_GLASS_MUTED }]} />
-                            <Text numberOfLines={1} style={styles.statusText}>{statusLabel}</Text>
-                        </View>
-                    )}
+                <View style={styles.title} accessible accessibilityRole="header" accessibilityLabel={`${heading}${statusLabel === null ? '' : `, desktop ${statusLabel.toLowerCase()}`}`}>
+                    {leading ?? <Ionicons name="desktop-outline" size={14} color={theme.colors.textSecondary} />}
+                    <Text numberOfLines={1} style={[styles.titleText, { color: theme.colors.text }]}>{heading}</Text>
                 </View>
-                {live && (
-                    <Pressable onPress={session.fitToView} accessibilityRole="button" accessibilityLabel="Show the whole desktop" hitSlop={6} style={({ pressed }) => [styles.barButton, pressed && styles.pressed]}>
-                        <Ionicons name="scan-outline" size={19} color={ON_GLASS} />
+                <Pressable onPress={() => toggleMenu('help')} accessibilityRole="button" accessibilityLabel="Desktop gestures" accessibilityState={{ expanded: menu === 'help' }} hitSlop={8} style={headerMark}>
+                    <Ionicons name="help-circle-outline" size={19} color={theme.colors.text} />
+                </Pressable>
+                <Animated.View entering={popIn}>
+                    <Pressable onPress={() => toggleMenu('more')} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} hitSlop={8} style={headerMark}>
+                        <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
                     </Pressable>
-                )}
-                {live && Platform.OS === 'android' && (
-                    <Pressable onPress={toggleLandscape} accessibilityRole="button" accessibilityLabel={landscape ? 'Follow the phone\'s rotation' : 'Turn to landscape'} accessibilityState={{ selected: landscape }} hitSlop={6} style={({ pressed }) => [styles.barButton, landscape && styles.barButtonOn, pressed && styles.pressed]}>
-                        <Ionicons name={landscape ? 'phone-portrait-outline' : 'phone-landscape-outline'} size={19} color={ON_GLASS} />
-                    </Pressable>
-                )}
+                </Animated.View>
             </View>}
 
             <View style={styles.body}>
-                <DesktopView sessionId={session.nativeId} style={styles.surface} accessibilityLabel={`${computerName} desktop`} />
+                <DesktopView sessionId={session.nativeId} style={styles.surface} accessibilityLabel={`${computerName} desktop`} keyboardClearance={clearance} />
+
+                {/* The start is quiet — a small spinner and one line on the
+                    surface's own black — and it fades as the first picture
+                    comes up out of that black beneath it. It has no fill of
+                    its own: a fill over a video surface hides the picture
+                    until the fill is gone, which reads as a cut. */}
                 {!live && (
-                    <View style={styles.overlay}>
+                    <Animated.View exiting={FadeOut.duration(250).reduceMotion(ReduceMotion.System)} style={styles.overlay}>
                         {status.spinner && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                         <Text style={[styles.overlayTitle, { color: theme.colors.text }]}>{status.title}</Text>
                         {status.detail !== undefined && (
@@ -228,63 +373,85 @@ export function DesktopSurface({ onExit }: DesktopSurfaceProps) {
                                 onPress={() => void connect()}
                                 accessibilityRole="button"
                                 accessibilityLabel="Try again"
-                                style={[styles.action, { backgroundColor: theme.colors.button.primary.background }]}
+                                style={({ pressed }) => [styles.action, { backgroundColor: theme.colors.button.primary.background }, pressed && styles.pressed]}
                             >
                                 <Text style={[styles.actionLabel, { color: theme.colors.button.primary.tint }]}>Try again</Text>
                             </Pressable>
                         )}
+                    </Animated.View>
+                )}
+
+                {compactKeyboard && (
+                    <View pointerEvents="box-none" style={styles.compactHeader}>
+                        <Pressable onPress={onExit} accessibilityRole="button" accessibilityLabel="Back to the conversation" style={({ pressed }) => control(pressed)}>
+                            <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
+                        </Pressable>
+                        <Pressable onPress={() => toggleMenu('more')} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} style={({ pressed }) => control(pressed, menu === 'more')}>
+                            <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
+                        </Pressable>
                     </View>
                 )}
 
-                {live && <>
-                    {clipboardAvailable && clipboardOpen && <>
-                        <Pressable style={StyleSheet.absoluteFill} onPress={() => setClipboardOpen(false)} accessibilityLabel="Close clipboard options" />
-                        <View style={[styles.clipboardCard, { bottom: dockBottom + 58 }]}>
-                            <Pressable onPress={() => { setClipboardOpen(false); void copyFromDesktop(); }} disabled={clipboardBusy} accessibilityRole="button" accessibilityLabel="Copy to Phone" style={({ pressed }) => [styles.clipboardRow, pressed && styles.rowPressed]}>
-                                <Ionicons name="phone-portrait-outline" size={20} color={ON_GLASS_MUTED} />
-                                <View style={styles.clipboardText}>
-                                    <Text style={styles.clipboardLabel}>Copy to Phone</Text>
-                                    <Text style={styles.clipboardDetail}>What the desktop last copied</Text>
-                                </View>
-                            </Pressable>
-                            <View style={styles.clipboardDivider} />
-                            <Pressable onPress={() => { setClipboardOpen(false); void pasteToDesktop(); }} disabled={clipboardBusy} accessibilityRole="button" accessibilityLabel="Paste from Phone" style={({ pressed }) => [styles.clipboardRow, pressed && styles.rowPressed]}>
-                                <Ionicons name="desktop-outline" size={20} color={ON_GLASS_MUTED} />
-                                <View style={styles.clipboardText}>
-                                    <Text style={styles.clipboardLabel}>Paste from Phone</Text>
-                                    <Text style={styles.clipboardDetail}>Put this phone's text on the desktop clipboard</Text>
-                                </View>
-                            </Pressable>
-                        </View>
-                    </>}
+                {menu !== null && <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenu(null)} accessibilityLabel="Close menu" />}
 
-                    {shownNotice !== null && (
-                        <View pointerEvents="none" style={[styles.notice, { bottom: dockBottom + 60 }]}>
-                            <Text accessibilityLiveRegion="polite" numberOfLines={3} style={styles.noticeText}>{shownNotice}</Text>
-                        </View>
-                    )}
+                {menu === 'help' && popupReady && (
+                    <Animated.View entering={popIn} exiting={popOut} style={[card, styles.topCard, { width: Math.min(windowWidth - 16, 320) }]}>
+                        {GESTURES.map(([gesture, effect]) => (
+                            <View key={gesture} style={[styles.helpRow, compact && styles.compactHelpRow]} accessible accessibilityLabel={`${gesture}: ${effect}`}>
+                                <Text style={[styles.helpGesture, { color: theme.colors.textSecondary }]}>{gesture}</Text>
+                                <Text style={[styles.helpEffect, { color: theme.colors.text }]}>{effect}</Text>
+                            </View>
+                        ))}
+                    </Animated.View>
+                )}
 
-                    <View style={[styles.dock, { bottom: dockBottom }]}>
-                        <Pressable onPress={toggleKeyboard} accessibilityRole="button" accessibilityLabel="Keyboard" accessibilityState={{ selected: keyboardOpen }} style={({ pressed }) => [styles.dockButton, keyboardOpen && styles.dockButtonOn, pressed && styles.pressed]}>
-                            <Ionicons name={keyboardOpen ? 'keypad' : 'keypad-outline'} size={21} color={ON_GLASS} />
-                        </Pressable>
-                        {clipboardAvailable && <>
-                            <View style={styles.dockDivider} />
-                            <Pressable onPress={() => setClipboardOpen((open) => !open)} accessibilityRole="button" accessibilityLabel="Clipboard" accessibilityState={{ expanded: clipboardOpen, busy: clipboardBusy }} style={({ pressed }) => [styles.dockButton, clipboardOpen && styles.dockButtonOn, pressed && styles.pressed]}>
+                {menu === 'more' && popupReady && (
+                    <Animated.View entering={popIn} exiting={popOut} style={[card, styles.topCard]}>
+                        {menuRow('Gestures', 'help-circle-outline', () => toggleMenu('help'))}
+                        {live && menuRow('Fit to screen', 'scan-outline', session.fitToView)}
+                        {live && Platform.OS === 'android' && menuRow('Landscape', 'phone-landscape-outline', toggleLandscape, { selected: landscape })}
+                        {menuRow('Disconnect', 'power-outline', onExit)}
+                    </Animated.View>
+                )}
+
+                {keyRowShown && (
+                    // Untouchable until the keyboard has brought it up: a row
+                    // still waiting at the bottom would take the desktop's taps.
+                    <Animated.View pointerEvents={web ? (motion.visible || noOverlapKeys ? 'auto' : 'none') : (keyboard.isVisible ? 'auto' : 'none')} style={[styles.keyRow, { bottom: bottomInset, paddingHorizontal: compact ? EDGE + BUTTON + 4 : 0 }, keyRowMotion]}>
+                        <DesktopKeyRow session={session} />
+                    </Animated.View>
+                )}
+
+                {live && menu === 'clipboard' && clipboardAvailable && (
+                    <Animated.View entering={popIn} exiting={popOut} style={[card, styles.clipboardCard, { bottom: bottomInset + REST_GAP + BUTTON + 10 }, controlsMotion]}>
+                        {menuRow('Copy to Phone', 'copy-outline', () => void copyFromDesktop(), { disabled: clipboardBusy })}
+                        {menuRow('Paste from Phone', 'clipboard-outline', () => void pasteToDesktop(), { disabled: clipboardBusy })}
+                    </Animated.View>
+                )}
+
+                {live && (
+                    <Animated.View pointerEvents="box-none" style={[styles.controls, { bottom: bottomInset + REST_GAP }, controlsMotion]}>
+                        {shownNotice !== null && (
+                            <View pointerEvents="none" style={styles.noticeLane}>
+                                <View style={[styles.notice, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }]}>
+                                    <Text accessibilityLiveRegion="polite" numberOfLines={3} style={[styles.noticeText, { color: theme.colors.text }]}>{shownNotice}</Text>
+                                </View>
+                            </View>
+                        )}
+
+                        {clipboardAvailable ? (
+                            <Pressable onPress={() => setMenu((open) => (open === 'clipboard' ? null : 'clipboard'))} accessibilityRole="button" accessibilityLabel="Clipboard" accessibilityState={{ expanded: menu === 'clipboard', busy: clipboardBusy }} style={({ pressed }) => control(pressed, menu === 'clipboard')}>
                                 {clipboardBusy
-                                    ? <ActivityIndicator size="small" color={ON_GLASS} />
-                                    : <Ionicons name="clipboard-outline" size={21} color={ON_GLASS} />}
+                                    ? <ActivityIndicator size="small" color={theme.colors.text} />
+                                    : <Ionicons name="clipboard-outline" size={20} color={theme.colors.text} />}
                             </Pressable>
-                        </>}
-                    </View>
-                </>}
+                        ) : <View />}
+                        <Pressable onPress={toggleKeyboard} accessibilityRole="button" accessibilityLabel={keyboardOpen ? 'Hide keyboard' : 'Keyboard'} accessibilityState={{ selected: keyboardOpen }} style={({ pressed }) => control(pressed, keyboardOpen)}>
+                            <MaterialCommunityIcons name={keyboardOpen ? 'keyboard-close-outline' : 'keyboard-outline'} size={21} color={theme.colors.text} />
+                        </Pressable>
+                    </Animated.View>
+                )}
             </View>
-
-            {keyRowShown && (
-                <View style={[styles.keyRow, { paddingBottom: keyboard.isVisible ? 0 : insets.bottom }]}>
-                    <DesktopKeyRow session={session} />
-                </View>
-            )}
         </View>
     );
 }
@@ -294,27 +461,14 @@ const styles = StyleSheet.create({
     // sized ancestor; the explicit percentage is what gives the live surface a
     // box on both platforms.
     screen: { flex: 1, width: '100%', height: '100%', backgroundColor: '#000' },
-    bar: {
-        height: 44,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 2,
-        paddingHorizontal: 6,
-        backgroundColor: '#0b0b0c',
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: GLASS_EDGE,
-    },
-    barButton: { width: 40, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-    barButtonOn: { backgroundColor: 'rgba(255,255,255,0.12)' },
-    title: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4 },
-    titleText: { ...Typography.default('semiBold'), flexShrink: 1, color: ON_GLASS, fontSize: 15 },
-    status: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 },
-    statusDot: { width: 6, height: 6, borderRadius: 3 },
-    statusText: { ...Typography.default(), color: ON_GLASS_MUTED, fontSize: 12 },
+    header: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 6, minHeight: 32, backgroundColor: '#000' },
+    headerButton: { minWidth: 32, minHeight: 30, alignItems: 'center', justifyContent: 'center' },
+    title: { flex: 1, minWidth: 0, minHeight: 30, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 3 },
+    titleText: { flexShrink: 1, fontSize: 13, fontWeight: '500', opacity: 0.88 },
     body: { flex: 1, minHeight: 0 },
     surface: { flex: 1 },
+    compactHeader: { position: 'absolute', top: 8, left: EDGE, right: EDGE, height: BUTTON, flexDirection: 'row', justifyContent: 'space-between', zIndex: 2 },
     overlay: {
-        backgroundColor: '#000',
         position: 'absolute',
         left: 0,
         right: 0,
@@ -322,11 +476,11 @@ const styles = StyleSheet.create({
         bottom: 0,
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 10,
-        paddingHorizontal: 32,
+        gap: 12,
+        paddingHorizontal: 36,
     },
-    overlayTitle: { ...Typography.default('semiBold'), fontSize: 16, lineHeight: 22, textAlign: 'center' },
-    overlayDetail: { ...Typography.default(), fontSize: 14, lineHeight: 20, textAlign: 'center' },
+    overlayTitle: { ...Typography.default(), fontSize: 16, lineHeight: 22, textAlign: 'center' },
+    overlayDetail: { ...Typography.default(), fontSize: 14, lineHeight: 20, textAlign: 'center', marginTop: -4 },
     action: {
         marginTop: 6,
         height: 44,
@@ -337,55 +491,33 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     actionLabel: { ...Typography.default('semiBold'), fontSize: 14 },
-    notice: {
+    topCard: { top: 4, right: 8, minWidth: 220, maxWidth: '88%' },
+    clipboardCard: { left: EDGE, minWidth: 220, maxWidth: 300 },
+    menuRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 18 },
+    menuLabel: { ...Typography.default(), flex: 1, fontSize: 15 },
+    helpRow: { flexDirection: 'row', alignItems: 'baseline', gap: 14, paddingHorizontal: 18, paddingVertical: 7 },
+    compactHelpRow: { paddingVertical: 2 },
+    helpGesture: { ...Typography.default(), width: 100, fontSize: 14, lineHeight: 18 },
+    helpEffect: { ...Typography.default(), flex: 1, fontSize: 14, lineHeight: 18 },
+    keyRow: { position: 'absolute', left: 0, right: 0, backgroundColor: '#000' },
+    controls: {
         position: 'absolute',
-        alignSelf: 'center',
-        maxWidth: '88%',
+        left: EDGE,
+        right: EDGE,
+        height: BUTTON,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    noticeLane: { position: 'absolute', left: 0, right: 0, bottom: BUTTON + 12, alignItems: 'center' },
+    notice: {
+        maxWidth: '96%',
         paddingHorizontal: 14,
         paddingVertical: 9,
         borderRadius: 14,
-        backgroundColor: GLASS,
         borderWidth: StyleSheet.hairlineWidth,
-        borderColor: GLASS_EDGE,
     },
-    noticeText: { ...Typography.default(), color: ON_GLASS, fontSize: 13, lineHeight: 18, textAlign: 'center' },
-    dock: {
-        position: 'absolute',
-        alignSelf: 'center',
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 4,
-        borderRadius: 26,
-        backgroundColor: GLASS,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: GLASS_EDGE,
-        shadowColor: '#000',
-        shadowOpacity: 0.35,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 4 },
-        elevation: 8,
-    },
-    dockButton: { width: 48, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-    dockButtonOn: { backgroundColor: 'rgba(255,255,255,0.16)' },
-    dockDivider: { width: StyleSheet.hairlineWidth, height: 22, backgroundColor: GLASS_EDGE, marginHorizontal: 2 },
-    clipboardCard: {
-        position: 'absolute',
-        alignSelf: 'center',
-        width: 290,
-        maxWidth: '92%',
-        borderRadius: 18,
-        paddingVertical: 4,
-        backgroundColor: GLASS,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: GLASS_EDGE,
-        zIndex: 3,
-    },
-    clipboardRow: { minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 8 },
-    rowPressed: { backgroundColor: 'rgba(255,255,255,0.08)' },
-    clipboardText: { flex: 1, minWidth: 0 },
-    clipboardLabel: { ...Typography.default('semiBold'), color: ON_GLASS, fontSize: 15 },
-    clipboardDetail: { ...Typography.default(), color: ON_GLASS_MUTED, fontSize: 12, marginTop: 1 },
-    clipboardDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 16, backgroundColor: GLASS_EDGE },
-    keyRow: { backgroundColor: '#0b0b0c', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: GLASS_EDGE },
+    noticeText: { ...Typography.default(), fontSize: 13, lineHeight: 18, textAlign: 'center' },
+    disabled: { opacity: 0.4 },
     pressed: { opacity: 0.6 },
 });

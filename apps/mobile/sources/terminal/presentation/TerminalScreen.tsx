@@ -1733,11 +1733,16 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     />
                     {/* Keep the conversation mounted: its actual header, draft and
                         terminal viewport survive Computer and the return unchanged.
-                        The desktop covers the header too: it brings its own bar,
-                        which names the computer rather than the pane. */}
-                    {desktopVisible && <View style={{ position: 'absolute', top: insets.top, left: 0, right: 0, bottom: keyboardVisible ? keyboardHeight : 0, backgroundColor: '#000', zIndex: 10 }}>
+                        The desktop covers the header too, and draws the same header
+                        line in its place. It runs to the bottom of the screen and
+                        moves itself above the keyboard, with the keyboard. */}
+                    {desktopVisible && <View style={{ position: 'absolute', top: insets.top, left: 0, right: 0, bottom: 0, backgroundColor: '#000', zIndex: 10 }}>
                         <React.Suspense fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="small" color={theme.colors.textSecondary} /></View>}>
-                            <DesktopSurface onExit={closeDesktop} />
+                            <DesktopSurface
+                                onExit={closeDesktop}
+                                title={contextTitle}
+                                leading={<AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
+                            />
                         </React.Suspense>
                     </View>}
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} />

@@ -4,7 +4,8 @@ import TestRenderer from 'react-test-renderer';
 
 import type { Signaling } from './protocol';
 import { useDesktopSession, type DesktopSession } from './useDesktopSession';
-import { attachSurface } from './native.web';
+import { attachSurface, nativeDesklink, setKeyboardClearance } from './native.web';
+import { observeWebKeyboardMotion } from './webKeyboardMotion';
 
 /** `act` refuses to flush state updates unless React is told this is a test. */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -49,10 +50,13 @@ class FakePeer {
 
 let created: FakeElement[] = [];
 let sent: Record<string, unknown>[] = [];
+let sessionIds: string[] = [];
+let stopObservation: (() => void) | null = null;
 
 beforeEach(() => {
     created = [];
     sent = [];
+    sessionIds = [];
     vi.stubGlobal('document', {
         createElement: () => {
             const element = new FakeElement();
@@ -64,6 +68,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    stopObservation?.();
+    stopObservation = null;
+    for (const id of sessionIds) nativeDesklink.closeSession(id);
     vi.useRealTimers();
     vi.unstubAllGlobals();
 });
@@ -107,6 +114,7 @@ async function liveDesktop() {
         await held.current?.connect();
     });
     const session = held as { current: DesktopSession };
+    sessionIds.push(session.current.nativeId!);
     const channel = {
         readyState: 'open',
         onmessage: null as ((message: { data: string }) => void) | null,
@@ -218,9 +226,130 @@ describe('touch on the desktop', () => {
 
         // A mouse has its own right button.
         sent = [];
+        const mark = created[2]!;
+        expect(mark.style.display).toBe('block');
+        dispatch(video, 'pointermove', { pointerId: 3, pointerType: 'mouse', button: 0, clientX: 50, clientY: 60 });
+        expect(mark.style.display).toBe('none');
         dispatch(video, 'pointerdown', { pointerId: 3, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
         dispatch(video, 'pointerup', { pointerId: 3, pointerType: 'mouse', button: 2, clientX: 50, clientY: 60 });
         expect(sent).toEqual(click(50, 60, 3));
+        expect(mark.style.display).toBe('none');
+        touch(video, 'pointerdown', 80, 90);
+        touch(video, 'pointerup', 80, 90);
+        expect(mark.style.display).toBe('block');
+    });
+});
+
+describe('the pointer above the keyboard', () => {
+    it('keeps the painted picture, taps and pointer together while the keyboard moves', async () => {
+        const viewport = Object.assign(new EventTarget(), { offsetTop: 0, height: 720 });
+        vi.stubGlobal('visualViewport', viewport);
+        vi.stubGlobal('innerHeight', 720);
+        let phase = 0;
+        stopObservation = observeWebKeyboardMotion((motion) => { phase = motion.phase; });
+        const { session, video, keyboard } = await liveDesktop();
+        vi.useFakeTimers();
+        const [picture, , mark] = created;
+        const tip = () => {
+            const [x, y] = /translate3d\(([-\d.]+)px, ([-\d.]+)px/.exec(mark!.style.transform)!.slice(1).map(Number);
+            return { x: x! + 3, y: y! + 3 };
+        };
+
+        // Nothing is marked until a finger has put the desktop's pointer somewhere.
+        expect(mark!.style.display).toBe('none');
+        touch(video, 'pointerdown', 640, 600);
+        touch(video, 'pointerup', 640, 600);
+        expect(mark!.style.display).toBe('block');
+        expect(tip()).toEqual({ x: 640.5, y: 600.5 });
+
+        setKeyboardClearance(session.current.nativeId!, 50);
+        (document as unknown as { activeElement: unknown }).activeElement = keyboard;
+        dispatch(keyboard, 'focus', {});
+        expect(picture!.style.top).toBe('0px');
+
+        viewport.height = 600;
+        dispatch(viewport, 'resize', {});
+        const firstTop = Number.parseFloat(picture!.style.top);
+        expect(firstTop).toBeLessThan(0);
+        expect(phase).toBe(1);
+        viewport.height = 510;
+        dispatch(viewport, 'resize', {});
+        const paintedTop = Number.parseFloat(picture!.style.top);
+        expect(paintedTop).toBeLessThan(firstTop);
+        expect(tip().y).toBeLessThan(720 - 260);
+        sent = [];
+        touch(video, 'pointerdown', 400, 200);
+        touch(video, 'pointerup', 400, 200);
+        const clickedY = Math.floor(200 - paintedTop);
+        expect(sent).toEqual(click(400, clickedY, 1));
+        expect(tip().y).toBeCloseTo(paintedTop + clickedY + 0.5, 5);
+        viewport.height = 420;
+        dispatch(viewport, 'resize', {});
+        expect(tip().y).toBeCloseTo(Number.parseFloat(picture!.style.top) + clickedY + 0.5, 5);
+        vi.advanceTimersByTime(180);
+        viewport.height = 470;
+        dispatch(viewport, 'resize', {});
+        expect(phase).toBeCloseTo(250 / 300, 5);
+        viewport.height = 469;
+        dispatch(viewport, 'resize', {});
+        const reboundTop = picture!.style.top;
+        vi.advanceTimersByTime(180);
+        expect(phase).toBeCloseTo(251 / 300, 5);
+        expect(picture!.style.top).toBe(reboundTop);
+        viewport.height = 420;
+        dispatch(viewport, 'resize', {});
+
+        (document as unknown as { activeElement: unknown }).activeElement = null;
+        const beforeBlur = Number.parseFloat(picture!.style.top);
+        dispatch(keyboard, 'blur', {});
+        expect(Number.parseFloat(picture!.style.top)).toBe(beforeBlur);
+        viewport.height = 510;
+        dispatch(viewport, 'resize', {});
+        const returningTop = Number.parseFloat(picture!.style.top);
+        expect(returningTop).toBeGreaterThan(beforeBlur);
+        expect(phase).toBeCloseTo(210 / 300, 5);
+        vi.advanceTimersByTime(180);
+        expect(phase).toBeCloseTo(210 / 300, 5);
+        sent = [];
+        touch(video, 'pointerdown', 500, 220);
+        touch(video, 'pointerup', 500, 220);
+        const returningY = Math.floor(220 - returningTop);
+        expect(sent).toEqual(click(500, returningY, 1));
+        expect(tip().y).toBeCloseTo(returningTop + returningY + 0.5, 5);
+        viewport.height = 600;
+        dispatch(viewport, 'resize', {});
+        expect(phase).toBeCloseTo(120 / 300, 5);
+        viewport.height = 720;
+        dispatch(viewport, 'resize', {});
+        expect(picture!.style.top).toBe('0px');
+        expect(tip()).toEqual({ x: 500.5, y: returningY + 0.5 });
+
+        touch(video, 'pointerdown', 600, 600);
+        touch(video, 'pointerup', 600, 600);
+        (document as unknown as { activeElement: unknown }).activeElement = keyboard;
+        dispatch(keyboard, 'focus', {});
+        viewport.height = 600;
+        dispatch(viewport, 'resize', {});
+        const shorterOpening = Number.parseFloat(picture!.style.top);
+        expect(phase).toBeCloseTo(0.4, 5);
+        expect(shorterOpening).toBeCloseTo(-76.5, 5);
+        vi.advanceTimersByTime(179);
+        expect(phase).toBeCloseTo(0.4, 5);
+        vi.advanceTimersByTime(1);
+        expect(phase).toBe(1);
+        expect(Number.parseFloat(picture!.style.top)).toBeCloseTo(-106.5, 5);
+        viewport.height = 640;
+        dispatch(viewport, 'resize', {});
+        expect(phase).toBeCloseTo(80 / 120, 5);
+        vi.advanceTimersByTime(180);
+        expect(phase).toBeCloseTo(80 / 120, 5);
+        viewport.height = 720;
+        dispatch(viewport, 'resize', {});
+        viewport.height = 640;
+        dispatch(viewport, 'resize', {});
+        expect(phase).toBeCloseTo(80 / 120, 5);
+        vi.advanceTimersByTime(180);
+        expect(phase).toBe(1);
     });
 });
 
