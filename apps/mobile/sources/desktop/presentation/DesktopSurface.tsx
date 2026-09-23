@@ -256,14 +256,22 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     // height already covers the home indicator, so the inset that lifts them
     // at rest is let go as the keyboard comes up.
     const { height: keyboardOffset, progress: keyboardShown } = motion;
+    // A hardware keyboard can focus the desktop without covering the visual viewport.
+    const noOverlapKeys = web && !motion.visible && (keyboardOpen || keyboard.isVisible);
     const bottomInset = insets.bottom;
-    const keyRowMotion = useAnimatedStyle(() => ({
-        opacity: keyboardShown.value,
-        transform: [{ translateY: keyboardOffset.value + bottomInset * keyboardShown.value }],
-    }));
-    const controlsMotion = useAnimatedStyle(() => ({
-        transform: [{ translateY: keyboardOffset.value + bottomInset * keyboardShown.value - keyboardShown.value * (rise - REST_GAP) }],
-    }));
+    const keyRowMotion = useAnimatedStyle(() => {
+        const shown = noOverlapKeys ? 1 : keyboardShown.value;
+        return {
+            opacity: shown,
+            transform: [{ translateY: keyboardOffset.value + bottomInset * shown }],
+        };
+    });
+    const controlsMotion = useAnimatedStyle(() => {
+        const shown = noOverlapKeys ? 1 : keyboardShown.value;
+        return {
+            transform: [{ translateY: keyboardOffset.value + bottomInset * shown - shown * (rise - REST_GAP) }],
+        };
+    });
 
     const control = (pressed: boolean, on = false): ViewStyle => ({
         width: BUTTON,

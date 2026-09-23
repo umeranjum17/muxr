@@ -17,6 +17,7 @@ const session = {
     close: async () => undefined,
     releaseHeld: () => undefined,
     hideKeyboard: vi.fn(() => undefined),
+    showKeyboard: vi.fn(() => undefined),
     setOrientation: () => undefined,
     fitToView: () => undefined,
 };
@@ -87,11 +88,12 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
         findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string }): Rendered[];
         findByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered;
         findByType(type: string): Rendered;
+        findAllByType(type: string): Rendered[];
     };
     const root = () => view.root as Rendered;
     const style = (value: unknown) => {
         const resolved = typeof value === 'function' ? value({ pressed: false }) : value;
-        return Object.assign({}, ...(Array.isArray(resolved) ? resolved : [resolved])) as { top: number; minHeight: number; paddingVertical: number; lineHeight: number };
+        return Object.assign({}, ...(Array.isArray(resolved) ? resolved : [resolved])) as { top: number; minHeight: number; paddingVertical: number; lineHeight: number; opacity: number; transform: [{ translateY: number }] };
     };
     const fits = (labels: string[], help = false) => {
         const card = root().findByProps({ accessibilityLabel: labels[0] }).parent;
@@ -128,6 +130,14 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     available = true;
     const exit = vi.fn();
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={exit} />); });
+    // A hardware keyboard leaves the visual viewport unchanged, but its extra keys must be visible and clear the controls.
+    await TestRenderer.act(async () => root().findByProps({ accessibilityLabel: 'Keyboard' }).props.onPress());
+    const keyRow = root().findByType('DesktopKeyRow').parent;
+    expect(style(keyRow.props.style).opacity).toBe(1);
+    expect(style(root().findByProps({ accessibilityLabel: 'Hide keyboard' }).parent.props.style).transform[0].translateY).toBeLessThan(0);
+    await TestRenderer.act(async () => root().findByProps({ accessibilityLabel: 'Hide keyboard' }).props.onPress());
+    expect(root().findAllByType('DesktopKeyRow')).toHaveLength(0);
+    session.hideKeyboard.mockClear();
     await TestRenderer.act(async () => root().findByProps({ accessibilityLabel: 'Clipboard' }).props.onPress());
     expect(root().findAllByProps({ accessibilityLabel: 'Copy to Phone' })).toHaveLength(1);
     expect(root().findAllByProps({ accessibilityLabel: 'Paste from Phone' })).toHaveLength(1);
