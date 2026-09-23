@@ -21,6 +21,7 @@ const session = {
     showKeyboard: vi.fn(() => undefined),
     setOrientation: () => undefined,
     fitToView: () => undefined,
+    copyRemoteToLocal: vi.fn(async (): Promise<{ text: string; truncated: boolean }> => ({ text: '', truncated: false })),
 };
 
 vi.mock('react-native', () => ({
@@ -77,6 +78,49 @@ vi.mock('./DesktopKeyRow', () => ({ DesktopKeyRow: 'DesktopKeyRow', DESKTOP_KEY_
 
 import { DesktopSurface } from './DesktopSurface';
 
+type Rendered = {
+    props: { onPress(): void; style: unknown; keyboardClearance: number; pointerEvents?: string };
+    children: (Rendered | string)[];
+    parent: Rendered;
+    findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered[];
+    findByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered;
+    findByType(type: string): Rendered;
+    findAllByType(type: string): Rendered[];
+};
+
+it('starts web clipboard copy in the tap and waits for the write before reporting success', async () => {
+    available = true;
+    openedBefore = true;
+    session.snapshot.status = 'live';
+    let resolveRemote!: (value: { text: string; truncated: boolean }) => void;
+    let resolveWrite!: () => void;
+    const remote = new Promise<{ text: string; truncated: boolean }>((resolve) => { resolveRemote = resolve; });
+    const webWrite = vi.fn((_items: FakeClipboardItem[]) => new Promise<void>((resolve) => { resolveWrite = resolve; }));
+    class FakeClipboardItem {
+        constructor(readonly data: Record<string, Promise<Blob>>) {}
+    }
+    vi.stubGlobal('ClipboardItem', FakeClipboardItem);
+    vi.stubGlobal('navigator', { clipboard: { write: webWrite } });
+    session.copyRemoteToLocal.mockImplementation(() => remote);
+    let view!: ReturnType<typeof TestRenderer.create>;
+    const root = () => view.root as Rendered;
+    try {
+        await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={() => undefined} />); });
+        TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Clipboard' }).props.onPress());
+        TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Copy to Phone' }).props.onPress());
+        expect(webWrite).toHaveBeenCalledTimes(1);
+        expect(root().findAllByProps({ accessibilityLiveRegion: 'polite' })).toHaveLength(0);
+        await TestRenderer.act(async () => { resolveRemote({ text: 'remote text', truncated: false }); await Promise.resolve(); });
+        expect(await webWrite.mock.calls[0][0][0].data['text/plain'].then((blob) => blob.text())).toBe('remote text');
+        expect(root().findAllByProps({ accessibilityLiveRegion: 'polite' })).toHaveLength(0);
+        await TestRenderer.act(async () => { resolveWrite(); });
+        expect(root().findByProps({ accessibilityLiveRegion: 'polite' }).children.join('')).toBe('Copied to this phone.');
+    } finally {
+        await TestRenderer.act(async () => { if (view) view.unmount(); });
+        vi.unstubAllGlobals();
+    }
+});
+
 it('keeps a portrait desktop usable with the keyboard up and explains unavailable clipboard after the first hint', async () => {
     available = false;
     openedBefore = false;
@@ -86,15 +130,6 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     session.snapshot.status = 'starting';
     vi.useFakeTimers();
     let view!: ReturnType<typeof TestRenderer.create>;
-    type Rendered = {
-        props: { onPress(): void; style: unknown; keyboardClearance: number; pointerEvents?: string };
-        children: (Rendered | string)[];
-        parent: Rendered;
-        findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string }): Rendered[];
-        findByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered;
-        findByType(type: string): Rendered;
-        findAllByType(type: string): Rendered[];
-    };
     const root = () => view.root as Rendered;
     const style = (value: unknown) => {
         const resolved = typeof value === 'function' ? value({ pressed: false }) : value;

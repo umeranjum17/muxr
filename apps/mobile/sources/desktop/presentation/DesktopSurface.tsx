@@ -54,6 +54,13 @@ const GESTURES: readonly [gesture: string, effect: string][] = [
     ['Drag on the whole desktop', 'Move the pointer'],
 ];
 
+/** Expo reports a blocked browser clipboard read as ERR_NO_PERMISSION. */
+function describeClipboardError(error: unknown, fallback: string): string {
+    const refused = error as { code?: unknown } | null;
+    if (refused?.code === 'ERR_NO_PERMISSION') return desktopCopy.clipboardBlocked;
+    return error instanceof Error ? error.message : fallback;
+}
+
 export interface DesktopSurfaceProps {
     onExit: () => void;
     /** The conversation the desktop was opened from; the computer's name without one. */
@@ -191,13 +198,30 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
         setClipboardBusy(true);
         setNotice(null);
         try {
-            const { text, truncated } = await session.copyRemoteToLocal();
-            await Clipboard.setStringAsync(text);
+            const remote = session.copyRemoteToLocal();
+            let written: Promise<boolean> | undefined;
+            if (Platform.OS === 'web') {
+                try {
+                    // Start the write in the tap's user gesture; the remote reply can arrive later.
+                    const write = typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write
+                        ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': remote.then(({ text }) => new Blob([text], { type: 'text/plain' })) })])
+                        : remote.then(({ text }) => navigator.clipboard.writeText(text));
+                    written = write.then(() => true, () => false);
+                } catch {
+                    written = Promise.resolve(false);
+                }
+            }
+            const { text, truncated } = await remote;
+            if (written !== undefined) {
+                if (!await written) throw new Error(desktopCopy.clipboardBlocked);
+            } else {
+                await Clipboard.setStringAsync(text);
+            }
             if (truncated) say('Copied the start of the desktop clipboard; the rest was too large.');
             else if (text === '') say('The desktop clipboard was empty.');
             else say('Copied to this phone.');
         } catch (error) {
-            say(error instanceof Error ? error.message : 'Could not copy from the desktop.');
+            say(describeClipboardError(error, 'Could not copy from the desktop.'));
         } finally {
             setClipboardBusy(false);
         }
@@ -211,7 +235,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
             await session.pasteLocalToRemote(text);
             say('On the desktop clipboard. Hold on a field and choose Paste.');
         } catch (error) {
-            say(error instanceof Error ? error.message : 'Could not paste to the desktop.');
+            say(describeClipboardError(error, 'Could not paste to the desktop.'));
         } finally {
             setClipboardBusy(false);
         }

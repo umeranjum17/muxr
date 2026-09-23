@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import type { DesktopSession, StickyModifier } from '@desklink/react-native';
@@ -7,6 +7,16 @@ import type { DesktopSession, StickyModifier } from '@desklink/react-native';
 import { Typography } from '@/constants/Typography';
 import { hapticsSelection } from '@/components/haptics';
 import { useLocalSetting } from '@/catalog/store';
+
+/**
+ * In a browser a pressed key would take focus from the desktop's hidden text
+ * field, and the phone's keyboard would close under the finger: Ctrl, then a
+ * letter, could never be typed. Keeping the press from moving focus keeps the
+ * keyboard up; the press itself still happens.
+ */
+const KEEP_KEYBOARD = Platform.OS === 'web'
+    ? { onMouseDown: (event: { preventDefault(): void }) => event.preventDefault() } as object
+    : {};
 
 /** The row's height, so the chrome floating above it can clear it. */
 export const DESKTOP_KEY_ROW_HEIGHT = 36;
@@ -61,7 +71,7 @@ export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modi
     );
 
     return (
-        <View style={{ height: DESKTOP_KEY_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+        <View {...KEEP_KEYBOARD} style={{ height: DESKTOP_KEY_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
             {MODIFIERS.map(({ name, label: text, glyph }) => {
                 const state = modifiers[name];
                 return (
