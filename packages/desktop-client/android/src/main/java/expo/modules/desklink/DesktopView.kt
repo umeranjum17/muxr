@@ -120,6 +120,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   private var gesture = Gesture.NONE
   private var downX = 0f
   private var downY = 0f
+  private var downOnPicture = false
   private var lastX = 0f
   private var lastY = 0f
   private var twoStart = 0L
@@ -141,6 +142,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     if (gesture != Gesture.PENDING) return@Runnable
     val at = point(downX, downY) ?: return@Runnable
     gesture = Gesture.ARMED
+    lastTapPoint = null
     session?.let { pointerTo(it, "move", at) }
     performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
   }
@@ -503,17 +505,20 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN -> {
-        gesture = Gesture.PENDING
+        downOnPicture = point(event.x, event.y) != null
+        gesture = if (fitted && !downOnPicture) Gesture.SPENT else Gesture.PENDING
         downX = event.x
         downY = event.y
         lastX = event.x
         lastY = event.y
         removeCallbacks(longPress)
-        postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+        if (gesture == Gesture.PENDING) postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+        else lastTapPoint = null
       }
 
       MotionEvent.ACTION_POINTER_DOWN -> {
         removeCallbacks(longPress)
+        lastTapPoint = null
         when (gesture) {
           // A second finger ends a drag where the first one is.
           Gesture.DRAG -> endDrag(active, lastX, lastY)
@@ -549,9 +554,10 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
       MotionEvent.ACTION_MOVE -> when (gesture) {
         Gesture.PENDING -> if (hypot(event.x - downX, event.y - downY) > touchSlop) {
           removeCallbacks(longPress)
+          lastTapPoint = null
           // The whole desktop has nowhere to move to, so the finger moves the
           // desktop's pointer instead, without a button.
-          gesture = if (!fitted) Gesture.PAN else if (point(downX, downY) != null) Gesture.HOVER else Gesture.SPENT
+          gesture = if (!fitted) Gesture.PAN else if (downOnPicture) Gesture.HOVER else Gesture.SPENT
           lastX = event.x
           lastY = event.y
           if (gesture == Gesture.HOVER) hoverTo(active, event.x, event.y)

@@ -169,6 +169,18 @@ describe('touch on the desktop', () => {
         touch(video, 'pointerup', 104, 102);
         expect(sent).toEqual(click(100, 100, 1));
 
+        sent = [];
+        touch(video, 'pointerdown', 115, 100);
+        touch(video, 'pointermove', 130, 100);
+        touch(video, 'pointerup', 125, 100);
+        touch(video, 'pointerdown', 125, 100);
+        touch(video, 'pointerup', 125, 100);
+        expect(sent).toEqual([
+            { kind: 'pointer', phase: 'move', x: 130, y: 100 },
+            { kind: 'pointer', phase: 'move', x: 125, y: 100 },
+            ...click(125, 100, 1),
+        ]);
+
         // On the whole desktop a finger that moves at once carries the pointer,
         // every move as it comes and without a button; lifting it clicks nothing.
         sent = [];
@@ -200,6 +212,14 @@ describe('touch on the desktop', () => {
         touch(video, 'pointermove', 100, 100);
         touch(video, 'pointerup', 100, 100);
         expect(sent).toEqual([]);
+        touch(video, 'pointerdown', 100, 10);
+        video.height = 720;
+        nativeDesklink.fitToView(session.current.nativeId!);
+        touch(video, 'pointermove', 100, 100);
+        touch(video, 'pointerup', 100, 100);
+        expect(sent).toEqual([]);
+        video.height = 800;
+        nativeDesklink.fitToView(session.current.nativeId!);
         touch(video, 'pointerdown', 100, 90);
         touch(video, 'pointermove', 140, 90);
         touch(video, 'pointerup', 180, 90);

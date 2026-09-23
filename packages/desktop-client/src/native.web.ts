@@ -92,6 +92,7 @@ interface WebSession {
     touches: Map<number, { x: number; y: number }>;
     downX: number;
     downY: number;
+    downOnPicture: boolean;
     lastX: number;
     lastY: number;
     /** The last desktop point a held button was moved to. */
@@ -387,6 +388,7 @@ function attachGestures(session: WebSession): () => void {
         const at = desktopPoint(session, session.downX, session.downY);
         if (at === null) return;
         session.gesture = 'armed';
+        session.lastTap = null;
         pointer(session, 'move', at);
         globalThis.navigator?.vibrate?.(10);
     };
@@ -506,16 +508,19 @@ function attachGestures(session: WebSession): () => void {
         }
         session.touches.set(event.pointerId, { x, y });
         if (session.touches.size === 1) {
-            session.gesture = 'pending';
+            session.downOnPicture = desktopPoint(session, x, y) !== null;
+            session.gesture = session.view.fitted && !session.downOnPicture ? 'spent' : 'pending';
             session.downX = x;
             session.downY = y;
             session.lastX = x;
             session.lastY = y;
             cancelLongPress(session);
-            session.longPress = setTimeout(longPress, LONG_PRESS_MS);
+            if (session.gesture === 'pending') session.longPress = setTimeout(longPress, LONG_PRESS_MS);
+            else session.lastTap = null;
             return;
         }
         cancelLongPress(session);
+        session.lastTap = null;
         if (session.gesture === 'drag') endDrag(session.lastX, session.lastY);
         if (session.touches.size === 2 && ['pending', 'pan', 'hover', 'armed', 'drag'].includes(session.gesture)) {
             const [a, b] = pair();
@@ -552,10 +557,11 @@ function attachGestures(session: WebSession): () => void {
             case 'pending':
                 if (Math.hypot(x - session.downX, y - session.downY) > TOUCH_SLOP) {
                     cancelLongPress(session);
+                    session.lastTap = null;
                     // The whole desktop has nowhere to move to, so the finger
                     // moves the desktop's pointer instead, without a button.
                     session.gesture = session.view.fitted
-                        ? (desktopPoint(session, session.downX, session.downY) === null ? 'spent' : 'hover')
+                        ? (session.downOnPicture ? 'hover' : 'spent')
                         : 'pan';
                     session.lastX = x;
                     session.lastY = y;
@@ -842,6 +848,7 @@ export const nativeDesklink: NativeDesklinkModule = {
             touches: new Map(),
             downX: 0,
             downY: 0,
+            downOnPicture: false,
             lastX: 0,
             lastY: 0,
             dragX: 0,
