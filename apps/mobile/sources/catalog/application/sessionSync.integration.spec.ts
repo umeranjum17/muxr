@@ -5,7 +5,7 @@ import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, nativeLifecycleNotificationState, sortHerd } from '@/herd/model';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@muxr/contract';
-import { buildSpaceRows } from '@/herd/model';
+import { buildSpaceRows, workspaceName, workspaceNames } from '@/herd/model';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels } from '../../herd/domain/agentPresentation';
@@ -883,7 +883,8 @@ describe('session sync flow', () => {
         storage.getState().applyHerdrTree(tree('old', 'working'));
         storage.getState().applySessions([agent('old')], true);
         storage.getState().markSessionsLoaded();
-        saveHomeSnapshot('machine', tree('old', 'working'), [agent('old')]);
+        const confirmed = tree('old', 'working');
+        saveHomeSnapshot('machine', confirmed, [agent('old')], workspaceNames(confirmed), new Map());
 
         // Another machine's cold start has no Home to draw.
         coldStart();
@@ -926,10 +927,10 @@ describe('session sync flow', () => {
         session.agentState = { requests: [{ arguments: secret }], completedRequests: [{ arguments: secret }] } as unknown as Session['agentState'];
         session.extensionStatus = { private: secret };
         const confirmed = [{
-            workspaceId: 'workspace', label: 'Home', focused: true, agentStatus: 'working' as const,
-            worktree: { repo: secret, path: '/work', branch: 'fast' },
+            workspaceId: 'workspace', label: `/private/${secret}/project`, focused: true, agentStatus: 'working' as const,
+            worktree: { repo: secret, path: `/private/${secret}/project`, repoKey: `/private/${secret}/repo`, linked: true, branch: 'fast' },
             tokens: { projection: secret },
-            tabs: [{ tabId: 'tab', focused: true, agentStatus: 'working' as const,
+            tabs: [{ tabId: 'tab', label: `/private/${secret}/unused-tab`, focused: true, agentStatus: 'working' as const,
                 panes: [
                     { paneId: 'pane', tabId: 'tab', sessionId: 'agent', agentName: 'Maria',
                         taskTitle: 'Build Home', cwd: `/private/${secret}/named`,
@@ -938,16 +939,27 @@ describe('session sync flow', () => {
                         agentStatus: 'idle' as const, promptable: false, focused: false },
                 ],
             }],
+        }, {
+            workspaceId: 'nameless', focused: false, agentStatus: 'idle' as const,
+            tabs: [{ tabId: 'other-tab', focused: false, agentStatus: 'idle' as const,
+                panes: [{ paneId: 'other-pane', tabId: 'other-tab', cwd: `/private/${secret}/visible`,
+                    agentStatus: 'idle' as const, promptable: false, focused: false }],
+            }],
         }];
-        saveHomeSnapshot('machine', confirmed, [session]);
+        saveHomeSnapshot('machine', confirmed, [session], workspaceNames(confirmed), new Map());
         const serialized = mmkvValues.get('home-snapshot-v2')!;
         expect(serialized).not.toContain(secret);
+        expect(serialized).not.toContain('/private/');
         const saved = JSON.parse(serialized);
         expect(saved.sessions.agent).toEqual({
             id: 'agent', updatedAt: session.updatedAt, metadata: null,
         });
+        expect(saved.workspaces.map((workspace: { label: string }) => workspace.label)).toEqual(['project', 'visible']);
         expect(saved.workspaces[0].worktree).not.toHaveProperty('repo');
+        expect(saved.workspaces[0].worktree).not.toHaveProperty('path');
+        expect(saved.workspaces[0].worktree).not.toHaveProperty('repoKey');
         expect(saved.workspaces[0].tokens).not.toHaveProperty('projection');
+        expect(saved.workspaces[0].tabs[0]).not.toHaveProperty('label');
         expect(saved.workspaces[0].tabs[0].panes[0]).not.toHaveProperty('cwd');
         expect(saved.workspaces[0].tabs[0].panes[1]).not.toHaveProperty('cwd');
         expect(saved.workspaces[0].tabs[0].panes[1].label).toBe('fallback');
@@ -955,6 +967,7 @@ describe('session sync flow', () => {
         storage.getState().restoreHome('machine');
         expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes).toHaveLength(2);
         expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[0]!.taskTitle).toBe('Build Home');
+        expect(workspaceName(storage.getState().homeSnapshot!.workspaces[1]! as HerdrTreeWorkspace)).toBe('visible');
     });
 
     it('carries changelog unread state across the release-keyed storage change', async () => {

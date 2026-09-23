@@ -35,6 +35,7 @@ import {
 import { getCachedHostedGrant, loadHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
 import { saveHomeSnapshot } from './persistence';
+import { spawnerOf, workspaceNames } from '@/herd/domain/herdTree';
 import {
     applyStatusToSession,
     machineInfoToMachine,
@@ -248,6 +249,7 @@ class MuxrSync {
     private opening = new Map<string, Promise<void>>();
     private activeMachineId: string | undefined;
     private herdrTreeRequest = 0;
+    private catalogRequest = 0;
     private presentingLifecycleIds = new Set<string>();
     encryption!: Encryption;
     anonID = 'muxr-local';
@@ -544,6 +546,7 @@ class MuxrSync {
     }
 
     private async refreshCatalog(): Promise<void> {
+        const request = ++this.catalogRequest;
         if (!this.hasTransport()) {
             storage.getState().setSocketStatus('disconnected');
             storage.getState().applyMachines([], true);
@@ -566,7 +569,7 @@ class MuxrSync {
             }),
             this.refreshHerdTree().catch(() => undefined),
         ]);
-        if (client !== this.client) return;
+        if (request !== this.catalogRequest || client !== this.client) return;
         storage.getState().applyMachines(machines.map((machine) =>
             machineInfoToMachine(machine, getCachedHostedGrant(machine.machineId)?.machineName)
         ), true);
@@ -600,7 +603,13 @@ class MuxrSync {
         storage.getState().applySessions(confirmedSessions, true);
         storage.getState().markSessionsLoaded();
         if (tree !== undefined && this.hasTransport()) {
-            saveHomeSnapshot(this.getConnection().machineId, tree.workspaces, confirmedSessions);
+            const byId = new Map(tree.workspaces.map((workspace) => [workspace.workspaceId, workspace] as const));
+            const parents = new Map<string, string>();
+            for (const workspace of tree.workspaces) {
+                const parent = spawnerOf(workspace, byId);
+                if (parent !== undefined) parents.set(workspace.workspaceId, parent);
+            }
+            saveHomeSnapshot(this.getConnection().machineId, tree.workspaces, confirmedSessions, workspaceNames(tree.workspaces), parents);
         }
         storage.getState().applyAttentionCatalog(attention.entries);
         if (lifecycle !== undefined) {

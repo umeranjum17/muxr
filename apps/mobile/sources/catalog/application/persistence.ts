@@ -234,8 +234,9 @@ export type HomeSession = Pick<Session, 'id' | 'updatedAt'> & {
     metadata: Pick<NonNullable<Session['metadata']>, 'lifecycleStateSince'> | null;
 };
 
-type HomeWorkspace = Omit<HerdrTreeWorkspace, 'worktree'> & {
-    worktree?: Omit<NonNullable<HerdrTreeWorkspace['worktree']>, 'repo'>;
+type HomeWorkspace = Omit<HerdrTreeWorkspace, 'worktree' | 'tabs'> & {
+    worktree?: Pick<NonNullable<HerdrTreeWorkspace['worktree']>, 'branch'>;
+    tabs: Array<Omit<HerdrTreeWorkspace['tabs'][number], 'label'>>;
 };
 
 export interface HomeSnapshot {
@@ -258,29 +259,23 @@ export function loadHomeSnapshot(machineId: string): HomeSnapshot | null {
     }
 }
 
-export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspace[], sessions: Session[]): void {
+export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspace[], sessions: Session[], names: ReadonlyMap<string, string>, parents: ReadonlyMap<string, string>): void {
     mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
     const snapshot: HomeSnapshot = {
         machineId,
         workspaces: workspaces.map((workspace) => ({
             workspaceId: workspace.workspaceId,
-            label: workspace.label,
+            label: names.get(workspace.workspaceId),
             focused: workspace.focused,
             agentStatus: workspace.agentStatus,
             order: workspace.order,
-            worktree: workspace.worktree && {
-                branch: workspace.worktree.branch,
-                path: workspace.worktree.path,
-                repoKey: workspace.worktree.repoKey,
-                linked: workspace.worktree.linked,
-            },
-            tokens: workspace.tokens && {
-                parent: workspace.tokens.parent,
-                kind: workspace.tokens.kind,
-            },
+            worktree: workspace.worktree && { branch: workspace.worktree.branch },
+            tokens: workspace.tokens || parents.has(workspace.workspaceId) ? {
+                parent: parents.get(workspace.workspaceId),
+                kind: workspace.tokens?.kind,
+            } : undefined,
             tabs: workspace.tabs.map((tab) => ({
                 tabId: tab.tabId,
-                label: tab.label,
                 focused: tab.focused,
                 agentStatus: tab.agentStatus,
                 panes: tab.panes.map((pane) => ({
