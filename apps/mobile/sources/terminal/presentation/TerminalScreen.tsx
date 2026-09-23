@@ -172,11 +172,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const canControl = authority === 'control' && !authorityLoading;
     const desktopVisible = props.desktop === true && canControl && isFocused;
     const insets = useSafeAreaInsets();
-    // Keyboard height already covers the home indicator, so keeping the bottom
-    // inset while it is up double-pads the composer.
-    //
-    // Both read through a selector: without one the hook hands back a fresh
-    // state object on every keyboard event, including the `willShow` that only
+    // The rail keeps its bottom inset through keyboard motion; its translation
+    // cancels that inset as the keyboard opens so the composer is not double-padded.
+    // These keyboard state values read through selectors: without one the hook
+    // hands back a fresh state object on every event, including `willShow` that only
     // carries an appearance, so a single keyboard opening re-rendered this
     // whole screen three times over. A primitive lets React drop the renders
     // that change nothing, which is most of them.
