@@ -17,6 +17,7 @@ type MobileGlassSurfaceProps = ViewProps & {
     enabled?: boolean;
     intensity?: number;
     interactive?: boolean;
+    pressed?: boolean;
     nativeEffect?: boolean;
     glassEffectStyle?: GlassStyle;
     tintColor?: string;
@@ -42,6 +43,7 @@ function InteractiveMobileGlassSurface({
     onTouchStart,
     onTouchEnd,
     onTouchCancel,
+    pressed,
     style,
     ...props
 }: MobileGlassSurfaceProps) {
@@ -57,13 +59,21 @@ function InteractiveMobileGlassSurface({
             overshootClamping: false,
         });
     }, [pressScale]);
-    const handleTouchStart = React.useCallback<NonNullable<ViewProps['onTouchStart']>>((event) => {
+    const pressBubble = React.useCallback(() => {
         pressScale.value = withTiming(1.035, {
             duration: 65,
             easing: Easing.out(Easing.quad),
         });
+    }, [pressScale]);
+    React.useEffect(() => {
+        if (pressed === undefined) return;
+        if (pressed) pressBubble();
+        else releaseBubble();
+    }, [pressed, pressBubble, releaseBubble]);
+    const handleTouchStart = React.useCallback<NonNullable<ViewProps['onTouchStart']>>((event) => {
+        pressBubble();
         onTouchStart?.(event);
-    }, [onTouchStart, pressScale]);
+    }, [onTouchStart, pressBubble]);
     const handleTouchEnd = React.useCallback<NonNullable<ViewProps['onTouchEnd']>>((event) => {
         releaseBubble();
         onTouchEnd?.(event);
@@ -90,6 +100,7 @@ function MobileGlassSurfaceBase({
     enabled = Platform.OS !== 'web' && !isRunningOnMac(),
     intensity = 72,
     interactive = false,
+    pressed: _pressed,
     nativeEffect = interactive,
     glassEffectStyle = 'clear',
     tintColor,

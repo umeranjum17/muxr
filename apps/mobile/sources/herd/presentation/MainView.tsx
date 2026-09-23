@@ -10,6 +10,7 @@ import {
     NativeScrollEvent,
     NativeSyntheticEvent,
     ScrollView,
+    useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -26,13 +27,13 @@ import { RightNowCard } from '@/usage';
 import { SessionItem } from './SessionsList';
 import { Header } from '@/components/navigation/Header';
 import { HeaderLogo } from '@/components/HeaderLogo';
-import { StatusDot } from '@/components/StatusDot';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
+import { HomeHeaderActions, HomeHeaderMark, HomeHeaderStatus } from './HomeHeaderActions';
+import { SectionLabel } from '@/components/ui';
 import { t } from '@/text';
 
 import { MOBILE_GLASS_HEADER_HEIGHT } from '@/components/navigation/headerMetrics';
-import { MobileGlassSurface } from '@/components/MobileGlass';
 import { useNewSessionDraft } from '@/spawn';
 import { useStartSessionFromDraft } from '@/spawn';
 import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
@@ -110,6 +111,7 @@ const styles = StyleSheet.create((theme) => ({
     },
     titleContainer: {
         flex: 1,
+        minWidth: 0,
         alignItems: Platform.OS === 'web' ? 'center' : 'flex-start',
         justifyContent: Platform.OS === 'web' ? 'flex-start' : 'center',
     },
@@ -118,6 +120,8 @@ const styles = StyleSheet.create((theme) => ({
         justifyContent: 'flex-end',
     },
     titleText: {
+        flexShrink: 1,
+        maxWidth: '100%',
         fontSize: Platform.OS === 'web' ? 17 : 16,
         color: theme.colors.header.tint,
         fontWeight: '600',
@@ -133,53 +137,16 @@ const styles = StyleSheet.create((theme) => ({
         alignSelf: 'center',
         paddingTop: 12,
     },
+    // The shared section label, not a tracked-out capital one of its own.
     recentTitle: {
         paddingHorizontal: 16,
-        paddingBottom: 6,
-        fontSize: 11,
-        fontWeight: '700',
-        letterSpacing: 1.5,
-        textTransform: 'uppercase',
-        color: theme.colors.textSecondary,
-        ...Typography.default('semiBold'),
+        paddingBottom: 10,
     },
     machineTitleButton: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 3,
         maxWidth: '100%',
-    },
-    statusContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: -2,
-    },
-    statusText: {
-        fontSize: Platform.OS === 'web' ? 12 : 11,
-        fontWeight: '500',
-        lineHeight: 16,
-        ...Typography.default(),
-    },
-    tabletStatusText: {
-        fontSize: 13,
-        lineHeight: 18,
-    },
-    headerActions: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    headerActionGlass: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        overflow: 'hidden',
-    },
-    headerActionButton: {
-        width: '100%',
-        height: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
     },
     headerSearch: {
         width: '100%',
@@ -291,12 +258,7 @@ const HeaderTitle = React.memo(({ large = false, homeRecovering = false }: { lar
             ) : (
                 <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
             )}
-            {connectionStatus.text && (
-                <View style={styles.statusContainer}>
-                    <StatusDot color={connectionStatus.color} isPulsing={connectionStatus.isPulsing} size={6} style={{ marginRight: 4 }} />
-                    <Text numberOfLines={1} style={[styles.statusText, large && styles.tabletStatusText, { color: connectionStatus.color }]}>{connectionStatus.text}</Text>
-                </View>
-            )}
+            {connectionStatus.text && <HomeHeaderStatus {...connectionStatus} large={large} />}
             <OptionSheet
                 visible={machinePickerOpen}
                 title="Switch machine"
@@ -336,69 +298,11 @@ const HeaderSearch = React.memo(({
     );
 });
 
-// Header right buttons: Panes, search and Settings. Starting an agent is the
-// composer dock's job on every surface, so the header never carries a start.
-const HeaderRight = React.memo(({
-    searchActive,
-    onSearchPress,
-}: {
-    searchActive: boolean;
-    onSearchPress: () => void;
-}) => {
-    const router = useRouter();
-    const { theme } = useUnistyles();
-
-    return (
-        <View style={styles.headerActions}>
-            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                <Pressable
-                    onPress={() => router.push('/panes')}
-                    style={styles.headerActionButton}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Panes"
-                >
-                    <Ionicons
-                        name="grid-outline"
-                        size={21}
-                        color={theme.colors.header.tint}
-                    />
-                </Pressable>
-            </MobileGlassSurface>
-            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                <Pressable
-                    onPress={onSearchPress}
-                    style={styles.headerActionButton}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('tools.names.search')}
-                >
-                    <Ionicons
-                        name={searchActive ? 'close' : 'search'}
-                        size={searchActive ? 24 : 21}
-                        color={theme.colors.header.tint}
-                    />
-                </Pressable>
-            </MobileGlassSurface>
-            <MobileGlassSurface nativeEffect interactive style={styles.headerActionGlass}>
-                <Pressable
-                    onPress={() => router.push('/settings')}
-                    style={styles.headerActionButton}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={t('settings.title')}
-                >
-                    <Ionicons name="settings-outline" size={21} color={theme.colors.header.tint} />
-                </Pressable>
-            </MobileGlassSurface>
-        </View>
-    );
-});
-
 let lastTerminalLaunchClaimed = false;
 
 export const MainView = React.memo(() => {
     useUnistyles();
+    const compactHeader = useWindowDimensions().width < 330;
     const useSplitView = useSplitViewLayout();
     const router = useRouter();
     const socketStatus = useSocketStatus();
@@ -609,7 +513,7 @@ export const MainView = React.memo(() => {
                     <DeclarativeHomeCards />
                     {recentSessions.length > 0 && (
                         <View style={styles.recentSection}>
-                            <Text style={styles.recentTitle}>Recent</Text>
+                            <SectionLabel style={styles.recentTitle}>Recent</SectionLabel>
                             {recentSessions.map((session, index) => (
                                 <SessionItem
                                     key={session.id}
@@ -634,14 +538,13 @@ export const MainView = React.memo(() => {
                     ? <HeaderSearch value={searchQuery} onChangeText={setSearchQuery} />
                     : <HeaderTitle homeRecovering={phoneHomeRecovering} />}
                 headerRight={() => (
-                    <HeaderRight
-                        searchActive={searchActive}
-                        onSearchPress={handleSearchPress}
-                    />
+                    <HomeHeaderActions searchActive={searchActive} onSearchPress={handleSearchPress} />
                 )}
                 headerRightGlass={false}
-                headerLeft={() => <HeaderLogo />}
-                headerLeftGlass={Platform.OS !== 'web'}
+                headerRightTouchInset
+                compactHorizontalPadding={compactHeader}
+                headerLeft={() => (Platform.OS === 'web' ? <HeaderLogo /> : <HomeHeaderMark />)}
+                headerLeftGlass={false}
                 headerBackdropVisible={headerBackdropVisible}
                 headerShadowVisible={false}
                 headerTransparent={true}

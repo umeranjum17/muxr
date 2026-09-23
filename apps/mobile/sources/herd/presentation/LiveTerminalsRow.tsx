@@ -30,9 +30,12 @@ const CARD_GAP = 12;
 const STRIP_GUTTER = 16;
 
 const stylesheet = StyleSheet.create((theme) => ({
-    strip: { paddingVertical: 6 },
+    // Home's section rhythm: 20pt from the content above to a section label,
+    // 10pt from the label to what it names. The header row is 28pt for the
+    // attention dot's target, so the label sits 6pt inside it on each side.
+    strip: { paddingTop: 14 },
     header: {
-        minHeight: 40,
+        minHeight: 28,
         paddingHorizontal: STRIP_GUTTER,
         flexDirection: 'row',
         alignItems: 'center',
@@ -43,7 +46,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     reconnecting: { marginLeft: 'auto', color: theme.colors.textSecondary, fontSize: 11, lineHeight: 14 },
     zeroLine: {
         marginHorizontal: STRIP_GUTTER,
-        marginTop: 8,
+        marginTop: 4,
         color: theme.colors.textSecondary,
         fontSize: 13,
         lineHeight: 18,
@@ -305,7 +308,7 @@ export const LiveTerminalsRow = React.memo(({
                     <Text style={stylesheet.zeroLine}>{t('homeNotices.liveEmpty')}</Text>
                 ) : null
             ) : (
-                <View ref={stripListRef} collapsable={false}>
+                <View ref={stripListRef} collapsable={false} style={{ marginTop: 4 }}>
                 <FlatList
                     ref={scrollRef}
                     data={cards}
