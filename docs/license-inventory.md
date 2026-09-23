@@ -19,10 +19,10 @@ What the executable contains:
 | Component | License | How it is in the executable |
 |---|---|---|
 | desklink engine source | Apache-2.0 | compiled |
-| libvpx v1.16.0 (`1024874c`) | BSD-3-Clause, with Google's patent grant | linked statically |
-| inputtino (vendored at `f4ce2b0d`, unmodified) | MIT | linked statically |
-| Rust standard library 1.97.1 | MIT OR Apache-2.0 | linked statically |
-| 245 crates from `engine/Cargo.lock` | every one satisfiable by Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MIT, Unicode-3.0, Unlicense or Zlib (one uses the LLVM exception) | linked statically |
+| libvpx (version pinned in `release/linux-x64-gnu.Dockerfile`) | BSD-3-Clause, with Google's patent grant | linked statically |
+| inputtino (vendored under `engine/vendor/`) | MIT | linked statically |
+| Rust standard library (version pinned in `release/linux-x64-gnu.Dockerfile`) | MIT OR Apache-2.0 | linked statically |
+| Rust crates from `engine/Cargo.lock` | permissive licences checked by `release/notices.mjs`; exact set and texts in the platform package's generated `THIRD_PARTY_LICENSES.txt` | linked statically |
 
 What it loads from the system at run time and does not ship: glibc (2.36 or
 newer), libstdc++ and libgcc_s (GCC Runtime Library Exception), libpipewire-0.3,
@@ -33,11 +33,11 @@ library's own notices.
 
 The engine build is the licence gate for this part:
 `packages/desktop-host/release/notices.mjs` evaluates each crate's SPDX
-expression, build-only crates included (277 in all), and fails the build when one
-cannot be satisfied by permissive licences alone; MPL, LGPL, GPL and AGPL all
-fail it. The build also fails if libvpx ends up dynamically linked. Checked at
-this revision of `Cargo.lock`: every crate passes, and inputtino's vendored
-`LICENSE` is still MIT.
+expression, build-only crates included, and fails the build when one cannot be
+satisfied by permissive licences alone; MPL, LGPL, GPL and AGPL all fail it.
+The build also fails if libvpx ends up dynamically linked. The pinned input
+versions and the exact licence inventory for a release are recorded in its
+`provenance.json` and generated `THIRD_PARTY_LICENSES.txt`.
 
 `packages/desktop-client` (the standalone React Native client) is not part of
 this artifact; its Android code compiles against the `org.webrtc` classes the

@@ -80,9 +80,9 @@ cargo build --release --manifest-path engine/Cargo.toml
 ./bin/desklink-host.mjs capabilities
 ```
 
-A source build links system libraries through `pkg-config`, compiles
-`native/vpx_shim.c` against libvpx's headers, and builds the vendored inputtino
-project with CMake. On a clean machine, install:
+A source build links system libraries through `pkg-config` (and libxcb
+directly), compiles `native/vpx_shim.c` against libvpx's headers, and builds
+the vendored inputtino project with CMake. On a clean machine, install:
 
 | Need | Debian/Ubuntu | Fedora | Arch |
 |---|---|---|---|
