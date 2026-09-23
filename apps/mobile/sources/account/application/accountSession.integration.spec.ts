@@ -18,6 +18,14 @@ const harness = vi.hoisted(() => {
         clientConnects: 0,
         clientCloses: 0,
         blockNextMachines: false,
+        blockNextSessions: false,
+        blockNextTree: false,
+        blockedTree: undefined as Promise<void> | undefined,
+        treeRequestStarted: false,
+        blockedSessions: undefined as Promise<void> | undefined,
+        sessionsRequestStarted: false,
+        treeResponses: [] as Array<{ workspaces: Array<{ workspaceId: string; tabs: [] }> }>,
+        sessionsLoaded: false,
         blockedMachines: undefined as Promise<void> | undefined,
         blockedMachinesStarted: false,
         blockedMachinesFinished: false,
@@ -98,7 +106,22 @@ vi.mock('@/pairing/infrastructure/muxrClient', () => ({
                 }
                 return [{ id: `client-${this.index}` }];
             }
-            if (type === 'herdr.tree') return { workspaces: [] };
+            if (type === 'herdr.tree') {
+                if (harness.blockNextTree) {
+                    harness.blockNextTree = false;
+                    harness.treeRequestStarted = true;
+                    await harness.blockedTree;
+                }
+                return harness.treeResponses.shift() ?? { workspaces: [] };
+            }
+            if (type === 'session.list') {
+                if (harness.blockNextSessions) {
+                    harness.blockNextSessions = false;
+                    harness.sessionsRequestStarted = true;
+                    await harness.blockedSessions;
+                }
+                return [{ id: 'agent' }];
+            }
             if (type === 'attention.catalog') return { revision: 0, entries: [] };
             if (type === 'lifecycle.catalog') throw harness.lifecycleCatalogError;
             return [];
@@ -117,7 +140,7 @@ vi.mock('../../catalog/application/storage', () => ({
     storage: {
         getState: () => ({
             sessions: harness.sessions,
-            sessionsLoaded: false,
+            sessionsLoaded: harness.sessionsLoaded,
             lifecycleEvents: [],
             setSocketStatus: (status: string) => { harness.socketStatus = status; },
             setSocketError: (message: string | null) => { harness.socketError = message; },
@@ -131,7 +154,7 @@ vi.mock('../../catalog/application/storage', () => ({
             applyHerdrTree: vi.fn(),
             applyHomeSnapshot: vi.fn(),
             restoreHome: vi.fn(),
-            markSessionsLoaded: vi.fn(),
+            markSessionsLoaded: () => { harness.sessionsLoaded = true; },
             applyAttentionCatalog: vi.fn(),
             applyLifecycleCatalog: vi.fn(),
             setLifecycleAuthority: (authority: string) => { harness.lifecycleAuthorities.push(authority); },
@@ -143,6 +166,7 @@ vi.mock('../../catalog/application/storage', () => ({
 }));
 
 import { storage } from '../../catalog/application/storage';
+import { saveHomeSnapshot } from '../../catalog/application/persistence';
 import { finishHostedEmailLogin } from './hostedEmailLogin';
 import {
     setAccountCredentialRejectedHandler,
@@ -171,6 +195,15 @@ describe('hosted account-only lifecycle', () => {
         harness.clientConnects = 0;
         harness.clientCloses = 0;
         harness.blockNextMachines = false;
+        harness.blockNextSessions = false;
+        harness.blockNextTree = false;
+        harness.blockedTree = undefined;
+        harness.treeRequestStarted = false;
+        harness.blockedSessions = undefined;
+        harness.sessionsRequestStarted = false;
+        harness.treeResponses.length = 0;
+        harness.sessionsLoaded = false;
+        vi.mocked(saveHomeSnapshot).mockClear();
         harness.blockedMachines = undefined;
         harness.blockedMachinesStarted = false;
         harness.blockedMachinesFinished = false;
@@ -304,6 +337,50 @@ describe('hosted account-only lifecycle', () => {
 });
 
 describe('session sync flow', () => {
+    it('saves a newer confirmed tree after a superseded catalog pass completes', async () => {
+        harness.connection.mode = 'hosted';
+        harness.connection.machineId = 'machine-a';
+        harness.grant = { machineId: 'machine-a', relayUrl: 'ws://relay.test', credential: 'stored-grant' };
+        await syncCreate({ token: 'account', secret: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' });
+        await vi.waitFor(() => expect(harness.sessionsLoaded).toBe(true));
+        await sync.refreshSessions();
+        vi.mocked(saveHomeSnapshot).mockClear();
+
+        let releaseSessions!: () => void;
+        harness.blockedSessions = new Promise<void>((resolve) => { releaseSessions = resolve; });
+        harness.blockNextSessions = true;
+        const oldTree = { workspaces: [{ workspaceId: 'old', tabs: [] as [] }] };
+        const newTree = { workspaces: [{ workspaceId: 'new', tabs: [] as [] }] };
+        harness.treeResponses.push(oldTree, newTree);
+        const catalog = sync.refreshSessions();
+        await vi.waitFor(() => expect(harness.sessionsRequestStarted).toBe(true));
+        await sync.refreshHerdTree();
+        releaseSessions();
+        await catalog;
+        expect(vi.mocked(saveHomeSnapshot).mock.calls.at(-1)?.[1]).toEqual(newTree.workspaces);
+        expect(vi.mocked(saveHomeSnapshot).mock.calls.at(-1)?.[2]).toEqual([{ id: 'agent' }]);
+
+        // If the newer tree arrives after the catalog, its own confirmation saves Home.
+        vi.mocked(saveHomeSnapshot).mockClear();
+        harness.treeResponses.push(oldTree, newTree);
+        let releaseCatalog!: () => void;
+        let releaseTree!: () => void;
+        harness.blockedSessions = new Promise<void>((resolve) => { releaseCatalog = resolve; });
+        harness.blockNextSessions = true;
+        harness.blockedTree = new Promise<void>((resolve) => { releaseTree = resolve; });
+        const lateCatalog = sync.refreshSessions();
+        await vi.waitFor(() => expect(harness.treeResponses.length).toBe(1));
+        harness.blockNextTree = true;
+        const newerTree = sync.refreshHerdTree();
+        await vi.waitFor(() => expect(harness.treeRequestStarted).toBe(true));
+        releaseCatalog();
+        await lateCatalog;
+        releaseTree();
+        await newerTree;
+        expect(vi.mocked(saveHomeSnapshot).mock.calls.at(-1)?.[1]).toEqual(newTree.workspaces);
+        expect(vi.mocked(saveHomeSnapshot).mock.calls.at(-1)?.[2]).toEqual([{ id: 'agent' }]);
+    });
+
     afterEach(() => {
         vi.useRealTimers();
     });

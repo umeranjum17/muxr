@@ -249,6 +249,7 @@ class MuxrSync {
     private opening = new Map<string, Promise<void>>();
     private activeMachineId: string | undefined;
     private herdrTreeRequest = 0;
+    private confirmedHomeTree: { request: number; workspaces: HerdrTreeWorkspace[] } | undefined;
     private catalogRequest = 0;
     private presentingLifecycleIds = new Set<string>();
     encryption!: Encryption;
@@ -527,6 +528,16 @@ class MuxrSync {
         return settled;
     }
 
+    private saveConfirmedHome(workspaces: HerdrTreeWorkspace[], sessions: Parameters<typeof saveHomeSnapshot>[2]): void {
+        const byId = new Map(workspaces.map((workspace) => [workspace.workspaceId, workspace] as const));
+        const parents = new Map<string, string>();
+        for (const workspace of workspaces) {
+            const parent = spawnerOf(workspace, byId);
+            if (parent !== undefined) parents.set(workspace.workspaceId, parent);
+        }
+        saveHomeSnapshot(this.getConnection().machineId, workspaces, sessions, workspaceNames(workspaces), parents);
+    }
+
     async refreshHerdTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; herdrConnected: boolean | undefined }> {
         const request = ++this.herdrTreeRequest;
         if (!this.hasTransport()) {
@@ -538,7 +549,13 @@ class MuxrSync {
         const tree = await this.request('herdr.tree', {});
         // Requests can cross when a done frame and a newer working frame arrive
         // close together. Only the latest canonical read may update the UI.
-        if (request === this.herdrTreeRequest) storage.getState().applyHerdrTree(tree.workspaces);
+        if (request === this.herdrTreeRequest) {
+            this.confirmedHomeTree = { request, workspaces: tree.workspaces };
+            storage.getState().applyHerdrTree(tree.workspaces);
+            if (storage.getState().sessionsLoaded && this.hasTransport()) {
+                this.saveConfirmedHome(tree.workspaces, Object.values(storage.getState().sessions));
+            }
+        }
         // The host adds `connected` (herdr runtime liveness) to this response.
         // A missing field means "unknown", not "healthy" — callers must only
         // treat an explicit false as a dead runtime.
@@ -605,14 +622,9 @@ class MuxrSync {
         });
         storage.getState().applySessions(confirmedSessions, true);
         storage.getState().markSessionsLoaded();
-        if (confirmedTree !== undefined && this.hasTransport()) {
-            const byId = new Map(confirmedTree.workspaces.map((workspace) => [workspace.workspaceId, workspace] as const));
-            const parents = new Map<string, string>();
-            for (const workspace of confirmedTree.workspaces) {
-                const parent = spawnerOf(workspace, byId);
-                if (parent !== undefined) parents.set(workspace.workspaceId, parent);
-            }
-            saveHomeSnapshot(this.getConnection().machineId, confirmedTree.workspaces, confirmedSessions, workspaceNames(confirmedTree.workspaces), parents);
+        const latestTree = this.confirmedHomeTree;
+        if (latestTree?.request === this.herdrTreeRequest && latestTree.request >= treeRequest && this.hasTransport()) {
+            this.saveConfirmedHome(latestTree.workspaces, confirmedSessions);
         }
         storage.getState().applyAttentionCatalog(attention.entries);
         if (lifecycle !== undefined) {
