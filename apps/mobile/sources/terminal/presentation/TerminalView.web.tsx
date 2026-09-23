@@ -466,9 +466,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (touchY === null || event.touches.length !== 1) return;
             const sideways = Math.abs(event.touches[0]!.clientX - touchX);
             if (Math.abs(gesturePx) < 8 && sideways >= SIDEWAYS_PX) {
-                // The page is turning; this touch no longer scrolls or presses.
+                // The page is turning; this touch no longer scrolls or presses,
+                // and its release must not fling the pane it is leaving.
                 clearLongPress();
                 touchY = null;
+                velocity = 0;
                 return;
             }
             const y = event.touches[0]!.clientY;
