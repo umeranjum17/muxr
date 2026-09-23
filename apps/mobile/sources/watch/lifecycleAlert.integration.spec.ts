@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as React from 'react';
-import TestRenderer, { act } from 'react-test-renderer';
+import TestRenderer from 'react-test-renderer';
 import type { LifecycleEvent } from '@muxr/contract';
+
+const act = TestRenderer.act;
 
 const harness = vi.hoisted(() => ({
     // The phone's notification shade, keyed the way Android keys an app's
