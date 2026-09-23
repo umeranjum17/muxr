@@ -82,13 +82,34 @@ Once the SSH route is saved, muxr opens a device-local SSH forward to `127.0.0.1
 The paired machine's terminal, preview, and plugin-stream connections use that forward alongside sync,
 even if its advertised relay URL is unreachable from the phone. The relay ticket, pairing grant,
 and E2EE protections stay the same; see [the SSH transport decision](decisions/0006-ssh-loopback-transport.md)
-for the routing contract. Desktop media has [a separate reachability requirement](../README.md#talk-to-the-herd).
+for the routing contract. Desktop media has [a separate reachability requirement](#remote-desktop-on-a-cloud-server).
 
 Connection & updates also exports and installs the login key. The private key's public half — pasted on that screen or saved on this device — can be copied, shared, or saved as a `.pub` file for any algorithm, including Ed25519. For RSA and ECDSA keys, **Install public key** shows its exact shell command first and runs it only after you confirm: it appends the key to `~/.ssh/authorized_keys` on the paired computer's confirmed SSH account, preserves existing entries and permissions, skips a key that is already present, and records a guarded undo that refuses to roll back if `authorized_keys` changed after the install. Ed25519 stays export-only because the native SSH path cannot use it as a login key. Installation is native-Android only; the browser keeps pairing and relay access and says so instead.
 
 The first successful SSH connection pins the SSH server's `SHA256:` host-key fingerprint on this device. A changed fingerprint stops the route and tells you to review the machine rather than silently trusting a replacement. The SSH user must be allowed to log in and the muxr relay must be listening on the configured loopback port. PWA and iPhone builds do not show this control because they do not have this native SSH implementation; use Tailscale, a private network, Same Wi-Fi, or your own stable WSS endpoint there.
 
 SSH forwards the loopback relay for pairing and control; it does not authorize a device, replace a grant, or remove E2EE. The desktop picture and controls use WebRTC, not that relay: directly when the phone can reach the computer, or over TCP through a second forward on the same SSH connection when it cannot, so a phone that can reach only SSH (port 22) still views and controls the desktop. Tailscale Serve remains the recommended default because it needs less per-device credential setup and reconnects without a separate SSH session.
+
+### Remote desktop on a cloud server
+
+A cloud server reached only over SSH can show its desktop on the phone: the
+Android app carries the picture and controls inside the same SSH connection as
+the terminal, so port 22 is the only inbound port the server needs.
+
+1. Install muxr on the server and run `muxr`; the relay stays on its loopback.
+2. A server with no screen needs a virtual display once. On Ubuntu 24.04:
+
+   ```bash
+   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends xvfb xfce4 xfce4-terminal dbus-x11 libpipewire-0.3-0t64 libxkbcommon0 libevdev2
+   ```
+
+   muxr starts a private screen on it when you open the desktop, and again after
+   a reboot. If the packages are missing, the phone shows this command.
+3. Pair the Android app with **Connect over SSH** ([Direct SSH from Android](#direct-ssh-from-android)),
+   open an agent, and tap **Computer**.
+
+The prebuilt desktop engine is Linux x64 (glibc 2.36 or newer). An Arm server
+needs it [built from source](../packages/desktop-host/README.md#building-from-source).
 
 muxr never enables Funnel. Restrict the Serve endpoint with a tailnet grant/ACL to intended devices even though muxr pairing and E2EE remain authoritative. `--web` requires a secure `wss://` route; insecure LAN HTTP is refused.
 
