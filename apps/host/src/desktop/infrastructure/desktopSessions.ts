@@ -1,3 +1,5 @@
+import { readdirSync } from 'node:fs';
+
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
 import type { SourceRequest } from '@desklink/host';
 import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@muxr/contract';
@@ -11,9 +13,11 @@ import { PortalGrant } from './portalGrant.js';
  * The portal is the default: on a Wayland desktop it is the backend that carries
  * the user's consent, and nothing else can substitute for that. `x11` exists for
  * a host whose screen-cast portal does not work — a headless or remote X session
- * — and is an operator setting rather than something a client may choose,
- * because a client asking for a different desktop must not be able to reach one
- * the host did not offer.
+ * — and is a host decision rather than something a client may choose, because a
+ * client asking for a different desktop must not be able to reach one the host
+ * did not offer. `MUXR_DESKTOP_SOURCE` (`x11` or `portal`) settles it; without
+ * it, a machine with no Wayland session at all, such as a cloud server running
+ * Xvfb, offers its X display.
  */
 function configuredSource(env: NodeJS.ProcessEnv): SourceRequest | undefined {
     const kind = env.MUXR_DESKTOP_SOURCE?.trim();
@@ -21,7 +25,34 @@ function configuredSource(env: NodeJS.ProcessEnv): SourceRequest | undefined {
         const display = env.MUXR_DESKTOP_X11_DISPLAY?.trim();
         return display === undefined || display === '' ? { kind: 'x11' } : { kind: 'x11', display };
     }
-    return undefined;
+    if ((kind !== undefined && kind !== '') || waylandSession(env)) return undefined;
+    const display = env.DISPLAY?.trim() || firstXDisplay();
+    return display === undefined || display === '' ? undefined : { kind: 'x11', display };
+}
+
+/**
+ * Any sign of Wayland, including a compositor socket when the service was
+ * started without its variables: there, an X display is XWayland's, not the
+ * desktop.
+ */
+function waylandSession(env: NodeJS.ProcessEnv): boolean {
+    if (env.WAYLAND_DISPLAY?.trim() || env.XDG_SESSION_TYPE?.trim() === 'wayland') return true;
+    const runtime = env.XDG_RUNTIME_DIR?.trim();
+    try {
+        return runtime !== undefined && runtime !== '' && readdirSync(runtime).some((name) => /^wayland-\d+$/.test(name));
+    } catch {
+        return false;
+    }
+}
+
+/** A service does not inherit DISPLAY, so find the server itself: the lowest-numbered one. */
+function firstXDisplay(): string | undefined {
+    try {
+        const numbers = readdirSync('/tmp/.X11-unix').flatMap((name) => /^X(\d+)$/.exec(name)?.[1] ?? []).map(Number);
+        return numbers.length === 0 ? undefined : `:${Math.min(...numbers)}`;
+    } catch {
+        return undefined;
+    }
 }
 
 export interface DesktopEngineOptions {

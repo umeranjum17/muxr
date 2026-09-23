@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -79,11 +79,14 @@ function stubEngine(): { path: string; log: string; sent: () => string[] } {
 
 // The stub is a script, not the engine binary, so this drives the same code path
 // the host uses in production with one process argument.
+// A Wayland desktop, so the host offers the portal whatever machine runs this.
+const PORTAL_HOST: NodeJS.ProcessEnv = { WAYLAND_DISPLAY: 'wayland-0' };
+
 function sessionsFor(stub: { path: string; log: string }): DesktopSessions {
     return new DesktopSessions({
         enginePath: process.execPath,
         engineArguments: [stub.path, stub.log],
-    });
+    }, PORTAL_HOST);
 }
 
 describe('desktop sessions, host side', () => {
@@ -166,7 +169,7 @@ describe('desktop sessions, host side', () => {
 `));
         const diagnostics: string[] = [];
         const hosts: DesktopSessions[] = [];
-        const restart = (environment: NodeJS.ProcessEnv = {}) => {
+        const restart = (environment: NodeJS.ProcessEnv = PORTAL_HOST) => {
             const desktop = new DesktopSessions({
                 enginePath: process.execPath,
                 engineArguments: [scriptPath, log, grantPath],
@@ -230,7 +233,7 @@ describe('desktop sessions, host side', () => {
             scriptPath,
             STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'),
         );
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, join(directory, 'received.jsonl')] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, join(directory, 'received.jsonl')] }, PORTAL_HOST);
         writeFileSync(join(directory, 'received.jsonl'), '');
 
         const capabilities = await desktop.capabilities();
@@ -254,7 +257,7 @@ describe('desktop sessions, host side', () => {
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         const opened = await desktop.open({ permissions: ['view'] });
         // The engine dies right after it answers. The session record must survive
@@ -266,34 +269,41 @@ describe('desktop sessions, host side', () => {
         await desktop.closeAll();
     }, 20_000);
 
-    it('allows control on a configured X11 host that has no uinput access', async () => {
+    it('allows control on an X11 host that has no uinput access, configured or found on its own', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
         const scriptPath = join(directory, 'engine.cjs');
         const log = join(directory, 'received.jsonl');
+        const runtime = join(directory, 'run');
+        mkdirSync(runtime);
         writeFileSync(
             scriptPath,
             STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'),
         );
-        writeFileSync(log, '');
-        // XTest needs no kernel input access, so the engine's uinput probe is
-        // not the whole answer for a host pointed at an X display.
-        const desktop = new DesktopSessions(
-            { enginePath: process.execPath, engineArguments: [scriptPath, log] },
-            { MUXR_DESKTOP_SOURCE: 'x11' },
-        );
+        // Set by the operator, or a cloud server with Xvfb and no Wayland session.
+        for (const environment of [{ MUXR_DESKTOP_SOURCE: 'x11' }, { DISPLAY: ':77', XDG_RUNTIME_DIR: runtime }] as NodeJS.ProcessEnv[]) {
+            writeFileSync(log, '');
+            // XTest needs no kernel input access, so the engine's uinput probe is
+            // not the whole answer for a host pointed at an X display.
+            const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, environment);
 
-        const capabilities = await desktop.capabilities();
-        expect(capabilities).toMatchObject({ available: true, input: true });
+            const capabilities = await desktop.capabilities();
+            expect(capabilities).toMatchObject({ available: true, input: true });
 
-        const opened = await desktop.open({ permissions: ['view', 'control'] });
-        expect(opened.geometry.encoded).toEqual({ width: 1280, height: 720 });
-        await desktop.closeAll();
+            const opened = await desktop.open({ permissions: ['view', 'control'] });
+            expect(opened.geometry.encoded).toEqual({ width: 1280, height: 720 });
+            await desktop.closeAll();
 
-        const sent = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> });
-        expect(sent.find((request) => request.method === 'session.open')?.params).toMatchObject({
-            source: { kind: 'x11' },
-            permissions: ['view', 'control'],
-        });
+            const sent = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> });
+            expect(sent.find((request) => request.method === 'session.open')?.params).toMatchObject({
+                source: environment.DISPLAY === undefined ? { kind: 'x11' } : { kind: 'x11', display: ':77' },
+                permissions: ['view', 'control'],
+            });
+        }
+
+        // Beside a Wayland compositor the X display is XWayland's: the portal stays.
+        writeFileSync(join(runtime, 'wayland-1'), '');
+        const wayland = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, { DISPLAY: ':0', XDG_RUNTIME_DIR: runtime });
+        expect(await wayland.capabilities()).toMatchObject({ available: true, input: false });
     }, 20_000);
 
     it('forgets the session record once the engine revokes it', async () => {
@@ -308,7 +318,7 @@ describe('desktop sessions, host side', () => {
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         const opened = await desktop.open({ permissions: ['view'] });
         await new Promise((resolve) => setTimeout(resolve, 80));
@@ -327,7 +337,7 @@ describe('desktop sessions, host side', () => {
         const scriptPath = join(directory, 'engine.cjs');
         const log = join(directory, 'received.jsonl');
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         const failed = await desktop.capabilities();
         expect(failed).toMatchObject({ available: false });
@@ -386,7 +396,7 @@ describe('desktop sessions, host side', () => {
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         // The phone opens once and is abandoned before it polls, so the engine's
         // lease revokes that session into the shared notification queue.
@@ -469,7 +479,7 @@ describe('desktop sessions, host side', () => {
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         expect(await desktop.capabilities()).toMatchObject({ available: false });
 
