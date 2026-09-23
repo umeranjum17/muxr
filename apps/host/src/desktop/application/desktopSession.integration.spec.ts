@@ -1,7 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { DesktopSessions } from '../infrastructure/desktopSessions.js';
 
@@ -79,11 +80,14 @@ function stubEngine(): { path: string; log: string; sent: () => string[] } {
 
 // The stub is a script, not the engine binary, so this drives the same code path
 // the host uses in production with one process argument.
+// A Wayland desktop, so the host offers the portal whatever machine runs this.
+const PORTAL_HOST: NodeJS.ProcessEnv = { WAYLAND_DISPLAY: 'wayland-0' };
+
 function sessionsFor(stub: { path: string; log: string }): DesktopSessions {
     return new DesktopSessions({
         enginePath: process.execPath,
         engineArguments: [stub.path, stub.log],
-    });
+    }, PORTAL_HOST);
 }
 
 describe('desktop sessions, host side', () => {
@@ -166,7 +170,7 @@ describe('desktop sessions, host side', () => {
 `));
         const diagnostics: string[] = [];
         const hosts: DesktopSessions[] = [];
-        const restart = (environment: NodeJS.ProcessEnv = {}) => {
+        const restart = (environment: NodeJS.ProcessEnv = PORTAL_HOST) => {
             const desktop = new DesktopSessions({
                 enginePath: process.execPath,
                 engineArguments: [scriptPath, log, grantPath],
@@ -230,7 +234,7 @@ describe('desktop sessions, host side', () => {
             scriptPath,
             STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'),
         );
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, join(directory, 'received.jsonl')] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, join(directory, 'received.jsonl')] }, PORTAL_HOST);
         writeFileSync(join(directory, 'received.jsonl'), '');
 
         const capabilities = await desktop.capabilities();
@@ -254,7 +258,7 @@ describe('desktop sessions, host side', () => {
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         const opened = await desktop.open({ permissions: ['view'] });
         // The engine dies right after it answers. The session record must survive
@@ -266,34 +270,139 @@ describe('desktop sessions, host side', () => {
         await desktop.closeAll();
     }, 20_000);
 
-    it('allows control on a configured X11 host that has no uinput access', async () => {
-        const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
+    it('allows control on an X11 host that has no uinput access, configured or found on its own', async () => {
+        const directory = mkdtempSync(join(process.cwd(), 'x-'));
         const scriptPath = join(directory, 'engine.cjs');
         const log = join(directory, 'received.jsonl');
-        writeFileSync(
-            scriptPath,
-            STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'),
-        );
+        const runtime = join(directory, 'run');
+        const socket = createServer();
+        const hosts: DesktopSessions[] = [];
+        try {
+            mkdirSync(runtime);
+            writeFileSync(
+                scriptPath,
+                STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'),
+            );
+            for (const environment of [{ MUXR_DESKTOP_SOURCE: 'x11' }, { DISPLAY: ':77', XDG_RUNTIME_DIR: runtime }] as NodeJS.ProcessEnv[]) {
+                writeFileSync(log, '');
+                const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, environment);
+                hosts.push(desktop);
+                expect(await desktop.capabilities()).toMatchObject({ available: true, input: true });
+                const opened = await desktop.open({ permissions: ['view', 'control'] });
+                expect(opened.geometry.encoded).toEqual({ width: 1280, height: 720 });
+                await desktop.closeAll();
+                const sent = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> });
+                expect(sent.find((request) => request.method === 'session.open')?.params).toMatchObject({
+                    source: environment.DISPLAY === undefined ? { kind: 'x11' } : { kind: 'x11', display: ':77' },
+                    permissions: ['view', 'control'],
+                });
+            }
+
+            writeFileSync(join(runtime, 'wayland-1'), '');
+            const environment = { DISPLAY: ':0', XDG_RUNTIME_DIR: runtime };
+            const stale = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, environment);
+            hosts.push(stale);
+            expect(await stale.capabilities()).toMatchObject({ available: true, input: true });
+            await stale.open({ permissions: ['view', 'control'] });
+            const sent = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> });
+            expect(sent.filter((request) => request.method === 'session.open').at(-1)?.params).toMatchObject({ source: { kind: 'x11', display: ':0' } });
+
+            await new Promise<void>((resolve, reject) => {
+                socket.once('error', reject);
+                socket.listen(join(runtime, 'wayland-2'), resolve);
+            });
+            const wayland = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, environment);
+            hosts.push(wayland);
+            expect(await wayland.capabilities()).toMatchObject({ available: true, input: false });
+            await wayland.open({ permissions: ['view'] });
+            const withSocket = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> });
+            expect(withSocket.filter((request) => request.method === 'session.open').at(-1)?.params).not.toHaveProperty('source');
+        } finally {
+            for (const host of hosts) await host.closeAll();
+            if (socket.listening) await new Promise<void>((resolve) => socket.close(() => resolve()));
+            rmSync(directory, { recursive: true, force: true });
+        }
+    }, 20_000);
+
+    it('discovers only the host account’s X socket while honoring explicit displays', async () => {
+        const directory = mkdtempSync(join(process.cwd(), 'x-'));
+        const socket = createServer();
+        const uid = process.getuid!();
+        const hostUid = vi.spyOn(process, 'getuid');
+        const log = join(directory, 'received.jsonl');
+        const script = join(directory, 'engine.cjs');
+        writeFileSync(script, STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'));
         writeFileSync(log, '');
-        // XTest needs no kernel input access, so the engine's uinput probe is
-        // not the whole answer for a host pointed at an X display.
-        const desktop = new DesktopSessions(
-            { enginePath: process.execPath, engineArguments: [scriptPath, log] },
-            { MUXR_DESKTOP_SOURCE: 'x11' },
-        );
+        const options = { enginePath: process.execPath, engineArguments: [script, log] };
+        const hosts: DesktopSessions[] = [];
+        try {
+            await new Promise<void>((resolve, reject) => {
+                socket.once('error', reject);
+                socket.listen(join(directory, 'X0'), resolve);
+            });
+            hostUid.mockReturnValue(uid + 1);
+            const foreign = new DesktopSessions(options, { XDG_RUNTIME_DIR: directory }, directory);
+            hosts.push(foreign);
+            expect(await foreign.capabilities()).toMatchObject({ available: true, input: false });
+            await foreign.open({ permissions: ['view'] });
+            expect(JSON.parse(readFileSync(log, 'utf8').trim().split('\n').find((line) => JSON.parse(line).method === 'session.open')!).params.source).toBeUndefined();
 
-        const capabilities = await desktop.capabilities();
-        expect(capabilities).toMatchObject({ available: true, input: true });
+            const explicit = new DesktopSessions(options, { DISPLAY: ':88' }, directory);
+            hosts.push(explicit);
+            expect(await explicit.capabilities()).toMatchObject({ available: true, input: true });
+            await explicit.open({ permissions: ['view', 'control'] });
+            const configured = new DesktopSessions(options, { MUXR_DESKTOP_SOURCE: 'x11', MUXR_DESKTOP_X11_DISPLAY: ':99' }, directory);
+            hosts.push(configured);
+            await configured.open({ permissions: ['view'] });
 
-        const opened = await desktop.open({ permissions: ['view', 'control'] });
-        expect(opened.geometry.encoded).toEqual({ width: 1280, height: 720 });
-        await desktop.closeAll();
+            hostUid.mockReturnValue(uid);
+            const owned = new DesktopSessions(options, { XDG_RUNTIME_DIR: directory }, directory);
+            hosts.push(owned);
+            expect(await owned.capabilities()).toMatchObject({ available: true, input: true });
+            await owned.open({ permissions: ['view', 'control'] });
+            const sources = readFileSync(log, 'utf8').trim().split('\n')
+                .map((line) => JSON.parse(line) as { method: string; params: { source?: unknown } })
+                .filter((request) => request.method === 'session.open')
+                .map((request) => request.params.source);
+            expect(sources).toEqual([undefined, { kind: 'x11', display: ':88' }, { kind: 'x11', display: ':99' }, { kind: 'x11', display: ':0' }]);
+        } finally {
+            hostUid.mockRestore();
+            for (const host of hosts) await host.closeAll();
+            await new Promise<void>((resolve) => socket.close(() => resolve()));
+            rmSync(directory, { recursive: true, force: true });
+        }
+    }, 20_000);
 
-        const sent = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> });
-        expect(sent.find((request) => request.method === 'session.open')?.params).toMatchObject({
-            source: { kind: 'x11' },
-            permissions: ['view', 'control'],
-        });
+    it('updates desktop permissions as a headless X display starts and stops', async () => {
+        const directory = mkdtempSync(join(process.cwd(), 'x-'));
+        const socket = createServer();
+        const script = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(script, STUB.replaceAll('pointer: true, wheel: true, keyboard: true', 'pointer: false, wheel: false, keyboard: false'));
+        writeFileSync(log, '');
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [script, log] }, { XDG_RUNTIME_DIR: directory }, directory);
+        try {
+            expect(await desktop.capabilities()).toMatchObject({ input: false, clipboard: true });
+            await desktop.open({ permissions: ['view'] });
+            await new Promise<void>((resolve, reject) => {
+                socket.once('error', reject);
+                socket.listen(join(directory, 'X77'), resolve);
+            });
+            expect(await desktop.capabilities()).toMatchObject({ input: true, clipboard: false });
+            await desktop.open({ permissions: ['view', 'control'] });
+            const requests = readFileSync(log, 'utf8').trim().split('\n')
+                .map((line) => JSON.parse(line) as { method: string; params: { source?: unknown } })
+                .filter((request) => request.method === 'session.open');
+            expect(requests.at(-1)?.params.source).toEqual({ kind: 'x11', display: ':77' });
+
+            await new Promise<void>((resolve) => socket.close(() => resolve()));
+            expect(await desktop.capabilities()).toMatchObject({ input: false, clipboard: true });
+            await expect(desktop.open({ permissions: ['view', 'control'] })).rejects.toMatchObject({ code: 'input-unavailable' });
+        } finally {
+            await desktop.closeAll();
+            if (socket.listening) await new Promise<void>((resolve) => socket.close(() => resolve()));
+            rmSync(directory, { recursive: true, force: true });
+        }
     }, 20_000);
 
     it('forgets the session record once the engine revokes it', async () => {
@@ -308,7 +417,7 @@ describe('desktop sessions, host side', () => {
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         const opened = await desktop.open({ permissions: ['view'] });
         await new Promise((resolve) => setTimeout(resolve, 80));
@@ -327,7 +436,7 @@ describe('desktop sessions, host side', () => {
         const scriptPath = join(directory, 'engine.cjs');
         const log = join(directory, 'received.jsonl');
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         const failed = await desktop.capabilities();
         expect(failed).toMatchObject({ available: false });
@@ -386,7 +495,7 @@ describe('desktop sessions, host side', () => {
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         // The phone opens once and is abandoned before it polls, so the engine's
         // lease revokes that session into the shared notification queue.
@@ -469,7 +578,7 @@ describe('desktop sessions, host side', () => {
             ),
         );
         writeFileSync(log, '');
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] });
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [scriptPath, log] }, PORTAL_HOST);
 
         expect(await desktop.capabilities()).toMatchObject({ available: false });
 

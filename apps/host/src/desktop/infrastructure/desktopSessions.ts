@@ -1,5 +1,8 @@
+import { readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
-import type { SourceRequest } from '@desklink/host';
+import type { EngineCapabilities, SourceRequest } from '@desklink/host';
 import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@muxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
@@ -8,20 +11,64 @@ import { PortalGrant } from './portalGrant.js';
 /**
  * Which desktop this host offers.
  *
- * The portal is the default: on a Wayland desktop it is the backend that carries
- * the user's consent, and nothing else can substitute for that. `x11` exists for
- * a host whose screen-cast portal does not work — a headless or remote X session
- * — and is an operator setting rather than something a client may choose,
- * because a client asking for a different desktop must not be able to reach one
- * the host did not offer.
+ * A Wayland desktop needs the consent-bearing portal, not its XWayland display.
+ * Without an explicit host override, a non-Wayland host offers its inherited
+ * DISPLAY or an X socket owned by its uid. Only the host selects the source;
+ * a client cannot ask to reach another desktop.
  */
-function configuredSource(env: NodeJS.ProcessEnv): SourceRequest | undefined {
+function configuredSource(env: NodeJS.ProcessEnv, x11SocketDirectory: string): SourceRequest | undefined {
     const kind = env.MUXR_DESKTOP_SOURCE?.trim();
     if (kind === 'x11') {
         const display = env.MUXR_DESKTOP_X11_DISPLAY?.trim();
         return display === undefined || display === '' ? { kind: 'x11' } : { kind: 'x11', display };
     }
-    return undefined;
+    if ((kind !== undefined && kind !== '') || waylandSession(env)) return undefined;
+    const display = env.DISPLAY?.trim() || firstXDisplay(x11SocketDirectory);
+    return display === undefined || display === '' ? undefined : { kind: 'x11', display };
+}
+
+/**
+ * Any sign of Wayland, including a compositor socket when the service was
+ * started without its variables: there, an X display is XWayland's, not the
+ * desktop.
+ */
+function waylandSession(env: NodeJS.ProcessEnv): boolean {
+    if (env.WAYLAND_DISPLAY?.trim() || env.XDG_SESSION_TYPE?.trim() === 'wayland') return true;
+    const uid = process.getuid?.();
+    const runtime = env.XDG_RUNTIME_DIR?.trim() || (uid === undefined ? undefined : `/run/user/${uid}`);
+    if (runtime === undefined) return false;
+    try {
+        return readdirSync(runtime).some((name) => {
+            if (!/^wayland-\d+$/.test(name)) return false;
+            try {
+                return statSync(join(runtime, name)).isSocket();
+            } catch {
+                return false;
+            }
+        });
+    } catch {
+        return false;
+    }
+}
+
+function firstXDisplay(directory: string): string | undefined {
+    try {
+        const uid = process.getuid?.();
+        if (uid === undefined) return undefined;
+        const numbers = readdirSync(directory).flatMap((name) => {
+            const number = /^X(\d+)$/.exec(name)?.[1];
+            if (number === undefined) return [];
+            try {
+                const socket = statSync(join(directory, name));
+                return socket.isSocket() && socket.uid === uid ? [Number(number)] : [];
+            } catch {
+                return [];
+            }
+        });
+        return numbers.length === 0 ? undefined : `:${Math.min(...numbers)}`;
+    } catch {
+        return undefined;
+    }
 }
 
 export interface DesktopEngineOptions {
@@ -77,7 +124,7 @@ const UNAVAILABLE_INPUT = 'This computer cannot inject input, so there is nothin
 export class DesktopSessions {
     private readonly options: DesktopEngineOptions;
     private client: EngineClient | null = null;
-    private capabilitiesCache: DesktopCapabilities | null = null;
+    private engineCapabilities: EngineCapabilities | null = null;
     private sessions = new Map<string, LiveSession>();
     private starting: Promise<EngineClient | null> | null = null;
     private opening = 0;
@@ -87,14 +134,13 @@ export class DesktopSessions {
     private readonly environment: NodeJS.ProcessEnv;
     private readonly portalGrant: PortalGrant | undefined;
 
-    constructor(options: DesktopEngineOptions = {}, environment: NodeJS.ProcessEnv = process.env) {
+    constructor(options: DesktopEngineOptions = {}, environment: NodeJS.ProcessEnv = process.env, private readonly x11SocketDirectory = '/tmp/.X11-unix') {
         this.options = options;
         this.environment = environment;
         this.portalGrant = options.stateRoot === undefined ? undefined : new PortalGrant(options.stateRoot);
     }
 
     async capabilities(): Promise<DesktopCapabilities> {
-        if (this.capabilitiesCache !== null) return this.capabilitiesCache;
         const client = await this.ensureClient();
         if (client === null) {
             // A probe that failed is not cached: the engine may be built or
@@ -108,12 +154,13 @@ export class DesktopSessions {
             };
         }
         try {
-            const reported = await client.capabilities();
+            const reported = this.engineCapabilities ?? await client.capabilities();
+            this.engineCapabilities = reported;
             // The engine's input probe only knows about uinput; the X11 backend
-            // injects through XTest and needs none, so the host's own configured
+            // injects through XTest and needs none, so the host's selected
             // source is the only side that can answer for that machine.
-            const x11 = configuredSource(this.environment)?.kind === 'x11';
-            this.capabilitiesCache = {
+            const x11 = configuredSource(this.environment, this.x11SocketDirectory)?.kind === 'x11';
+            return {
                 available: true,
                 input: x11 || (reported.input.pointer && reported.input.keyboard),
                 ...(x11 || reported.input.unavailable_reason === null
@@ -130,7 +177,6 @@ export class DesktopSessions {
                 clipboard: false,
             };
         }
-        return this.capabilitiesCache;
     }
 
     async open(request: {
@@ -156,7 +202,7 @@ export class DesktopSessions {
         if (client === null) {
             throw new EngineRefused('desktop-unavailable', this.startFailure ?? this.missingEngineReason());
         }
-        const source = configuredSource(this.environment);
+        const source = configuredSource(this.environment, this.x11SocketDirectory);
         let restoreToken: string | undefined;
         if (source?.kind !== 'x11') {
             try {
@@ -292,7 +338,7 @@ export class DesktopSessions {
         if (this.sessions.size !== 0 || this.opening !== 0) return;
         const client = this.client;
         this.client = null;
-        this.capabilitiesCache = null;
+        this.engineCapabilities = null;
         await client?.stop().catch(() => undefined);
     }
 
@@ -369,7 +415,7 @@ export class DesktopSessions {
                             // session is gone, and keep the record so the next
                             // poll can deliver that before it is forgotten.
                             this.client = null;
-                            this.capabilitiesCache = null;
+                            this.engineCapabilities = null;
                             for (const session of this.sessions.values()) {
                                 session.revoked = true;
                                 session.appended += 1;
