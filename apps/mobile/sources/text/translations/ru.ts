@@ -304,9 +304,15 @@ export const ru: TranslationStructure = {
         // Spaces section on Home
         title: 'Пространства',
         empty: 'Нет открытых пространств',
-        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
-            ? `${count} ${plural({ count, one: 'рабочее пространство', few: 'рабочих пространства', many: 'рабочих пространств' })}`
-            : `${count} ${plural({ count, one: 'рабочее пространство', few: 'рабочих пространства', many: 'рабочих пространств' })} (${kind})`,
+        rootFolder: 'Корневая папка',
+        homeFolder: 'Домашняя папка',
+        untitledWorkspace: 'Рабочее пространство без имени',
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => {
+            if (kind === 'task') return `${count} ${plural({ count, one: 'задача', few: 'задачи', many: 'задач' })}`;
+            return kind === undefined
+                ? `${count} ${plural({ count, one: 'рабочее пространство', few: 'рабочих пространства', many: 'рабочих пространств' })}`
+                : `${count} ${plural({ count, one: 'рабочее пространство', few: 'рабочих пространства', many: 'рабочих пространств' })} (${kind})`;
+        },
         needsYou: 'требует вас',
         working: 'работают',
         done: 'готово',

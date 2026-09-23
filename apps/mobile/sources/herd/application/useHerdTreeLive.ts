@@ -4,7 +4,7 @@ import { storage, useHerdrTree } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { listPairedGrants } from '@/pairing/e2ee';
 import { getCachedConnectionSettings } from '@/connection';
-import { hasAgent } from '../domain/herdTree';
+import { defaultExpandedSpaces } from '../domain/herdTree';
 
 export function useHerdTreeLive() {
     const { workspaces, loaded } = useHerdrTree();
@@ -65,10 +65,7 @@ export function useHerdTreeLive() {
         };
     }, [refresh]);
 
-    const defaultExpandedWorkspaceIds = React.useMemo(
-        () => workspaces.filter(hasAgent).map((workspace) => workspace.workspaceId),
-        [workspaces],
-    );
+    const defaultExpandedWorkspaceIds = React.useMemo(() => defaultExpandedSpaces(workspaces), [workspaces]);
 
     return {
         workspaces,

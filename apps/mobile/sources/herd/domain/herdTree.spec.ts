@@ -1,7 +1,7 @@
 import { herdPanes } from './herd';
 import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it, vi } from 'vitest';
-import { buildSpaceRows, middleTruncate, parentOf, spaceExpansionDefaults, workspaceName } from './herdTree';
+import { buildSpaceRows, defaultExpandedSpaces, displayedWorkspaceNames, effectiveExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceCloseMessage, workspaceName, workspaceNames, workspacePath } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
 
@@ -123,15 +123,24 @@ describe('visible herd tree flow', () => {
         const unfolded = buildSpaceRows([mine, twoAgents], new Set(['w1', 'child:w2']), '');
         expect(unfolded[0]!.children[0]!.panes.map((entry) => entry.paneId)).toEqual(['p2', 'p2b']);
 
-        // Depth-2 lineage flattens under the root ancestor, so no workspace renders nowhere.
+        // Deep lineage nests under each spawner inside the root's card, depth-first, one step deeper per generation.
         const grandchild = { ...ws('w6', 'deep-task1', [tab('t6', undefined, [pane('p6', 'pi', { agentStatus: 'working' })])]), tokens: { parent: 'w2', kind: 'task' }, order: 6 };
-        const deep = [mine, byToken, grandchild];
+        const sibling = { ...ws('w8', 'late-task1', []), tokens: { parent: 'w1', kind: 'task' }, order: 8 };
+        const deep = [sibling, grandchild, byToken, mine];
         expect(parentOf(grandchild, new Map(deep.map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
         const deepRows = buildSpaceRows(deep, new Set(['w1']), '');
         expect(deepRows.map((row) => row.workspace.workspaceId)).toEqual(['w1']);
-        expect(deepRows[0]!.children.map((child) => child.workspace.workspaceId)).toEqual(['w2', 'w6']);
-        const rendered = new Set(deepRows.flatMap((row) => [row.workspace.workspaceId, ...row.children.map((child) => child.workspace.workspaceId)]));
-        expect([...rendered].sort()).toEqual(['w1', 'w2', 'w6']);
+        expect(deepRows[0]!.children.map(({ workspace, depth, last, rails, hasChildren }) => ({ id: workspace.workspaceId, depth, last, rails, hasChildren })))
+            .toEqual([
+                { id: 'w2', depth: 1, last: false, rails: [], hasChildren: true },
+                // w2's rail carries on past its child to w8.
+                { id: 'w6', depth: 2, last: true, rails: [true], hasChildren: false },
+                { id: 'w8', depth: 1, last: true, rails: [], hasChildren: false },
+            ]);
+        // A search reaching only the grandchild keeps the chain above it and opens the card.
+        const deepSearch = buildSpaceRows(deep, new Set(), 'deep-task');
+        expect(deepSearch[0]!.expanded).toBe(true);
+        expect(deepSearch[0]!.children.map((child) => child.workspace.workspaceId)).toEqual(['w2', 'w6']);
 
         // Two unlinked checkouts share a repoKey: the lowest-order one takes the child, whatever the snapshot order.
         const firstUnlinked = { ...primaryWithWorktree, order: 1 };
@@ -139,16 +148,120 @@ describe('visible herd tree flow', () => {
         const pair = [secondUnlinked, byWorktree, firstUnlinked];
         expect(parentOf(byWorktree, new Map(pair.map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
         expect(parentOf(byWorktree, new Map([...pair].reverse().map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
+
+        const closedParent = { ...byWorktree, tokens: { parent: 'w-gone', kind: 'task' } };
+        const selfParent = { ...byWorktree, workspaceId: 'w9', tokens: { parent: 'w9', kind: 'task' } };
+        const invalid = [firstUnlinked, closedParent, selfParent];
+        const invalidById = new Map(invalid.map((entry) => [entry.workspaceId, entry] as const));
+        expect(parentOf(closedParent, invalidById)).toBeUndefined();
+        expect(parentOf(selfParent, invalidById)).toBeUndefined();
+        expect(buildSpaceRows(invalid, new Set(), '').map((row) => row.workspace.workspaceId)).toEqual(['w1', 'w3', 'w9']);
+        expect(spaceExpansionDefaults(invalid, 'w3')).toEqual(['w3']);
+        expect(defaultExpandedSpaces(invalid)).toEqual(['w1', 'w3', 'w9']);
     });
 
-    it('shows herdr workspace labels verbatim and truncates long paths in the path UI', () => {
-        expect(workspaceName({ workspaceId: 'w1', label: '/home/umer/repo-a', focused: false, agentStatus: 'idle', tabs: [] } as ContractWorkspace)).toBe('/home/umer/repo-a');
-        expect(workspaceName({ workspaceId: 'w2', label: undefined, focused: false, agentStatus: 'idle', tabs: [] } as ContractWorkspace)).toBe('w2');
+    it('never hides a workspace, whatever lineage the producer declares', () => {
+        const agentWs = (id: string, order: number, parent?: string) => ({
+            ...ws(id, `task-${id}`, [tab(`t-${id}`, undefined, [pane(`p-${id}`, 'pi', { sessionId: `s-${id}` })])]),
+            order,
+            ...(parent === undefined ? {} : { tokens: { parent, kind: 'task' } }),
+        });
+        const messy = [
+            agentWs('root', 1),
+            agentWs('self', 2, 'self'),
+            agentWs('orphan', 3, 'w-closed'),
+            agentWs('cycA', 4, 'cycB'),
+            agentWs('cycB', 5, 'cycA'),
+            agentWs('belowCycle', 6, 'cycA'),
+            agentWs('c1', 7, 'root'),
+            agentWs('c2', 8, 'c1'),
+            agentWs('c3', 9, 'c2'),
+            agentWs('c4', 10, 'c3'),
+            agentWs('c5', 11, 'c4'),
+        ];
+        const rows = buildSpaceRows([...messy].reverse(), new Set(), '');
+        const rendered = rows.flatMap((row) => [row.workspace.workspaceId, ...row.children.map((child) => child.workspace.workspaceId)]);
+        expect(rendered.sort()).toEqual(messy.map((entry) => entry.workspaceId).sort());
+        // Self-reference, a closed parent and both cycle members are cards; the tail below a cycle nests.
+        expect(rows.map((row) => row.workspace.workspaceId)).toEqual(['root', 'self', 'orphan', 'cycA', 'cycB']);
+        expect(rows.find((row) => row.workspace.workspaceId === 'cycA')!.children.map((child) => child.workspace.workspaceId)).toEqual(['belowCycle']);
+        expect(rows[0]!.children.map((child) => child.depth)).toEqual([1, 2, 3, 4, 5]);
+        // A big family starts folded to its summary; small ones and lone agents open.
+        expect(defaultExpandedSpaces(messy)).toEqual(['self', 'orphan', 'cycA', 'cycB']);
+    });
+
+    it('folds a default-open family when a fourth worker arrives', () => {
+        const root = ws('root', '/srv/client/app', [tab('t', undefined, [agent])]);
+        const child = (number: number) => ({ ...ws(`child${number}`, `task${number}`, []), tokens: { parent: 'root', kind: 'task' } });
+        const small = [root, child(1), child(2), child(3)];
+        expect(buildSpaceRows(small, effectiveExpandedSpaces(defaultExpandedSpaces(small), new Map()), '')[0]!.expanded).toBe(true);
+        const grown = [...small, child(4)];
+        const rows = buildSpaceRows(grown, effectiveExpandedSpaces(defaultExpandedSpaces(grown), new Map()), '');
+        expect(rows[0]).toMatchObject({ expanded: false, children: [{}, {}, {}, {}] });
+        expect(displayedWorkspaceNames(rows).get('root')).toBe('app');
+    });
+
+    it('keeps a user-opened family open when it grows and preserves sheet expansion', () => {
+        const root = ws('root', 'parent', [tab('t', undefined, [agent])]);
+        const child = (number: number) => ({ ...ws(`child${number}`, `task${number}`, []), tokens: { parent: 'root', kind: 'task' } });
+        const small = [root, child(1), child(2), child(3)];
+        const grown = [...small, child(4)];
+        const choices = new Map([['root', true]]);
+        expect(buildSpaceRows(grown, effectiveExpandedSpaces(defaultExpandedSpaces(grown), choices), '')[0]!.expanded).toBe(true);
+        choices.set('root', false);
+        expect(buildSpaceRows(small, effectiveExpandedSpaces(defaultExpandedSpaces(small), choices), '')[0]!.expanded).toBe(false);
+        const sheet = effectiveExpandedSpaces(spaceExpansionDefaults(grown, 'child1'), new Map());
+        expect(buildSpaceRows(grown, sheet, '')[0]!.expanded).toBe(true);
+        expect(sheet.has('child:child1')).toBe(true);
+    });
+
+    it('names workspaces the way a person would, never by id or correlator', () => {
+        const named = (label: string | undefined, cwd?: string) => workspaceName({ workspaceId: 'w9', label, focused: false, agentStatus: 'idle', tabs: cwd === undefined ? [] : [tab('t', undefined, [pane('p', undefined, { cwd })])] } as ContractWorkspace);
+        expect(named('└ pock-rightnow-card2 · p:JuMd64wBPNCZQwGE_cRd3Q')).toBe('pock-rightnow-card2');
+        expect(named('Release notes · draft')).toBe('Release notes · draft');
+        expect(named('/home/umer/firstmate')).toBe('firstmate');
+        expect(named('~/code/muxr-cloud/')).toBe('muxr-cloud');
+        expect(named('/home/umer')).toBe('Home folder');
+        expect(named('/')).toBe('Root folder');
+        expect(named(undefined, '/srv/app')).toBe('app');
+        expect(named('   ')).toBe('Untitled workspace');
+        const workspaces = [
+            { ...ws('a', '/srv/client/app', []), order: 1 },
+            { ...ws('b', '/home/umer/app', []), order: 2 },
+            { ...ws('c', '   ', []), order: 3 },
+            { ...ws('d', undefined, []), order: 4 },
+            ws('e', 'Fix login · issue:ABCDEF1234567890', []),
+        ];
+        expect([...workspaceNames(workspaces).values()]).toEqual([
+            'app · client', 'app · umer', 'Untitled workspace 1', 'Untitled workspace 2', 'Fix login · issue:ABCDEF1234567890',
+        ]);
+        const crowded = [...workspaces, ws('f', 'app · client', []), ws('g', 'Untitled workspace 1', [])];
+        const names = workspaceNames(crowded);
+        expect([...names.values()]).toEqual([
+            'app · srv/client', 'app · umer', 'Untitled workspace 2', 'Untitled workspace 3',
+            'Fix login · issue:ABCDEF1234567890', 'app · client', 'Untitled workspace 1',
+        ]);
+        expect(new Set(names.values()).size).toBe(crowded.length);
+        const nested = [workspaces[0]!, { ...workspaces[1]!, tokens: { parent: 'a', kind: 'task' } }];
+        const foldedNames = displayedWorkspaceNames(buildSpaceRows(nested, new Set(), ''));
+        expect([...foldedNames.values()]).toEqual(['app']);
+        expect([...displayedWorkspaceNames(buildSpaceRows(nested, new Set(['a']), '')).values()]).toEqual(['app · client', 'app · umer']);
+        expect([...displayedWorkspaceNames(buildSpaceRows(workspaces, new Set(), '/srv/client/app')).values()]).toEqual(['app']);
+        expect(workspacePath(workspaces[0]!)).toBe('/srv/client/app');
+        expect(buildSpaceRows(crowded, new Set(), '/srv/client/app').map((row) => row.workspace.workspaceId)).toEqual(['a']);
+        expect(buildSpaceRows(crowded, new Set(), 'issue:ABCDEF1234567890').map((row) => row.workspace.workspaceId)).toEqual(['e']);
+        expect(workspaceCloseMessage(workspaces[0]!, names.get('a')!)).toContain('"app · srv/client" workspace (/srv/client/app)');
+        const review = ws('review', 'review', [tab('t', undefined, [pane('p', 'pi', { cwd: '/tmp' })])]);
+        expect(workspaceCloseMessage(review, 'review')).toContain('"review" workspace (this host)');
+        expect(workspaceCloseMessage({ ...review, worktree: { repo: 'app', path: '/srv/client/app' } }, 'review'))
+            .toContain('"review" workspace (/srv/client/app)');
         expect(middleTruncate('short')).toBe('short');
         expect(middleTruncate('abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz', 20)).toBe('abcdefghi…rstuvwxyz');
     });
 });
 
+vi.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en', languageTag: 'en-US' }] }));
+vi.mock('@/catalog/application/persistence', () => ({ loadSettings: () => ({ settings: {}, version: null }) }));
 const installedBuild = vi.hoisted(() => ({ version: '0.1.26' as string | null, build: '356' as string | null }));
 vi.mock('expo-application', () => ({ get nativeApplicationVersion() { return installedBuild.version; }, get nativeBuildVersion() { return installedBuild.build; } }));
 vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '0.1.12' } } }));

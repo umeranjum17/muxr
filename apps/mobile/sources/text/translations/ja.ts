@@ -319,9 +319,15 @@ export const ja: TranslationStructure = {
         // Spaces section on Home
         title: 'スペース',
         empty: '開いているスペースはありません',
-        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
-            ? `${count} ワークスペース`
-            : `${count} ワークスペース (${kind})`,
+        rootFolder: 'ルートフォルダー',
+        homeFolder: 'ホームフォルダー',
+        untitledWorkspace: '無名のワークスペース',
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => {
+            if (kind === 'task') return `${count} 件のタスク`;
+            return kind === undefined
+                ? `${count} ワークスペース`
+                : `${count} ワークスペース (${kind})`;
+        },
         needsYou: '対応が必要',
         working: '稼働中',
         done: '完了',

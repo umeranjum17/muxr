@@ -317,9 +317,15 @@ export const es: TranslationStructure = {
         // Spaces section on Home
         title: 'Espacios',
         empty: 'No hay espacios abiertos',
-        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
-            ? `${count} ${plural({ count, singular: 'espacio de trabajo', plural: 'espacios de trabajo' })}`
-            : `${count} ${plural({ count, singular: 'espacio de trabajo', plural: 'espacios de trabajo' })} (${kind})`,
+        rootFolder: 'Carpeta raíz',
+        homeFolder: 'Carpeta de inicio',
+        untitledWorkspace: 'Espacio de trabajo sin nombre',
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => {
+            if (kind === 'task') return `${count} ${plural({ count, singular: 'tarea', plural: 'tareas' })}`;
+            return kind === undefined
+                ? `${count} ${plural({ count, singular: 'espacio de trabajo', plural: 'espacios de trabajo' })}`
+                : `${count} ${plural({ count, singular: 'espacio de trabajo', plural: 'espacios de trabajo' })} (${kind})`;
+        },
         needsYou: 'te necesita',
         working: 'en ejecución',
         done: 'listo',

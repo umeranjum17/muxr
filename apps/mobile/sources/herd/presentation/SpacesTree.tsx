@@ -16,7 +16,7 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
 import { agentIdentityLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -25,6 +25,20 @@ import { t } from '@/text';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
+
+// Tree geometry in dp from the card's left edge. Depth 1 hangs off the card's
+// own rail; each deeper level hangs one step in, off its spawner's dot.
+const RAIL = 2;
+const DOT = 8;
+const CHILD_INSET = 28;
+const DEPTH_STEP = 16;
+// ponytail: deeper lineage clamps to this indent (a 270dp phone keeps its
+// text); a clamped row draws as its parent's sibling but is never hidden.
+const MAX_DRAWN_DEPTH = 4;
+const childInset = (depth: number) => CHILD_INSET + (depth - 1) * DEPTH_STEP;
+const dotCenter = (depth: number) => childInset(depth) + DOT / 2;
+/** The rail joining depth-`depth` siblings: the card's rail, else the spawner's dot column. */
+const railLeft = (depth: number) => (depth <= 1 ? 17 : dotCenter(depth - 1) - RAIL / 2);
 
 const stylesheet = StyleSheet.create((theme) => ({
     contentContainer: {
@@ -58,12 +72,20 @@ const stylesheet = StyleSheet.create((theme) => ({
         marginTop: 6,
     },
     cardHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
+        justifyContent: 'center',
         paddingHorizontal: 16,
         paddingVertical: 10,
         minHeight: 48,
+    },
+    cardHeaderLine: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    // A folded card's family, one line under its name (chevron 16 + dot 8 + two gaps).
+    cardHeaderSummary: {
+        marginLeft: 40,
+        marginTop: 4,
     },
     cardHeaderCompact: {
         paddingHorizontal: 12,
@@ -91,6 +113,10 @@ const stylesheet = StyleSheet.create((theme) => ({
     cardTitleCompact: {
         fontSize: 14,
     },
+    nameSuffix: {
+        color: theme.colors.textSecondary,
+        fontWeight: '400',
+    },
     branchPill: {
         backgroundColor: theme.colors.surface,
         borderRadius: 999,
@@ -106,6 +132,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
     agentCount: {
         marginLeft: 'auto',
+        flexShrink: 0,
         fontSize: 12,
         lineHeight: 16,
         color: theme.colors.textSecondary,
@@ -199,15 +226,23 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         ...Typography.default(),
     },
-    groupSummaryProbe: {
+    groupTitleCompact: {
+        fontSize: 12,
+    },
+    // Off-screen and wide enough never to clip, so the probe measures the
+    // summary's natural width.
+    groupSummaryProbeHost: {
         position: 'absolute',
         top: -1000,
         left: 0,
+        width: 4000,
+        opacity: 0,
+    },
+    groupSummaryProbe: {
         alignSelf: 'flex-start',
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
-        opacity: 0,
     },
     chipRow: {
         flexDirection: 'row',
@@ -234,40 +269,40 @@ const stylesheet = StyleSheet.create((theme) => ({
     railOverlay: {
         position: 'absolute',
         left: 0,
+        right: 0,
         top: 0,
         bottom: 0,
-        width: 28,
     },
     railLine: {
         position: 'absolute',
-        left: 17,
         top: 0,
         bottom: 0,
-        width: 2,
+        width: RAIL,
+        backgroundColor: theme.colors.groupped.rail,
+    },
+    railStem: {
+        position: 'absolute',
+        top: '50%',
+        marginTop: DOT / 2,
+        bottom: 0,
+        width: RAIL,
         backgroundColor: theme.colors.groupped.rail,
     },
     railElbow: {
         position: 'absolute',
-        left: 17,
         top: 0,
-        width: 15,
         height: '50%',
-        borderLeftWidth: 2,
-        borderBottomWidth: 2,
+        borderLeftWidth: RAIL,
+        borderBottomWidth: RAIL,
         borderBottomLeftRadius: 10,
         borderColor: theme.colors.groupped.rail,
     },
     childRow: {
-        paddingLeft: 28,
         paddingRight: 16,
-    },
-    childAgentInset: {
-        paddingLeft: 28,
     },
     childSeparator: {
         height: StyleSheet.hairlineWidth,
         backgroundColor: theme.colors.divider,
-        marginLeft: 48,
     },
     childPressable: {
         flexDirection: 'row',
@@ -291,6 +326,9 @@ const stylesheet = StyleSheet.create((theme) => ({
         lineHeight: 18,
         color: theme.colors.text,
         ...Typography.default(),
+    },
+    childLabelQuiet: {
+        color: theme.colors.textSecondary,
     },
     childLine2: {
         fontSize: 12,
@@ -413,101 +451,121 @@ const Chip = React.memo(({ count, word, color }: { count: number; word?: string;
     </View>
 ));
 
+const railHidden = {
+    accessible: false,
+    accessibilityElementsHidden: true,
+    importantForAccessibility: 'no-hide-descendants',
+    'aria-hidden': true,
+    pointerEvents: 'none',
+} as const;
+
 /**
- * Decorative connector rail (approach A): descends from the group subheader, elbows
- * into this child's status dot, and — unless this is the last child — carries
- * on to the next one. Grandchildren just sit one stop deeper on the same rail.
+ * Decorative connector rails (approach A) behind one descendant's whole block:
+ * every ancestor rail that carries on past it, and its own rail unless it is
+ * the last sibling. Its elbow into its dot is drawn by the row itself.
  */
-const ChildRail = React.memo(({ last }: { last: boolean }) => (
-    <View
-        style={stylesheet.railOverlay}
-        accessible={false}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        aria-hidden
-        pointerEvents="none"
-    >
-        {!last && <View style={stylesheet.railLine} />}
-        <View style={stylesheet.railElbow} />
+const TreeRails = React.memo(({ depth, rails, last }: { depth: number; rails: readonly boolean[]; last: boolean }) => (
+    <View style={stylesheet.railOverlay} {...railHidden}>
+        {rails.slice(0, depth - 1).map((carries, index) => carries
+            ? <View key={index} style={[stylesheet.railLine, { left: railLeft(index + 1) }]} />
+            : null)}
+        {!last && <View style={[stylesheet.railLine, { left: railLeft(depth) }]} />}
     </View>
 ));
 
+/** The elbow from this row's rail into its dot, drawn under the dot. */
+const RowElbow = React.memo(({ depth }: { depth: number }) => (
+    <View style={stylesheet.railOverlay} {...railHidden}>
+        <View style={[stylesheet.railElbow, { left: railLeft(depth), width: dotCenter(depth) - railLeft(depth) }]} />
+    </View>
+));
+
+/** The stem from under this row's dot down to its own children, drawn over a selected row. */
+const RowStem = React.memo(({ depth }: { depth: number }) => (
+    <View style={stylesheet.railOverlay} {...railHidden}>
+        <View style={[stylesheet.railStem, { left: railLeft(depth + 1) }]} />
+    </View>
+));
+
+type SummaryEntry = { count: number; word: string; tone: 'error' | 'working' | 'done' };
+
+/** A family in words: "10 tasks" and up to two non-zero states, needs you first. */
+function familySummary(children: readonly HerdChildSpace[]): { noun: string; entries: SummaryEntry[]; spoken: string } {
+    const counts = groupSummaryCounts(children);
+    const entries = ([
+        { count: counts.needsYou, word: t('spacesTree.needsYou'), tone: 'error' },
+        { count: counts.working, word: t('spacesTree.working'), tone: 'working' },
+        { count: counts.done, word: t('spacesTree.done'), tone: 'done' },
+    ] as SummaryEntry[]).filter((entry) => entry.count > 0).slice(0, 2);
+    const noun = t('spacesTree.groupCount', { count: children.length, kind: groupKind(children) });
+    return { noun, entries, spoken: [noun, ...entries.map((entry) => `${entry.count} ${entry.word}`)].join(', ') };
+}
+
 /**
- * Quiet subheader naming the child group and its counts: it states the
- * subtree, it does not control it — the card header is the single disclosure.
- * Indented to the child status-dot column so it reads as the rail's label.
+ * The family's count and state chips on one line. Chips drop before the
+ * count does: two chips shrink to one (done already dropped by the slice
+ * above) while the noun stays whole. Visual only: its container speaks it.
  */
-const GroupSubheader = React.memo(({
-    count,
-    kind,
-    groupChildren,
-    compact,
-}: {
-    count: number;
-    kind?: string;
-    groupChildren: HerdChildSpace[];
-    compact: boolean;
-}) => {
+const FamilySummary = React.memo(({ groupChildren, compact }: { groupChildren: HerdChildSpace[]; compact: boolean }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const [slotWidth, setSlotWidth] = React.useState(0);
     const [fullWidth, setFullWidth] = React.useState(0);
-    const counts = groupSummaryCounts(groupChildren);
-    const summary = [
-        { count: counts.needsYou, word: t('spacesTree.needsYou'), tone: 'error' },
-        { count: counts.working, word: t('spacesTree.working'), tone: 'working' },
-        { count: counts.done, word: t('spacesTree.done'), tone: 'done' },
-    ].filter((entry) => entry.count > 0).slice(0, 2) as Array<{ count: number; word: string; tone: 'error' | 'working' | 'done' }>;
-    const noun = t('spacesTree.groupCount', { count, kind });
-    const summaryWords = summary.map((entry) => `${entry.count} ${entry.word}`).join(' · ');
-    const spokenLabel = [noun, summaryWords].filter(Boolean).join(', ');
-    // Chips drop before the child count does: two chips shrink to one (done
-    // already dropped by the slice above) while the noun stays whole.
-    const crowded = summary.length > 1 && slotWidth > 0 && fullWidth > slotWidth;
-    const shown = crowded ? summary.slice(0, 1) : summary;
-    const chipColor = (tone: 'error' | 'working' | 'done') => theme.colors.status[tone];
-    const chips = (entries: typeof summary) => entries.map((entry) => (
-        <Chip key={entry.word} count={entry.count} word={entry.word} color={chipColor(entry.tone)} />
+    const { noun, entries } = familySummary(groupChildren);
+    const crowded = entries.length > 1 && slotWidth > 0 && fullWidth > slotWidth;
+    const shown = crowded ? entries.slice(0, 1) : entries;
+    const chips = (list: SummaryEntry[]) => list.map((entry) => (
+        <Chip key={entry.word} count={entry.count} word={entry.word} color={theme.colors.status[entry.tone]} />
     ));
+    const title = [styles.groupTitle, compact && styles.groupTitleCompact];
 
     return (
-        <View
-            style={[styles.groupRow, compact && styles.groupRowCompact]}
-            accessible
-            accessibilityRole="text"
-            accessibilityLabel={spokenLabel}
-        >
+        <>
             <View
                 style={styles.groupTitleSlot}
                 onLayout={(event) => setSlotWidth(event.nativeEvent.layout.width)}
+                {...railHidden}
             >
-                <Text numberOfLines={1} style={styles.groupTitle}>{noun}</Text>
+                <Text numberOfLines={1} style={title}>{noun}</Text>
                 <View style={styles.chipRow}>{chips(shown)}</View>
             </View>
-            {summary.length > 1 && (
-                <View
-                    accessible={false}
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                    aria-hidden
-                    pointerEvents="none"
-                    style={styles.groupSummaryProbe}
-                    onLayout={(event) => {
-                        const width = event.nativeEvent.layout.width;
-                        if (width > 0) setFullWidth(width);
-                    }}
-                >
-                    <Text numberOfLines={1} style={styles.groupTitle}>{noun}</Text>
-                    <View style={styles.chipRow}>{chips(summary)}</View>
+            {entries.length > 1 && (
+                <View style={styles.groupSummaryProbeHost} {...railHidden}>
+                    <View
+                        style={styles.groupSummaryProbe}
+                        onLayout={(event) => {
+                            const width = event.nativeEvent.layout.width;
+                            if (width > 0) setFullWidth(width);
+                        }}
+                    >
+                        <Text numberOfLines={1} style={title}>{noun}</Text>
+                        <View style={styles.chipRow}>{chips(entries)}</View>
+                    </View>
                 </View>
             )}
-        </View>
+        </>
     );
 });
 
+/**
+ * Quiet subheader naming the family and its counts: it states the subtree,
+ * it does not control it — the card header is the single disclosure.
+ * Indented to the child status-dot column so it reads as the rail's label.
+ */
+const GroupSubheader = React.memo(({ groupChildren, compact }: { groupChildren: HerdChildSpace[]; compact: boolean }) => (
+    <View
+        style={[stylesheet.groupRow, compact && stylesheet.groupRowCompact]}
+        accessible
+        accessibilityRole="text"
+        accessibilityLabel={familySummary(groupChildren).spoken}
+    >
+        <FamilySummary groupChildren={groupChildren} compact={compact} />
+    </View>
+));
+
 const ChildRow = React.memo(({
     child,
-    last,
+    name,
     onToggle,
     onClose,
     onClosePane,
@@ -517,8 +575,7 @@ const ChildRow = React.memo(({
     unseenDoneSessionIds,
 }: {
     child: HerdChildSpace;
-    /** The rail stops at the last child. */
-    last: boolean;
+    name: string;
     onToggle: () => void;
     onClose: () => void;
     onClosePane: (pane: HerdrTreePane) => void;
@@ -530,63 +587,84 @@ const ChildRow = React.memo(({
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const navigateToSession = useNavigateToSession();
+    const depth = Math.min(child.depth, MAX_DRAWN_DEPTH);
+    const inset = childInset(depth);
     const dot = agentStatusColor(child.workspace.agentStatus, theme);
-    const agentPanes = child.workspace.tabs.flatMap((tab) => tab.panes).filter((pane) => pane.agentKind !== undefined);
+    const panes = child.workspace.tabs.flatMap((tab) => tab.panes);
+    const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
     const singleAgent = agentPanes.length === 1 ? agentPanes[0] : undefined;
     const singleSessionId = singleAgent?.sessionId;
-    const label = workspaceName(child.workspace);
+    const label = name;
+    const baseName = workspaceName(child.workspace);
+    const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
     const parts = childLine2Parts(child);
     const line2 = parts.join(' · ');
     const onPress = singleSessionId !== undefined
         ? () => (onNavigatePane ?? navigateToSession)(singleSessionId)
         : agentPanes.length > 1 ? onToggle : undefined;
     const interactive = onPress !== undefined || canClose;
+    // The agent row's weight rule: settled and seen goes quiet.
+    const quiet = (child.workspace.agentStatus === 'done' || child.workspace.agentStatus === 'idle')
+        && !panes.some((pane) => pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId));
 
     return (
         <View style={styles.childRow}>
-            <ChildRail last={last} />
-            <View style={styles.childSeparator} />
-            <Pressable
-                onPress={onPress}
-                onLongPress={canClose ? onClose : undefined}
-                style={({ pressed }) => [
-                    styles.childPressable,
-                    selectedSessionId !== undefined && child.workspace.tabs.some((tab) => tab.panes.some((pane) =>
-                        pane.sessionId === selectedSessionId)) && styles.childPressableSelected,
-                    pressed && interactive && styles.childPressablePressed,
-                ]}
-                android_ripple={interactive ? { color: theme.colors.surfaceRipple, foreground: true } : undefined}
-                accessibilityRole={interactive ? 'button' : 'text'}
-                accessibilityLabel={onPress === undefined
-                    ? [label, ...parts].join(', ')
-                    : t('spacesTree.openLabel', { label, line2: parts.join(', ') })}
-            >
-                <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
-                <View style={styles.childText}>
-                    <Text numberOfLines={1} style={styles.childLabel}>{label}</Text>
-                    <Text numberOfLines={1} style={styles.childLine2}>{line2}</Text>
+            <TreeRails depth={depth} rails={child.rails} last={child.last} />
+            <View style={[styles.childSeparator, { marginLeft: inset + DOT + 12 }]} />
+            <View>
+                <RowElbow depth={depth} />
+                <Pressable
+                    onPress={onPress}
+                    onLongPress={canClose ? onClose : undefined}
+                    style={({ pressed }) => [
+                        styles.childPressable,
+                        { marginLeft: inset },
+                        selectedSessionId !== undefined && panes.some((pane) => pane.sessionId === selectedSessionId)
+                            && styles.childPressableSelected,
+                        pressed && interactive && styles.childPressablePressed,
+                    ]}
+                    android_ripple={interactive ? { color: theme.colors.surfaceRipple, foreground: true } : undefined}
+                    accessibilityRole={interactive ? 'button' : 'text'}
+                    accessibilityLabel={onPress === undefined
+                        ? [label, ...parts].join(', ')
+                        : t('spacesTree.openLabel', { label, line2: parts.join(', ') })}
+                >
+                    <StatusDot color={dot.color} isPulsing={dot.pulsing} size={DOT} />
+                    <View style={styles.childText}>
+                        <Text numberOfLines={1} style={[styles.childLabel, quiet && styles.childLabelQuiet]}>
+                            {suffix === undefined ? label : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>}
+                        </Text>
+                        <Text numberOfLines={1} style={styles.childLine2}>{line2}</Text>
+                    </View>
+                </Pressable>
+                {child.hasChildren && <RowStem depth={depth} />}
+            </View>
+            {child.expanded && child.panes.length > 0 && (
+                <View style={{ paddingLeft: inset + 28 }}>
+                    {child.hasChildren && <View style={[styles.railLine, { left: railLeft(depth + 1) }]} {...railHidden} />}
+                    {child.panes.map((pane) => (
+                        <AgentRow
+                            key={pane.paneId}
+                            pane={pane}
+                            first
+                            onClose={() => onClosePane(pane)}
+                            onNavigatePane={onNavigatePane}
+                            compact={false}
+                            selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
+                            canClose={canClose}
+                            unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                        />
+                    ))}
                 </View>
-            </Pressable>
-            {child.expanded && child.panes.map((pane) => (
-                <View key={pane.paneId} style={styles.childAgentInset}>
-                    <AgentRow
-                        pane={pane}
-                        first
-                        onClose={() => onClosePane(pane)}
-                        onNavigatePane={onNavigatePane}
-                        compact={false}
-                        selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
-                        canClose={canClose}
-                        unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
-                    />
-                </View>
-            ))}
+            )}
         </View>
     );
 });
 
 const WorkspaceCard = React.memo(({
     workspace,
+    name,
+    names,
     expanded,
     agentCount,
     panes,
@@ -604,6 +682,8 @@ const WorkspaceCard = React.memo(({
     unseenDoneSessionIds,
 }: {
     workspace: HerdrTreeWorkspace;
+    name: string;
+    names: ReadonlyMap<string, string>;
     expanded: boolean;
     agentCount: number;
     panes: HerdrTreePane[];
@@ -624,20 +704,22 @@ const WorkspaceCard = React.memo(({
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const dot = agentStatusColor(workspace.agentStatus, theme);
+    const baseName = workspaceName(workspace);
+    const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
     const branch = workspace.worktree?.branch;
     const paneCount = workspace.tabs.reduce((count, tab) => count + tab.panes.length, 0);
     const countLabel = agentCount > 0
         ? t('spacesTree.childAgents', { count: agentCount })
         : paneCount > 0 ? t('spacesTree.shell') : undefined;
-    // Approach D: a collapsed card keeps its needs-you count on the header,
-    // so attention shows before anything is expanded (the group subheader
-    // carries the rest).
-    const needsYou = expanded ? 0 : groupSummaryCounts(childSpaces).needsYou;
+    // A folded card summarises its family under its name — count, needs
+    // you, working — so attention shows before anything is expanded; open,
+    // the same line moves down to head the rail.
+    const folded = !expanded && childSpaces.length > 0;
     const headerInteractive = !searchForced || canClose;
     const headerLabel = [
-        `${workspaceName(workspace)} workspace`,
+        `${name} workspace`,
         countLabel,
-        needsYou > 0 ? `${needsYou} ${t('spacesTree.needsYou')}` : undefined,
+        folded ? familySummary(childSpaces).spoken : undefined,
     ].filter((part) => part !== undefined).join(', ');
     // The header is the single disclosure control: its label speaks the verb
     // and its state carries expanded, truthfully claiming the whole subtree.
@@ -661,28 +743,32 @@ const WorkspaceCard = React.memo(({
                 accessibilityState={searchForced ? undefined : { expanded }}
                 accessibilityLabel={spokenHeaderLabel}
             >
-                <View style={styles.chevron}>
-                    {!searchForced && (
-                        <Ionicons
-                            name={expanded ? 'chevron-down' : 'chevron-forward'}
-                            size={16}
-                            color={theme.colors.groupped.chevron}
-                        />
+                <View style={styles.cardHeaderLine}>
+                    <View style={styles.chevron}>
+                        {!searchForced && (
+                            <Ionicons
+                                name={expanded ? 'chevron-down' : 'chevron-forward'}
+                                size={16}
+                                color={theme.colors.groupped.chevron}
+                            />
+                        )}
+                    </View>
+                    <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
+                    <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
+                        {suffix === undefined ? name : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>}
+                    </Text>
+                    {branch !== undefined && (
+                        <View style={styles.branchPill}>
+                            <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
+                        </View>
                     )}
+                    {countLabel !== undefined && <Text numberOfLines={1} style={styles.agentCount}>{countLabel}</Text>}
                 </View>
-                <StatusDot color={dot.color} isPulsing={dot.pulsing} size={8} />
-                <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
-                    {workspaceName(workspace)}
-                </Text>
-                {branch !== undefined && (
-                    <View style={styles.branchPill}>
-                        <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
+                {folded && (
+                    <View style={[styles.cardHeaderLine, styles.cardHeaderSummary]}>
+                        <FamilySummary groupChildren={childSpaces} compact={compact} />
                     </View>
                 )}
-                {needsYou > 0 && (
-                    <Chip count={needsYou} color={theme.colors.status.error} />
-                )}
-                {countLabel !== undefined && <Text style={styles.agentCount}>{countLabel}</Text>}
             </Pressable>
             {expanded && panes.map((pane, index) => (
                 <AgentRow
@@ -698,18 +784,13 @@ const WorkspaceCard = React.memo(({
                 />
             ))}
             {expanded && childSpaces.length > 0 && (
-                <GroupSubheader
-                    count={childSpaces.length}
-                    kind={groupKind(childSpaces)}
-                    groupChildren={childSpaces}
-                    compact={compact}
-                />
+                <GroupSubheader groupChildren={childSpaces} compact={compact} />
             )}
-            {expanded && childSpaces.map((child, index) => (
+            {expanded && childSpaces.map((child) => (
                 <ChildRow
                     key={child.workspace.workspaceId}
                     child={child}
-                    last={index === childSpaces.length - 1}
+                    name={names.get(child.workspace.workspaceId)!}
                     onToggle={() => onToggleChild(child.workspace.workspaceId)}
                     onClose={() => onCloseChild(child.workspace)}
                     onClosePane={onClosePane}
@@ -745,30 +826,29 @@ export const SpacesTree = React.memo(({
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canClose = authority === 'control' && !authorityLoading;
     const unseenDoneSessionIds = useUnseenDoneSessionIds();
-    const seededDefaults = React.useRef(defaultExpandedWorkspaceIds.length > 0);
-    const [expanded, setExpanded] = React.useState<ReadonlySet<string>>(
-        () => new Set(defaultExpandedWorkspaceIds),
+    const [choices, setChoices] = React.useState<ReadonlyMap<string, boolean>>(() => new Map());
+    const expanded = React.useMemo(
+        () => effectiveExpandedSpaces(defaultExpandedWorkspaceIds, choices),
+        [defaultExpandedWorkspaceIds, choices],
     );
 
-    React.useEffect(() => {
-        if (seededDefaults.current || defaultExpandedWorkspaceIds.length === 0) return;
-        seededDefaults.current = true;
-        setExpanded(new Set(defaultExpandedWorkspaceIds));
+    const toggleWorkspace = React.useCallback((workspaceId: string) => {
+        setChoices((previous) => new Map(previous).set(
+            workspaceId,
+            !effectiveExpandedSpaces(defaultExpandedWorkspaceIds, previous).has(workspaceId),
+        ));
     }, [defaultExpandedWorkspaceIds]);
 
-    // The header is the only disclosure control; a plain toggle suffices.
-    const toggleWorkspace = React.useCallback((workspaceId: string) => {
-        setExpanded((previous) => {
-            const next = new Set(previous);
-            if (next.has(workspaceId)) next.delete(workspaceId);
-            else next.add(workspaceId);
-            return next;
-        });
-    }, []);
+    const searching = searchQuery.trim() !== '';
+    const sections = React.useMemo(
+        () => [{ key: 'spaces', title: t('spacesTree.title'), data: buildSpaceRows(workspaces, expanded, searchQuery) }],
+        [expanded, searchQuery, workspaces],
+    );
+    const names = React.useMemo(() => displayedWorkspaceNames(sections[0]!.data), [sections]);
 
     const confirmCloseWorkspace = React.useCallback((workspace: HerdrTreeWorkspace) => {
-        const name = workspaceName(workspace);
-        Modal.alert('Close workspace?', `Closes only the "${name}" workspace in herdr. If that would close its worktree group, nothing closes.`, [
+        const name = names.get(workspace.workspaceId)!;
+        Modal.alert('Close workspace?', workspaceCloseMessage(workspace, name), [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Close',
@@ -786,7 +866,7 @@ export const SpacesTree = React.memo(({
                 },
             },
         ]);
-    }, [refresh]);
+    }, [names, refresh]);
 
     const confirmClosePane = React.useCallback((pane: HerdrTreePane) => {
         const sessionId = pane.sessionId;
@@ -817,16 +897,11 @@ export const SpacesTree = React.memo(({
         ]);
     }, [refresh]);
 
-    const searching = searchQuery.trim() !== '';
-
-    const sections = React.useMemo(
-        () => [{ key: 'spaces', title: t('spacesTree.title'), data: buildSpaceRows(workspaces, expanded, searchQuery) }],
-        [expanded, searchQuery, workspaces],
-    );
-
     const renderItem = React.useCallback(({ item }: { item: HerdSpaceRow }) => (
         <WorkspaceCard
             workspace={item.workspace}
+            name={names.get(item.workspace.workspaceId)!}
+            names={names}
             expanded={item.expanded}
             agentCount={item.agentCount}
             panes={item.panes}
@@ -843,7 +918,7 @@ export const SpacesTree = React.memo(({
             canClose={canClose}
             unseenDoneSessionIds={unseenDoneSessionIds}
         />
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, onNavigatePane, searching, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, names, onNavigatePane, searching, selectedSessionId, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
