@@ -193,7 +193,102 @@ export interface ApplicationLauncher {
     pluginId: string;
 }
 
+/** Live-desktop surface geometry, in encoded-surface pixels plus the source's
+ *  origin in the desktop's own layout. Touch mapping uses this, not a guess. */
+export interface DesktopSurfaceGeometry {
+    source: { width: number; height: number };
+    encoded: { width: number; height: number };
+    origin: { x: number; y: number };
+}
+
+export type DesktopPermission = 'view' | 'control' | 'clipboard';
+
+/**
+ * Host -> client desktop notifications, drained by `desktop.poll`.
+ *
+ * Push-free on purpose: the media path is the desktop's own WebRTC session and
+ * input rides its data channel, so the only things crossing muxr's request path
+ * are session setup, ICE candidates and lifecycle. Polling those keeps the
+ * envelope, the replay log and the encrypted frame path untouched.
+ */
+export type DesktopEvent =
+    | { kind: 'offer'; generation: number; sdp: string }
+    | {
+          kind: 'candidate';
+          generation: number;
+          candidate: string;
+          sdpMid: string | null;
+          sdpMLineIndex: number | null;
+      }
+    | { kind: 'state'; capture: string; transport: string; firstFrame: boolean }
+    | { kind: 'revoked'; reason: string };
+
+/**
+ * What the host's desktop engine can actually do right now. `input: false` means
+ * capture works and the desktop is view-only: the screen must say so rather than
+ * offering controls that do nothing, and it never asks for privileges itself.
+ */
+export interface DesktopCapabilities {
+    available: boolean
+    /** Why the engine is unavailable, in a form fit to show a user. */
+    unavailableReason?: string;
+    input: boolean;
+    inputUnavailableReason?: string;
+    clipboard: boolean;
+    codec?: string;
+}
+
 export interface RequestMap extends PeerRequestMap {
+    // --- live desktop -------------------------------------------------------
+    /** Whether this machine can show and drive its own desktop right now. */
+    'desktop.capabilities': { params: Record<string, never>; result: DesktopCapabilities };
+    /**
+     * Open one desktop session. The host owns the engine process and the
+     * decision to start it; the caller only states what it needs. The returned
+     * geometry is authoritative for touch mapping.
+     */
+    'desktop.open': {
+        params: {
+            permissions: DesktopPermission[];
+            maxWidth?: number;
+            maxHeight?: number;
+            bitrateKbps?: number;
+            maxFps?: number;
+        };
+        result: {
+            desktopId: string;
+            generation: number;
+            geometry: DesktopSurfaceGeometry;
+            source: { kind: string; width: number; height: number; origin: { x: number; y: number } };
+        };
+    };
+    /** Carry the client's answer back to the engine. */
+    'desktop.answer': {
+        params: { desktopId: string; generation?: number; sdp: string };
+        result: { accepted: boolean };
+    };
+    /** Carry one client ICE candidate back to the engine. */
+    'desktop.candidate': {
+        params: {
+            desktopId: string;
+            generation?: number;
+            candidate: string;
+            sdpMid?: string | null;
+            sdpMLineIndex?: number | null;
+        };
+        result: { accepted: boolean };
+    };
+    /** Drain engine notifications since `cursor`. */
+    'desktop.poll': {
+        params: { desktopId: string; cursor: number };
+        result: { cursor: number; events: DesktopEvent[] };
+    };
+    /** End the session. Idempotent; the engine releases held input either way. */
+    'desktop.close': {
+        params: { desktopId: string };
+        result: { closed: boolean };
+    };
+
     // --- lifecycle ----------------------------------------------------------
     /**
      * Herdr panes with agents are the only sessions; there is no transcript tree.

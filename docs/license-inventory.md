@@ -4,6 +4,18 @@ Scope: the `muxr` npm CLI/host artifact produced by `node scripts/release/applic
 The mobile app, development fixtures, APKs, and repository-only tooling are
 not included in that artifact.
 
+## Native components outside the published artifact
+
+`packages/desktop-client` (the standalone React Native client) is **not**
+bundled by `pack.mjs`. `packages/desktop-host`'s JavaScript *is* inlined into the
+published `host.js`, like any other first-party workspace, under the artifact's
+own Apache-2.0 license. What the artifact does not contain is either package's
+native code: the engine links libvpx (BSD-3-Clause) and inputtino (MIT, vendored)
+and calls the XDG desktop portal over D-Bus rather than linking it, and the
+client compiles against the `org.webrtc` classes the app's existing
+`react-native-webrtc` ships. Exact prebuilt distribution clearance for those
+native components remains a release gate, not something this inventory clears.
+
 ## Product source ownership
 
 Repository history attributes muxr-authored commits to Umer Anjum. The
@@ -18,9 +30,10 @@ under an earlier license keep the rights that accompanied those copies.
 
 ## Published artifact
 
-`pack.mjs` bundles `apps/host` plus the muxr contract and crypto workspaces,
-and also bundles the relay entry (`apps/relay/dist/main.js`) so `muxr self-host`
-can run from the packed CLI. It declares these external runtime packages:
+`pack.mjs` bundles `apps/host` plus the muxr contract, crypto and desklink-host
+workspaces, and also bundles the relay entry (`apps/relay/dist/main.js`) so
+`muxr self-host` can run from the packed CLI. It declares these external runtime
+packages:
 
 | Package | License | Native binary | Distribution |
 |---|---|---:|---|

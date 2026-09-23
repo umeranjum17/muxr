@@ -7,7 +7,7 @@
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
-import { createPublicKey, randomBytes, verify } from 'node:crypto';
+import { createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto';
 import { hostname, networkInterfaces } from 'node:os';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
@@ -1197,6 +1197,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             role: identity.role,
             machineIds: identity.machineIds,
             connectedAt: Date.now(),
+            ...(identity.role === 'client' ? { connectionId: randomUUID() } : {}),
             ...(lastSeenSeq === undefined ? {} : { lastSeenSeq }),
         };
         // One host per machineId. Two hosts both answer every request, and the
@@ -1210,6 +1211,17 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             }
         }
         peers.add(peer);
+        if (peer.role === 'machine') {
+            const connectionIds = [...new Set([...peer.machineIds].flatMap((machineId) =>
+                peers.forMachine(machineId, 'client', peer.accountId).map((client) => client.connectionId).filter((id): id is string => id !== undefined)))];
+            sendEnvelope(socket, { type: 'relay.clients', connectionIds });
+        } else {
+            for (const machineId of peer.machineIds) {
+                for (const machine of peers.forMachine(machineId, 'machine', peer.accountId)) {
+                    sendEnvelope(machine.socket, { type: 'relay.client.joined', connectionId: peer.connectionId });
+                }
+            }
+        }
 
         deliverReplayAndOffline(peer, offline, replay,
             // Persisted frames predate strict E2EE; never deliver cleartext into an E2EE link.
@@ -1234,6 +1246,10 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 sessionOwner.set(envelope.header.sessionId, envelope.header.machineId);
             }
             if (config.developmentApi && peer.role === 'machine' && settlePushAction(envelope)) return;
+            if (peer.role === 'client') {
+                if (peer.connectionId === undefined) return;
+                envelope = { ...envelope, header: { ...envelope.header, connectionId: peer.connectionId } };
+            }
             routeEnvelope(
                 envelope,
                 peer,
@@ -1244,8 +1260,18 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             );
         });
 
+        let detached = false;
         const detach = (): void => {
+            if (detached) return;
+            detached = true;
             peers.remove(peer);
+            if (peer.role === 'client') {
+                for (const machineId of peer.machineIds) {
+                    for (const machine of peers.forMachine(machineId, 'machine', peer.accountId)) {
+                        sendEnvelope(machine.socket, { type: 'relay.client.left', connectionId: peer.connectionId });
+                    }
+                }
+            }
             // BYO-email notify: the last machine peer dropping means the box went offline.
             if (notifyOffline !== undefined && peer.role === 'machine'
                 && peers.forMachine(peer.machineIds.values().next().value ?? '', 'machine', peer.accountId).length === 0) {

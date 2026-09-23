@@ -1,5 +1,7 @@
 node_modules
 dist/
+# Rust build output for the desktop engine (multi-gigabyte, rebuilt from source)
+packages/desktop-host/engine/target/
 *.tsbuildinfo
 .expo/
 .pi-subagents/
@@ -50,3 +52,6 @@ dist-npm/
 # Offline artifact renderer generated from pinned dependencies by yarn build
 apps/mobile/sources/components/artifact/preview.bundle.bin
 .realtime-parity/
+
+# desktop proof scratch (relay data, logs, pids)
+.desklink-lab/

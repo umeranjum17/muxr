@@ -15,6 +15,10 @@ import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMo
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
+// The flag is its own entry: the package's barrel also carries the session
+// hook, and the ring slot is built on every terminal screen, so importing the
+// barrel here would put the client's session in the application's first paint.
+import { desktopAvailable } from '@desklink/react-native/availability';
 import { changesList } from '@/catalog/ops';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
@@ -52,6 +56,7 @@ import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, De
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingHandle, type RingSlot } from './FloatingTerminalControls';
+import { assembleRing } from './ringSlots';
 import { TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { ARROW_CLUSTER, BUILTIN_KEY_CATALOG, DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
@@ -150,12 +155,13 @@ function TranscribingDots({ color }: { color: string }) {
 // the header line, the pane rail, the key marks, the composer, the floating
 // control and its ring -- is the same ink one step up from it. Enough to see
 // where the terminal ends; not enough for either surface to announce itself.
+const DesktopSurface = React.lazy(async () => ({ default: (await import('@/desktop')).DesktopSurface }));
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
     return <>{children(theme)}</>;
 }
 
-export const TerminalScreen = React.memo((props: { id: string }) => {
+export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean }) => {
     const { width: windowWidth } = useWindowDimensions();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
@@ -163,6 +169,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [appActive, setAppActive] = React.useState(Platform.OS === 'web' || AppState.currentState === 'active');
     const keepScreenAwake = useLocalSettingMutable('keepScreenAwakeWhileWatching')[0];
     const canControl = authority === 'control' && !authorityLoading;
+    const desktopVisible = props.desktop === true && canControl && isFocused;
     const insets = useSafeAreaInsets();
     // Keyboard height already covers the home indicator, so keeping the bottom
     // inset while it is up double-pads the composer.
@@ -228,6 +235,16 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
     const [focusPending, setFocusPending] = React.useState(false);
     const [focusFailure, setFocusFailure] = React.useState<string | null>(null);
     const [headerBottom, setHeaderBottom] = React.useState(0);
+    const openDesktop = React.useCallback(() => {
+        Keyboard.dismiss();
+        setActionsOpen(false);
+        ringRef.current?.close();
+        router.setParams({ desktop: '1' });
+    }, []);
+    const closeDesktop = React.useCallback(() => {
+        Keyboard.dismiss();
+        router.setParams({ desktop: '0' });
+    }, []);
     // View commands keep a permanent route in Pane actions.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
     const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number }>();
@@ -985,14 +1002,13 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             icon: 'clipboard-outline',
             run: () => void pasteToDraft(),
         });
-        slots.push({
-            id: 'browser',
-            label: 'Browser',
-            icon: 'globe-outline',
-            run: () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
-        });
-        return slots;
-    }, [canControl, changesCount, openAgentCommands, pasteToDraft, props.id, sendCommand]);
+        return assembleRing(
+            slots,
+            desktopAvailable && canControl,
+            openDesktop,
+            () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
+        );
+    }, [canControl, changesCount, openAgentCommands, openDesktop, pasteToDraft, props.id, sendCommand]);
 
     // The cross the ring's Arrows slot summons: the row's own catalog keys, the
     // row's own bytes, the row's own hold-to-repeat. Centre is Enter, the way
@@ -1160,7 +1176,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
             // above the IME, and it measures the gap below itself to do it, so a bar
             // that floats over it gets counted as empty space and lands on the output.
                 return (
-                <View collapsable={false} style={{ flex: 1, backgroundColor: theme.colors.terminalChrome.canvas, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
+                <View collapsable={false} style={{ flex: 1, backgroundColor: props.desktop ? '#000' : theme.colors.terminalChrome.canvas, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
                     {watchingWorkingAgent && <ActiveAgentWakeLock />}
 
                     {/* One quiet line above the terminal plane: a back mark,
@@ -1169,6 +1185,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         only the chrome ink, which is just enough to see where
                         the terminal starts without the header becoming a band. */}
                     <Animated.View
+                        aria-hidden={desktopVisible}
                         onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
                         style={[{
                             flexDirection: 'row',
@@ -1179,7 +1196,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                             backgroundColor: theme.colors.terminalChrome.chrome,
                         }, ringRecede]}
                     >
-                        <Pressable onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={12}
+                        <Pressable onPress={props.desktop ? closeDesktop : () => router.back()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={12}
                             style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
@@ -1221,8 +1238,12 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         </Pressable>}
                     </Animated.View>
 
+                    {/* Occlusion does not hide native accessibility descendants.
+                        The desktop covers everything here, header included, and
+                        brings its own bar and back; hide the covered roots. */}
                     {hasStatusRow && (
                         <Pressable
+                            aria-hidden={desktopVisible}
                             onLayout={(event) => setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height)}
                             accessibilityRole="button"
                             accessibilityLabel="Review changes"
@@ -1251,6 +1272,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                     )}
 
                     <View
+                        aria-hidden={desktopVisible}
                         ref={paneGestures.ref}
                         // A new object every layout would re-render this whole
                         // screen on each one, and layout fires repeatedly while
@@ -1427,6 +1449,9 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         second. No band, no underline. */}
                     {treeLoaded && located !== undefined && (
                         <ScrollView
+                            aria-hidden={desktopVisible}
+                            accessibilityElementsHidden={desktopVisible}
+                            importantForAccessibility={desktopVisible ? 'no-hide-descendants' : 'auto'}
                             ref={tabStripRef}
                             horizontal
                             showsHorizontalScrollIndicator={false}
@@ -1549,7 +1574,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         </ScrollView>
                     )}
 
-                    {canControl && <View>
+                    {canControl && <View aria-hidden={desktopVisible}>
                         {/* The key strip stands down while dictation owns the footer
                             with the keyboard up; the composer capsule stays. */}
                         {!(dictationActive && keyboardVisible) && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>{keySlot}</TerminalKeyRow>}
@@ -1621,6 +1646,7 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         the control itself stays on the terminal surface. */}
                     {hasTools && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
                         <View
+                            aria-hidden={desktopVisible}
                             pointerEvents="box-none"
                             onLayout={({ nativeEvent }) => setRingOverlay((current) => (Math.abs(current - nativeEvent.layout.height) < 0.5 ? current : nativeEvent.layout.height))}
                             style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, bottom: 0 }}
@@ -1658,6 +1684,15 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                         keyboardDisabled={terminalKeyboardDisabled === true}
                         onKeyboardDisabledChange={setTerminalKeyboardDisabled}
                     />
+                    {/* Keep the conversation mounted: its actual header, draft and
+                        terminal viewport survive Computer and the return unchanged.
+                        The desktop covers the header too: it brings its own bar,
+                        which names the computer rather than the pane. */}
+                    {desktopVisible && <View style={{ position: 'absolute', top: insets.top, left: 0, right: 0, bottom: keyboardVisible ? keyboardHeight : 0, backgroundColor: '#000', zIndex: 10 }}>
+                        <React.Suspense fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="small" color={theme.colors.textSecondary} /></View>}>
+                            <DesktopSurface onExit={closeDesktop} />
+                        </React.Suspense>
+                    </View>}
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} />
                     <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
                     <PluginSlot
@@ -1699,7 +1734,19 @@ export const TerminalScreen = React.memo((props: { id: string }) => {
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
                                     </Pressable>
-                                    <TerminalMenuQuickActions slots={ringSlots} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
+                                    <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'browser' && slot.id !== 'computer')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
+                                    <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/takeover`); }} accessibilityRole="button" accessibilityLabel="Browser"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Browser</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>
+                                    {desktopAvailable && canControl && <Pressable onPress={openDesktop} accessibilityRole="button" accessibilityLabel="Computer"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="desktop-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="document-text-outline" size={18} color={theme.colors.textSecondary} />

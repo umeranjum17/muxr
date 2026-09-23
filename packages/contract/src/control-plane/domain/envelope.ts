@@ -52,6 +52,7 @@ export interface EnvelopeHeader {
     sessionId?: string;
     /** Strict hosted mode: stable identity of the frame sender (machine or device). */
     senderId?: string;
+    connectionId?: string;
     /** Strict hosted mode: stable identity of the frame recipient (machine or device). */
     recipientId?: string;
     /** Strict hosted mode: routing channel; feeds the v2 envelope context. */

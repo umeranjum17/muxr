@@ -45,6 +45,7 @@ import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
 import { attachPreviewTunnel } from './attachPreviewTunnel.js';
+import type { DesktopSessions } from '../../desktop/index.js';
 
 export interface RequestDispatcherOptions {
     source: SessionSource;
@@ -64,9 +65,12 @@ export interface RequestDispatcherOptions {
     canMutateDevice?: (deviceId: string) => boolean;
     peerRuntime?: PeerRuntime;
     getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
+    /** The live-desktop owner. Absent means this host cannot show a desktop. */
+    desktop?: DesktopSessions;
+    isDesktopConnectionActive?: (connectionId: string) => boolean;
 }
 
-type RequestContext = { deviceId: string; requestId: string };
+type RequestContext = { deviceId: string; requestId: string; connectionId?: string };
 type Handler<T extends RequestType> = (params: RequestMap[T]['params'], context: RequestContext) => Promise<RequestResult<T>>;
 type NonPeerRequestType = Exclude<RequestType, PeerRequestType>;
 type PluginExecutionRequest = Extract<ClientRequest, {
@@ -87,8 +91,13 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     // key is a mutation and stays out of this set. The spoken report sentence
     // is derived without touching host state, so it stays readable too.
     'voice.status', 'voice.provider.list', 'voice.provider.describe', 'voice.report',
+    'desktop.capabilities',
 ]);
 
+function desktopOrThrow(options: RequestDispatcherOptions): DesktopSessions {
+    if (options.desktop === undefined) throw new Error('This host has no desktop engine.');
+    return options.desktop;
+}
 
 function isPluginExecutionRequest(request: ClientRequest): request is PluginExecutionRequest {
     switch (request.type) {
@@ -132,7 +141,7 @@ function fromUseCase(requestId: string, result: UseCaseResult<unknown>): Request
 }
 
 export function createRequestDispatcher(options: RequestDispatcherOptions): {
-    dispatch(request: ClientRequest, authenticatedSenderId?: string): Promise<RequestResponse>;
+    dispatch(request: ClientRequest, authenticatedSenderId?: string, connectionId?: string): Promise<RequestResponse>;
 } {
     const { source, domain, machineId, hostVersion } = options;
 
@@ -188,6 +197,38 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plugin.call': () => { throw new Error('authenticated device context required'); },
         'plugin.stream': () => { throw new Error('authenticated device context required'); },
         'host.update': (params, context) => repairHost(params, context.deviceId),
+        'desktop.capabilities': async () => {
+            if (options.desktop === undefined) {
+                return { available: false, unavailableReason: 'This host has no desktop engine.', input: false, clipboard: false };
+            }
+            return options.desktop.capabilities();
+        },
+        'desktop.open': async (params, context) => {
+            if (options.desktop === undefined) {
+                throw new Error('This host has no desktop engine.');
+            }
+            const connectionId = context.connectionId;
+            return options.desktop.open({
+                permissions: params.permissions,
+                ...(params.maxWidth === undefined ? {} : { maxWidth: params.maxWidth }),
+                ...(params.maxHeight === undefined ? {} : { maxHeight: params.maxHeight }),
+                ...(params.bitrateKbps === undefined ? {} : { bitrateKbps: params.bitrateKbps }),
+                ...(params.maxFps === undefined ? {} : { maxFps: params.maxFps }),
+            }, connectionId === undefined ? undefined : {
+                connectionId,
+                isConnected: () => options.isDesktopConnectionActive?.(connectionId) === true,
+            });
+        },
+        'desktop.answer': async (params, context) => desktopOrThrow(options).answer(params.desktopId, params.sdp, context.connectionId),
+        'desktop.candidate': async (params, context) => desktopOrThrow(options).candidate(
+            params.desktopId,
+            params.candidate,
+            params.sdpMid ?? null,
+            params.sdpMLineIndex ?? null,
+            context.connectionId,
+        ),
+        'desktop.poll': async (params, context) => desktopOrThrow(options).poll(params.desktopId, params.cursor, context.connectionId),
+        'desktop.close': async (params, context) => desktopOrThrow(options).close(params.desktopId, context.connectionId),
         'herdr.cli': async (params) => {
             const result = await runHerdrCli(params.args, params.timeoutMs);
             await source.refreshHerdr();
@@ -328,7 +369,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
     };
 
-    async function dispatchCore(request: ClientRequest, authenticatedSenderId?: string): Promise<RequestResponse> {
+    async function dispatchCore(request: ClientRequest, authenticatedSenderId?: string, connectionId?: string): Promise<RequestResponse> {
         const deviceId = authenticatedSenderId ?? 'local';
         const isViewOnlyDevice = observerGrantIsViewOnly(
             options.getDeviceContext?.(deviceId)?.kind,
@@ -390,7 +431,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             );
         }
         try {
-            const data = await handler(request.params, { deviceId, requestId: request.requestId });
+            const data = await handler(request.params, { deviceId, requestId: request.requestId, ...(connectionId === undefined ? {} : { connectionId }) });
             return ok(request.requestId, data);
         } catch (error: unknown) {
             return fromCaught(request.requestId, error);
@@ -404,7 +445,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     }
 
     return {
-        async dispatch(request, authenticatedSenderId): Promise<RequestResponse> {
+        async dispatch(request, authenticatedSenderId, connectionId): Promise<RequestResponse> {
             const deviceId = authenticatedSenderId ?? 'local';
             const context = options.getDeviceContext?.(deviceId);
             if (request.type.startsWith('peer.')) {
@@ -433,11 +474,11 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     context,
                     () => {
                         if (request.type === 'agent.watch') return dispatchPeerWatch(request);
-                        return dispatchCore(request, authenticatedSenderId);
+                        return dispatchCore(request, authenticatedSenderId, connectionId);
                     },
                 );
             }
-            return dispatchCore(request, authenticatedSenderId);
+            return dispatchCore(request, authenticatedSenderId, connectionId);
         },
     };
 }

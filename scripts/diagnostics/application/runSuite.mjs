@@ -12,6 +12,8 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { desktopEnginePlan } from './checkDesktopEnginePrereqs.mjs';
+
 // The herdr check drives a live herdr server through the real host. Without one
 // it burns its timeout and reports a misleading failure, so detect and skip.
 const herdrSocket = process.env.HERDR_SOCKET_PATH?.trim()
@@ -33,6 +35,12 @@ const checks = [
     ['unit: relay pairing (expiry, cap, validation)', 'node', ['apps/relay/dist/selfCheck.js']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
+    // The desktop engine is a Rust crate and nothing else compiles it; without
+    // this step a build break or a failing engine test is green in every lane.
+    // Its native prerequisites are not provisioned here, so the loop checks them
+    // first and skips loudly by name instead of failing as a code break.
+    ['unit: desktop engine (cargo test: check + its own tests)', 'cargo', ['test', '--manifest-path', 'packages/desktop-host/engine/Cargo.toml'], 'desktop-engine', 1800000],
+    ['unit: desktop engine prerequisites detector (skip vs run)', 'node', ['scripts/diagnostics/application/checkDesktopEnginePrereqs.selfcheck.mjs']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     // The load-test flows carry their own generous per-test budgets; the step
     // kill must stay well above them or it SIGKILLs a healthy run first.
@@ -167,6 +175,14 @@ for (const [name, cmd, args, needs, timeoutMs] of checks) {
         const reason = labHelper === undefined ? 'HERDR_LAB_HELPER is unset' : `HERDR_LAB_HELPER=${labHelper} does not exist`;
         process.stdout.write(`SKIP  ${name}  (${reason}; set HERDR_LAB_HELPER to the guarded herdr lab helper)\n`);
         continue;
+    }
+    if (needs === 'desktop-engine') {
+        const plan = desktopEnginePlan();
+        if (!plan.run) {
+            skipped += 1;
+            process.stdout.write(plan.message);
+            continue;
+        }
     }
     // No settle wait between checks: every relay they spawn now takes a
     // kernel-picked port, so nothing is left holding a number the next one needs.
