@@ -1182,6 +1182,15 @@ describe('the usage screen read path', () => {
         expect(windows()).toBe(2);
         const figures = shownUsage('');
         expect(figures?.status === 'figures' ? figures.figures.cardWindow?.used : undefined).toBe(20);
+
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: claimed + 2, figures: withNow(
+            figures?.status === 'figures' ? figures.figures : undefined,
+            { limits: { verdict: 'unknown', windows: [], message: 'Plan limits unavailable' } },
+        ) }); });
+        expect(windows()).toBe(0);
+        expect(screen.root.findAllByType('ScreenLimits')[0].props.data.limits.message).toBe('Plan limits unavailable');
+        const emptied = shownUsage('');
+        expect(emptied?.status === 'figures' ? emptied.figures.cardWindow : undefined).toBeUndefined();
     });
 
     it('asks once for the tab list, and not again when that ask fails', async () => {

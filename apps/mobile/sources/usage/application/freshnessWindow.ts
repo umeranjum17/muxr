@@ -105,6 +105,7 @@ export function withNow(previous: UsageFigures | undefined, value: UsageNow): Us
     return mergeFigures(previous, {
         limits: value.limits,
         cardWindow: value.limits.windows[0],
+        ...(value.limits.windows.length === 0 ? { windows: [] } : {}),
         connected: value.connected,
         ...(value.vitals === undefined ? {} : { vitals: value.vitals }),
         ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds }),
