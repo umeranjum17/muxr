@@ -926,8 +926,9 @@ describe('the usage screen read path', () => {
                 { label: 'Weekly', window: '7d', used: 60 },
             ] }],
         };
-        noteAsked('', Date.now());
-        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, now) });
+        request.mockResolvedValueOnce(now).mockResolvedValueOnce(COLLECTING).mockResolvedValueOnce({
+            limits: { verdict: 'unknown', windows: [], message: 'Selected plan unavailable' },
+        } satisfies UsageNow);
         const card = renderCard();
         await tick();
 
@@ -941,10 +942,20 @@ describe('the usage screen read path', () => {
         expect(label).toContain('7d 40% plugins.limits.percentLeft');
         expect(label).not.toContain('Selected plan unavailable');
 
-        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1,
-            figures: withNow(undefined, { ...now, connected: [] }) }); });
+        await tick(11_000);
+        pressRefresh(card);
+        await tick();
+        expect(screenText(card)).toContain('80%');
+        expect(card.root.findAllByType('AgentGlyph')).toHaveLength(1);
+
+        await tick(6_000);
         expect(screenText(card)).toContain('Selected plan unavailable');
+        expect(screenText(card)).not.toContain('80%');
         expect(card.root.findAllByType('AgentGlyph')).toHaveLength(0);
+        const disconnectedLabel: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
+        expect(disconnectedLabel).toContain('Selected plan unavailable');
+        expect(disconnectedLabel).not.toContain('Codex');
     });
 
     it('shows a single plan with matching visible, spoken and metered remaining share on Home', async () => {
