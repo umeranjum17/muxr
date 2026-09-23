@@ -23,6 +23,7 @@ const request = vi.fn();
 const hapticsSelection = vi.fn();
 const connection = { machineId: 'machine-1' };
 const appState = { currentState: 'active' as string, listeners: new Set<(next: string) => void>() };
+let screenWidth = 393;
 const theme = {
     colors: {
         text: '#fff',
@@ -67,7 +68,7 @@ vi.mock('react-native', () => ({
     ScrollView: 'ScrollView',
     StyleSheet: { create: (styles: Record<string, unknown>) => styles, hairlineWidth: 1 },
     Text: 'Text',
-    useWindowDimensions: () => ({ width: 393, height: 852, scale: 3, fontScale: 1 }),
+    useWindowDimensions: () => ({ width: screenWidth, height: 852, scale: 3, fontScale: 1 }),
     View: 'View',
 }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
@@ -226,6 +227,7 @@ beforeEach(() => {
     hapticsSelection.mockClear();
     appState.currentState = 'active';
     appState.listeners.clear();
+    screenWidth = 393;
 });
 afterEach(() => {
     for (const renderer of mounted.splice(0)) TestRenderer.act(() => { renderer.unmount(); });
@@ -893,6 +895,27 @@ describe('the usage screen read path', () => {
         expect(summary).toContain('7d 0% plugins.limits.percentLeft (plugins.limits.paceExhausted, plugins.rightNow.resetsIn(1d 5h))');
         expect(summary).toContain('Monthly 8% plugins.limits.percentLeft (plugins.limits.low, plugins.rightNow.resetsIn(18d))');
         expect(summary).not.toContain('Z.ai');
+
+        const longName = `${'model-'.repeat(12)}session`;
+        screenWidth = 270;
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, {
+            ...now,
+            connected: now.connected!.map((provider) => provider.id === 'codex'
+                ? { ...provider, windows: [...provider.windows, { label: longName, used: 17 }] }
+                : provider),
+        }) }); });
+        const row = card.root.findAllByType('Text').find((node: any) => node.props.children === longName);
+        expect(row?.props.numberOfLines).toBe(1);
+        expect(row?.props.ellipsizeMode).toBe('tail');
+        const legendWidth = row!.parent.props.style.width;
+        const codexMark = card.root.findAllByType('AgentGlyph').find((mark: any) => mark.props.name === 'codex');
+        const figureWidth = codexMark!.parent.parent.props.style.minWidth;
+        expect(legendWidth).toBeLessThanOrEqual(96);
+        expect(legendWidth + 8 + figureWidth + 9).toBeLessThanOrEqual(270 - 2 * (16 + 14 + 1));
+        expect(screenText(card)).toContain('Monthly');
+        const updatedLabel: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
+        expect(updatedLabel).toContain(longName);
     });
 
     it('shows connected limits even when the selected plan has no windows', async () => {

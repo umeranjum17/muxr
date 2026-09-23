@@ -190,6 +190,7 @@ const MONO_ADVANCE = 0.6;
 /** The least room between two plans' figures before they read as one number. */
 const FIGURE_GAP = 9;
 const LEGEND_GAP = 8;
+const LEGEND_MAX = 96;
 /** A plan's slot stops growing here, so two plans sit together rather than at
  *  opposite edges of a wide card. */
 const SLOT_MAX = 120;
@@ -213,17 +214,19 @@ function LimitsGrid({ grid }: { grid: LimitGrid }) {
     const screen = useWindowDimensions();
     const [measured, setMeasured] = React.useState<number>();
     const char = MONO_ADVANCE * screen.fontScale;
-    const legend = Math.max(0, ...grid.rows.map((row) => row.length)) * LEGEND_SIZE * char + LEGEND_GAP;
+    const width = measured ?? screen.width - CARD_INSET;
     // Every column is as wide as "100%", so the plans' marks and the right
     // edges of their figures fall at even steps whatever the digits are.
     const figure = Math.ceil(Math.max(4, ...grid.columns.flatMap((column) => column.cells.map((cell) =>
         cell.length === 0 ? 0 : `${cell[0]!.left}%${cell.length > 1 ? `×${cell.length}` : ''}`.length))) * FIGURE_SIZE * char);
-    const fits = Math.floor(((measured ?? screen.width - CARD_INSET) - legend) / (figure + FIGURE_GAP));
+    const legendWidth = Math.min(LEGEND_MAX, Math.max(0, ...grid.rows.map((row) => row.length)) * LEGEND_SIZE * char,
+        Math.max(0, width - figure - FIGURE_GAP - LEGEND_GAP));
+    const fits = Math.floor((width - legendWidth - LEGEND_GAP) / (figure + FIGURE_GAP));
     const size = columnsPerBand(grid.columns.length, fits);
     const bands = Array.from({ length: Math.ceil(grid.columns.length / size) }, (_, band) => grid.columns.slice(band * size, (band + 1) * size));
     return (
         <View onLayout={(event) => setMeasured(event.nativeEvent.layout.width)} style={{ rowGap: 14 }}>
-            {bands.map((columns) => <LimitBand key={columns[0]!.provider.id} rows={grid.rows} columns={columns} slots={size} figure={figure} />)}
+            {bands.map((columns) => <LimitBand key={columns[0]!.provider.id} rows={grid.rows} columns={columns} slots={size} figure={figure} legendWidth={legendWidth} />)}
         </View>
     );
 }
@@ -231,14 +234,14 @@ function LimitsGrid({ grid }: { grid: LimitGrid }) {
 /** One band of the grid. It names only the rows its own plans have, and keeps
  *  a slot for every column a full band holds, so a shorter last band's plans
  *  stand under the ones above them. */
-function LimitBand({ rows, columns, slots, figure }: { rows: string[]; columns: LimitColumn[]; slots: number; figure: number }) {
+function LimitBand({ rows, columns, slots, figure, legendWidth }: { rows: string[]; columns: LimitColumn[]; slots: number; figure: number; legendWidth: number }) {
     const { theme } = useUnistyles();
     const shown = rows.flatMap((row, index) => (columns.some((column) => column.cells[index]!.length > 0) ? [{ row, index }] : []));
     return (
         <View style={{ flexDirection: 'row' }}>
-            <View style={{ marginRight: LEGEND_GAP, paddingTop: MARK_ROW }}>
+            <View style={{ width: legendWidth, marginRight: LEGEND_GAP, paddingTop: MARK_ROW }}>
                 {shown.map(({ row }) => (
-                    <Text key={row} numberOfLines={1} style={{ color: withAlpha(theme.colors.textSecondary, 0.75), fontSize: LEGEND_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular') }}>{row}</Text>
+                    <Text key={row} numberOfLines={1} ellipsizeMode="tail" style={{ color: withAlpha(theme.colors.textSecondary, 0.75), fontSize: LEGEND_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular') }}>{row}</Text>
                 ))}
             </View>
             {Array.from({ length: slots }, (_, slot) => {
