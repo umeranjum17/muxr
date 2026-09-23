@@ -35,69 +35,45 @@ muxr is the control surface built natively for the phone: the full agent lifecyc
 
 ## See it in action
 
-<table>
-<tr>
-<td width="45%" valign="middle">
-
 ### A real terminal, built for thumbs
 
-Open the same live terminal the agent owns on your computer — native Ghostty rendering, scrollback, sticky modifier keys, a key row you can reorder and extend with keys of your own, and a floating control you can move, tap for actions, or sweep into an arrow cluster. The compact header keeps the pane menu within reach; the bottom composer keeps attachments and dictation beside the prompt, with realtime talk on an empty prompt and lifecycle-colored Send when there is something to send. When a blocked Claude Code or Codex agent shows numbered answers, tap an answer at the live edge of the terminal instead of finding its key; long-press to read a long answer in full before choosing. The answers disappear when you scroll back, and the floating control gives them room while they are visible. Tap a printed link to choose Open, Copy, or Insert into the prompt (when available); Recent links are in the pane menu.
+Open the same live terminal the agent owns on your computer, with native Ghostty rendering, scrollback, and sticky modifier keys. A floating control and a key row you can reorder keep actions within reach, and the composer keeps attachments and dictation beside the prompt. When a blocked Claude Code or Codex agent shows numbered answers, tap one instead of finding its key. Tap a printed link to open, copy, or insert it into the prompt.
 
-</td>
-<td width="55%">
+<p align="center">
   <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="muxr's redesigned terminal with compact header, floating quick actions, key row, and prompt composer" width="100%" /></picture></a>
-</td>
-</tr>
-<tr>
-<td width="45%" valign="middle">
+</p>
 
 ### Every agent, every machine
 
 The Herd groups agents by repository and nests spawned workspaces when their lineage is declared. See real terminal thumbnails and agent lifecycle: working, needs you, done. Tap any agent and you are back in the same session.
 
-</td>
-<td width="55%">
+<p align="center">
   <picture><source srcset="docs/assets/readme/herd.webp" type="image/webp"><img src="docs/assets/readme/herd.jpg" alt="The muxr Herd with live terminal thumbnails, repository spaces, and agent lifecycle states" width="100%" /></picture>
-</td>
-</tr>
-<tr>
-<td width="45%" valign="middle">
+</p>
 
 ### Swipe between agents
 
 Swipe sideways with one finger to move to the next working, waiting, or just-finished agent; the next terminal follows your finger. In **Settings → Gestures**, switch to a two-finger swipe or turn swiping off, choose which agents a swipe stops at, and turn pinch-to-zoom on or off. Vertical drags still scroll, and a resting finger still selects text.
 
-</td>
-<td width="55%">
+<p align="center">
   <picture><source srcset="docs/assets/readme/gestures.webp" type="image/webp"><img src="docs/assets/readme/gestures.jpg" alt="The muxr Gestures settings: one-finger swipe between agents, where swipes stop, and pinch to zoom" width="100%" /></picture>
-</td>
-</tr>
-<tr>
-<td width="45%" valign="middle">
+</p>
 
 ### Know who needs you
 
 Inbox collects attention across every repository. Open the waiting agent directly instead of hunting through terminals or notification history.
 
-</td>
-<td width="55%">
+<p align="center">
   <picture><source srcset="docs/assets/readme/inbox.webp" type="image/webp"><img src="docs/assets/readme/inbox.jpg" alt="muxr Inbox sorting agents that need attention from agents that finished" width="100%" /></picture>
-</td>
-</tr>
-<tr>
-<td width="45%" valign="middle">
+</p>
 
 ### Review before it ships
 
 Open the real diff, inspect every changed line, then accept or reject it without waiting to get back to your desk.
 
-</td>
-<td width="55%">
+<p align="center">
   <picture><source srcset="docs/assets/readme/changes.webp" type="image/webp"><img src="docs/assets/readme/changes.jpg" alt="Reviewing an agent's code changes in muxr" width="100%" /></picture>
-</td>
-</tr>
-<tr>
-<td width="45%" valign="middle">
+</p>
 
 ### Talk to the herd
 
@@ -105,12 +81,9 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 
 [Voice setup →](docs/VOICE-SETUP.md)
 
-</td>
-<td width="55%">
+<p align="center">
   <picture><source srcset="docs/assets/readme/voice.webp" type="image/webp"><img src="docs/assets/readme/voice.jpg" alt="A native realtime voice session in muxr" width="100%" /></picture>
-</td>
-</tr>
-</table>
+</p>
 
 **Also on your phone:**
 
