@@ -252,7 +252,7 @@ after showing him the plan.
 
 ## Push notifications
 
-Notifications open the native app, which sends the normal strict-v2 encrypted
+Notifications open the app, which sends the normal strict-v2 encrypted
 request after ticket/grant checks. They never synthesize a plaintext answer.
 
 ## What the relay does

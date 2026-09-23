@@ -45,20 +45,12 @@ used, so nothing here claims device audio, APNs, or remote Activity behaviour.
 
 ## Unit 1 — Settings capability gate · implemented, runtime verified
 
-`SettingsView.tsx` gated the Live agent updates row on `Platform.OS === 'android'`, so the row could
-never appear on iOS even once the capability existed. The gate is now the native capability itself:
-
-- `promotedNotificationsSupported = supportsPromotedNotifications()` — the native module decides,
-  per OS build, whether a live status surface exists.
-- Copy is chosen per platform by `liveUpdatesCopy`: iOS names the Lock Screen and Dynamic Island,
-  Android keeps its existing status-bar island wording verbatim.
-- The existing `AppState` resume listener already refreshed the enabled flag; with the platform gate
-  removed it now refreshes on iOS too.
-- The row's action stays `openPromotedNotificationSettings`, which iOS now answers: the native
-  implementation is integrated.
-
-Android behaviour is unchanged: `supportsPromotedNotifications()` there is the same real capability
-check that previously sat behind the platform test, and the Android strings are untouched.
+At the time of this parity work, `SettingsView.tsx` gated the Live agent updates row on
+`Platform.OS === 'android'`. Removing that gate let the native `supportsPromotedNotifications()`
+capability expose it on iOS. The row opened `openPromotedNotificationSettings`, and the
+`AppState` listener refreshed its enabled state on return. This section records that build's
+simulator evidence, not the current Settings layout: the row now lives in
+`apps/mobile/sources/app/(app)/settings/notifications.tsx`.
 
 Verified on Mac's normal build `74891c84`: the row is visible and on — **pass**. Its full
 accessibility subtitle names the Lock Screen and the Dynamic Island; the visual label truncates,
@@ -300,8 +292,8 @@ Pending verification:
 - [ ] `autoShowKeyboard = true` with the software keyboard, blocked simulator-wide by the
       environment rather than by a known defect.
 - [ ] Signing and export of the extension through a real archive.
-- [ ] Android: the Live agent updates row and its copy are unchanged, on a build where the capability
-      is present and again where it is absent.
+- [ ] Android: the Live agent updates capability gate and settings action on a build where the
+      capability is present and again where it is absent (the row's copy has since changed).
 - [ ] iOS: the enabled state refreshes when returning from Settings to the foreground.
 - [ ] iOS: a Live Activity starts, updates and ends against real agent lifecycle transitions on a
       device.
