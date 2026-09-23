@@ -317,9 +317,12 @@ export const ca: TranslationStructure = {
         // Spaces section on Home
         title: 'Espais',
         empty: 'Cap espai obert',
-        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
-            ? `${count} ${plural({ count, singular: 'espai de treball', plural: 'espais de treball' })}`
-            : `${count} ${plural({ count, singular: 'espai de treball', plural: 'espais de treball' })} (${kind})`,
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => {
+            if (kind === 'task') return `${count} ${plural({ count, singular: 'tasca', plural: 'tasques' })}`;
+            return kind === undefined
+                ? `${count} ${plural({ count, singular: 'espai de treball', plural: 'espais de treball' })}`
+                : `${count} ${plural({ count, singular: 'espai de treball', plural: 'espais de treball' })} (${kind})`;
+        },
         needsYou: 'et cal',
         working: 'en execució',
         done: 'fet',

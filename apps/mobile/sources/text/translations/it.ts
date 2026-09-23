@@ -316,9 +316,12 @@ export const it: TranslationStructure = {
         // Spaces section on Home
         title: 'Spazi',
         empty: 'Nessuno spazio aperto',
-        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
-            ? `${count} ${plural({ count, singular: 'area di lavoro', plural: 'aree di lavoro' })}`
-            : `${count} ${plural({ count, singular: 'area di lavoro', plural: 'aree di lavoro' })} (${kind})`,
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => {
+            if (kind === 'task') return `${count} attività`;
+            return kind === undefined
+                ? `${count} ${plural({ count, singular: 'area di lavoro', plural: 'aree di lavoro' })}`
+                : `${count} ${plural({ count, singular: 'area di lavoro', plural: 'aree di lavoro' })} (${kind})`;
+        },
         needsYou: 'richiede te',
         working: 'in esecuzione',
         done: 'completato',

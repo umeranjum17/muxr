@@ -319,9 +319,12 @@ export const zhHans: TranslationStructure = {
         // Spaces section on Home
         title: '空间',
         empty: '没有打开的空间',
-        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
-            ? `${count} 个工作区`
-            : `${count} 个工作区（${kind}）`,
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => {
+            if (kind === 'task') return `${count} 个任务`;
+            return kind === undefined
+                ? `${count} 个工作区`
+                : `${count} 个工作区（${kind}）`;
+        },
         needsYou: '需要你处理',
         working: '运行中',
         done: '已完成',

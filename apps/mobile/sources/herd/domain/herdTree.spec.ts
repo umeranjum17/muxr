@@ -1,7 +1,7 @@
 import { herdPanes } from './herd';
 import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it, vi } from 'vitest';
-import { buildSpaceRows, middleTruncate, parentOf, spaceExpansionDefaults, workspaceName } from './herdTree';
+import { buildSpaceRows, defaultExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceName } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
 
@@ -123,15 +123,24 @@ describe('visible herd tree flow', () => {
         const unfolded = buildSpaceRows([mine, twoAgents], new Set(['w1', 'child:w2']), '');
         expect(unfolded[0]!.children[0]!.panes.map((entry) => entry.paneId)).toEqual(['p2', 'p2b']);
 
-        // Depth-2 lineage flattens under the root ancestor, so no workspace renders nowhere.
+        // Deep lineage nests under each spawner inside the root's card, depth-first, one step deeper per generation.
         const grandchild = { ...ws('w6', 'deep-task1', [tab('t6', undefined, [pane('p6', 'pi', { agentStatus: 'working' })])]), tokens: { parent: 'w2', kind: 'task' }, order: 6 };
-        const deep = [mine, byToken, grandchild];
+        const sibling = { ...ws('w8', 'late-task1', []), tokens: { parent: 'w1', kind: 'task' }, order: 8 };
+        const deep = [sibling, grandchild, byToken, mine];
         expect(parentOf(grandchild, new Map(deep.map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
         const deepRows = buildSpaceRows(deep, new Set(['w1']), '');
         expect(deepRows.map((row) => row.workspace.workspaceId)).toEqual(['w1']);
-        expect(deepRows[0]!.children.map((child) => child.workspace.workspaceId)).toEqual(['w2', 'w6']);
-        const rendered = new Set(deepRows.flatMap((row) => [row.workspace.workspaceId, ...row.children.map((child) => child.workspace.workspaceId)]));
-        expect([...rendered].sort()).toEqual(['w1', 'w2', 'w6']);
+        expect(deepRows[0]!.children.map(({ workspace, depth, last, rails, hasChildren }) => ({ id: workspace.workspaceId, depth, last, rails, hasChildren })))
+            .toEqual([
+                { id: 'w2', depth: 1, last: false, rails: [], hasChildren: true },
+                // w2's rail carries on past its child to w8.
+                { id: 'w6', depth: 2, last: true, rails: [true], hasChildren: false },
+                { id: 'w8', depth: 1, last: true, rails: [], hasChildren: false },
+            ]);
+        // A search reaching only the grandchild keeps the chain above it and opens the card.
+        const deepSearch = buildSpaceRows(deep, new Set(), 'deep-task');
+        expect(deepSearch[0]!.expanded).toBe(true);
+        expect(deepSearch[0]!.children.map((child) => child.workspace.workspaceId)).toEqual(['w2', 'w6']);
 
         // Two unlinked checkouts share a repoKey: the lowest-order one takes the child, whatever the snapshot order.
         const firstUnlinked = { ...primaryWithWorktree, order: 1 };
@@ -141,9 +150,46 @@ describe('visible herd tree flow', () => {
         expect(parentOf(byWorktree, new Map([...pair].reverse().map((entry) => [entry.workspaceId, entry] as const)))).toBe('w1');
     });
 
-    it('shows herdr workspace labels verbatim and truncates long paths in the path UI', () => {
-        expect(workspaceName({ workspaceId: 'w1', label: '/home/umer/repo-a', focused: false, agentStatus: 'idle', tabs: [] } as ContractWorkspace)).toBe('/home/umer/repo-a');
-        expect(workspaceName({ workspaceId: 'w2', label: undefined, focused: false, agentStatus: 'idle', tabs: [] } as ContractWorkspace)).toBe('w2');
+    it('never hides a workspace, whatever lineage the producer declares', () => {
+        const agentWs = (id: string, order: number, parent?: string) => ({
+            ...ws(id, `task-${id}`, [tab(`t-${id}`, undefined, [pane(`p-${id}`, 'pi', { sessionId: `s-${id}` })])]),
+            order,
+            ...(parent === undefined ? {} : { tokens: { parent, kind: 'task' } }),
+        });
+        const messy = [
+            agentWs('root', 1),
+            agentWs('self', 2, 'self'),
+            agentWs('orphan', 3, 'w-closed'),
+            agentWs('cycA', 4, 'cycB'),
+            agentWs('cycB', 5, 'cycA'),
+            agentWs('belowCycle', 6, 'cycA'),
+            agentWs('c1', 7, 'root'),
+            agentWs('c2', 8, 'c1'),
+            agentWs('c3', 9, 'c2'),
+            agentWs('c4', 10, 'c3'),
+            agentWs('c5', 11, 'c4'),
+        ];
+        const rows = buildSpaceRows([...messy].reverse(), new Set(), '');
+        const rendered = rows.flatMap((row) => [row.workspace.workspaceId, ...row.children.map((child) => child.workspace.workspaceId)]);
+        expect(rendered.sort()).toEqual(messy.map((entry) => entry.workspaceId).sort());
+        // Self-reference, a closed parent and both cycle members are cards; the tail below a cycle nests.
+        expect(rows.map((row) => row.workspace.workspaceId)).toEqual(['root', 'self', 'orphan', 'cycA', 'cycB']);
+        expect(rows.find((row) => row.workspace.workspaceId === 'cycA')!.children.map((child) => child.workspace.workspaceId)).toEqual(['belowCycle']);
+        expect(rows[0]!.children.map((child) => child.depth)).toEqual([1, 2, 3, 4, 5]);
+        // A big family starts folded to its summary; small ones and lone agents open.
+        expect(defaultExpandedSpaces(messy)).toEqual(['self', 'orphan', 'cycA', 'cycB']);
+    });
+
+    it('names workspaces the way a person would, never by id or correlator', () => {
+        const named = (label: string | undefined, cwd?: string) => workspaceName({ workspaceId: 'w9', label, focused: false, agentStatus: 'idle', tabs: cwd === undefined ? [] : [tab('t', undefined, [pane('p', undefined, { cwd })])] } as ContractWorkspace);
+        expect(named('└ pock-rightnow-card2 · p:JuMd64wBPNCZQwGE_cRd3Q')).toBe('pock-rightnow-card2');
+        expect(named('Release notes · draft')).toBe('Release notes · draft');
+        expect(named('/home/umer/firstmate')).toBe('firstmate');
+        expect(named('~/code/muxr-cloud/')).toBe('muxr-cloud');
+        expect(named('/home/umer')).toBe('Home folder');
+        expect(named('/')).toBe('Root folder');
+        expect(named(undefined, '/srv/app')).toBe('app');
+        expect(named('   ')).toBe('Untitled workspace');
         expect(middleTruncate('short')).toBe('short');
         expect(middleTruncate('abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz', 20)).toBe('abcdefghi…rstuvwxyz');
     });

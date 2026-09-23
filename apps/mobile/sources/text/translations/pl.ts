@@ -334,9 +334,12 @@ export const pl: TranslationStructure = {
         // Spaces section on Home
         title: 'Przestrzenie',
         empty: 'Brak otwartych przestrzeni',
-        groupCount: ({ count, kind }: { count: number; kind?: string }) => kind === undefined
-            ? `${count} ${plural({ count, one: 'obszar roboczy', few: 'obszary robocze', many: 'obszarów roboczych' })}`
-            : `${count} ${plural({ count, one: 'obszar roboczy', few: 'obszary robocze', many: 'obszarów roboczych' })} (${kind})`,
+        groupCount: ({ count, kind }: { count: number; kind?: string }) => {
+            if (kind === 'task') return `${count} ${plural({ count, one: 'zadanie', few: 'zadania', many: 'zadań' })}`;
+            return kind === undefined
+                ? `${count} ${plural({ count, one: 'obszar roboczy', few: 'obszary robocze', many: 'obszarów roboczych' })}`
+                : `${count} ${plural({ count, one: 'obszar roboczy', few: 'obszary robocze', many: 'obszarów roboczych' })} (${kind})`;
+        },
         needsYou: 'potrzebuje ciebie',
         working: 'aktywne',
         done: 'gotowe',
