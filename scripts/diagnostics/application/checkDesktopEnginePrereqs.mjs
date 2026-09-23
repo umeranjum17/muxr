@@ -2,11 +2,12 @@
  * What the desktop engine crate needs from the machine before `cargo test` can
  * mean anything.
  *
- * The crate links libpipewire, xkbcommon and libwayland through pkg-config,
- * compiles `native/vpx_shim.c` against libvpx's headers, and builds the vendored
- * inputtino C project with cmake (linking libevdev). None of that is provisioned
- * by this repository, so the suite has to name the piece that is missing
- * instead of failing as though the engine's own code were broken.
+ * The crate links libpipewire, xkbcommon and libwayland through pkg-config and
+ * libxcb directly, compiles `native/vpx_shim.c` against libvpx's headers, and
+ * builds the vendored inputtino C project with cmake (linking libevdev). None of
+ * that is provisioned by this repository, so the suite has to name the piece
+ * that is missing instead of failing as though the engine's own code were
+ * broken.
  */
 import { spawnSync } from 'node:child_process';
 
@@ -55,6 +56,11 @@ export const DESKTOP_ENGINE_PREREQUISITES = [
         name: 'libevdev',
         command: ['pkg-config', ['--exists', 'libevdev']],
         install: 'apt-get install libevdev-dev · dnf install libevdev-devel · pacman -S libevdev',
+    },
+    {
+        name: 'libxcb',
+        command: ['pkg-config', ['--exists', 'xcb']],
+        install: 'apt-get install libxcb1-dev · dnf install libxcb-devel · pacman -S libxcb',
     },
 ];
 

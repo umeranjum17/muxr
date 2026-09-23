@@ -154,7 +154,7 @@ export class DesktopSessions {
         }
         const client = await this.ensureClient();
         if (client === null) {
-            throw new EngineRefused('desktop-unavailable', this.missingEngineReason());
+            throw new EngineRefused('desktop-unavailable', this.startFailure ?? this.missingEngineReason());
         }
         const source = configuredSource(this.environment);
         let restoreToken: string | undefined;

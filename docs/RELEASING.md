@@ -65,6 +65,10 @@ Beta and dev are retired. Their npm dist-tags are frozen at their last releases 
 
 Build numbers are reserved through the `release-build-numbers` Git branch. Fast-forward-only updates serialize concurrent reservations; failed builds and retries consume numbers permanently. Never reset/delete this ledger or use git commit count as versionCode. The legacy manual Android builder accepts an explicit number for maintenance only: reserve through the same ledger first. The candidate workflow does that automatically.
 
+### Desktop engine packages come first
+
+The CLI pins `@desklink/host` to the version in `packages/desktop-host/package.json`. If that version is not on npm yet, publish the desktop packages before dispatching a candidate; otherwise its install step fails. No workflow publishes them. Follow [Building and packing a release](../packages/desktop-host/README.md#building-and-packing-a-release) for the manual build, check and publication order.
+
 ## Public channel record
 
 Every successful publication points one channel at the release that now holds it, and then proves that every public surface agrees. Versioned releases stay immutable: nothing is retagged, no artifact is copied, and no second GitHub Release is created to act as a pointer.

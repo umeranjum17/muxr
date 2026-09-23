@@ -42,13 +42,36 @@ particular application.
 
 ## Install and run
 
-**This version ships no prebuilt engine.** Installing the package does not give
-you a working desktop on its own: the platform packages below are not published
-yet, so the engine must be built from source (prerequisites in the next section)
-and its path given to the package. Nothing here should be read as a one-step
-install today.
+```sh
+npm install @desklink/host
+npx desklink-host path            # the engine this install will run
+npx desklink-host capabilities    # what this machine can do right now
+```
 
-The engine is a native binary. Building it from this package:
+On **Linux x64 with glibc 2.36 or newer** — Debian 12, Ubuntu 24.04, Fedora 37
+or later, Arch — that is the whole install. npm also installs the optional
+platform package `@desklink/host-linux-x64-gnu`, which carries the prebuilt
+engine, and `resolveEngine()` finds it there. No Rust toolchain, compiler or
+install script is involved, so `--ignore-scripts` installs work. The engine
+requires the system's `libpipewire-0.3.so.0`, `libxkbcommon.so.0`,
+`libevdev.so.2` and `libstdc++.so.6` (normally supplied by a modern Linux
+desktop). If one is missing, the host reports `missing system library: <name>`
+with code `missing-system-library` rather than failing silently; it does not
+bundle these system libraries. libvpx and inputtino are linked into the engine.
+
+The one step no install does for you is [kernel input access](#kernel-input-access),
+and only the portal backend needs it.
+
+There is no prebuilt engine for any other platform. Another Linux (arm64, musl)
+can [build it from source](#building-from-source). macOS and Windows are not
+supported: `capabilities` there says the engine runs on Linux only.
+
+Point `MUXR_DESKLINK_ENGINE` at a binary built elsewhere if you have one. The
+package never searches `PATH` for a same-named program: "a binary called
+desklink-host" is not evidence of which program is about to be given control of
+someone's desktop.
+
+### Building from source
 
 ```sh
 cd packages/desktop-host        # from the repository root
@@ -57,16 +80,9 @@ cargo build --release --manifest-path engine/Cargo.toml
 ./bin/desklink-host.mjs capabilities
 ```
 
-Point `MUXR_DESKLINK_ENGINE` at a binary built elsewhere if you have one. The
-package never searches `PATH` for a same-named program: "a binary called
-desklink-host" is not evidence of which program is about to be given control of
-someone's desktop.
-
-### Build prerequisites
-
-A source build links three system libraries through `pkg-config`, compiles
-`native/vpx_shim.c` against libvpx's headers, and builds the vendored inputtino
-project with CMake. On a clean machine, install:
+A source build links system libraries through `pkg-config` (and libxcb
+directly), compiles `native/vpx_shim.c` against libvpx's headers, and builds
+the vendored inputtino project with CMake. On a clean machine, install:
 
 | Need | Debian/Ubuntu | Fedora | Arch |
 |---|---|---|---|
@@ -74,11 +90,14 @@ project with CMake. On a clean machine, install:
 | CMake | `cmake` | `cmake` | `cmake` |
 | `pkg-config` | `pkg-config` | `pkgconf-pkg-config` | `pkgconf` |
 | libvpx (`vpx.pc`) | `libvpx-dev` | `libvpx-devel` | `libvpx` |
-| PipeWire (`libpipewire-0.3`) | `libpipewire-0.3-dev` | `pipewire-devel` | `pipewire` |
+| PipeWire 0.3.65+ (`libpipewire-0.3`) | `libpipewire-0.3-dev` | `pipewire-devel` | `pipewire` |
 | xkbcommon | `libxkbcommon-dev` | `libxkbcommon-devel` | `libxkbcommon` |
 | Wayland (`wayland-client`) | `libwayland-dev` | `wayland-devel` | `wayland` |
 | libevdev | `libevdev-dev` | `libevdev-devel` | `libevdev` |
+| libxcb (source/container builds only) | `libxcb1-dev` | `libxcb-devel` | `libxcb` |
 
+These are build prerequisites, not additional runtime requirements for the
+prebuilt package; in particular, libxcb is not a prebuilt runtime requirement.
 Nothing is downloaded by the build itself. The engine step in `yarn run check`
 skips with a list of missing prerequisites when any of these is absent; direct
 `cargo test --manifest-path engine/Cargo.toml` does not skip and needs them
@@ -95,7 +114,8 @@ whole-desktop control of the logged-in session, so it is a decision the user
 makes, not something an installation does for them:
 
 ```sh
-./bin/desklink-host.mjs setup-input
+npx desklink-host setup-input                     # where @desklink/host is installed
+npx -p @desklink/host desklink-host setup-input   # anywhere else, e.g. under an application that depends on it
 ```
 
 That prints the exact, narrowly scoped rule — and changes nothing. Without
@@ -107,7 +127,11 @@ session instead uses XTest and does not need `/dev/uinput`.
 
 Apache-2.0. The engine links two permissive native libraries — libvpx
 (BSD-3-Clause) and inputtino (MIT, vendored under `engine/vendor/`) — and calls
-the portal over D-Bus rather than linking it. See `NOTICE`.
+the portal over D-Bus rather than linking it. See `NOTICE`. The prebuilt engine
+links libvpx statically and carries every licence text it owes, including each
+linked crate's, in its package's `THIRD_PARTY_LICENSES.txt`, with the Rust
+standard library's own notices in `COPYRIGHT-rust-library.html`. Its build
+refuses any crate whose licence is not permissive.
 
 No GPL/AGPL remote-desktop code is copied, linked or derived; Sunshine,
 Moonlight, Apollo and RustDesk were read as architecture references only.
@@ -163,20 +187,20 @@ authorisation for that socket, so treat it as a credential.
 ## Packaging
 
 The engine is a native executable, so the package ships a small JavaScript
-launcher and depends on one platform package per supported target:
+launcher and depends on one platform package per supported target, which npm
+installs only where its `os`, `cpu` and `libc` match:
 
 ```text
 @desklink/host
-  optionalDependencies:              # added when those packages are published
-    @desklink/host-linux-x64-gnu     # the executable, its notices and provenance
-    @desklink/host-linux-arm64-gnu
+  optionalDependencies:
+    @desklink/host-linux-x64-gnu     # the executable, THIRD_PARTY_LICENSES.txt, provenance.json
 ```
 
-They are deliberately **not declared yet**, because a declared optional
-dependency that does not exist on the registry makes `yarn install
---frozen-lockfile` fail outright rather than being skipped — the whole install,
-for every consumer, including ones that never open a desktop. Declaring them is
-part of publishing them.
+The optional dependency is written into the published manifest by
+`release/pack.mjs`, pinned to the same version, and is deliberately absent from
+the source `package.json`: an optional dependency the registry does not have
+yet makes a workspace's `yarn install --frozen-lockfile` fail outright rather
+than skip it.
 
 `resolveEngine` looks for the platform package first and falls back to a source
 build, and it never searches `PATH`: a program that happens to be called
@@ -191,5 +215,48 @@ the executable bit already set in the tarball.
 `platformTag()` includes the libc (`-gnu` or `-musl`) because a glibc binary on a
 musl system fails in ways that read as "broken install" rather than "unsupported
 platform". Only variants that have passed their own qualification are published:
-`linux-x64-gnu` first, `linux-arm64-gnu` when a real machine has run a real
+`linux-x64-gnu` now, `linux-arm64-gnu` when a real machine has run a real
 journey on it. macOS and Windows are separate backends, not separate builds.
+
+### Building and packing a release
+
+Needs Docker and Node, nothing else: no Rust toolchain or system libraries.
+
+```sh
+packages/desktop-host/release/build-engine.sh     # -> dist-desklink/engine-linux-x64-gnu/
+npx tsc --build packages/desktop-host
+node packages/desktop-host/release/pack.mjs --engine dist-desklink/engine-linux-x64-gnu
+packages/desktop-host/release/check-install.sh    # fresh install in a clean container
+```
+
+`build-engine.sh` builds the engine from this checkout in the container that
+`release/linux-x64-gnu.Dockerfile` pins: base images by digest, Debian packages
+by snapshot date, the Rust toolchain by version, libvpx by commit, crates by
+`Cargo.lock`. The same source gives the same executable, byte for byte. The
+build fails if libvpx ends up dynamically linked, if the executable needs a
+glibc newer than 2.36, or if any crate's licence is not permissive
+(`release/notices.mjs`, which also writes `THIRD_PARTY_LICENSES.txt`).
+`provenance.json` records the source commit, the pinned inputs and the
+executable's SHA-256.
+
+The scripts use only the repository's `dist-desklink/` paths shown above; none
+accepts an alternate output or tarball directory. `pack.mjs` requires the
+verified engine output and replaces older desklink tarballs with the current
+`desklink-host-<version>.tgz` and `desklink-host-linux-x64-gnu-<version>.tgz`.
+It cannot pack a host-only release and publishes nothing.
+The package smoke instead uses `npm pack` on this checkout's host package as a
+registry stand-in, without Docker or a native build. `check-install.sh` installs
+only the current version's two tarballs into an empty project in a container
+with no Rust toolchain, no display and no `/dev/uinput`, and checks both
+installed versions. It checks the typed
+missing-library error before installing the system runtime libraries, then has
+the host package resolve the prebuilt engine, start it and answer the protocol
+handshake and a capabilities probe.
+
+Publishing is by hand, platform package first, so `@desklink/host` never points
+at a version the registry does not have:
+
+```sh
+npm publish dist-desklink/desklink-host-linux-x64-gnu-<version>.tgz --access public
+npm publish dist-desklink/desklink-host-<version>.tgz --access public
+```

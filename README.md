@@ -105,7 +105,7 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 - **New agents and worktrees** — choose the machine, repository, worktree, and one of 20+ agent CLIs from the home composer.
 - **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone.
 - **Usage** — see each plan window's percent left, reset time, and pace when known; Home highlights the tightest window alongside machine health.
-- **Desktop control (source builds)** — open **Computer** from a controllable agent session to see and drive that machine's desktop. The phone must reach it directly over the same network or tailnet; the signaling relay does not carry video. Android and web have clients; iOS does not. The native host engine must currently be built separately, so this is not available from the CLI install alone. [Host setup](packages/desktop-host/README.md) · [Client](packages/desktop-client/README.md)
+- **Desktop control (Linux)** — open **Computer** from a controllable agent session to see and drive that machine's desktop. The phone must reach it directly over the same network or tailnet; the signaling relay does not carry video. Android and web have clients; iOS does not. The CLI installs the desktop engine as a dependency, prebuilt for Linux x64 (glibc 2.36 or newer); portal-based control requires a one-time [kernel input grant](packages/desktop-host/README.md#kernel-input-access). [Host setup](packages/desktop-host/README.md) · [Client](packages/desktop-client/README.md)
 - **[Extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.

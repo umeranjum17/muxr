@@ -31,6 +31,8 @@ apps/mobile/public/canvaskit.wasm
 # copied from mermaid at start/build time (see apps/mobile/package.json)
 apps/mobile/public/mermaid.min.js
 dist-npm/
+# desktop engine build and its packed tarballs (packages/desktop-host/release)
+dist-desklink/
 /*.apk
 
 # native module intermediates (paths from the machine that last built)

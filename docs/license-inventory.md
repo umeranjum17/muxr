@@ -4,17 +4,44 @@ Scope: the `muxr` npm CLI/host artifact produced by `node scripts/release/applic
 The mobile app, development fixtures, APKs, and repository-only tooling are
 not included in that artifact.
 
-## Native components outside the published artifact
+## Desktop engine
 
-`packages/desktop-client` (the standalone React Native client) is **not**
-bundled by `pack.mjs`. `packages/desktop-host`'s JavaScript *is* inlined into the
-published `host.js`, like any other first-party workspace, under the artifact's
-own Apache-2.0 license. What the artifact does not contain is either package's
-native code: the engine links libvpx (BSD-3-Clause) and inputtino (MIT, vendored)
-and calls the XDG desktop portal over D-Bus rather than linking it, and the
-client compiles against the `org.webrtc` classes the app's existing
-`react-native-webrtc` ships. Exact prebuilt distribution clearance for those
-native components remains a release gate, not something this inventory clears.
+`packages/desktop-host` is **not** inlined into `host.js`. The artifact declares
+`@desklink/host` (Apache-2.0) as an exact-pinned runtime dependency, and that
+package declares its prebuilt engine as the optional dependency
+`@desklink/host-linux-x64-gnu`, which npm installs only on Linux x64 with glibc.
+That package is desklink's own Apache-2.0 build of `packages/desktop-host/engine`,
+made from pinned inputs by `packages/desktop-host/release/build-engine.sh`, and
+it is the only native executable a muxr install adds for the desktop.
+
+What the executable contains:
+
+| Component | License | How it is in the executable |
+|---|---|---|
+| desklink engine source | Apache-2.0 | compiled |
+| libvpx (version pinned in `release/linux-x64-gnu.Dockerfile`) | BSD-3-Clause, with Google's patent grant | linked statically |
+| inputtino (vendored under `engine/vendor/`) | MIT | linked statically |
+| Rust standard library (version pinned in `release/linux-x64-gnu.Dockerfile`) | MIT OR Apache-2.0 | linked statically |
+| Rust crates from `engine/Cargo.lock` | permissive licences checked by `release/notices.mjs`; exact set and texts in the platform package's generated `THIRD_PARTY_LICENSES.txt` | linked statically |
+
+What it loads from the system at run time and does not ship: glibc (2.36 or
+newer), libstdc++ and libgcc_s (GCC Runtime Library Exception), libpipewire-0.3,
+libxkbcommon and libevdev (MIT). It calls the XDG desktop portal over D-Bus
+rather than linking it. The platform package carries `THIRD_PARTY_LICENSES.txt`
+with every licence text above and `COPYRIGHT-rust-library.html` for the standard
+library's own notices.
+
+The engine build is the licence gate for this part:
+`packages/desktop-host/release/notices.mjs` evaluates each crate's SPDX
+expression, build-only crates included, and fails the build when one cannot be
+satisfied by permissive licences alone; MPL, LGPL, GPL and AGPL all fail it.
+The build also fails if libvpx ends up dynamically linked. The pinned input
+versions and the exact licence inventory for a release are recorded in its
+`provenance.json` and generated `THIRD_PARTY_LICENSES.txt`.
+
+`packages/desktop-client` (the standalone React Native client) is not part of
+this artifact; its Android code compiles against the `org.webrtc` classes the
+app's existing `react-native-webrtc` ships.
 
 ## Product source ownership
 
@@ -30,20 +57,24 @@ under an earlier license keep the rights that accompanied those copies.
 
 ## Published artifact
 
-`pack.mjs` bundles `apps/host` plus the muxr contract, crypto and desklink-host
-workspaces, and also bundles the relay entry (`apps/relay/dist/main.js`) so
-`muxr self-host` can run from the packed CLI. It declares these external runtime
-packages:
+`pack.mjs` bundles `apps/host` plus the muxr contract and crypto workspaces,
+and also bundles the relay entry (`apps/relay/dist/main.js`) so `muxr self-host`
+can run from the packed CLI. It declares these external runtime packages:
 
 | Package | License | Native binary | Distribution |
 |---|---|---:|---|
 | `ws` | MIT | No | external npm dependency |
 | `tweetnacl` | Unlicense | No | external npm dependency |
 | `qrcode` | MIT | No | external npm dependency |
-| `web-push` | MIT | No | external npm dependency |
+| `web-push` | MPL-2.0 | No | external npm dependency |
+| `bonjour-service` | MIT | No | external npm dependency |
+| `ccusage` | MIT | Through its optional per-platform packages | external npm dependency |
+| `@desklink/host` | Apache-2.0 | Through its optional `@desklink/host-linux-x64-gnu` ([Desktop engine](#desktop-engine)) | external npm dependency, exact version |
 
 There are currently no third-party packages inlined into `host.js` and no
-native binaries in the npm artifact.
+native binaries in the npm artifact itself; the native executables arrive as
+the optional platform packages above, which `THIRD_PARTY_LICENSES.json` lists
+with the package that brings them in.
 
 ## Mobile artifact
 

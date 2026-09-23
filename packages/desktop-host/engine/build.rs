@@ -12,6 +12,11 @@
 //! Both are required to build the engine; the README lists the system packages
 //! they need. Whether input can actually be injected is a separate, runtime
 //! question the engine answers through its own `/dev/uinput` probe.
+//!
+//! `DESKLINK_VPX_STATIC_DIR` names a libvpx install prefix (`include/`, `lib/`)
+//! to link statically instead. The prebuilt engine uses it, because libvpx's
+//! soname changes with every major release and a distributed executable must not
+//! depend on whichever one a given distribution ships.
 
 use std::path::{Path, PathBuf};
 
@@ -22,11 +27,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=vendor/inputtino/include/inputtino/input.h");
     println!("cargo:rerun-if-changed=vendor/inputtino/CMakeLists.txt");
 
-    cc::Build::new()
-        .file("native/vpx_shim.c")
-        .flag_if_supported("-Wno-unused-parameter")
-        .compile("dlvpx");
-    println!("cargo:rustc-link-lib=vpx");
+    println!("cargo:rerun-if-env-changed=DESKLINK_VPX_STATIC_DIR");
+
+    let static_vpx = std::env::var_os("DESKLINK_VPX_STATIC_DIR").map(PathBuf::from);
+    let mut shim = cc::Build::new();
+    shim.file("native/vpx_shim.c")
+        .flag_if_supported("-Wno-unused-parameter");
+    if let Some(prefix) = &static_vpx {
+        shim.include(prefix.join("include"));
+    }
+    shim.compile("dlvpx");
+    match &static_vpx {
+        Some(prefix) => {
+            println!(
+                "cargo:rustc-link-search=native={}",
+                prefix.join("lib").display()
+            );
+            println!("cargo:rustc-link-lib=static=vpx");
+        }
+        None => println!("cargo:rustc-link-lib=vpx"),
+    }
 
     cc::Build::new()
         .cpp(true)

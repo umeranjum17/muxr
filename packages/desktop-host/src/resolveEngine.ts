@@ -9,8 +9,8 @@ import { fileURLToPath } from 'node:url';
  * Three sources, in order, and no fourth:
  *
  *  1. an explicit path, when a consumer or an operator names one;
- *  2. this package's published platform package, which is the normal case once
- *     prebuilts exist;
+ *  2. this package's platform package, which npm installs as an optional
+ *     dependency on a platform that has a prebuilt engine (Linux x64 glibc);
  *  3. this package's own build output, for a source build.
  *
  * Deliberately not searched: `PATH`. "A program called desklink-host" is not
@@ -22,6 +22,9 @@ export interface ResolvedEngine {
     args: string[];
     origin: 'configured' | 'prebuilt' | 'package';
 }
+
+/** Platforms with a published platform package. */
+const PREBUILT_PLATFORMS = ['linux-x64-gnu'];
 
 export function enginePackageRoot(): string {
     return resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -113,5 +116,12 @@ export function explainMissingEngine(configured = process.env.MUXR_DESKLINK_ENGI
         }
         return `The desktop engine at ${configured} is not an executable file.`;
     }
-    return `The desktop engine is not installed for ${platformTag()}. This version ships no prebuilt engine: see the @desklink/host README for the native build prerequisites, build it from source, and point MUXR_DESKLINK_ENGINE at the built binary. @desklink/host-${platformTag()} is not published yet.`;
+    if (process.platform !== 'linux') {
+        return `The desktop engine runs on Linux only; ${process.platform} is not supported yet.`;
+    }
+    const tag = platformTag();
+    if (PREBUILT_PLATFORMS.includes(tag)) {
+        return `The prebuilt desktop engine for ${tag} is missing. It arrives as the optional dependency @desklink/host-${tag}: reinstall without omitting optional dependencies, or point MUXR_DESKLINK_ENGINE at an engine built from source.`;
+    }
+    return `There is no prebuilt desktop engine for ${tag}. Build it from source (see the @desklink/host README) and point MUXR_DESKLINK_ENGINE at the binary.`;
 }
