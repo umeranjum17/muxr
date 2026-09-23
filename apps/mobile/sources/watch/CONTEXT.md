@@ -19,6 +19,7 @@ _Avoid_: status tick, attention row
 - Invalid Voice Reports never persist.
 - `lifecycleStateSince` is the last state change, not the last tick.
 - Lifecycle alerts are blocked, failed, or done. Routine voice is idle or done.
+- A phone keeps at most one lifecycle alert per Agent, and posts none for the Agent whose terminal is on screen.
 
 
 **Agent Watch**:

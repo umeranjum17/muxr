@@ -25,7 +25,6 @@ import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../i
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
 import { MuxrClient } from '@/pairing/client';
-import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
 import {
     DEFAULT_CONNECTION,
@@ -43,6 +42,8 @@ import {
 import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
 import type { SessionInfo } from '@muxr/contract';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
+// Its own entry, like wakeAndReport: it pulls in expo-notifications, which the barrel keeps out.
+import { alertAgent } from '@/watch/lifecycleAlert';
 import { promptAgent } from './promptAgent';
 import type { Settings } from './settings';
 import { lifecycleNotificationCopy } from '@/herd';
@@ -454,6 +455,9 @@ class MuxrSync {
             });
         for (const event of pending) {
             if (this.presentingLifecycleIds.has(event.eventId)) continue;
+            // Passes overlap when frames arrive together. The list above is this
+            // pass's snapshot; another pass may have presented the event since.
+            if (!storage.getState().pendingLifecycleEvents.some((entry) => entry.eventId === event.eventId)) continue;
             this.presentingLifecycleIds.add(event.eventId);
             try {
                 if (!lifecycleNotificationAllowed(
@@ -464,16 +468,7 @@ class MuxrSync {
                     storage.getState().markLifecyclePresented(event.eventId);
                     continue;
                 }
-                if (Platform.OS !== 'web') {
-                    await Notifications.scheduleNotificationAsync({
-                        content: {
-                            title: 'muxr',
-                            body: lifecycleNotificationCopy(event),
-                            data: { url: `/session/${encodeURIComponent(event.sessionId)}` },
-                        },
-                        trigger: null,
-                    });
-                }
+                await alertAgent(event.sessionId, 'muxr', lifecycleNotificationCopy(event));
                 storage.getState().markLifecyclePresented(event.eventId);
             } catch (error) {
                 console.error('lifecycle notification failed', error);
@@ -494,15 +489,7 @@ class MuxrSync {
         // second notification for every transition.
         if (Platform.OS === 'android') return;
         try {
-            const title = currentAgentName(sessionId);
-            await Notifications.scheduleNotificationAsync({
-                content: {
-                    title,
-                    body,
-                    data: { url: `/session/${encodeURIComponent(sessionId)}` },
-                },
-                trigger: null,
-            });
+            await alertAgent(sessionId, currentAgentName(sessionId), body);
         } catch (error) {
             console.error('session notification failed', sessionId, error);
         }

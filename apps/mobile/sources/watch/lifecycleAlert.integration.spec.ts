@@ -1,0 +1,172 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LifecycleEvent } from '@muxr/contract';
+
+const harness = vi.hoisted(() => ({
+    // The phone's notification shade, keyed the way Android keys an app's
+    // notifications: by the tag Expo passes, which is the request identifier.
+    shade: new Map<string, string>(),
+    // Every post, including one that replaces a row: each one alerts again.
+    posted: [] as string[],
+    appState: 'active',
+    appStateListeners: new Set<(state: string) => void>(),
+    eventListeners: [] as Array<(sessionId: string, event: unknown) => void>,
+    mmkv: new Map<string, string>(),
+}));
+
+vi.mock('expo-notifications', () => ({
+    scheduleNotificationAsync: vi.fn(async (request: { identifier?: string; content: { body: string } }) => {
+        // Expo invents a fresh identifier when the caller gives none.
+        const identifier = request.identifier ?? `expo-${Math.random()}`;
+        harness.shade.set(identifier, request.content.body);
+        harness.posted.push(request.content.body);
+        return identifier;
+    }),
+    dismissNotificationAsync: vi.fn(async (identifier: string) => { harness.shade.delete(identifier); }),
+}));
+vi.mock('react-native', () => ({
+    AppState: {
+        get currentState() { return harness.appState; },
+        addEventListener: (_type: string, listener: (state: string) => void) => {
+            harness.appStateListeners.add(listener);
+            return { remove: () => harness.appStateListeners.delete(listener) };
+        },
+    },
+    Platform: { OS: 'android' },
+}));
+vi.mock('react-native-mmkv', () => ({
+    MMKV: class {
+        getString(key: string) { return harness.mmkv.get(key); }
+        set(key: string, value: string) { harness.mmkv.set(key, value); }
+        delete(key: string) { harness.mmkv.delete(key); }
+    },
+}));
+vi.mock('@/modal', () => ({ Modal: {} }));
+vi.mock('@/connection', () => {
+    const settings = { mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-a', token: 'device', lastSessionCwd: '', recentSessionCwds: [] };
+    return {
+        DEFAULT_CONNECTION: settings,
+        getCachedConnectionSettings: () => settings,
+        loadConnectionSettingsAsync: async () => settings,
+        sshTunnelAvailable: () => false,
+    };
+});
+vi.mock('@/pairing/e2ee', () => ({
+    getCachedHostedGrant: () => undefined,
+    loadHostedGrant: async () => undefined,
+    refreshHostedGrant: async () => undefined,
+}));
+vi.mock('@/pairing/infrastructure/muxrClient', () => ({
+    MuxrClient: class {
+        state = 'open';
+        connect() {}
+        close() {}
+        isLive() { return true; }
+        onStateChange() { return () => undefined; }
+        onEvent(listener: (sessionId: string, event: unknown) => void) {
+            harness.eventListeners.push(listener);
+            return () => undefined;
+        }
+        async request(type: string) {
+            if (type === 'herdr.tree') return { workspaces: [] };
+            if (type === 'attention.catalog') return { revision: 0, entries: [] };
+            if (type === 'lifecycle.catalog') return { revision: 1, events: [] };
+            return [];
+        }
+    },
+}));
+vi.mock('../catalog/infrastructure/encryption/encryption', () => ({
+    Encryption: { create: async () => ({ anonID: 'phone' }) },
+}));
+vi.mock('@/herd', async () => {
+    const { herdrPaneForSession } = await vi.importActual<typeof import('@/herd/domain/agentPresentation')>('@/herd/domain/agentPresentation');
+    const { lifecycleNotificationCopy } = await vi.importActual<typeof import('@/herd/domain/herd')>('@/herd/domain/herd');
+    return {
+        herdrPaneForSession,
+        lifecycleNotificationCopy,
+        getSessionName: (session: { id: string }) => session.id,
+        getSessionSubtitle: () => '',
+        getSessionAvatarId: (session: { id: string }) => session.id,
+    };
+});
+
+import { storage } from '@/catalog/store';
+import { syncCreate } from '@/catalog/sync';
+import { agentOnScreen } from '@/watch/lifecycleAlert';
+
+let sequence = 0;
+
+function agentChanges(sessionId: string, agentName: string, state: LifecycleEvent['state']): void {
+    sequence += 1;
+    const reasonCode = state === 'blocked' ? 'agent-blocked' : 'agent-working';
+    const event: LifecycleEvent = {
+        eventId: `event-${sequence}`,
+        sessionId,
+        agentName,
+        state,
+        reasonCode,
+        reason: reasonCode,
+        at: new Date(Date.now() + sequence).toISOString(),
+    };
+    for (const listener of harness.eventListeners) listener(sessionId, { type: 'lifecycle.update', event });
+}
+
+async function settle(): Promise<void> {
+    for (let turn = 0; turn < 5; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function shade(): string[] {
+    return [...harness.shade.values()];
+}
+
+function appBecomes(state: string): void {
+    harness.appState = state;
+    for (const listener of harness.appStateListeners) listener(state);
+}
+
+describe('agent lifecycle alerts on the phone', () => {
+    beforeEach(() => {
+        harness.shade.clear();
+        harness.posted.length = 0;
+        harness.appState = 'active';
+    });
+
+    it('stays quiet about the agent on screen and keeps one alert per agent', async () => {
+        await syncCreate({ token: 'device', secret: 'A'.repeat(43) });
+        await vi.waitFor(() => expect(storage.getState().lifecycleCatalogAvailable).toBe(true));
+
+        // Lamb's terminal is open while lamb stops for three permission prompts.
+        const leaveLamb = agentOnScreen('route-lamb');
+        for (let prompt = 0; prompt < 3; prompt += 1) {
+            agentChanges('route-lamb', 'lamb', 'working');
+            agentChanges('route-lamb', 'lamb', 'blocked');
+        }
+        await settle();
+        expect(harness.posted).toEqual([]);
+
+        // Back on Home: lamb asks twice more and ewe once. One row per agent.
+        leaveLamb();
+        agentChanges('route-lamb', 'lamb', 'blocked');
+        agentChanges('route-lamb', 'lamb', 'working');
+        agentChanges('route-lamb', 'lamb', 'blocked');
+        agentChanges('route-ewe', 'ewe', 'blocked');
+        await settle();
+        expect(shade()).toEqual(['lamb needs attention.', 'ewe needs attention.']);
+        // Each new request alerts once, even when frames arrive together.
+        expect([...harness.posted].sort()).toEqual(['ewe needs attention.', 'lamb needs attention.', 'lamb needs attention.']);
+
+        // Opening lamb clears lamb's row and leaves ewe's.
+        agentOnScreen('route-lamb');
+        await settle();
+        expect(shade()).toEqual(['ewe needs attention.']);
+
+        // The phone locked on lamb's terminal is not looking at it; coming back is.
+        appBecomes('background');
+        agentChanges('route-lamb', 'lamb', 'working');
+        agentChanges('route-lamb', 'lamb', 'blocked');
+        await settle();
+        expect(shade()).toEqual(['ewe needs attention.', 'lamb needs attention.']);
+        appBecomes('active');
+        await settle();
+        expect(shade()).toEqual(['ewe needs attention.']);
+    });
+});

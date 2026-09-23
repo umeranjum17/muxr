@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { getCachedConnectionSettings } from '@/connection';
 import { useHerdrTree, useLifecycleEvents } from '@/catalog/store';
 import { useActivityAcknowledgements } from '@/herd';
+import { agentOnScreen } from '@/watch/lifecycleAlert';
 import { TerminalScreen } from './TerminalScreen';
 
 /** Keep an open terminal on its pane when an agent starts, exits or restarts. */
@@ -43,6 +44,8 @@ export function TerminalRoute({ id, desktop = false }: { id: string; desktop?: b
     React.useEffect(() => {
         if (focused && currentId !== id) router.replace(`/session/${encodeURIComponent(currentId)}`);
     }, [id, currentId, focused]);
+    // The terminal in front already shows this agent; an alert for it is noise.
+    React.useEffect(() => (focused ? agentOnScreen(currentId) : undefined), [focused, currentId]);
 
     // A new route needs a fresh native surface/layout callback and channel.
     // Reusing the view resets its attach refs without changing native size,
