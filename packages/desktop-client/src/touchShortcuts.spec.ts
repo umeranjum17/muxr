@@ -66,6 +66,8 @@ beforeEach(() => {
         },
     });
     vi.stubGlobal('RTCPeerConnection', FakePeer);
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16));
+    vi.stubGlobal('cancelAnimationFrame', (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer));
 });
 
 afterEach(() => {
@@ -118,6 +120,9 @@ async function liveDesktop() {
     sessionIds.push(session.current.nativeId!);
     const channel = {
         readyState: 'open',
+        bufferedAmount: 0,
+        bufferedAmountLowThreshold: 0,
+        onbufferedamountlow: null as (() => void) | null,
         onmessage: null as ((message: { data: string }) => void) | null,
         onclose: null,
         send: (raw: string) => {
@@ -137,7 +142,7 @@ async function liveDesktop() {
     });
     reply({ kind: 'hello', protocol: 2, geometry: GEOMETRY });
     sent = [];
-    return { session, video, keyboard, reply, rejected };
+    return { session, video, keyboard, channel, reply, rejected };
 }
 
 function dispatch(target: EventTarget, type: string, fields: Record<string, unknown>): void {
@@ -176,20 +181,21 @@ describe('touch on the desktop', () => {
         touch(video, 'pointerdown', 125, 100);
         touch(video, 'pointerup', 125, 100);
         expect(sent).toEqual([
-            { kind: 'pointer', phase: 'move', x: 130, y: 100 },
             { kind: 'pointer', phase: 'move', x: 125, y: 100 },
             ...click(125, 100, 1),
         ]);
 
-        // On the whole desktop a finger that moves at once carries the pointer,
-        // every move as it comes and without a button; lifting it clicks nothing.
+        // On the whole desktop a finger carries the pointer without a button;
+        // each frame takes its newest position, and lifting it clicks nothing.
         sent = [];
         vi.advanceTimersByTime(1000);
         touch(video, 'pointerdown', 100, 100);
         touch(video, 'pointermove', 140, 100);
+        vi.advanceTimersByTime(16);
         touch(video, 'pointermove', 150, 104);
         vi.advanceTimersByTime(1000);
         touch(video, 'pointerup', 180, 104);
+        vi.advanceTimersByTime(16);
         expect(sent).toEqual([
             { kind: 'pointer', phase: 'move', x: 140, y: 100 },
             { kind: 'pointer', phase: 'move', x: 150, y: 104 },
@@ -241,7 +247,9 @@ describe('touch on the desktop', () => {
         sent = [];
         touch(video, 'pointerdown', 100, 90);
         touch(video, 'pointermove', 140, 90);
+        vi.advanceTimersByTime(16);
         touch(video, 'pointerup', 180, 90);
+        vi.advanceTimersByTime(16);
         expect(sent).toEqual([
             { kind: 'pointer', phase: 'move', x: 140, y: 50 },
             { kind: 'pointer', phase: 'move', x: 180, y: 50 },
@@ -249,6 +257,7 @@ describe('touch on the desktop', () => {
         sent = [];
         touch(video, 'pointerdown', 100, 90);
         touch(video, 'pointermove', 140, 90);
+        vi.advanceTimersByTime(16);
         touch(video, 'pointercancel', 180, 90);
         expect(sent).toEqual([{ kind: 'pointer', phase: 'move', x: 140, y: 50 }]);
         video.height = 720;
@@ -314,6 +323,33 @@ describe('touch on the desktop', () => {
         touch(video, 'pointerdown', 80, 90);
         touch(video, 'pointerup', 80, 90);
         expect(mark.style.display).toBe('block');
+    });
+    it('keeps the latest buffered move without delaying clicks', async () => {
+        vi.useFakeTimers();
+        const { video, channel } = await liveDesktop();
+        channel.bufferedAmount = 8192;
+        touch(video, 'pointerdown', 100, 100);
+        touch(video, 'pointermove', 140, 100);
+        touch(video, 'pointermove', 160, 100);
+        touch(video, 'pointermove', 180, 100);
+        vi.advanceTimersByTime(16);
+        expect(sent).toEqual([]);
+        touch(video, 'pointerup', 190, 100);
+        touch(video, 'pointerdown', 250, 100);
+        touch(video, 'pointerup', 250, 100);
+        expect(sent).toEqual([{ kind: 'pointer', phase: 'move', x: 190, y: 100 }, ...click(250, 100, 1)]);
+
+        sent = [];
+        touch(video, 'pointerdown', 300, 100);
+        touch(video, 'pointermove', 320, 100);
+        touch(video, 'pointermove', 340, 100);
+        touch(video, 'pointerup', 360, 100);
+        vi.advanceTimersByTime(16);
+        expect(sent).toEqual([]);
+        channel.bufferedAmount = 0;
+        channel.onbufferedamountlow?.();
+        vi.advanceTimersByTime(16);
+        expect(sent).toEqual([{ kind: 'pointer', phase: 'move', x: 360, y: 100 }]);
     });
 });
 

@@ -567,8 +567,6 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
           if (gesture == Gesture.HOVER) hoverTo(active, event.x, event.y)
         }
 
-        // One move per touch batch: the platform hands the view every frame's
-        // latest position, and each one goes at once.
         Gesture.HOVER -> hoverTo(active, event.x, event.y)
 
         Gesture.PAN -> {

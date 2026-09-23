@@ -89,7 +89,7 @@ import { desktopAvailable } from '@desklink/react-native/availability';
   under the finger while the picture catches up; two fingers scroll the desktop
   under them, or pinch; a quick two-finger tap is a right click too. Scrolling
   is fractional wheel steps, smooth where the desktop supports high-resolution
-  wheels. Every move is sent as the platform delivers it, once per frame.
+  wheels. Only the latest unsent pointer move is sent each frame; a congested control channel keeps just the latest position.
 - **The keys a phone lacks.** `modifiers`, `tapModifier` and `pressKey` give
   sticky Ctrl and Shift: tap arms one for the next key, tap again locks it.
   While one is armed, the next key or character the phone's keyboard types is

@@ -41,6 +41,7 @@ const PIXELS_PER_DETENT = 120;
 
 /** Wheel steps smaller than this wait for more movement. */
 const MIN_WHEEL_STEP = 0.05;
+const MOVE_BUFFER_LIMIT = 4096;
 
 /** The first picture comes up out of black rather than cutting in. */
 const REVEAL = 'opacity 280ms ease-out';
@@ -63,6 +64,8 @@ interface WebSession {
     id: string;
     peer: RTCPeerConnection;
     channel: RTCDataChannel | null;
+    pendingMove: Record<string, unknown> | null;
+    moveFrame: number | null;
     video: HTMLVideoElement;
     keyboard: HTMLTextAreaElement;
     /** Where the next click lands, drawn over the picture once a touch has put it somewhere. */
@@ -206,9 +209,30 @@ function createSessionElements(): { video: HTMLVideoElement; keyboard: HTMLTextA
     return { video, keyboard, mark };
 }
 
+function scheduleMove(session: WebSession): void {
+    if (session.moveFrame !== null || session.pendingMove === null) return;
+    session.moveFrame = requestAnimationFrame(() => {
+        session.moveFrame = null;
+        const channel = session.channel;
+        if (channel?.readyState !== 'open' || channel.bufferedAmount > MOVE_BUFFER_LIMIT || session.pendingMove === null) return;
+        channel.send(JSON.stringify(session.pendingMove));
+        session.pendingMove = null;
+    });
+}
+
 function control(session: WebSession, message: Record<string, unknown>): void {
-    if (session.channel?.readyState !== 'open') return;
-    session.channel.send(JSON.stringify(message));
+    const channel = session.channel;
+    if (channel?.readyState !== 'open') return;
+    if (message.kind === 'pointer' && message.phase === 'move') {
+        session.pendingMove = message;
+        scheduleMove(session);
+        return;
+    }
+    if (session.pendingMove !== null) {
+        channel.send(JSON.stringify(session.pendingMove));
+        session.pendingMove = null;
+    }
+    channel.send(JSON.stringify(message));
 }
 
 /**
@@ -399,7 +423,6 @@ function attachGestures(session: WebSession): () => void {
         else control(session, { kind: 'pointer', phase: 'cancel', x: 0, y: 0, seq: seq(session) });
     };
 
-    /** Every move the browser delivers goes at once: one per frame, never fewer. */
     const hoverTo = (x: number, y: number): void => {
         const at = desktopPoint(session, x, y, true);
         if (at !== null) pointer(session, 'move', at);
@@ -833,6 +856,8 @@ export const nativeDesklink: NativeDesklinkModule = {
             id,
             peer,
             channel: null,
+            pendingMove: null,
+            moveFrame: null,
             video,
             keyboard,
             mark,
@@ -903,10 +928,17 @@ export const nativeDesklink: NativeDesklinkModule = {
         peer.ondatachannel = (event) => {
             if (sessions.get(id) !== session) return;
             session.channel = event.channel;
+            event.channel.bufferedAmountLowThreshold = MOVE_BUFFER_LIMIT;
+            event.channel.onbufferedamountlow = () => scheduleMove(session);
             event.channel.onmessage = (message) => {
                 emit(id, 'control', { message: String(message.data) });
             };
-            event.channel.onclose = () => emit(id, 'closed', {});
+            event.channel.onclose = () => {
+                session.pendingMove = null;
+                if (session.moveFrame !== null) cancelAnimationFrame(session.moveFrame);
+                session.moveFrame = null;
+                emit(id, 'closed', {});
+            };
         };
         peer.onconnectionstatechange = () => {
             if (sessions.get(id) !== session) return;
@@ -1034,6 +1066,9 @@ export const nativeDesklink: NativeDesklinkModule = {
         sessions.delete(id);
         sequence.delete(id);
         session.detach?.();
+        session.pendingMove = null;
+        if (session.moveFrame !== null) cancelAnimationFrame(session.moveFrame);
+        session.moveFrame = null;
         session.channel?.close();
         session.peer.close();
         session.video.srcObject = null;
