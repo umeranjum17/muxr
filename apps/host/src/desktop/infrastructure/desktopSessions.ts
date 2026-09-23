@@ -38,9 +38,18 @@ function configuredSource(env: NodeJS.ProcessEnv, x11SocketDirectory: string): S
  */
 function waylandSession(env: NodeJS.ProcessEnv): boolean {
     if (env.WAYLAND_DISPLAY?.trim() || env.XDG_SESSION_TYPE?.trim() === 'wayland') return true;
-    const runtime = env.XDG_RUNTIME_DIR?.trim();
+    const uid = process.getuid?.();
+    const runtime = env.XDG_RUNTIME_DIR?.trim() || (uid === undefined ? undefined : `/run/user/${uid}`);
+    if (runtime === undefined) return false;
     try {
-        return runtime !== undefined && runtime !== '' && readdirSync(runtime).some((name) => /^wayland-\d+$/.test(name));
+        return readdirSync(runtime).some((name) => {
+            if (!/^wayland-\d+$/.test(name)) return false;
+            try {
+                return statSync(join(runtime, name)).isSocket();
+            } catch {
+                return false;
+            }
+        });
     } catch {
         return false;
     }
