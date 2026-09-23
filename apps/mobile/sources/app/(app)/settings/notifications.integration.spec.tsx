@@ -117,9 +117,17 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
 
     const listeners: Record<string, (event: any) => void> = {};
     const shown = vi.fn(async () => {});
+    let cacheFailure: 'open' | 'match' | 'text' | null = null;
     vm.runInNewContext(readFileSync(new URL('../../../../public/sw.js', import.meta.url), 'utf8'), {
         self: { addEventListener: (name: string, listener: (event: any) => void) => { listeners[name] = listener; }, registration: { showNotification: shown } },
-        caches: { open: async () => cache },
+        caches: { open: async () => {
+            if (cacheFailure === 'open') throw new Error('cache open failed');
+            return { match: async (key: string) => {
+                if (cacheFailure === 'match') throw new Error('cache match failed');
+                if (cacheFailure === 'text') return { text: async () => { throw new Error('cache text failed'); } };
+                return cache.match(key);
+            } };
+        } },
     });
     const receive = async (kind: string) => {
         let finished!: Promise<void>;
@@ -132,6 +140,15 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
     await receive('blocked');
     expect(shown).toHaveBeenCalledOnce();
     await cache.put('/muxr-push-level', new Response('off'));
+    let expectedNotifications = 1;
+    for (const failure of ['open', 'match', 'text'] as const) {
+        cacheFailure = failure;
+        await receive('blocked').catch(() => undefined);
+        expect(shown).toHaveBeenCalledTimes(++expectedNotifications);
+    }
+    cacheFailure = null;
+    await receive('blocked');
+    expect(shown).toHaveBeenCalledTimes(4);
 
     release(new Response(null, { status: 503 }));
     await TestRenderer.act(async () => { await off; });

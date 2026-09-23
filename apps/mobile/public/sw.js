@@ -19,8 +19,11 @@ self.addEventListener('push', (event) => {
     const title = typeof payload.title === 'string' && payload.title !== '' ? payload.title : 'muxr';
     const body = typeof payload.body === 'string' ? payload.body : '';
     event.waitUntil((async () => {
-        const response = await (await caches.open('muxr-push-level')).match('/muxr-push-level');
-        const level = response ? await response.text() : null;
+        let level = null;
+        try {
+            const response = await (await caches.open('muxr-push-level')).match('/muxr-push-level');
+            level = response ? await response.text() : null;
+        } catch {}
         if (level === 'off' || (level === 'important' && payload.kind === 'done')) return;
         await self.registration.showNotification(title, {
             body,
