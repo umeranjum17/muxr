@@ -21,7 +21,7 @@ export const desktopCopy = {
     endedTimeLimit: 'This desktop closed after an hour. You can open it again.',
     endedUnencodable: 'This desktop stopped because its screen could not be encoded.',
     endedEngineStopped: 'The computer stopped sharing this desktop.',
-    endedUnreachable: "The phone couldn't keep a direct connection to this computer. The desktop needs both on the same network or tailnet; SSH alone can't carry it yet.",
+    endedUnreachable: "The phone lost its connection to this computer's desktop. Check that it can still reach the computer, then try again.",
     clipboardUnavailable: 'This computer cannot share its clipboard.',
     liveLabel: 'Live',
     connectingLabel: 'Connecting',

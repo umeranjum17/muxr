@@ -134,9 +134,16 @@ private class Tunnel(
     @Volatile
     var forwarder: Thread? = null
 
+    /** Further forwards riding this connection, by their device-local port. */
+    val extras = mutableMapOf<Int, ServerSocket>()
+
     fun alive(): Boolean = client.isConnected && client.isAuthenticated && !server.isClosed
 
     fun close() {
+        synchronized(extras) {
+            for (extra in extras.values) try { extra.close() } catch (_: IOException) {}
+            extras.clear()
+        }
         try { server.close() } catch (_: IOException) {}
         try { client.disconnect() } catch (_: IOException) {}
     }
@@ -155,6 +162,10 @@ class SshTunnelModule : Module() {
         AsyncFunction("execCommand") { config: SshTunnelConfig, command: String -> exec(config, command) }
 
         AsyncFunction("closeTunnel") { closeCurrent() }
+
+        AsyncFunction("openForward") { remotePort: Int -> openForward(remotePort) }
+
+        AsyncFunction("closeForward") { localPort: Int -> closeForward(localPort) }
 
         Function("tunnelPort") {
             synchronized(lock) { tunnel?.takeIf { it.alive() }?.localPort ?: 0 }
@@ -198,6 +209,42 @@ class SshTunnelModule : Module() {
             throw SshUnreachableException("the SSH connection was closed before it opened", null)
         }
         return mapOf("localPort" to opened.localPort, "hostKey" to opened.hostKey)
+    }
+
+    /**
+     * One more forward over the connection that already carries the relay: the
+     * remote desktop's picture, when a phone has no other way to this
+     * computer. Like the relay's, it only ever reaches the host's loopback.
+     */
+    private fun openForward(remotePort: Int): Map<String, Any> {
+        if (remotePort !in 1..65535) throw SshConfigurationException("SSH ports are out of range")
+        val active = synchronized(lock) { tunnel?.takeIf { it.alive() } }
+            ?: throw SshUnreachableException("no SSH connection is open", null)
+        val server = bindLocal(0) {}
+        val parameters = Parameters(LOOPBACK, server.localPort, LOOPBACK, remotePort)
+        val forwarder: LocalPortForwarder = try {
+            active.client.newLocalPortForwarder(parameters, server)
+        } catch (cause: Exception) {
+            try { server.close() } catch (_: IOException) {}
+            throw SshLocalPortException("could not start the local SSH forward", cause)
+        }
+        val localPort = server.localPort
+        synchronized(active.extras) { active.extras[localPort] = server }
+        val thread = Thread({
+            try { forwarder.listen() } catch (_: Exception) {} finally {
+                try { server.close() } catch (_: IOException) {}
+                synchronized(active.extras) { active.extras.remove(localPort) }
+            }
+        }, "muxr-ssh-forward")
+        thread.isDaemon = true
+        thread.start()
+        return mapOf("localPort" to localPort)
+    }
+
+    private fun closeForward(localPort: Int) {
+        val active = synchronized(lock) { tunnel } ?: return
+        val server = synchronized(active.extras) { active.extras.remove(localPort) } ?: return
+        try { server.close() } catch (_: IOException) {}
     }
 
     private fun validate(config: SshTunnelConfig) {

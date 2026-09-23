@@ -169,6 +169,7 @@ export class EngineClient {
             ...(request.iceServers === undefined ? {} : { ice_servers: request.iceServers }),
             ...(request.restoreToken === undefined ? {} : { restore_token: request.restoreToken }),
             ...(request.ttlSeconds === undefined ? {} : { ttl_seconds: request.ttlSeconds }),
+            ...(request.loopbackTcp === true ? { loopback_tcp: true } : {}),
         });
     }
 

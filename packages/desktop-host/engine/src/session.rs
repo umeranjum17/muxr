@@ -410,6 +410,8 @@ pub struct OpenRequest {
     pub ice_servers: Vec<(String, Option<String>, Option<String>)>,
     pub restore_token: Option<String>,
     pub ttl: Option<Duration>,
+    /// Offer a passive ICE-TCP candidate on the loopback, for a forwarded client.
+    pub loopback_tcp: bool,
 }
 
 /// Events a session raises for its consumer.
@@ -667,6 +669,7 @@ impl Session {
         let (peer, offer) = VideoPeer::offer(
             TransportOptions {
                 ice_servers: request.ice_servers.clone(),
+                loopback_tcp: request.loopback_tcp,
                 // Well above the rate target, so pacing only spreads a large
                 // frame over a few tens of milliseconds and never queues.
                 pace_bps: (bitrate_kbps as f64 * 3_000.0).max(20_000_000.0),
@@ -1686,6 +1689,7 @@ mod tests {
         let (peer, _offer) = VideoPeer::offer(
             TransportOptions {
                 ice_servers: Vec::new(),
+                loopback_tcp: false,
                 pace_bps: 20_000_000.0,
             },
             peer_events,

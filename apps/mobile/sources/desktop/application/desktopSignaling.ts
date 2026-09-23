@@ -2,6 +2,13 @@ import type { DesktopEvent } from '@muxr/contract';
 import type { SessionEvent, Signaling } from '@desklink/react-native';
 
 import { sync } from '@/catalog';
+import { closeSshForward, openSshForward, sshRouteActive } from '@/connection';
+
+/**
+ * The engine's passive ICE-over-TCP candidate on the host's loopback, which a
+ * phone on the Direct SSH route can only reach through a forward.
+ */
+const LOOPBACK_TCP = /^(candidate:\S+ \d+ tcp \d+ )127\.0\.0\.1 (\d+)( typ host tcptype passive.*)$/i;
 
 /** How often the phone asks the host whether the engine has said anything. */
 const POLL_INTERVAL_MS = 250;
@@ -30,25 +37,66 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
     let cursor = 0;
     let timer: ReturnType<typeof setInterval> | null = null;
     let polling = false;
+    /**
+     * On the Direct SSH route the phone has no UDP path it can count on, so it
+     * asks for the picture over TCP too and carries that port through the SSH
+     * connection it already has: engine port -> device-local port.
+     */
+    let forwardOverSsh = false;
+    const forwards = new Map<number, Promise<number>>();
+
+    const closeForwards = (): void => {
+        for (const forward of forwards.values()) void forward.then(closeSshForward, () => undefined);
+        forwards.clear();
+    };
+
+    /** The candidate as this phone can dial it, or null for one it cannot. */
+    const reachable = async (candidate: string): Promise<string | null> => {
+        const loopback = LOOPBACK_TCP.exec(candidate);
+        if (loopback === null) return candidate;
+        if (!forwardOverSsh) return null;
+        const enginePort = Number(loopback[2]);
+        let forward = forwards.get(enginePort);
+        if (forward === undefined) {
+            forward = openSshForward(enginePort);
+            forwards.set(enginePort, forward);
+        }
+        try {
+            return `${loopback[1]}127.0.0.1 ${await forward}${loopback[3]}`;
+        } catch {
+            return null;
+        }
+    };
 
     const emit = (event: SessionEvent): void => {
         if (listeners.size === 0) pending.push(event);
         else for (const listener of listeners) listener(event);
     };
 
-    const toClientEvent = (event: DesktopEvent): SessionEvent | null => {
+    const toClientEvent = async (event: DesktopEvent): Promise<SessionEvent | null> => {
         switch (event.kind) {
             case 'offer':
-                return { kind: 'description', description: { type: 'offer', sdp: event.sdp } };
-            case 'candidate':
+                // A loopback candidate inlined in the offer names a port on the
+                // computer, not on this phone; only its forwarded twin is dialled.
+                return {
+                    kind: 'description',
+                    description: {
+                        type: 'offer',
+                        sdp: event.sdp.split('\r\n').filter((line) => !LOOPBACK_TCP.test(line.replace(/^a=/, ''))).join('\r\n'),
+                    },
+                };
+            case 'candidate': {
+                const candidate = await reachable(event.candidate);
+                if (candidate === null) return null;
                 return {
                     kind: 'candidate',
                     candidate: {
-                        candidate: event.candidate,
+                        candidate,
                         sdpMid: event.sdpMid,
                         sdpMLineIndex: event.sdpMLineIndex,
                     },
                 };
+            }
             case 'state':
                 return { kind: 'state', capture: event.capture, transport: event.transport, firstFrame: event.firstFrame };
             case 'revoked':
@@ -67,13 +115,15 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
             if (id !== desktopId) return;
             cursor = result.cursor;
             for (const raw of result.events) {
-                const mapped = toClientEvent(raw);
+                const mapped = await toClientEvent(raw);
+                if (id !== desktopId) return;
                 if (mapped === null) continue;
                 emit(mapped);
                 if (mapped.kind === 'revoked') {
                     // The session is over: every later poll would only fail against
                     // a desktopId the host has already dropped.
                     stopPolling();
+                    closeForwards();
                     desktopId = null;
                     return;
                 }
@@ -96,8 +146,10 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
         async request<T>(method: string, params?: Record<string, unknown>): Promise<T> {
             switch (method) {
                 case 'session.open': {
+                    forwardOverSsh = sshRouteActive();
                     const opened = await sync.request('desktop.open', {
                         permissions: options.permissions,
+                        ...(forwardOverSsh ? { loopbackTcp: true } : {}),
                         ...(options.maxWidth === undefined ? {} : { maxWidth: options.maxWidth }),
                         ...(options.maxHeight === undefined ? {} : { maxHeight: options.maxHeight }),
                         ...(options.bitrateKbps === undefined ? {} : { bitrateKbps: options.bitrateKbps }),
@@ -135,6 +187,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
                 case 'session.close': {
                     const id = desktopId;
                     stopPolling();
+                    closeForwards();
                     desktopId = null;
                     pending.length = 0;
                     if (id === null) return { closed: true } as T;
