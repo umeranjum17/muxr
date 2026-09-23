@@ -11,14 +11,10 @@ import { PortalGrant } from './portalGrant.js';
 /**
  * Which desktop this host offers.
  *
- * The portal is the default: on a Wayland desktop it is the backend that carries
- * the user's consent, and nothing else can substitute for that. `x11` exists for
- * a host whose screen-cast portal does not work — a headless or remote X session
- * — and is a host decision rather than something a client may choose, because a
- * client asking for a different desktop must not be able to reach one the host
- * did not offer. `MUXR_DESKTOP_SOURCE` (`x11` or `portal`) settles it; without
- * it, a machine with no Wayland session at all, such as a cloud server running
- * Xvfb, offers its X display.
+ * A Wayland desktop needs the consent-bearing portal, not its XWayland display.
+ * Without an explicit host override, a non-Wayland host offers its inherited
+ * DISPLAY or an X socket owned by its uid. Only the host selects the source;
+ * a client cannot ask to reach another desktop.
  */
 function configuredSource(env: NodeJS.ProcessEnv, x11SocketDirectory: string): SourceRequest | undefined {
     const kind = env.MUXR_DESKTOP_SOURCE?.trim();
@@ -161,7 +157,7 @@ export class DesktopSessions {
             const reported = this.engineCapabilities ?? await client.capabilities();
             this.engineCapabilities = reported;
             // The engine's input probe only knows about uinput; the X11 backend
-            // injects through XTest and needs none, so the host's own configured
+            // injects through XTest and needs none, so the host's selected
             // source is the only side that can answer for that machine.
             const x11 = configuredSource(this.environment, this.x11SocketDirectory)?.kind === 'x11';
             return {
