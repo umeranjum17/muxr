@@ -1074,6 +1074,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
     const contextTitle = labels.taskTitle;
+    const identityKnown = currentPane !== undefined;
     const headerLifecycle = terminalPaneStatus(currentPane);
     const headerLifecycleLabel = headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
     return (
@@ -1237,9 +1238,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
-                        <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={`${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
-                            <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />
-                            <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '500', opacity: 0.88 }}>{contextTitle}</Text>
+                        <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
+                            {identityKnown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
+                            {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '500', opacity: 0.88 }}>{contextTitle}</Text>}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).
