@@ -41,7 +41,6 @@ export async function dispatchPluginAction(
             name: result.name,
             mimeType: result.mimeType,
             size: result.size,
-            at: 0,
         });
         return;
     }

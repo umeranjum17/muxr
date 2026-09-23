@@ -179,12 +179,11 @@ describe('artifact/file guardrail helpers', () => {
 
 });
 
-// The artifact unification renamed the four protocol methods. A host built
-// before the rename answers the legacy names only, so the app has to reach all
-// four of them there and still read one shape back.
+// The artifact unification renamed the protocol methods. A host built before
+// the rename answers the legacy names only, so the app has to reach every one
+// it uses there and still read one shape back.
 describe('Shared Artifacts wire across host versions', () => {
     const chunk = { id: 'a'.repeat(64), name: 'report.md', mimeType: 'text/plain', size: 5, offset: 0, data: 'aGVsbG8=' };
-    const ticket = { token: 'one-time', name: 'report.md', mimeType: 'text/plain', size: 5 };
 
     function fakeHost({ legacy }: { legacy: boolean }) {
         const calls: string[] = [];
@@ -192,13 +191,11 @@ describe('Shared Artifacts wire across host versions', () => {
             ? {
                 'attachment.list': { attachments: [chunk], total: 1, truncated: false },
                 'attachment.fetch': { name: 'report.md', mimeType: 'text/plain', data: 'aGVsbG8=' },
-                'attachment.prepare': ticket,
                 'attachment.read': chunk,
             }
             : {
                 'artifact.list': { artifacts: [chunk], total: 1, truncated: false },
                 'artifact.fetch': { name: 'report.md', mimeType: 'text/plain', data: 'aGVsbG8=' },
-                'artifact.prepare': ticket,
                 'artifact.read': chunk,
             };
         return {
@@ -217,13 +214,12 @@ describe('Shared Artifacts wire across host versions', () => {
 
         expect(await wire.list('s1')).toEqual({ artifacts: [chunk], total: 1, truncated: false });
         expect(await wire.fetch('s1', chunk.id)).toMatchObject({ name: 'report.md' });
-        expect(await wire.prepare('s1', chunk.id)).toEqual(ticket);
         expect(await wire.read('s1', chunk.id, 0, 512)).toEqual(chunk);
 
         // One probe, then the legacy names for the rest of the process.
         expect(host.calls).toEqual([
             'artifact.list', 'attachment.list',
-            'attachment.fetch', 'attachment.prepare', 'attachment.read',
+            'attachment.fetch', 'attachment.read',
         ]);
     });
 

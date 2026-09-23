@@ -45,8 +45,10 @@ not Expo prebuild, and targets the Android emulator. It does not uninstall the
 production app or access release signing credentials.
 
 `yarn dev` keeps Metro on loopback port **8081** and the development relay on
-**18792**, with artifact downloads on **18793**. The Android command forwards
-all three ports over adb, leaving the installed host's 8792/8793 untouched. State
+**18792**, with the legacy artifact-download endpoint on **18793**. The Android
+command forwards all three ports over adb, leaving the installed host's 8792/8793
+untouched. Current app downloads use encrypted chunks instead; see
+[Shared Artifacts transport](ARCHITECTURE.md#shared-artifacts-and-changes). State
 persists under the ignored `.cache/muxr-dev/` directory, not the installed
 service's state. Stop the development supervisor with **Ctrl-C**; it owns its
 compiler, renderer watcher, Metro and source host/relay processes, then removes
@@ -66,8 +68,8 @@ through the private socket directory's sibling link.
 
 The same `yarn dev` serves a browser preview of the web build at
 `http://localhost:8081` using isolated development services (loopback
-relay 18792, downloads 18793) and leaves installed production services
-unchanged. The supervisor prepares the web assets Metro otherwise misses
+relay 18792, legacy download endpoint 18793) and leaves installed production
+services unchanged. The supervisor prepares the web assets Metro otherwise misses
 (`public/canvaskit.wasm`, the pdf.js worker, `public/mermaid.min.js`) and pins the relay CORS
 allowlist to the three development origins `http://localhost:8081`,
 `http://127.0.0.1:8081` (browser tabs on the Metro origin) and

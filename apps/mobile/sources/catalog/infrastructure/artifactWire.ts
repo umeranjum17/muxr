@@ -30,21 +30,15 @@ export interface ArtifactChunk {
     name: string;
     mimeType: string;
     size: number;
+    at?: number;
     offset: number;
     data: string;
-}
-
-export interface ArtifactTicket {
-    token: string;
-    name: string;
-    mimeType: string;
-    size: number;
+    sha256?: string;
 }
 
 export interface ArtifactWire {
     list(sessionId: string): Promise<ArtifactListing>;
     fetch(sessionId: string, artifactId: string): Promise<{ name: string; mimeType: string; data: string } | null>;
-    prepare(sessionId: string, artifactId: string): Promise<ArtifactTicket | null>;
     read(sessionId: string, artifactId: string, offset: number, length: number, timeoutMs?: number): Promise<ArtifactChunk | null>;
 }
 
@@ -84,12 +78,6 @@ export function createArtifactWire(request: ArtifactWireTransport): ArtifactWire
             return canonicalOrLegacy(
                 () => request('artifact.fetch', { sessionId, artifactId }),
                 () => request('attachment.fetch', { sessionId, attachmentId: artifactId }),
-            );
-        },
-        prepare(sessionId, artifactId) {
-            return canonicalOrLegacy(
-                () => request('artifact.prepare', { sessionId, artifactId }),
-                () => request('attachment.prepare', { sessionId, attachmentId: artifactId }),
             );
         },
         read(sessionId, artifactId, offset, length, timeoutMs) {

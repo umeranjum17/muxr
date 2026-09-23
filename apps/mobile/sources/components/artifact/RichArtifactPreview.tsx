@@ -33,7 +33,7 @@ export function RichArtifactPreview({ sessionId, artifact, onClose }: { sessionI
                 <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 14, padding: 8 }}>{artifact.name}</Text>
                 <Pressable accessibilityRole="button" accessibilityLabel="Download original" disabled={downloading} style={buttonStyle} onPress={() => {
                     setDownloading(true);
-                    void downloadArtifact(sessionId, { ...artifact, mimeType: artifact.mimeType ?? 'application/octet-stream', at: 0 })
+                    void downloadArtifact(sessionId, { ...artifact, mimeType: artifact.mimeType ?? 'application/octet-stream' })
                         .catch(() => setError('Download failed. Check the connection and try again.')).finally(() => setDownloading(false));
                 }}>{downloading ? <ActivityIndicator /> : <Text style={{ color: theme.colors.textLink }}>Download</Text>}</Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel="Close document preview" onPress={onClose} style={buttonStyle}><Text style={{ color: theme.colors.textLink }}>Close</Text></Pressable>

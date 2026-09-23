@@ -98,7 +98,7 @@ export function ArtifactGallery({ sessionId, images, initialIndex, onClose }: {
                     </View>
                     <Pressable disabled={downloading} onPress={() => {
                         setDownloading(true);
-                        void downloadArtifact(sessionId, { ...active.action, mimeType: active.action.mimeType ?? 'application/octet-stream', at: 0 })
+                        void downloadArtifact(sessionId, { ...active.action, mimeType: active.action.mimeType ?? 'application/octet-stream' })
                             .catch((error: unknown) => AppModal.alert('Download failed', error instanceof Error ? error.message : String(error)))
                             .finally(() => setDownloading(false));
                     }} accessibilityRole="button" accessibilityLabel={`Download ${active.title}`} style={({ pressed }) => [styles.galleryControl, pressed && styles.pressed]}>

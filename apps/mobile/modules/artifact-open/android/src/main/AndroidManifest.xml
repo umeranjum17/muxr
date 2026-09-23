@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- An APK shared as an artifact opens in the system installer, which
+       refuses a source app that does not declare this. Each install still
+       asks the person, and Android asks once per source app before that. -->
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+</manifest>

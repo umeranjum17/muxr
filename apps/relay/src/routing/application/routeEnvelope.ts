@@ -32,10 +32,18 @@ export function routeEnvelope(
     const direction: RelayDirection = targetRole === 'client' ? 'toClient' : 'toMachine';
     const routingKey = tenantMachineKey(from.accountId, machineId);
 
-    replay.record(routingKey, direction, envelope);
+    // A host may address one client socket (an artifact chunk for the phone
+    // that asked); everything else reaches every client of the machine.
+    const connectionId = targetRole === 'client' ? envelope.header.connectionId : undefined;
+    // Neither is history. Artifact chunks are one request's bytes: the phone
+    // re-reads from its own offset after a drop, and a result whose request
+    // died with its socket has no taker. Recorded, one download sat in relay
+    // memory for an hour and the whole log was rewritten to disk every second.
+    if (connectionId === undefined && envelope.header.channel !== 'attachment') replay.record(routingKey, direction, envelope);
 
     let delivered = 0;
     for (const peer of peers.forMachine(machineId, targetRole, from.accountId)) {
+        if (connectionId !== undefined && peer.connectionId !== connectionId) continue;
         sendEnvelope(peer.socket, envelope);
         delivered += 1;
     }
@@ -48,7 +56,7 @@ export function routeEnvelope(
         return { delivered: 0, buffered: true, pushNotified: false };
     }
 
-    if (delivered === 0 && targetRole === 'client' && ctx.pushWebhook !== undefined) {
+    if (delivered === 0 && targetRole === 'client' && connectionId === undefined && ctx.pushWebhook !== undefined) {
         enqueuePushWebhook(ctx.pushWebhook, {
             machineId,
             ...(envelope.header.sessionId === undefined ? {} : { sessionId: envelope.header.sessionId }),

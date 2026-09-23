@@ -156,7 +156,10 @@ export function startHost(options: HostOptions): Host {
         if (frame.type.startsWith('peer.') && options.peerRuntime !== undefined) {
             options.diagnostics?.relationships(options.peerRuntime.store.list().peers);
         }
-        link?.send(response, sessionIdFrom(frame), routingChannelForRequest(frame.type), peerRecipient);
+        const channel = routingChannelForRequest(frame.type);
+        // Artifact chunks go to the socket that asked: broadcast, every other
+        // phone and browser paired to this machine pulled the whole file too.
+        link?.send(response, sessionIdFrom(frame), channel, peerRecipient, channel === 'attachment' ? connectionId : undefined);
     }
 
     link = connectToRelay({

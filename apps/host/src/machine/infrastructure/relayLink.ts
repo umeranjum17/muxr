@@ -61,7 +61,8 @@ export interface RelayLinkOptions {
 }
 
 export interface RelayLink {
-    send: (frame: HostFrame, sessionId?: string, channel?: 'session' | 'attachment', recipientId?: string) => void;
+    /** `connectionId` addresses one client socket instead of every client of the machine. */
+    send: (frame: HostFrame, sessionId?: string, channel?: 'session' | 'attachment', recipientId?: string, connectionId?: string) => void;
     close: () => void;
 }
 
@@ -80,7 +81,7 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
     const outbound: Array<{ frame: HostFrame; sessionId?: string; channel: 'session' | 'attachment'; recipientId?: string }> = [];
     const MAX_OUTBOUND = 64;
 
-    function transmit(frame: HostFrame, sessionId: string | undefined, channel: 'session' | 'attachment', recipientId?: string): void {
+    function transmit(frame: HostFrame, sessionId: string | undefined, channel: 'session' | 'attachment', recipientId?: string, connectionId?: string): void {
         if (socket?.readyState !== WebSocket.OPEN) return;
         seq += 1;
         const plaintext = encodePayload(frame);
@@ -92,6 +93,7 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
             header: {
                 machineId: options.machineId,
                 ...(sessionId === undefined ? {} : { sessionId }),
+                ...(connectionId === undefined ? {} : { connectionId }),
                 ...(hosted === undefined ? {} : {
                     senderId: options.machineId,
                     recipientId: recipientId ?? '*',
@@ -289,16 +291,18 @@ export function connectToRelay(options: RelayLinkOptions): RelayLink {
     void open();
 
     return {
-        send(frame, sessionId, channel = 'session', recipientId) {
+        send(frame, sessionId, channel = 'session', recipientId, connectionId) {
             if (socket?.readyState === WebSocket.OPEN) {
-                try { transmit(frame, sessionId, channel, recipientId); }
+                try { transmit(frame, sessionId, channel, recipientId, connectionId); }
                 catch (error) {
                     if (recipientId === undefined) throw error;
                     // A revoked directed recipient no longer has an egress key.
                 }
                 return;
             }
-            if (closed) return;
+            // A chunk is only worth anything to the socket that asked for it,
+            // and that socket went with the link; the phone asks again.
+            if (closed || channel === 'attachment') return;
             if (outbound.length >= MAX_OUTBOUND) outbound.shift();
             outbound.push({ frame, channel, ...(sessionId === undefined ? {} : { sessionId }), ...(recipientId === undefined ? {} : { recipientId }) });
         },

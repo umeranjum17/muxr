@@ -550,7 +550,7 @@ export interface RequestMap extends PeerRequestMap {
     /** Hosted E2EE download path. Chunks ride inside the strict encrypted RPC envelope. */
     'artifact.read': {
         params: { sessionId: string; artifactId: string; offset: number; length: number };
-        result: { id: string; name: string; mimeType: string; size: number; offset: number; data: string } | null;
+        result: { id: string; name: string; mimeType: string; size: number; at?: number; offset: number; data: string; sha256?: string } | null;
     };
     /**
      * The artifact unification renamed `attachment.*` to `artifact.*` and
@@ -578,7 +578,7 @@ export interface RequestMap extends PeerRequestMap {
     /** @deprecated Use `artifact.read`. */
     'attachment.read': {
         params: { sessionId: string; attachmentId: string; offset: number; length: number };
-        result: { id: string; name: string; mimeType: string; size: number; offset: number; data: string } | null;
+        result: { id: string; name: string; mimeType: string; size: number; at?: number; offset: number; data: string; sha256?: string } | null;
     };
 
     // --- unread -------------------------------------------------------------

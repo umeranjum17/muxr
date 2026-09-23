@@ -205,10 +205,25 @@ Beyond the session basics, the host exposes herdr's topology to the app:
 Shared Artifacts is product-owned per-session history over the pane's watched
 dump directory. `artifact.list` returns a bounded metadata-only snapshot and
 `artifacts.update` publishes that same newest-first view when the watcher
-changes; bytes still travel only through `artifact.fetch`, bounded encrypted
-`artifact.read` chunks, or one-time local download tickets. The phone groups
-entries chronologically and reuses the image gallery, rich document previews,
-and download paths. Neither filesystem paths nor pane/session ids are rendered.
+changes; neither metadata path carries bytes. Previews can use `artifact.fetch`;
+current app downloads use bounded `artifact.read` chunks (up to 512 KiB each)
+on the encrypted RPC path. The host directs each chunk response to the requesting
+socket, and the relay neither replays nor buffers it. The older one-time local
+download ticket endpoint remains for installed clients but is not the current
+app's download path. The phone groups entries chronologically and reuses the
+image gallery and rich document previews. Neither filesystem paths nor pane/session
+ids are rendered.
+
+Downloads show progress and keep partial bytes for a later tap or resume after
+reconnection. Native downloads write to a cache file and open the finished file
+with the system (the installer for Android APKs). Web downloads use the origin's
+private file system and hand completed files to the browser download manager;
+if the page is hidden at completion, a durable private file can be saved on
+return, including after a reload. Without private-file-system access, web
+falls back to memory for files up to 64 MiB: Save reuses those bytes only until
+reload, then offers a new download. Larger files need private-file-system
+access. Partial downloads expire after seven days and are cleared on pairing
+change or removal.
 
 "Artifact" is the whole vocabulary here, host and phone alike: types, files,
 filesystem modules and protocol methods. Two things keep an older spelling on
@@ -217,8 +232,9 @@ purpose, because nothing on the other side can be told to change:
 - `attachment.list`, `attachment.fetch`, `attachment.prepare` and
   `attachment.read` remain wired to the same host handlers, with the old
   `attachmentId` param and the old `attachments` listing field. A host answers
-  them for an app built before the rename; an app reaches for them after a
-  `host-contract-mismatch` and remembers the answer.
+  them for an app built before the rename; the current app falls back to the
+  list, fetch and read aliases after a `host-contract-mismatch` and remembers
+  the answer.
 - `attachments.update` is published beside `artifacts.update` from the same
   publish site, carrying the same `total` and `truncated` under the old
   `attachments` field, so a pre-rename app's open timeline still updates live.
