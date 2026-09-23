@@ -35,6 +35,8 @@ const theme = {
         surfacePressed: '#333',
         textLink: '#0af',
         header: { tint: '#fff' },
+        status: { done: '#0a0', error: '#f55' },
+        box: { warning: { text: '#fa0' } },
     },
 };
 
@@ -844,6 +846,35 @@ describe('the usage screen read path', () => {
         expect(screenText(card)).toContain('7d');
         expect(screenText(card)).toContain('10% plugins.limits.percentLeft');
         expect(card.root.findAllByType('Meter')[0].props.ratio).toBeCloseTo(0.101);
+    });
+
+    it('shows a single plan with matching visible, spoken and metered remaining share on Home', async () => {
+        const now: UsageNow = { limits: { verdict: 'low', windows: [{ label: 'Rolling', window: '5h', used: 92, elapsed: 0.3 }] } };
+        noteAsked('', Date.now());
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, now) });
+        const card = renderCard();
+        await tick();
+        expect(screenText(card)).toContain('8% plugins.limits.percentLeft');
+        const openUsage = card.root.findAll((node: any) => node.props?.accessibilityLabel?.includes('Rolling 5h'))[0];
+        expect(openUsage.props.accessibilityLabel).toContain('8% plugins.limits.percentLeft');
+        const bar = card.root.findByType('Meter');
+        expect(bar.props.ratio).toBeCloseTo(0.08);
+        expect(bar.props.marker).toBeCloseTo(0.7);
+    });
+
+    it('shows the same remaining share and time-left tick on the Usage limit meter', async () => {
+        const { ScreenLimits } = await import('@/plugins/presentation/screenLimits');
+        let renderer: any;
+        TestRenderer.act(() => {
+            renderer = TestRenderer.create(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
+                limits: { verdict: 'low', windows: [{ label: 'Rolling', window: '5h', used: 92, elapsed: 0.3 }] },
+            }} />);
+        });
+        mounted.push(renderer!);
+        expect(screenText(renderer)).toContain('8% plugins.limits.percentLeft');
+        const bar = renderer.root.findByType('Meter');
+        expect(bar.props.ratio).toBeCloseTo(0.08);
+        expect(bar.props.marker).toBeCloseTo(0.7);
     });
 
     it('says what it holds when the figures name no connected plan', async () => {
