@@ -26,10 +26,9 @@ import { RightNowCard } from '@/usage';
 import { SessionItem } from './SessionsList';
 import { Header } from '@/components/navigation/Header';
 import { HeaderLogo } from '@/components/HeaderLogo';
-import { StatusDot } from '@/components/StatusDot';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
-import { HomeHeaderActions, HomeHeaderMark } from './HomeHeaderActions';
+import { HomeHeaderActions, HomeHeaderMark, HomeHeaderStatus } from './HomeHeaderActions';
 import { SectionLabel } from '@/components/ui';
 import { t } from '@/text';
 
@@ -111,6 +110,7 @@ const styles = StyleSheet.create((theme) => ({
     },
     titleContainer: {
         flex: 1,
+        minWidth: 0,
         alignItems: Platform.OS === 'web' ? 'center' : 'flex-start',
         justifyContent: Platform.OS === 'web' ? 'flex-start' : 'center',
     },
@@ -119,6 +119,8 @@ const styles = StyleSheet.create((theme) => ({
         justifyContent: 'flex-end',
     },
     titleText: {
+        flexShrink: 1,
+        maxWidth: '100%',
         fontSize: Platform.OS === 'web' ? 17 : 16,
         color: theme.colors.header.tint,
         fontWeight: '600',
@@ -144,21 +146,6 @@ const styles = StyleSheet.create((theme) => ({
         alignItems: 'center',
         gap: 3,
         maxWidth: '100%',
-    },
-    statusContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: -2,
-    },
-    statusText: {
-        fontSize: Platform.OS === 'web' ? 12 : 11,
-        fontWeight: '500',
-        lineHeight: 16,
-        ...Typography.default(),
-    },
-    tabletStatusText: {
-        fontSize: 13,
-        lineHeight: 18,
     },
     headerSearch: {
         width: '100%',
@@ -270,12 +257,7 @@ const HeaderTitle = React.memo(({ large = false, homeRecovering = false }: { lar
             ) : (
                 <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
             )}
-            {connectionStatus.text && (
-                <View style={styles.statusContainer}>
-                    <StatusDot color={connectionStatus.color} isPulsing={connectionStatus.isPulsing} size={6} style={{ marginRight: 4 }} />
-                    <Text numberOfLines={1} style={[styles.statusText, large && styles.tabletStatusText, { color: connectionStatus.color }]}>{connectionStatus.text}</Text>
-                </View>
-            )}
+            {connectionStatus.text && <HomeHeaderStatus {...connectionStatus} large={large} />}
             <OptionSheet
                 visible={machinePickerOpen}
                 title="Switch machine"
@@ -557,6 +539,7 @@ export const MainView = React.memo(() => {
                     <HomeHeaderActions searchActive={searchActive} onSearchPress={handleSearchPress} />
                 )}
                 headerRightGlass={false}
+                headerRightTouchInset
                 headerLeft={() => (Platform.OS === 'web' ? <HeaderLogo /> : <HomeHeaderMark />)}
                 headerLeftGlass={false}
                 headerBackdropVisible={headerBackdropVisible}

@@ -23,6 +23,7 @@ interface HeaderProps {
     headerLeftGlass?: boolean;
     headerRight?: (() => React.ReactNode) | null;
     headerRightGlass?: boolean;
+    headerRightTouchInset?: boolean;
     headerStyle?: any;
     headerTitleStyle?: any;
     headerSubtitleStyle?: any;
@@ -45,6 +46,7 @@ export const Header = React.memo((props: HeaderProps) => {
         headerLeftGlass = false,
         headerRight,
         headerRightGlass = true,
+        headerRightTouchInset = false,
         headerStyle,
         headerTitleStyle,
         headerSubtitleStyle,
@@ -140,7 +142,7 @@ export const Header = React.memo((props: HeaderProps) => {
                         {subtitle && <Text style={subtitleStyle} numberOfLines={1}>{subtitle}</Text>}
                     </View>
 
-                    <View style={styles.rightContainer}>
+                    <View style={[styles.rightContainer, headerRightTouchInset && styles.rightContainerTouchInset]}>
                         {headerRight && headerRightUsesGlass && (
                             <MobileGlassSurface
                                 enabled={floatingControlsEnabled}
@@ -315,6 +317,7 @@ const stylesheet = StyleSheet.create((theme, runtime) => ({
         flexShrink: 0,
         alignItems: 'flex-end',
     },
+    rightContainerTouchInset: { paddingHorizontal: 4, marginHorizontal: -4 },
     rightControlGlass: {
         minWidth: Platform.select({ web: 0, default: MOBILE_GLASS_CONTROL_SIZE }),
         minHeight: Platform.select({ web: 0, default: MOBILE_GLASS_CONTROL_SIZE }),
