@@ -30,6 +30,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 private const val TAG = "DesklinkSession"
+private const val MOVE_BUFFER_LIMIT = 4096L
 
 /**
  * One desktop session, native side.
@@ -59,6 +60,7 @@ class DesktopSession(
   }
   private val ui = Handler(Looper.getMainLooper())
   private var inputSeq = 0L
+  private var pendingMove: JSONObject? = null
 
   @Volatile private var factory: PeerConnectionFactory? = null
   @Volatile private var peer: PeerConnection? = null
@@ -199,11 +201,22 @@ class DesktopSession(
     if (closed) return
     val active = channel ?: return
     if (active.state() != DataChannel.State.OPEN) return
-    // Only a move can be replaced by the next one. Dropping an up/cancel would
-    // leave input held; clipboard and keyboard messages also need delivery.
-    if (active.bufferedAmount() > 256 * 1024 &&
-      message.optString("kind") == "pointer" && message.optString("phase") == "move"
-    ) return
+    if (message.optString("kind") == "pointer" && message.optString("phase") == "move") {
+      if (active.bufferedAmount() > MOVE_BUFFER_LIMIT) pendingMove = message
+      else {
+        pendingMove = null
+        sendNow(active, message)
+      }
+      return
+    }
+    pendingMove?.let {
+      pendingMove = null
+      sendNow(active, it)
+    }
+    if (!closed) sendNow(active, message)
+  }
+
+  private fun sendNow(active: DataChannel, message: JSONObject) {
     message.put("seq", ++inputSeq)
     val sent = active.send(DataChannel.Buffer(
       ByteBuffer.wrap(message.toString().toByteArray(StandardCharsets.UTF_8)), false,
@@ -302,6 +315,7 @@ class DesktopSession(
   fun close() {
     if (closed) return
     closed = true
+    pendingMove = null
     ++epoch
     io.execute {
       // Releasing everything the far side held is the engine's job on session
@@ -402,7 +416,18 @@ class DesktopSession(
       if (dataChannel == null || target != epoch) return
       channel = dataChannel
       dataChannel.registerObserver(object : DataChannel.Observer {
-        override fun onBufferedAmountChange(amount: Long) = Unit
+        override fun onBufferedAmountChange(amount: Long) {
+          synchronized(this@DesktopSession) {
+            if (!closed && channel === dataChannel && dataChannel.state() == DataChannel.State.OPEN &&
+              dataChannel.bufferedAmount() <= MOVE_BUFFER_LIMIT
+            ) {
+              pendingMove?.let {
+                pendingMove = null
+                sendNow(dataChannel, it)
+              }
+            }
+          }
+        }
 
         override fun onStateChange() {
           if (target == epoch) {

@@ -19,6 +19,9 @@ import { desktopCopy } from '../model/desktopCopy';
 import { describeDesktopOverlay, describeInputRejection } from '../model/desktopOverlay';
 import { DESKTOP_KEY_ROW_HEIGHT, DesktopKeyRow } from './DesktopKeyRow';
 
+/** Request smoother motion than the engine's default; still frames are not repeated. */
+const DESKTOP_FPS = 60;
+
 /** How long a notice stays over the desktop before it gets out of the way. */
 const NOTICE_MS = 4000;
 
@@ -48,6 +51,7 @@ const GESTURES: readonly [gesture: string, effect: string][] = [
     ['Two fingers', 'Scroll'],
     ['Pinch', 'Zoom'],
     ['Drag', 'Move around when zoomed'],
+    ['Drag on the whole desktop', 'Move the pointer'],
 ];
 
 export interface DesktopSurfaceProps {
@@ -111,8 +115,8 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     const session = useDesktopSession({
         // Ask the host what it can actually do before requesting scope: a host
         // whose clipboard backend is absent must not be asked for a permission
-        // whose every use would fail. The picture's size and rate are the
-        // engine's to choose: the desktop's own pixels, so zooming stays sharp.
+        // whose every use would fail. The picture's size is the engine's to
+        // choose: the desktop's own pixels, so zooming stays sharp.
         authorize: React.useCallback(async () => {
             const capabilities = await sync.request('desktop.capabilities', {}).catch(() => null);
             const canClipboard = capabilities?.clipboard === true;
@@ -121,7 +125,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                 ? ['view', 'control', 'clipboard']
                 : ['view', 'control'];
             return {
-                signaling: createDesktopSignaling({ permissions }),
+                signaling: createDesktopSignaling({ permissions, maxFps: DESKTOP_FPS }),
                 session: { permissions },
             };
         }, []),

@@ -126,7 +126,7 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     expect(root().findAllByProps({ accessibilityLabel: 'Copy to Phone' })).toHaveLength(0);
     expect(root().findAllByProps({ accessibilityLabel: 'Paste from Phone' })).toHaveLength(0);
     const notice = () => root().findByProps({ accessibilityLiveRegion: 'polite' }).children.join('');
-    expect(notice()).toContain('Pinch to zoom');
+    expect(notice()).toContain('Drag to move the pointer');
     TestRenderer.act(() => { vi.advanceTimersByTime(7000); });
     expect(notice()).toBe('This computer cannot share its clipboard.');
     await TestRenderer.act(async () => view.unmount());
@@ -174,7 +174,7 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     expect(root().findAllByProps({ accessibilityLabel: 'Tap: Click' })).toHaveLength(0);
     keyboardVisible = false;
     await TestRenderer.act(async () => view.update(<DesktopSurface onExit={exit} />));
-    fits(['Tap: Click', 'Double-tap: Double-click', 'Hold: Right-click', 'Hold and drag: Select or drag', 'Two fingers: Scroll', 'Pinch: Zoom', 'Drag: Move around when zoomed'], true);
+    fits(['Tap: Click', 'Double-tap: Double-click', 'Hold: Right-click', 'Hold and drag: Select or drag', 'Two fingers: Scroll', 'Pinch: Zoom', 'Drag: Move around when zoomed', 'Drag on the whole desktop: Move the pointer'], true);
     TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Desktop gestures' }).props.onPress());
 
     keyboardVisible = true;
@@ -194,7 +194,7 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     expect(root().findAllByProps({ accessibilityRole: 'header' })).toHaveLength(1);
     fits(['Gestures', 'Fit to screen', 'Disconnect']);
     TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Gestures' }).props.onPress());
-    fits(['Tap: Click', 'Double-tap: Double-click', 'Hold: Right-click', 'Hold and drag: Select or drag', 'Two fingers: Scroll', 'Pinch: Zoom', 'Drag: Move around when zoomed'], true);
+    fits(['Tap: Click', 'Double-tap: Double-click', 'Hold: Right-click', 'Hold and drag: Select or drag', 'Two fingers: Scroll', 'Pinch: Zoom', 'Drag: Move around when zoomed', 'Drag on the whole desktop: Move the pointer'], true);
     expect(root().findAllByProps({ accessibilityLabel: 'Desktop actions' })).toHaveLength(1);
     await TestRenderer.act(async () => view.unmount());
     vi.useRealTimers();

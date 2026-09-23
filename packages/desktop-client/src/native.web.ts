@@ -41,6 +41,7 @@ const PIXELS_PER_DETENT = 120;
 
 /** Wheel steps smaller than this wait for more movement. */
 const MIN_WHEEL_STEP = 0.05;
+const MOVE_BUFFER_LIMIT = 4096;
 
 /** The first picture comes up out of black rather than cutting in. */
 const REVEAL = 'opacity 280ms ease-out';
@@ -55,7 +56,7 @@ const POINTER_MARK = '<svg width="28" height="28" viewBox="0 0 28 28" aria-hidde
     + '<path d="M3 3 L3 22.25 L7.73 17.96 L10.92 25.22 L14 23.9 L10.92 16.86 L17.08 16.86 Z" '
     + 'fill="#000" stroke="#fff" stroke-width="2.2" stroke-linejoin="round" paint-order="stroke"/></svg>';
 
-type Gesture = 'none' | 'pending' | 'pan' | 'armed' | 'drag' | 'two' | 'pinch' | 'scroll' | 'spent' | 'mouse';
+type Gesture = 'none' | 'pending' | 'letterbox' | 'pan' | 'hover' | 'armed' | 'drag' | 'two' | 'pinch' | 'scroll' | 'spent' | 'mouse';
 
 const MODIFIER_NAMES = new Set(['Control', 'Shift', 'Alt', 'Meta']);
 
@@ -63,6 +64,8 @@ interface WebSession {
     id: string;
     peer: RTCPeerConnection;
     channel: RTCDataChannel | null;
+    pendingMove: Record<string, unknown> | null;
+    moveFrame: number | null;
     video: HTMLVideoElement;
     keyboard: HTMLTextAreaElement;
     /** Where the next click lands, drawn over the picture once a touch has put it somewhere. */
@@ -92,6 +95,7 @@ interface WebSession {
     touches: Map<number, { x: number; y: number }>;
     downX: number;
     downY: number;
+    downOnPicture: boolean;
     lastX: number;
     lastY: number;
     /** The last desktop point a held button was moved to. */
@@ -205,9 +209,30 @@ function createSessionElements(): { video: HTMLVideoElement; keyboard: HTMLTextA
     return { video, keyboard, mark };
 }
 
+function scheduleMove(session: WebSession): void {
+    if (session.moveFrame !== null || session.pendingMove === null) return;
+    session.moveFrame = requestAnimationFrame(() => {
+        session.moveFrame = null;
+        const channel = session.channel;
+        if (channel?.readyState !== 'open' || channel.bufferedAmount > MOVE_BUFFER_LIMIT || session.pendingMove === null) return;
+        channel.send(JSON.stringify(session.pendingMove));
+        session.pendingMove = null;
+    });
+}
+
 function control(session: WebSession, message: Record<string, unknown>): void {
-    if (session.channel?.readyState !== 'open') return;
-    session.channel.send(JSON.stringify(message));
+    const channel = session.channel;
+    if (channel?.readyState !== 'open') return;
+    if (message.kind === 'pointer' && message.phase === 'move') {
+        session.pendingMove = message;
+        scheduleMove(session);
+        return;
+    }
+    if (session.pendingMove !== null) {
+        channel.send(JSON.stringify(session.pendingMove));
+        session.pendingMove = null;
+    }
+    channel.send(JSON.stringify(message));
 }
 
 /**
@@ -369,7 +394,8 @@ function click(session: WebSession, at: { x: number; y: number }, button: number
  *  - tap: click where the finger lands; two taps: a double click on one spot;
  *  - press and hold: a right click on release, or drag after it to hold the
  *    left button (select text, move a window);
- *  - one finger: move around a zoomed-in desktop;
+ *  - one finger: move around a zoomed-in desktop; on the whole desktop,
+ *    move its pointer, which follows the finger without pressing a button;
  *  - two fingers: scroll the desktop under them, or pinch to zoom (and move)
  *    the picture; a quick two-finger tap is a right click.
  *
@@ -386,6 +412,7 @@ function attachGestures(session: WebSession): () => void {
         const at = desktopPoint(session, session.downX, session.downY);
         if (at === null) return;
         session.gesture = 'armed';
+        session.lastTap = null;
         pointer(session, 'move', at);
         globalThis.navigator?.vibrate?.(10);
     };
@@ -394,6 +421,11 @@ function attachGestures(session: WebSession): () => void {
         const at = desktopPoint(session, x, y, true);
         if (at !== null) pointer(session, 'up', at, 1);
         else control(session, { kind: 'pointer', phase: 'cancel', x: 0, y: 0, seq: seq(session) });
+    };
+
+    const hoverTo = (x: number, y: number): void => {
+        const at = desktopPoint(session, x, y, true);
+        if (at !== null) pointer(session, 'move', at);
     };
 
     const dragTo = (x: number, y: number): void => {
@@ -499,18 +531,22 @@ function attachGestures(session: WebSession): () => void {
         }
         session.touches.set(event.pointerId, { x, y });
         if (session.touches.size === 1) {
-            session.gesture = 'pending';
+            session.downOnPicture = desktopPoint(session, x, y) !== null;
+            session.gesture = session.view.fitted && !session.downOnPicture ? 'letterbox' : 'pending';
             session.downX = x;
             session.downY = y;
             session.lastX = x;
             session.lastY = y;
             cancelLongPress(session);
-            session.longPress = setTimeout(longPress, LONG_PRESS_MS);
+            if (session.gesture === 'pending') session.longPress = setTimeout(longPress, LONG_PRESS_MS);
+            else session.lastTap = null;
             return;
         }
         cancelLongPress(session);
+        session.lastTap = null;
         if (session.gesture === 'drag') endDrag(session.lastX, session.lastY);
-        if (session.touches.size === 2 && ['pending', 'pan', 'armed', 'drag'].includes(session.gesture)) {
+        if (session.touches.size === 2 && (['pending', 'pan', 'hover', 'armed', 'drag'].includes(session.gesture)
+            || (session.gesture === 'letterbox' && desktopPoint(session, x, y) !== null))) {
             const [a, b] = pair();
             session.gesture = 'two';
             session.twoStart = Date.now();
@@ -545,10 +581,19 @@ function attachGestures(session: WebSession): () => void {
             case 'pending':
                 if (Math.hypot(x - session.downX, y - session.downY) > TOUCH_SLOP) {
                     cancelLongPress(session);
-                    session.gesture = 'pan';
+                    session.lastTap = null;
+                    // The whole desktop has nowhere to move to, so the finger
+                    // moves the desktop's pointer instead, without a button.
+                    session.gesture = session.view.fitted
+                        ? (session.downOnPicture ? 'hover' : 'letterbox')
+                        : 'pan';
                     session.lastX = x;
                     session.lastY = y;
+                    if (session.gesture === 'hover') hoverTo(x, y);
                 }
+                return;
+            case 'hover':
+                hoverTo(x, y);
                 return;
             case 'pan':
                 panBy(session, x - session.lastX, y - session.lastY);
@@ -612,6 +657,7 @@ function attachGestures(session: WebSession): () => void {
             return;
         }
         if (gesture === 'pending') tap(x, y);
+        else if (gesture === 'hover') hoverTo(x, y);
         else if (gesture === 'armed') {
             const at = desktopPoint(session, session.downX, session.downY);
             if (at !== null) click(session, at, 3);
@@ -810,6 +856,8 @@ export const nativeDesklink: NativeDesklinkModule = {
             id,
             peer,
             channel: null,
+            pendingMove: null,
+            moveFrame: null,
             video,
             keyboard,
             mark,
@@ -826,6 +874,7 @@ export const nativeDesklink: NativeDesklinkModule = {
             touches: new Map(),
             downX: 0,
             downY: 0,
+            downOnPicture: false,
             lastX: 0,
             lastY: 0,
             dragX: 0,
@@ -879,10 +928,17 @@ export const nativeDesklink: NativeDesklinkModule = {
         peer.ondatachannel = (event) => {
             if (sessions.get(id) !== session) return;
             session.channel = event.channel;
+            event.channel.bufferedAmountLowThreshold = MOVE_BUFFER_LIMIT;
+            event.channel.onbufferedamountlow = () => scheduleMove(session);
             event.channel.onmessage = (message) => {
                 emit(id, 'control', { message: String(message.data) });
             };
-            event.channel.onclose = () => emit(id, 'closed', {});
+            event.channel.onclose = () => {
+                session.pendingMove = null;
+                if (session.moveFrame !== null) cancelAnimationFrame(session.moveFrame);
+                session.moveFrame = null;
+                emit(id, 'closed', {});
+            };
         };
         peer.onconnectionstatechange = () => {
             if (sessions.get(id) !== session) return;
@@ -1010,6 +1066,9 @@ export const nativeDesklink: NativeDesklinkModule = {
         sessions.delete(id);
         sequence.delete(id);
         session.detach?.();
+        session.pendingMove = null;
+        if (session.moveFrame !== null) cancelAnimationFrame(session.moveFrame);
+        session.moveFrame = null;
         session.channel?.close();
         session.peer.close();
         session.video.srcObject = null;

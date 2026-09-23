@@ -216,6 +216,7 @@ async fn probe_portal(seconds: u64) -> Result<()> {
         portal,
         0,
         0,
+        30,
         Box::new(move |frame, seq| {
             let _ = tx.send((frame.width, frame.height, seq));
         }),

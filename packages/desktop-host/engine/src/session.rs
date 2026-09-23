@@ -602,7 +602,7 @@ impl Session {
                 let source_h = source.height.max(1) as usize;
                 let (width, height) =
                     fit(source_w, source_h, request.max_width, request.max_height);
-                let capture = capture::start(portal, width, height, sink)
+                let capture = capture::start(portal, width, height, request.max_fps, sink)
                     .map_err(|error| SessionError::new("source", format!("{error:#}")))?;
                 Selected {
                     source,
