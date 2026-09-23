@@ -35,7 +35,8 @@ it('keeps the latest accepted pane read in the tile and pager when replies cross
         reads[0]!({ text: 'old screen' });
         await Promise.resolve();
     });
-    expect(renderer!.root.findByType('Text').props.children).toBe('new screen');
-    expect(renderer!.root.findByType(SnapshotText).children).toEqual(['new screen']);
+    const root = renderer!.root as { findByType(type: unknown): { props: { children?: unknown }; children: unknown[] } };
+    expect(root.findByType('Text').props.children).toBe('new screen');
+    expect(root.findByType(SnapshotText).children).toEqual(['new screen']);
     TestRenderer.act(() => renderer!.unmount());
 });
