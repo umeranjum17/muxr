@@ -1,0 +1,67 @@
+diff --git a/node_modules/react-native-unistyles/lib/commonjs/components/NamedTheme.js b/node_modules/react-native-unistyles/lib/commonjs/components/NamedTheme.js
+index 1696d1d..38ac507 100644
+--- a/node_modules/react-native-unistyles/lib/commonjs/components/NamedTheme.js
++++ b/node_modules/react-native-unistyles/lib/commonjs/components/NamedTheme.js
+@@ -20,6 +20,11 @@ const NamedTheme = ({
+     name: previousScopedTheme
+   }, "dispose")];
+   (0, _react.useLayoutEffect)(() => {
++    // A scope that names the theme the app already runs changes no style, so
++    // re-committing the shadow tree on each render would only cost time.
++    if (name !== undefined && name === _specs.UnistylesRuntime.themeName) {
++      return;
++    }
+     // this will affect only scoped styles as other styles are not yet mounted
+     _specs.UnistylesShadowRegistry.flush();
+   });
+diff --git a/node_modules/react-native-unistyles/lib/module/components/NamedTheme.js b/node_modules/react-native-unistyles/lib/module/components/NamedTheme.js
+index 6ddb8e7..49d66bf 100644
+--- a/node_modules/react-native-unistyles/lib/module/components/NamedTheme.js
++++ b/node_modules/react-native-unistyles/lib/module/components/NamedTheme.js
+@@ -1,7 +1,7 @@
+ "use strict";
+ 
+ import React, { useLayoutEffect } from 'react';
+-import { UnistylesShadowRegistry } from '../specs';
++import { UnistylesRuntime, UnistylesShadowRegistry } from '../specs';
+ import { ApplyScopedTheme } from './ApplyScopedTheme';
+ import { jsx as _jsx } from "react/jsx-runtime";
+ export const NamedTheme = ({
+@@ -15,6 +15,11 @@ export const NamedTheme = ({
+     name: previousScopedTheme
+   }, "dispose")];
+   useLayoutEffect(() => {
++    // A scope that names the theme the app already runs changes no style, so
++    // re-committing the shadow tree on each render would only cost time.
++    if (name !== undefined && name === UnistylesRuntime.themeName) {
++      return;
++    }
+     // this will affect only scoped styles as other styles are not yet mounted
+     UnistylesShadowRegistry.flush();
+   });
+diff --git a/node_modules/react-native-unistyles/src/components/NamedTheme.tsx b/node_modules/react-native-unistyles/src/components/NamedTheme.tsx
+index d717120..6cec0f7 100644
+--- a/node_modules/react-native-unistyles/src/components/NamedTheme.tsx
++++ b/node_modules/react-native-unistyles/src/components/NamedTheme.tsx
+@@ -4,7 +4,7 @@ import React, { useLayoutEffect } from 'react'
+ 
+ import type { UnistylesThemes } from '../global'
+ 
+-import { UnistylesShadowRegistry } from '../specs'
++import { UnistylesRuntime, UnistylesShadowRegistry } from '../specs'
+ import { ApplyScopedTheme } from './ApplyScopedTheme'
+ 
+ interface NamedThemeProps extends PropsWithChildren {
+@@ -20,6 +20,12 @@ export const NamedTheme: React.FunctionComponent<NamedThemeProps> = ({ name, chi
+     ]
+ 
+     useLayoutEffect(() => {
++        // A scope that names the theme the app already runs changes no style, so
++        // re-committing the shadow tree on each render would only cost time.
++        if (name !== undefined && name === UnistylesRuntime.themeName) {
++            return
++        }
++
+         // this will affect only scoped styles as other styles are not yet mounted
+         UnistylesShadowRegistry.flush()
+     })
