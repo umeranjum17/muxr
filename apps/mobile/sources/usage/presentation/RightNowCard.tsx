@@ -13,7 +13,7 @@ import { VERDICT_KEYS, verdictTone } from '@/plugins/ui';
 import { t } from '@/text';
 import { compactAge } from '@/utils/compactAge';
 import { useUsageNow } from '../application/useUsageNow';
-import { columnsPerBand, limitGrid, vitalsFacts, type LimitColumn, type LimitGrid } from '../domain/usageModel';
+import { columnsPerBand, limitGrid, vitalsFacts, type LimitCell, type LimitColumn, type LimitGrid } from '../domain/usageModel';
 
 /** The card refreshes itself on a slow cadence while someone is looking at it,
  *  so a few minutes behind is normal here and says nothing. Past this the age
@@ -21,8 +21,8 @@ import { columnsPerBand, limitGrid, vitalsFacts, type LimitColumn, type LimitGri
 const AGE_WORTH_MENTIONING_SECONDS = 600;
 
 /**
- * The top of Home as figures: every connected plan's limits in one grid of
- * what is left, then one quieter vitals line. The section label
+ * The top of Home as figures: every connected plan's mark beside what is left
+ * of each of its windows, then one quieter vitals line. The section label
  * is the title and carries the refresh control; the whole card opens the
  * Usage screen. Served by the host's typed usage.now method -- product code,
  * no plugin in the path.
@@ -75,7 +75,7 @@ export function RightNowCard() {
 
     const payload = display.figures;
     const verdict = payload.limits.verdict;
-    // Connected quota windows turn the first row into one restrained grid;
+    // Connected quota windows turn the first row into one strip of plans;
     // Memory/Disk/Load/Uptime stay the quiet row beneath it.
     const grid = connectedGrid(payload);
     const limit = grid !== undefined ? undefined : (payload.cardWindow ?? payload.limits.windows[0]);
@@ -86,7 +86,7 @@ export function RightNowCard() {
     // with the action attached. Reddening figures that are still the best
     // known answer would report the wrong thing: they are old, not wrong.
     const line = grid !== undefined
-        ? <LimitsGrid grid={grid} />
+        ? <PlanStrip grid={grid} />
         : limit !== undefined
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {dot}
@@ -179,107 +179,97 @@ function FreshnessControl({ payload, failed, refreshing, throttledSeconds, onRef
     );
 }
 
-/** The figures, set in the mono face so every digit is the same width and a
- *  figure that changes never shifts its neighbours. */
-const FIGURE_SIZE = 12.5;
-const FIGURE_LINE = 17;
-const LEGEND_SIZE = 10;
 /** Every glyph of the mono face is this share of its size wide, which is what
  *  lets the card know how much room "100%" takes before anything is measured. */
 const MONO_ADVANCE = 0.6;
-/** The least room between two plans' figures before they read as one number. */
-const FIGURE_GAP = 9;
-const LEGEND_GAP = 8;
-const LEGEND_MAX = 96;
-/** A plan's slot stops growing here, so two plans sit together rather than at
- *  opposite edges of a wide card. */
-const SLOT_MAX = 120;
-const MARK = 16;
-const MARK_ROW = MARK + 5;
 /** The card's margins, padding and border: its content width on a phone until
  *  layout has measured it. */
 const CARD_INSET = 2 * (16 + 14 + 1);
+/** A plan's figures, in the mono face so every digit is the same width and a
+ *  figure that changes never shifts its neighbours. */
+const FIGURE_SIZE = 16;
+const FIGURE_LINE = 20;
+const TAG_SIZE = 10;
+const MARK = 18;
+const MARK_GAP = 8;
+/** The least room between two plans before they read as one. */
+const PLAN_GAP = 14;
 
 /**
- * Every connected plan's limits at once: a column per plan under its mark, a
- * row per window, shortest first, named once at the left. Figures are what is
- * left, in one neutral voice until one is actually low. The plans spread
- * across the card and break into balanced bands only when they no longer fit
- * side by side, so the card never scrolls and never overlaps.
+ * Every connected plan's limits at once, the way a menu bar shows them: a
+ * plan's mark, then what is left of each of its windows stacked shortest
+ * first, each figure tagged with its window. Plans sit side by side in name
+ * order, so each keeps its place as its figures move, and break into balanced
+ * rows only when they no longer fit. Figures stay one neutral voice until a
+ * limit is actually low.
  *
- * What this replaces was one meter per plan for its tightest window only: the
- * other windows were a tap away, and six plans made the card six rows tall.
+ * What this replaces was a table: marks as column headers over a row per
+ * window length, with an empty cell wherever a plan had no window of that
+ * length.
  */
-function LimitsGrid({ grid }: { grid: LimitGrid }) {
+function PlanStrip({ grid }: { grid: LimitGrid }) {
+    const { theme } = useUnistyles();
     const screen = useWindowDimensions();
     const [measured, setMeasured] = React.useState<number>();
     const char = MONO_ADVANCE * screen.fontScale;
+    const plans = grid.columns.map((column) => ({ column, figures: planFigures(column, grid.rows) }));
+    const tagChars = Math.max(2, ...plans.flatMap(({ figures }) => figures.map((figure) => tagText(figure).length)));
+    const number = Math.ceil(4 * FIGURE_SIZE * char);
+    const unit = MARK + MARK_GAP + number + 3 + tagChars * TAG_SIZE * char;
     const width = measured ?? screen.width - CARD_INSET;
-    // Budget for the widest figure (including a multiple-limits marker), so
-    // the plans' marks and figure edges align within this grid.
-    const figure = Math.ceil(Math.max(4, ...grid.columns.flatMap((column) => column.cells.map((cell) =>
-        cell.length === 0 ? 0 : `${cell[0]!.left}%${cell.length > 1 ? `×${cell.length}` : ''}`.length))) * FIGURE_SIZE * char);
-    const legendWidth = Math.min(LEGEND_MAX, Math.max(0, ...grid.rows.map((row) => row.length)) * LEGEND_SIZE * char,
-        Math.max(0, width - figure - FIGURE_GAP - LEGEND_GAP));
-    const fits = Math.floor((width - legendWidth - LEGEND_GAP) / (figure + FIGURE_GAP));
-    const size = columnsPerBand(grid.columns.length, fits);
-    const bands = Array.from({ length: Math.ceil(grid.columns.length / size) }, (_, band) => grid.columns.slice(band * size, (band + 1) * size));
+    const perRow = columnsPerBand(plans.length, Math.floor((width + PLAN_GAP) / (unit + PLAN_GAP)));
     return (
-        <View onLayout={(event) => setMeasured(event.nativeEvent.layout.width)} style={{ rowGap: 14 }}>
-            {bands.map((columns) => <LimitBand key={columns[0]!.provider.id} rows={grid.rows} columns={columns} slots={size} figure={figure} legendWidth={legendWidth} />)}
-        </View>
-    );
-}
-
-/** One band of the grid. It names only the rows its own plans have, and keeps
- *  a slot for every column a full band holds, so a shorter last band's plans
- *  stand under the ones above them. */
-function LimitBand({ rows, columns, slots, figure, legendWidth }: { rows: string[]; columns: LimitColumn[]; slots: number; figure: number; legendWidth: number }) {
-    const { theme } = useUnistyles();
-    const shown = rows.flatMap((row, index) => (columns.some((column) => column.cells[index]!.length > 0) ? [{ row, index }] : []));
-    return (
-        <View style={{ flexDirection: 'row' }}>
-            <View style={{ width: legendWidth, marginRight: LEGEND_GAP, paddingTop: MARK_ROW }}>
-                {shown.map(({ row }) => (
-                    <Text key={row} numberOfLines={1} ellipsizeMode="tail" style={{ color: withAlpha(theme.colors.textSecondary, 0.75), fontSize: LEGEND_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular') }}>{row}</Text>
-                ))}
-            </View>
-            {Array.from({ length: slots }, (_, slot) => {
-                const column = columns[slot];
-                return (
-                    <View key={column?.provider.id ?? `slot-${slot}`} style={{ flex: 1, maxWidth: SLOT_MAX, alignItems: 'center' }}>
-                        {column !== undefined && (
-                            <View style={{ minWidth: figure }}>
-                                <View style={{ height: MARK_ROW, alignItems: 'center' }}>
-                                    <AgentGlyph name={column.provider.glyph ?? column.provider.id} size={MARK} />
-                                </View>
-                                {shown.map(({ row, index }) => {
-                                    const cell = column.cells[index]!;
-                                    // A plan with no limit of this length leaves its cell
-                                    // empty: the row's name says what is not there, and a
-                                    // mark in every gap would outweigh the figures.
-                                    const figureStyle = { textAlign: 'right' as const, fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('semiBold') };
-                                    if (cell.length === 0) return <Text key={row} numberOfLines={1} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden style={figureStyle}>{'\u00a0'}</Text>;
-                                    const tightest = cell[0]!;
-                                    return (
-                                        <Text key={row} numberOfLines={1} style={{ ...figureStyle, color: tightest.tone === undefined ? theme.colors.text : toneColor(theme, tightest.tone) }}>
-                                            {cell.length === 1 ? `${tightest.left}%` : [
-                                                `${tightest.left}%`,
-                                                <Text key="count" style={{ color: theme.colors.textSecondary, fontSize: LEGEND_SIZE }}>{`×${cell.length}`}</Text>,
-                                            ]}
-                                        </Text>
-                                    );
-                                })}
-                            </View>
-                        )}
+        <View onLayout={(event) => setMeasured(event.nativeEvent.layout.width)} style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: 14 }}>
+            {plans.map(({ column, figures }) => (
+                <View key={column.provider.id} style={{ width: `${100 / perRow}%`, flexDirection: 'row', alignItems: 'flex-start', gap: MARK_GAP }}>
+                    {/* The mark sits beside the first two figures, short over long,
+                        whatever else the plan has: every plan's mark lines up. */}
+                    <View style={{ height: 2 * FIGURE_LINE, justifyContent: 'center' }}>
+                        <AgentGlyph name={column.provider.glyph ?? column.provider.id} size={MARK} />
                     </View>
-                );
-            })}
+                    <View style={{ minHeight: 2 * FIGURE_LINE, justifyContent: 'center' }}>
+                        {figures.map((figure) => (
+                            <View key={figure.row} style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                                <Text numberOfLines={1} style={{ minWidth: number, textAlign: 'right', fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('semiBold'), color: figureColor(theme, figure.cell) }}>{`${figure.cell.left}%`}</Text>
+                                <Text numberOfLines={1} style={{ marginLeft: 3, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{tagText(figure)}</Text>
+                            </View>
+                        ))}
+                    </View>
+                </View>
+            ))}
         </View>
     );
 }
 
-/** The grid answers when any connected plan has a readable figure. */
+interface PlanFigure {
+    row: string;
+    /** The tightest limit of this length. */
+    cell: LimitCell;
+    /** How many limits of this length the plan has. */
+    count: number;
+}
+
+/** A plan's figures in the card's order, shortest window first: one per window
+ *  length, the tightest of that length, never a gap for a length it lacks. */
+function planFigures(column: LimitColumn, rows: string[]): PlanFigure[] {
+    return column.cells.flatMap((cell, index) => (cell.length === 0 ? [] : [{ row: rows[index]!, cell: cell[0]!, count: cell.length }]));
+}
+
+/** The window a figure is, as short as it can be said: its published length
+ *  ("5h", "7d"), otherwise its name's first letters ("mo" for Monthly), and
+ *  "×2" when two limits of that length share the figure. */
+function tagText(figure: PlanFigure): string {
+    // ponytail: only a billing month publishes no length today; a new unnamed
+    // window would read as its first two letters until it gets a real tag.
+    const tag = /^\d+[mhd]$/.test(figure.row) ? figure.row : figure.row.slice(0, 2).toLowerCase();
+    return figure.count > 1 ? `${tag}×${figure.count}` : tag;
+}
+
+function figureColor(theme: ReturnType<typeof useUnistyles>['theme'], cell: LimitCell): string {
+    return cell.tone === undefined ? theme.colors.text : toneColor(theme, cell.tone);
+}
+
+/** The strip answers when any connected plan has a readable figure. */
 function connectedGrid(payload: UsageFigures): LimitGrid | undefined {
     if (payload.connected === undefined) return undefined;
     const grid = limitGrid(payload.connected);

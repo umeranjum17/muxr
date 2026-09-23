@@ -872,26 +872,19 @@ describe('the usage screen read path', () => {
         await tick();
 
         expect(card.root.findAllByType('AgentGlyph').map((mark: any) => mark.props.name)).toEqual(['claude', 'codex', 'opencode']);
-        // The row names, then each plan's column top to bottom; a plan with no
-        // limit of a length leaves that cell empty rather than inventing one.
-        const figures = card.root.findAllByType('Text')
-            .map((node: any) => [Array.isArray(node.props.children)
-                ? node.props.children.filter((part: unknown) => typeof part === 'string').join('')
-                : node.props.children, node.props.style?.color])
-            .filter(([text]: any) => typeof text === 'string' && text.trim() !== '' && !text.startsWith('plugins.rightNow.memory'));
-        expect(figures).toEqual([
-            ['5h', '#000'], ['7d', '#000'], ['Monthly', '#000'],
-            ['36%', '#fff'],
-            ['60%', '#fff'], ['×2', '#999'], ['89%', '#fff'],
-            ['93%', '#fff'], ['0%', 'tone:danger'], ['8%', 'tone:warning'],
+        // Each plan's figures under its mark, shortest window first, each tagged
+        // with its window: no table, so no empty cell for a length a plan lacks.
+        // Two limits of one length show the tighter and say there are two.
+        const figures = () => card.root.findAllByType('Text')
+            .map((node: any) => [node.props.children, node.props.style?.color])
+            .filter(([text]: any) => typeof text === 'string' && !text.startsWith('plugins.rightNow.memory'));
+        expect(figures()).toEqual([
+            ['36%', '#fff'], ['7d', '#999'],
+            ['60%', '#fff'], ['5h×2', '#999'], ['89%', '#fff'], ['7d', '#999'],
+            ['93%', '#fff'], ['5h', '#999'], ['0%', 'tone:danger'], ['7d', '#999'], ['8%', 'tone:warning'], ['mo', '#999'],
         ]);
-        const spacer = card.root.findAllByType('Text').find((node: any) => node.props.children === '\u00a0');
-        const figure = card.root.findAllByType('Text').find((node: any) => node.props.children === '36%');
-        expect(spacer?.props.style).toMatchObject({ fontSize: figure!.props.style.fontSize, lineHeight: figure!.props.style.lineHeight });
-        expect(spacer?.props['aria-hidden']).toBe(true);
-        expect(spacer?.props.accessibilityElementsHidden).toBe(true);
-        // Read aloud in the same order, and a coloured figure says why and
-        // when it comes back, which its colour cannot.
+        // Read aloud in the same order, naming every limit, and a coloured
+        // figure says why and when it comes back, which its colour cannot.
         const summary: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button' && node.props?.onPress !== undefined
             && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
         expect(summary.indexOf('Claude plan')).toBeLessThan(summary.indexOf('OpenAI Codex'));
@@ -901,6 +894,10 @@ describe('the usage screen read path', () => {
         expect(summary).toContain('Monthly 8% plugins.limits.percentLeft (plugins.limits.low, plugins.rightNow.resetsIn(18d))');
         expect(summary).not.toContain('Z.ai');
 
+        // Plans sit side by side while they fit and wrap when they do not:
+        // three across a roomy phone, two a row on a narrow one.
+        const planWidths = () => card.root.findAllByType('AgentGlyph').map((mark: any) => mark.parent.parent.props.style.width);
+        expect(planWidths()).toEqual(['33.333333333333336%', '33.333333333333336%', '33.333333333333336%']);
         const longName = `${'model-'.repeat(12)}session`;
         screenWidth = 270;
         TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, {
@@ -909,15 +906,12 @@ describe('the usage screen read path', () => {
                 ? { ...provider, windows: [...provider.windows, { label: longName, used: 17 }] }
                 : provider),
         }) }); });
-        const row = card.root.findAllByType('Text').find((node: any) => node.props.children === longName);
-        expect(row?.props.numberOfLines).toBe(1);
-        expect(row?.props.ellipsizeMode).toBe('tail');
-        const legendWidth = row!.parent.props.style.width;
-        const codexMark = card.root.findAllByType('AgentGlyph').find((mark: any) => mark.props.name === 'codex');
-        const figureWidth = codexMark!.parent.parent.props.style.minWidth;
-        expect(legendWidth).toBeLessThanOrEqual(96);
-        expect(legendWidth + 8 + figureWidth + 9).toBeLessThanOrEqual(270 - 2 * (16 + 14 + 1));
-        expect(screenText(card)).toContain('Monthly');
+        expect(planWidths()).toEqual(['50%', '50%', '50%']);
+        // A window with no published length is tagged by its first letters on
+        // screen; its whole name is still what a reader hears.
+        expect(figures()).toContainEqual(['83%', '#fff']);
+        expect(figures()).toContainEqual(['mo', '#999']);
+        expect(screenText(card)).not.toContain(longName);
         const updatedLabel: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
             && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
         expect(updatedLabel).toContain(longName);
