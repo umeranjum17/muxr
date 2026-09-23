@@ -15,6 +15,7 @@
         "engine/native",
         "engine/build.rs",
         "engine/Cargo.toml",
+        "engine/Cargo.lock",
         "engine/src",
         "engine/vendor",
         "docs",

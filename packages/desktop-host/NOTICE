@@ -6,7 +6,9 @@ them is copyleft; the notices below are the conditions of their permissive
 licences.
 
   libvpx                        BSD-3-Clause
-    VP9 encoding. Linked from the host system's libvpx.
+    VP9 encoding. A source build links the host system's libvpx; the prebuilt
+    engine (@desklink/host-linux-x64-gnu) links libvpx v1.16.0 statically and
+    carries its licence and patent grant in THIRD_PARTY_LICENSES.txt.
     https://chromium.googlesource.com/webm/libvpx/+/refs/heads/main/LICENSE
 
   inputtino                     MIT
@@ -32,7 +34,10 @@ licences.
     Keyboard layout lookup.
 
   webrtc (webrtc-rs)            MIT / Apache-2.0
-  rustls, ring and their transitive dependencies: see their own notices.
+  rustls, ring and their transitive dependencies: see their own notices. The
+    prebuilt engine reproduces every linked crate's licence text in
+    THIRD_PARTY_LICENSES.txt, and its build refuses any crate whose licence is
+    not permissive.
 
 No code from Sunshine, Moonlight, Apollo, RustDesk, GNOME Remote Desktop, KRdp,
 WayVNC, Guacamole or MeshCentral is copied, linked or derived from here. Those

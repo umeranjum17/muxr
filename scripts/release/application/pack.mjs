@@ -30,7 +30,10 @@ const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).
 const sourceTree = execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim();
 const sourceDirty = execFileSync('git', ['status', '--porcelain', '--untracked-files=normal'], { encoding: 'utf8' }).trim() !== '';
 const releaseMetadata = { ...release, commit, sourceTree, sourceDirty };
-const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', 'web-push': '^3.6.7', 'bonjour-service': '^1.4.4' };
+// The desktop engine is a dependency, not inlined: installing muxr installs
+// @desklink/host, whose optional platform package carries the prebuilt engine.
+const desklinkHost = require(join(root, 'packages', 'desktop-host', 'package.json'));
+const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', 'web-push': '^3.6.7', 'bonjour-service': '^1.4.4', '@desklink/host': desklinkHost.version };
 const external = Object.keys(runtimeDependencies);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -108,9 +111,21 @@ const ccusagePlatformDependencies = ['darwin-arm64', 'darwin-x64', 'linux-arm64'
         transitiveOf: 'ccusage',
     };
 });
+// Its native executable is desklink's own Apache-2.0 build; the licences of
+// what it links travel inside that package as THIRD_PARTY_LICENSES.txt.
+const desklinkPlatformDependencies = ['linux-x64-gnu'].map((target) => ({
+    name: `@desklink/host-${target}`,
+    auditedVersion: desklinkHost.version,
+    license: desklinkHost.license,
+    bundled: false,
+    licensePath: join(root, 'packages', 'desktop-host', 'LICENSE'),
+    declaredRange: null,
+    transitiveOf: '@desklink/host',
+}));
 const dependencies = [
     ...bundledDependencies,
     ...ccusagePlatformDependencies,
+    ...desklinkPlatformDependencies,
     ...external
         .filter((name) => !bundledNames.has(name))
         .sort()

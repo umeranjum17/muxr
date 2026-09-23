@@ -547,8 +547,8 @@ try {
     for (const dependency of licenseInventory.dependencies) {
         if (dependency.transitiveOf !== undefined) {
             assert.equal(dependency.declaredRange, null);
-            assert.equal(dependency.transitiveOf, 'ccusage');
-            assert.equal(dependency.auditedVersion, packageJson.dependencies.ccusage);
+            assert.ok(['ccusage', '@desklink/host'].includes(dependency.transitiveOf), `${dependency.name} is transitive of ${dependency.transitiveOf}`);
+            assert.equal(dependency.auditedVersion, packageJson.dependencies[dependency.transitiveOf]);
         } else {
             assert.equal(dependency.declaredRange, dependency.bundled ? null : packageJson.dependencies[dependency.name]);
         }
@@ -562,11 +562,21 @@ try {
         assert.ok(licenseInventory.dependencies.some((dependency) => dependency.name === `@ccusage/ccusage-${target}` && dependency.transitiveOf === 'ccusage'), `${target} ccusage binary missing from license audit`);
     }
 
+    // The CLI depends on the desktop engine package from the registry; this
+    // checkout's own copy, packed the way it is released, stands in for it.
+    const desklinkDir = join(scratch, 'desklink');
+    run(process.execPath, [join(root, 'packages', 'desktop-host', 'release', 'pack.mjs'), '--out', desklinkDir]);
+    const desklinkTarball = join(desklinkDir, readdirSync(desklinkDir).find((name) => name.endsWith('.tgz')));
     writeFileSync(join(installDir, 'package.json'), '{"private":true}\n');
-    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], {
+    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball, desklinkTarball], {
         cwd: installDir,
         env: { ...process.env, npm_config_cache: join(scratch, 'npm-cache') },
     });
+    const installedDesklink = JSON.parse(readFileSync(join(installDir, 'node_modules', '@desklink', 'host', 'package.json'), 'utf8'));
+    assert.equal(installedDesklink.version, packageJson.dependencies['@desklink/host']);
+    for (const platform of licenseInventory.dependencies.filter((dependency) => dependency.transitiveOf === '@desklink/host')) {
+        assert.equal(installedDesklink.optionalDependencies?.[platform.name], platform.auditedVersion, `@desklink/host does not install ${platform.name}`);
+    }
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');

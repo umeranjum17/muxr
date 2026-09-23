@@ -40,7 +40,7 @@ packages/
     index.ts                         public barrel
     selfCheck.ts
     e2ee/{index.ts,domain/,application/,infrastructure/}
-  desktop-host/{bin,src,docs,engine}  engine, its Rust crate, its protocol and boundary
+  desktop-host/{bin,src,docs,engine,release}  engine, its Rust crate, its protocol and boundary, its prebuilt release
   desktop-client/{src,android}        React Native session and view (iOS deferred)
 ```
 
