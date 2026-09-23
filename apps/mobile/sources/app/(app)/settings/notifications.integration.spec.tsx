@@ -4,7 +4,7 @@ import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({ level: 'all' as 'off' | 'important' | 'all', listeners: new Set<() => void>() }));
+const state = vi.hoisted(() => ({ level: 'all' as 'off' | 'important' | 'all', machineId: 'machine', listeners: new Set<() => void>() }));
 vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { addEventListener: () => ({ remove() {} }) }, Linking: {} }));
 vi.mock('expo-application', () => ({ applicationId: null }));
 vi.mock('expo-notifications', () => ({}));
@@ -18,7 +18,7 @@ vi.mock('@/catalog/store', () => ({
         (level: typeof state.level) => { state.level = level; for (const listener of state.listeners) listener(); },
     ],
 }));
-vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ mode: 'hosted', machineId: 'machine', relayUrl: 'wss://relay.test', token: '' }) }));
+vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ mode: 'hosted', machineId: state.machineId, relayUrl: 'wss://relay.test', token: '' }) }));
 vi.mock('@/pairing/e2ee', () => ({ getCachedHostedGrant: () => ({ credential: 'credential' }) }));
 vi.mock('@/utils/microphonePermissions', () => ({ requestNotificationPermission: vi.fn() }));
 vi.mock('@/utils/nativePushNotifications', () => ({ registerNativePushNotifications: vi.fn(), updateNativePushNotificationLevel: vi.fn() }));
@@ -36,9 +36,9 @@ vi.mock('@/components/ItemList', () => ({ ItemList: (props: Record<string, unkno
 vi.mock('@/components/Switch', () => ({ Switch: (props: Record<string, unknown>) => React.createElement('Switch', props) }));
 
 import NotificationSettingsScreen from './notifications';
-import { updateWebPushNotificationLevel } from '@/utils/pushNotifications';
+import { refreshPushState, updateWebPushNotificationLevel } from '@/utils/pushNotifications';
 
-let rendered: TestRenderer.ReactTestRenderer | undefined;
+let rendered: ReturnType<typeof TestRenderer.create> | undefined;
 
 afterEach(() => {
     if (rendered) TestRenderer.act(() => rendered?.unmount());
@@ -49,6 +49,13 @@ afterEach(() => {
 
 it('keeps the visible switches, relay order, and worker admission in sync', async () => {
     state.level = 'all';
+    state.machineId = 'machine';
+    const confirmed = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+        getItem: (key: string) => confirmed.get(key) ?? null,
+        setItem: (key: string, value: string) => { confirmed.set(key, value); },
+        removeItem: (key: string) => { confirmed.delete(key); },
+    });
     const entries = new Map<string, Response>();
     const cache = {
         put: async (key: string, response: Response) => { entries.set(key, response); },
@@ -66,8 +73,10 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
         unsubscribe: async () => { subscription = null; return true; },
     });
     subscription = createSubscription();
+    confirmed.set('muxr.webPush.confirmed.machine', subscription.endpoint);
+    let queryFails = false;
     const registration = { pushManager: {
-        getSubscription: async () => subscription,
+        getSubscription: async () => { if (queryFails) throw new Error('push query failed'); return subscription; },
         subscribe: async () => { subscription = createSubscription(); return subscription; },
     } };
     vi.stubGlobal('navigator', { serviceWorker: {
@@ -97,8 +106,9 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
     }));
 
     await TestRenderer.act(async () => { rendered = TestRenderer.create(React.createElement(NotificationSettingsScreen)); });
-    const switchFor = (name: string) => rendered!.root.findAllByType('Switch').find((item) => item.props.accessibilityLabel === name)!;
-    const failedNote = () => rendered!.root.findAllByType('ItemGroup').some((group) => group.props.footer === "Couldn't update — try again");
+    const rows = (type: string) => (rendered!.root as { findAllByType(type: string): { props: any }[] }).findAllByType(type);
+    const switchFor = (name: string) => rows('Switch').find((item) => item.props.accessibilityLabel === name)!;
+    const failedNote = () => rows('ItemGroup').some((group) => group.props.footer === "Couldn't update — try again");
 
     let off!: Promise<void>;
     TestRenderer.act(() => { off = switchFor('An agent needs you').props.onValueChange(false); });
@@ -111,10 +121,17 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
         self: { addEventListener: (name: string, listener: (event: any) => void) => { listeners[name] = listener; }, registration: { showNotification: shown } },
         caches: { open: async () => cache },
     });
-    let finished!: Promise<void>;
-    listeners.push({ data: { json: () => ({ kind: 'blocked', title: 'Should not appear' }) }, waitUntil: (promise: Promise<void>) => { finished = promise; } });
-    await finished;
+    const receive = async (kind: string) => {
+        let finished!: Promise<void>;
+        listeners.push({ data: { json: () => ({ kind, title: kind }) }, waitUntil: (promise: Promise<void>) => { finished = promise; } });
+        await finished;
+    };
+    await receive('blocked');
     expect(shown).not.toHaveBeenCalled();
+    entries.delete('/muxr-push-level');
+    await receive('blocked');
+    expect(shown).toHaveBeenCalledOnce();
+    await cache.put('/muxr-push-level', new Response('off'));
 
     release(new Response(null, { status: 503 }));
     await TestRenderer.act(async () => { await off; });
@@ -132,6 +149,27 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
     await Promise.all([first, superseded, latest]);
     expect(posts).toEqual(['off', 'important', 'all']);
 
+    queryFails = true;
+    expect(await refreshPushState()).not.toBe('unsubscribed');
+    await TestRenderer.act(async () => { await switchFor('An agent needs you').props.onValueChange(false); });
+    expect(state.level).toBe('all');
+    expect(failedNote()).toBe(true);
+    queryFails = false;
+
+    failRegistration = true;
+    state.machineId = 'other-machine';
+    expect(await updateWebPushNotificationLevel('all')).toBe(false);
+    expect(await refreshPushState()).not.toBe('subscribed');
+    await TestRenderer.act(async () => { rendered?.unmount(); rendered = TestRenderer.create(React.createElement(NotificationSettingsScreen)); });
+    await vi.waitFor(() => expect(failedNote()).toBe(true));
+    expect(switchFor('Browser notifications').props.value).toBe(false);
+    expect(subscription).not.toBeNull();
+
+    failRegistration = false;
+    await TestRenderer.act(async () => { rendered?.unmount(); rendered = TestRenderer.create(React.createElement(NotificationSettingsScreen)); });
+    await vi.waitFor(() => expect(switchFor('Browser notifications').props.value).toBe(true));
+    expect(await refreshPushState()).toBe('subscribed');
+
     await TestRenderer.act(async () => { await switchFor('Browser notifications').props.onValueChange(false); });
     expect(switchFor('Browser notifications').props.value).toBe(false);
     failRegistration = true;
@@ -139,4 +177,10 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
     expect(switchFor('Browser notifications').props.value).toBe(false);
     expect(subscription).toBeNull();
     expect(failedNote()).toBe(true);
+
+    failRegistration = false;
+    entries.delete('/muxr-push-level');
+    await TestRenderer.act(async () => { await switchFor('Browser notifications').props.onValueChange(true); });
+    expect(switchFor('Browser notifications').props.value).toBe(true);
+    expect(await (await cache.match('/muxr-push-level'))?.text()).toBe('all');
 });

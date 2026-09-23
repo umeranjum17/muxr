@@ -4,10 +4,31 @@ import { getCachedConnectionSettings } from '@/connection';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
 import { storage } from '@/catalog/store';
 
-export type PushState = 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed';
+export type PushState = 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed' | 'unregistered' | 'unknown';
 
 const SW_PATH = '/sw.js';
 const LEVEL_CACHE = 'muxr-push-level';
+const CONFIRMED_PREFIX = 'muxr.webPush.confirmed.';
+let lastKnownEndpoint: string | null = null;
+let queryFailed = false;
+
+function confirmed(machineId: string, endpoint: string): boolean {
+    try {
+        return localStorage.getItem(`${CONFIRMED_PREFIX}${machineId}`) === endpoint;
+    } catch {
+        return false;
+    }
+}
+
+function recordConfirmation(machineId: string, endpoint: string): boolean {
+    try {
+        localStorage.setItem(`${CONFIRMED_PREFIX}${machineId}`, endpoint);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 let levelWrite = Promise.resolve();
 let pendingLevel: LifecycleNotificationLevel | null = null;
 let syncingLevel: Promise<boolean> | null = null;
@@ -41,14 +62,13 @@ export function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
     return out;
 }
 
-// Mirrors the SW's subscription so the settings row has a cheap sync read.
-let lastKnownSubscribed = false;
-
 /** Sync snapshot for the settings row; refresh with refreshPushState() for accuracy. */
 export function getPushState(): PushState {
     if (!isWebPushSupported()) return 'unsupported';
     if (Notification.permission === 'denied') return 'denied';
-    return lastKnownSubscribed ? 'subscribed' : 'unsubscribed';
+    if (queryFailed) return 'unknown';
+    if (lastKnownEndpoint === null) return 'unsubscribed';
+    return confirmed(getCachedConnectionSettings().machineId, lastKnownEndpoint) ? 'subscribed' : 'unregistered';
 }
 
 /** Async re-check against the push manager (covers subscriptions made on earlier visits). */
@@ -58,11 +78,12 @@ export async function refreshPushState(): Promise<PushState> {
     try {
         const reg = await navigator.serviceWorker.getRegistration(SW_PATH);
         const sub = reg ? await reg.pushManager.getSubscription() : null;
-        lastKnownSubscribed = sub !== null;
+        lastKnownEndpoint = sub?.endpoint ?? null;
+        queryFailed = false;
     } catch {
-        lastKnownSubscribed = false;
+        queryFailed = true;
     }
-    return lastKnownSubscribed ? 'subscribed' : 'unsubscribed';
+    return getPushState();
 }
 
 /**
@@ -78,10 +99,11 @@ export async function refreshPushState(): Promise<PushState> {
 export async function requestPermissionAndSubscribe(): Promise<boolean> {
     if (!isWebPushSupported()) return false;
     let subscription: PushSubscription | null = null;
+    let created = false;
     try {
         const permission = await Notification.requestPermission();
         if (permission !== 'granted') {
-            lastKnownSubscribed = false;
+            lastKnownEndpoint = null;
             return false;
         }
 
@@ -106,6 +128,7 @@ export async function requestPermissionAndSubscribe(): Promise<boolean> {
                 userVisibleOnly: true,
                 applicationServerKey: urlBase64ToUint8Array(publicKey),
             });
+            created = true;
         }
 
         const level = storage.getState().localSettings.lifecycleNotificationLevel;
@@ -117,17 +140,18 @@ export async function requestPermissionAndSubscribe(): Promise<boolean> {
             },
             body: JSON.stringify({ subscription: subscription.toJSON(), level }),
         });
-        if (!subRes.ok) {
-            await subscription.unsubscribe().catch(() => undefined);
-            lastKnownSubscribed = false;
+        if (!subRes.ok || !await storeWebPushNotificationLevel(level) || !recordConfirmation(settings.machineId, subscription.endpoint)) {
+            if (created) await subscription.unsubscribe().catch(() => undefined);
+            lastKnownEndpoint = null;
             return false;
         }
 
-        lastKnownSubscribed = true;
+        lastKnownEndpoint = subscription.endpoint;
+        queryFailed = false;
         return true;
     } catch (error) {
-        await subscription?.unsubscribe().catch(() => undefined);
-        lastKnownSubscribed = false;
+        if (created) await subscription?.unsubscribe().catch(() => undefined);
+        lastKnownEndpoint = null;
         console.warn('[push] subscribe failed', error);
         return false;
     }
@@ -152,7 +176,7 @@ async function postWebPushNotificationLevel(level: LifecycleNotificationLevel): 
             },
             body: JSON.stringify({ subscription: subscription.toJSON(), level }),
         });
-        return res.ok;
+        return res.ok && recordConfirmation(settings.machineId, subscription.endpoint);
     } catch {
         return false;
     }
@@ -214,6 +238,8 @@ export async function unsubscribeWebPush(opts: { credential?: string } = {}): Pr
     } catch {
         // best-effort: revocation already closed the sockets server-side
     } finally {
-        lastKnownSubscribed = false;
+        try { localStorage.removeItem(`${CONFIRMED_PREFIX}${getCachedConnectionSettings().machineId}`); } catch {}
+        lastKnownEndpoint = null;
+        queryFailed = false;
     }
 }

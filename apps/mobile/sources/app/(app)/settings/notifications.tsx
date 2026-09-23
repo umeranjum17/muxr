@@ -7,7 +7,7 @@ import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { Switch } from '@/components/Switch';
-import { useLocalSettingMutable } from '@/catalog/store';
+import { storage, useLocalSettingMutable } from '@/catalog/store';
 import { Modal } from '@/modal';
 import { browserNotificationSummary } from '@/settings';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
@@ -67,7 +67,18 @@ export default function NotificationSettingsScreen() {
         if (web) void storeWebPushNotificationLevel(level);
         const read = () => {
             if (web) {
-                void refreshPushState().then((state) => { if (live) setBrowser(state); });
+                void refreshPushState().then(async (state) => {
+                    if (!live) return;
+                    if (state === 'unregistered') {
+                        setBrowserBusy(true);
+                        const synced = await updateWebPushNotificationLevel(storage.getState().localSettings.lifecycleNotificationLevel);
+                        if (!live) return;
+                        if (!synced) setError('browser');
+                        state = await refreshPushState();
+                        setBrowserBusy(false);
+                    }
+                    if (live) setBrowser(state);
+                });
                 return;
             }
             void Notifications.getPermissionsAsync().then((permission) => { if (live) setAllowed(permission.granted); }, () => {});
@@ -92,13 +103,19 @@ export default function NotificationSettingsScreen() {
                 return;
             }
             setLevel(next);
+            const pushState = web ? await refreshPushState() : null;
+            if (pushState) setBrowser(pushState);
             const synced = web
-                ? (await refreshPushState()) !== 'subscribed' || await updateWebPushNotificationLevel(next)
+                ? pushState === 'unknown' ? false
+                    : pushState === 'subscribed' || pushState === 'unregistered'
+                        ? await updateWebPushNotificationLevel(next) : true
                 : Platform.OS !== 'ios' || await updateNativePushNotificationLevel(next);
             if (!synced) {
                 if (web) await storeWebPushNotificationLevel(previous);
                 setLevel(previous);
                 setError('level');
+            } else if (pushState === 'unregistered') {
+                setBrowser('subscribed');
             }
         } finally {
             setLevelBusy(false);
@@ -111,7 +128,6 @@ export default function NotificationSettingsScreen() {
         setError(null);
         try {
             if (on && !await requestPermissionAndSubscribe()) {
-                await unsubscribeWebPush();
                 setError('browser');
             } else if (!on) {
                 await unsubscribeWebPush();
