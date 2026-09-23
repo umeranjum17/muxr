@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import type { HerdPane } from '../domain/herd';
-import { agentAccessibilityLabel, agentLabels, agentStateLabel } from '../domain/agentPresentation';
-import { unseenActivityRows, unseenDoneSessionIds, type RecentActivityRow } from '../domain/recentActivity';
+import { agentAccessibilityLabel, agentLabels, agentStateLabel, liveCardState } from '../domain/agentPresentation';
+import { lifecycleStateSince, unseenActivityRows, unseenDoneSessionIds, type RecentActivityRow } from '../domain/recentActivity';
 import {
     nextWorkingAgentId,
     orderLiveTerminalCards,
@@ -138,6 +138,57 @@ describe('agent lifecycle presentation', () => {
             event('seen', 'seen-agent', 'done', '2026-01-01T23:59:30.000Z'),
             event('older-unseen', 'seen-agent', 'blocked', '2026-01-01T23:58:30.000Z'),
         ], new Set(['seen']), now)).toEqual([]);
+
+        // A card is aged from the same transition its row reads, not from when
+        // this phone first saw the state: after a relaunch that was "now".
+        const events = [
+            event('latest', 'one', 'done', '2026-01-01T23:48:00.000Z'),
+            event('earlier', 'one', 'working', '2026-01-01T23:40:00.000Z'),
+            event('turn', 'two', 'working', '2026-01-01T23:56:00.000Z'),
+        ];
+        expect(agentStateLabel('done', lifecycleStateSince(events, 'one', 'done'), now)).toBe('Done · 12m');
+        expect(agentStateLabel('idle', lifecycleStateSince(events, 'one', 'idle'), now)).toBe('Idle · 12m');
+        expect(lifecycleStateSince(events, 'one', 'working')).toBeUndefined();
+        expect(agentStateLabel('working', lifecycleStateSince(events, 'two', 'working'), now)).toBe('Working · 4m');
+        expect(agentStateLabel('working', now - 20_000, now)).toBe('Working');
+    });
+
+    it('omits card age and accessible age after the transition is displaced before relaunch', () => {
+        const now = Date.parse('2026-01-02T00:00:00.000Z');
+        const finished: LifecycleEvent = {
+            eventId: 'finished', sessionId: 'one', agentName: 'Otter', state: 'done',
+            reasonCode: 'agent-done', at: new Date(now - 12 * 60_000).toISOString(),
+        };
+        const reopened = selectLiveTerminalCards([session('one', now - 5_000, 'done', now - 60 * 60_000)], [{
+            id: 'one', taskTitle: 'Fix realtime voice', agentName: 'Otter', agentKind: 'pi',
+            agentStatus: 'done', promptable: true, changedAt: now - 5_000, doing: '',
+        }])[0]!;
+        const labels = agentLabels(reopened);
+        const withEvent = liveCardState(labels, reopened.agentStatus, reopened.id, [finished], now);
+        expect(withEvent.label).toBe('Done · 12m');
+
+        const displaced: LifecycleEvent[] = Array.from({ length: 50 }, (_, index) => ({
+            ...finished, eventId: `later-${index}`, sessionId: `other-${index}`,
+            at: new Date(now - index * 1_000).toISOString(),
+        }));
+        const afterRelaunch = liveCardState(labels, reopened.agentStatus, reopened.id, displaced, now);
+        expect(afterRelaunch.label).toBe('Done');
+        expect(afterRelaunch.accessibilityLabel).toBe('Fix realtime voice. Done. pi/Otter');
+
+        const running: LifecycleEvent = {
+            ...finished, eventId: 'running', state: 'working', at: new Date(now - 59_500).toISOString(),
+        };
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 1_000);
+        try {
+            const beforeTick = liveCardState(labels, 'working', reopened.id, [running], now);
+            expect(beforeTick.label).toBe('Working');
+            expect(beforeTick.accessibilityLabel).toBe('Fix realtime voice. Working. pi/Otter');
+            const afterTick = liveCardState(labels, 'working', reopened.id, [running], now + 1_000);
+            expect(afterTick.label).toBe('Working · 1m');
+            expect(afterTick.accessibilityLabel).toBe('Fix realtime voice. Working · 1m. pi/Otter');
+        } finally {
+            clock.mockRestore();
+        }
     });
 
     it('derives the unseen-done highlight set from the same rows as the tier', () => {

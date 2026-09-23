@@ -1,5 +1,6 @@
-import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace } from '@muxr/contract';
+import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@muxr/contract';
 import { compactAge } from '../../utils/compactAge';
+import { lifecycleStateSince } from './recentActivity';
 
 export interface AgentLabels {
     taskTitle: string;
@@ -131,16 +132,34 @@ export function agentIdentityLine(labels: AgentLabels): string {
     return agentNameLine(labels);
 }
 
+/** Under this a turn's age says nothing; past it, how long it has run is the point. */
+const WORKING_AGE_MS = 60_000;
+
 export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
     const label = HERD_STATUS_LABELS[status];
-    if (status === 'working' || status === 'starting' || changedAt === undefined) return label;
+    if (status === 'starting' || changedAt === undefined) return label;
+    if (status === 'working' && now - changedAt < WORKING_AGE_MS) return label;
     return `${label} · ${compactAge(now - changedAt)}`;
 }
 
-export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number): string {
-    const state = changedAt === undefined ? HERD_STATUS_LABELS[status] : agentStateLabel(status, changedAt);
+export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
+    const state = agentStateLabel(status, changedAt, now);
     return [labels.taskTitle, state, agentIdentityLine(labels)]
         .filter((value): value is string => value !== undefined && value !== '')
         .join('. ');
+}
+
+export function liveCardState(
+    labels: AgentLabels,
+    status: AgentLifecycle,
+    sessionId: string,
+    events: readonly LifecycleEvent[],
+    now: number,
+): { label: string; accessibilityLabel: string } {
+    const since = lifecycleStateSince(events, sessionId, status);
+    return {
+        label: agentStateLabel(status, since, now),
+        accessibilityLabel: agentAccessibilityLabel(labels, status, since, now),
+    };
 }
 

@@ -33,6 +33,24 @@ function resolveActivityTaskTitle(
 }
 export { resolveActivityTaskTitle };
 
+/**
+ * When the host recorded this agent entering the state it is in now, from its
+ * newest transition (events arrive newest first). The phone's own first
+ * sighting is no such time: after a relaunch it reads "now" for an agent that
+ * finished an hour ago. Undefined when the newest transition says otherwise.
+ */
+export function lifecycleStateSince(
+    events: readonly LifecycleEvent[],
+    sessionId: string,
+    state: AgentLifecycle,
+): number | undefined {
+    const latest = events.find((event) => event.sessionId === sessionId);
+    // `idle` is how older herdr providers report a finished turn.
+    if (latest === undefined || (latest.state !== state && !(state === 'idle' && latest.state === 'done'))) return undefined;
+    const at = Date.parse(latest.at);
+    return Number.isFinite(at) ? at : undefined;
+}
+
 /** Unseen meaningful transitions only; latest event wins when one agent changed repeatedly. */
 export function unseenActivityRows(
     events: readonly LifecycleEvent[],

@@ -12,6 +12,7 @@
 import * as React from 'react';
 import { AppState, Text, View } from 'react-native';
 import { sync } from '@/catalog/sync';
+import { Typography } from '@/constants/Typography';
 
 // ponytail: fixed interval, no backoff. Make it adaptive if tile counts grow
 // enough that the polling itself shows up in host CPU.
@@ -44,6 +45,9 @@ export const TerminalPreview = React.memo((props: {
     nonEmpty?: boolean;
     /** Snapshot state for a card that labels its preview honestly. */
     onState?: (state: TerminalPreviewState) => void;
+    /** Quieter text for a terminal that has gone still. The canvas stays
+     *  terminal-dark: dimming the whole tile let a light page through it. */
+    dimmed?: boolean;
 }) => {
     const [text, setText] = React.useState('');
     const maxLines = props.maxLines ?? MAX_LINES;
@@ -98,12 +102,25 @@ export const TerminalPreview = React.memo((props: {
         };
     }, [props.live, props.paused, props.sessionId, maxLines, nonEmpty]);
 
+    // A terminal's live edge is its bottom: the newest line, the question an
+    // agent is waiting on, the prompt. Pinned there, a tile that holds fewer
+    // lines than it was sent loses its oldest ones instead of its newest.
+    // Absolute, because a flowed Text is measured to its parent's height and
+    // native then drops the lines past it: the newest ones.
     return (
         <View style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }} pointerEvents="none">
             <Text
                 style={{
-                    color: '#d8d8d2',
-                    fontFamily: 'Menlo, Monaco, Courier New, monospace',
+                    position: 'absolute',
+                    // A terminal's own margin, so text never meets the tile's rounded edge.
+                    left: 6,
+                    right: 6,
+                    bottom: 4,
+                    color: props.dimmed === true ? 'rgba(216, 216, 210, 0.45)' : '#d8d8d2',
+                    // The bundled face, not a CSS font stack: native reads a
+                    // stack as one unknown family and falls back to a
+                    // proportional sans, so columns and box rules drifted.
+                    ...Typography.mono(),
                     fontSize: 7,
                     lineHeight: 9,
                 }}
