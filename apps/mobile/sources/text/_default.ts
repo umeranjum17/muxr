@@ -220,26 +220,26 @@ export const en = {
         theme: 'Theme',
         themeDescription: 'Choose your preferred color scheme',
         themeOptions: {
-            adaptive: 'Adaptive',
-            light: 'Light', 
+            adaptive: 'Automatic',
+            light: 'Light',
             dark: 'Dark',
         },
         themeDescriptions: {
-            adaptive: 'Match system settings',
+            adaptive: 'Follows your device',
             light: 'Always use light theme',
             dark: 'Always use dark theme',
         },
         display: 'Display',
         displayDescription: 'Control layout and spacing',
 
-        avatarStyle: 'Avatar Style',
+        avatarStyle: 'Avatar style',
         avatarStyleDescription: 'Choose session avatar appearance',
         avatarOptions: {
             pixelated: 'Pixelated',
             gradient: 'Gradient',
             brutalist: 'Brutalist',
         },
-        showFlavorIcons: 'Show AI Provider Icons',
+        showFlavorIcons: 'Provider icons',
         showFlavorIconsDescription: 'Display AI provider icons on session avatars',
     },
 

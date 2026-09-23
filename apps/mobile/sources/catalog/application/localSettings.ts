@@ -1,6 +1,6 @@
 import { LIFECYCLE_NOTIFICATION_LEVELS } from '@muxr/contract';
 import * as z from 'zod';
-import { DEFAULT_FONT_INDEX, FONT_STEPS } from '../../terminal/domain/fontSteps';
+import { DEFAULT_FONT_INDEX, FONT_STEPS, TERMINAL_FONTS, type TerminalFont } from '../../terminal/domain/fontSteps';
 import { TERMINAL_KEY_ROW_LIMIT } from '../../terminal/domain/keyRow';
 import { DEFAULT_QUICK_ACTIONS, QUICK_ACTION_LABEL_LIMIT, QUICK_ACTION_LIMIT, QUICK_ACTION_TEXT_LIMIT, type QuickAction } from '../../terminal/domain/quickActions';
 
@@ -23,6 +23,7 @@ export const LocalSettingsSchema = z.object({
     reopenLastTerminal: z.boolean().describe('Reopen the last accessible terminal when the app launches'),
     lastTerminal: z.object({ machineId: z.string(), sessionId: z.string() }).nullable().describe('Last terminal viewed on this device'),
     terminalFontIndex: z.number().int().min(0).max(FONT_STEPS.length - 1).catch(DEFAULT_FONT_INDEX).describe('Terminal text size as an index into FONT_STEPS'),
+    terminalFont: z.enum(Object.keys(TERMINAL_FONTS) as [TerminalFont, ...TerminalFont[]]).catch('system').describe('Face of the browser terminal'),
     // Customised key row: catalog ids plus inline custom keys. Null follows the
     // built-in default row.
     terminalKeyRow: z.array(z.union([z.string(), z.object({
@@ -84,6 +85,7 @@ export const localSettingsDefaults: LocalSettings = {
     reopenLastTerminal: true,
     lastTerminal: null,
     terminalFontIndex: DEFAULT_FONT_INDEX,
+    terminalFont: 'system',
     terminalKeyRow: null,
     terminalQuickActions: null,
     terminalCommandKeyDock: null,

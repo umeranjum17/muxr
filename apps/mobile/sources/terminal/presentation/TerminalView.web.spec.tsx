@@ -47,6 +47,7 @@ vi.mock('../application/OpenTerminal', () => ({ openTerminal: () => Promise.reso
 }) }));
 vi.mock('../application/recentOutput', () => ({ setTerminalColumns: () => undefined, recordTerminalOutput: () => undefined }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: () => Promise.resolve() }));
+vi.mock('@/catalog/store', () => ({ useLocalSetting: (key: string) => (key === 'terminalFont' ? 'system' : 3) }));
 
 import { TerminalView } from './TerminalView.web';
 

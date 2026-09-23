@@ -158,7 +158,7 @@ export default function RootLayout() {
             <Stack.Screen
                 name="settings/notifications"
                 options={{
-                    headerTitle: 'Agent notifications',
+                    headerTitle: 'Notifications',
                 }}
             />
             <Stack.Screen

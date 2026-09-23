@@ -21,6 +21,8 @@ import {
     type TerminalLinkRow,
 } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
+import { FONT_STEPS, TERMINAL_FONTS, clampFontIndex } from '../domain/fontSteps';
+import { useLocalSetting } from '@/catalog/store';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
 export interface TerminalViewProps {
@@ -75,6 +77,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         hintTimer.current = setTimeout(() => setLinkCopied(false), 1600);
     }, []);
     React.useEffect(() => () => clearTimeout(hintTimer.current), []);
+    // The size and face chosen in Settings. Read through a ref at creation so a
+    // change restyles the open terminal instead of reconnecting it.
+    const fontSize = FONT_STEPS[clampFontIndex(useLocalSetting('terminalFontIndex'))];
+    const fontFamily = TERMINAL_FONTS[useLocalSetting('terminalFont')].family;
+    const face = React.useRef({ fontSize, fontFamily });
+    face.current = { fontSize, fontFamily };
+    const restyle = React.useRef<(() => void) | undefined>(undefined);
+    React.useEffect(() => { restyle.current?.(); }, [fontSize, fontFamily]);
 
     React.useEffect(() => {
         const element = hostRef.current as unknown as HTMLElement | null;
@@ -84,8 +94,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         const term = new Terminal({
             // registerDecoration (plain-URL underlines) is a proposed API.
             allowProposedApi: true,
-            fontSize: 13,
-            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            fontSize: face.current.fontSize,
+            fontFamily: face.current.fontFamily,
             theme: { background: '#0c0c0b' },
             convertEol: false,
             scrollback: 5000,
@@ -273,6 +283,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         const onDpr = (): void => resize();
         dprQuery.addEventListener?.('change', onDpr);
         resize();
+        restyle.current = () => {
+            term.options.fontSize = face.current.fontSize;
+            term.options.fontFamily = face.current.fontFamily;
+            resize();
+        };
 
         const cellHeight = (): number => {
             const css = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } } })
@@ -463,6 +478,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
         return () => {
             disposed = true;
+            restyle.current = undefined;
             clearTimeout(longPressTimer);
             window.removeEventListener('resize', resize);
             dprQuery.removeEventListener?.('change', onDpr);

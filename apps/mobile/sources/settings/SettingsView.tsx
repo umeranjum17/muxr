@@ -1,7 +1,8 @@
-import { AppState, Linking, NativeScrollEvent, NativeSyntheticEvent, View, ScrollView, Pressable, Platform, Text } from 'react-native';
+import { NativeScrollEvent, NativeSyntheticEvent, View, Pressable, Platform, Text } from 'react-native';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 import * as React from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -15,20 +16,12 @@ import { Modal } from '@/modal';
 import { useAllMachines } from '@/catalog/store';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
-import { requestPermissionAndSubscribe, refreshPushState, unsubscribeWebPush, updateWebPushNotificationLevel, type PushState } from '@/utils/pushNotifications';
+import { refreshPushState, unsubscribeWebPush, updateWebPushNotificationLevel, type PushState } from '@/utils/pushNotifications';
 import { resolveForgetPushAction } from '@/utils/pushForget';
 import { loadAppConfig } from '@/catalog';
 import { versionsMismatch } from '@/utils/versionStatus';
 import { getAppVersion } from '@/utils/appVersion';
-import { requestNotificationPermission } from '@/utils/microphonePermissions';
-import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 import { DeclarativeSettingsItems } from '@/plugins/ui';
-import {
-    canPostPromotedNotifications,
-    openBackgroundActivitySettings,
-    openPromotedNotificationSettings,
-    supportsPromotedNotifications,
-} from '@/../modules/voice-overlay';
 import {
     collaborationSummary,
     hasMachineCollaboration,
@@ -37,27 +30,8 @@ import {
 } from '@/collaboration';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 import { useRealtimeAppControl } from '@/conversation';
-
-/** Each platform names its own surface; neither promises the other's. */
-function liveUpdatesCopy(enabled: boolean): string {
-    if (Platform.OS === 'ios') {
-        return enabled
-            ? 'Working agents can appear on the Lock Screen and in the Dynamic Island'
-            : 'Allow Live Activities to show working agents on the Lock Screen';
-    }
-    return enabled
-        ? 'Working agents can appear in Android’s status-bar island'
-        : 'Enable Android Live Updates to restore the status-bar island';
-}
-
-function pushStateLabel(state: PushState): string {
-    switch (state) {
-        case 'subscribed': return 'On';
-        case 'denied': return 'Blocked';
-        case 'unsupported': return 'Unavailable';
-        default: return 'Off';
-    }
-}
+import { FONT_STEPS, clampFontIndex } from '@/terminal';
+import { browserNotificationSummary, phoneNotificationSummary } from './notificationSummary';
 
 export const SettingsView = React.memo(function SettingsView({
     topContentInset = 0,
@@ -82,9 +56,10 @@ export const SettingsView = React.memo(function SettingsView({
     useRealtimeAppControl('Plugins', openPlugins, '/settings');
     useRealtimeAppControl('Appearance', openAppearance, '/settings');
     useRealtimeAppControl('Preferences', openPreferences, '/settings');
-    useRealtimeAppControl('Agent notifications', openNotifications, '/settings');
+    useRealtimeAppControl('Notifications', openNotifications, '/settings');
     const lifecycleNotificationLevel = useLocalSettingMutable('lifecycleNotificationLevel')[0];
     const themePreference = useLocalSettingMutable('themePreference')[0];
+    const terminalFontSize = FONT_STEPS[clampFontIndex(useLocalSettingMutable('terminalFontIndex')[0])];
     const sortSessionsByActivity = useSettingMutable('sortSessionsByActivity')[0];
     const socketStatus = useSocketStatus().status;
     const socketStatusText = socketStatus === 'connected' ? 'Connected' : socketStatus === 'connecting' ? 'Connecting' : 'Offline';
@@ -131,15 +106,7 @@ export const SettingsView = React.memo(function SettingsView({
         return rows;
     }, [allMachinesWithOffline, pairedGrants, showOfflineMachines]);
     const [pushState, setPushState] = React.useState<PushState>('unsupported');
-    const [pushBusy, setPushBusy] = React.useState(false);
-    // The native module reports whether this OS build can show a live status
-    // surface — Android Live Updates or an iOS Live Activity. Gating on the
-    // platform instead hid the row on iOS even once the capability existed.
-    const promotedNotificationsSupported = supportsPromotedNotifications();
-    const [promotedNotificationsEnabled, setPromotedNotificationsEnabled] = React.useState(
-        !promotedNotificationsSupported || canPostPromotedNotifications(),
-    );
-    const [iosNotificationsEnabled, setIosNotificationsEnabled] = React.useState(false);
+    const [notificationsAllowed, setNotificationsAllowed] = React.useState(true);
     const auth = useAuth();
     const activeMachineId = getCachedConnectionSettings().machineId;
     const versionMismatch = versionsMismatch(appVersion, allMachinesWithOffline.find((machine) => machine.id === activeMachineId)?.metadata?.muxrCliVersion);
@@ -243,55 +210,21 @@ export const SettingsView = React.memo(function SettingsView({
         await auth.logout();
     }, [auth, collaborationIntent]);
 
-    React.useEffect(() => {
+    // Whether alerts can arrive changes on the Notifications screen and in the
+    // system's settings, so read it whenever Settings comes back into view.
+    useFocusEffect(React.useCallback(() => {
         let cancelled = false;
-        void refreshPushState().then((state) => {
-            if (!cancelled) setPushState(state);
-        });
-        if (promotedNotificationsSupported) setPromotedNotificationsEnabled(canPostPromotedNotifications());
-        if (Platform.OS === 'ios') void requestNotificationPermission(false).then(setIosNotificationsEnabled);
-        const subscription = AppState.addEventListener('change', (state) => {
-            if (state !== 'active') return;
-            if (promotedNotificationsSupported) setPromotedNotificationsEnabled(canPostPromotedNotifications());
-            if (Platform.OS === 'ios') void requestNotificationPermission(false).then(setIosNotificationsEnabled);
-        });
-        return () => {
-            cancelled = true;
-            subscription.remove();
-        };
-    }, [promotedNotificationsSupported]);
-
-    const handleIosNotifications = async () => {
-        const granted = await requestNotificationPermission();
-        setIosNotificationsEnabled(granted);
-        if (granted) void registerNativePushNotifications();
-        if (!granted && await Modal.confirm(
-            'Enable notifications?',
-            'Open iOS Settings to allow agent completion and attention alerts.',
-            { confirmText: 'Open settings' },
-        )) await Linking.openSettings();
-    };
-
-    const handlePushToggle = async () => {
-        if (pushBusy) return;
-        setPushBusy(true);
-        try {
-            await requestPermissionAndSubscribe();
-            setPushState(await refreshPushState());
-        } finally {
-            setPushBusy(false);
+        if (Platform.OS === 'web') {
+            void refreshPushState().then((state) => {
+                if (!cancelled) setPushState(state);
+            });
+        } else {
+            void Notifications.getPermissionsAsync().then((permission) => {
+                if (!cancelled) setNotificationsAllowed(permission.granted);
+            }, () => {});
         }
-    };
-
-    const pushSubtitle = (() => {
-        switch (pushState) {
-            case 'subscribed': return t('settings.pushSubtitleSubscribed');
-            case 'denied': return t('settings.pushSubtitleDenied');
-            case 'unsupported': return t('settings.pushSubtitleUnsupported');
-            default: return t('settings.pushSubtitleDefault');
-        }
-    })();
-    const currentPushStateText = pushStateLabel(pushState);
+        return () => { cancelled = true; };
+    }, []));
 
     const appConfig = loadAppConfig();
     const docsBase = appConfig.publicBaseUrl?.replace(/\/$/, '');
@@ -424,13 +357,20 @@ export const SettingsView = React.memo(function SettingsView({
                 <DeclarativeSettingsItems />
             </ItemGroup>
 
-            <ItemGroup title="Terminal">
+            <ItemGroup title="Display and alerts">
                 <Item
                     title="Appearance"
-                    subtitle={t('settings.appearanceSubtitle')}
-                    detail={themePreferenceText}
+                    subtitle={`${themePreferenceText} · Terminal ${terminalFontSize} pt`}
                     icon={<Ionicons name="color-palette-outline" size={29} color="#5856D6" />}
                     onPress={openAppearance}
+                />
+                <Item
+                    title="Notifications"
+                    subtitle={Platform.OS === 'web'
+                        ? browserNotificationSummary(pushState, lifecycleNotificationLevel)
+                        : phoneNotificationSummary(notificationsAllowed, lifecycleNotificationLevel)}
+                    icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
+                    onPress={openNotifications}
                 />
             </ItemGroup>
 
@@ -448,62 +388,6 @@ export const SettingsView = React.memo(function SettingsView({
                     icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
                     onPress={openVoice}
                 />
-            </ItemGroup>
-
-            <ItemGroup title="Notifications" footer="Lifecycle alerts stay on this device. Browser push also needs permission and a connected host.">
-                {Platform.OS !== 'web' && (
-                    <Item
-                        title="Agent notifications"
-                        subtitle="Choose which lifecycle events may alert you"
-                        detail={lifecycleNotificationLevel === 'off'
-                            ? 'Off'
-                            : lifecycleNotificationLevel === 'important' ? 'Important' : 'All activity'}
-                        icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
-                        onPress={openNotifications}
-                        accessibilityLabel={`Agent notifications, ${lifecycleNotificationLevel === 'off'
-                            ? 'Off'
-                            : lifecycleNotificationLevel === 'important' ? 'Important' : 'All activity'}`}
-                    />
-                )}
-                {Platform.OS === 'android' && (
-                    <Item
-                        title="Background connection"
-                        subtitle="Allow background activity so Live stays connected when you leave muxr"
-                        detail="Android settings"
-                        icon={<Ionicons name="battery-charging-outline" size={29} color="#34C759" />}
-                        onPress={openBackgroundActivitySettings}
-                    />
-                )}
-                {promotedNotificationsSupported && (
-                    <Item
-                        title="Live agent updates"
-                        subtitle={liveUpdatesCopy(promotedNotificationsEnabled)}
-                        detail={promotedNotificationsEnabled ? t('plugins.on') : t('plugins.off')}
-                        icon={<Ionicons name="pulse-outline" size={29} color="#34C759" />}
-                        onPress={openPromotedNotificationSettings}
-                    />
-                )}
-                {Platform.OS === 'ios' && (
-                    <Item
-                        title="Notification permission"
-                        subtitle="Allow lifecycle alerts in iOS Settings"
-                        detail={iosNotificationsEnabled ? t('plugins.on') : t('plugins.off')}
-                        icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
-                        onPress={() => void handleIosNotifications()}
-                    />
-                )}
-                {Platform.OS === 'web' && (
-                    <Item
-                        title={pushState === 'subscribed' ? 'Notifications' : 'Turn on notifications'}
-                        subtitle={pushSubtitle}
-                        detail={currentPushStateText}
-                        icon={<Ionicons name="notifications-outline" size={29} color="#FF9500" />}
-                        onPress={pushState === 'unsubscribed' ? handlePushToggle : undefined}
-                        disabled={pushState === 'denied' || pushState === 'unsupported'}
-                        showChevron={pushState === 'unsubscribed'}
-                        loading={pushBusy}
-                    />
-                )}
             </ItemGroup>
 
             <ItemGroup title="About">

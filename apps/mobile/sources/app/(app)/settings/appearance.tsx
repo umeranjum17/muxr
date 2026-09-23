@@ -1,27 +1,28 @@
 import * as React from 'react';
-import { Ionicons } from '@expo/vector-icons';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { useSettingMutable, useLocalSettingMutable } from '@/catalog/store';
-import { DEFAULT_FONT_INDEX, FONT_STEPS, clampFontIndex } from '@/terminal/domain/fontSteps';
+import { DEFAULT_FONT_INDEX, FONT_STEPS, TERMINAL_FONTS, clampFontIndex, type TerminalFont } from '@/terminal';
 import { useRouter } from 'expo-router';
 import * as Localization from 'expo-localization';
 import { useUnistyles, UnistylesRuntime } from 'react-native-unistyles';
 import { Switch } from '@/components/Switch';
-import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
-import { Appearance, StyleSheet, Text, View } from 'react-native';
+import { ChoiceSheet, type Choice } from '@/components/ChoiceSheet';
+import { AvatarBrutalist } from '@/components/AvatarBrutalist';
+import { AvatarGradient } from '@/components/AvatarGradient';
+import { AvatarSkia } from '@/components/AvatarSkia';
+import { Appearance, Platform, StyleSheet, Text, View } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 import { Typography } from '@/constants/Typography';
 import { darkTheme, lightTheme, type Theme } from '@/theme';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 
-// Define known avatar styles for this version of the app
-type KnownAvatarStyle = 'pixelated' | 'gradient' | 'brutalist';
+type ThemePreference = 'adaptive' | 'light' | 'dark';
+type AvatarStyle = 'pixelated' | 'gradient' | 'brutalist';
 
-const isKnownAvatarStyle = (style: string): style is KnownAvatarStyle => {
-    return style === 'pixelated' || style === 'gradient' || style === 'brutalist';
-};
+const isAvatarStyle = (style: string): style is AvatarStyle =>
+    style === 'pixelated' || style === 'gradient' || style === 'brutalist';
 
 const TILE_WIDTH = 44;
 
@@ -35,7 +36,7 @@ function ThemeTile({ palettes }: { palettes: readonly Theme['colors'][] }) {
     const { theme } = useUnistyles();
     const slice = TILE_WIDTH / palettes.length;
     return (
-        <View style={[styles.tile, { borderColor: theme.colors.divider }]}>
+        <View style={[styles.tile, { borderColor: theme.dark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.14)' }]}>
             {palettes.map((colors, index) => (
                 <View key={index} style={{ width: slice, overflow: 'hidden' }}>
                     <View style={[styles.tilePage, { marginLeft: -slice * index, backgroundColor: colors.groupped.background }]}>
@@ -53,6 +54,24 @@ function ThemeTile({ palettes }: { palettes: readonly Theme['colors'][] }) {
     );
 }
 
+function applyTheme(next: ThemePreference): void {
+    UnistylesRuntime.setAdaptiveThemes(next === 'adaptive');
+    if (next !== 'adaptive') UnistylesRuntime.setTheme(next);
+    const dark = next === 'adaptive' ? Appearance.getColorScheme() === 'dark' : next === 'dark';
+    const color = dark ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
+    UnistylesRuntime.setRootViewBackgroundColor(color);
+    void SystemUI.setBackgroundColorAsync(color);
+}
+
+function languageName(preferred: string | null): string {
+    if (preferred !== null && preferred in SUPPORTED_LANGUAGES) {
+        return getLanguageNativeName(preferred as keyof typeof SUPPORTED_LANGUAGES);
+    }
+    const device = (Localization.getLocales()?.[0]?.languageTag ?? 'en-US').split('-')[0].toLowerCase();
+    const detected = getLanguageNativeName((device in SUPPORTED_LANGUAGES ? device : 'en') as keyof typeof SUPPORTED_LANGUAGES);
+    return `${t('settingsLanguage.automatic')} (${detected})`;
+}
+
 export default function AppearanceSettingsScreen() {
     const { theme } = useUnistyles();
     const router = useRouter();
@@ -60,149 +79,117 @@ export default function AppearanceSettingsScreen() {
     const [showFlavorIcons, setShowFlavorIcons] = useSettingMutable('showFlavorIcons');
     const [themePreference, setThemePreference] = useLocalSettingMutable('themePreference');
     const [terminalFontIndex, setTerminalFontIndex] = useLocalSettingMutable('terminalFontIndex');
+    const [terminalFont, setTerminalFont] = useLocalSettingMutable('terminalFont');
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
-    const [sheet, setSheet] = React.useState<'theme' | 'avatar' | 'font' | null>(null);
-    const themeOptions: ModelMode[] = [
-        { key: 'adaptive', name: t('settingsAppearance.themeOptions.adaptive'), description: t('settingsAppearance.themeDescriptions.adaptive'), preview: <ThemeTile palettes={[lightTheme.colors, darkTheme.colors]} /> },
-        { key: 'light', name: t('settingsAppearance.themeOptions.light'), description: t('settingsAppearance.themeDescriptions.light'), preview: <ThemeTile palettes={[lightTheme.colors]} /> },
-        { key: 'dark', name: t('settingsAppearance.themeOptions.dark'), description: t('settingsAppearance.themeDescriptions.dark'), preview: <ThemeTile palettes={[darkTheme.colors]} /> },
+    const [sheet, setSheet] = React.useState<'theme' | 'size' | 'font' | 'avatar' | null>(null);
+    const close = () => setSheet(null);
+
+    const themeName = (key: ThemePreference) => t(`settingsAppearance.themeOptions.${key}`);
+    const themeChoices: Choice[] = [
+        { key: 'adaptive', label: themeName('adaptive'), detail: t('settingsAppearance.themeDescriptions.adaptive'), preview: <ThemeTile palettes={[lightTheme.colors, darkTheme.colors]} /> },
+        { key: 'light', label: themeName('light'), preview: <ThemeTile palettes={[lightTheme.colors]} /> },
+        { key: 'dark', label: themeName('dark'), preview: <ThemeTile palettes={[darkTheme.colors]} /> },
     ];
-    const avatarOptions: ModelMode[] = [
-        { key: 'pixelated', name: t('settingsAppearance.avatarOptions.pixelated') },
-        { key: 'gradient', name: t('settingsAppearance.avatarOptions.gradient') },
-        { key: 'brutalist', name: t('settingsAppearance.avatarOptions.brutalist') },
-    ];
+
+    // Samples draw in the face the terminal will use: the browser's chosen one,
+    // or the app's mono standing in for the phone terminal's built-in face.
+    const sampleFamily = Platform.OS === 'web' ? TERMINAL_FONTS[terminalFont].family : Typography.mono().fontFamily;
     const fontIndex = clampFontIndex(terminalFontIndex);
-    // Each size carries a sample at that size: the glyphs a small terminal
-    // face confuses first, so the choice is about what stays readable.
-    const fontOptions: ModelMode[] = FONT_STEPS.map((size, index) => ({
+    const sizeChoices: Choice[] = FONT_STEPS.map((size, index) => ({
         key: String(index),
-        name: `${size}pt${index === DEFAULT_FONT_INDEX ? ' · default' : ''}`,
-        preview: <Text style={{ fontSize: size, color: theme.colors.text, ...Typography.mono() }}>0O 1lI</Text>,
+        label: `${size} pt`,
+        ...(index === DEFAULT_FONT_INDEX ? { detail: 'Default' } : {}),
+        preview: <Text style={[styles.sizeSample, { fontFamily: sampleFamily, fontSize: size, color: theme.colors.text }]}>Aa</Text>,
+    }));
+    const fontChoices: Choice[] = (Object.keys(TERMINAL_FONTS) as TerminalFont[]).map((key) => ({
+        key,
+        label: TERMINAL_FONTS[key].name,
+        labelStyle: { fontFamily: TERMINAL_FONTS[key].family },
     }));
 
-    // Keep the selected value visible in the row while showing every choice in one place.
-    const displayStyle: KnownAvatarStyle = isKnownAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
-    const applyTheme = (nextTheme: 'adaptive' | 'light' | 'dark') => {
-        setThemePreference(nextTheme);
-        if (nextTheme === 'adaptive') {
-            UnistylesRuntime.setAdaptiveThemes(true);
-            const systemTheme = Appearance.getColorScheme();
-            const color = systemTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
-            UnistylesRuntime.setRootViewBackgroundColor(color);
-            void SystemUI.setBackgroundColorAsync(color);
-            return;
-        }
-        UnistylesRuntime.setAdaptiveThemes(false);
-        UnistylesRuntime.setTheme(nextTheme);
-        const color = nextTheme === 'dark' ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
-        UnistylesRuntime.setRootViewBackgroundColor(color);
-        void SystemUI.setBackgroundColorAsync(color);
-    };
+    const displayStyle: AvatarStyle = isAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
+    const avatarChoices: Choice[] = [
+        { key: 'brutalist', label: t('settingsAppearance.avatarOptions.brutalist'), preview: <AvatarBrutalist id="muxr-appearance" size={32} /> },
+        { key: 'gradient', label: t('settingsAppearance.avatarOptions.gradient'), preview: <AvatarGradient id="muxr-appearance" size={32} /> },
+        { key: 'pixelated', label: t('settingsAppearance.avatarOptions.pixelated'), preview: <AvatarSkia id="muxr-appearance" size={32} /> },
+    ];
 
-    // Language display
-    const getLanguageDisplayText = () => {
-        if (preferredLanguage === null) {
-            const deviceLocale = Localization.getLocales()?.[0]?.languageTag ?? 'en-US';
-            const deviceLanguage = deviceLocale.split('-')[0].toLowerCase();
-            const detectedLanguageName = deviceLanguage in SUPPORTED_LANGUAGES ?
-                                        getLanguageNativeName(deviceLanguage as keyof typeof SUPPORTED_LANGUAGES) :
-                                        getLanguageNativeName('en');
-            return `${t('settingsLanguage.automatic')} (${detectedLanguageName})`;
-        } else if (preferredLanguage && preferredLanguage in SUPPORTED_LANGUAGES) {
-            return getLanguageNativeName(preferredLanguage as keyof typeof SUPPORTED_LANGUAGES);
-        }
-        return t('settingsLanguage.automatic');
-    };
     return (
         <ItemList style={{ paddingTop: 0 }}>
-
-            {/* Theme Settings */}
-            <ItemGroup title={t('settingsAppearance.theme')} footer={t('settingsAppearance.themeDescription')}>
-                <Item
-                    title={t('settings.appearance')}
-                    subtitle={themePreference === 'adaptive' ? t('settingsAppearance.themeDescriptions.adaptive') : themePreference === 'light' ? t('settingsAppearance.themeDescriptions.light') : t('settingsAppearance.themeDescriptions.dark')}
-                    icon={<Ionicons name="contrast-outline" size={29} color={theme.colors.status.connecting} />}
-                    detail={themePreference === 'adaptive' ? t('settingsAppearance.themeOptions.adaptive') : themePreference === 'light' ? t('settingsAppearance.themeOptions.light') : t('settingsAppearance.themeOptions.dark')}
-                    onPress={() => setSheet('theme')}
-                />
+            <ItemGroup title="App">
+                <Item title={t('settingsAppearance.theme')} subtitle={themeName(themePreference)} onPress={() => setSheet('theme')} />
+                <Item title={t('settingsLanguage.title')} subtitle={languageName(preferredLanguage)} onPress={() => router.push('/settings/language')} />
             </ItemGroup>
 
-            {/* Terminal Settings */}
-            <ItemGroup title="Terminal" footer="Text size in shells and terminal panes. Smaller text shows more history on screen; pinch the terminal to change it there too.">
-                <Item
-                    title="Terminal font size"
-                    subtitle="Applies on this device"
-                    icon={<Ionicons name="text-outline" size={29} color="#5856D6" />}
-                    detail={`${FONT_STEPS[fontIndex]}pt`}
-                    onPress={() => setSheet('font')}
-                />
+            <ItemGroup
+                title="Terminal"
+                footer={Platform.OS === 'web' ? undefined : 'Pinch a terminal to change its size there too.'}
+            >
+                <Item title="Text size" subtitle={`${FONT_STEPS[fontIndex]} pt`} onPress={() => setSheet('size')} />
+                {Platform.OS === 'web' && (
+                    <Item title="Font" subtitle={TERMINAL_FONTS[terminalFont].name} onPress={() => setSheet('font')} />
+                )}
             </ItemGroup>
 
-            {/* Language Settings */}
-            <ItemGroup title={t('settingsLanguage.title')} footer={t('settingsLanguage.description')}>
-                <Item
-                    title={t('settingsLanguage.currentLanguage')}
-                    icon={<Ionicons name="language-outline" size={29} color="#007AFF" />}
-                    detail={getLanguageDisplayText()}
-                    onPress={() => router.push('/settings/language')}
-                />
-            </ItemGroup>
-
-            {/* Display Settings */}
-            <ItemGroup title={t('settingsAppearance.display')} footer={t('settingsAppearance.displayDescription')}>
+            <ItemGroup title="Avatars" footer="Avatars appear next to recent sessions.">
                 <Item
                     title={t('settingsAppearance.avatarStyle')}
-                    subtitle={t('settingsAppearance.avatarStyleDescription')}
-                    icon={<Ionicons name="person-circle-outline" size={29} color="#5856D6" />}
-                    detail={displayStyle === 'pixelated' ? t('settingsAppearance.avatarOptions.pixelated') : displayStyle === 'brutalist' ? t('settingsAppearance.avatarOptions.brutalist') : t('settingsAppearance.avatarOptions.gradient')}
+                    subtitle={t(`settingsAppearance.avatarOptions.${displayStyle}`)}
                     onPress={() => setSheet('avatar')}
                 />
                 <Item
                     title={t('settingsAppearance.showFlavorIcons')}
-                    subtitle={t('settingsAppearance.showFlavorIconsDescription')}
-                    icon={<Ionicons name="apps-outline" size={29} color="#5856D6" />}
-                    rightElement={
-                        <Switch
-                            value={showFlavorIcons}
-                            onValueChange={setShowFlavorIcons}
-                        />
-                    }
+                    subtitle={showFlavorIcons ? 'Shown on avatars' : 'Hidden'}
+                    showChevron={false}
+                    rightElement={<Switch accessibilityLabel={t('settingsAppearance.showFlavorIcons')} value={showFlavorIcons} onValueChange={setShowFlavorIcons} />}
                 />
             </ItemGroup>
-            <OptionSheet
+
+            <ChoiceSheet
                 visible={sheet === 'theme'}
-                title={t('settings.appearance')}
-                options={themeOptions}
+                title={t('settingsAppearance.theme')}
+                choices={themeChoices}
                 selectedKey={themePreference}
-                onSelect={(option) => applyTheme(option.key as 'adaptive' | 'light' | 'dark')}
-                onClose={() => setSheet(null)}
+                onSelect={(key) => {
+                    setThemePreference(key as ThemePreference);
+                    applyTheme(key as ThemePreference);
+                }}
+                onClose={close}
             />
-            <OptionSheet
+            <ChoiceSheet
+                visible={sheet === 'size'}
+                title="Terminal text size"
+                choices={sizeChoices}
+                selectedKey={String(fontIndex)}
+                onSelect={(key) => setTerminalFontIndex(Number(key))}
+                onClose={close}
+            />
+            <ChoiceSheet
+                visible={sheet === 'font'}
+                title="Terminal font"
+                choices={fontChoices}
+                selectedKey={terminalFont}
+                onSelect={(key) => setTerminalFont(key as TerminalFont)}
+                onClose={close}
+            />
+            <ChoiceSheet
                 visible={sheet === 'avatar'}
                 title={t('settingsAppearance.avatarStyle')}
-                options={avatarOptions}
+                choices={avatarChoices}
                 selectedKey={displayStyle}
-                onSelect={(option) => { setAvatarStyle(option.key as KnownAvatarStyle); setSheet(null); }}
-                onClose={() => setSheet(null)}
-            />
-            <OptionSheet
-                visible={sheet === 'font'}
-                title="Terminal font size"
-                options={fontOptions}
-                selectedKey={String(fontIndex)}
-                onSelect={(option) => { setTerminalFontIndex(Number(option.key)); setSheet(null); }}
-                onClose={() => setSheet(null)}
+                onSelect={(key) => setAvatarStyle(key as AvatarStyle)}
+                onClose={close}
             />
         </ItemList>
     );
 }
 
 const styles = StyleSheet.create({
-    tile: { width: TILE_WIDTH, height: 32, flexDirection: 'row', borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+    tile: { width: TILE_WIDTH, height: 32, flexDirection: 'row', borderRadius: 8, borderWidth: 1, overflow: 'hidden' },
     tilePage: { width: TILE_WIDTH, height: 32, padding: 5 },
     tileCard: { flex: 1, borderRadius: 4, paddingHorizontal: 5, justifyContent: 'center', gap: 4 },
     tileLine: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     tileDot: { width: 4, height: 4, borderRadius: 2 },
     tileBar: { height: 3, borderRadius: 1.5 },
+    sizeSample: { width: 30 },
 });
