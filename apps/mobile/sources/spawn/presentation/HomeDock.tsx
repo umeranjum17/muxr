@@ -608,9 +608,11 @@ export const HomeDock = React.memo(({
     const [focusRootHeight, setFocusRootHeight] = React.useState<number>();
     const [focusKeyboard, setFocusKeyboard] = React.useState(0);
     React.useEffect(() => {
-        const show = KeyboardEvents.addListener('keyboardWillShow', (event) => setFocusKeyboard(event.height));
+        const onShow = (event: { height: number }) => setFocusKeyboard(event.height);
+        const willShow = KeyboardEvents.addListener('keyboardWillShow', onShow);
+        const didShow = KeyboardEvents.addListener('keyboardDidShow', onShow);
         const hide = KeyboardEvents.addListener('keyboardDidHide', () => setFocusKeyboard(0));
-        return () => { show.remove(); hide.remove(); };
+        return () => { willShow.remove(); didShow.remove(); hide.remove(); };
     }, []);
     const focusDockMax = focusRootHeight === undefined ? undefined : focusDockMaxHeight({
         height: focusRootHeight,
