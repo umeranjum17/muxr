@@ -156,6 +156,7 @@ export async function clearArtifactDownloads(): Promise<void> {
     await Promise.all(closing.values());
     const { clearPartialDownloads } = await import('@/utils/downloadArtifact');
     await clearPartialDownloads();
+    useArtifactTransfers.setState({}, true);
 }
 
 class MissingArtifactTime extends Error {}

@@ -135,11 +135,13 @@ describe('progressive artifact download', () => {
         writeFileSync(join(dir, `${key}.part`), 'kept');
         expect(keptBytes('session-'.repeat(5), { ...long, mimeType: 'application/vnd.android.package-archive' })).toBe(4);
         expect(key).not.toBe(artifactDownloadKey('session-'.repeat(5), { ...long, name: `${'release-'.repeat(20)}-other.apk` }));
+        useArtifactTransfers.setState({ [artifactTransferKey('session-'.repeat(5), long)]: { status: 'ready', total: long.size } }, true);
         pairing.stored = JSON.stringify({ mode: 'hosted', machineId: 'first', relayUrl: 'ws://127.0.0.1:8792', token: '', lastSessionCwd: '', recentSessionCwds: [] });
         const { loadConnectionSettingsAsync, saveConnectionSettings } = await import('@/connection/connectionSettings');
         await saveConnectionSettings({ ...await loadConnectionSettingsAsync(), machineId: 'second' });
         expect(existsSync(fresh)).toBe(false);
         expect(existsSync(join(dir, `${key}.part`))).toBe(false);
+        expect(useArtifactTransfers.getState()).toEqual({});
     });
 
     it('streams bounded chunks to disk and resumes from the kept bytes after the connection drops', async () => {
