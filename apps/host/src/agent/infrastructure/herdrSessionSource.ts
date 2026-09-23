@@ -1036,6 +1036,11 @@ export async function createHerdrSessionSource(
             setLifecycle(paneId, agentStatus);
             const session = currentSessionByPane(paneId);
             if (session !== undefined) emitState(session.sessionId);
+            // Herdr publishes a desk-started agent's session (Codex reports it
+            // on its first turn) without any bus event, so until a snapshot
+            // sees it the pane lists as a shell. Status changes are the only
+            // frames around that moment, and every turn ends with one.
+            scheduleResnapshot();
         });
         statusWatches.set(paneId, close);
     }

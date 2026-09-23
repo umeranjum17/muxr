@@ -16,7 +16,8 @@ function fakeHerdr(dir: string, cwd: string) {
     const tabs: Record<string, unknown>[] = [];
     const panes: Record<string, unknown>[] = [];
     const agents: Record<string, unknown>[] = [];
-    const subscribers = new Set<Socket>();
+    /** Like herdr, a pushed event reaches only the sockets subscribed to it; status is per pane. */
+    const subscribers = new Map<Socket, Array<{ type: string; pane_id?: string }>>();
     const state = { failSnapshot: false, failSnapshotAfterPrompt: false };
     let next = 1;
     const handleSnapshot = () => ({ snapshot: { workspaces, tabs, panes, agents } });
@@ -64,7 +65,7 @@ function fakeHerdr(dir: string, cwd: string) {
                 const { id, method, params } = JSON.parse(line) as { id: string; method: string; params?: Record<string, unknown> };
                 if (method === 'events.subscribe') {
                     socket.write(`${JSON.stringify({ id, result: {} })}\n`);
-                    subscribers.add(socket);
+                    subscribers.set(socket, (params?.subscriptions ?? []) as Array<{ type: string; pane_id?: string }>);
                     continue;
                 }
                 const p = params ?? {};
@@ -108,16 +109,24 @@ function fakeHerdr(dir: string, cwd: string) {
     });
     const socketPath = join(dir, 'herdr.sock');
     server.listen(socketPath);
+    const wants = (subscriptions: Array<{ type: string; pane_id?: string }>, type: string, paneId: unknown) =>
+        subscriptions.some((sub) => sub.type === type && (sub.pane_id === undefined || sub.pane_id === paneId));
     return {
         socketPath,
         state,
         agents,
         tabs,
+        panes,
         emit(type: string, data: Record<string, unknown>): void {
-            for (const socket of subscribers) socket.write(`${JSON.stringify({ event: type, data })}\n`);
+            for (const [socket, subscriptions] of subscribers) {
+                if (wants(subscriptions, type, data.pane_id)) socket.write(`${JSON.stringify({ event: type, data })}\n`);
+            }
+        },
+        watching(type: string, paneId: string): boolean {
+            return [...subscribers.values()].some((subscriptions) => wants(subscriptions, type, paneId));
         },
         close(): void {
-            for (const socket of subscribers) socket.destroy();
+            for (const socket of subscribers.keys()) socket.destroy();
             server.close();
         },
     };
@@ -186,6 +195,51 @@ describe('phone launch before herdr detects the agent', () => {
         } finally {
             unsubscribe();
             vi.restoreAllMocks();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});
+
+describe('agent started at the desk in an existing pane', () => {
+    it('lists the agent once its first turn reports a session, without a host restart', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-desk-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        herdr.tabs.push({ tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' });
+        herdr.panes.push({ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', cwd });
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId: 'shell:w1:p1' });
+
+            // Codex starts in the shell. Herdr detects its kind and name, but
+            // Codex has no session until its first turn.
+            herdr.agents.push({ pane_id: 'w1:p1', agent: 'codex', name: 'ram', agent_status: 'idle' });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p1', agent: 'codex' });
+            await vi.waitFor(() => expect(herdr.watching('pane.agent_status_changed', 'w1:p1')).toBe(true), { timeout: 3_000 });
+
+            // The first turn: Herdr takes the session report with no bus
+            // event, so the pane's status watch is the only frame that moves.
+            Object.assign(herdr.agents[0]!, {
+                agent_status: 'done',
+                agent_session: { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'codex-1' },
+            });
+            herdr.emit('pane.agent_status_changed', { pane_id: 'w1:p1', agent: 'codex', agent_status: 'done' });
+            await vi.waitFor(async () => {
+                expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({
+                    agentKind: 'codex',
+                    agentName: 'ram',
+                    agentStatus: 'done',
+                    sessionId: expect.stringMatching(/^pp_/),
+                });
+            }, { timeout: 3_000 });
+        } finally {
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });
