@@ -16,7 +16,7 @@ const session = {
     connect: async () => { await authorize(); },
     close: async () => undefined,
     releaseHeld: () => undefined,
-    hideKeyboard: () => undefined,
+    hideKeyboard: vi.fn(() => undefined),
     setOrientation: () => undefined,
     fitToView: () => undefined,
 };
@@ -80,9 +80,31 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     session.snapshot.status = 'starting';
     vi.useFakeTimers();
     let view!: ReturnType<typeof TestRenderer.create>;
-    const root = () => view.root as {
-        findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string }): unknown[];
-        findByProps(props: { accessibilityLabel: string }): { props: { onPress(): void } };
+    type Rendered = {
+        props: { onPress(): void; style: unknown; keyboardClearance: number };
+        children: (Rendered | string)[];
+        parent: Rendered;
+        findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string }): Rendered[];
+        findByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered;
+        findByType(type: string): Rendered;
+    };
+    const root = () => view.root as Rendered;
+    const style = (value: unknown) => {
+        const resolved = typeof value === 'function' ? value({ pressed: false }) : value;
+        return Object.assign({}, ...(Array.isArray(resolved) ? resolved : [resolved])) as { top: number; minHeight: number; paddingVertical: number; lineHeight: number };
+    };
+    const fits = (labels: string[], help = false) => {
+        const card = root().findByProps({ accessibilityLabel: labels[0] }).parent;
+        const chrome = style(card.props.style);
+        expect(card.children).toHaveLength(labels.length);
+        const header = root().findByProps({ accessibilityRole: 'header' }).parent;
+        const height = labels.reduce((sum, label) => {
+            const row = root().findByProps({ accessibilityLabel: label });
+            const dimensions = style(row.props.style);
+            return sum + (help ? 2 * dimensions.paddingVertical + style((row.children[0] as Rendered).props.style).lineHeight : dimensions.minHeight);
+        }, 0);
+        const visibleHeight = keyboardVisible ? screenHeight - Math.min(290, screenHeight - 80) : screenHeight;
+        expect(style(header.props.style).minHeight + chrome.top + 2 * chrome.paddingVertical + height + (help ? 18 : 0)).toBeLessThanOrEqual(visibleHeight);
     };
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={() => undefined} />); });
     expect(root().findAllByProps({ accessibilityLabel: 'Desktop actions' })).toHaveLength(1);
@@ -96,12 +118,13 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     expect(root().findAllByProps({ accessibilityLabel: 'Clipboard' })).toHaveLength(0);
     expect(root().findAllByProps({ accessibilityLabel: 'Copy to Phone' })).toHaveLength(0);
     expect(root().findAllByProps({ accessibilityLabel: 'Paste from Phone' })).toHaveLength(0);
-    const notice = () => view.root.findByProps({ accessibilityLiveRegion: 'polite' }).children.join('');
+    const notice = () => root().findByProps({ accessibilityLiveRegion: 'polite' }).children.join('');
     expect(notice()).toContain('Pinch to zoom');
-    TestRenderer.act(() => vi.advanceTimersByTime(7000));
+    TestRenderer.act(() => { vi.advanceTimersByTime(7000); });
     expect(notice()).toBe('This computer cannot share its clipboard.');
     await TestRenderer.act(async () => view.unmount());
 
+    session.hideKeyboard.mockClear();
     available = true;
     const exit = vi.fn();
     await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface onExit={exit} />); });
@@ -113,25 +136,34 @@ it('keeps a portrait desktop usable with the keyboard up and explains unavailabl
     expect(root().findAllByProps({ accessibilityLabel: 'Back to the conversation' })).toHaveLength(1);
     expect(root().findAllByProps({ accessibilityLabel: 'Desktop actions' })).toHaveLength(1);
     expect(root().findAllByProps({ accessibilityLabel: 'Hide keyboard' })).toHaveLength(1);
-    expect(view.root.findByType('DesktopView').props.keyboardClearance).toBe(96);
-    expect(view.root.findByType('DesktopKeyRow')).toBeDefined();
+    expect(root().findByType('DesktopView').props.keyboardClearance).toBe(96);
+    expect(root().findByType('DesktopKeyRow')).toBeDefined();
+    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Desktop gestures' }).props.onPress());
+    expect(session.hideKeyboard).toHaveBeenCalledTimes(1);
+    expect(root().findAllByProps({ accessibilityLabel: 'Tap: Click' })).toHaveLength(0);
+    keyboardVisible = false;
+    await TestRenderer.act(async () => view.update(<DesktopSurface onExit={exit} />));
+    fits(['Tap: Click', 'Double-tap: Double-click', 'Hold: Right-click', 'Hold and drag: Select or drag', 'Two fingers: Scroll', 'Pinch: Zoom', 'Drag: Move around when zoomed'], true);
+    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Desktop gestures' }).props.onPress());
 
+    keyboardVisible = true;
     screenWidth = 594;
     screenHeight = 270;
     await TestRenderer.act(async () => view.update(<DesktopSurface onExit={exit} />));
     expect(root().findAllByProps({ accessibilityRole: 'header' })).toHaveLength(0);
     expect(root().findAllByProps({ accessibilityLabel: 'Back to the conversation' })).toHaveLength(1);
     expect(root().findAllByProps({ accessibilityLabel: 'Desktop actions' })).toHaveLength(1);
-    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Desktop actions' }).props.onPress());
-    expect(root().findAllByProps({ accessibilityLabel: 'Gestures' })).toHaveLength(1);
-    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Gestures' }).props.onPress());
-    expect(root().findAllByProps({ accessibilityLabel: 'Tap: Click' })).toHaveLength(1);
     TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Back to the conversation' }).props.onPress());
     expect(exit).toHaveBeenCalledTimes(1);
-
+    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Desktop actions' }).props.onPress());
+    expect(session.hideKeyboard).toHaveBeenCalledTimes(2);
+    expect(root().findAllByProps({ accessibilityLabel: 'Gestures' })).toHaveLength(0);
     keyboardVisible = false;
     await TestRenderer.act(async () => view.update(<DesktopSurface onExit={exit} />));
     expect(root().findAllByProps({ accessibilityRole: 'header' })).toHaveLength(1);
+    fits(['Gestures', 'Fit to screen', 'Disconnect']);
+    TestRenderer.act(() => root().findByProps({ accessibilityLabel: 'Gestures' }).props.onPress());
+    fits(['Tap: Click', 'Double-tap: Double-click', 'Hold: Right-click', 'Hold and drag: Select or drag', 'Two fingers: Scroll', 'Pinch: Zoom', 'Drag: Move around when zoomed'], true);
     expect(root().findAllByProps({ accessibilityLabel: 'Desktop actions' })).toHaveLength(1);
     await TestRenderer.act(async () => view.unmount());
     vi.useRealTimers();

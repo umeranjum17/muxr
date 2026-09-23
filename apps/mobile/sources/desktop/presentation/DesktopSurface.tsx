@@ -245,6 +245,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     const compact = screen.width > screen.height;
     const compactKeyboard = compact && (keyboard.isVisible || (web && motion.visible));
     const headerShown = !compactKeyboard;
+    const popupReady = !keyboard.isVisible && !(web && motion.visible);
     const rise = compact ? (DESKTOP_KEY_ROW_HEIGHT - BUTTON) / 2 : DESKTOP_KEY_ROW_HEIGHT + ABOVE_KEYS;
     const clearance = compact ? (DESKTOP_KEY_ROW_HEIGHT + BUTTON) / 2 + PICTURE_GAP / 2 : rise + BUTTON + PICTURE_GAP;
     const statusLabel = live ? desktopCopy.liveLabel : snapshot.status === 'reconnecting' ? desktopCopy.reconnectingTitle : status.spinner ? desktopCopy.connectingLabel : null;
@@ -288,6 +289,13 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
         elevation: 12,
         zIndex: 3,
     };
+    const toggleMenu = (target: 'more' | 'help') => {
+        if (menu !== target && (keyboardOpen || keyboard.isVisible || motion.visible)) {
+            session.hideKeyboard();
+            setKeyboardOpen(false);
+        }
+        setMenu((open) => (open === target ? null : target));
+    };
     const menuRow = (label: string, icon: React.ComponentProps<typeof Ionicons>['name'], onPress: () => void, options: { selected?: boolean; disabled?: boolean } = {}) => (
         <Pressable
             key={label}
@@ -304,7 +312,6 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
         </Pressable>
     );
     const headerMark = ({ pressed }: { pressed: boolean }) => [styles.headerButton, pressed && styles.pressed];
-    const toggleMore = () => setMenu((open) => (open === 'more' ? null : 'more'));
     const popIn = FadeIn.duration(140).reduceMotion(ReduceMotion.System);
     const popOut = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
 
@@ -321,11 +328,11 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                     {leading ?? <Ionicons name="desktop-outline" size={14} color={theme.colors.textSecondary} />}
                     <Text numberOfLines={1} style={[styles.titleText, { color: theme.colors.text }]}>{heading}</Text>
                 </View>
-                <Pressable onPress={() => setMenu((open) => (open === 'help' ? null : 'help'))} accessibilityRole="button" accessibilityLabel="Desktop gestures" accessibilityState={{ expanded: menu === 'help' }} hitSlop={8} style={headerMark}>
+                <Pressable onPress={() => toggleMenu('help')} accessibilityRole="button" accessibilityLabel="Desktop gestures" accessibilityState={{ expanded: menu === 'help' }} hitSlop={8} style={headerMark}>
                     <Ionicons name="help-circle-outline" size={19} color={theme.colors.text} />
                 </Pressable>
                 <Animated.View entering={popIn}>
-                    <Pressable onPress={toggleMore} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} hitSlop={8} style={headerMark}>
+                    <Pressable onPress={() => toggleMenu('more')} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} hitSlop={8} style={headerMark}>
                         <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
                     </Pressable>
                 </Animated.View>
@@ -364,7 +371,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                         <Pressable onPress={onExit} accessibilityRole="button" accessibilityLabel="Back to the conversation" style={({ pressed }) => control(pressed)}>
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
-                        <Pressable onPress={toggleMore} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} style={({ pressed }) => control(pressed, menu === 'more')}>
+                        <Pressable onPress={() => toggleMenu('more')} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} style={({ pressed }) => control(pressed, menu === 'more')}>
                             <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
                         </Pressable>
                     </View>
@@ -372,10 +379,10 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
 
                 {menu !== null && <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenu(null)} accessibilityLabel="Close menu" />}
 
-                {menu === 'help' && (
+                {menu === 'help' && popupReady && (
                     <Animated.View entering={popIn} exiting={popOut} style={[card, styles.topCard, { width: Math.min(windowWidth - 16, 320) }]}>
                         {GESTURES.map(([gesture, effect]) => (
-                            <View key={gesture} style={styles.helpRow} accessible accessibilityLabel={`${gesture}: ${effect}`}>
+                            <View key={gesture} style={[styles.helpRow, compact && styles.compactHelpRow]} accessible accessibilityLabel={`${gesture}: ${effect}`}>
                                 <Text style={[styles.helpGesture, { color: theme.colors.textSecondary }]}>{gesture}</Text>
                                 <Text style={[styles.helpEffect, { color: theme.colors.text }]}>{effect}</Text>
                             </View>
@@ -383,9 +390,9 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                     </Animated.View>
                 )}
 
-                {menu === 'more' && (
+                {menu === 'more' && popupReady && (
                     <Animated.View entering={popIn} exiting={popOut} style={[card, styles.topCard]}>
-                        {(!live || compactKeyboard) && menuRow('Gestures', 'help-circle-outline', () => setMenu('help'))}
+                        {menuRow('Gestures', 'help-circle-outline', () => toggleMenu('help'))}
                         {live && menuRow('Fit to screen', 'scan-outline', session.fitToView)}
                         {live && Platform.OS === 'android' && menuRow('Landscape', 'phone-landscape-outline', toggleLandscape, { selected: landscape })}
                         {menuRow('Disconnect', 'power-outline', onExit)}
@@ -474,8 +481,9 @@ const styles = StyleSheet.create({
     menuRow: { minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 18 },
     menuLabel: { ...Typography.default(), flex: 1, fontSize: 15 },
     helpRow: { flexDirection: 'row', alignItems: 'baseline', gap: 14, paddingHorizontal: 18, paddingVertical: 7 },
-    helpGesture: { ...Typography.default(), width: 100, fontSize: 14 },
-    helpEffect: { ...Typography.default(), flex: 1, fontSize: 14 },
+    compactHelpRow: { paddingVertical: 2 },
+    helpGesture: { ...Typography.default(), width: 100, fontSize: 14, lineHeight: 18 },
+    helpEffect: { ...Typography.default(), flex: 1, fontSize: 14, lineHeight: 18 },
     keyRow: { position: 'absolute', left: 0, right: 0, backgroundColor: '#000' },
     controls: {
         position: 'absolute',

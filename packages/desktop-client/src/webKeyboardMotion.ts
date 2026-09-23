@@ -3,7 +3,7 @@ type KeyboardMotion = { covered: number; phase: number };
 const subscribers = new Set<(motion: KeyboardMotion) => void>();
 let viewport: VisualViewport | null = null;
 let settledHeight = 0;
-let settling: number | null = null;
+let falling = false;
 let quiet: ReturnType<typeof setTimeout> | null = null;
 let motion: KeyboardMotion = { covered: 0, phase: 0 };
 
@@ -15,29 +15,17 @@ function publish(covered: number, phase: number): void {
 function measure(): void {
     if (viewport === null) return;
     const covered = Math.max(0, globalThis.innerHeight - viewport.offsetTop - viewport.height);
+    if (covered < motion.covered) falling = true;
+    else if (covered > motion.covered) falling = false;
     publish(covered, covered > 0 ? Math.min(1, covered / (settledHeight || covered)) : 0);
-    if (settling !== null) cancelAnimationFrame(settling);
     if (quiet !== null) clearTimeout(quiet);
-    settling = null;
     quiet = null;
-    if (covered === 0) return;
-    if (covered < settledHeight) {
-        if (document.activeElement?.getAttribute('aria-label') !== 'Remote keyboard') return;
-        quiet = setTimeout(() => {
-            quiet = null;
-            if (document.activeElement?.getAttribute('aria-label') !== 'Remote keyboard') return;
-            settledHeight = covered;
-            publish(covered, 1);
-        }, 180);
-        return;
-    }
-    settling = requestAnimationFrame(() => {
-        settling = requestAnimationFrame(() => {
-            settling = null;
-            settledHeight = covered;
-            publish(covered, 1);
-        });
-    });
+    if (covered === 0 || falling) return;
+    quiet = setTimeout(() => {
+        quiet = null;
+        settledHeight = covered;
+        publish(covered, 1);
+    }, 180);
 }
 
 export function observeWebKeyboardMotion(subscriber: (motion: KeyboardMotion) => void): () => void {
@@ -56,12 +44,11 @@ export function observeWebKeyboardMotion(subscriber: (motion: KeyboardMotion) =>
         if (subscribers.size !== 0) return;
         viewport?.removeEventListener('resize', measure);
         viewport?.removeEventListener('scroll', measure);
-        if (settling !== null) cancelAnimationFrame(settling);
         if (quiet !== null) clearTimeout(quiet);
         viewport = null;
-        settling = null;
         quiet = null;
         settledHeight = 0;
+        falling = false;
         motion = { covered: 0, phase: 0 };
     };
 }

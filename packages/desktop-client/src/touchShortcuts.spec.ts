@@ -28,9 +28,7 @@ class FakeElement extends EventTarget {
     style: Record<string, string> = {};
     value = '';
     autocapitalize = '';
-    private attributes = new Map<string, string>();
-    setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
-    getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
+    setAttribute(): void {}
     setPointerCapture(): void {}
     focus(): void {}
     blur(): void {}
@@ -249,18 +247,8 @@ describe('the pointer above the keyboard', () => {
         vi.stubGlobal('innerHeight', 720);
         let phase = 0;
         stopObservation = observeWebKeyboardMotion((motion) => { phase = motion.phase; });
-        let frame: FrameRequestCallback | null = null;
-        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frame = callback; return 1; });
-        vi.stubGlobal('cancelAnimationFrame', () => { frame = null; });
-        const settle = () => {
-            const first = frame;
-            frame = null;
-            first?.(0);
-            const second = frame;
-            frame = null;
-            second?.(0);
-        };
         const { session, video, keyboard } = await liveDesktop();
+        vi.useFakeTimers();
         const [picture, , mark] = created;
         const tip = () => {
             const [x, y] = /translate3d\(([-\d.]+)px, ([-\d.]+)px/.exec(mark!.style.transform)!.slice(1).map(Number);
@@ -298,8 +286,7 @@ describe('the pointer above the keyboard', () => {
         viewport.height = 420;
         dispatch(viewport, 'resize', {});
         expect(tip().y).toBeCloseTo(Number.parseFloat(picture!.style.top) + clickedY + 0.5, 5);
-        settle();
-        vi.useFakeTimers();
+        vi.advanceTimersByTime(180);
 
         (document as unknown as { activeElement: unknown }).activeElement = null;
         const beforeBlur = Number.parseFloat(picture!.style.top);
@@ -340,6 +327,13 @@ describe('the pointer above the keyboard', () => {
         vi.advanceTimersByTime(1);
         expect(phase).toBe(1);
         expect(Number.parseFloat(picture!.style.top)).toBeCloseTo(-106.5, 5);
+        viewport.height = 640;
+        dispatch(viewport, 'resize', {});
+        expect(phase).toBeCloseTo(80 / 120, 5);
+        vi.advanceTimersByTime(180);
+        expect(phase).toBeCloseTo(80 / 120, 5);
+        viewport.height = 720;
+        dispatch(viewport, 'resize', {});
         viewport.height = 640;
         dispatch(viewport, 'resize', {});
         expect(phase).toBeCloseTo(80 / 120, 5);
