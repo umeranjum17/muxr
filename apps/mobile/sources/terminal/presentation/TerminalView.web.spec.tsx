@@ -62,7 +62,7 @@ vi.mock('../application/terminalAhead', () => ({
 vi.mock('../application/recentOutput', () => ({ setTerminalColumns: () => undefined, recordTerminalOutput: () => undefined }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: () => Promise.resolve() }));
 vi.mock('@/catalog/store', () => ({
-    useLocalSetting: (key: string) => (key === 'terminalFont' ? 'system' : 3),
+    useLocalSetting: (key: string) => (key === 'terminalFont' ? 'system' : key === 'terminalSwipeFingers' ? 'one' : 3),
     useLocalSettingMutable: () => [3, () => {}],
 }));
 

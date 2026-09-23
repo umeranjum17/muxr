@@ -96,6 +96,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const pinchZoom = useLocalSetting('terminalPinchZoom');
     const pinch = React.useRef({ enabled: pinchZoom, setFontIndex });
     pinch.current = { enabled: pinchZoom, setFontIndex };
+    const swipeFingers = useLocalSetting('terminalSwipeFingers');
+    const swipe = React.useRef(swipeFingers);
+    swipe.current = swipeFingers;
     const fontFamily = TERMINAL_FONTS[useLocalSetting('terminalFont')].family;
     const face = React.useRef({ fontSize, fontFamily });
     face.current = { fontSize, fontFamily };
@@ -465,7 +468,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             }
             if (touchY === null || event.touches.length !== 1) return;
             const sideways = Math.abs(event.touches[0]!.clientX - touchX);
-            if (Math.abs(gesturePx) < 8 && sideways >= SIDEWAYS_PX) {
+            if (swipe.current === 'one' && Math.abs(gesturePx) < 8 && sideways >= SIDEWAYS_PX) {
                 // The page is turning; this touch no longer scrolls or presses,
                 // and its release must not fling the pane it is leaving.
                 clearLongPress();
