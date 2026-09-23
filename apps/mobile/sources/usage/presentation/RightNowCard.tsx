@@ -13,7 +13,7 @@ import { VERDICT_KEYS, verdictTone } from '@/plugins/ui';
 import { t } from '@/text';
 import { compactAge } from '@/utils/compactAge';
 import { useUsageNow } from '../application/useUsageNow';
-import { columnsPerBand, limitGrid, vitalsFacts, type LimitCell, type LimitColumn, type LimitGrid } from '../domain/usageModel';
+import { columnsPerBand, limitPlans, vitalsFacts, type LimitCell, type LimitFigure, type LimitPlan } from '../domain/usageModel';
 
 /** The card refreshes itself on a slow cadence while someone is looking at it,
  *  so a few minutes behind is normal here and says nothing. Past this the age
@@ -30,6 +30,7 @@ const AGE_WORTH_MENTIONING_SECONDS = 600;
 export function RightNowCard() {
     const { theme } = useUnistyles();
     const router = useRouter();
+    const [namesVisible, setNamesVisible] = React.useState(false);
     // The card paints one of three states and has no fourth: figures it holds, a
     // wait it is in, or a failure with the way back.
     const { display, failed, refreshing, throttledSeconds, refresh } = useUsageNow();
@@ -77,16 +78,16 @@ export function RightNowCard() {
     const verdict = payload.limits.verdict;
     // Connected quota windows turn the first row into one strip of plans;
     // Memory/Disk/Load/Uptime stay the quiet row beneath it.
-    const grid = connectedGrid(payload);
-    const limit = grid !== undefined ? undefined : (payload.cardWindow ?? payload.limits.windows[0]);
+    const plans = connectedPlans(payload);
+    const limit = plans === undefined ? (payload.cardWindow ?? payload.limits.windows[0]) : undefined;
     const verdictWord = verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]);
     const tone = verdict === 'unknown' ? undefined : verdictTone(verdict);
     const dot = tone === undefined ? undefined : <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: toneColor(theme, tone) }} />;
     // A refresh that failed says so on the refresh control above, in words and
     // with the action attached. Reddening figures that are still the best
     // known answer would report the wrong thing: they are old, not wrong.
-    const line = grid !== undefined
-        ? <PlanStrip grid={grid} />
+    const line = plans !== undefined
+        ? <PlanStrip plans={plans} namesVisible={namesVisible} />
         : limit !== undefined
         ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             {dot}
@@ -110,7 +111,7 @@ export function RightNowCard() {
     return <View>
         {header(freshness(payload))}
         <View style={[cardStyle(theme), { marginHorizontal: 16, padding: 14 }]}>
-            <Pressable onPress={open} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload)}>
+            <Pressable onPress={() => { if (namesVisible) setNamesVisible(false); else open(); }} onLongPress={() => setNamesVisible(true)} accessibilityRole="button" accessibilityLabel={cardAccessibilityLabel(payload)}>
                 <CardBody limit={limit} line={line} quiet={quietLine(payload)} />
             </Pressable>
         </View>
@@ -207,31 +208,29 @@ const PLAN_GAP = 14;
  * window length, with an empty cell wherever a plan had no window of that
  * length.
  */
-function PlanStrip({ grid }: { grid: LimitGrid }) {
+function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: boolean }) {
     const { theme } = useUnistyles();
     const screen = useWindowDimensions();
     const [measured, setMeasured] = React.useState<number>();
     const char = MONO_ADVANCE * screen.fontScale;
-    const plans = grid.columns.map((column) => ({ column, figures: planFigures(column, grid.rows) }));
-    const tagChars = Math.max(2, ...plans.flatMap(({ figures }) => figures.map((figure) => tagText(figure).length)));
+    const tags = plans.map((plan) => figureTags(plan.figures));
+    const tagChars = Math.max(2, ...plans.flatMap((plan, index) => tags[index]!.map((name, i) => name.length + (plan.figures[i]!.cells.length > 1 ? `×${plan.figures[i]!.cells.length}`.length : 0))));
     const number = Math.ceil(4 * FIGURE_SIZE * char);
     const unit = MARK + MARK_GAP + number + 3 + tagChars * TAG_SIZE * char;
     const width = measured ?? screen.width - CARD_INSET;
-    const perRow = columnsPerBand(plans.length, Math.floor((width + PLAN_GAP) / (unit + PLAN_GAP)));
+    const perRow = namesVisible ? 1 : columnsPerBand(plans.length, Math.floor((width + PLAN_GAP) / (unit + PLAN_GAP)));
     return (
         <View onLayout={(event) => setMeasured(event.nativeEvent.layout.width)} style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: 14 }}>
-            {plans.map(({ column, figures }) => (
-                <View key={column.provider.id} style={{ width: `${100 / perRow}%`, flexDirection: 'row', alignItems: 'flex-start', gap: MARK_GAP }}>
-                    {/* The mark sits beside the first two figures, short over long,
-                        whatever else the plan has: every plan's mark lines up. */}
+            {plans.map((plan, planIndex) => (
+                <View key={plan.provider.id} style={{ width: `${100 / perRow}%`, flexDirection: 'row', alignItems: 'flex-start', gap: MARK_GAP }}>
                     <View style={{ height: 2 * FIGURE_LINE, justifyContent: 'center' }}>
-                        <AgentGlyph name={column.provider.glyph ?? column.provider.id} size={MARK} />
+                        <AgentGlyph name={plan.provider.glyph ?? plan.provider.id} size={MARK} />
                     </View>
-                    <View style={{ minHeight: 2 * FIGURE_LINE, justifyContent: 'center' }}>
-                        {figures.map((figure) => (
-                            <View key={figure.row} style={{ flexDirection: 'row', alignItems: 'baseline' }}>
-                                <Text numberOfLines={1} style={{ minWidth: number, textAlign: 'right', fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('semiBold'), color: figureColor(theme, figure.cell) }}>{`${figure.cell.left}%`}</Text>
-                                <Text numberOfLines={1} style={{ marginLeft: 3, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{tagText(figure)}</Text>
+                    <View style={{ minHeight: 2 * FIGURE_LINE, justifyContent: 'center', flexShrink: 1 }}>
+                        {plan.figures.map((figure, index) => (
+                            <View key={figure.name} style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                                <Text numberOfLines={1} style={{ minWidth: number, textAlign: 'right', fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('semiBold'), color: figureColor(theme, figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
+                                <Text numberOfLines={namesVisible ? undefined : 1} style={{ marginLeft: 3, flexShrink: 1, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`${namesVisible ? figure.name : tags[planIndex]![index]}${figure.cells.length > 1 ? `×${figure.cells.length}` : ''}`}</Text>
                             </View>
                         ))}
                     </View>
@@ -241,28 +240,23 @@ function PlanStrip({ grid }: { grid: LimitGrid }) {
     );
 }
 
-interface PlanFigure {
-    row: string;
-    /** The tightest limit of this length. */
-    cell: LimitCell;
-    /** How many limits of this length the plan has. */
-    count: number;
-}
-
-/** A plan's figures in the card's order, shortest window first: one per window
- *  length, the tightest of that length, never a gap for a length it lacks. */
-function planFigures(column: LimitColumn, rows: string[]): PlanFigure[] {
-    return column.cells.flatMap((cell, index) => (cell.length === 0 ? [] : [{ row: rows[index]!, cell: cell[0]!, count: cell.length }]));
-}
-
-/** The window a figure is, as short as it can be said: its published length
- *  ("5h", "7d"), otherwise its name's first letters ("mo" for Monthly), and
- *  "×2" when two limits of that length share the figure. */
-function tagText(figure: PlanFigure): string {
-    // ponytail: only a billing month publishes no length today; a new unnamed
-    // window would read as its first two letters until it gets a real tag.
-    const tag = /^\d+[mhd]$/.test(figure.row) ? figure.row : figure.row.slice(0, 2).toLowerCase();
-    return figure.count > 1 ? `${tag}×${figure.count}` : tag;
+function figureTags(figures: LimitFigure[]): string[] {
+    const names = figures.map(({ name }) => name.length <= 6 ? name : `${name.slice(0, 5)}…`);
+    const used = new Set<string>();
+    return names.map((tag, index) => {
+        if (names.indexOf(tag) === names.lastIndexOf(tag) && !used.has(tag)) {
+            used.add(tag);
+            return tag;
+        }
+        let suffix = 1;
+        let distinct: string;
+        do {
+            const ending = `…${suffix++}`;
+            distinct = `${figures[index]!.name.slice(0, Math.max(0, 6 - ending.length))}${ending}`;
+        } while (used.has(distinct) || names.includes(distinct));
+        used.add(distinct);
+        return distinct;
+    });
 }
 
 function figureColor(theme: ReturnType<typeof useUnistyles>['theme'], cell: LimitCell): string {
@@ -270,10 +264,9 @@ function figureColor(theme: ReturnType<typeof useUnistyles>['theme'], cell: Limi
 }
 
 /** The strip answers when any connected plan has a readable figure. */
-function connectedGrid(payload: UsageFigures): LimitGrid | undefined {
-    if (payload.connected === undefined) return undefined;
-    const grid = limitGrid(payload.connected);
-    return grid.columns.length === 0 ? undefined : grid;
+function connectedPlans(payload: UsageFigures): LimitPlan[] | undefined {
+    const plans = limitPlans(payload.connected ?? []);
+    return plans.length === 0 ? undefined : plans;
 }
 
 /** A window's bar drains with what is left, as its figure says; the tick
@@ -289,17 +282,16 @@ function remainingOf(window: UsageLimitsWindow): number {
 /** One sentence per plan, in the order the card shows them: "Claude plan: 5h
  *  100% left, 7d 36% left". A low figure also says why it is coloured and when
  *  it comes back, which the colour alone cannot say aloud. */
-function columnSummary(column: LimitColumn, rows: string[]): string {
-    const remainings = column.cells.flatMap((limits, index) => limits.map((cell) => {
-        const row = rows[index]!;
-        const name = limits.length > 1 ? `${cell.window.label} ${row}` : row;
-        const figure = `${name} ${t('plugins.limits.percentLeft', { percent: cell.left })}`;
+function planSummary(plan: LimitPlan): string {
+    const remainings = plan.figures.flatMap(({ name, cells }) => cells.map((cell) => {
+        const title = cells.length > 1 ? `${cell.window.label} ${name}` : name;
+        const figure = `${title} ${t('plugins.limits.percentLeft', { percent: cell.left })}`;
         if (cell.tone === undefined) return figure;
         const why = t(cell.left === 0 ? 'plugins.limits.paceExhausted' : cell.window.pace === 'limited' ? 'plugins.limits.limited' : 'plugins.limits.low');
         const back = cell.window.resetsIn === undefined ? '' : `, ${t('plugins.rightNow.resetsIn', { time: cell.window.resetsIn })}`;
         return `${figure} (${why}${back})`;
     }));
-    return t('plugins.rightNow.planRemaining', { plan: column.provider.plan ?? column.provider.label, remainings: remainings.join(', ') });
+    return t('plugins.rightNow.planRemaining', { plan: plan.provider.plan ?? plan.provider.label, remainings: remainings.join(', ') });
 }
 
 /** One mono line in the card's quiet voice: a machine at 80% memory is a
@@ -358,9 +350,9 @@ function emptyLine(payload: UsageFigures): string {
  *  are, and what to do about it, is the refresh control's own button to announce. */
 function cardAccessibilityLabel(payload: UsageFigures): string {
     const parts: string[] = [t('plugins.rightNow.title')];
-    const grid = connectedGrid(payload);
-    if (grid !== undefined) {
-        parts.push(...grid.columns.map((column) => columnSummary(column, grid.rows)));
+    const plans = connectedPlans(payload);
+    if (plans !== undefined) {
+        parts.push(...plans.map(planSummary));
     } else if (payload.limits.windows[0] !== undefined) {
         const limit = payload.limits.windows[0];
         const verdict = payload.limits.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.limits.verdict]);

@@ -50,46 +50,31 @@ export interface LimitCell {
     tone?: LimitTone;
 }
 
-/** One plan's column: its cells line up with the grid's rows. A row this
- *  plan has no limit for has an empty cell. */
-export interface LimitColumn {
+export interface LimitFigure {
+    name: string;
+    cells: LimitCell[];
+}
+
+export interface LimitPlan {
     provider: UsageConnectedProvider;
-    cells: LimitCell[][];
+    figures: LimitFigure[];
 }
 
-/**
- * Every connected plan's limits as one grid: a row per window length, shortest
- * first (unknown lengths last); a column per plan, in name order, so a plan
- * keeps its place however its figures move and the eye learns where to look.
- */
-export interface LimitGrid {
-    /** Each row's name, the one the card prints beside it ("5h", "7d", "Monthly"). */
-    rows: string[];
-    columns: LimitColumn[];
-}
-
-export function limitGrid(providers: readonly UsageConnectedProvider[]): LimitGrid {
-    // A share that is not a number is not a reading: dropped here rather than
-    // printed as one. A plan left with nothing readable has nothing to show.
-    const readable = providers
-        .map((provider) => ({ provider, windows: provider.windows.filter((window) => Number.isFinite(window.used)) }))
-        .filter(({ windows }) => windows.length > 0)
-        .sort((a, b) => a.provider.label.localeCompare(b.provider.label));
-    // Rows by length; a window with no published length (a billing month) sorts
-    // after every one that has one, and ties keep the order they first appear.
-    const rows = [...new Set(readable.flatMap(({ windows }) => windows.map(rowName)))]
-        .sort((a, b) => {
-            const [x, y] = [lengthInMinutes(a), lengthInMinutes(b)];
-            return x === y ? 0 : x - y;
-        });
-    const columns = readable.map(({ provider, windows }) => ({
-        provider,
-        cells: rows.map((row) => windows
-            .filter((window) => rowName(window) === row)
-            .map(limitCell)
-            .sort((a, b) => a.left - b.left)),
-    }));
-    return { rows, columns };
+export function limitPlans(providers: readonly UsageConnectedProvider[]): LimitPlan[] {
+    return providers.flatMap((provider) => {
+        const groups = new Map<string, LimitCell[]>();
+        for (const window of provider.windows) {
+            if (!Number.isFinite(window.used)) continue;
+            const name = window.window ?? window.label;
+            const cells = groups.get(name) ?? [];
+            cells.push(limitCell(window));
+            groups.set(name, cells);
+        }
+        if (groups.size === 0) return [];
+        const figures = [...groups].map(([name, cells]) => ({ name, cells: cells.sort((a, b) => a.left - b.left) }))
+            .sort((a, b) => lengthInMinutes(a.name) - lengthInMinutes(b.name) || 0);
+        return [{ provider, figures }];
+    }).sort((a, b) => a.provider.label.localeCompare(b.provider.label));
 }
 
 function limitCell(window: UsageLimitsWindow): LimitCell {
@@ -104,11 +89,6 @@ function limitTone(window: UsageLimitsWindow, left: number): LimitTone | undefin
     if (left === 0 || window.pace === 'limited') return 'danger';
     if (left <= LOW_LEFT) return 'warning';
     return undefined;
-}
-
-/** The shortest name that still says which window a figure belongs to. */
-function rowName(window: UsageLimitsWindow): string {
-    return window.window ?? window.label;
 }
 
 const MINUTES: Record<string, number> = { m: 1, h: 60, d: 1_440 };

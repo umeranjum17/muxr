@@ -881,7 +881,7 @@ describe('the usage screen read path', () => {
         expect(figures()).toEqual([
             ['36%', '#fff'], ['7d', '#999'],
             ['60%', '#fff'], ['5h×2', '#999'], ['89%', '#fff'], ['7d', '#999'],
-            ['93%', '#fff'], ['5h', '#999'], ['0%', 'tone:danger'], ['7d', '#999'], ['8%', 'tone:warning'], ['mo', '#999'],
+            ['93%', '#fff'], ['5h', '#999'], ['0%', 'tone:danger'], ['7d', '#999'], ['8%', 'tone:warning'], ['Monthly', '#999'],
         ]);
         // Read aloud in the same order, naming every limit, and a coloured
         // figure says why and when it comes back, which its colour cannot.
@@ -894,27 +894,44 @@ describe('the usage screen read path', () => {
         expect(summary).toContain('Monthly 8% plugins.limits.percentLeft (plugins.limits.low, plugins.rightNow.resetsIn(18d))');
         expect(summary).not.toContain('Z.ai');
 
-        // Plans sit side by side while they fit and wrap when they do not:
-        // three across a roomy phone, two a row on a narrow one.
+        // Plans sit side by side while they fit and wrap when they do not.
         const planWidths = () => card.root.findAllByType('AgentGlyph').map((mark: any) => mark.parent.parent.props.style.width);
-        expect(planWidths()).toEqual(['33.333333333333336%', '33.333333333333336%', '33.333333333333336%']);
+        expect(planWidths()).toEqual(['50%', '50%', '50%']);
         const longName = `${'model-'.repeat(12)}session`;
+        const otherName = `${'model-'.repeat(12)}weekly`;
         screenWidth = 270;
         TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, {
             ...now,
             connected: now.connected!.map((provider) => provider.id === 'codex'
-                ? { ...provider, windows: [...provider.windows, { label: longName, used: 17 }] }
+                ? { ...provider, windows: [...provider.windows,
+                    { label: 'gpt-4', used: 17 }, { label: 'gpt-5', used: 23 },
+                    { label: longName, used: 31 }, { label: otherName, used: 42 },
+                ] }
                 : provider),
         }) }); });
-        expect(planWidths()).toEqual(['50%', '50%', '50%']);
-        // A window with no published length is tagged by its first letters on
-        // screen; its whole name is still what a reader hears.
+        expect(planWidths()).toEqual(['100%', '100%', '100%']);
+        const codexTags = card.root.findAllByType('AgentGlyph')[1]!.parent.parent.findAllByType('Text')
+            .map((node: any) => node.props.children)
+            .filter((text: unknown) => typeof text === 'string' && !String(text).endsWith('%'));
+        expect(codexTags).toContain('gpt-4');
+        expect(codexTags).toContain('gpt-5');
+        expect(screenText(card)).toContain('Monthly');
+        expect(new Set(codexTags).size).toBe(codexTags.length);
+        expect(codexTags.every((tag: string) => tag.length <= 6 || tag === 'Monthly')).toBe(true);
         expect(figures()).toContainEqual(['83%', '#fff']);
-        expect(figures()).toContainEqual(['mo', '#999']);
         expect(screenText(card)).not.toContain(longName);
-        const updatedLabel: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
-            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
+        const cardButton = () => card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!;
+        const updatedLabel: string = cardButton().props.accessibilityLabel;
+        expect(updatedLabel).toContain('gpt-4');
+        expect(updatedLabel).toContain('gpt-5');
         expect(updatedLabel).toContain(longName);
+        expect(updatedLabel).toContain(otherName);
+        TestRenderer.act(() => { cardButton().props.onLongPress(); });
+        expect(screenText(card)).toContain(longName);
+        expect(screenText(card)).toContain(otherName);
+        TestRenderer.act(() => { cardButton().props.onPress(); });
+        expect(screenText(card)).not.toContain(longName);
     });
 
     it('shows connected limits even when the selected plan has no windows', async () => {
