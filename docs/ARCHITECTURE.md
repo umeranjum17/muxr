@@ -115,7 +115,10 @@ session/RPC and terminal channels require strict v2 ciphertext; the relay checks
 bounded routing context and never parses plaintext.
 
 **The app owns**: rendering and local persistence only. No truth lives on the
-phone.
+phone. A machine-scoped, display-only Home snapshot in local MMKV holds the last
+host-confirmed tree and agent presentation until both a fresh tree and catalog
+arrive. It is not an authority for terminal previews or close actions; sign-out,
+removed grants, and web secure-store reset clear it.
 
 ## Model mapping
 

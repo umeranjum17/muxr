@@ -102,7 +102,7 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 
 **Also on your phone:**
 
-- **New agents and worktrees** — open the home composer to choose the machine, repository, worktree, and one of 20+ agent CLIs. The resting dock hides Send until there's a draft or a submission in progress. On a short phone, scroll the open composer to reach its options and Start when the keyboard is visible.
+- **New agents and worktrees** — open the home composer to choose the machine, repository, worktree, and one of 20+ agent CLIs. The resting dock hides Send until there's a draft or a submission in progress. On a short phone, scroll the open composer to reach its options and Start when the keyboard is visible. On a later launch, Home can show the last confirmed agents and spaces while reconnecting; they appear dimmed until the host responds, and closing a remembered space is unavailable.
 - **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone; download an agent's Shared Artifacts with progress and resume after a lost connection. On web, a download finished in the background offers **Save** when you return.
 - **Settings** — under Appearance, choose a theme and terminal text size; the browser terminal also offers System or IBM Plex Mono. Under Notifications, choose alerts for agents needing you or finishing; enable browser notifications in the web app or manage permission and sound in your phone's system settings.
 - **Usage** — see each plan window's percent left, reset time, and pace when known; Home shows every connected plan's limits at a glance, each plan's mark over what is left of its windows, alongside machine health.
