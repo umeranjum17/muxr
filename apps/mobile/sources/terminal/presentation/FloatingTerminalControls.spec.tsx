@@ -19,7 +19,7 @@ const theme = {
         surfaceHighest: '#222222',
         accent: '#00aaff',
         glass: { border: '#333333', highlight: '#444444' },
-        terminalChrome: { resting: '#111111', floating: '#222222', scrim: '#000000', cluster: '#303030', clusterPressed: '#484845' },
+        terminalChrome: { chrome: '#111111', resting: '#111111', floating: '#222222', scrim: '#000000', cluster: '#303030', clusterPressed: '#484845' },
         status: { working: '#00aa00' },
     },
 };
@@ -50,6 +50,8 @@ vi.mock('react-native-reanimated', () => ({
     withTiming: (value: unknown) => value,
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+vi.mock('expo-linear-gradient', () => ({ LinearGradient: 'LinearGradient' }));
+vi.mock('@/components/ui', () => ({ withAlpha: (color: string) => color }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
 vi.mock('@/catalog/store', () => ({ useLocalSetting: () => null, useLocalSettingMutable: () => [null, () => undefined] }));
 vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}) } }));

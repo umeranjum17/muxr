@@ -10,6 +10,7 @@ import { RealtimeTalkButton } from '@/conversation/ui';
 import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
@@ -1178,6 +1179,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 return (
                 <View collapsable={false} style={{ flex: 1, backgroundColor: props.desktop ? '#000' : theme.colors.terminalChrome.canvas, paddingTop: insets.top, paddingBottom: keyboardVisible ? keyboardHeight : 0 }}>
                     {watchingWorkingAgent && <ActiveAgentWakeLock />}
+                    {/* The terminal is dark in both themes, so the system bar
+                        above it is too: under a light app theme its clock and
+                        battery were drawn dark on the terminal's own ink. */}
+                    {isFocused && <StatusBar style="light" />}
 
                     {/* One quiet line above the terminal plane: a back mark,
                         the session identity, the pane pager, and an overflow
@@ -1787,6 +1792,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         accessibilityLabel={socketStatus.status === 'connected' ? 'Focus in Herdr' : 'Focus in Herdr, unavailable: not connected'}
                                         accessibilityState={{ disabled: socketStatus.status !== 'connected' || focusPending, busy: focusPending }}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: socketStatus.status === 'connected' ? 1 : 0.5 })}>
+                                        <Ionicons name="locate-outline" size={18} color={theme.colors.textSecondary} />
                                         <View style={{ flex: 1 }}>
                                             <Text style={{ color: theme.colors.text, fontSize: 15 }}>Focus in Herdr</Text>
                                             {socketStatus.status !== 'connected' && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>Not connected</Text>}
@@ -1807,10 +1813,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         offered; the slot row below stays for third-party
                                         contributions to the same place. */}
                                     {canControl && <View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+                                        {/* Its control sits at the end; the label still
+                                            starts on the column every other row's does. */}
+                                        <View style={{ width: 18 }} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Talk to this session</Text>
                                         <RealtimeTalkButton sessionId={props.id} accessibilityLabel="Talk to this session" />
                                     </View>}
                                     {canControl && composerContributions.length > 0 && <View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
+                                        <View style={{ width: 18 }} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{composerSlotLabel ?? 'Session tools'}</Text>
                                         <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
                                     </View>}
