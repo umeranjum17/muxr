@@ -1,13 +1,13 @@
 import * as React from 'react';
 import { useFocusEffect } from 'expo-router';
-import { storage, useHomeHerd } from '@/catalog/store';
+import { storage, useHomeTree } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { listPairedGrants } from '@/pairing/e2ee';
 import { getCachedConnectionSettings } from '@/connection';
 import { defaultExpandedSpaces } from '../domain/herdTree';
 
 export function useHerdTreeLive() {
-    const { workspaces, loaded, stale } = useHomeHerd();
+    const { workspaces, loaded, stale } = useHomeTree();
     const [attempted, setAttempted] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
     const [herdrConnected, setHerdrConnected] = React.useState<boolean | undefined>(undefined);
@@ -65,7 +65,14 @@ export function useHerdTreeLive() {
         };
     }, [refresh]);
 
-    const defaultExpandedWorkspaceIds = React.useMemo(() => defaultExpandedSpaces(workspaces), [workspaces]);
+    const expandedIdsRef = React.useRef<string[]>([]);
+    const defaultExpandedWorkspaceIds = React.useMemo(() => {
+        const next = defaultExpandedSpaces(workspaces);
+        if (next.length !== expandedIdsRef.current.length || next.some((id, index) => id !== expandedIdsRef.current[index])) {
+            expandedIdsRef.current = next;
+        }
+        return expandedIdsRef.current;
+    }, [workspaces]);
 
     return {
         workspaces,

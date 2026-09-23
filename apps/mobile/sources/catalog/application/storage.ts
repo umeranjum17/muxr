@@ -511,12 +511,21 @@ export function homeShowsSnapshot(state: Pick<StorageState, 'homeSnapshot' | 'he
  * this is the last Home the device saw for the machine, flagged `stale` so
  * Home can say so. Everything outside Home reads the host's state only.
  */
+export function useHomeTree(): { workspaces: HerdrTreeWorkspace[]; loaded: boolean; stale: boolean } {
+    return storage(useShallow((state) => {
+        const stale = homeShowsSnapshot(state);
+        return {
+            workspaces: stale ? state.homeSnapshot!.workspaces as HerdrTreeWorkspace[] : state.herdrWorkspaces,
+            loaded: state.herdrTreeLoaded || stale,
+            stale,
+        };
+    }));
+}
+
 export function useHomeHerd(): { workspaces: HerdrTreeWorkspace[]; sessions: (Session | HomeSession)[]; loaded: boolean; stale: boolean } {
-    const stale = storage(homeShowsSnapshot);
-    const workspaces = storage((state) => homeShowsSnapshot(state) ? state.homeSnapshot!.workspaces : state.herdrWorkspaces);
+    const tree = useHomeTree();
     const sessions = storage(useShallow((state) => Object.values(homeShowsSnapshot(state) ? state.homeSnapshot!.sessions : state.sessions)));
-    const loaded = storage((state) => state.herdrTreeLoaded);
-    return { workspaces, sessions, loaded: loaded || stale, stale };
+    return { ...tree, sessions };
 }
 
 export function useSession(id: string): Session | null {

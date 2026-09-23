@@ -927,20 +927,33 @@ describe('session sync flow', () => {
         session.extensionStatus = { private: secret };
         const confirmed = [{
             workspaceId: 'workspace', label: 'Home', focused: true, agentStatus: 'working' as const,
+            worktree: { repo: secret, path: '/work', branch: 'fast' },
+            tokens: { projection: secret },
             tabs: [{ tabId: 'tab', focused: true, agentStatus: 'working' as const,
-                panes: [{ paneId: 'pane', tabId: 'tab', sessionId: 'agent', agentName: 'Maria',
-                    taskTitle: 'Build Home', agentStatus: 'working' as const, promptable: true, focused: true }],
+                panes: [
+                    { paneId: 'pane', tabId: 'tab', sessionId: 'agent', agentName: 'Maria',
+                        taskTitle: 'Build Home', cwd: `/private/${secret}/named`,
+                        agentStatus: 'working' as const, promptable: true, focused: true },
+                    { paneId: 'shell', tabId: 'tab', cwd: `/private/${secret}/fallback`,
+                        agentStatus: 'idle' as const, promptable: false, focused: false },
+                ],
             }],
         }];
         saveHomeSnapshot('machine', confirmed, [session]);
         const serialized = mmkvValues.get('home-snapshot-v2')!;
         expect(serialized).not.toContain(secret);
-        expect(JSON.parse(serialized).sessions.agent).toEqual({
+        const saved = JSON.parse(serialized);
+        expect(saved.sessions.agent).toEqual({
             id: 'agent', updatedAt: session.updatedAt, metadata: null,
         });
+        expect(saved.workspaces[0].worktree).not.toHaveProperty('repo');
+        expect(saved.workspaces[0].tokens).not.toHaveProperty('projection');
+        expect(saved.workspaces[0].tabs[0].panes[0]).not.toHaveProperty('cwd');
+        expect(saved.workspaces[0].tabs[0].panes[1]).not.toHaveProperty('cwd');
+        expect(saved.workspaces[0].tabs[0].panes[1].label).toBe('fallback');
         confirmed[0]!.tabs[0]!.panes.splice(0, 1);
         storage.getState().restoreHome('machine');
-        expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes).toHaveLength(1);
+        expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes).toHaveLength(2);
         expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[0]!.taskTitle).toBe('Build Home');
     });
 

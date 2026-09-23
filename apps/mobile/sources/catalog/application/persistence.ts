@@ -5,6 +5,7 @@ import { Profile, profileDefaults, profileParse } from '../domain/profile';
 import { AGENT_KINDS } from '../domain/agentKinds';
 import type { Session } from '../domain/sessionTypes';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
+import { agentLabels } from '@/herd/domain/agentPresentation';
 type PermissionModeKey = string;
 
 const mmkv = new MMKV();
@@ -233,9 +234,13 @@ export type HomeSession = Pick<Session, 'id' | 'updatedAt'> & {
     metadata: Pick<NonNullable<Session['metadata']>, 'lifecycleStateSince'> | null;
 };
 
+type HomeWorkspace = Omit<HerdrTreeWorkspace, 'worktree'> & {
+    worktree?: Omit<NonNullable<HerdrTreeWorkspace['worktree']>, 'repo'>;
+};
+
 export interface HomeSnapshot {
     machineId: string;
-    workspaces: HerdrTreeWorkspace[];
+    workspaces: HomeWorkspace[];
     sessions: Record<string, HomeSession>;
 }
 
@@ -264,7 +269,6 @@ export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspa
             agentStatus: workspace.agentStatus,
             order: workspace.order,
             worktree: workspace.worktree && {
-                repo: workspace.worktree.repo,
                 branch: workspace.worktree.branch,
                 path: workspace.worktree.path,
                 repoKey: workspace.worktree.repoKey,
@@ -273,7 +277,6 @@ export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspa
             tokens: workspace.tokens && {
                 parent: workspace.tokens.parent,
                 kind: workspace.tokens.kind,
-                projection: workspace.tokens.projection,
             },
             tabs: workspace.tabs.map((tab) => ({
                 tabId: tab.tabId,
@@ -284,8 +287,9 @@ export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspa
                     paneId: pane.paneId,
                     tabId: pane.tabId,
                     sessionId: pane.sessionId,
-                    label: pane.label,
-                    cwd: pane.cwd,
+                    label: pane.label || (pane.cwd && !pane.agentName?.trim() && !pane.agentKind?.trim()
+                        && !pane.terminalTitle?.trim() && !pane.taskTitle?.trim()
+                        ? agentLabels(pane).taskTitle : undefined),
                     terminalTitle: pane.terminalTitle,
                     focused: pane.focused,
                     agentName: pane.agentName,

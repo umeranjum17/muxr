@@ -1,4 +1,5 @@
 import * as React from 'react';
+import deepEqual from 'fast-deep-equal';
 import {
     NativeScrollEvent,
     NativeSyntheticEvent,
@@ -670,7 +671,7 @@ const ChildRow = React.memo(({
 const WorkspaceCard = React.memo(({
     workspace,
     name,
-    names,
+    childNames,
     expanded,
     agentCount,
     panes,
@@ -688,7 +689,7 @@ const WorkspaceCard = React.memo(({
 }: {
     workspace: HerdrTreeWorkspace;
     name: string;
-    names: ReadonlyMap<string, string>;
+    childNames: readonly string[];
     expanded: boolean;
     agentCount: number;
     panes: HerdrTreePane[];
@@ -790,11 +791,11 @@ const WorkspaceCard = React.memo(({
             {expanded && childSpaces.length > 0 && (
                 <GroupSubheader groupChildren={childSpaces} compact={compact} />
             )}
-            {expanded && childSpaces.map((child) => (
+            {expanded && childSpaces.map((child, index) => (
                 <ChildRow
                     key={child.workspace.workspaceId}
                     child={child}
-                    name={names.get(child.workspace.workspaceId)!}
+                    name={childNames[index]!}
                     onToggle={onToggleChild}
                     onClose={onClose}
                     onClosePane={onClosePane}
@@ -849,14 +850,32 @@ export const SpacesTree = React.memo(({
     );
 
     const searching = searchQuery.trim() !== '';
-    const sections = React.useMemo(
-        () => [{ key: 'spaces', title: t('spacesTree.title'), data: buildSpaceRows(workspaces, expanded, searchQuery) }],
-        [expanded, searchQuery, workspaces],
-    );
+    const previousRows = React.useRef(new Map<string, HerdSpaceRow>());
+    const sections = React.useMemo(() => {
+        const rows = buildSpaceRows(workspaces, expanded, searchQuery).map((row) => {
+            const previous = previousRows.current.get(row.workspace.workspaceId);
+            return previous !== undefined && deepEqual(previous, row) ? previous : row;
+        });
+        previousRows.current = new Map(rows.map((row) => [row.workspace.workspaceId, row]));
+        return [{ key: 'spaces', title: t('spacesTree.title'), data: rows }];
+    }, [expanded, searchQuery, workspaces]);
     const names = React.useMemo(() => displayedWorkspaceNames(sections[0]!.data), [sections]);
+    const namesRef = React.useRef(names);
+    namesRef.current = names;
+    const previousChildNames = React.useRef(new Map<string, readonly string[]>());
+    const childNames = React.useMemo(() => {
+        const next = new Map<string, readonly string[]>();
+        for (const row of sections[0]!.data) {
+            const values = row.children.map((child) => names.get(child.workspace.workspaceId)!);
+            const previous = previousChildNames.current.get(row.workspace.workspaceId);
+            next.set(row.workspace.workspaceId, previous !== undefined && deepEqual(previous, values) ? previous : values);
+        }
+        previousChildNames.current = next;
+        return next;
+    }, [names, sections]);
 
     const confirmCloseWorkspace = React.useCallback((workspace: HerdrTreeWorkspace) => {
-        const name = names.get(workspace.workspaceId)!;
+        const name = namesRef.current.get(workspace.workspaceId)!;
         Modal.alert('Close workspace?', workspaceCloseMessage(workspace, name), [
             { text: 'Cancel', style: 'cancel' },
             {
@@ -875,7 +894,7 @@ export const SpacesTree = React.memo(({
                 },
             },
         ]);
-    }, [names, refresh]);
+    }, [refresh]);
 
     const confirmClosePane = React.useCallback((pane: HerdrTreePane) => {
         const sessionId = pane.sessionId;
@@ -911,7 +930,7 @@ export const SpacesTree = React.memo(({
             <WorkspaceCard
                 workspace={item.workspace}
                 name={names.get(item.workspace.workspaceId)!}
-                names={names}
+                childNames={childNames.get(item.workspace.workspaceId)!}
                 expanded={item.expanded}
                 agentCount={item.agentCount}
                 panes={item.panes}
@@ -930,7 +949,7 @@ export const SpacesTree = React.memo(({
                 unseenDoneSessionIds={unseenDoneSessionIds}
             />
         </View>
-    ), [canClose, compact, confirmClosePane, confirmCloseWorkspace, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, childNames, compact, confirmClosePane, confirmCloseWorkspace, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
