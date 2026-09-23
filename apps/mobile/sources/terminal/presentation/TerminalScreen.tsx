@@ -83,6 +83,7 @@ import { agentCommands, destructiveCommand, type AgentCommand } from '../domain/
 import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
 import { FindOutputSheet } from './FindOutputSheet';
+import { PendingChoices } from './PendingChoices';
 import { useTerminalQuickReplies } from '@/plugins/ui';
 
 /** What a reply row's primary tap really does, for replies that never send. */
@@ -1430,6 +1431,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 </Pressable>
                             </Animated.View>
                         )}
+                        {/* A question lives at the live edge, so its answers
+                            stand down while the pane is scrolled back. */}
+                        <PendingChoices
+                            sessionId={props.id}
+                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !showJump && !desktopVisible}
+                            channel={channel}
+                        />
                     </View>
 
                     {/* Everything below the terminal is one surface in the
