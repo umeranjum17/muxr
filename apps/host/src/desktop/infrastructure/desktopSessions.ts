@@ -52,10 +52,15 @@ function waylandSession(env: NodeJS.ProcessEnv): boolean {
     }
 }
 
-/** Nothing set, no Wayland session and no X display at all: a server without a screen. */
-function screenless(env: NodeJS.ProcessEnv, x11SocketDirectory: string): boolean {
+/** Nothing set, no Wayland session and no DISPLAY: a server, whose screen, if any, the host finds or starts. */
+function headless(env: NodeJS.ProcessEnv): boolean {
     const kind = env.MUXR_DESKTOP_SOURCE?.trim();
-    return (kind === undefined || kind === '') && !waylandSession(env) && !env.DISPLAY?.trim() && firstXDisplay(x11SocketDirectory) === undefined;
+    return (kind === undefined || kind === '') && !waylandSession(env) && !env.DISPLAY?.trim();
+}
+
+/** A headless machine with no X display at all: a server without a screen. */
+function screenless(env: NodeJS.ProcessEnv, x11SocketDirectory: string): boolean {
+    return headless(env) && firstXDisplay(x11SocketDirectory) === undefined;
 }
 
 function firstXDisplay(directory: string): string | undefined {
@@ -455,10 +460,10 @@ export class DesktopSessions {
                             }
                         },
                     },
-                    // The engine reaches this host's own screen with its cookie.
-                    this.virtualDisplay.running() || this.startsOwnDisplay()
-                        ? { ...process.env, XAUTHORITY: this.virtualDisplay.authorityFile }
-                        : process.env,
+                    // The engine reaches this host's own screen with its cookie. A
+                    // headless host may start that screen after the engine, so
+                    // the engine always carries it there.
+                    headless(this.environment) ? { ...process.env, XAUTHORITY: this.virtualDisplay.authorityFile } : process.env,
                 );
                 this.client = client;
                 this.startFailure = null;

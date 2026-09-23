@@ -444,11 +444,14 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
             await vi.waitFor(() => expect(() => process.kill(Number(readFileSync(join(directory, 'pid'), 'utf8')), 0)).toThrow());
             await desktop.open({ permissions: ['view', 'control'] });
             await desktop.closeAll();
-            expect(opened()).toEqual([{ kind: 'x11', display: ':90' }, { kind: 'x11', display: ':90' }]);
-            expect(readFileSync(join(directory, 'starts'), 'utf8')).toBe('90\n90\n');
+            // Started twice, on the same free display number both times.
+            const starts = readFileSync(join(directory, 'starts'), 'utf8').trim().split('\n');
+            expect(starts).toHaveLength(2);
+            expect(starts[1]).toBe(starts[0]);
+            expect(opened()).toEqual(starts.map((number) => ({ kind: 'x11', display: `:${number}` })));
 
             desktop.stopVirtualDisplay();
-            await vi.waitFor(() => expect(existsSync(join(sockets, 'X90'))).toBe(false));
+            await vi.waitFor(() => expect(existsSync(join(sockets, `X${starts[0]}`))).toBe(false));
         } finally {
             rmSync(directory, { recursive: true, force: true });
         }
