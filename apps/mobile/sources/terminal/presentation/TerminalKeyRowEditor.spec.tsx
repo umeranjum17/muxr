@@ -18,6 +18,7 @@ const theme = {
         surfaceHigh: '#222',
         accent: '#0af',
         divider: '#333',
+        terminalChrome: { chrome: '#111' },
         warningCritical: '#f55',
         status: { error: '#f55' },
         button: { primary: { tint: '#000' } },
@@ -45,6 +46,7 @@ vi.mock('react-native', () => ({
     useWindowDimensions: () => ({ width: 360, height: 792 }),
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+vi.mock('expo-linear-gradient', () => ({ LinearGradient: 'LinearGradient' }));
 vi.mock('react-native-gesture-handler', () => {
     const chain: Record<string, () => unknown> = {};
     chain.activateAfterLongPress = () => chain;
@@ -77,7 +79,7 @@ vi.mock('react-native-unistyles', () => {
 vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: () => undefined, hapticsSelection: () => undefined }));
 vi.mock('@/components/Switch', () => ({ Switch: 'Switch' }));
-vi.mock('@/components/ui', () => ({ ui: { radius: { control: 8 } } }));
+vi.mock('@/components/ui', () => ({ ui: { radius: { control: 8 } }, withAlpha: (color: string) => color }));
 vi.mock('@/catalog/store', () => ({
     useLocalSetting: () => [null],
     useLocalSettingMutable: () => [false, () => undefined],
