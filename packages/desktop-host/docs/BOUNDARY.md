@@ -42,10 +42,10 @@ local gestures into that session's input".
 - `session.showKeyboard()/hideKeyboard()`,
   `session.copyRemoteToLocal()/pasteLocalToRemote()` are the control primitives
   the app mounts wherever it wants.
-- Native side owns: the video decoder factory selection (hardware VP9 rather
-  than the underlying wrapper's software default), the renderer, the IME/text
-  connection, platform clipboard, and the timely release of held remote input on
-  background/unmount.
+- Native side owns the video decoder factory selection (hardware VP9 rather
+  than the underlying wrapper's software default), the renderer and the IME/text
+  connection. For input enablement and release on background/unmount, see the
+  [client contract](../../desktop-client/README.md#what-the-package-guarantees).
 - The app supplies `authorize()` (a short-lived, engine-scoped capability plus
   the authenticated `signaling` channel it carries). The package never sees a
   pairing blob, a machine id or a token format, and never persists one.

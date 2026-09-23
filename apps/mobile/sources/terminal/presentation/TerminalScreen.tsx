@@ -83,6 +83,7 @@ import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
 import { agentCommands, destructiveCommand, type AgentCommand } from '../domain/agentCommands';
 import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
+import { requestDesktop } from '@/desktop/request';
 import { FindOutputSheet } from './FindOutputSheet';
 import { PendingChoices } from './PendingChoices';
 import { useTerminalQuickReplies } from '@/plugins/ui';
@@ -272,11 +273,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [focusFailure, setFocusFailure] = React.useState<string | null>(null);
     const [headerBottom, setHeaderBottom] = React.useState(0);
     const openDesktop = React.useCallback(() => {
+        requestDesktop(getCachedConnectionSettings().machineId ?? '', props.id);
         Keyboard.dismiss();
         setActionsOpen(false);
         ringRef.current?.close();
         router.setParams({ desktop: '1' });
-    }, []);
+    }, [props.id]);
     const closeDesktop = React.useCallback(() => {
         Keyboard.dismiss();
         router.setParams({ desktop: '0' });
@@ -1743,6 +1745,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     {desktopVisible && <View style={{ position: 'absolute', top: insets.top, left: 0, right: 0, bottom: 0, backgroundColor: '#000', zIndex: 10 }}>
                         <React.Suspense fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="small" color={theme.colors.textSecondary} /></View>}>
                             <DesktopSurface
+                                key={props.id}
+                                sessionId={props.id}
                                 onExit={closeDesktop}
                                 title={contextTitle}
                                 leading={<AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}

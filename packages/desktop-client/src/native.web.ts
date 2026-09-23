@@ -114,9 +114,11 @@ interface WebSession {
     longPress: ReturnType<typeof setTimeout> | null;
     /** While a sticky modifier waits for its key, typing is the session's to chord. */
     captured: boolean;
+    inputEnabled: boolean;
     /** The word the keyboard is composing, and how much of it has already gone. */
     composition: string;
     compositionSent: string;
+    composing: boolean;
     /** Chorded keys that are down on the desktop, by the character sent for them. */
     chordsDown: Set<string>;
     /** Re-measure what the keyboard covers; null until a surface is attached. */
@@ -222,7 +224,7 @@ function scheduleMove(session: WebSession): void {
 
 function control(session: WebSession, message: Record<string, unknown>): void {
     const channel = session.channel;
-    if (channel?.readyState !== 'open') return;
+    if (channel?.readyState !== 'open' || (!session.inputEnabled && ['pointer', 'wheel', 'key', 'text', 'clipboard_read', 'clipboard_write'].includes(String(message.kind)))) return;
     if (message.kind === 'pointer' && message.phase === 'move') {
         session.pendingMove = message;
         scheduleMove(session);
@@ -408,7 +410,7 @@ function attachGestures(session: WebSession): () => void {
 
     const longPress = (): void => {
         session.longPress = null;
-        if (session.gesture !== 'pending') return;
+        if (!session.inputEnabled || session.gesture !== 'pending') return;
         const at = desktopPoint(session, session.downX, session.downY);
         if (at === null) return;
         session.gesture = 'armed';
@@ -503,6 +505,7 @@ function attachGestures(session: WebSession): () => void {
     };
 
     const pointerDown = (event: PointerEvent): void => {
+        if (!session.inputEnabled) return;
         // A press on the desktop is the desktop's: it must not take focus from
         // the remote keyboard, or the phone's keyboard closes under a tap that
         // only meant to put the caret somewhere.
@@ -564,6 +567,7 @@ function attachGestures(session: WebSession): () => void {
     };
 
     const pointerMove = (event: PointerEvent): void => {
+        if (!session.inputEnabled) return;
         const { x, y } = local(session, event.clientX, event.clientY);
         if (event.pointerType === 'mouse') {
             useMouse();
@@ -623,6 +627,7 @@ function attachGestures(session: WebSession): () => void {
     };
 
     const pointerUp = (event: PointerEvent): void => {
+        if (!session.inputEnabled) return;
         const { x, y } = local(session, event.clientX, event.clientY);
         if (event.pointerType === 'mouse') {
             if (event.button === 2) {
@@ -665,6 +670,7 @@ function attachGestures(session: WebSession): () => void {
     };
 
     const wheel = (event: WheelEvent): void => {
+        if (!session.inputEnabled) return;
         event.preventDefault();
         const { x, y } = local(session, event.clientX, event.clientY);
         if (event.ctrlKey) {
@@ -703,10 +709,12 @@ function attachGestures(session: WebSession): () => void {
     // What the phone types goes to the desktop, or, while a sticky modifier
     // waits for its key, to the session, which sends it as that key's chord.
     const typeText = (text: string): void => {
+        if (!session.inputEnabled) return;
         if (session.captured) emit(session.id, 'keyboard', { text });
         else control(session, { kind: 'text', text, seq: seq(session) });
     };
     const tapKey = (name: string): void => {
+        if (!session.inputEnabled) return;
         if (session.captured) {
             emit(session.id, 'keyboard', { key: name });
             return;
@@ -715,13 +723,14 @@ function attachGestures(session: WebSession): () => void {
         control(session, { kind: 'key', name, down: false, seq: seq(session) });
     };
 
-    let composing = false;
     const compositionStart = (): void => {
-        composing = true;
+        if (!session.inputEnabled) return;
+        session.composing = true;
         session.composition = '';
         session.compositionSent = '';
     };
     const compositionUpdate = (event: CompositionEvent): void => {
+        if (!session.inputEnabled) return;
         session.composition = event.data;
         if (!session.captured) return;
         // A chord is one key, not the end of a word: it goes as it is typed.
@@ -730,7 +739,8 @@ function attachGestures(session: WebSession): () => void {
         if (typed !== '') typeText(typed);
     };
     const compositionEnd = (event: CompositionEvent): void => {
-        composing = false;
+        session.composing = false;
+        if (!session.inputEnabled) return;
         const typed = unsentComposition(session, event.data);
         session.composition = '';
         session.compositionSent = '';
@@ -738,7 +748,8 @@ function attachGestures(session: WebSession): () => void {
         keyboard.value = '';
     };
     const beforeInput = (event: InputEvent): void => {
-        if (composing || event.isComposing) return;
+        if (!session.inputEnabled) return;
+        if (session.composing || event.isComposing) return;
         if (event.inputType === 'insertText' && event.data != null) {
             event.preventDefault();
             typeText(event.data);
@@ -751,7 +762,7 @@ function attachGestures(session: WebSession): () => void {
         }
     };
     const keyEvent = (event: KeyboardEvent, down: boolean): void => {
-        if (composing) return;
+        if (!session.inputEnabled || session.composing) return;
         const name = NAMED_KEYS[event.key];
         if (name !== undefined) {
             event.preventDefault();
@@ -891,8 +902,10 @@ export const nativeDesklink: NativeDesklinkModule = {
             lastTap: null,
             longPress: null,
             captured: false,
+            inputEnabled: false,
             composition: '',
             compositionSent: '',
+            composing: false,
             chordsDown: new Set<string>(),
             remoteDescriptionSet: false,
             pendingCandidates: [],
@@ -995,6 +1008,31 @@ export const nativeDesklink: NativeDesklinkModule = {
         return true;
     },
 
+    setInputEnabled(id: string, enabled: boolean): boolean {
+        const session = sessions.get(id);
+        if (session === undefined) return false;
+        session.inputEnabled = enabled;
+        if (!enabled) {
+            session.pendingMove = null;
+            if (session.moveFrame !== null) cancelAnimationFrame(session.moveFrame);
+            session.moveFrame = null;
+            control(session, { kind: 'release_all', seq: seq(session) });
+            session.keyboard.blur();
+            session.keyboard.value = '';
+            session.composition = '';
+            session.compositionSent = '';
+            session.composing = false;
+            session.chordsDown.clear();
+            cancelLongPress(session);
+            session.gesture = 'none';
+            session.touches.clear();
+            session.lastTap = null;
+            session.wheelX = 0;
+            session.wheelY = 0;
+        }
+        return true;
+    },
+
     sendControl(id: string, message: string): boolean {
         const session = sessions.get(id);
         if (session === undefined) return false;
@@ -1037,7 +1075,8 @@ export const nativeDesklink: NativeDesklinkModule = {
     },
 
     showKeyboard(id: string): boolean {
-        sessions.get(id)?.keyboard.focus();
+        const session = sessions.get(id);
+        if (session?.inputEnabled) session.keyboard.focus();
         return true;
     },
 

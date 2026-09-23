@@ -252,12 +252,22 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
   }
 
   fun showKeyboard() {
+    if (session?.inputEnabled != true) return
     keyboard.requestFocus()
     inputMethods().showSoftInput(keyboard, InputMethodManager.SHOW_IMPLICIT)
   }
 
   fun hideKeyboard() {
     inputMethods().hideSoftInputFromWindow(keyboard.windowToken, 0)
+    keyboard.clearFocus()
+  }
+
+  fun disarmInput() {
+    hideKeyboard()
+    cancelGesture()
+    chordKeysDown.clear()
+    lastTapAt = 0L
+    lastTapPoint = null
   }
 
   fun captureKeyboard(captured: Boolean) {
@@ -498,6 +508,10 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
 
   private fun handleTouch(event: MotionEvent): Boolean {
     val active = session ?: return true
+    if (!active.inputEnabled) {
+      cancelGesture()
+      return true
+    }
     mouseInput = event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE || event.isFromSource(InputDevice.SOURCE_MOUSE)
     if (mouseInput && pointerAt != null) {
       pointerAt = null
@@ -739,6 +753,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+      if (session?.inputEnabled != true) return true
       if (forwardModifierOrNamedKey(event)) return true
       if (forwardChord(event)) return true
       val character = event.unicodeChar
@@ -785,6 +800,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+      if (session?.inputEnabled != true) return true
       if (forwardModifierOrNamedKey(event)) return true
       if (forwardChord(event)) return true
       return super.onKeyUp(keyCode, event)
@@ -794,6 +810,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
       val base = super.onCreateInputConnection(outAttrs) ?: return null
       return object : InputConnectionWrapper(base, true) {
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+          if (session?.inputEnabled != true) return true
           if (keyboardCaptured && !text.isNullOrEmpty()) {
             captureTyped(text.toString())
             return true
@@ -803,6 +820,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         }
 
         override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+          if (session?.inputEnabled != true) return true
           // A chord is one key, not the start of a word: it goes as it is typed.
           if (keyboardCaptured && !text.isNullOrEmpty()) {
             captureTyped(text.toString())
@@ -812,6 +830,7 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+          if (session?.inputEnabled != true) return true
           val buffer = editableText
           val (backspaces, deletes) = remoteDeletionCounts(
             beforeLength, afterLength, selectionStart, selectionEnd,
@@ -824,12 +843,14 @@ class DesktopView(context: Context, appContext: AppContext) : ExpoView(context, 
         }
 
         override fun sendKeyEvent(event: KeyEvent): Boolean {
+          if (session?.inputEnabled != true) return true
           if (forwardModifierOrNamedKey(event)) return true
           if (forwardChord(event)) return true
           return super.sendKeyEvent(event)
         }
 
         override fun performEditorAction(actionCode: Int): Boolean {
+          if (session?.inputEnabled != true) return true
           if (actionCode == EditorInfo.IME_ACTION_DONE || actionCode == EditorInfo.IME_ACTION_GO ||
             actionCode == EditorInfo.IME_ACTION_SEND || actionCode == EditorInfo.IME_ACTION_NEXT
           ) {

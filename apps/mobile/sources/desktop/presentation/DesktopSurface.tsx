@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ActivityIndicator, BackHandler, Dimensions, Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { ActivityIndicator, AppState, BackHandler, Dimensions, Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
 import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +14,7 @@ import { ui } from '@/components/ui';
 import { sync } from '@/catalog';
 import { useLocalSettingMutable, useMachine } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
+import { claimDesktopRequest, peekDesktopRequest, requestDesktop } from '../request';
 import { createDesktopSignaling } from '../application/desktopSignaling';
 import { desktopCopy } from '../model/desktopCopy';
 import { describeDesktopOverlay, describeInputRejection } from '../model/desktopOverlay';
@@ -62,6 +63,7 @@ function describeClipboardError(error: unknown, fallback: string): string {
 }
 
 export interface DesktopSurfaceProps {
+    sessionId: string;
     onExit: () => void;
     /** The conversation the desktop was opened from; the computer's name without one. */
     title?: string;
@@ -100,7 +102,7 @@ function useKeyboardMotion(): { height: SharedValue<number>; progress: SharedVal
  * phone keyboard lacks rides on it, the controls above that, and the picture
  * moves up to sit over all of them with the pointer still in sight.
  */
-export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) {
+export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSurfaceProps) {
     const { theme } = useUnistyles();
     const [clipboardBusy, setClipboardBusy] = React.useState(false);
     const [notice, setNotice] = React.useState<{ text: string; ms: number } | null>(null);
@@ -151,21 +153,66 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
         },
     });
 
-    const { connect, close, snapshot, releaseHeld, hideKeyboard, setOrientation } = session;
+    const { connect, close, snapshot, releaseHeld, hideKeyboard, setOrientation, setInputEnabled } = session;
+    const clipboardEpoch = React.useRef(0);
+    const disarm = React.useCallback(() => {
+        setInputEnabled(false);
+        clipboardEpoch.current += 1;
+        setArmed(false);
+        hideKeyboard();
+    }, [setInputEnabled, hideKeyboard]);
 
-    // Opening is a user action: this screen is on screen because the user asked
-    // for the desktop, and the host still has to consent to the capture.
+    // Opening is a user action. A screen that is back without one (a link, or
+    // the app restoring where it was) waits for a tap before it captures.
+    const [request] = React.useState(() => peekDesktopRequest(getCachedConnectionSettings().machineId ?? '', sessionId));
     React.useEffect(() => {
+        claimDesktopRequest(getCachedConnectionSettings().machineId ?? '', sessionId);
+    }, [sessionId]);
+    const [started, setStarted] = React.useState(request.allowed);
+    // Control follows a deliberate tap. Whatever happens on its own — the
+    // phone locking, the app going to the background, a reconnect — may bring
+    // the picture back, but not the control: fingers that were unlocking the
+    // phone must not land on the desktop.
+    const [armed, setArmed] = React.useState(false);
+    const armWhenLive = React.useRef(request.fresh);
+
+    React.useEffect(() => () => {
+        disarm();
+        releaseHeld();
+        setOrientation('auto');
+        void close('left the desktop');
+    }, [close, releaseHeld, disarm, setOrientation]);
+
+    React.useEffect(() => {
+        if (started) void connect();
+    }, [started, connect]);
+
+    const start = React.useCallback(() => {
+        // This tap is the desktop action too, for the rest of this run.
+        const machineId = getCachedConnectionSettings().machineId ?? '';
+        requestDesktop(machineId, sessionId);
+        claimDesktopRequest(machineId, sessionId);
+        armWhenLive.current = true;
+        setStarted(true);
+    }, [sessionId]);
+
+    const retry = React.useCallback(() => {
+        armWhenLive.current = false;
         void connect();
-        return () => {
-            releaseHeld();
-            hideKeyboard();
-            setOrientation('auto');
-            void close('left the desktop');
-        };
-    }, [connect, close, releaseHeld, hideKeyboard, setOrientation]);
+    }, [connect]);
 
     React.useEffect(() => setKeyboardOpen(keyboard.isVisible), [keyboard.isVisible]);
+
+    React.useEffect(() => {
+        const subscription = AppState.addEventListener('change', (state) => {
+            if (state === 'active') return;
+            disarm();
+            armWhenLive.current = false;
+            setKeyboardOpen(false);
+            setMenu((open) => (open === 'clipboard' ? null : open));
+        });
+        return () => subscription.remove();
+    }, [disarm]);
 
     React.useEffect(() => {
         if (notice === null) return;
@@ -195,6 +242,7 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     }, [landscape, setOrientation]);
 
     const copyFromDesktop = React.useCallback(async () => {
+        const epoch = clipboardEpoch.current;
         setClipboardBusy(true);
         setNotice(null);
         try {
@@ -212,30 +260,35 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                 }
             }
             const { text, truncated } = await remote;
+            if (epoch !== clipboardEpoch.current) return;
             if (written !== undefined) {
                 if (!await written) throw new Error(desktopCopy.clipboardBlocked);
             } else {
                 await Clipboard.setStringAsync(text);
             }
+            if (epoch !== clipboardEpoch.current) return;
             if (truncated) say('Copied the start of the desktop clipboard; the rest was too large.');
             else if (text === '') say('The desktop clipboard was empty.');
             else say('Copied to this phone.');
         } catch (error) {
-            say(describeClipboardError(error, 'Could not copy from the desktop.'));
+            if (epoch === clipboardEpoch.current) say(describeClipboardError(error, 'Could not copy from the desktop.'));
         } finally {
             setClipboardBusy(false);
         }
     }, [session, say]);
 
     const pasteToDesktop = React.useCallback(async () => {
+        const epoch = clipboardEpoch.current;
         setClipboardBusy(true);
         setNotice(null);
         try {
             const text = await Clipboard.getStringAsync();
+            if (epoch !== clipboardEpoch.current) return;
             await session.pasteLocalToRemote(text);
+            if (epoch !== clipboardEpoch.current) return;
             say('On the desktop clipboard. Hold on a field and choose Paste.');
         } catch (error) {
-            say(describeClipboardError(error, 'Could not paste to the desktop.'));
+            if (epoch === clipboardEpoch.current) say(describeClipboardError(error, 'Could not paste to the desktop.'));
         } finally {
             setClipboardBusy(false);
         }
@@ -252,6 +305,20 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
     }, [menu, onExit]);
 
     const live = snapshot.status === 'live';
+    React.useEffect(() => {
+        if (!live) {
+            disarm();
+            if (snapshot.status === 'failed' || snapshot.status === 'ended' || snapshot.status === 'reconnecting') armWhenLive.current = false;
+            return;
+        }
+        if (armWhenLive.current) {
+            setInputEnabled(true);
+            setArmed(true);
+        }
+        armWhenLive.current = false;
+    }, [live, snapshot.status, disarm, setInputEnabled]);
+    const controlling = live && armed;
+
     // The first desktop on a device explains its gestures; after that, a
     // computer that cannot share its clipboard says so once per opening
     // rather than for as long as the desktop is up.
@@ -267,11 +334,14 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
         }
     }, [live, openedBefore, setOpenedBefore, clipboardAvailable, say]);
 
-    const status = describeDesktopOverlay(snapshot, openedBefore);
+    const described = describeDesktopOverlay(snapshot, openedBefore);
+    const status = started
+        ? { ...described, action: described.canRetry ? 'Try again' : undefined }
+        : { title: desktopCopy.stoppedTitle, detail: desktopCopy.stoppedBody, command: undefined, spinner: false, action: desktopCopy.startAction };
     const shownNotice = live ? notice?.text ?? null : null;
     // The row stays while the keyboard is still on its way down, fading with it.
     const web = Platform.OS === 'web';
-    const keyRowShown = live && (keyboardOpen || keyboard.isVisible || (web && motion.visible));
+    const keyRowShown = controlling && (keyboardOpen || keyboard.isVisible || (web && motion.visible));
     // A phone on its side has little height once the keyboard is up: the
     // header steps aside, and the round controls sit at the ends of the key
     // row instead of above it.
@@ -413,17 +483,34 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                                 <Text style={[styles.commandCopy, { color: theme.colors.textSecondary }]}>{commandCopied ? 'Copied' : 'Copy'}</Text>
                             </Pressable>
                         )}
-                        {status.canRetry && (
+                        {status.action !== undefined && (
                             <Pressable
-                                onPress={() => void connect()}
+                                onPress={started ? retry : start}
                                 accessibilityRole="button"
-                                accessibilityLabel="Try again"
+                                accessibilityLabel={status.action}
                                 style={({ pressed }) => [styles.action, { backgroundColor: theme.colors.button.primary.background }, pressed && styles.pressed]}
                             >
-                                <Text style={[styles.actionLabel, { color: theme.colors.button.primary.tint }]}>Try again</Text>
+                                <Text style={[styles.actionLabel, { color: theme.colors.button.primary.tint }]}>{status.action}</Text>
                             </Pressable>
                         )}
                     </Animated.View>
+                )}
+
+                {/* Back without a tap: the picture shows, control waits for
+                    one. The tap that turns it on is not sent to the desktop. */}
+                {live && !armed && (
+                    <Pressable
+                        onPress={() => { setInputEnabled(true); setArmed(true); }}
+                        accessibilityRole="button"
+                        accessibilityLabel={desktopCopy.armTitle}
+                        accessibilityHint={desktopCopy.armHint}
+                        style={[styles.armCover, { paddingBottom: insets.bottom + REST_GAP }]}
+                    >
+                        <Animated.View entering={popIn} pointerEvents="none" style={[styles.armPill, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }]}>
+                            <Ionicons name="hand-left-outline" size={16} color={theme.colors.text} />
+                            <Text style={[styles.armLabel, { color: theme.colors.text }]}>{desktopCopy.armTitle}</Text>
+                        </Animated.View>
+                    </Pressable>
                 )}
 
                 {compactKeyboard && (
@@ -467,14 +554,14 @@ export function DesktopSurface({ onExit, title, leading }: DesktopSurfaceProps) 
                     </Animated.View>
                 )}
 
-                {live && menu === 'clipboard' && clipboardAvailable && (
+                {controlling && menu === 'clipboard' && clipboardAvailable && (
                     <Animated.View entering={popIn} exiting={popOut} style={[card, styles.clipboardCard, { bottom: bottomInset + REST_GAP + BUTTON + 10 }, controlsMotion]}>
                         {menuRow('Copy to Phone', 'copy-outline', () => void copyFromDesktop(), { disabled: clipboardBusy })}
                         {menuRow('Paste from Phone', 'clipboard-outline', () => void pasteToDesktop(), { disabled: clipboardBusy })}
                     </Animated.View>
                 )}
 
-                {live && (
+                {controlling && (
                     <Animated.View pointerEvents="box-none" style={[styles.controls, { bottom: bottomInset + REST_GAP }, controlsMotion]}>
                         {shownNotice !== null && (
                             <View pointerEvents="none" style={styles.noticeLane}>
@@ -566,6 +653,9 @@ const styles = StyleSheet.create({
         borderWidth: StyleSheet.hairlineWidth,
     },
     noticeText: { ...Typography.default(), fontSize: 13, lineHeight: 18, textAlign: 'center' },
+    armCover: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'flex-end' },
+    armPill: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth },
+    armLabel: { ...Typography.default(), fontSize: 14 },
     disabled: { opacity: 0.4 },
     pressed: { opacity: 0.6 },
 });

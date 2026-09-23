@@ -55,6 +55,12 @@ class DesklinkModule : Module() {
       true
     }
 
+    Function("setInputEnabled") { id: String, enabled: Boolean ->
+      sessions[id]?.setInputEnabled(enabled)
+      if (!enabled) postToView(id) { it.disarmInput() }
+      true
+    }
+
     Function("showKeyboard") { id: String ->
       postToView(id) { it.showKeyboard() }
       true

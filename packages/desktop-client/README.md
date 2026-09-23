@@ -42,6 +42,8 @@ const desktop = useDesktopSession({
 await desktop.connect();
 
 <DesktopView sessionId={desktop.nativeId} style={{ flex: 1 }} keyboardClearance={96} />;
+// On a deliberate control action, once the picture is live:
+desktop.setInputEnabled(true);
 desktop.showKeyboard();
 desktop.setOrientation('landscape');   // Android: hold the screen on its side; 'auto' to follow the phone
 await desktop.pasteLocalToRemote(await Clipboard.getStringAsync());
@@ -98,10 +100,15 @@ import { desktopAvailable } from '@desklink/react-native/availability';
   sent as that key's chord, so Ctrl then v is Ctrl+V. The app draws the keys.
 - **Readiness is a rendered frame.** `status: 'live'` is set by the first frame
   actually presented, not by a track arriving or ICE connecting.
-- **Released state.** Unmount, background, session close and a lost control
-  channel all release what the desktop was holding, so nothing is left pressed.
-- **Explicit clipboard.** Two methods, called on a user action. The package
-  never polls the clipboard and never uses it as a way to type.
+- **Control starts off.** `setInputEnabled(true)` enables pointer, keyboard and
+  clipboard input; `setInputEnabled(false)` blocks new input, releases held keys
+  and buttons, and resets pending gestures. The app decides when to enable it
+  after a deliberate action and must disable it on background or lost readiness;
+  a clipboard write already in flight may still finish.
+- **Released state.** The app disables input on background and unmount;
+  session close and a lost control channel release what the desktop was holding.
+- **Explicit clipboard.** Two methods, called on a user action while control is
+  enabled. The package never polls the clipboard or uses it as a way to type.
 
 ### `Signaling`
 

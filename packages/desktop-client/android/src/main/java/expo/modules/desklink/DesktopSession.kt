@@ -68,6 +68,17 @@ class DesktopSession(
   @Volatile private var videoTrack: VideoTrack? = null
   @Volatile private var epoch: Long = 0
   @Volatile private var closed = false
+  @Volatile var inputEnabled = false
+    private set
+
+  @Synchronized
+  fun setInputEnabled(enabled: Boolean) {
+    inputEnabled = enabled
+    if (!enabled) {
+      pendingMove = null
+      sendJson(mapOf("kind" to "release_all"))
+    }
+  }
   private val pendingCandidates = mutableListOf<IceCandidate>()
   @Volatile private var remoteDescriptionSet = false
   @Volatile private var presented = false
@@ -198,7 +209,7 @@ class DesktopSession(
   /** Stamp and send under one lock: UI gestures and JS use different threads. */
   @Synchronized
   private fun send(message: JSONObject) {
-    if (closed) return
+    if (closed || (!inputEnabled && message.optString("kind") in setOf("pointer", "wheel", "key", "text", "clipboard_read", "clipboard_write"))) return
     val active = channel ?: return
     if (active.state() != DataChannel.State.OPEN) return
     if (message.optString("kind") == "pointer" && message.optString("phase") == "move") {
@@ -418,7 +429,7 @@ class DesktopSession(
       dataChannel.registerObserver(object : DataChannel.Observer {
         override fun onBufferedAmountChange(amount: Long) {
           synchronized(this@DesktopSession) {
-            if (!closed && channel === dataChannel && dataChannel.state() == DataChannel.State.OPEN &&
+            if (!closed && inputEnabled && channel === dataChannel && dataChannel.state() == DataChannel.State.OPEN &&
               dataChannel.bufferedAmount() <= MOVE_BUFFER_LIMIT
             ) {
               pendingMove?.let {
