@@ -19,7 +19,7 @@
 
 import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope } from '@muxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import { getCachedConnectionSettings } from '@/connection';
+import { channelRelayUrl, getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { storage } from '@/catalog/store';
 import { beginTerminalFrameCounts, finalizeTerminalFrameCounts, recordTerminalChannel, recordTerminalFirstFrame, recordTerminalFrameReceived, recordTerminalFrameWritten, type TerminalFrameCountToken } from '@/catalog/diagnostics';
@@ -129,7 +129,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const attachOnce = (takeover: boolean): Promise<unknown> => grant === undefined
         ? sendAttachRequest(takeover)
         : (async () => {
-            const latest = await refreshHostedGrant(settings.machineId, grant!.credential);
+            const latest = await refreshHostedGrant(settings.machineId, grant!.credential, grant!.relayUrl, await channelRelayUrl(grant!.relayUrl, settings.machineId));
             if (latest !== undefined && latest.keyVersion >= grant!.keyVersion) {
                 if (latest.expiresAt <= Date.now()) throw new Error('terminal: device grant expired; pair this browser again');
                 grant = latest;
@@ -319,8 +319,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             recordTerminalChannel('attach', { ok: false, code: 'ticket-required' });
             throw new Error('terminal: relay ticket required');
         }
-        const url = ticketSocketUrl(ticketInput.relayUrl, await issueWsTicket({
-            relayUrl: ticketInput.relayUrl,
+        const relayUrl = await channelRelayUrl(ticketInput.relayUrl, settings.machineId);
+        const url = ticketSocketUrl(relayUrl, await issueWsTicket({
+            relayUrl,
             credential: ticketInput.credential,
             machineId: settings.machineId,
             role: 'client',

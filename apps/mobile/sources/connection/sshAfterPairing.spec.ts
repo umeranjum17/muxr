@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 const secrets = vi.hoisted(() => ({
     setNativeSecret: vi.fn(async (_key: string, _value: string) => undefined),
-    getNativeSecret: vi.fn(async (_key: string) => null),
+    getNativeSecret: vi.fn<(_key: string) => Promise<string | null>>(async () => null),
     deleteNativeSecret: vi.fn(async (_key: string) => undefined),
 }));
 
@@ -35,8 +35,10 @@ vi.mock('../../modules/ssh-tunnel', () => ({
 
 import {
     applySshAfterPairing,
+    channelRelayUrl,
     establishSshTunnel,
     parseSshFields,
+    sshRelayUrl,
     tunnelPairingUrl,
 } from './sshTunnel';
 import {
@@ -74,6 +76,30 @@ describe('SSH route applied after pairing', () => {    it('saves the credential 
         expect(result).toEqual({ ok: true });
         expect(secrets.setNativeSecret).toHaveBeenCalledWith('muxr.ssh.credential.v1.m1', JSON.stringify({ password: 'hunter2' }));
         expect(getCachedConnectionSettings().ssh).toEqual({ host: 'box.lan', username: 'ume', port: 22, relayPort: 8792 });
+    });
+
+    it('routes a paired machine’s side channels through SSH without changing another machine’s relay', async () => {
+        await pairAs(true, 'm3');
+        await applySshAfterPairing(FIELDS);
+        secrets.getNativeSecret.mockResolvedValue(JSON.stringify({ password: 'hunter2' }));
+        let finishOpen!: (handle: { localPort: number; hostKey: string }) => void;
+        tunnel.openSshTunnel.mockImplementationOnce(() => new Promise((resolve) => { finishOpen = resolve; }));
+        const before = tunnel.openSshTunnel.mock.calls.length;
+        const sync = sshRelayUrl('wss://public.example:8792/sync', 'm3', getCachedConnectionSettings().ssh!);
+        const voice = channelRelayUrl('wss://public.example:8792/stream', 'm3');
+        await vi.waitFor(() => expect(tunnel.openSshTunnel.mock.calls.length).toBeGreaterThan(before));
+        expect(tunnel.openSshTunnel).toHaveBeenCalledTimes(before + 1);
+        finishOpen({ localPort: 49123, hostKey: 'SHA256:abc' });
+        expect(await Promise.all([sync, voice])).toEqual([
+            'ws://127.0.0.1:49123/sync', 'ws://127.0.0.1:49123/stream',
+        ]);
+        expect(tunnel.openSshTunnel).toHaveBeenLastCalledWith(expect.objectContaining({
+            host: 'box.lan', remoteHost: '127.0.0.1', remotePort: 8792,
+        }));
+        tunnel.openSshTunnel.mockResolvedValueOnce({ localPort: 49123, hostKey: 'SHA256:abc' });
+        expect(await channelRelayUrl('wss://public.example:8792/relay', 'm3')).toBe('ws://127.0.0.1:49123/relay');
+        expect(tunnel.openSshTunnel).toHaveBeenCalledTimes(before + 2);
+        expect(await channelRelayUrl('wss://public.example:8792/relay', 'other')).toBe('wss://public.example:8792/relay');
     });
 
     it('keeps a pinned host key for the same endpoint and pairs fresh for a new one', async () => {

@@ -313,6 +313,8 @@ export async function executeSshCommand(machineId: string, target: SshTarget, co
     }
 }
 
+const pendingRelayTunnels = new Map<string, Promise<number>>();
+
 /**
  * Open or reuse the tunnel and return the URL to dial. Callers run this
  * immediately before every dial, so a tunnel dropped by a network change is
@@ -332,34 +334,59 @@ export async function sshRelayUrl(relayUrl: string, machineId: string, target: S
     const { getCachedConnectionSettings, saveConnectionSettings } = await import('./connectionSettings');
     const settings = getCachedConnectionSettings();
     const activeTarget = settings.machineId === machineId && settings.ssh !== undefined ? settings.ssh : target;
-    const credential = await readCredential(machineId);
-    if (credential === undefined) {
-        throw new SshConnectionError('ssh-auth', `muxr has no saved SSH key or password for ${activeTarget.username}@${activeTarget.host}. Add it in Connection settings.`, true);
+    const key = JSON.stringify([machineId, activeTarget.host, activeTarget.port, activeTarget.username, activeTarget.relayPort, activeTarget.hostKey]);
+    let pending = pendingRelayTunnels.get(key);
+    if (pending === undefined) {
+        pending = (async () => {
+            try {
+                const credential = await readCredential(machineId);
+                if (credential === undefined) {
+                    throw new SshConnectionError('ssh-auth', `muxr has no saved SSH key or password for ${activeTarget.username}@${activeTarget.host}. Add it in Connection settings.`, true);
+                }
+                let handle;
+                try {
+                    handle = await openSshTunnel({
+                        host: activeTarget.host,
+                        port: activeTarget.port,
+                        username: activeTarget.username,
+                        ...(credential.privateKey ? { privateKey: credential.privateKey } : {}),
+                        ...(credential.passphrase ? { passphrase: credential.passphrase } : {}),
+                        ...(credential.password ? { password: credential.password } : {}),
+                        ...(activeTarget.hostKey ? { knownHostKey: activeTarget.hostKey } : {}),
+                        // The self-host relay deliberately stays on the host's loopback;
+                        // the public/Tailscale hostname is not a valid SSH destination.
+                        remoteHost: '127.0.0.1',
+                        remotePort: activeTarget.relayPort,
+                        localPort: activeTarget.relayPort,
+                    });
+                } catch (error) {
+                    throw describe(error instanceof SshTunnelError ? error : SshTunnelError.from(error), activeTarget);
+                }
+                // Trust on first use: the key seen while pairing becomes the authority for
+                // this route from then on. A later mismatch fails closed above.
+                if (activeTarget.hostKey === undefined && settings.machineId === machineId && settings.ssh !== undefined) {
+                    await saveConnectionSettings({ ...settings, ssh: { ...settings.ssh, hostKey: handle.hostKey } });
+                }
+                return handle.localPort;
+            } finally {
+                pendingRelayTunnels.delete(key);
+            }
+        })();
+        pendingRelayTunnels.set(key, pending);
     }
-    let handle;
-    try {
-        handle = await openSshTunnel({
-            host: activeTarget.host,
-            port: activeTarget.port,
-            username: activeTarget.username,
-            ...(credential.privateKey ? { privateKey: credential.privateKey } : {}),
-            ...(credential.passphrase ? { passphrase: credential.passphrase } : {}),
-            ...(credential.password ? { password: credential.password } : {}),
-            ...(activeTarget.hostKey ? { knownHostKey: activeTarget.hostKey } : {}),
-            // The self-host relay deliberately stays on the host's loopback;
-            // the public/Tailscale hostname is not a valid SSH destination.
-            remoteHost: '127.0.0.1',
-            remotePort: activeTarget.relayPort,
-            localPort: activeTarget.relayPort,
-        });
-    } catch (error) {
-        throw describe(error instanceof SshTunnelError ? error : SshTunnelError.from(error), activeTarget);
-    }
-    // Trust on first use: the key seen while pairing becomes the authority for
-    // this route from then on. A later mismatch fails closed above.
-    if (activeTarget.hostKey === undefined && settings.machineId === machineId && settings.ssh !== undefined) {
-        await saveConnectionSettings({ ...settings, ssh: { ...settings.ssh, hostKey: handle.hostKey } });
-    }
+    const localPort = await pending;
     const path = remote.pathname === '/' ? '' : remote.pathname;
-    return `ws://127.0.0.1:${handle.localPort}${path}`;
+    return `ws://127.0.0.1:${localPort}${path}`;
+}
+
+/**
+ * Where a side channel (terminal, preview, stream) to `machineId` dials its
+ * relay: through the same SSH tunnel as sync when SSH is that machine's route,
+ * because over SSH alone the relay's own address is not reachable at all.
+ */
+export async function channelRelayUrl(relayUrl: string, machineId: string): Promise<string> {
+    const { getCachedConnectionSettings } = await import('./connectionSettings');
+    const settings = getCachedConnectionSettings();
+    if (settings.machineId !== machineId || settings.selfhost !== true || settings.ssh === undefined || !isSshTunnelSupported()) return relayUrl;
+    return sshRelayUrl(relayUrl, machineId, settings.ssh);
 }
