@@ -1,5 +1,6 @@
-import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace } from '@muxr/contract';
+import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@muxr/contract';
 import { compactAge } from '../../utils/compactAge';
+import { lifecycleStateSince } from './recentActivity';
 
 export interface AgentLabels {
     taskTitle: string;
@@ -146,5 +147,19 @@ export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecy
     return [labels.taskTitle, state, agentIdentityLine(labels)]
         .filter((value): value is string => value !== undefined && value !== '')
         .join('. ');
+}
+
+export function liveCardState(
+    labels: AgentLabels,
+    status: AgentLifecycle,
+    sessionId: string,
+    events: readonly LifecycleEvent[],
+    now: number,
+): { label: string; accessibilityLabel: string } {
+    const since = lifecycleStateSince(events, sessionId, status);
+    return {
+        label: agentStateLabel(status, since, now),
+        accessibilityLabel: agentAccessibilityLabel(labels, status, since),
+    };
 }
 

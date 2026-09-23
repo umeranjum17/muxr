@@ -15,8 +15,9 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
-import { agentAccessibilityLabel, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
-import { lifecycleStateSince, unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
+import { agentLabels, agentNameLine, isShellLabels, liveCardState } from '../domain/agentPresentation';
+import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
+import type { LifecycleEvent } from '@muxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { SectionLabel } from '@/components/ui';
 import { TerminalPreview } from '@/terminal/ui';
@@ -71,9 +72,7 @@ const stylesheet = StyleSheet.create((theme) => ({
 
 interface CardProps {
     card: LiveTerminalOrderCard;
-    /** When the host saw the agent enter its current state, when it knows. */
-    since?: number;
-    /** The minute the card's age is read against. */
+    events: readonly LifecycleEvent[];
     now: number;
     width: number;
     height: number;
@@ -86,19 +85,19 @@ function terminalIsLive(card: LiveTerminalOrderCard): boolean {
     return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
 }
 
-const LiveTerminalCard = React.memo(({ card, since, now, width, height, paused, disconnected, unseenDone }: CardProps) => {
+const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
     const dot = agentStatusColor(card.agentStatus, theme);
     const live = terminalIsLive(card);
     const shell = isShellLabels(labels);
-    const changedAt = since ?? card.changedAt;
+    const state = liveCardState(labels, card.agentStatus, card.id, events, now);
     return (
         <Pressable
             onPress={() => navigateToSession(card.id)}
             accessibilityRole="button"
-            accessibilityLabel={agentAccessibilityLabel(labels, card.agentStatus, changedAt)}
+            accessibilityLabel={state.accessibilityLabel}
             style={({ pressed }) => [
                 stylesheet.card,
                 liveTerminalBucket(card.agentStatus) === 'attention' && stylesheet.attentionCard,
@@ -117,7 +116,7 @@ const LiveTerminalCard = React.memo(({ card, since, now, width, height, paused, 
                     </View>
                     <View style={stylesheet.status}>
                         <Text numberOfLines={1} style={[stylesheet.statusText, { color: dot.color }]}>
-                            {agentStateLabel(card.agentStatus, changedAt, now)}
+                            {state.label}
                         </Text>
                     </View>
                 </View>
@@ -185,14 +184,6 @@ export const LiveTerminalsRow = React.memo(({
         const timer = setInterval(() => setMinute(Date.now()), 60_000);
         return () => clearInterval(timer);
     }, []);
-    const sinceById = React.useMemo(() => {
-        const since = new Map<string, number>();
-        for (const card of cards) {
-            const at = lifecycleStateSince(lifecycleEvents, card.id, card.agentStatus);
-            if (at !== undefined) since.set(card.id, at);
-        }
-        return since;
-    }, [cards, lifecycleEvents]);
     const activityRows = React.useMemo(
         () => ready ? unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles) : [],
         [lifecycleEvents, liveTitles, ready, seenEventIds],
@@ -283,7 +274,7 @@ export const LiveTerminalsRow = React.memo(({
     const renderCard = ({ item: card, index }: { item: LiveTerminalOrderCard; index: number }) => (
         <LiveTerminalCard
             card={card}
-            since={sinceById.get(card.id)}
+            events={lifecycleEvents}
             now={minute}
             width={cardWidth}
             height={CARD_HEIGHT}
