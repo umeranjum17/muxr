@@ -5,7 +5,7 @@ import { Profile, profileDefaults, profileParse } from '../domain/profile';
 import { AGENT_KINDS } from '../domain/agentKinds';
 import type { Session } from '../domain/sessionTypes';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
-import { agentLabels } from '@/herd/domain/agentPresentation';
+import { agentLabels } from '@/herd/labels';
 type PermissionModeKey = string;
 
 const mmkv = new MMKV();

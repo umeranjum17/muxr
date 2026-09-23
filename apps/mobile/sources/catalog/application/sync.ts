@@ -35,7 +35,7 @@ import {
 import { getCachedHostedGrant, loadHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
 import { saveHomeSnapshot } from './persistence';
-import { spawnerOf, workspaceNames } from '@/herd/domain/herdTree';
+import { spawnerOf, workspaceNames } from '@/herd/tree';
 import {
     applyStatusToSession,
     machineInfoToMachine,
