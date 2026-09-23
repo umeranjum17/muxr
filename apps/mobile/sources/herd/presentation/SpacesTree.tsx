@@ -16,7 +16,7 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { buildSpaceRows, groupKind, groupSummaryCounts, workspaceCloseMessage, workspaceName, workspaceNames, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
 import { agentIdentityLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -826,28 +826,26 @@ export const SpacesTree = React.memo(({
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canClose = authority === 'control' && !authorityLoading;
     const unseenDoneSessionIds = useUnseenDoneSessionIds();
-    const seededDefaults = React.useRef(defaultExpandedWorkspaceIds.length > 0);
-    const [expanded, setExpanded] = React.useState<ReadonlySet<string>>(
-        () => new Set(defaultExpandedWorkspaceIds),
+    const [choices, setChoices] = React.useState<ReadonlyMap<string, boolean>>(() => new Map());
+    const expanded = React.useMemo(
+        () => effectiveExpandedSpaces(defaultExpandedWorkspaceIds, choices),
+        [defaultExpandedWorkspaceIds, choices],
     );
 
-    React.useEffect(() => {
-        if (seededDefaults.current || defaultExpandedWorkspaceIds.length === 0) return;
-        seededDefaults.current = true;
-        setExpanded(new Set(defaultExpandedWorkspaceIds));
+    const toggleWorkspace = React.useCallback((workspaceId: string) => {
+        setChoices((previous) => new Map(previous).set(
+            workspaceId,
+            !effectiveExpandedSpaces(defaultExpandedWorkspaceIds, previous).has(workspaceId),
+        ));
     }, [defaultExpandedWorkspaceIds]);
 
-    // The header is the only disclosure control; a plain toggle suffices.
-    const toggleWorkspace = React.useCallback((workspaceId: string) => {
-        setExpanded((previous) => {
-            const next = new Set(previous);
-            if (next.has(workspaceId)) next.delete(workspaceId);
-            else next.add(workspaceId);
-            return next;
-        });
-    }, []);
+    const searching = searchQuery.trim() !== '';
+    const sections = React.useMemo(
+        () => [{ key: 'spaces', title: t('spacesTree.title'), data: buildSpaceRows(workspaces, expanded, searchQuery) }],
+        [expanded, searchQuery, workspaces],
+    );
+    const names = React.useMemo(() => displayedWorkspaceNames(sections[0]!.data), [sections]);
 
-    const names = React.useMemo(() => workspaceNames(workspaces), [workspaces]);
     const confirmCloseWorkspace = React.useCallback((workspace: HerdrTreeWorkspace) => {
         const name = names.get(workspace.workspaceId)!;
         Modal.alert('Close workspace?', workspaceCloseMessage(workspace, name), [
@@ -898,13 +896,6 @@ export const SpacesTree = React.memo(({
             },
         ]);
     }, [refresh]);
-
-    const searching = searchQuery.trim() !== '';
-
-    const sections = React.useMemo(
-        () => [{ key: 'spaces', title: t('spacesTree.title'), data: buildSpaceRows(workspaces, expanded, searchQuery) }],
-        [expanded, searchQuery, workspaces],
-    );
 
     const renderItem = React.useCallback(({ item }: { item: HerdSpaceRow }) => (
         <WorkspaceCard

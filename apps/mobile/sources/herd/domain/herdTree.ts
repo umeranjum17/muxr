@@ -201,6 +201,15 @@ export function spaceExpansionDefaults(workspaces: HerdrTreeWorkspace[], workspa
 /** A card with more descendants than this starts folded to its one-line summary. */
 export const OPEN_FAMILY_LIMIT = 3;
 
+export function effectiveExpandedSpaces(defaults: readonly string[], choices: ReadonlyMap<string, boolean>): ReadonlySet<string> {
+    const expanded = new Set(defaults);
+    for (const [id, open] of choices) {
+        if (open) expanded.add(id);
+        else expanded.delete(id);
+    }
+    return expanded;
+}
+
 /** Cards open on first load: ones with agents in them, unless their family is too big to stay calm. */
 export function defaultExpandedSpaces(workspaces: HerdrTreeWorkspace[]): string[] {
     const byId = new Map(workspaces.map((ws) => [ws.workspaceId, ws] as const));
@@ -313,4 +322,10 @@ export function buildSpaceRows(
         });
     }
     return rows;
+}
+
+export function displayedWorkspaceNames(rows: readonly HerdSpaceRow[]): ReadonlyMap<string, string> {
+    return workspaceNames(rows.flatMap((row) => row.expanded
+        ? [row.workspace, ...row.children.map((child) => child.workspace)]
+        : [row.workspace]));
 }

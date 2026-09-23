@@ -1,7 +1,7 @@
 import { herdPanes } from './herd';
 import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it, vi } from 'vitest';
-import { buildSpaceRows, defaultExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceCloseMessage, workspaceName, workspaceNames, workspacePath } from './herdTree';
+import { buildSpaceRows, defaultExpandedSpaces, displayedWorkspaceNames, effectiveExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceCloseMessage, workspaceName, workspaceNames, workspacePath } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
 
@@ -190,6 +190,31 @@ describe('visible herd tree flow', () => {
         expect(defaultExpandedSpaces(messy)).toEqual(['self', 'orphan', 'cycA', 'cycB']);
     });
 
+    it('folds a default-open family when a fourth worker arrives', () => {
+        const root = ws('root', '/srv/client/app', [tab('t', undefined, [agent])]);
+        const child = (number: number) => ({ ...ws(`child${number}`, `task${number}`, []), tokens: { parent: 'root', kind: 'task' } });
+        const small = [root, child(1), child(2), child(3)];
+        expect(buildSpaceRows(small, effectiveExpandedSpaces(defaultExpandedSpaces(small), new Map()), '')[0]!.expanded).toBe(true);
+        const grown = [...small, child(4)];
+        const rows = buildSpaceRows(grown, effectiveExpandedSpaces(defaultExpandedSpaces(grown), new Map()), '');
+        expect(rows[0]).toMatchObject({ expanded: false, children: [{}, {}, {}, {}] });
+        expect(displayedWorkspaceNames(rows).get('root')).toBe('app');
+    });
+
+    it('keeps a user-opened family open when it grows and preserves sheet expansion', () => {
+        const root = ws('root', 'parent', [tab('t', undefined, [agent])]);
+        const child = (number: number) => ({ ...ws(`child${number}`, `task${number}`, []), tokens: { parent: 'root', kind: 'task' } });
+        const small = [root, child(1), child(2), child(3)];
+        const grown = [...small, child(4)];
+        const choices = new Map([['root', true]]);
+        expect(buildSpaceRows(grown, effectiveExpandedSpaces(defaultExpandedSpaces(grown), choices), '')[0]!.expanded).toBe(true);
+        choices.set('root', false);
+        expect(buildSpaceRows(small, effectiveExpandedSpaces(defaultExpandedSpaces(small), choices), '')[0]!.expanded).toBe(false);
+        const sheet = effectiveExpandedSpaces(spaceExpansionDefaults(grown, 'child1'), new Map());
+        expect(buildSpaceRows(grown, sheet, '')[0]!.expanded).toBe(true);
+        expect(sheet.has('child:child1')).toBe(true);
+    });
+
     it('names workspaces the way a person would, never by id or correlator', () => {
         const named = (label: string | undefined, cwd?: string) => workspaceName({ workspaceId: 'w9', label, focused: false, agentStatus: 'idle', tabs: cwd === undefined ? [] : [tab('t', undefined, [pane('p', undefined, { cwd })])] } as ContractWorkspace);
         expect(named('└ pock-rightnow-card2 · p:JuMd64wBPNCZQwGE_cRd3Q')).toBe('pock-rightnow-card2');
@@ -217,6 +242,11 @@ describe('visible herd tree flow', () => {
             'Fix login · issue:ABCDEF1234567890', 'app · client', 'Untitled workspace 1',
         ]);
         expect(new Set(names.values()).size).toBe(crowded.length);
+        const nested = [workspaces[0]!, { ...workspaces[1]!, tokens: { parent: 'a', kind: 'task' } }];
+        const foldedNames = displayedWorkspaceNames(buildSpaceRows(nested, new Set(), ''));
+        expect([...foldedNames.values()]).toEqual(['app']);
+        expect([...displayedWorkspaceNames(buildSpaceRows(nested, new Set(['a']), '')).values()]).toEqual(['app · client', 'app · umer']);
+        expect([...displayedWorkspaceNames(buildSpaceRows(workspaces, new Set(), '/srv/client/app')).values()]).toEqual(['app']);
         expect(workspacePath(workspaces[0]!)).toBe('/srv/client/app');
         expect(buildSpaceRows(crowded, new Set(), '/srv/client/app').map((row) => row.workspace.workspaceId)).toEqual(['a']);
         expect(buildSpaceRows(crowded, new Set(), 'issue:ABCDEF1234567890').map((row) => row.workspace.workspaceId)).toEqual(['e']);
