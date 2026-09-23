@@ -287,6 +287,17 @@ describe('the pointer above the keyboard', () => {
         dispatch(viewport, 'resize', {});
         expect(tip().y).toBeCloseTo(Number.parseFloat(picture!.style.top) + clickedY + 0.5, 5);
         vi.advanceTimersByTime(180);
+        viewport.height = 470;
+        dispatch(viewport, 'resize', {});
+        expect(phase).toBeCloseTo(250 / 300, 5);
+        viewport.height = 469;
+        dispatch(viewport, 'resize', {});
+        const reboundTop = picture!.style.top;
+        vi.advanceTimersByTime(180);
+        expect(phase).toBeCloseTo(251 / 300, 5);
+        expect(picture!.style.top).toBe(reboundTop);
+        viewport.height = 420;
+        dispatch(viewport, 'resize', {});
 
         (document as unknown as { activeElement: unknown }).activeElement = null;
         const beforeBlur = Number.parseFloat(picture!.style.top);
