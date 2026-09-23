@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { LifecycleEvent } from '@muxr/contract';
 import type { Session } from '@/catalog';
 import type { HerdPane } from '../domain/herd';
@@ -174,6 +174,21 @@ describe('agent lifecycle presentation', () => {
         const afterRelaunch = liveCardState(labels, reopened.agentStatus, reopened.id, displaced, now);
         expect(afterRelaunch.label).toBe('Done');
         expect(afterRelaunch.accessibilityLabel).toBe('Fix realtime voice. Done. pi/Otter');
+
+        const running: LifecycleEvent = {
+            ...finished, eventId: 'running', state: 'working', at: new Date(now - 59_500).toISOString(),
+        };
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 1_000);
+        try {
+            const beforeTick = liveCardState(labels, 'working', reopened.id, [running], now);
+            expect(beforeTick.label).toBe('Working');
+            expect(beforeTick.accessibilityLabel).toBe('Fix realtime voice. Working. pi/Otter');
+            const afterTick = liveCardState(labels, 'working', reopened.id, [running], now + 1_000);
+            expect(afterTick.label).toBe('Working · 1m');
+            expect(afterTick.accessibilityLabel).toBe('Fix realtime voice. Working · 1m. pi/Otter');
+        } finally {
+            clock.mockRestore();
+        }
     });
 
     it('derives the unseen-done highlight set from the same rows as the tier', () => {

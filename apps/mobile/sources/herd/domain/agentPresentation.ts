@@ -142,8 +142,8 @@ export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now 
     return `${label} · ${compactAge(now - changedAt)}`;
 }
 
-export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number): string {
-    const state = changedAt === undefined ? HERD_STATUS_LABELS[status] : agentStateLabel(status, changedAt);
+export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
+    const state = agentStateLabel(status, changedAt, now);
     return [labels.taskTitle, state, agentIdentityLine(labels)]
         .filter((value): value is string => value !== undefined && value !== '')
         .join('. ');
@@ -159,7 +159,7 @@ export function liveCardState(
     const since = lifecycleStateSince(events, sessionId, status);
     return {
         label: agentStateLabel(status, since, now),
-        accessibilityLabel: agentAccessibilityLabel(labels, status, since),
+        accessibilityLabel: agentAccessibilityLabel(labels, status, since, now),
     };
 }
 
