@@ -72,7 +72,7 @@ local gestures into that session's input".
 |---|---|
 | Encrypted mobile → host request path, identity, grants | `packages/contract` control plane + `apps/host/src/requests` |
 | Relay stream channel (host joins as machine, client as client) | `packages/contract` `wsTickets` / preview channel pattern |
-| A reference for a "live surface inside a conversation" | `apps/mobile/sources/preview`, `apps/mobile/sources/takeover` |
+| A reference for a "live surface inside a conversation" | `apps/mobile/sources/desktop` |
 | Flow-test style for the packages | `apps/mobile/sources/catalog/application/sessionSync.integration.spec.ts` |
 
 ## Reused, not rebuilt, outside the repository `[decided]`

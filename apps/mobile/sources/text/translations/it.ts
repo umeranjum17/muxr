@@ -746,7 +746,6 @@ export const it: TranslationStructure = {
         connectTerminal: 'Connetti terminale',
         linkNewDevice: 'Collega nuovo dispositivo', 
         restoreWithSecretKey: 'Ripristina con chiave segreta',
-        browserTakeover: 'Browser',
         whatsNew: 'Novità',
         friends: 'Amici',
     },
@@ -930,26 +929,6 @@ export const it: TranslationStructure = {
         notSupportedMessage: 'Questo agente non supporta gli allegati immagine. Le immagini non sono state inviate.',
     },
 
-    browser: {
-        statusBrowsing: ({ agent }: { agent: string }) => `${agent} sta navigando`,
-        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent} attende che tu acceda`,
-        statusStopped: ({ agent }: { agent: string }) => `${agent} si è fermato`,
-        statusIdleBrowser: ({ agent }: { agent: string }) => `Browser di ${agent}`,
-        waitingForConnection: ({ machine }: { machine: string }) => `In attesa della connessione a ${machine}…`,
-        lostBody: ({ machine }: { machine: string }) => `La pagina potrebbe essere ancora aperta su ${machine}.`,
-        openFailedTitle: ({ machine }: { machine: string }) => `Impossibile aprire un browser su ${machine}.`,
-        noDriverTitle: ({ machine }: { machine: string }) => `Manca il driver del browser su ${machine}.`,
-        noDriverBody: 'Installalo una volta su quel computer, poi riapri questa schermata.',
-        installBody: ({ machine }: { machine: string }) => `Nessun browser è installato su ${machine}. Esegui questo comando una volta su quel computer (circa 500 MB), poi riprova.`,
-        copyCommand: 'Copia comando',
-        copied: 'Copiato',
-        copyFailedTitle: 'Impossibile copiare',
-        copyFailedBody: 'Riprova.',
-        goTo: 'Vai a',
-        goToPlaceholder: 'Sito o indirizzo',
-        goToConfirm: 'Vai',
-        goToFailed: "Impossibile aprire quell'indirizzo",
-    },
 
     feed: {
         // Feed notifications for friend requests and acceptances

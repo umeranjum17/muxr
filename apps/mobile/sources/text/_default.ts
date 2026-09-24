@@ -761,7 +761,6 @@ export const en = {
         connectTerminal: 'Connect Terminal',
         linkNewDevice: 'Link New Device', 
         restoreWithSecretKey: 'Restore with Secret Key',
-        browserTakeover: 'Browser',
         whatsNew: "What's New",
         friends: 'Friends',
     },
@@ -930,27 +929,6 @@ export const en = {
     },
 
 
-    browser: {
-        // The agent's browser screen (takeover): status line and new states
-        statusBrowsing: ({ agent }: { agent: string }) => `${agent} is browsing`,
-        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent} is waiting for you to sign in`,
-        statusStopped: ({ agent }: { agent: string }) => `${agent} stopped`,
-        statusIdleBrowser: ({ agent }: { agent: string }) => `${agent}'s browser`,
-        waitingForConnection: ({ machine }: { machine: string }) => `Waiting for the connection to ${machine}…`,
-        lostBody: ({ machine }: { machine: string }) => `The page may still be open on ${machine}.`,
-        openFailedTitle: ({ machine }: { machine: string }) => `Couldn't open a browser on ${machine}.`,
-        noDriverTitle: ({ machine }: { machine: string }) => `The browser driver is missing on ${machine}.`,
-        noDriverBody: 'Install it once on that computer, then reopen this screen.',
-        installBody: ({ machine }: { machine: string }) => `No browser is installed on ${machine}. Run this once on that computer (about 500 MB), then try again.`,
-        copyCommand: 'Copy command',
-        copied: 'Copied',
-        copyFailedTitle: "Couldn't copy",
-        copyFailedBody: 'Please try again.',
-        goTo: 'Go to',
-        goToPlaceholder: 'Site or address',
-        goToConfirm: 'Go',
-        goToFailed: "Couldn't open that address",
-    },
 
 
     feed: {

@@ -19,7 +19,7 @@ A package module exists only when the packages own the behavior. Product operati
 | Sign a peer descriptor | [`signPeerDescriptor`](./crypto/src/e2ee/application/signPeerDescriptor.ts) | Signed Peer Descriptor | host peer prepare/install |
 | Install a peer bundle | [`installPeerBundle`](./crypto/src/e2ee/application/installPeerBundle.ts) | Device Grant, Peer Descriptor | `peer.install` in `apps/host/src/peer/runtime.ts` |
 | Seal or open a v2 envelope | [`envelope`](./crypto/src/e2ee/application/envelope.ts) | Routing Channel, Device Grant | host/mobile `hostedE2ee`, `openV2` / `sealV2` |
-| Seal preview bytes | [`previewChannel`](./crypto/src/e2ee/application/previewChannel.ts) | Preview channel keys | `apps/host/src/requests/infrastructure/preview.ts`, `apps/mobile/sources/preview/previewBridge.ts` |
+| Seal preview bytes | [`previewChannel`](./crypto/src/e2ee/application/previewChannel.ts) | Preview channel keys | `apps/host/src/requests/infrastructure/preview.ts` (older phone builds) |
 
 `issueWsTicket` stays control-plane infrastructure: it talks HTTP. Do not wrap it in a fake port.
 
@@ -40,7 +40,7 @@ A package module exists only when the packages own the behavior. Product operati
 | Interrupt Playback | `pause_output` / `stop` | Realtime control | `apps/mobile/sources/playback/realtimePlayback.ts` |
 | Report Agent Outcome | `voice.report` | Voice Report, Agent Lifecycle | `apps/mobile/sources/watch/wakeAndReport.ts` |
 | Open Terminal | terminal channel | Routing Channel `terminal` | `apps/mobile/sources/terminal/application/OpenTerminal.ts`, `apps/host/src/herdr/terminalManager.ts` |
-| Attach Preview Tunnel | `preview.attach` | Routing Channel `preview` | host/mobile takeover tunnel adapters |
+| Attach Preview Tunnel | `preview.attach` | Routing Channel `preview` | host adapter; kept for older phone builds |
 | Run Plugin Action | `plugin.call` / `plugin.invoke` | Plugin Identity | dispatcher, `screenModel.ts`, `usePluginEvents.ts` |
 
 ## Convention

@@ -747,7 +747,6 @@ export const pt: TranslationStructure = {
         connectTerminal: 'Conectar terminal',
         linkNewDevice: 'Vincular novo dispositivo', 
         restoreWithSecretKey: 'Restaurar com chave secreta',
-        browserTakeover: 'Navegador',
         whatsNew: 'Novidades',
         friends: 'Amigos',
     },
@@ -930,26 +929,6 @@ export const pt: TranslationStructure = {
         notSupportedMessage: 'Este agente não suporta anexos de imagem. As imagens não foram enviadas.',
     },
 
-    browser: {
-        statusBrowsing: ({ agent }: { agent: string }) => `${agent} está navegando`,
-        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent} está aguardando seu login`,
-        statusStopped: ({ agent }: { agent: string }) => `${agent} parou`,
-        statusIdleBrowser: ({ agent }: { agent: string }) => `Navegador de ${agent}`,
-        waitingForConnection: ({ machine }: { machine: string }) => `Aguardando a conexão com ${machine}…`,
-        lostBody: ({ machine }: { machine: string }) => `A página pode continuar aberta em ${machine}.`,
-        openFailedTitle: ({ machine }: { machine: string }) => `Não foi possível abrir um navegador em ${machine}.`,
-        noDriverTitle: ({ machine }: { machine: string }) => `Falta o driver do navegador em ${machine}.`,
-        noDriverBody: 'Instale-o uma vez naquele computador e reabra esta tela.',
-        installBody: ({ machine }: { machine: string }) => `Nenhum navegador está instalado em ${machine}. Execute isto uma vez naquele computador (cerca de 500 MB) e tente novamente.`,
-        copyCommand: 'Copiar comando',
-        copied: 'Copiado',
-        copyFailedTitle: 'Não foi possível copiar',
-        copyFailedBody: 'Tente novamente.',
-        goTo: 'Ir para',
-        goToPlaceholder: 'Site ou endereço',
-        goToConfirm: 'Ir',
-        goToFailed: 'Não foi possível abrir esse endereço',
-    },
 
     feed: {
         // Feed notifications for friend requests and acceptances

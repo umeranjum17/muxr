@@ -749,7 +749,6 @@ export const ja: TranslationStructure = {
         connectTerminal: 'ターミナルを接続',
         linkNewDevice: '新しいデバイスをリンク',
         restoreWithSecretKey: 'シークレットキーで復元',
-        browserTakeover: 'ブラウザ',
         whatsNew: "新機能",
         friends: '友達',
     },
@@ -933,26 +932,6 @@ export const ja: TranslationStructure = {
         notSupportedMessage: 'このエージェントは画像の添付に対応していません。画像は送信されませんでした。',
     },
 
-    browser: {
-        statusBrowsing: ({ agent }: { agent: string }) => `${agent}がブラウジング中`,
-        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent}がサインインを待っています`,
-        statusStopped: ({ agent }: { agent: string }) => `${agent}が停止しました`,
-        statusIdleBrowser: ({ agent }: { agent: string }) => `${agent}のブラウザ`,
-        waitingForConnection: ({ machine }: { machine: string }) => `${machine}への接続を待っています…`,
-        lostBody: ({ machine }: { machine: string }) => `ページは${machine}で開いたままかもしれません。`,
-        openFailedTitle: ({ machine }: { machine: string }) => `${machine}でブラウザを開けませんでした。`,
-        noDriverTitle: ({ machine }: { machine: string }) => `${machine}にブラウザドライバがありません。`,
-        noDriverBody: 'そのコンピュータで一度インストールしてから、この画面を開き直してください。',
-        installBody: ({ machine }: { machine: string }) => `${machine}にはブラウザがインストールされていません。そのコンピュータでこのコマンドを一度実行し（約 500 MB）、再試行してください。`,
-        copyCommand: 'コマンドをコピー',
-        copied: 'コピーしました',
-        copyFailedTitle: 'コピーできませんでした',
-        copyFailedBody: 'もう一度お試しください。',
-        goTo: '移動',
-        goToPlaceholder: 'サイトまたはアドレス',
-        goToConfirm: '開く',
-        goToFailed: 'そのアドレスを開けませんでした',
-    },
 
     feed: {
         // Feed notifications for friend requests and acceptances

@@ -749,7 +749,6 @@ export const zhHans: TranslationStructure = {
         connectTerminal: '连接终端',
         linkNewDevice: '链接新设备', 
         restoreWithSecretKey: '通过密钥恢复',
-        browserTakeover: '浏览器',
         whatsNew: "更新日志",
         friends: '好友',
     },
@@ -932,26 +931,6 @@ export const zhHans: TranslationStructure = {
         notSupportedMessage: '此代理不支持图片附件。图片未发送。',
     },
 
-    browser: {
-        statusBrowsing: ({ agent }: { agent: string }) => `${agent}正在浏览`,
-        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent}正在等待你登录`,
-        statusStopped: ({ agent }: { agent: string }) => `${agent}已停止`,
-        statusIdleBrowser: ({ agent }: { agent: string }) => `${agent}的浏览器`,
-        waitingForConnection: ({ machine }: { machine: string }) => `正在等待连接到${machine}…`,
-        lostBody: ({ machine }: { machine: string }) => `页面可能仍在${machine}上打开。`,
-        openFailedTitle: ({ machine }: { machine: string }) => `无法在${machine}上打开浏览器。`,
-        noDriverTitle: ({ machine }: { machine: string }) => `${machine}上缺少浏览器驱动。`,
-        noDriverBody: '在那台电脑上安装一次，然后重新打开此屏幕。',
-        installBody: ({ machine }: { machine: string }) => `${machine}上未安装浏览器。在那台电脑上运行一次此命令（约 500 MB），然后重试。`,
-        copyCommand: '复制命令',
-        copied: '已复制',
-        copyFailedTitle: '复制失败',
-        copyFailedBody: '请重试。',
-        goTo: '前往',
-        goToPlaceholder: '网站或地址',
-        goToConfirm: '前往',
-        goToFailed: '无法打开该地址',
-    },
 
     feed: {
         // Feed notifications for friend requests and acceptances

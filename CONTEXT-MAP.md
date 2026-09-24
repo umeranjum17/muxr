@@ -28,7 +28,7 @@ Phone features under `apps/mobile/sources/`. Tree and public entries: [apps/mobi
 - **Herd**: Agent rows, live terminals, focus, lifecycle watch from the phone
 - **Spawn**: Start Agent, dock, Worktree landing
 - **Pairing**: Pair Machine, Reconnect Machine (shared with runtime)
-- **Plugins / Terminal / Preview / Takeover / Collaboration / Changelog / Settings**: phone chrome and host-backed surfaces
+- **Plugins / Terminal / Desktop / Collaboration / Changelog / Settings**: phone chrome and host-backed surfaces
 
 ## Mobile runtime features
 

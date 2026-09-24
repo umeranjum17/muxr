@@ -47,7 +47,7 @@ apps/mobile/sources/
     domain/                     Collaboration mesh
     application/                setup/disconnect orchestration
     infrastructure/             scoped machine client
-  preview/  takeover/  desktop/  changelog/  settings/
+  desktop/  changelog/  settings/
   catalog/{domain,application,infrastructure}
   watch/{domain,application}
   connection/{application}

@@ -1035,12 +1035,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             icon: 'clipboard-outline',
             run: () => void pasteToDraft(),
         });
-        return assembleRing(
-            slots,
-            desktopAvailable && canControl,
-            openDesktop,
-            () => router.push(`/session/${encodeURIComponent(props.id)}/takeover`),
-        );
+        return assembleRing(slots, desktopAvailable && canControl, openDesktop);
     }, [canControl, changesCount, openAgentCommands, openDesktop, pasteToDraft, props.id, sendCommand]);
 
     // The cross the ring's Arrows slot summons: the row's own catalog keys, the
@@ -1794,13 +1789,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
                                     </Pressable>
-                                    <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'browser' && slot.id !== 'computer')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
-                                    <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/takeover`); }} accessibilityRole="button" accessibilityLabel="Browser"
-                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name="globe-outline" size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Browser</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                    </Pressable>
+                                    <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'computer')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
                                     {desktopAvailable && canControl && <Pressable onPress={openDesktop} accessibilityRole="button" accessibilityLabel="Computer"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="desktop-outline" size={18} color={theme.colors.textSecondary} />
