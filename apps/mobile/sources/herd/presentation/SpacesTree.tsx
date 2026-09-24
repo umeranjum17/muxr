@@ -436,8 +436,8 @@ const AgentRow = React.memo(({
 });
 
 /**
- * A child's second line, in parts: its one agent's identity and state, else a
- * count, else what it is. Rendered with ' · ', spoken with ', '.
+ * A child's second line, in parts: its one agent's kind (or identity when
+ * unnamed) and state, else a count, else what it is. Rendered with ' · ', spoken with ', '.
  */
 function childLine2Parts(child: HerdChildSpace): string[] {
     const panes = child.workspace.tabs.flatMap((tab) => tab.panes);
