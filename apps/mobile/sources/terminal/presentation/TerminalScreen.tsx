@@ -12,7 +12,7 @@ import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useKeyboardHandler, useKeyboardState } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useDerivedValue, useSharedValue } from 'react-native-reanimated';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -266,7 +266,19 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     }, []);
     // View commands keep a permanent route in Pane actions.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
-    const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number }>();
+    // `raise` is the settled keyboard raise this measure was taken at.
+    const [terminalBox, setTerminalBox] = React.useState<{ top: number; width: number; height: number; raise: number }>();
+    // How far the terminal's visible bottom sits from the one it was last
+    // measured at: the rails ride the keyboard frame by frame, while the
+    // terminal resizes only once it settles. The ring's control rides this, so
+    // it moves with the composer instead of jumping at either end.
+    const terminalShift = useDerivedValue(
+        () => railHeight.value + insets.bottom * railProgress.value + (terminalBox?.raise ?? 0),
+        [insets.bottom, terminalBox?.raise],
+    );
+    // The rails keep their bottom inset under a settled keyboard, so the ring's
+    // overlay stops at the keyboard's top edge, not at the rails' own bottom.
+    const ringOverlayBottom = useAnimatedStyle(() => ({ bottom: settledRaise.value > 0 ? settledRaise.value + insets.bottom : 0 }), [insets.bottom]);
     const [choicesVisible, setChoicesVisible] = React.useState(false);
     // The ring is hosted by the screen, never by the terminal renderer. It owns
     // its own open state so that opening it re-renders one small component
@@ -1371,7 +1383,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         // the keyboard is arriving — the transition he called
                         // janky. Only a box that actually moved is reported.
                         onLayout={({ nativeEvent }) => {
-                            const next = { top: nativeEvent.layout.y, width: nativeEvent.layout.width, height: nativeEvent.layout.height };
+                            const next = { top: nativeEvent.layout.y, width: nativeEvent.layout.width, height: nativeEvent.layout.height, raise: settledRaise.value };
                             setTerminalBox((current) => (current !== undefined
                                 && Math.abs(current.top - next.top) < 0.5
                                 && Math.abs(current.width - next.width) < 0.5
@@ -1698,18 +1710,17 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     </Animated.View>
 
                     {/* The control rests on the terminal and stands down while
-                        a link card is open, and while the keyboard is up: the
-                        few lines left above it are the ones being answered, and
-                        every slot is also in the pane menu or on the key row.
-                        Its overlay extends through the rails so the ring can
-                        borrow room below a short terminal; the control itself
-                        stays on the terminal surface. */}
-                    {hasTools && !choicesVisible && linkMenu === null && !keyboardVisible && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
-                        <View
+                        a link card is open. It stays while the keyboard is up,
+                        riding above the rails with them. Its overlay extends
+                        through the rails, never under the keyboard, so the ring
+                        can borrow room below a short terminal; the control
+                        itself stays on the terminal surface. */}
+                    {hasTools && !choicesVisible && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
+                        <Animated.View
                             aria-hidden={desktopVisible}
                             pointerEvents="box-none"
                             onLayout={({ nativeEvent }) => setRingOverlay((current) => (Math.abs(current - nativeEvent.layout.height) < 0.5 ? current : nativeEvent.layout.height))}
-                            style={{ position: 'absolute', left: 0, right: 0, top: terminalBox.top, bottom: 0 }}
+                            style={[{ position: 'absolute', left: 0, right: 0, top: terminalBox.top }, ringOverlayBottom]}
                         >
                             <FloatingTerminalControls
                                 ref={ringRef}
@@ -1719,8 +1730,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 slots={ringSlots}
                                 clusterKeys={clusterKeys}
                                 dim={ringDim}
+                                shift={terminalShift}
                             />
-                        </View>
+                        </Animated.View>
                     )}
 
                     <TerminalControlGrid
