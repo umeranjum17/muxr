@@ -105,6 +105,7 @@ export type {
     WsTransport,
 } from './control-plane/index.js';
 export {
+    DESKTOP_CONSENT_WAIT_MS,
     MISSING_CWD_ERROR_PREFIX,
     normalizeRequestFailure,
     requestRequiresE2ee,

@@ -19,8 +19,9 @@ interface Pending {
 
 export interface EngineClientOptions {
     /**
-     * Request timeout. Long enough for a portal consent prompt, and no longer:
-     * an engine that does not answer in time is killed, not waited on.
+     * Request timeout: an engine that does not answer in time is killed, not
+     * waited on. A portal open that may wait on a consent prompt passes its
+     * own, longer one to `openSession`.
      */
     requestTimeoutMs?: number;
     onEvent?: (event: EngineEvent) => void;
@@ -136,13 +137,13 @@ export class EngineClient {
      * add a capability the typed helpers do not cover should send it rather than
      * patch this package.
      */
-    request<T>(method: string, params?: Record<string, unknown>): Promise<T> {
+    request<T>(method: string, params?: Record<string, unknown>, timeoutMs = this.timeoutMs): Promise<T> {
         if (this.closed) {
             return Promise.reject(new Error('the desktop engine is not running'));
         }
         const id = this.nextId++;
         return new Promise<T>((resolve, reject) => {
-            const timer = setTimeout(() => this.abandon(timedOut(method, params, this.timeoutMs)), this.timeoutMs);
+            const timer = setTimeout(() => this.abandon(timedOut(method, params, timeoutMs)), timeoutMs);
             this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer });
             this.child.stdin.write(`${JSON.stringify({ id, method, params: params ?? {} })}\n`, (error) => {
                 if (error !== null && error !== undefined) {
@@ -158,7 +159,12 @@ export class EngineClient {
         return this.request<EngineCapabilities>('capabilities');
     }
 
-    openSession(request: OpenSessionRequest): Promise<OpenedSession> {
+    /**
+     * `timeoutMs` overrides the client's request timeout for this open alone:
+     * a portal open may be waiting on a person at the computer, which takes
+     * longer than any other request should.
+     */
+    openSession(request: OpenSessionRequest, timeoutMs?: number): Promise<OpenedSession> {
         return this.request<OpenedSession>('session.open', {
             ...(request.source === undefined ? {} : { source: request.source }),
             permissions: request.permissions,
@@ -170,7 +176,7 @@ export class EngineClient {
             ...(request.restoreToken === undefined ? {} : { restore_token: request.restoreToken }),
             ...(request.ttlSeconds === undefined ? {} : { ttl_seconds: request.ttlSeconds }),
             ...(request.loopbackTcp === true ? { loopback_tcp: true } : {}),
-        });
+        }, timeoutMs);
     }
 
     acceptAnswer(sessionId: string, generation: number, sdp: string): Promise<{ accepted: boolean }> {
@@ -230,6 +236,8 @@ export class EngineClient {
      * prompt nobody at the desktop is answering. Everything sent after it would
      * queue behind it, and a late answer would open a session nobody owns, so
      * the engine is killed and every waiting request fails with the reason.
+     * Its exit is also what withdraws a pending portal prompt: the portal
+     * closes every request whose sender left the session bus.
      */
     private abandon(reason: Error): void {
         this.closed = true;

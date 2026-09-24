@@ -7,6 +7,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { DesktopView, observeWebKeyboardMotion, useDesktopSession } from '@desklink/react-native';
+import { DESKTOP_CONSENT_WAIT_MS } from '@muxr/contract';
 
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
@@ -108,6 +109,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
     const [notice, setNotice] = React.useState<{ text: string; ms: number } | null>(null);
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     const [clipboardAvailable, setClipboardAvailable] = React.useState(false);
+    const [consentUntil, setConsentUntil] = React.useState<number | null>(null);
     const [menu, setMenu] = React.useState<Menu | null>(null);
     const [landscape, setLandscape] = React.useState(false);
     const keyboard = useKeyboardState();
@@ -136,6 +138,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
             const capabilities = await sync.request('desktop.capabilities', {}).catch(() => null);
             const canClipboard = capabilities?.clipboard === true;
             setClipboardAvailable(canClipboard);
+            setConsentUntil(capabilities?.consentRequired === true ? Date.now() + DESKTOP_CONSENT_WAIT_MS : null);
             const permissions: DesktopPermission[] = canClipboard
                 ? ['view', 'control', 'clipboard']
                 : ['view', 'control'];
@@ -334,7 +337,17 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
         }
     }, [live, openedBefore, setOpenedBefore, clipboardAvailable, say]);
 
-    const described = describeDesktopOverlay(snapshot, openedBefore);
+    // While the open waits on the computer's prompt, the countdown ticks once a second.
+    const awaitingConsent = consentUntil !== null && snapshot.status === 'opening';
+    const [now, setNow] = React.useState(() => Date.now());
+    React.useEffect(() => {
+        if (!awaitingConsent) return;
+        setNow(Date.now());
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [awaitingConsent]);
+    const consentSecondsLeft = awaitingConsent ? Math.ceil((consentUntil - now) / 1000) : null;
+    const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft);
     const status = started
         ? { ...described, action: described.canRetry ? 'Try again' : undefined }
         : { title: desktopCopy.stoppedTitle, detail: desktopCopy.stoppedBody, command: undefined, spinner: false, action: desktopCopy.startAction };

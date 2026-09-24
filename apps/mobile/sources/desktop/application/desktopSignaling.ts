@@ -1,4 +1,4 @@
-import type { DesktopEvent } from '@muxr/contract';
+import { DESKTOP_CONSENT_WAIT_MS, type DesktopEvent } from '@muxr/contract';
 import type { SessionEvent, Signaling } from '@desklink/react-native';
 
 import { sync } from '@/catalog';
@@ -9,6 +9,13 @@ import { closeSshForward, openSshForward, sshRouteActive } from '@/connection';
  * phone on the Direct SSH route can only reach through a forward.
  */
 const LOOPBACK_TCP = /^(candidate:\S+ \d+ tcp \d+ )127\.0\.0\.1 (\d+)( typ host tcptype passive.*)$/i;
+
+/**
+ * An open may wait on the screen-sharing prompt on the computer. The phone
+ * outlasts the host's own wait, so the host's `consent-timeout` arrives rather
+ * than a bare request timeout.
+ */
+const OPEN_TIMEOUT_MS = DESKTOP_CONSENT_WAIT_MS + 10_000;
 
 /** How often the phone asks the host whether the engine has said anything. */
 const POLL_INTERVAL_MS = 250;
@@ -149,12 +156,13 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
                     forwardOverSsh = sshRouteActive();
                     const opened = await sync.request('desktop.open', {
                         permissions: options.permissions,
+                        awaitConsent: true,
                         ...(forwardOverSsh ? { loopbackTcp: true } : {}),
                         ...(options.maxWidth === undefined ? {} : { maxWidth: options.maxWidth }),
                         ...(options.maxHeight === undefined ? {} : { maxHeight: options.maxHeight }),
                         ...(options.bitrateKbps === undefined ? {} : { bitrateKbps: options.bitrateKbps }),
                         ...(options.maxFps === undefined ? {} : { maxFps: options.maxFps }),
-                    });
+                    }, OPEN_TIMEOUT_MS);
                     desktopId = opened.desktopId;
                     pending.length = 0;
                     cursor = 0;

@@ -34,7 +34,12 @@ describe('the desktop overlay', () => {
         expect(describeDesktopOverlay(ended('the encoder rejected a frame')).canRetry).toBe(false);
     });
 
-    it('turns an unanswered screen-sharing prompt into the step to take, with a retry', () => {
+    it('says where to approve screen sharing while the computer waits, then the step to take', () => {
+        const waiting = describeDesktopOverlay({ status: 'opening', geometry: null, presented: false, failure: null, diagnostics: {} }, true, 95);
+        expect(waiting.title).toBe('Approve screen sharing on your computer');
+        expect(waiting.detail).toContain('1:35 left');
+        expect(waiting.canRetry).toBe(false);
+
         const overlay = describeDesktopOverlay({
             status: 'failed',
             geometry: null,
@@ -43,7 +48,7 @@ describe('the desktop overlay', () => {
             diagnostics: {},
         });
 
-        expect(overlay.detail).toBe('Approve screen sharing on the computer, then try again.');
+        expect(overlay.detail).toBe('Try again and approve it on the computer, or run muxr desktop setup there once.');
         expect(overlay.detail).not.toContain('portal');
         expect(overlay.canRetry).toBe(true);
     });

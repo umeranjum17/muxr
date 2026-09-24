@@ -27,6 +27,7 @@ export {
 } from './domain/dist/index.js';
 
 export { pairDevice } from './application/pairDevice.mjs';
+export { approveScreenSharing } from './application/approveScreenSharing.mjs';
 export { listDevices } from './application/listDevices.mjs';
 export { revokeDevice } from './application/revokeDevice.mjs';
 export { enrollMachine } from './application/enrollMachine.mjs';

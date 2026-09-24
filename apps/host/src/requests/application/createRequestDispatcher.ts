@@ -215,6 +215,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 ...(params.bitrateKbps === undefined ? {} : { bitrateKbps: params.bitrateKbps }),
                 ...(params.maxFps === undefined ? {} : { maxFps: params.maxFps }),
                 ...(params.loopbackTcp === true ? { loopbackTcp: true } : {}),
+                ...(params.awaitConsent === true ? { awaitConsent: true } : {}),
             }, connectionId === undefined ? undefined : {
                 connectionId,
                 isConnected: () => options.isDesktopConnectionActive?.(connectionId) === true,

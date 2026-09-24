@@ -236,7 +236,19 @@ export interface DesktopCapabilities {
     inputUnavailableReason?: string;
     clipboard: boolean;
     codec?: string;
+    /**
+     * The next open waits on a screen-sharing prompt on the computer, because
+     * no earlier approval was saved there.
+     */
+    consentRequired?: boolean;
 }
+
+/**
+ * How long `desktop.open` may wait on the computer's screen-sharing prompt
+ * before the host gives up with `consent-timeout`. A phone waits a little
+ * longer than this, so the host's answer always arrives first.
+ */
+export const DESKTOP_CONSENT_WAIT_MS = 110_000;
 
 export interface RequestMap extends PeerRequestMap {
     // --- live desktop -------------------------------------------------------
@@ -260,6 +272,13 @@ export interface RequestMap extends PeerRequestMap {
              * over TCP there, for the phone to carry through that forward.
              */
             loopbackTcp?: boolean;
+            /**
+             * The caller waits up to `DESKTOP_CONSENT_WAIT_MS` for the answer,
+             * so the host may too. Without it the host answers within its
+             * ordinary engine timeout, which an older phone's shorter request
+             * timeout still outlasts.
+             */
+            awaitConsent?: boolean;
         };
         result: {
             desktopId: string;

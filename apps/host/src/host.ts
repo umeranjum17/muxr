@@ -88,6 +88,9 @@ export function startHost(options: HostOptions): Host {
         {
             ...(options.desktopEnginePath === undefined ? {} : { enginePath: options.desktopEnginePath }),
             ...(options.stateRoot === undefined ? {} : { stateRoot: options.stateRoot }),
+            // The engine's own account of a failure (a refused portal, a
+            // missing library) belongs in the host's log with everything else.
+            onDiagnostic: (line) => process.stderr.write(`desktop engine: ${line}\n`),
         },
     );
     const dispatcher = createRequestDispatcher({

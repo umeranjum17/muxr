@@ -4,6 +4,7 @@ import { intro, heading, status, note, outro, prompt, select, withSpinner, withF
 import { herdrServerIsReady, runLocalPrerequisites } from '../infrastructure/herdr.mjs';
 import { inspectSetup } from '../application/inspectSetup.mjs';
 import { pairDevice } from '../application/pairDevice.mjs';
+import { approveScreenSharing } from '../application/approveScreenSharing.mjs';
 import { startSelfHost } from '../application/startSelfHost.mjs';
 import { connectEnrollment } from '../application/connectEnrollment.mjs';
 import { enrollMachine } from '../application/enrollMachine.mjs';
@@ -576,6 +577,7 @@ export async function applyMachineSetup(args = []) {
         if (failedServe !== 'occupied' && failedServe !== 'disabled') return result;
     }
     const { mode, endpoint, port, pairing } = plan;
+    await approveScreenSharing();
     const browserPairFailed = pairing === 'both' && (await pairDevice(['--browser'])) !== 0;
     const doctor = await inspectSetup();
     if (doctor !== 0) return doctor;
