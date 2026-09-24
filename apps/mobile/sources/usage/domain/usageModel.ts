@@ -97,11 +97,3 @@ function lengthInMinutes(name: string): number {
     const match = /^(\d+)([mhd])$/.exec(name);
     return match === null ? Number.POSITIVE_INFINITY : Number(match[1]) * MINUTES[match[2]!]!;
 }
-
-/** How many plan columns a band holds when `fits` fit across the card: as many
- *  as fit, spread evenly over as few bands as that takes, so four plans that
- *  fit three to a row read as two and two rather than three and a straggler. */
-export function columnsPerBand(count: number, fits: number): number {
-    const bands = Math.ceil(count / Math.max(1, fits));
-    return Math.max(1, Math.ceil(count / Math.max(1, bands)));
-}
