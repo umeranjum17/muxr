@@ -548,7 +548,9 @@ function codexUsage(env: NodeJS.ProcessEnv): Promise<CodexRateLimitResult | unde
             }
             resolve(value);
         };
-        const timer = setTimeout(() => finish(undefined), 8_000);
+        // A loaded host can take most of this just to start the app server;
+        // nothing waits on it any more, since the last reading stands meanwhile.
+        const timer = setTimeout(() => finish(undefined), 20_000);
         child.once('error', () => finish(undefined));
         child.once('close', () => { if (escalation) clearTimeout(escalation); finish(undefined); });
         child.stdin.on('error', () => finish(undefined));
