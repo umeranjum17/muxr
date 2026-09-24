@@ -181,10 +181,13 @@ export const LiveTerminalsRow = React.memo(({
         const timer = setInterval(() => setMinute(Date.now()), 60_000);
         return () => clearInterval(timer);
     }, []);
-    const activityRows = React.useMemo(
-        () => ready ? unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles) : [],
-        [lifecycleEvents, liveTitles, ready, seenEventIds],
-    );
+    // An event keeps the name the agent had then; a rename since should read here too.
+    const activityRows = React.useMemo(() => {
+        if (!ready) return [];
+        const liveNames = new Map(panes.flatMap((pane) => pane.agentName ? [[pane.id, pane.agentName] as const] : []));
+        return unseenActivityRows(lifecycleEvents, seenEventIds, Date.now(), 8, liveTitles)
+            .map((row) => ({ ...row, agentName: liveNames.get(row.sessionId) ?? row.agentName }));
+    }, [lifecycleEvents, liveTitles, panes, ready, seenEventIds]);
     // Done is an outcome, not activity: it gets its own READY · UNSEEN tier and
     // clears when the agent is opened (TerminalRoute acks), never by the card
     // scrolling past on Home. Needs-you/failed keep the glance-clears rule.
