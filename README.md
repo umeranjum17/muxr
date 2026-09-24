@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo/muxr-loop.webp" alt="The muxr herd, an agent's exact live terminal, and a prompt continuing on the computer" width="960" />
+  <img src="docs/demo/muxr-herd-loop.webp" alt="A hand-drawn lamb stops at a gate marked npm test and needs you; on the phone, tapping Yes on the agent's prompt opens the gate" width="960" />
 </p>
 
 ## Why muxr exists
@@ -40,7 +40,7 @@ muxr is the control surface built natively for the phone: the full agent lifecyc
 Open the same live terminal the agent owns on your computer, with native Ghostty rendering, scrollback, and sticky modifier keys. A floating control and a key row you can reorder keep actions within reach, and the composer keeps attachments and dictation beside the prompt. When a blocked Claude Code or Codex agent shows numbered answers, tap one instead of finding its key. Tap a printed link to open, copy, or insert it into the prompt.
 
 <p align="center">
-  <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="muxr's redesigned terminal with compact header, floating quick actions, key row, and prompt composer" width="100%" /></picture></a>
+  <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="Claude Code asking to run npm test in muxr's terminal, with its numbered answers as tap targets above the tabs row and key row" width="300" /></picture></a>
 </p>
 
 ### Every agent, every machine
@@ -48,7 +48,15 @@ Open the same live terminal the agent owns on your computer, with native Ghostty
 The Herd groups agents by repository and nests spawned workspaces when their lineage is declared. A nested workspace with one named agent shows that Herdr name before its workspace label, so you can pick the right agent; unnamed or multi-agent workspaces keep their workspace label. See real terminal thumbnails and agent lifecycle: working, needs you, done. Tap any agent and you are back in the same session.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/herd.webp" type="image/webp"><img src="docs/assets/readme/herd.jpg" alt="The muxr Herd with live terminal thumbnails, repository spaces, and agent lifecycle states" width="100%" /></picture>
+  <picture><source srcset="docs/assets/readme/herd.webp" type="image/webp"><img src="docs/assets/readme/herd.jpg" alt="Home with plan limits at a glance, a live terminal card for an agent that needs you, and agents grouped by repository" width="300" /></picture>
+</p>
+
+### One workspace, every tab
+
+The row above the composer lists the workspace's tabs, so the agent, its tests and its dev server are one tap apart, and + opens a new tab on your computer.
+
+<p align="center">
+  <picture><source srcset="docs/assets/readme/tabs.webp" type="image/webp"><img src="docs/assets/readme/tabs.jpg" alt="The tests tab of a workspace showing nine passing tests, next to the agent's checkout tab and a server tab" width="300" /></picture>
 </p>
 
 ### Swipe between agents
@@ -56,23 +64,23 @@ The Herd groups agents by repository and nests spawned workspaces when their lin
 Swipe sideways with one finger to move to the next working, waiting, or just-finished agent; the next terminal follows your finger. In **Settings → Gestures**, switch to a two-finger swipe or turn swiping off, choose which agents a swipe stops at, and turn pinch-to-zoom on or off. Vertical drags still scroll, and a resting finger still selects text.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/gestures.webp" type="image/webp"><img src="docs/assets/readme/gestures.jpg" alt="The muxr Gestures settings: one-finger swipe between agents, where swipes stop, and pinch to zoom" width="100%" /></picture>
+  <picture><source srcset="docs/assets/readme/gestures.webp" type="image/webp"><img src="docs/assets/readme/gestures.jpg" alt="Mid-swipe between two agents' live terminals, the next agent's name riding along at the top" width="300" /></picture>
 </p>
 
 ### Know who needs you
 
-Inbox collects attention across every repository. Open the waiting agent directly instead of hunting through terminals or notification history.
+Home puts the agents waiting on you first, then the ones that finished while you were away, across every repository, and a notification reaches you when one stops. Open the waiting agent directly instead of hunting through terminals.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/inbox.webp" type="image/webp"><img src="docs/assets/readme/inbox.jpg" alt="muxr Inbox sorting agents that need attention from agents that finished" width="100%" /></picture>
+  <picture><source srcset="docs/assets/readme/inbox.webp" type="image/webp"><img src="docs/assets/readme/inbox.jpg" alt="Home sorting agents that need you from agents that finished and you haven't seen" width="300" /></picture>
 </p>
 
 ### Review before it ships
 
-Open the real diff, inspect every changed line, then accept or reject it without waiting to get back to your desk.
+Open the real diff and read every changed line in the working tree, the index, or the whole branch before you tell the agent to ship it, without waiting to get back to your desk.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/changes.webp" type="image/webp"><img src="docs/assets/readme/changes.jpg" alt="Reviewing an agent's code changes in muxr" width="100%" /></picture>
+  <picture><source srcset="docs/assets/readme/changes.webp" type="image/webp"><img src="docs/assets/readme/changes.jpg" alt="An agent's uncommitted change to cart.js, removed and added lines in red and green" width="300" /></picture>
 </p>
 
 ### Peek at your computer
@@ -80,7 +88,7 @@ Open the real diff, inspect every changed line, then accept or reject it without
 Tap **Computer** inside an agent's conversation to see your own desktop live and check what the agent is doing. On a machine with a desktop session, an agent can open a sign-in or CAPTCHA page in that desktop's browser for you to finish through Computer. Tap in to take over: the pointer follows your finger, with a keyboard and a shared clipboard. Remote desktop works over Tailscale, any mesh VPN or LAN address, or SSH alone, including on a cloud server; agent-opened pages on a screenless server are not automatically routed to its virtual display. [Routes and setup →](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server)
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/computer.webp" type="image/webp"><img src="docs/assets/readme/computer.jpg" alt="An agent's computer desktop shown live in muxr: the agent's progress above the page it is editing" width="100%" /></picture>
+  <picture><source srcset="docs/assets/readme/computer.webp" type="image/webp"><img src="docs/assets/readme/computer.jpg" alt="The computer's desktop live on the phone after typing a sign-in code into its browser, with the keyboard and key row below" width="300" /></picture>
 </p>
 
 ### Talk to the herd
@@ -90,7 +98,15 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 [Voice setup →](docs/VOICE-SETUP.md)
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/voice.webp" type="image/webp"><img src="docs/assets/readme/voice.jpg" alt="A native realtime voice session in muxr" width="100%" /></picture>
+  <picture><source srcset="docs/assets/readme/voice.webp" type="image/webp"><img src="docs/assets/readme/voice.jpg" alt="A realtime voice session: asking what the herd is doing and sending lamb a follow-up" width="300" /></picture>
+</p>
+
+### Dictate the prompt
+
+Tap the mic in the composer and speak. In the app, speech is transcribed on your phone as you talk, and the words land in the prompt for you to check before sending.
+
+<p align="center">
+  <picture><source srcset="docs/assets/readme/dictation.webp" type="image/webp"><img src="docs/assets/readme/dictation.jpg" alt="A prompt dictated into an agent's composer: add a test for the free shipping threshold, then open a pull request when the cart tests pass" width="300" /></picture>
 </p>
 
 **Also on your phone:**
