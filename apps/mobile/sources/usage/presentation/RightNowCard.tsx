@@ -50,11 +50,14 @@ export function RightNowCard() {
 
     if (display.status === 'unavailable') {
         return <Strip onPress={refresh} label={t('plugins.rightNow.unavailable')}
-            line={<View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: toneColor(theme, 'danger') }} />
-                <Text style={[caption, { flexShrink: 1, color: theme.colors.text }]}>{t('plugins.rightNow.unavailable')}</Text>
+            line={<View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: toneColor(theme, 'danger') }} />
+                    <Text style={[caption, { flexShrink: 1, color: theme.colors.text }]}>{t('plugins.rightNow.unavailable')}</Text>
+                </View>
+                {display.reason !== '' && <Text numberOfLines={2} style={caption}>{display.reason}</Text>}
             </View>}
-            facts={[display.reason, ...vitalsFigures(display.vitals)].filter((part) => part !== '')} />;
+            facts={vitalsFigures(display.vitals)} />;
     }
 
     const status = freshness(display.status === 'waiting' ? undefined : display.figures, failed, refreshing, throttledSeconds);
@@ -160,10 +163,10 @@ function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: 
             {plans.map((plan) => {
                 const tags = figureTags(plan.figures);
                 return (
-                    <View key={plan.provider.id} style={{ flexDirection: namesVisible ? 'column' : 'row', alignItems: namesVisible ? 'flex-start' : 'center', gap: namesVisible ? 0 : 4, width: namesVisible ? '100%' : undefined }}>
+                    <View key={plan.provider.id} style={{ flexDirection: namesVisible ? 'column' : 'row', flexWrap: 'wrap', maxWidth: '100%', alignItems: namesVisible ? 'flex-start' : 'center', gap: namesVisible ? 0 : 4, width: namesVisible ? '100%' : undefined }}>
                         <AgentGlyph name={plan.provider.glyph ?? plan.provider.id} size={MARK} />
                         {plan.figures.map((figure, index) => (
-                            <View key={figure.name} style={{ flexDirection: 'row', alignItems: 'baseline' }}>
+                            <View key={figure.name} style={{ flexDirection: 'row', alignItems: 'baseline', maxWidth: '100%' }}>
                                 <Text style={{ fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
                                 <Text style={{ marginLeft: namesVisible ? 4 : 0.5, flexShrink: 1, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`${namesVisible ? figure.name : tags[index]}${figure.cells.length > 1 ? `×${figure.cells.length}` : ''}`}</Text>
                             </View>
