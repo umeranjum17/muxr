@@ -4,7 +4,7 @@
  * Host product code -- provider environment access stays internal to the host,
  * and the pinned offline ccusage backend stays the measured-activity source.
  */
-import { createHash, scryptSync } from 'node:crypto';
+import { scryptSync } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { accessSync, chmodSync, constants, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -453,9 +453,10 @@ function accountFingerprint(id: PlanId, value: string): string {
     return fingerprint;
 }
 
-/** Whose reading each provider's would be now. A stored reading is only ever
- *  shown for the account it was read from, one provider at a time: switching
- *  one account never costs another provider its reading. */
+/** Whose reading each provider's would be now, from the same configuration
+ *  the read itself uses. A stored reading is only ever shown for the account
+ *  it was read from, one provider at a time: switching one account never costs
+ *  another provider its reading, and a changed PATH or time zone costs none. */
 function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
     const codexAuth = readJson(join(env.CODEX_HOME || join(env.HOME?.trim() || homedir(), '.codex'), 'auth.json'), 64 * 1024)?.value;
     const tokens = isRecord(codexAuth) && isRecord(codexAuth.tokens) ? codexAuth.tokens : undefined;
@@ -479,7 +480,7 @@ function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
  *  read stands on and what a restarted host paints first. */
 function readPlans(env: NodeJS.ProcessEnv, accounts: Partial<Record<PlanId, string>>): PlanReadings {
     const saved = readJson(join(usageStateDir(env), 'plans-v1.json'), 256 * 1024)?.value;
-    if (!isRecord(saved) || saved.identity !== plansIdentity(env) || !isRecord(saved.plans)) return {};
+    if (!isRecord(saved) || !isRecord(saved.plans)) return {};
     const plans: PlanReadings = {};
     for (const id of PLAN_IDS) {
         const reading = saved.plans[id];
@@ -488,12 +489,6 @@ function readPlans(env: NodeJS.ProcessEnv, accounts: Partial<Record<PlanId, stri
         }
     }
     return plans;
-}
-
-/** Where the plans were read from: the configuration, never an account, which
- *  each reading carries for itself. Nothing secret goes in, so a plain hash. */
-function plansIdentity(env: NodeJS.ProcessEnv): string {
-    return createHash('sha256').update(JSON.stringify(CONFIG_ENV_KEYS.map((key) => env[key] ?? null))).digest('hex');
 }
 
 /** Merge this collection's new readings into the file: another collection
@@ -507,7 +502,7 @@ function savePlans(env: NodeJS.ProcessEnv, updates: PlanReadings, accounts: Part
             const next = updates[id];
             if (next !== undefined && next.account === accounts[id] && next.at >= (plans[id]?.at ?? -Infinity)) plans[id] = next;
         }
-        const body = JSON.stringify({ identity: plansIdentity(env), plans });
+        const body = JSON.stringify({ plans });
         if (Buffer.byteLength(body) > 256 * 1024) return;
         mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
         writeFileSync(temporary, body, { mode: 0o600 });
