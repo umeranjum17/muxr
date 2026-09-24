@@ -73,6 +73,14 @@ function isInitialScreenRecord(line: string): boolean {
     }
 }
 
+function isScrollInput(line: string): boolean {
+    try {
+        return (JSON.parse(line) as { type?: unknown }).type === 'terminal.scroll';
+    } catch {
+        return false;
+    }
+}
+
 export class TerminalManager {
     private readonly attachments = new Map<string, Attachment>();
     /** Attach and detach for one channel must have one owner at a time. */
@@ -328,6 +336,12 @@ export class TerminalManager {
                     text = this.hosted.open(params.deviceId!, 'terminal', params.channel, envelope.payload);
                 }
                 input.write(`${text}\n`);
+                // Whatever a scroll turns out to move -- Herdr's own
+                // scrollback, a program's wheel handler, or nothing at all --
+                // the phone is told where Herdr's viewport ended up. Without
+                // this, a scroll away from the live edge was reported only
+                // at the next attach.
+                if (isScrollInput(text)) this.scheduleScrollState(attachment);
             } catch (error) {
                 onInputError(error instanceof Error ? error : new Error(String(error)));
             }

@@ -167,6 +167,39 @@ describe('openTerminal reconnect ownership', () => {
         channel.close();
     });
 
+    it('connects a new pane whose grid settles mid-attach without ever reading as reconnecting', async () => {
+        // The host is slow to attach; the ticket for the pane's socket is
+        // already on its way meanwhile, not one round trip after.
+        const firstAttach = Promise.withResolvers<unknown>();
+        mocks.request.mockReturnValueOnce(firstAttach.promise).mockResolvedValue({});
+        const opening = openTerminal({ agentRoute: 'shell:new-pane', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(mocks.request).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(mocks.fetch).toHaveBeenCalledTimes(1));
+        firstAttach.resolve({});
+        const channel = await opening;
+        const states: string[] = [];
+        channel.onState((state) => states.push(state));
+
+        // The pane's chrome filled in before its first frame: the grid it
+        // attached at is gone, so it attaches again at the settled one.
+        channel.resize(100, 29);
+        channel.repaint();
+        await vi.waitFor(() => expect(mocks.request).toHaveBeenLastCalledWith('terminal.attach', expect.objectContaining({
+            sessionId: 'shell:new-pane', cols: 100, rows: 29,
+        })));
+        await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+        const socket = FakeWebSocket.instances[1]!;
+        socket.open();
+        expect(states).toEqual(['connecting']);
+        socket.onmessage?.({ data: JSON.stringify({ type: 'terminal.frame', bytes: 'prompt' }) });
+        await vi.waitFor(() => expect(states).toEqual(['connecting', 'live']));
+
+        // Once it has painted, a re-attach is a reconnect.
+        channel.repaint();
+        expect(states.at(-1)).toBe('reconnecting');
+        channel.close();
+    });
+
     it('drives socket frames through one in-flight write pump with a bounded backlog', async () => {
         mocks.request.mockResolvedValue({});
         const channel = await openTerminal({ agentRoute: 'session', size: { cols: 100, rows: 30 } });
@@ -375,7 +408,7 @@ describe('openTerminal reconnect ownership', () => {
         const settled = states.length;
         storage.getState().setSocketStatus('connected');
         expect(states).toHaveLength(settled);
-        expect(states).toEqual(['reconnecting', 'live', 'unconfirmed', 'live', 'unconfirmed', 'live', 'unconfirmed', 'reconnecting']);
+        expect(states).toEqual(['connecting', 'live', 'unconfirmed', 'live', 'unconfirmed', 'live', 'unconfirmed', 'reconnecting']);
     });
 
     it('keeps the open pane usable across agent exit, shell input and a new agent', async () => {

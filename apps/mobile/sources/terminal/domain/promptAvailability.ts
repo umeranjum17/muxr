@@ -97,8 +97,10 @@ export function pendingChoices(screen: string): PendingChoice[] {
 /**
  * A pane running an agent accepts a prompt even before it is promptable: the
  * host holds the prompt until the agent can take it. A pane with no agent has
- * nothing to prompt.
+ * nothing to prompt, but a shell takes the draft as a typed line once there is
+ * a terminal this device may type into.
  */
-export function terminalPaneCanSend(pane: HerdrTreePane | undefined, hasContent: boolean): boolean {
-    return pane?.agentKind !== undefined && hasContent;
+export function terminalPaneCanSend(pane: HerdrTreePane | undefined, hasContent: boolean, canType = false): boolean {
+    if (pane === undefined || !hasContent) return false;
+    return pane.agentKind !== undefined || canType;
 }

@@ -26,12 +26,13 @@ import { beginTerminalFrameCounts, finalizeTerminalFrameCounts, recordTerminalCh
 import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
 
 /**
- * 'reconnecting' while this pane's socket is being re-attached; 'live' while
- * frames flow with nothing known to be wrong; 'unconfirmed' when the pane's
- * socket is open but the machine transport last reported a timeout or a lost
- * route, so nobody can say the host is still there until it answers again.
+ * 'connecting' until this pane has painted once; 'reconnecting' while a pane
+ * that did paint is being re-attached; 'live' while frames flow with nothing
+ * known to be wrong; 'unconfirmed' when the pane's socket is open but the
+ * machine transport last reported a timeout or a lost route, so nobody can say
+ * the host is still there until it answers again.
  */
-export type TerminalChannelState = 'live' | 'reconnecting' | 'unconfirmed';
+export type TerminalChannelState = 'connecting' | 'live' | 'reconnecting' | 'unconfirmed';
 
 export interface TerminalChannel {
     /** Count a successful native write. Stale after the channel finalizes. */
@@ -105,9 +106,18 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let current = size;
 
     // The host must be on the channel before the relay will pair a client.
+    // The ticket names only the channel, so it is fetched while the host is
+    // still attaching instead of one round trip after it. The socket itself
+    // still waits for the attach: the relay pairs a client only with a host
+    // that is already on the channel.
+    let ticketAhead: Promise<string> | undefined;
     const sendAttachRequest = async (takeover: boolean): Promise<unknown> => {
         assertOpen();
         attachSent = true;
+        if (ticketAhead === undefined) {
+            ticketAhead = socketUrl();
+            ticketAhead.catch(() => undefined);
+        }
         try {
             return await sync.request('terminal.attach', {
                 sessionId,
@@ -143,6 +153,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             recordTerminalChannel('attach', { ok: true });
             return result;
         } catch (error) {
+            // A retry may come after the ticket has expired; it fetches its own.
+            ticketAhead = undefined;
             recordTerminalChannel('attach', { ok: false, error });
             throw error;
         }
@@ -189,11 +201,15 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     // (storage.socketStatus): 'error' is a request that timed out, 'disconnected'
     // a lost route, 'connected' an authenticated host frame. A known failure
     // reads 'unconfirmed' until this pane paints again or the host answers.
+    // Until the pane has painted once there is nothing to re-attach to: a
+    // re-attach before the first frame, such as a new pane's grid settling, is
+    // still the pane connecting.
     let link: 'live' | 'reconnecting' = 'reconnecting';
+    let painted = false;
     let hostUnconfirmed = storage.getState().socketStatus !== 'connected' && storage.getState().socketStatus !== 'connecting';
-    let state: TerminalChannelState = 'reconnecting';
+    let state: TerminalChannelState = 'connecting';
     const publishState = (): void => {
-        let next: TerminalChannelState = link;
+        let next: TerminalChannelState = link === 'reconnecting' && !painted ? 'connecting' : link;
         if (link === 'live' && hostUnconfirmed) next = 'unconfirmed';
         if (state === next) return;
         state = next;
@@ -309,8 +325,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         requestAttach(explicitTakeover);
     };
 
-    async function connectSocket(): Promise<void> {
-        if (closedByUser) return;
+    async function socketUrl(): Promise<string> {
         // Strict relays reject ticketless sockets. Empty and account-scoped
         // tokens cannot mint a channel ticket, so fail closed instead of
         // opening a 1 Hz unauthorized reconnect loop.
@@ -320,7 +335,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             throw new Error('terminal: relay ticket required');
         }
         const relayUrl = await channelRelayUrl(ticketInput.relayUrl, settings.machineId);
-        const url = ticketSocketUrl(relayUrl, await issueWsTicket({
+        return ticketSocketUrl(relayUrl, await issueWsTicket({
             relayUrl,
             credential: ticketInput.credential,
             machineId: settings.machineId,
@@ -328,6 +343,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             transport: 'terminal',
             channel,
         }), 'terminal');
+    }
+    async function connectSocket(): Promise<void> {
+        if (closedByUser) return;
+        const ticketed = ticketAhead ?? socketUrl();
+        ticketAhead = undefined;
+        const url = await ticketed;
         // A repaint/retry may have claimed the attach owner while the ticket
         // request was in flight. Do not let that old ticket open a second
         // channel after the replacement has begun.
@@ -381,6 +402,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     hostAnswered();
                     if (!firstFrame) {
                         firstFrame = true;
+                        painted = true;
                         if (retryTimer !== undefined) {
                             clearTimeout(retryTimer);
                             retryTimer = undefined;
