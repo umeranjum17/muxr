@@ -30,6 +30,9 @@ const NOTICE_MS = 4000;
 /** The first live desktop on a device explains its gestures once, for longer. */
 const HINT_MS = 7000;
 
+/** An open that has not answered by now is waiting on a person at the computer. */
+const CONSENT_HINT_AFTER_MS = 2000;
+
 /** The two round controls: a thumb's size, in the terminal's floating material. */
 const BUTTON = 44;
 /** From the screen's sides. */
@@ -109,7 +112,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
     const [notice, setNotice] = React.useState<{ text: string; ms: number } | null>(null);
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     const [clipboardAvailable, setClipboardAvailable] = React.useState(false);
-    const [consentUntil, setConsentUntil] = React.useState<number | null>(null);
+    const [openSentAt, setOpenSentAt] = React.useState<number | null>(null);
     const [menu, setMenu] = React.useState<Menu | null>(null);
     const [landscape, setLandscape] = React.useState(false);
     const keyboard = useKeyboardState();
@@ -142,7 +145,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
                 ? ['view', 'control', 'clipboard']
                 : ['view', 'control'];
             return {
-                signaling: createDesktopSignaling({ permissions, maxFps: DESKTOP_FPS }),
+                signaling: createDesktopSignaling({ permissions, maxFps: DESKTOP_FPS, onOpenSent: () => setOpenSentAt(Date.now()) }),
                 session: { permissions },
             };
         }, []),
@@ -336,20 +339,23 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
         }
     }, [live, openedBefore, setOpenedBefore, clipboardAvailable, say]);
 
+    // An open still waiting after a moment is waiting on the computer's
+    // screen-sharing prompt, whether or not a grant was saved (the portal may
+    // have revoked it), so the phone says where to look and how long the host
+    // waits, counted from when the open was sent.
+    const waitingOnOpen = snapshot.status === 'opening' && openSentAt !== null;
     const [now, setNow] = React.useState(() => Date.now());
     React.useEffect(() => {
-        if (snapshot.status !== 'opening') {
-            setConsentUntil(null);
-            return;
-        }
-        const startedAt = Date.now();
-        setConsentUntil(startedAt + DESKTOP_CONSENT_WAIT_MS);
-        setNow(startedAt);
+        if (!waitingOnOpen) return;
+        setNow(Date.now());
         const timer = setInterval(() => setNow(Date.now()), 1000);
         return () => clearInterval(timer);
+    }, [waitingOnOpen]);
+    React.useEffect(() => {
+        if (snapshot.status !== 'opening') setOpenSentAt(null);
     }, [snapshot.status]);
-    const consentSecondsLeft = snapshot.status === 'opening' && consentUntil !== null && now >= consentUntil - DESKTOP_CONSENT_WAIT_MS + 2000
-        ? Math.ceil((consentUntil - now) / 1000)
+    const consentSecondsLeft = waitingOnOpen && now - openSentAt >= CONSENT_HINT_AFTER_MS
+        ? Math.ceil((openSentAt + DESKTOP_CONSENT_WAIT_MS - now) / 1000)
         : null;
     const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft);
     const status = started

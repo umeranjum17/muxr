@@ -2,7 +2,6 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import { atomicWrite, ensurePrivateDir, error, executable, print, stateDir } from '../infrastructure/runtime.mjs';
-import { configFilePath, validateMuxrConfig } from '../presentation/configInit.mjs';
 
 /** Long enough for a person to find and answer the prompt; the host waits as long. */
 const APPROVAL_WAIT_MS = 120_000;
@@ -10,23 +9,29 @@ const APPROVAL_WAIT_MS = 120_000;
 /** One command asks once: setup that also pairs a browser must not ask twice. */
 let asked = false;
 
+/**
+ * The host keeps its grant beside its data directory, which `MUXR_DATA_DIR`
+ * or `config.json` may move (the same precedence as the host's own config).
+ */
 const grantDirectory = () => {
-    const path = configFilePath();
-    const config = existsSync(path) ? validateMuxrConfig(path, readFileSync(path, 'utf8')) : { ok: true, config: {} };
-    if (!config.ok) throw new Error(config.error);
-    const dataDir = process.env.MUXR_DATA_DIR?.trim() || config.config.dataDir || join(stateDir(), 'host');
+    let configured;
+    try { configured = JSON.parse(readFileSync(join(stateDir(), 'config.json'), 'utf8')).dataDir; } catch { /* absent or unreadable: the host would refuse to start on a malformed one */ }
+    const dataDir = process.env.MUXR_DATA_DIR?.trim() || (typeof configured === 'string' && configured.trim()) || join(stateDir(), 'host');
     return join(dirname(dataDir), 'desktop');
 };
 /** The host's own grant file: it sends this token with the next desktop open. */
 const grantPath = () => join(grantDirectory(), 'portal-restore-token');
 
 /**
- * Only a Wayland desktop asks before sharing its screen. X11 and a server
- * without a screen share without a prompt, so they have nothing to approve.
- * The variables are the graphical session's own: this runs where the person is.
+ * Only the portal asks before sharing a screen: a Wayland desktop, or a host
+ * told to use it. X11 and a server without a screen share without a prompt,
+ * so they have nothing to approve. Detection matches the host's own.
  */
 function asksBeforeSharing(env = process.env) {
-    if (process.platform !== 'linux' || env.MUXR_DESKTOP_SOURCE?.trim() === 'x11') return false;
+    const source = env.MUXR_DESKTOP_SOURCE?.trim();
+    if (process.platform !== 'linux' || source === 'x11') return false;
+    // Any other explicit source is the portal, the one that asks.
+    if (source) return true;
     if (env.WAYLAND_DISPLAY?.trim() || env.XDG_SESSION_TYPE?.trim() === 'wayland') return true;
     const uid = process.getuid?.();
     const runtime = env.XDG_RUNTIME_DIR?.trim() || (uid === undefined ? undefined : `/run/user/${uid}`);

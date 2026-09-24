@@ -27,6 +27,8 @@ export interface OpenDesktopOptions {
     maxHeight?: number;
     bitrateKbps?: number;
     maxFps?: number;
+    /** Called as `desktop.open` is sent: from here the host may wait on consent. */
+    onOpenSent?: () => void;
 }
 
 /**
@@ -154,6 +156,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
             switch (method) {
                 case 'session.open': {
                     forwardOverSsh = sshRouteActive();
+                    options.onOpenSent?.();
                     const opened = await sync.request('desktop.open', {
                         permissions: options.permissions,
                         awaitConsent: true,
