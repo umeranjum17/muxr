@@ -15,7 +15,7 @@ import Animated, {
     type SharedValue,
 } from 'react-native-reanimated';
 import { MobileGlassSurface } from '@/components/MobileGlass';
-import { DictateButton } from '@/components/DictateButton';
+import { DictateAction, DictationStrip, useComposerDictation } from '@/components/ComposerDictation';
 import { OptionSheet } from '@/components/OptionSheet';
 import { BubblePressable } from '@/components/BubblePressable';
 import { NativeSettingsMenu } from '@/settings';
@@ -496,6 +496,13 @@ export const HomeDock = React.memo(({
         getText: () => promptRef.current,
         setText: onPromptChange,
     }), [onPromptChange]);
+    // The same in-pill dictation as the terminal composer: while it is live
+    // the pill reads Dictating…, then Transcribing…, and the words land in
+    // the prompt. Both Home composers share this one recording.
+    const dictation = useComposerDictation(composerDraft.getText, composerDraft.setText);
+    const dictationActive = dictation.recording || dictation.transcribing;
+    const dictationControl = { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' } as const;
+    const dictateControl = { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' } as const;
     const { selectedImages, pickImages, removeImage, clearImages } = useImagePicker();
     const agentType = useNewSessionDraft((state) => state.agentType);
     const selectedMachineId = useNewSessionDraft((state) => state.selectedMachineId);
@@ -829,6 +836,7 @@ export const HomeDock = React.memo(({
             style={styles.composerSurface}
         >
             <View style={styles.composerContent}>
+                {dictationActive ? <DictationStrip dictation={dictation} control={dictationControl} /> : <>
                 <RealtimeTalkButton accessibilityLabel="Start or open realtime conversation" />
                 <PluginSlot slot="home.composer.leading" context={{}} />
                 {activateOnPress ? (
@@ -856,7 +864,7 @@ export const HomeDock = React.memo(({
                         style={styles.input}
                     />
                 )}
-                {Platform.OS !== 'web' && <DictateButton context={composerDraft} />}
+                {Platform.OS !== 'web' && <DictateAction dictation={dictation} control={dictateControl} iconSize={22} />}
                 <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                 {/* A draft can remain after the focused composer closes. */}
                 {(hasPrompt || isSubmitting) && <BubblePressable
@@ -876,6 +884,7 @@ export const HomeDock = React.memo(({
                         />
                     )}
                 </BubblePressable>}
+                </>}
             </View>
         </MobileGlassSurface>
     );
@@ -931,6 +940,8 @@ export const HomeDock = React.memo(({
                         />
                     </Animated.View>
                     <Animated.View style={[styles.focusedComposerActions, focusedActionsRevealStyle]}>
+                        {/* The field above already shows the words as they land. */}
+                        {dictationActive ? <DictationStrip dictation={dictation} control={dictationControl} showLive={false} /> : <>
                         <BubblePressable
                             onPress={() => void pickImages()}
                             style={styles.sideButton}
@@ -955,7 +966,7 @@ export const HomeDock = React.memo(({
                                 </Text>
                             </View>
                         </View>
-                        {Platform.OS !== 'web' && <DictateButton context={composerDraft} />}
+                        {Platform.OS !== 'web' && <DictateAction dictation={dictation} control={dictateControl} iconSize={22} />}
                         <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                         <BubblePressable
                             onPress={submitFromFocusMode}
@@ -974,6 +985,7 @@ export const HomeDock = React.memo(({
                             />
                         )}
                         </BubblePressable>
+                        </>}
                     </Animated.View>
                 </View>
             </MobileGlassSurface>
