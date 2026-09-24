@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import { useFocusEffect } from 'expo-router';
 import { DesktopView, observeWebKeyboardMotion, useDesktopSession } from '@desklink/react-native';
 import { DESKTOP_CONSENT_WAIT_MS } from '@muxr/contract';
 
@@ -184,9 +185,8 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
     React.useEffect(() => () => {
         disarm();
         releaseHeld();
-        setOrientation('auto');
         void close('left the desktop');
-    }, [close, releaseHeld, disarm, setOrientation]);
+    }, [close, releaseHeld, disarm]);
 
     React.useEffect(() => {
         if (started) void connect();
@@ -240,11 +240,16 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
         setKeyboardOpen(true);
     }, [keyboardOpen, session]);
 
-    const toggleLandscape = React.useCallback(() => {
-        const next = !landscape;
-        setLandscape(next);
-        setOrientation(next ? 'landscape' : 'auto');
-    }, [landscape, setOrientation]);
+    // Landscape belongs to this screen while it is in front: leaving it by any
+    // route, or another screen opening over it, hands the phone its own
+    // orientation back. The app going to the background is the native side's.
+    useFocusEffect(React.useCallback(() => {
+        if (!landscape) return undefined;
+        setOrientation('landscape');
+        return () => setOrientation('auto');
+    }, [landscape, setOrientation]));
+
+    const toggleLandscape = React.useCallback(() => setLandscape((current) => !current), []);
 
     const copyFromDesktop = React.useCallback(async () => {
         const epoch = clipboardEpoch.current;
@@ -564,7 +569,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
                     <Animated.View entering={popIn} exiting={popOut} style={[card, styles.topCard]}>
                         {menuRow('Gestures', 'help-circle-outline', () => toggleMenu('help'))}
                         {live && menuRow('Fit to screen', 'scan-outline', session.fitToView)}
-                        {live && Platform.OS === 'android' && menuRow('Landscape', 'phone-landscape-outline', toggleLandscape, { selected: landscape })}
+                        {(live || landscape) && Platform.OS === 'android' && menuRow('Landscape', 'phone-landscape-outline', toggleLandscape, { selected: landscape })}
                         {menuRow('Disconnect', 'power-outline', onExit)}
                     </Animated.View>
                 )}
