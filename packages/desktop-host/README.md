@@ -253,10 +253,14 @@ missing-library error before installing the system runtime libraries, then has
 the host package resolve the prebuilt engine, start it and answer the protocol
 handshake and a capabilities probe.
 
-Publishing is by hand, platform package first, so `@desklink/host` never points
-at a version the registry does not have:
+Publishing is by hand, from an `npm login` with publish rights on the scope.
+`release/publish.mjs` publishes the platform package first and waits until the
+registry serves it before publishing `@desklink/host`, so the host never points
+at an engine npm does not have. A version already on npm with the same bytes is
+skipped; with different bytes it is refused. `--dry-run` does everything but the
+upload:
 
 ```sh
-npm publish dist-desklink/desklink-host-linux-x64-gnu-<version>.tgz --access public
-npm publish dist-desklink/desklink-host-<version>.tgz --access public
+node packages/desktop-host/release/publish.mjs --dry-run
+node packages/desktop-host/release/publish.mjs
 ```

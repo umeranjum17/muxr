@@ -97,6 +97,11 @@ jobs:
       - name: Require an authored changelog entry for the selected version
         if: steps.select.outputs.build == 'true'
         run: node scripts/release/presentation/changelog.mjs validate --version "${{ steps.select.outputs.version }}" --channel "${{ steps.select.outputs.channel }}" --commit "$GITHUB_SHA"
+      - name: Require the desktop engine packages on npm
+        # The CLI installs @desklink/host, which no workflow publishes. Refuse
+        # before a build number is spent rather than at the candidate's install.
+        if: steps.select.outputs.build == 'true'
+        run: node scripts/release/presentation/requireDesktopEngine.mjs
       - id: number
         if: steps.select.outputs.build == 'true'
         name: Reserve a never-reused Android build number
@@ -139,7 +144,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/candidate-home"
           cli="$install_root/node_modules/@trymuxr/cli/cli.mjs"
           test "$(HOME="$RUNNER_TEMP/candidate-home" node "$cli" version)" = "$MUXR_RELEASE_VERSION"
-          HOME="$RUNNER_TEMP/candidate-home" node "$cli" plugin check "$install_root/node_modules/@trymuxr/cli/plugins/voice"
+          # No plugin ships bundled any more, so the candidate checks one it scaffolds itself.
+          HOME="$RUNNER_TEMP/candidate-home" node "$cli" plugin create "$RUNNER_TEMP/candidate-plugin"
+          HOME="$RUNNER_TEMP/candidate-home" node "$cli" plugin check "$RUNNER_TEMP/candidate-plugin"
           node --input-type=module <<'JS'
           import { readdirSync } from 'node:fs';
           import { prepareChangelog } from './scripts/release/application/prepareChangelog.mjs';
