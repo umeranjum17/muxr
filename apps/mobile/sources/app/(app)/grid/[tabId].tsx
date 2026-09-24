@@ -1,10 +1,10 @@
 /**
- * One herdr tab's panes as cards, for existing links: the same renderer the
- * session header's pane overview uses, on its own route.
+ * One herdr tab's split as a mini-map, for existing links: the same renderer
+ * the session header's pane overview uses, on its own route.
  */
 
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,9 +12,8 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { sync } from '@/catalog/sync';
 import { useHerdrTree } from '@/catalog/store';
-import { useDeviceAuthority } from '@/pairing';
 import { tabLabel, useNavigateToSession } from '@/herd';
-import { PaneGridView } from '@/herd/ui';
+import { PaneMap } from '@/herd/ui';
 
 export default React.memo(() => {
     const route = useRoute();
@@ -22,7 +21,6 @@ export default React.memo(() => {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
     const { workspaces, loaded } = useHerdrTree();
-    const { authority, loading } = useDeviceAuthority();
     const navigate = useNavigateToSession();
     React.useEffect(() => { void sync.refreshHerdTree().catch(() => undefined); }, [tabId]);
     const owner = workspaces.find((workspace) => workspace.tabs.some((tab) => tab.tabId === tabId));
@@ -44,14 +42,11 @@ export default React.memo(() => {
                     </Pressable>
                 )}
             </View>
-            <PaneGridView
-                panes={tab?.panes ?? []}
-                canClose={false}
-                closeReason={authority === 'control' && !loading ? 'Close panes from the session' : 'View-only devices cannot close panes'}
-                onOpen={(pane) => { if (pane.sessionId !== undefined) navigate(pane.sessionId); }}
-                onClose={() => undefined}
-                emptyText={loaded ? 'No panes in this tab' : 'Loading panes…'}
-            />
+            <ScrollView contentContainerStyle={{ padding: 16 }}>
+                {tab === undefined || tab.panes.length === 0
+                    ? <Text style={{ color: theme.colors.textSecondary, textAlign: 'center', paddingVertical: 32 }}>{loaded ? 'No panes in this tab' : 'Loading panes…'}</Text>
+                    : <PaneMap tab={tab} canClose={false} onOpen={(pane) => { if (pane.sessionId !== undefined) navigate(pane.sessionId); }} onClose={() => undefined} />}
+            </ScrollView>
         </View>
     );
 });

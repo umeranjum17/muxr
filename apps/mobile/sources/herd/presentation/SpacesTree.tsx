@@ -376,7 +376,8 @@ interface SpacesTreeProps {
     stale?: boolean;
 }
 
-const AgentRow = React.memo(({
+/** One pane as a tree row: its kind's glyph, name, task line, status on the right edge. */
+export const AgentRow = React.memo(({
     pane,
     first,
     onClose,
@@ -385,6 +386,7 @@ const AgentRow = React.memo(({
     selected,
     canClose,
     unseenDone,
+    subtitle: subtitleOverride,
 }: {
     pane: HerdrTreePane;
     first?: boolean;
@@ -394,6 +396,8 @@ const AgentRow = React.memo(({
     selected: boolean;
     canClose: boolean;
     unseenDone: boolean;
+    /** Replaces the identity line, e.g. a shell's working directory. */
+    subtitle?: string;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -403,7 +407,7 @@ const AgentRow = React.memo(({
     const sessionId = pane.sessionId;
     const shell = isShellLabels(labels);
     const title = labels.title;
-    const subtitle = agentIdentityLine(labels);
+    const subtitle = subtitleOverride ?? agentIdentityLine(labels);
     // One weight rule: bright means "has something for you". A finished
     // outcome you have not opened stays loud; settled-and-seen goes quiet.
     const quiet = (pane.agentStatus === 'done' || pane.agentStatus === 'idle') && !unseenDone;
