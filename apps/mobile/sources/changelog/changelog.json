@@ -2,123 +2,163 @@
     "releases": [
         {
             "appVersion": "0.1.29",
-            "title": "Sharp frames, themed previews",
-            "summary": "A pane can trade bytes back for a pixel-exact frame, Markdown and Mermaid previews open in the theme you are already in, the Command action shrinks without losing its target, and focused Android probes trust surfaces they have already proven.",
+            "title": "Your computer, your terminals, your voice",
+            "summary": "Open your computer's screen from the phone, work terminals by tab and pane, dictate as you speak, and see plan limits at a glance. This is the first stable release since 0.1.25, so it also carries everything in the 0.1.26 to 0.1.28 notes below.",
             "features": [
                 {
-                    "title": "Trade bytes back for a sharp pane",
-                    "detail": "Setting MUXR_GRAPHICS_HALVE=0 keeps the producer's own pixels, so a pane that renders at the phone's device size lands 1:1 again instead of being halved and scaled back up. The default is unchanged, so the saving stays until you opt out, and pointer mapping stays correct in both arms."
+                    "title": "Your computer's screen on your phone",
+                    "detail": "Open Computer from any terminal to see and control the desktop. Tap to take control, the pointer follows your finger, a key row and clipboard work both ways, and the phone turns to landscape while you use it. It works over your local network, your private mesh or a direct SSH connection."
                 },
                 {
-                    "title": "Previews follow the app theme",
-                    "detail": "Markdown and Mermaid preview surfaces take the active light or dark palette before their first paint, so opening a document no longer flashes the opposite theme."
+                    "title": "Approve screen sharing once",
+                    "detail": "The computer asks for screen-sharing permission once, during setup or pairing, and remembers it, so opening Computer later does not wait on a prompt."
                 },
                 {
-                    "title": "A smaller Command action",
-                    "detail": "The oversized Command puck is now a compact ellipsis that keeps a 44dp draggable target, so it stops covering terminal output without becoming harder to hit."
+                    "title": "A screen for servers that have none",
+                    "detail": "On a server with no display, muxr starts a private one when you open Computer and keeps other accounts off it."
                 },
                 {
-                    "title": "Terminal scrolling settles sharp",
-                    "detail": "Scrolling stays coarse while output moves and a sharp frame is restored once it goes quiet. Tapping the terminal opens the keyboard by default, with a persistent quick action to turn that off."
+                    "title": "Tabs and panes, the way your desk has them",
+                    "detail": "The row above the composer lists the workspace's tabs, and + opens a new one that attaches on the first try. The header counts the tab's panes, so you can step between them or split a new one."
+                },
+                {
+                    "title": "Panes as a live tree",
+                    "detail": "Panes shows every tab and agent as a live tree with names, tasks and status, and the pane sheet mirrors the real split on your computer."
+                },
+                {
+                    "title": "Dictation that writes as you speak",
+                    "detail": "Words appear in the composer while you talk, on the terminal and on Home. Pick a language, download a model when you need one, and teach it your own word replacements."
+                },
+                {
+                    "title": "Right now, at a glance",
+                    "detail": "A small strip above Live shows how much of each connected plan is left and when it resets, with the computer's memory, disk and load beside it. Figures stay put through slow or failed reads."
+                },
+                {
+                    "title": "Agents go by their names",
+                    "detail": "Every surface leads with the agent's name and puts its task underneath. Agents can name their own workspace and pane with muxr name."
+                },
+                {
+                    "title": "Live leads with what needs you",
+                    "detail": "Home's Live row shows agents that need you first, then working ones, in a steady order. Finished results stay visible until you open them."
+                },
+                {
+                    "title": "Seamless agent switching and gestures",
+                    "detail": "Swipe between agents in one continuous pager. Gestures in Settings shows what each swipe, pinch and long-press does and lets you change it."
+                },
+                {
+                    "title": "A rebuilt terminal composer",
+                    "detail": "One header, a composer rail and radial quick controls. Edit the key row and add your own keys, send quick replies in one tap, reuse history safely and paste in one tap."
+                },
+                {
+                    "title": "Answer prompts with a tap",
+                    "detail": "When an agent asks a question in the terminal, tap an answer. Other typing is held back while the prompt waits, so a stray key cannot answer it."
+                },
+                {
+                    "title": "Links you can trust",
+                    "detail": "Web links printed in the terminal open safely, and a long-press copies them."
+                },
+                {
+                    "title": "Shared artifacts, kept",
+                    "detail": "Files your agents share gather in one timeline per session. Large files download progressively and resume after a dropped connection, and old history is cleared on a schedule."
+                },
+                {
+                    "title": "More ways to connect",
+                    "detail": "Choose a connection route before pairing, connect over direct SSH, and install your phone's SSH key on the computer from the app. Paired Android phones find the computer again on the local network."
+                },
+                {
+                    "title": "Install the web app",
+                    "detail": "The web app installs as a standalone app, keeps a personal browser paired for 30 days and can receive notifications without an account."
+                },
+                {
+                    "title": "Guided setup",
+                    "detail": "muxr setup walks you through the choices in the terminal and writes them to a config file you or an agent can edit and apply again."
+                },
+                {
+                    "title": "Home opens instantly",
+                    "detail": "Home opens from its last saved state, works offline and reconnects to your computer on its own."
+                },
+                {
+                    "title": "Near-black dark mode",
+                    "detail": "Dark surfaces are now near-black and seamless, with the previous raised look still available in Appearance. Settings show a preview of each choice, and document previews open in your current theme."
+                },
+                {
+                    "title": "Voice engines explained",
+                    "detail": "Settings explains each voice engine and lets you try it, and realtime voice finds and works your agents more reliably."
                 }
             ],
             "fixes": [
                 {
-                    "title": "A host outage no longer ends the terminal",
-                    "detail": "Terminal and reconnect ownership is hardened, so losing the connection recovers the channel instead of closing the session behind it. Graphics memory and retries are bounded rather than left to grow."
+                    "title": "Faster everywhere",
+                    "detail": "Cold launch, opening a pane, reconnecting and typing are all quicker, and Android terminal output scrolls smoothly."
                 },
                 {
-                    "title": "Mermaid keeps its styles safely",
-                    "detail": "A strict diagram-only sanitizer preserves safe Mermaid styles and labels without weakening the sanitization applied to user HTML and SVG."
+                    "title": "Back always goes Home",
+                    "detail": "Going back from an agent always returns to Home."
                 },
                 {
-                    "title": "Packaged previews cannot lag their source",
-                    "detail": "The offline attachment renderer is rebuilt during the Android preBuild step, so the packaged assets match the source they were built from byte for byte."
+                    "title": "A lost connection no longer ends the terminal",
+                    "detail": "If the computer drops out, the terminal reconnects with a bounded backoff and says what it is doing instead of closing."
                 },
                 {
-                    "title": "Focused probes trust proven surfaces",
-                    "detail": "A probe targets the clickable Files navigation control with bounded confirmation while the title churns, and accepts prior exact-host proof for document and terminal viewers once the root connection is proven. Tree connection, terminal identity, fresh attach, input, provenance, workload, capture and deadline checks stay fail-closed."
+                    "title": "Agents started at the desk show up",
+                    "detail": "Agents you start at the computer appear on Home without restarting anything."
                 },
                 {
-                    "title": "Usage counts what the transcripts hold",
-                    "detail": "Local transcript accounting is authoritative, deduplicated across sources and bounded; gaps are shown as gaps rather than dressed up as data."
+                    "title": "No duplicate alerts",
+                    "detail": "The agent you are looking at no longer alerts you about itself."
+                },
+                {
+                    "title": "Composer fits short screens",
+                    "detail": "The composer follows the keyboard, and Home's composer stays usable on short phones."
+                },
+                {
+                    "title": "Voice failures in plain words",
+                    "detail": "A failed voice call says what went wrong instead of showing a raw error."
+                },
+                {
+                    "title": "Jump to latest works everywhere",
+                    "detail": "Jump to latest means the same thing in every terminal, and a message sent to a plain shell goes through."
                 }
             ],
             "verification": [
                 {
-                    "title": "Focused Android document, tree and terminal probes",
+                    "title": "Desktop engine packages",
                     "status": "passed",
-                    "detail": "The focused document, tree and terminal probes pass with complete before, moving and settled crops, and a short Android Perfetto profile was captured alongside them.",
+                    "detail": "The engine was rebuilt from the pinned container and came out byte for byte identical to the one in use. Both desktop packages installed into a clean container with no toolchain and no display, found the prebuilt engine, started it and answered the protocol handshake and a capabilities probe.",
                     "evidence": {
-                        "testedCommit": "59d4e04a",
-                        "environment": "Android emulator, dedicated instance",
-                        "checkedBy": "umer",
-                        "checkedAt": "2026-09-09"
+                        "testedCommit": "e0e6df89",
+                        "environment": "pinned engine container and clean Node 22 container",
+                        "checkedBy": "release preparation",
+                        "checkedAt": "2026-09-24"
                     }
                 },
                 {
-                    "title": "Markdown, Mermaid and Actions device QA",
-                    "status": "passed",
-                    "detail": "On the exact rebased release APK, Markdown and Mermaid pass in light and dark, OCR finds both expected labels in both themes, and no opposite-theme transition frame appears in either. A hostile fixture of broken, nested and encoded Mermaid labels renders as visible escaped text and stays inert. The Actions target, drag, open behaviour and labels pass through a focused native flow, and the packaged renderer matches its source byte for byte. The dark pass is a clean retry after the first attempt lost its recording process.",
+                    "title": "Everyday use on the owner's phone",
+                    "status": "partial",
+                    "detail": "Android builds 371 to 374 from this work were installed on the owner's phone. That is not a pass on the frozen candidate.",
                     "evidence": {
-                        "testedCommit": "c9342fb1",
-                        "artifactSha256": "2f5ccc2934facd4eb3c7bfff9055bc8a9969b1ee44318ffb7af0f22db69112ca",
-                        "environment": "Android release APK, fresh dedicated emulator",
-                        "checkedBy": "umer",
-                        "checkedAt": "2026-09-09"
+                        "testedCommit": "e0e6df89",
+                        "environment": "locally signed Android builds on a physical phone",
+                        "checkedBy": "release preparation",
+                        "checkedAt": "2026-09-24"
                     }
                 },
                 {
-                    "title": "Automated checks on main and pull requests",
-                    "status": "passed",
-                    "detail": "Repository CI passed on each merged pull request and on main, and the full local suite reported 34 of 34 checks passing on the sources these notes describe.",
-                    "evidence": {
-                        "testedCommit": "52805928",
-                        "environment": "GitHub Actions ci.yml and local yarn run check",
-                        "checkedBy": "umer",
-                        "checkedAt": "2026-09-09"
-                    }
-                },
-                {
-                    "title": "Frozen-candidate release campaign",
+                    "title": "Final acceptance on the frozen candidate",
                     "status": "not-run",
-                    "detail": "No uninterrupted acceptance campaign against one frozen candidate has been run for this version. The passing checks above were run on their own commits and artifacts, not on a single frozen release build.",
-                    "evidence": {
-                        "testedCommit": "52805928",
-                        "environment": "not run",
-                        "checkedBy": "umer",
-                        "checkedAt": "2026-09-09"
-                    }
-                },
-                {
-                    "title": "Physical device acceptance",
-                    "status": "not-run",
-                    "detail": "No install or acceptance pass on a physical phone is recorded for this version. Emulator probes and exact-APK checks are not a phone pass.",
-                    "evidence": {
-                        "testedCommit": "52805928",
-                        "environment": "not run",
-                        "checkedBy": "umer",
-                        "checkedAt": "2026-09-09"
-                    }
+                    "detail": "The owner's final local test of the exact release candidate has not run yet."
                 },
                 {
                     "title": "iOS acceptance",
                     "status": "not-run",
-                    "detail": "No iOS simulator or device run is recorded for this version, and no iOS report is retained with this source.",
-                    "evidence": {
-                        "testedCommit": "52805928",
-                        "environment": "not run",
-                        "checkedBy": "umer",
-                        "checkedAt": "2026-09-09"
-                    }
+                    "detail": "No iOS simulator or device run is recorded for this version."
                 }
             ],
             "knownLimits": [
-                "No uninterrupted frozen-candidate release campaign has been run for this version.",
-                "No physical-phone acceptance is recorded; the passing Android checks ran on an emulator against a test-key release APK, not a store-signed build on a phone.",
+                "Computer needs a Linux x64 computer with glibc 2.36 or newer; other systems are not supported yet.",
+                "On a Wayland desktop, controlling the computer needs a one-time input permission; until it is granted, Computer is view only.",
                 "No iOS run of any kind is recorded for this version.",
-                "Transient blank frames around an explicit IME resize remain a known limitation.",
-                "A successful build is not device acceptance."
+                "Transient blank frames around an explicit keyboard resize remain a known limitation."
             ]
         },
         {

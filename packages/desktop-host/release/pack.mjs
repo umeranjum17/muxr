@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Pack this package's publishable tarballs. Publishes nothing: whoever releases
- * them runs `npm publish` by hand, platform package first.
+ * Pack this package's publishable tarballs. Publishes nothing: `release/publish.mjs`
+ * does that, platform package first.
  *
  *   node release/pack.mjs --engine dist-desklink/engine-linux-x64-gnu
  *

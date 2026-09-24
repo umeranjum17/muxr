@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { verifyRelease } from './verifyRelease.mjs';
 import { compareVersions } from '../domain/channel.mjs';
+import { desktopHostOfTarball, requireDesktopEngine } from './requireDesktopEngine.mjs';
 
 export async function publishNpm() {
     const { RUNNER_TEMP, RELEASE_COMMIT, RELEASE_VERSION, RELEASE_CHANNEL, BUILD_RUN_ID } = process.env;
@@ -13,6 +14,9 @@ export async function publishNpm() {
     if (packages.length !== 1) throw new Error('Exactly one tested npm tarball is required');
     const path = join(directory, packages[0].name);
     const integrity = `sha512-${createHash('sha512').update(readFileSync(path)).digest('base64')}`;
+    // Checked again here, not only when the candidate was built: a registry
+    // package can be unpublished in between, and a CLI without it cannot install.
+    requireDesktopEngine(desktopHostOfTarball(path));
     function npm(args, allowMissing = false) {
         // Metadata reads are small and must fail fast; publishing uploads the
         // whole tarball and keeps the longer budget.

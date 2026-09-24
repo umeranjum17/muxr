@@ -1,6 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 
+// Builds 371 to 374 of com.trymuxr.app were signed locally without a
+// reservation, so the ledger never recorded them. No reservation may reuse one.
+const ISSUED_OUTSIDE_LEDGER = 374;
+
 export async function reserveAndroidBuild() {
     // Fast-forward-only ledger updates arbitrate ALL builders, including retries.
     // No secrets or mutable repository variables are needed. A reservation is never reused.
@@ -23,7 +27,7 @@ export async function reserveAndroidBuild() {
             previous = JSON.parse(Buffer.from(file.content, 'base64').toString()).versionCode;
         }
         if (!Number.isSafeInteger(previous) || previous < 356 || previous >= 2100000000) throw new Error('Invalid Android build ledger');
-        const versionCode = previous + 1;
+        const versionCode = Math.max(previous, ISSUED_OUTSIDE_LEDGER) + 1;
         const content = JSON.stringify({ versionCode, runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT });
         const tree = api('git/trees', { tree: [{ path: 'android.json', mode: '100644', type: 'blob', content }] });
         const commit = api('git/commits', { message: `Reserve Android build ${versionCode}`, tree: tree.sha, parents: parent ? [parent] : [] });

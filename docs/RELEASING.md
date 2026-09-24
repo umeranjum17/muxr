@@ -67,7 +67,7 @@ Build numbers are reserved through the `release-build-numbers` Git branch. Fast-
 
 ### Desktop engine packages come first
 
-The CLI pins `@desklink/host` to the version in `packages/desktop-host/package.json`. If that version is not on npm yet, publish the desktop packages before dispatching a candidate; otherwise its install step fails. No workflow publishes them. Follow [Building and packing a release](../packages/desktop-host/README.md#building-and-packing-a-release) for the manual build, check and publication order.
+The CLI pins `@desklink/host` to the version in `packages/desktop-host/package.json`, and that package's optional platform package carries the prebuilt engine. No workflow publishes them: follow [Building and packing a release](../packages/desktop-host/README.md#building-and-packing-a-release) to build, check and publish them by hand, platform package first. A candidate refuses to start, before it spends a build number, unless npm already serves the pinned host and every engine package it names (`node scripts/release/presentation/requireDesktopEngine.mjs`), and publication checks the same for the exact tarball it is about to publish. npm trusted publishing cannot make a package's first publication, so the first version of each goes out from a maintainer's login.
 
 ## Public channel record
 
