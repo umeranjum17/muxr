@@ -112,6 +112,12 @@ const CONNECT_STALLED = 'still connecting';
  * shows at once, so the badge only ever appears when the trouble outlasted it.
  */
 const STATUS_GRACE_MS = 900;
+/** The pane tabs row: its chips and its + are all this tall. */
+const PANE_TABS_HEIGHT = 24;
+/** How long a scroll back may wait for the pane to redraw before it counts for nothing. */
+const SCROLL_ANSWER_MS = 1_000;
+/** Rows counted back in a program that scrolls itself, by pane route, across its streams. */
+const ALT_SCROLL_BACK = new Map<string, number>();
 
 // Live recording level as five honest bars; the same fixed weights keep every
 // bar following the real input level, taller through the middle. The level is
@@ -355,40 +361,69 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const stopWatchingChannel = React.useRef<(() => void) | undefined>(undefined);
     React.useEffect(() => () => stopWatchingChannel.current?.(), []);
 
+    const paneRoute = React.useRef(props.id);
+    paneRoute.current = props.id;
+    const countBack = React.useCallback((rows: number) => {
+        altBack.current = rows;
+        if (rows > 0) ALT_SCROLL_BACK.set(paneRoute.current, rows);
+        else ALT_SCROLL_BACK.delete(paneRoute.current);
+        setShowJump(rows > 0);
+    }, []);
     const onChannel = React.useCallback((channel: TerminalChannel | undefined) => {
         stopWatchingChannel.current?.();
         stopWatchingChannel.current = undefined;
         scrollBack.current = 0;
         hostHasScrollback.current = false;
-        altBack.current = 0;
+        // A program's own scroll position outlives the stream that moved it:
+        // coming back to its tab, the count is where it was left.
+        altBack.current = ALT_SCROLL_BACK.get(paneRoute.current) ?? 0;
         if (channel !== undefined) {
-            setShowJump(false);
+            setShowJump(altBack.current > 0);
             const stopScrollState = channel.onScrollState(({ offsetFromBottom, maxOffsetFromBottom }) => {
                 if (maxOffsetFromBottom > 0) {
                     hostHasScrollback.current = true;
                     scrollBack.current = offsetFromBottom;
-                    altBack.current = 0;
+                    countBack(0);
                     setShowJump(offsetFromBottom > 0);
                 } else {
                     if (hostHasScrollback.current) altBack.current = 0;
                     hostHasScrollback.current = false;
                     scrollBack.current = 0;
-                    setShowJump(altBack.current > 0);
+                    countBack(altBack.current);
                 }
+            });
+            // A scroll back counts only once the pane redraws after it. A shell
+            // at its prompt with no scrollback yet ignores the scroll entirely,
+            // and counting it anyway put Latest over a screen already at its
+            // live edge. Scrolling forward always counts: it can only end one.
+            let unanswered = 0;
+            let askedAt = 0;
+            const stopAnswers = channel.onData(() => {
+                if (unanswered === 0) return;
+                if (Date.now() - askedAt < SCROLL_ANSWER_MS) countBack(altBack.current + unanswered);
+                unanswered = 0;
             });
             const rawScroll = channel.scroll.bind(channel);
             channel.scroll = (lines, at) => {
                 if (!hostHasScrollback.current) {
-                    altBack.current = Math.max(0, altBack.current + lines);
-                    setShowJump(altBack.current > 0);
+                    if (lines > 0) {
+                        unanswered += lines;
+                        askedAt = Date.now();
+                    } else {
+                        unanswered = 0;
+                        countBack(Math.max(0, altBack.current + lines));
+                    }
                 }
                 rawScroll(lines, at);
             };
-            stopWatchingChannel.current = stopScrollState;
+            stopWatchingChannel.current = () => {
+                stopScrollState();
+                stopAnswers();
+            };
         }
         channelRef.current = channel;
         setChannel(channel);
-    }, []);
+    }, [countBack]);
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
         if (channel === undefined) return;
@@ -408,9 +443,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             channel.scroll(-step);
             remaining -= step;
         }
-        altBack.current = 0;
-        setShowJump(false);
-    }, []);
+        countBack(0);
+    }, [countBack]);
     const showDialogMessage = React.useCallback(() => {
         if (channelRef.current === undefined) {
             router.push(`/session/${encodeURIComponent(props.id)}/history`);
@@ -875,10 +909,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // lands it in the middle of whatever you were typing, so paths ride as
     // chips and are appended once, at send.
     const sendPrompt = React.useCallback(() => {
-        // The same immediate guard the quick replies carry: a pane with no
-        // agent has nothing to prompt, so Enter never reaches the host to be
-        // refused. The draft stays; nothing reaches the shell.
-        if (currentPaneRef.current?.agentKind === undefined) {
+        // A pane with no agent has nothing to prompt, but a shell still takes
+        // a typed line: the draft goes to the terminal as keystrokes, then
+        // Enter. Without a terminal this device may type into, the draft stays.
+        const pane = currentPaneRef.current;
+        const typing = pane !== undefined && pane.agentKind === undefined && canControl ? channelRef.current : undefined;
+        if (pane?.agentKind === undefined && typing === undefined) {
             showGestureHintRef.current('No agent in this pane');
             return;
         }
@@ -887,6 +923,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         if (attaching || selectedImages.length > 0 || dictationActive) return;
         const text = [draftRef.current.trim(), ...attachedPaths].filter((part) => part !== '').join(' ');
         if (text === '') return;
+        if (typing !== undefined) {
+            draftRef.current = '';
+            setDraft('');
+            clearDraft();
+            setAttachedImages([]);
+            typing.sendText(`${text}\r`);
+            return;
+        }
         const disposition = terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, text);
         if (disposition.kind === 'blocked') {
             showDialogGuard();
@@ -908,7 +952,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, clearDraft, dictationActive, selectedImages.length, props.id, showDialogGuard]);
+    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, selectedImages.length, props.id, showDialogGuard]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
@@ -990,7 +1034,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             });
     }, [props.id, siblings, shell]);
 
-    const canSend = !dictationActive && !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0);
+    const canSend = !dictationActive && !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0, canControl && channel !== undefined);
     // The ring needs at least one slot to be worth its control; view-only
     // keeps what it can still run, so nothing that was reachable is lost.
     const hasTools = viewControls.commands.length > 0 || canControl;
@@ -1092,6 +1136,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // Settings can put away the pane tabs at one pane and the key row
             // altogether; the rail's top air stays with whatever row is first.
             const showPaneTabs = treeLoaded && located !== undefined && (paneTabsSetting === 'always' || tabPanes.length > 1 || workspaceTabs.length > 1);
+            // A pane the tree has not listed yet -- one just split off, or one
+            // opened before the tree arrived -- keeps the tabs row's height
+            // meanwhile. The row filling in later would shrink the grid the
+            // terminal first attached at, and that costs the pane a second
+            // attach before it can paint.
+            const paneTabsPending = !(treeLoaded && located !== undefined);
             const showKeyRow = keyRowVisible && !(dictationActive && keyboardVisible);
             // The rail's one alignment rule. The field is the tallest thing on
             // the row and it carries its own padding, so the band its text
@@ -1520,6 +1570,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         is exactly when the question gets asked — and it stays
                         at one pane too, where it is the only way to add a
                         second. No band, no underline. */}
+                    {paneTabsPending && <View style={{ height: PANE_TABS_HEIGHT, marginBottom: 4 }} />}
                     {showPaneTabs && (
                         <View style={{ marginBottom: 4 }}>
                         <ScrollView
@@ -1530,7 +1581,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             horizontal
                             showsHorizontalScrollIndicator={false}
                             keyboardShouldPersistTaps="always"
-                            style={{ flexGrow: 0, backgroundColor: 'transparent' }}
+                            style={{ flexGrow: 0, height: PANE_TABS_HEIGHT, backgroundColor: 'transparent' }}
                             contentContainerStyle={{ alignItems: 'center', gap: 4, paddingLeft: 8, paddingRight: RAIL_FADE, paddingVertical: 0 }}
                         >
                             {workspaceTabs.length <= 1 || tabPanes.length > 1 ? tabPanes.map((pane) => {

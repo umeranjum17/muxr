@@ -147,7 +147,7 @@ describe('openTerminal hosted transport', () => {
         const data: string[] = [];
         channel.onData((bytes) => data.push(bytes));
         socket.open();
-        expect(states).toEqual(['reconnecting']);
+        expect(states).toEqual(['connecting']);
 
         // Host -> phone: a sealed v2 envelope decrypts to a terminal frame.
         const streamId = body.channel as string;
@@ -167,7 +167,7 @@ describe('openTerminal hosted transport', () => {
             }),
         });
         await vi.waitFor(() => expect(data).toEqual(['aGk=']));
-        expect(states).toEqual(['reconnecting', 'live']);
+        expect(states).toEqual(['connecting', 'live']);
         expect(mocks.open).toHaveBeenCalledWith('terminal', streamId, expect.any(String), 7);
 
         // Phone -> host: input leaves sealed on the same channel.
