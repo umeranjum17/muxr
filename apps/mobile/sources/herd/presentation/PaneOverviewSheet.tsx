@@ -125,6 +125,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
             });
     }, [splitDirection, target, navigate, close, refresh]);
 
+    // "New pane" once, then where: the words stay whole on a narrow phone.
     const splitButton = (direction: 'right' | 'down', label: string, icon: 'arrow-forward' | 'arrow-down') => {
         const disabled = !canMutate || target === undefined;
         return (
@@ -132,9 +133,9 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                 onPress={() => setSplitDirection(direction)}
                 disabled={disabled}
                 accessibilityRole="button"
-                accessibilityLabel={`${label}${canMutate ? '' : `, unavailable: ${VIEW_ONLY}`}`}
+                accessibilityLabel={`${direction === 'right' ? 'New pane to the right' : 'New pane below'}${canMutate ? '' : `, unavailable: ${VIEW_ONLY}`}`}
                 accessibilityState={{ disabled }}
-                style={({ pressed }) => ({ flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 10, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh, opacity: disabled ? 0.45 : pressed ? 0.6 : 1 })}
+                style={({ pressed }) => ({ flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, borderRadius: 12, backgroundColor: theme.colors.surfaceHigh, opacity: disabled ? 0.45 : pressed ? 0.6 : 1 })}
             >
                 <Ionicons name={icon} size={15} color={theme.colors.textSecondary} />
                 <Text numberOfLines={1} style={{ ...Typography.default('semiBold'), flexShrink: 1, fontSize: 14, color: theme.colors.text }}>{label}</Text>
@@ -218,9 +219,10 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                                 onClose={closePane}
                             />
                         )}
-                    <View style={{ flexDirection: 'row', gap: 8, paddingTop: 12 }}>
-                        {splitButton('right', 'New pane right', 'arrow-forward')}
-                        {splitButton('down', 'New pane below', 'arrow-down')}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 12 }}>
+                        <Text numberOfLines={1} style={{ ...Typography.default(), fontSize: 13, color: theme.colors.textSecondary }}>New pane</Text>
+                        {splitButton('right', 'Right', 'arrow-forward')}
+                        {splitButton('down', 'Below', 'arrow-down')}
                     </View>
                     {!canMutate && <Text style={{ ...Typography.default(), fontSize: 11, color: theme.colors.textSecondary, paddingTop: 6 }}>{VIEW_ONLY}</Text>}
                 </View>
