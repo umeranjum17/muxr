@@ -16,6 +16,8 @@ let screenHeight = 594;
 let authorize: () => Promise<unknown>;
 let reportKeyboardMotion: (motion: { covered: number; phase: number }) => void;
 const appState = vi.hoisted(() => new Set<(state: string) => void>());
+const platform = vi.hoisted(() => ({ OS: 'web' }));
+const orientation: string[] = [];
 const session = {
     snapshot: { status: 'live', failure: null, diagnostics: {}, presented: true },
     nativeId: 'surface',
@@ -26,7 +28,7 @@ const session = {
     setInputEnabled: vi.fn((enabled: boolean) => { inputEnabled = enabled; }),
     pasteLocalToRemote: vi.fn(async () => undefined),
     showKeyboard: vi.fn(() => undefined),
-    setOrientation: () => undefined,
+    setOrientation: (mode: string) => { orientation.push(mode); },
     fitToView: () => undefined,
     copyRemoteToLocal: vi.fn(async (): Promise<{ text: string; truncated: boolean }> => ({ text: '', truncated: false })),
 };
@@ -38,7 +40,7 @@ vi.mock('react-native', () => ({
         return { remove: () => appState.delete(listener) };
     } },
     BackHandler: { addEventListener: () => ({ remove: () => undefined }) },
-    Platform: { OS: 'web' },
+    Platform: platform,
     StyleSheet: { create: (styles: unknown) => styles, absoluteFill: {}, hairlineWidth: 1 },
     useWindowDimensions: () => ({ width: screenWidth, height: keyboardVisible ? screenHeight - Math.min(290, screenHeight - 80) : screenHeight }),
     Dimensions: { get: () => ({ width: screenWidth, height: screenHeight }) },
@@ -65,6 +67,7 @@ vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { color
     glass: { border: '' }, terminalChrome: { cluster: '', clusterPressed: '' },
     button: { primary: { background: '', tint: '' } },
 } } }) }));
+vi.mock('expo-router', () => ({ useFocusEffect: (effect: () => void | (() => void)) => React.useEffect(effect, [effect]) }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Icon', MaterialCommunityIcons: 'Icon' }));
 vi.mock('expo-clipboard', () => ({ getStringAsync: () => phoneClipboardRead(), setStringAsync: (text: string) => phoneClipboardWrite(text) }));
 vi.mock('@desklink/react-native', () => ({
@@ -377,5 +380,39 @@ it('starts web clipboard copy in the tap and waits for the write before reportin
     } finally {
         await TestRenderer.act(async () => { if (view) view.unmount(); });
         vi.unstubAllGlobals();
+    }
+});
+
+it('gives the phone its orientation back however Computer is left', async () => {
+    platform.OS = 'android';
+    available = true;
+    openedBefore = true;
+    session.snapshot.status = 'live';
+    requestDesktop('computer', 'turned');
+    let view!: ReturnType<typeof TestRenderer.create>;
+    const root = () => view.root as Rendered;
+    const press = async (label: string) => TestRenderer.act(async () => root().findByProps({ accessibilityLabel: label }).props.onPress());
+    const landscape = async () => { await press('Desktop actions'); await press('Landscape'); };
+    const render = async () => TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="turned" onExit={() => undefined} />); });
+    try {
+        await render();
+        await landscape();
+        await landscape();
+        expect(orientation.splice(0)).toEqual(['landscape', 'auto']);
+
+        // A desktop that closes under a landscape screen can still be turned back.
+        await landscape();
+        session.snapshot.status = 'ended';
+        await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="turned" onExit={() => undefined} />));
+        await landscape();
+        expect(orientation.splice(0)).toEqual(['landscape', 'auto']);
+
+        // Leaving by any route unmounts the surface.
+        session.snapshot.status = 'live';
+        await landscape();
+        await TestRenderer.act(async () => view.unmount());
+        expect(orientation.splice(0)).toEqual(['landscape', 'auto']);
+    } finally {
+        platform.OS = 'web';
     }
 });

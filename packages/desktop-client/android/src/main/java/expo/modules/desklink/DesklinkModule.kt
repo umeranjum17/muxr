@@ -1,6 +1,8 @@
 package expo.modules.desklink
 
+import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.util.concurrent.ConcurrentHashMap
@@ -79,13 +81,18 @@ class DesklinkModule : Module() {
     Function("setOrientation") { mode: String ->
       val activity = appContext.currentActivity ?: return@Function false
       activity.runOnUiThread {
-        activity.requestedOrientation = if (mode == "landscape") {
-          ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-          ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
+        landscapeWanted = mode == "landscape"
+        if (landscapeWanted) holdLandscape(activity) else releaseLandscape(activity)
       }
       true
+    }
+
+    // The hold is the desktop's, not the phone's: the home screen and other
+    // apps never inherit it, and it comes back with the app.
+    OnActivityEntersBackground { appContext.currentActivity?.let { releaseLandscape(it) } }
+
+    OnActivityEntersForeground {
+      if (landscapeWanted) appContext.currentActivity?.let { holdLandscape(it) }
     }
 
     Function("fitToView") { id: String ->
@@ -136,6 +143,40 @@ class DesklinkModule : Module() {
   }
 
   private val views = ConcurrentHashMap<String, DesktopView>()
+
+  // Main thread only. `orientationBefore` is what the app asked for before the
+  // first hold; it outlives a release still on its way upright.
+  private var landscapeWanted = false
+  private var holding = false
+  private var orientationBefore: Int? = null
+  private var portraitBefore = false
+
+  private fun holdLandscape(activity: Activity) {
+    if (orientationBefore == null) {
+      orientationBefore = activity.requestedOrientation
+      portraitBefore = activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+    }
+    holding = true
+    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+  }
+
+  private fun releaseLandscape(activity: Activity) {
+    val before = orientationBefore
+    if (!holding || before == null) return
+    holding = false
+    val restore = {
+      if (!holding) {
+        activity.requestedOrientation = before
+        orientationBefore = null
+      }
+    }
+    if (!portraitBefore) return restore()
+    // With auto-rotate off, Android keeps whatever rotation is on screen when
+    // an app stops asking for one, and makes it the phone's locked rotation.
+    // Turn upright first, then hand back the orientation the app had.
+    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    activity.window.decorView.post(restore)
+  }
 
   // Synchronous module functions run on JS, not Android's UI thread. Ignore
   // queued work if the session/view was closed or replaced in the meantime.
