@@ -397,7 +397,7 @@ function cacheName(selected: string): string {
 function cachedOutput(env: NodeJS.ProcessEnv, identity: string, today: string, nowMs: number, selected: string): { output: UsageReport; stale: boolean } | undefined {
     try {
         const saved = JSON.parse(readFileSync(join(usageStateDir(env), cacheName(selected)), 'utf8')) as {
-            at?: number; date?: string; identity?: string; output?: UsageReport; partial?: boolean;
+            at?: number; date?: string; identity?: string; output?: UsageReport;
         };
         const age = nowMs - (saved.at ?? Number.NaN);
         const maxAge = saved.output?.provider === 'claude' ? 15_000 : 60_000;
@@ -406,19 +406,19 @@ function cachedOutput(env: NodeJS.ProcessEnv, identity: string, today: string, n
         // stale so the screen refreshes itself in place -- because last-known
         // numbers beat a skeleton while a fresh collection runs.
         if (saved.identity === identity && saved.date === today && age >= 0 && Array.isArray(saved.output?.providers) && Buffer.byteLength(JSON.stringify(saved.output)) <= 65_536) {
-            return { output: saved.output!, stale: saved.partial === true || age >= maxAge };
+            return { output: saved.output!, stale: age >= maxAge };
         }
     } catch { /* no cache yet */ }
     return undefined;
 }
 
-function saveOutput(env: NodeJS.ProcessEnv, output: UsageReport, identity: string, today: string, nowMs: number, selected: string, partial: boolean): void {
+function saveOutput(env: NodeJS.ProcessEnv, output: UsageReport, identity: string, today: string, nowMs: number, selected: string): void {
     if (Buffer.byteLength(JSON.stringify(output)) > 65_536) return;
     const cache = join(usageStateDir(env), cacheName(selected));
     const temporary = `${cache}.${process.pid}.tmp`;
     try {
         mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
-        writeFileSync(temporary, JSON.stringify({ at: nowMs, date: today, identity, output, ...(partial ? { partial } : {}) }), { mode: 0o600 });
+        writeFileSync(temporary, JSON.stringify({ at: nowMs, date: today, identity, output }), { mode: 0o600 });
         renameSync(temporary, cache);
     } catch { /* a cache that cannot be written is a slower next paint, not an error */ }
 }
@@ -495,15 +495,16 @@ function planStrip(vmsById: Partial<Record<PlanId, UsageWindowVM[]>>) {
 
 /** What the card can paint before any collection answers: the last good
  *  reading of every still-connected plan, recomputed for now. */
-export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'> | undefined {
+export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): (Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'> & { current: boolean }) | undefined {
     const nowMs = Date.now();
+    const at = nowDate(env).getTime();
     const stored = readPlans(env, cacheIdentity(env));
     const vmsById: Partial<Record<PlanId, UsageWindowVM[]>> = {};
     let oldest = Number.POSITIVE_INFINITY;
     let newest = 0;
     for (const id of PLAN_IDS) {
         const reading = stored[id];
-        if (reading === undefined || nowMs - reading.at > PLAN_LAST_KNOWN_MS || !planStillConnected(id, env)) continue;
+        if (reading === undefined || at - reading.at > PLAN_LAST_KNOWN_MS || !planStillConnected(id, env)) continue;
         const vms = planWindows(id, reading.raw, nowMs);
         if (vms.length === 0) continue;
         vmsById[id] = vms;
@@ -519,6 +520,9 @@ export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): Pick<Usage
         connected,
         capturedAt: new Date(newest).toISOString(),
         readingsFrom: new Date(oldest).toISOString(),
+        // Every plan read inside the reuse window: a collection would read none
+        // of them again, so these are as current as its answer would be.
+        current: at - oldest < PLAN_MIN_READ_MS,
     };
 }
 
@@ -660,10 +664,16 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     const stored = readPlans(env, identity);
     const recent = (id: PlanId) => NOW.getTime() - (stored[id]?.at ?? Number.NEGATIVE_INFINITY) < PLAN_MIN_READ_MS;
     const planConnected: string[] = (['claude', 'opencode', 'zai'] as const).filter((id) => planStillConnected(id, env));
+    // A connected plan read moments ago answers from that reading; one that is
+    // not connected is only read below, if its own tab asks.
+    const readEarly = <T,>(id: PlanId, read: () => Promise<T>, skip: T): Promise<T> | undefined => {
+        if (!planConnected.includes(id)) return undefined;
+        return recent(id) ? Promise.resolve(skip) : read();
+    };
     const early = {
-        claude: planConnected.includes('claude') ? (recent('claude') ? Promise.resolve(undefined) : claudePlanLimits(env)) : undefined,
-        opencode: planConnected.includes('opencode') ? (recent('opencode') ? Promise.resolve(skipPlan) : goPlanLimits(env)) : undefined,
-        zai: planConnected.includes('zai') ? (recent('zai') ? Promise.resolve(skipPlan) : zaiPlanLimits(env)) : undefined,
+        claude: readEarly<unknown>('claude', () => claudePlanLimits(env), undefined),
+        opencode: readEarly('opencode', () => goPlanLimits(env), skipPlan),
+        zai: readEarly('zai', () => zaiPlanLimits(env), skipPlan),
     };
     const [{ range, failure: ccusageFailure }, codexRaw, local] = await Promise.all([
         ccusageRange(env), recent('codex') ? Promise.resolve(undefined) : codexUsage(env), collectLocalUsage(PERIODS, NOW.getTime(), env),
@@ -679,7 +689,7 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
         const vms = planWindows(id, raw, nowMs);
         if (vms.length > 0) { readings[id] = { at: NOW.getTime(), raw }; return vms; }
         const last = stored[id];
-        if (last === undefined || nowMs - last.at > PLAN_STAND_IN_MS || !planStillConnected(id, env)) return [];
+        if (last === undefined || NOW.getTime() - last.at > PLAN_STAND_IN_MS || !planStillConnected(id, env)) return [];
         readingsFrom = Math.min(readingsFrom, last.at);
         return planWindows(id, last.raw, nowMs);
     };
@@ -843,15 +853,11 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     // blocked read would otherwise own the screen for the whole TTL. The gate
     // is the selected tab's own health: another provider's blocked limits must
     // not stop this tab from caching, or every visit pays the full rescan. A
-    // payload with a failure in it is still kept -- it is the latest answer and
-    // what the next plain read should get -- but kept stale, so every reader
-    // collects again rather than settling on it. A stale paint never persists
-    // its own flag: the saved payload stays clean.
+    // stale paint never persists its own flag: the saved payload stays clean.
     const limitsUnavailable = goUnavailable(provider, goVMs) || claudeUnavailable(provider, claudeVMs)
         || zaiUnavailable(provider, zaiVMs) || codexUnavailable(provider, codex);
-    if (selected === '' || selected === output.provider) {
-        const partial = activityFailure !== undefined || reports[provider]?.unavailable === true || limitsUnavailable;
-        saveOutput(env, output, identity, TODAY, NOW.getTime(), selected, partial);
+    if (activityFailure === undefined && reports[provider]?.unavailable !== true && !limitsUnavailable && (selected === '' || selected === output.provider)) {
+        saveOutput(env, output, identity, TODAY, NOW.getTime(), selected);
     }
     return withAge(output, NOW.getTime());
 }

@@ -32,8 +32,8 @@ export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh =
             new Promise<undefined>((resolve) => { const timer = setTimeout(() => resolve(undefined), known === undefined ? NOW_WAIT_MS : KNOWN_WAIT_MS); timer.unref(); }),
         ]);
     } catch { output = undefined; }
-    const refreshing = output === undefined && known !== undefined;
-    if (refreshing) output = known;
+    const refreshing = output === undefined && known !== undefined && !known.current;
+    if (output === undefined && known !== undefined) output = known;
     // `windows` is the unrounded view-model list `limitsPayload` derived the
     // verdict from, parallel to the rendered `limits.windows`. Running the same
     // selection over it is what keeps the window the card labels and the window

@@ -45,6 +45,8 @@ function count(value: unknown): number {
 }
 
 const MAX_LINE = 4 * 1024 * 1024;
+/** The head of a message that cannot hold assistant usage. */
+const NEVER_USAGE = /"message":\{"role":"(?:toolResult|user)"/;
 
 function* sessionFiles(directory: string, deadline: number, windowStart: number, depth = 0): Generator<string> {
     // Pi nests transcripts deep on real hosts: a worktree-slug session directory
@@ -106,14 +108,18 @@ async function collectTranscripts(root: string, periods: string[], now: number, 
     const groups = new Map<string, LocalUsageGroup>();
     const seen = new Set<string>();
     let latest: number | undefined;
-    const consume = (line: string): void => {
+    const consume = (line: string, tail = false): void => {
         if (Date.now() > deadline || seen.size > 400_000 || groups.size > 1024) throw new Error('bounded scan exceeded');
         if (!line.includes('"usage"')) return;
         let entry: RawUsageRecord;
-        // A line that does not parse is a torn write -- the tail an agent is
-        // still appending -- or damage confined to that line. Skipping it costs
-        // one record; failing the scan used to blank the whole provider.
-        try { entry = JSON.parse(line) as RawUsageRecord; } catch { return; }
+        // A usage record we cannot read is not an absent record: counting the
+        // rest would report a partial total as the measured one. The one
+        // exception is an unterminated last line, which is a record the agent
+        // is still writing, not a damaged one.
+        try { entry = JSON.parse(line) as RawUsageRecord; } catch {
+            if (tail) return;
+            throw new Error('malformed usage record');
+        }
         const message = entry?.message;
         const usage = message?.usage;
         // Assistant usage records are not always typed; a missing type is not
@@ -171,12 +177,19 @@ async function collectTranscripts(root: string, periods: string[], now: number, 
                     start = newline + 1;
                 }
                 carry = carry.slice(start);
-                // A usage record is a few hundred bytes; a line this long is a
-                // tool result (an image, a file dump). It is dropped through its
-                // newline rather than failing every other record in the tree.
-                if (carry.length > MAX_LINE) { carry = ''; skipping = true; }
+                // The retained prefix is only the head of the line; usage may sit past
+                // it, so a prefix without `"usage"` proves nothing about the whole line.
+                // Its head does name whose message it is, though: a tool result
+                // or a user turn (an image, a file dump) never carries assistant
+                // usage, so that line is dropped through its newline rather than
+                // failing every other record in the tree.
+                if (carry.length > MAX_LINE) {
+                    if (!NEVER_USAGE.test(carry.slice(0, 4096))) throw new Error('oversized usage record');
+                    carry = '';
+                    skipping = true;
+                }
             }
-            if (carry !== '' && !skipping) consume(carry);
+            if (carry !== '' && !skipping) consume(carry, true);
         } finally { stream.destroy(); }
     }
     const rows: UsageModelUsage[] = [...groups.values()]
