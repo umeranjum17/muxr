@@ -114,7 +114,7 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
         stopRepeat();
         onEdit?.();
     }, [stopRepeat, onEdit]);
-    const chrome = theme.colors.terminalChrome.chrome;
+    const chrome = theme.colors.terminalChrome.canvas;
     return (
         <View>
             <ScrollView

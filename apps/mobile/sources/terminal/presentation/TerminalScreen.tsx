@@ -1214,9 +1214,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
                     {/* One quiet line above the terminal plane: a back mark,
                         the session identity, the pane pager, and an overflow
-                        mark. No border, no shadow, no height it does not need —
-                        only the chrome ink, which is just enough to see where
-                        the terminal starts without the header becoming a band. */}
+                        mark. No border, no shadow, no height it does not need,
+                        and the terminal's own canvas, so header and terminal
+                        read as one seamless surface rather than a band. */}
                     <Animated.View
                         aria-hidden={desktopVisible}
                         onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
@@ -1226,7 +1226,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             gap: 2,
                             paddingHorizontal: 6,
                             paddingTop: 0,
-                            backgroundColor: theme.colors.terminalChrome.chrome,
+                            backgroundColor: theme.colors.terminalChrome.canvas,
                         }, ringRecede]}
                     >
                         <Pressable onPress={props.desktop ? closeDesktop : () => router.back()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={12}
@@ -1282,7 +1282,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             accessibilityLabel="Review changes"
                             disabled={branch === null}
                             onPress={() => { if (branch !== null) router.push(`/session/${encodeURIComponent(props.id)}/changes`); }}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 4, backgroundColor: theme.colors.terminalChrome.chrome }}>
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 4, backgroundColor: theme.colors.terminalChrome.canvas }}>
                             {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
                             <SessionMetaLine
                                 style={{ flex: 1 }}
@@ -1480,12 +1480,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </AgentPager>
                     </View>
 
-                    {/* Everything below the terminal is one surface in the
-                        plane's own chrome ink: pane rail, key marks and
+                    {/* Everything below the terminal is one surface on the
+                        terminal's own canvas: pane rail, key marks and
                         composer read as the same piece of chrome rather than as
                         three stacked bands, and the whole of it recedes
                         together while the ring is open. */}
-                    <Animated.View style={[{ backgroundColor: theme.colors.terminalChrome.chrome }, railsFollowKeyboard]}>
+                    <Animated.View style={[{ backgroundColor: theme.colors.terminalChrome.canvas }, railsFollowKeyboard]}>
 
                     {/* Session/pane chip rail: one scrollable row of identity
                         chips for the open panes (or, across tabs, the other
