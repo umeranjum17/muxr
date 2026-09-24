@@ -20,6 +20,7 @@ import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 
 type ThemePreference = 'adaptive' | 'light' | 'dark';
 type AvatarStyle = 'pixelated' | 'gradient' | 'brutalist';
+type TerminalBars = 'seamless' | 'raised';
 
 const isAvatarStyle = (style: string): style is AvatarStyle =>
     style === 'pixelated' || style === 'gradient' || style === 'brutalist';
@@ -54,6 +55,29 @@ function ThemeTile({ palettes }: { palettes: readonly Theme['colors'][] }) {
     );
 }
 
+/**
+ * A terminal in miniature: a header line, a few rows of output and the
+ * composer, with the header and footer in the ink the choice would give them.
+ */
+function BarsTile({ bars }: { bars: TerminalBars }) {
+    const ink = darkTheme.colors.terminalChrome;
+    const bar = bars === 'raised' ? ink.chrome : ink.canvas;
+    return (
+        <View style={[styles.tile, { flexDirection: 'column', borderColor: 'rgba(255, 255, 255, 0.2)', backgroundColor: ink.canvas }]}>
+            <View style={[styles.barsEdge, { height: 7, backgroundColor: bar }]}>
+                <View style={[styles.tileBar, { width: 14, backgroundColor: darkTheme.colors.textSecondary }]} />
+            </View>
+            <View style={styles.barsOutput}>
+                <View style={[styles.tileBar, { width: 26, backgroundColor: darkTheme.colors.textSecondary }]} />
+                <View style={[styles.tileBar, { width: 18, backgroundColor: darkTheme.colors.textSecondary }]} />
+            </View>
+            <View style={[styles.barsEdge, { height: 9, backgroundColor: bar }]}>
+                <View style={[styles.tileBar, { flex: 1, height: 4, borderRadius: 2, backgroundColor: 'rgba(255, 255, 255, 0.14)' }]} />
+            </View>
+        </View>
+    );
+}
+
 function applyTheme(next: ThemePreference): void {
     UnistylesRuntime.setAdaptiveThemes(next === 'adaptive');
     if (next !== 'adaptive') UnistylesRuntime.setTheme(next);
@@ -81,8 +105,9 @@ export default function AppearanceSettingsScreen() {
     const [terminalFontIndex, setTerminalFontIndex] = useLocalSettingMutable('terminalFontIndex');
     const [terminalFont, setTerminalFont] = useLocalSettingMutable('terminalFont');
     const [pinchZoom] = useLocalSettingMutable('terminalPinchZoom');
+    const [terminalBars, setTerminalBars] = useLocalSettingMutable('terminalBars');
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
-    const [sheet, setSheet] = React.useState<'theme' | 'size' | 'font' | 'avatar' | null>(null);
+    const [sheet, setSheet] = React.useState<'theme' | 'size' | 'font' | 'bars' | 'avatar' | null>(null);
     const close = () => setSheet(null);
 
     const themeName = (key: ThemePreference) => t(`settingsAppearance.themeOptions.${key}`);
@@ -108,6 +133,12 @@ export default function AppearanceSettingsScreen() {
         labelStyle: { fontFamily: TERMINAL_FONTS[key].family },
     }));
 
+    const barsName: Record<TerminalBars, string> = { seamless: 'Seamless', raised: 'Raised' };
+    const barsChoices: Choice[] = [
+        { key: 'seamless', label: barsName.seamless, detail: 'Default', preview: <BarsTile bars="seamless" /> },
+        { key: 'raised', label: barsName.raised, preview: <BarsTile bars="raised" /> },
+    ];
+
     const displayStyle: AvatarStyle = isAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
     const avatarChoices: Choice[] = [
         { key: 'brutalist', label: t('settingsAppearance.avatarOptions.brutalist'), preview: <AvatarBrutalist id="muxr-appearance" size={32} /> },
@@ -130,6 +161,7 @@ export default function AppearanceSettingsScreen() {
                 {Platform.OS === 'web' && (
                     <Item title="Font" subtitle={TERMINAL_FONTS[terminalFont].name} onPress={() => setSheet('font')} />
                 )}
+                <Item title="Header and footer" subtitle={barsName[terminalBars]} onPress={() => setSheet('bars')} />
             </ItemGroup>
 
             <ItemGroup title="Avatars" footer="Avatars appear next to recent sessions.">
@@ -174,6 +206,14 @@ export default function AppearanceSettingsScreen() {
                 onClose={close}
             />
             <ChoiceSheet
+                visible={sheet === 'bars'}
+                title="Terminal header and footer"
+                choices={barsChoices}
+                selectedKey={terminalBars}
+                onSelect={(key) => setTerminalBars(key as TerminalBars)}
+                onClose={close}
+            />
+            <ChoiceSheet
                 visible={sheet === 'avatar'}
                 title={t('settingsAppearance.avatarStyle')}
                 choices={avatarChoices}
@@ -192,5 +232,7 @@ const styles = StyleSheet.create({
     tileLine: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     tileDot: { width: 4, height: 4, borderRadius: 2 },
     tileBar: { height: 3, borderRadius: 1.5 },
+    barsEdge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 5 },
+    barsOutput: { flex: 1, justifyContent: 'center', gap: 3, paddingHorizontal: 5 },
     sizeSample: { width: 30 },
 });

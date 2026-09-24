@@ -154,10 +154,10 @@ function TranscribingDots({ color }: { color: string }) {
  * of the screen (and everything it mounts) paints from the same palette.
  */
 // The material is decided once, in the theme (`terminalChrome`): the canvas is
-// the Ghostty background itself, and every surface that is not the terminal --
-// the header line, the pane rail, the key marks, the composer, the floating
-// control and its ring -- is the same ink one step up from it. Enough to see
-// where the terminal ends; not enough for either surface to announce itself.
+// the Ghostty background itself, and the floating control and its ring are the
+// chrome ink one step up from it. The header line, pane rail, key marks and
+// composer share the canvas by default, so the screen reads as one surface;
+// the Appearance setting `terminalBars` raises them to the chrome ink too.
 const DesktopSurface = React.lazy(async () => ({ default: (await import('@/desktop')).DesktopSurface }));
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
@@ -242,6 +242,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         return () => clearInterval(timer);
     }, []);
     const swipeScope = useLocalSettingMutable('terminalSwipeScope')[0];
+    const barsRaised = useLocalSettingMutable('terminalBars')[0] === 'raised';
     const swipeNeighbours = React.useMemo(
         () => agentSwipeNeighbours(sharedLiveTerminalCards(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces))), props.id, swipeScope, swipeNow),
         [props.id, sessions, swipeNow, swipeScope, workspaces],
@@ -1214,9 +1215,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
                     {/* One quiet line above the terminal plane: a back mark,
                         the session identity, the pane pager, and an overflow
-                        mark. No border, no shadow, no height it does not need,
-                        and the terminal's own canvas, so header and terminal
-                        read as one seamless surface rather than a band. */}
+                        mark. No border, no shadow, no height it does not need.
+                        By default it is the terminal's own canvas, so header
+                        and terminal read as one surface; Appearance can raise
+                        it and the footer one step to the chrome ink. */}
                     <Animated.View
                         aria-hidden={desktopVisible}
                         onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
@@ -1226,7 +1228,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             gap: 2,
                             paddingHorizontal: 6,
                             paddingTop: 0,
-                            backgroundColor: theme.colors.terminalChrome.canvas,
+                            backgroundColor: theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'],
                         }, ringRecede]}
                     >
                         <Pressable onPress={props.desktop ? closeDesktop : () => router.back()} accessibilityRole="button" accessibilityLabel="Back" hitSlop={12}
@@ -1282,7 +1284,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             accessibilityLabel="Review changes"
                             disabled={branch === null}
                             onPress={() => { if (branch !== null) router.push(`/session/${encodeURIComponent(props.id)}/changes`); }}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 4, backgroundColor: theme.colors.terminalChrome.canvas }}>
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingBottom: 4, backgroundColor: theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'] }}>
                             {branch !== null && <Ionicons name="git-branch-outline" size={12} color={theme.colors.textSecondary} />}
                             <SessionMetaLine
                                 style={{ flex: 1 }}
@@ -1480,12 +1482,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </AgentPager>
                     </View>
 
-                    {/* Everything below the terminal is one surface on the
-                        terminal's own canvas: pane rail, key marks and
+                    {/* Everything below the terminal is one surface in the
+                        header's ink: pane rail, key marks and
                         composer read as the same piece of chrome rather than as
                         three stacked bands, and the whole of it recedes
                         together while the ring is open. */}
-                    <Animated.View style={[{ backgroundColor: theme.colors.terminalChrome.canvas }, railsFollowKeyboard]}>
+                    <Animated.View style={[{ backgroundColor: theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'] }, railsFollowKeyboard]}>
 
                     {/* Session/pane chip rail: one scrollable row of identity
                         chips for the open panes (or, across tabs, the other
