@@ -232,6 +232,38 @@ describe('TerminalManager stream exit', () => {
         manager.closeAll();
     });
 
+    it('tells the phone where the viewport went after each scroll, not only at the next attach', async () => {
+        // Herdr's viewport, as a desk reader or the phone's own scrolls move it.
+        let viewport = { offsetFromBottom: 0, maxOffsetFromBottom: 400 };
+        const manager = new TerminalManager({
+            relayUrl: 'ws://relay.test',
+            machineId: 'machine',
+            resolvePane: async () => 'workspace:pane',
+            focusSession: async () => undefined,
+            readPaneScroll: async () => viewport,
+        });
+        await manager.attach({ sessionId: 'session', channel: 'channel', cols: 100, rows: 30 });
+        const child = fakes.children[0]!;
+        const socket = fakes.sockets[0]!;
+        const reported = (): unknown[] => socket.send.mock.calls
+            .map(([frame]) => JSON.parse(String(frame)) as { type: string })
+            .filter((frame) => frame.type === 'terminal.scroll-state');
+        child.stdout.emit('data', Buffer.from(`${JSON.stringify({ type: 'terminal.frame', full: true, bytes: 'c2NyZWVu' })}\n`));
+        await vi.waitFor(() => expect(reported()).toEqual([{ type: 'terminal.scroll-state', offsetFromBottom: 0, maxOffsetFromBottom: 400 }]));
+
+        // Scrolled away from the live edge: the Latest control depends on
+        // hearing it now, before any further output or re-attach.
+        viewport = { offsetFromBottom: 120, maxOffsetFromBottom: 400 };
+        socket.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 120 })));
+        await vi.waitFor(() => expect(reported().at(-1)).toEqual({ type: 'terminal.scroll-state', offsetFromBottom: 120, maxOffsetFromBottom: 400 }));
+
+        // And back at the bottom, it hears that too.
+        viewport = { offsetFromBottom: 0, maxOffsetFromBottom: 400 };
+        socket.emit('message', Buffer.from(JSON.stringify({ type: 'terminal.scroll', direction: 'down', lines: 120 })));
+        await vi.waitFor(() => expect(reported().at(-1)).toEqual({ type: 'terminal.scroll-state', offsetFromBottom: 0, maxOffsetFromBottom: 400 }));
+        manager.closeAll();
+    });
+
     it('does not write a late client frame into a cleanly exited stream', async () => {
         const resolvePane = vi.fn(async () => 'workspace:pane');
         const manager = new TerminalManager({
