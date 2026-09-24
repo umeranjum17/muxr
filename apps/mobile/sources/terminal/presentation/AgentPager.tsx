@@ -23,8 +23,9 @@ import { useLocalSetting } from '@/catalog/store';
 import { agentLabels, agentStatusColor, HERD_STATUS_LABELS, isShellLabels, type LiveTerminalOrderCard } from '@/herd';
 import { refreshPaneSnapshot, usePaneSnapshot } from '../application/paneSnapshots';
 import { terminalColumns } from '../application/recentOutput';
-import { openTerminalAhead } from '../application/terminalAhead';
+import { openTerminalAhead, terminalGrid } from '../application/terminalAhead';
 import { FONT_STEPS, clampFontIndex } from '../domain/fontSteps';
+import { reflowScreen } from '../domain/reflowScreen';
 
 /** The screen's own edges stay with the system's back gesture. */
 const EDGE_INSET = 24;
@@ -93,13 +94,16 @@ function follow(dx: number, width: number, hasPrevious: boolean, hasNext: boolea
 }
 
 /**
- * A pane's last read screen, set the way the terminal sets it: the newest line
- * at the bottom, and a line wider than the phone cut at the edge rather than
- * wrapped. The read is at the desk's width, so the cut is honest about it.
+ * A pane's last read screen, set the way the terminal will set it once this
+ * phone attaches: the newest line at the bottom, and the lines set again at
+ * the phone's columns, since the read is at the desk's width and the agent
+ * redraws at the phone's. Until a terminal has measured the phone's grid, a
+ * line wider than the phone is cut at the edge.
  */
 const PaneSnapshot = React.memo(({ sessionId, fontSize }: { sessionId: string; fontSize: number }) => {
     const text = usePaneSnapshot(sessionId);
-    const lines = React.useMemo(() => (text ?? '').replace(/\s+$/, '').split('\n'), [text]);
+    const grid = terminalGrid();
+    const lines = React.useMemo(() => reflowScreen(text ?? '', grid?.cols ?? 0).slice(-(grid?.rows ?? 0)), [grid, text]);
     const lineHeight = fontSize * LINE_HEIGHT;
     return (
         <View pointerEvents="none" style={styles.snapshot}>

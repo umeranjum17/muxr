@@ -27,6 +27,11 @@ export function rememberTerminalGrid(cols: number, rows: number): void {
     if (cols > 0 && rows > 0) grid = { cols, rows };
 }
 
+/** The grid a pane will be laid out in once this phone attaches to it. */
+export function terminalGrid(): { cols: number; rows: number } | undefined {
+    return grid;
+}
+
 export function openTerminalAhead(sessionId: string): void {
     releaseTerminalAhead();
     if (grid === undefined) return;
