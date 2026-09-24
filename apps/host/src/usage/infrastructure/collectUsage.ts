@@ -172,6 +172,63 @@ function claudeCredentials(env: NodeJS.ProcessEnv): string | undefined {
     return token;
 }
 
+/** Anthropic answers its usage endpoint for Claude Code's own client and
+ *  rate-limits any other caller on sight, so the read identifies itself the
+ *  way Claude Code does. */
+const CLAUDE_HEADERS = { 'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'claude-code/2.1.202' };
+/** A rate-limited provider is not asked again before this; its last good
+ *  reading stands in meanwhile. */
+const RATE_LIMIT_BACKOFF_MS = 5 * 60_000;
+const backoffUntil = new Map<string, number>();
+
+interface ProviderAnswer {
+    /** The HTTP status, absent when no answer arrived at all. */
+    status?: number;
+    body?: string;
+    /** A network failure or a server error: the kind a second ask a moment
+     *  later usually clears. A timeout is not one -- asking a slow provider
+     *  again only doubles the wait. */
+    transient?: true;
+}
+
+/** One provider read, retried once when the failure was transient. A 429
+ *  backs the provider off instead, so its rate limit is never spent on us. */
+async function providerGet(provider: string, url: string, headers: Record<string, string>): Promise<ProviderAnswer> {
+    if ((backoffUntil.get(provider) ?? 0) > Date.now()) return { status: 429 };
+    const answer = await providerGetOnce(provider, url, headers);
+    if (answer.transient !== true) return answer;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    return providerGetOnce(provider, url, headers);
+}
+
+async function providerGetOnce(provider: string, url: string, headers: Record<string, string>): Promise<ProviderAnswer> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    try {
+        const response = await fetch(url, { headers: { accept: 'application/json', ...headers }, redirect: 'error', signal: controller.signal });
+        if (response.status === 429) {
+            const seconds = Number(response.headers.get('retry-after'));
+            backoffUntil.set(provider, Date.now() + Math.max(RATE_LIMIT_BACKOFF_MS, Number.isFinite(seconds) ? seconds * 1_000 : 0));
+        }
+        if (!response.ok || response.body === null) {
+            controller.abort();
+            return { status: response.status, ...(response.status >= 500 ? { transient: true as const } : {}) };
+        }
+        let body = '';
+        for await (const chunk of response.body) {
+            body += Buffer.from(chunk).toString('utf8');
+            if (Buffer.byteLength(body) > 64 * 1024) { controller.abort(); return { status: response.status }; }
+        }
+        return { status: response.status, body };
+    } catch {
+        return controller.signal.aborted ? {} : { transient: true };
+    } finally { clearTimeout(timer); }
+}
+
+function parsed(body: string | undefined): unknown {
+    try { return body === undefined ? undefined : JSON.parse(body) as unknown; } catch { return undefined; }
+}
+
 async function claudePlanLimits(env: NodeJS.ProcessEnv): Promise<unknown> {
     const snapshot = readJson(join(claudeConfigDir(env), 'last-statusline-input.json'), 64 * 1024);
     const snapshotAge = snapshot === undefined ? undefined : Date.now() - snapshot.modified;
@@ -180,19 +237,8 @@ async function claudePlanLimits(env: NodeJS.ProcessEnv): Promise<unknown> {
     }
     const token = claudeCredentials(env);
     if (token === undefined) return undefined;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5_000);
-    try {
-        const response = await fetch('https://api.anthropic.com/api/oauth/usage', {
-            headers: { accept: 'application/json', authorization: `Bearer ${token}` },
-            signal: controller.signal,
-        });
-        if (!response.ok) return undefined;
-        const body = await response.text();
-        if (body.length > 64 * 1024) return undefined;
-        return JSON.parse(body) as unknown;
-    } catch { return undefined; }
-    finally { clearTimeout(timer); }
+    const answer = await providerGet('claude', 'https://api.anthropic.com/api/oauth/usage', { authorization: `Bearer ${token}`, ...CLAUDE_HEADERS });
+    return answer.status === 200 ? parsed(answer.body) : undefined;
 }
 
 /** The Go account selection, from the same source the cache identity uses.
@@ -231,6 +277,8 @@ function goConnected(env: NodeJS.ProcessEnv): boolean {
 }
 
 interface PlanOutcome {
+    /** The provider's own payload, kept so a later failed read can stand on it. */
+    raw?: unknown;
     vms?: UsageWindowVM[];
     label: string;
 }
@@ -238,28 +286,14 @@ interface PlanOutcome {
 async function goPlanLimits(env: NodeJS.ProcessEnv): Promise<PlanOutcome> {
     if (!goConnected(env)) return { label: 'OpenCode Go limits unavailable · connect your Go account in OpenCode' };
     const { auth } = goAuthSelection(env);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5_000);
-    try {
-        const response = await fetch('https://opencode.ai/zen/go/v1/usage', {
-            headers: { accept: 'application/json', authorization: `Bearer ${auth?.key as string}` },
-            redirect: 'error', signal: controller.signal,
-        });
-        if (response.status === 401) return { label: 'OpenCode Go authentication unavailable · reconnect in OpenCode' };
-        if (response.status === 403) return { label: 'OpenCode Go subscription unavailable for this account' };
-        if (!response.ok) return { label: 'OpenCode Go limits unavailable · try again shortly' };
-        let body = '';
-        if (response.body === null) return { label: 'OpenCode Go limits unavailable · incomplete response' };
-        for await (const chunk of response.body) {
-            body += Buffer.from(chunk).toString('utf8');
-            if (Buffer.byteLength(body) > 64 * 1024) { controller.abort(); return { label: 'OpenCode Go limits unavailable' }; }
-        }
-        const usage = (JSON.parse(body) as { usage?: unknown }).usage;
-        const vms = goWindows(usage, { nowMs: Date.now() });
-        if (vms.length === 0) return { label: 'OpenCode Go limits unavailable · incomplete response' };
-        return { vms, label: 'OpenCode Go plan usage' };
-    } catch { return { label: 'OpenCode Go limits unavailable · try again shortly' }; }
-    finally { clearTimeout(timer); }
+    const { status, body } = await providerGet('opencode', 'https://opencode.ai/zen/go/v1/usage', { authorization: `Bearer ${auth?.key as string}` });
+    if (status === 401) return { label: 'OpenCode Go authentication unavailable · reconnect in OpenCode' };
+    if (status === 403) return { label: 'OpenCode Go subscription unavailable for this account' };
+    if (status !== 200) return { label: 'OpenCode Go limits unavailable · try again shortly' };
+    const raw = (parsed(body) as { usage?: unknown } | undefined)?.usage;
+    const vms = goWindows(raw, { nowMs: Date.now() });
+    if (vms.length === 0) return { label: 'OpenCode Go limits unavailable · incomplete response' };
+    return { raw, vms, label: 'OpenCode Go plan usage' };
 }
 
 /** The Z.ai credential Pi holds for its zai provider, from Pi's own auth store. */
@@ -283,29 +317,16 @@ function zaiModels(env: NodeJS.ProcessEnv): Set<string> {
 async function zaiPlanLimits(env: NodeJS.ProcessEnv): Promise<PlanOutcome> {
     const token = zaiToken(env);
     if (token === undefined) return { label: 'Z.ai limits unavailable · connect Z.ai in Pi' };
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5_000);
-    try {
-        const response = await fetch('https://api.z.ai/api/monitor/usage/quota/limit', {
-            headers: { accept: 'application/json', authorization: `Bearer ${token}` },
-            redirect: 'error', signal: controller.signal,
-        });
-        if (response.status === 401) return { label: 'Z.ai authentication unavailable · reconnect in Pi' };
-        if (response.status === 403) return { label: 'Z.ai coding plan unavailable for this account' };
-        if (!response.ok) return { label: 'Z.ai limits unavailable · try again shortly' };
-        let body = '';
-        if (response.body === null) return { label: 'Z.ai limits unavailable · incomplete response' };
-        for await (const chunk of response.body) {
-            body += Buffer.from(chunk).toString('utf8');
-            if (Buffer.byteLength(body) > 64 * 1024) { controller.abort(); return { label: 'Z.ai limits unavailable' }; }
-        }
-        const parsed = JSON.parse(body) as { success?: unknown; data?: { limits?: unknown } };
-        if (parsed?.success === false) return { label: 'Z.ai coding plan unavailable for this account' };
-        const vms = zaiWindows(parsed?.data?.limits, { nowMs: Date.now() });
-        if (vms.length === 0) return { label: 'Z.ai limits unavailable · incomplete response' };
-        return { vms, label: 'Z.ai plan usage' };
-    } catch { return { label: 'Z.ai limits unavailable · try again shortly' }; }
-    finally { clearTimeout(timer); }
+    const { status, body } = await providerGet('zai', 'https://api.z.ai/api/monitor/usage/quota/limit', { authorization: `Bearer ${token}` });
+    if (status === 401) return { label: 'Z.ai authentication unavailable · reconnect in Pi' };
+    if (status === 403) return { label: 'Z.ai coding plan unavailable for this account' };
+    if (status !== 200) return { label: 'Z.ai limits unavailable · try again shortly' };
+    const answer = parsed(body) as { success?: unknown; data?: { limits?: unknown } } | undefined;
+    if (answer?.success === false) return { label: 'Z.ai coding plan unavailable for this account' };
+    const raw = answer?.data?.limits;
+    const vms = zaiWindows(raw, { nowMs: Date.now() });
+    if (vms.length === 0) return { label: 'Z.ai limits unavailable · incomplete response' };
+    return { raw, vms, label: 'Z.ai plan usage' };
 }
 
 function money(value: number): string | undefined {
@@ -376,7 +397,7 @@ function cacheName(selected: string): string {
 function cachedOutput(env: NodeJS.ProcessEnv, identity: string, today: string, nowMs: number, selected: string): { output: UsageReport; stale: boolean } | undefined {
     try {
         const saved = JSON.parse(readFileSync(join(usageStateDir(env), cacheName(selected)), 'utf8')) as {
-            at?: number; date?: string; identity?: string; output?: UsageReport;
+            at?: number; date?: string; identity?: string; output?: UsageReport; partial?: boolean;
         };
         const age = nowMs - (saved.at ?? Number.NaN);
         const maxAge = saved.output?.provider === 'claude' ? 15_000 : 60_000;
@@ -385,21 +406,120 @@ function cachedOutput(env: NodeJS.ProcessEnv, identity: string, today: string, n
         // stale so the screen refreshes itself in place -- because last-known
         // numbers beat a skeleton while a fresh collection runs.
         if (saved.identity === identity && saved.date === today && age >= 0 && Array.isArray(saved.output?.providers) && Buffer.byteLength(JSON.stringify(saved.output)) <= 65_536) {
-            return { output: saved.output!, stale: age >= maxAge };
+            return { output: saved.output!, stale: saved.partial === true || age >= maxAge };
         }
     } catch { /* no cache yet */ }
     return undefined;
 }
 
-function saveOutput(env: NodeJS.ProcessEnv, output: UsageReport, identity: string, today: string, nowMs: number, selected: string): void {
+function saveOutput(env: NodeJS.ProcessEnv, output: UsageReport, identity: string, today: string, nowMs: number, selected: string, partial: boolean): void {
     if (Buffer.byteLength(JSON.stringify(output)) > 65_536) return;
     const cache = join(usageStateDir(env), cacheName(selected));
     const temporary = `${cache}.${process.pid}.tmp`;
     try {
         mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
-        writeFileSync(temporary, JSON.stringify({ at: nowMs, date: today, identity, output }), { mode: 0o600 });
+        writeFileSync(temporary, JSON.stringify({ at: nowMs, date: today, identity, output, ...(partial ? { partial } : {}) }), { mode: 0o600 });
         renameSync(temporary, cache);
     } catch { /* a cache that cannot be written is a slower next paint, not an error */ }
+}
+
+type PlanId = 'claude' | 'codex' | 'opencode' | 'zai';
+const PLAN_IDS: PlanId[] = ['claude', 'codex', 'opencode', 'zai'];
+/** A plan whose read fails keeps showing its last good reading this long, aged
+ *  honestly, rather than dropping off the card over one slow or refused read. */
+const PLAN_STAND_IN_MS = 60 * 60_000;
+/** A reading this recent is the answer: asking the provider again sooner
+ *  spends its rate limit and, on a loaded host, a process spawn for nothing. */
+const PLAN_MIN_READ_MS = 60_000;
+/** The oldest reading worth painting while a collection runs: after a restart
+ *  the card opens on it and the collection replaces it seconds later. */
+const PLAN_LAST_KNOWN_MS = 24 * 60 * 60_000;
+
+interface PlanReading { at: number; raw: unknown }
+type PlanReadings = Partial<Record<PlanId, PlanReading>>;
+
+/** The last good reading of every plan, per provider, on disk: what a failed
+ *  read stands on and what a restarted host paints first. */
+function readPlans(env: NodeJS.ProcessEnv, identity: string): PlanReadings {
+    const saved = readJson(join(usageStateDir(env), 'plans-v1.json'), 256 * 1024)?.value;
+    if (!isRecord(saved) || saved.identity !== identity || !isRecord(saved.plans)) return {};
+    const plans: PlanReadings = {};
+    for (const id of PLAN_IDS) {
+        const reading = saved.plans[id];
+        if (isRecord(reading) && Number.isFinite(reading.at)) plans[id] = { at: reading.at as number, raw: reading.raw };
+    }
+    return plans;
+}
+
+function savePlans(env: NodeJS.ProcessEnv, identity: string, plans: PlanReadings): void {
+    const path = join(usageStateDir(env), 'plans-v1.json');
+    const temporary = `${path}.${process.pid}.tmp`;
+    try {
+        const body = JSON.stringify({ identity, plans });
+        if (Buffer.byteLength(body) > 256 * 1024) return;
+        mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
+        writeFileSync(temporary, body, { mode: 0o600 });
+        renameSync(temporary, path);
+    } catch { /* an unwritten reading only means the next failure has nothing to stand on */ }
+}
+
+/** A plan's windows from its provider's own payload, as of `nowMs`. */
+function planWindows(id: PlanId, raw: unknown, nowMs: number): UsageWindowVM[] {
+    if (raw === undefined) return [];
+    if (id === 'claude') return claudeWindows(raw, { nowMs });
+    if (id === 'codex') return codexWindowsOrdered(raw as CodexRateLimitResult, nowMs);
+    if (id === 'opencode') return goWindows(raw, { nowMs });
+    return zaiWindows(raw, { nowMs });
+}
+
+/** Whether a plan's account is still there to be read: a stored reading never
+ *  outlives the credentials it was read with. */
+function planStillConnected(id: PlanId, env: NodeJS.ProcessEnv): boolean {
+    if (id === 'claude') return claudeCredentials(env) !== undefined;
+    if (id === 'codex') return available('codex', env);
+    if (id === 'opencode') return goConnected(env);
+    return zaiToken(env) !== undefined;
+}
+
+/** Every plan's windows, most urgent first, and the Home card's strip of them. */
+function planStrip(vmsById: Partial<Record<PlanId, UsageWindowVM[]>>) {
+    const planShapes = PLAN_IDS.flatMap((id) => {
+        const vms = vmsById[id] ?? [];
+        return vms.length === 0 ? [] : [{ id, plan: PLAN_PROVIDERS[id]!, vms, used: tightestWindow(vms)!.percentUsed }];
+    }).sort((a, b) => b.used - a.used);
+    const connected: UsageConnectedProvider[] = planShapes.map(({ id, plan, vms }) => ({
+        id, label: TAB_LABELS[id] ?? AGENTS[id] ?? id, glyph: id, plan, windows: limitsPayload(vms, { plan }).windows,
+    }));
+    return { planShapes, connected };
+}
+
+/** What the card can paint before any collection answers: the last good
+ *  reading of every still-connected plan, recomputed for now. */
+export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'> | undefined {
+    const nowMs = Date.now();
+    const stored = readPlans(env, cacheIdentity(env));
+    const vmsById: Partial<Record<PlanId, UsageWindowVM[]>> = {};
+    let oldest = Number.POSITIVE_INFINITY;
+    let newest = 0;
+    for (const id of PLAN_IDS) {
+        const reading = stored[id];
+        if (reading === undefined || nowMs - reading.at > PLAN_LAST_KNOWN_MS || !planStillConnected(id, env)) continue;
+        const vms = planWindows(id, reading.raw, nowMs);
+        if (vms.length === 0) continue;
+        vmsById[id] = vms;
+        oldest = Math.min(oldest, reading.at);
+        newest = Math.max(newest, reading.at);
+    }
+    const { planShapes, connected } = planStrip(vmsById);
+    const tightest = planShapes[0];
+    if (tightest === undefined) return undefined;
+    return {
+        windows: tightest.vms,
+        limits: limitsPayload(tightest.vms, { plan: tightest.plan }),
+        connected,
+        capturedAt: new Date(newest).toISOString(),
+        readingsFrom: new Date(oldest).toISOString(),
+    };
 }
 
 interface CodexRateLimitResult {
@@ -532,12 +652,38 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
  *  the provider tab and the cache identity are fixed for the whole payload. */
 async function collectFresh(selected: string, NOW: Date, TODAY: string, identity: string, env: NodeJS.ProcessEnv): Promise<UsageReport> {
     const PERIODS = windowPeriods(NOW);
-    // Codex limits load every time: the home card lists them whatever tab the
-    // details screen last showed.
-    const [{ range, failure: ccusageFailure }, codex, local] = await Promise.all([
-        ccusageRange(env), codexUsage(env).then((result) => codexWindowsOrdered(result, Date.now())),
-        collectLocalUsage(PERIODS, NOW.getTime(), env),
+    const skipPlan: PlanOutcome = { label: '' };
+    // Every connected plan is read alongside local activity, not after it:
+    // under load the activity scan is the long pole, and the plans are what
+    // the Home card waits on. Codex limits load every time: the home card
+    // lists them whatever tab the details screen last showed.
+    const stored = readPlans(env, identity);
+    const recent = (id: PlanId) => NOW.getTime() - (stored[id]?.at ?? Number.NEGATIVE_INFINITY) < PLAN_MIN_READ_MS;
+    const planConnected: string[] = (['claude', 'opencode', 'zai'] as const).filter((id) => planStillConnected(id, env));
+    const early = {
+        claude: planConnected.includes('claude') ? (recent('claude') ? Promise.resolve(undefined) : claudePlanLimits(env)) : undefined,
+        opencode: planConnected.includes('opencode') ? (recent('opencode') ? Promise.resolve(skipPlan) : goPlanLimits(env)) : undefined,
+        zai: planConnected.includes('zai') ? (recent('zai') ? Promise.resolve(skipPlan) : zaiPlanLimits(env)) : undefined,
+    };
+    const [{ range, failure: ccusageFailure }, codexRaw, local] = await Promise.all([
+        ccusageRange(env), recent('codex') ? Promise.resolve(undefined) : codexUsage(env), collectLocalUsage(PERIODS, NOW.getTime(), env),
     ]);
+    // Per-provider isolation: a plan whose read failed this time -- a
+    // timeout, a refusal, a rate limit -- or that was read moments ago keeps
+    // its last good reading, aged honestly through `readingsFrom`, instead of
+    // vanishing from the card.
+    const readings: PlanReadings = { ...stored };
+    let readingsFrom = NOW.getTime();
+    const windowsOf = (id: PlanId, raw: unknown): UsageWindowVM[] => {
+        const nowMs = Date.now();
+        const vms = planWindows(id, raw, nowMs);
+        if (vms.length > 0) { readings[id] = { at: NOW.getTime(), raw }; return vms; }
+        const last = stored[id];
+        if (last === undefined || nowMs - last.at > PLAN_STAND_IN_MS || !planStillConnected(id, env)) return [];
+        readingsFrom = Math.min(readingsFrom, last.at);
+        return planWindows(id, last.raw, nowMs);
+    };
+    const codex = windowsOf('codex', codexRaw);
     const agents = byAgent(range, PERIODS);
     const latest = new Map<string, number>();
     const sessions = range?.session;
@@ -601,10 +747,6 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     // An explicit selection still resolves to its own collector report, so a
     // chosen provider whose collection just failed shows its honest unavailable
     // notice instead of quietly borrowing another provider's numbers.
-    const planCandidates: [string, boolean][] = [
-        ['claude', claudeCredentials(env) !== undefined], ['opencode', goConnected(env)], ['zai', zaiToken(env) !== undefined],
-    ];
-    const planConnected = planCandidates.flatMap(([agent, connected]) => (connected ? [agent] : []));
     const providerIds = [...new Set([
         ...agents.keys(),
         ...latest.keys(),
@@ -635,29 +777,22 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     // (the default tab, the Home card) must see every real window, not just
     // the selected tab's. An explicitly selected tab still collects its own
     // source even when disconnected, so its honest unavailable message stands.
-    const skipPlan: PlanOutcome = { label: '' };
     const [claudeRaw, go, zaiPlan] = await Promise.all([
-        planConnected.includes('claude') || provider === 'claude' ? claudePlanLimits(env) : Promise.resolve(undefined),
-        planConnected.includes('opencode') || provider === 'opencode' ? goPlanLimits(env) : Promise.resolve(skipPlan),
-        planConnected.includes('zai') || provider === 'zai' ? zaiPlanLimits(env) : Promise.resolve(skipPlan),
+        early.claude ?? (provider === 'claude' ? claudePlanLimits(env) : Promise.resolve(undefined)),
+        early.opencode ?? (provider === 'opencode' ? goPlanLimits(env) : Promise.resolve(skipPlan)),
+        early.zai ?? (provider === 'zai' ? zaiPlanLimits(env) : Promise.resolve(skipPlan)),
     ]);
     // One transform per source, one view model for the screen: everything below
     // renders from these, never from a provider payload.
-    const nowMs = Date.now();
-    const claudeVMs = claudeWindows(claudeRaw, { nowMs });
-    const zaiVMs = zaiPlan.vms ?? [];
-    const goVMs = go.vms ?? [];
+    const claudeVMs = windowsOf('claude', claudeRaw);
+    const zaiVMs = windowsOf('zai', zaiPlan.raw);
+    const goVMs = windowsOf('opencode', go.raw);
+    if (PLAN_IDS.some((id) => readings[id] !== stored[id])) savePlans(env, identity, readings);
     const selectedVMs = selectedWindows(provider, claudeVMs, codex, zaiVMs, goVMs);
     // Every plan collector's real windows, most urgent first: the borrow rule
     // and the Home card's connected strip read the same list, so a machine-level
     // view and a per-tab view can never disagree about which plan is tightest.
-    const planShapes = [
-        { id: 'claude', plan: PLAN_PROVIDERS.claude, vms: claudeVMs },
-        { id: 'codex', plan: PLAN_PROVIDERS.codex, vms: codex },
-        { id: 'opencode', plan: PLAN_PROVIDERS.opencode, vms: goVMs },
-        { id: 'zai', plan: PLAN_PROVIDERS.zai, vms: zaiVMs },
-    ].flatMap(({ id, plan, vms }) => (vms.length === 0 ? [] : [{ id, plan, vms, used: tightestWindow(vms)!.percentUsed }]))
-        .sort((a, b) => b.used - a.used);
+    const { planShapes, connected } = planStrip({ claude: claudeVMs, codex, opencode: goVMs, zai: zaiVMs });
     // One quiet line when the plan has nothing to card; the message is the
     // provider-specific truth (not connected, reconnect, unavailable).
     const noProvidersFields = providerIds.length === 0
@@ -674,13 +809,6 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     const limitsMessage = (providerIds.length > 0 && limitsVMs.length === 0)
         ? selectedLimitsMessage(provider, claudeVMs, goVMs, go, zaiVMs, zaiPlan, codex)
         : undefined;
-    const connected: UsageConnectedProvider[] = planShapes.map(({ id, plan, vms }) => ({
-        id,
-        label: TAB_LABELS[id] ?? AGENTS[id] ?? id,
-        glyph: id,
-        ...(plan === undefined ? {} : { plan }),
-        windows: limitsPayload(vms, { ...(plan === undefined ? {} : { plan }) }).windows,
-    }));
     const output: UsageReport = {
         providers: providerIds.map((agent) => ({ id: agent, label: TAB_LABELS[agent] ?? AGENTS[agent] ?? agent, glyph: agent })),
         provider,
@@ -698,6 +826,7 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
             label: dayLabel(period), value: row?.totalTokens ?? 0, valueLabel: tokens(row?.totalTokens ?? 0) ?? '0', detail: period,
         })),
         capturedAt: NOW.toISOString(),
+        ...(readingsFrom < NOW.getTime() ? { readingsFrom: new Date(readingsFrom).toISOString() } : {}),
         windowPeriods: PERIODS,
         // The normalized view model behind every rendered rate-limit shape.
         windows: limitsVMs,
@@ -714,11 +843,15 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     // blocked read would otherwise own the screen for the whole TTL. The gate
     // is the selected tab's own health: another provider's blocked limits must
     // not stop this tab from caching, or every visit pays the full rescan. A
-    // stale paint never persists its own flag: the saved payload stays clean.
+    // payload with a failure in it is still kept -- it is the latest answer and
+    // what the next plain read should get -- but kept stale, so every reader
+    // collects again rather than settling on it. A stale paint never persists
+    // its own flag: the saved payload stays clean.
     const limitsUnavailable = goUnavailable(provider, goVMs) || claudeUnavailable(provider, claudeVMs)
         || zaiUnavailable(provider, zaiVMs) || codexUnavailable(provider, codex);
-    if (activityFailure === undefined && reports[provider]?.unavailable !== true && !limitsUnavailable && (selected === '' || selected === output.provider)) {
-        saveOutput(env, output, identity, TODAY, NOW.getTime(), selected);
+    if (selected === '' || selected === output.provider) {
+        const partial = activityFailure !== undefined || reports[provider]?.unavailable === true || limitsUnavailable;
+        saveOutput(env, output, identity, TODAY, NOW.getTime(), selected, partial);
     }
     return withAge(output, NOW.getTime());
 }
@@ -726,7 +859,7 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
 /** The age of the reading, by the host's clock, so every reader can apply its
  *  own freshness window to one number rather than the coarser cache flag. */
 function withAge(output: UsageReport, nowMs: number): UsageReport {
-    const capturedAt = Date.parse(output.capturedAt ?? '');
+    const capturedAt = Date.parse(output.readingsFrom ?? output.capturedAt ?? '');
     if (!Number.isFinite(capturedAt)) return output;
     return { ...output, ageSeconds: Math.max(0, Math.round((nowMs - capturedAt) / 1_000)) };
 }

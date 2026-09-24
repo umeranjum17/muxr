@@ -90,6 +90,9 @@ export interface UsageReport {
     weekCost: string;
     weekSeries: UsageSeriesPoint[];
     capturedAt: string;
+    /** The oldest plan reading shown, when a provider's last good reading
+     *  stood in for a read that failed; `ageSeconds` counts from it. */
+    readingsFrom?: string;
     /** How old that capture is, by the host's clock: what the screen says about
      *  the figures it is showing. Whether they are worth collecting again is a
      *  separate question the phone answers from its own record of asking. */
@@ -130,6 +133,9 @@ export interface UsageNow {
     connected?: UsageConnectedProvider[];
     /** Cold usage cache; the host fell back so the vitals could answer. */
     collecting?: true;
+    /** These are the last known figures and a collection is still running
+     *  behind them: ask again shortly for the one that lands. */
+    refreshing?: true;
     /** How old the limit figures are, by the host's clock. */
     ageSeconds?: number;
     /** The instant this reading was captured, by the host's clock: the host

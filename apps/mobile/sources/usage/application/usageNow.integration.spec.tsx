@@ -420,7 +420,7 @@ describe('the Home card read path', () => {
         expect(request).toHaveBeenCalledTimes(1);
     });
 
-    it('never takes figures off the screen to refresh them, and says plainly when it could not', async () => {
+    it('never takes figures off the screen to refresh them, and keeps quiet when it could not', async () => {
         request.mockResolvedValueOnce(collected()).mockResolvedValueOnce(COLLECTING).mockRejectedValue(new Error('host unreachable'));
         const card = mount();
         await tick();
@@ -439,14 +439,19 @@ describe('the Home card read path', () => {
         expect(figuresOf(card.latest())).toEqual(figures);
         expect(card.latest().refreshing).toBe(true);
 
-        // And a failed one keeps them too, while saying so.
+        // And a failed one keeps them too, with no alarm: they are old, not
+        // wrong, and the retry runs in the background.
         await tick(6_000);
         expect(figuresOf(card.latest())).toEqual(figures);
-        expect(card.latest().failed).toBe(true);
+        expect(card.latest().failed).toBe(false);
         expect(card.latest().refreshing).toBe(false);
+        const failedAt = request.mock.calls.length;
+        await tick(30_000);
+        expect(request.mock.calls.length).toBe(failedAt + 1);
+        expect(request).toHaveBeenLastCalledWith('usage.now', { refresh: true }, expect.any(Number));
     });
 
-    it('stops claiming to collect when the host never finishes, and does not keep asking', async () => {
+    it('stops claiming to collect when the host never finishes, and backs off its asking', async () => {
         request.mockResolvedValue(COLLECTING);
         const card = mount();
 
@@ -461,9 +466,12 @@ describe('the Home card read path', () => {
         // The measured figures it did receive stay on screen behind that word.
         expect(vitalsOf(card.latest())).toEqual(VITALS);
 
+        // It keeps trying in the background, backing off rather than polling.
         const settled = request.mock.calls.length;
-        await tick(60_000);
+        await tick(29_000);
         expect(request).toHaveBeenCalledTimes(settled);
+        await tick(1_000);
+        expect(request).toHaveBeenCalledTimes(settled + 1);
     });
 
     it('does not read for a card nobody is looking at', async () => {
@@ -604,7 +612,7 @@ describe('the Home card read path', () => {
         expect(forcedReads()).toHaveLength(2);
     });
 
-    it('lets a tap on the card control re-collect straight after a failure', async () => {
+    it('recovers from a failed refresh in the background, without an alarm or a tap', async () => {
         request.mockResolvedValueOnce(collected()).mockRejectedValueOnce(new Error('host unreachable')).mockResolvedValue(collected());
         const card = renderCard();
         await tick();
@@ -612,13 +620,26 @@ describe('the Home card read path', () => {
 
         pressRefresh(card);
         await tick(1_000);
-        expect(screenText(card)).toContain('plugins.rightNow.refreshFailed');
+        expect(screenText(card)).not.toContain('plugins.rightNow.refreshFailed');
+        expect(screenText(card)).toContain('0% 5h');
 
-        // Someone already looking at an error is being told to try again: that
-        // tap bypasses the cache, even one second after the last read.
-        pressRefresh(card);
-        await tick();
+        await tick(30_000);
         expect(forcedReads()).toHaveLength(3);
+    });
+
+    it('paints the last known figures a busy host answers with, then picks up its collection', async () => {
+        request.mockResolvedValueOnce({ ...collected(undefined, 100, '2026-01-01T00:00:00.000Z'), refreshing: true })
+            .mockResolvedValue(collected(undefined, 100, '2026-01-01T00:05:00.000Z'));
+        const card = mount();
+        await tick();
+        expect(figuresOf(card.latest())?.capturedAt).toBe('2026-01-01T00:00:00.000Z');
+        expect(card.latest().refreshing).toBe(true);
+
+        await tick(6_000);
+        expect(request).toHaveBeenLastCalledWith('usage.now', {}, expect.any(Number));
+        expect(figuresOf(card.latest())?.capturedAt).toBe('2026-01-01T00:05:00.000Z');
+        expect(card.latest().refreshing).toBe(false);
+        expect(card.latest().failed).toBe(false);
     });
 
     it('runs a tap refused by a read in flight past the cache once that read settles', async () => {

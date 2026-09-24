@@ -20,6 +20,11 @@ const COLLECTING_RETRY_MS = 6_000;
  *  to be collecting for as long as the app is open. */
 const COLLECTING_ATTEMPTS = 6;
 
+/** A read that failed is asked again in the background, backing off from
+ *  this to the refresh cadence: a relay that dropped or a host that was busy
+ *  usually answers the next ask, and nobody should have to tap for it. */
+const RETRY_BASE_MS = 30_000;
+
 /** The wait a mount shows before its own ask has answered anything. */
 const NOTHING_SHOWN_YET: UsageDisplay = { status: 'waiting', askedAt: 0 };
 
@@ -33,8 +38,9 @@ export interface UsageNowRead {
     /** Figures, a wait, or a failure: the card paints one of the three and has
      *  no fourth to fall back on. */
     display: UsageDisplay;
-    /** The last read did not produce figures. What `display` holds is still the
-     *  best known answer and stays on screen with its age. */
+    /** Reads keep failing and there are no figures to stand on. With figures
+     *  on screen a failure stays quiet: they keep their age and a retry runs
+     *  in the background. */
     failed: boolean;
     /** A read is in flight behind the display. */
     refreshing: boolean;
@@ -65,6 +71,8 @@ export function useUsageNow(): UsageNowRead {
     const pendingForce = React.useRef(false);
     const bursting = React.useRef(false);
     const followUp = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const retry = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const retries = React.useRef(0);
     const latest = React.useRef<(force: boolean) => void>(() => {});
     const displayRef = React.useRef(display);
     displayRef.current = display;
@@ -92,6 +100,7 @@ export function useUsageNow(): UsageNowRead {
         // the control on, because the tap did do something.
         if (loading.current) { setRefreshing(true); return Promise.resolve(); }
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
+        if (retry.current !== undefined) { clearTimeout(retry.current); retry.current = undefined; }
         // The budget belongs to a forced read that actually starts: a cycle that
         // can only join the read already in flight must not spend it, and the
         // window opens only where we really ask.
@@ -113,6 +122,11 @@ export function useUsageNow(): UsageNowRead {
         const before = displayRef.current;
         if (before.status === 'waiting') rememberShown(READ_TAB, { status: 'waiting', askedAt: claimedAtMs, ...measured(before) });
         setRefreshing(true);
+        const retryLater = () => {
+            const delay = Math.min(FRESH_MS, RETRY_BASE_MS * 2 ** retries.current);
+            retries.current += 1;
+            retry.current = setTimeout(() => { retry.current = undefined; latest.current(true); }, delay);
+        };
         return sync.request('usage.now', force ? { refresh: true } : {}, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((result) => {
                 if (request !== version.current) { abandon(); return; }
@@ -125,29 +139,39 @@ export function useUsageNow(): UsageNowRead {
                 // be answered by the very figures this read set out to replace:
                 // that is not the collection finishing, and the read keeps
                 // waiting rather than settling on what it already had.
+                let showsFigures = displayRef.current.status === 'figures';
                 if (result.collecting !== true && (replaced === undefined || isNewer(result, replaced, replacedAt, Date.now()))) {
-                    collecting.current = 0;
-                    bursting.current = false;
+                    retries.current = 0;
                     setFailed(false);
-                    setRefreshing(false);
                     rememberShown(READ_TAB, { status: 'figures', at: Date.now(), figures: withNow(shown.current, result) });
-                    return;
+                    showsFigures = true;
+                    // Last known figures with a collection still running
+                    // behind them: they are painted, and the follow-ups below
+                    // pick up the collection when it lands.
+                    if (result.refreshing !== true) {
+                        collecting.current = 0;
+                        bursting.current = false;
+                        setRefreshing(false);
+                        return;
+                    }
                 }
                 collecting.current += 1;
                 const exhausted = collecting.current >= COLLECTING_ATTEMPTS;
                 bursting.current = !exhausted;
                 // A cold answer never takes collected figures off the screen:
                 // showing what was last known is the whole point of refreshing
-                // behind it. With nothing collected yet it says what it is -- a
-                // host still collecting, or one that never finished.
-                setFailed(exhausted);
+                // behind it, and a collection that has not landed yet is no
+                // alarm while they stand. With nothing collected yet it says
+                // what it is -- a host still collecting, or one that never
+                // finished -- and keeps asking in the background either way.
+                setFailed(exhausted && !showsFigures);
                 setRefreshing(!exhausted);
-                if (displayRef.current.status !== 'figures') {
+                if (!showsFigures) {
                     rememberShown(READ_TAB, exhausted
                         ? { status: 'unavailable', reason: '', ...measured(result) }
                         : { status: 'waiting', askedAt: claimedAtMs, ...measured(result) });
                 }
-                if (exhausted) return;
+                if (exhausted) { retryLater(); return; }
                 followUp.current = setTimeout(() => { followUp.current = undefined; latest.current(false); }, COLLECTING_RETRY_MS);
             })
             // A refresh that failed leaves the figures it could not replace
@@ -158,11 +182,12 @@ export function useUsageNow(): UsageNowRead {
                 {
                     bursting.current = false;
                     rejected.current = true;
-                    setFailed(true);
                     setRefreshing(false);
                     if (displayRef.current.status !== 'figures') {
+                        setFailed(true);
                         rememberShown(READ_TAB, { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause), ...measured(displayRef.current) });
                     }
+                    retryLater();
                 }
             })
             .finally(() => {
@@ -232,6 +257,7 @@ export function useUsageNow(): UsageNowRead {
         loading.current = false;
         if (claim.current !== undefined) { releaseAsked(READ_TAB, claim.current); claim.current = undefined; }
         if (followUp.current !== undefined) { clearTimeout(followUp.current); followUp.current = undefined; }
+        if (retry.current !== undefined) { clearTimeout(retry.current); retry.current = undefined; }
     }, []);
 
     return { display, failed, refreshing, throttledSeconds, refresh };

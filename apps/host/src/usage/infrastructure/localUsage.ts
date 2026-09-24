@@ -18,7 +18,9 @@ function exists(path: string): boolean {
     catch (error) { if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return false; throw error; }
 }
 
-const deadlineOf = (): number => Date.now() + 4_000;
+// ponytail: a full rescan each collection; under heavy load a week of Pi
+// transcripts takes seconds, so memoise per file if this deadline bites again.
+const deadlineOf = (): number => Date.now() + 12_000;
 
 export interface LocalAgentReport {
     rows?: UsageModelUsage[];
@@ -108,9 +110,10 @@ async function collectTranscripts(root: string, periods: string[], now: number, 
         if (Date.now() > deadline || seen.size > 400_000 || groups.size > 1024) throw new Error('bounded scan exceeded');
         if (!line.includes('"usage"')) return;
         let entry: RawUsageRecord;
-        // A usage record we cannot read is not an absent record: counting the
-        // rest would report a partial total as the measured one.
-        try { entry = JSON.parse(line) as RawUsageRecord; } catch { throw new Error('malformed usage record'); }
+        // A line that does not parse is a torn write -- the tail an agent is
+        // still appending -- or damage confined to that line. Skipping it costs
+        // one record; failing the scan used to blank the whole provider.
+        try { entry = JSON.parse(line) as RawUsageRecord; } catch { return; }
         const message = entry?.message;
         const usage = message?.usage;
         // Assistant usage records are not always typed; a missing type is not
@@ -151,21 +154,29 @@ async function collectTranscripts(root: string, periods: string[], now: number, 
     for (const file of sessionFiles(root, deadline, windowStartMs)) {
         const stream = createReadStream(file, { encoding: 'utf8' });
         let carry = '';
+        let skipping = false;
         try {
             for await (const chunk of stream) {
                 if (Date.now() > deadline) throw new Error('bounded scan exceeded');
                 carry += chunk;
                 let start = 0;
+                if (skipping) {
+                    const newline = carry.indexOf('\n');
+                    if (newline < 0) { carry = ''; continue; }
+                    skipping = false;
+                    start = newline + 1;
+                }
                 for (let newline = carry.indexOf('\n'); newline >= 0; newline = carry.indexOf('\n', start)) {
                     consume(carry.slice(start, newline));
                     start = newline + 1;
                 }
                 carry = carry.slice(start);
-                // The retained prefix is only the head of the line; usage may sit past
-                // it, so a prefix without `"usage"` proves nothing about the whole line.
-                if (carry.length > MAX_LINE) throw new Error('oversized usage record');
+                // A usage record is a few hundred bytes; a line this long is a
+                // tool result (an image, a file dump). It is dropped through its
+                // newline rather than failing every other record in the tree.
+                if (carry.length > MAX_LINE) { carry = ''; skipping = true; }
             }
-            if (carry !== '') consume(carry);
+            if (carry !== '' && !skipping) consume(carry);
         } finally { stream.destroy(); }
     }
     const rows: UsageModelUsage[] = [...groups.values()]

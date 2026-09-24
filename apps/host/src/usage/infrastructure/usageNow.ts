@@ -7,24 +7,33 @@
  */
 import type { UsageNow, UsageReport } from '@muxr/contract';
 import { NOT_CONNECTED_MESSAGE, tightestWindow } from '../domain/usageWindows.js';
-import { collectUsage } from './collectUsage.js';
+import { collectUsage, lastKnownPlans } from './collectUsage.js';
 import { vitalsFigures } from './vitals.js';
 
 /** Past this the cold cache answers without its limit window and the vitals
  *  still stand; the collection keeps running and warms the cache behind it. */
 const NOW_WAIT_MS = 5_000;
+/** With a last good reading on disk there is no reason to hold the card on a
+ *  slow collection: past this it paints that reading and says a refresh is
+ *  running, and the next ask picks up the collection when it lands. */
+const KNOWN_WAIT_MS = 1_500;
 
 export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh = false }: { refresh?: boolean } = {}): Promise<UsageNow> {
-    let output: UsageReport | undefined;
+    let output: Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'> | undefined;
+    // A forced read re-collects past a still-valid cache: the cache serves any
+    // same-day payload, so a reader looking at figures it can see are old has
+    // no other way to make them current.
+    const collection = collectUsage({ ...(refresh ? { refresh: true } : {}) }, env).catch(() => undefined);
+    let known: ReturnType<typeof lastKnownPlans>;
+    try { known = lastKnownPlans(env); } catch { known = undefined; }
     try {
         output = await Promise.race([
-            // A forced read re-collects past a still-valid cache: the cache
-            // serves any same-day payload, so a reader looking at figures it
-            // can see are old has no other way to make them current.
-            collectUsage({ ...(refresh ? { refresh: true } : {}) }, env).catch(() => undefined),
-            new Promise<undefined>((resolve) => { const timer = setTimeout(() => resolve(undefined), NOW_WAIT_MS); timer.unref(); }),
+            collection,
+            new Promise<undefined>((resolve) => { const timer = setTimeout(() => resolve(undefined), known === undefined ? NOW_WAIT_MS : KNOWN_WAIT_MS); timer.unref(); }),
         ]);
     } catch { output = undefined; }
+    const refreshing = output === undefined && known !== undefined;
+    if (refreshing) output = known;
     // `windows` is the unrounded view-model list `limitsPayload` derived the
     // verdict from, parallel to the rendered `limits.windows`. Running the same
     // selection over it is what keeps the window the card labels and the window
@@ -38,7 +47,8 @@ export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh =
     // is withheld, because the card owns a localized one.
     const reason = output?.limits?.message;
     const captured = output?.capturedAt;
-    const capturedAt = Date.parse(captured ?? '');
+    // The oldest reading shown is what the age speaks for.
+    const capturedAt = Date.parse(output?.readingsFrom ?? captured ?? '');
     const ageSeconds = Number.isFinite(capturedAt) ? Math.max(0, Math.round((Date.now() - capturedAt) / 1000)) : undefined;
     return {
         limits: {
@@ -51,6 +61,7 @@ export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh =
         // it at its own RPC boundary.
         ...(output?.connected === undefined ? {} : { connected: output.connected }),
         ...(output === undefined ? { collecting: true as const } : {}),
+        ...(refreshing ? { refreshing: true as const } : {}),
         // How old the limit figures are, not whether some other surface would call
         // them stale: the usage cache replays its original `capturedAt`, and both
         // timestamps come from this host's clock. Each reader owns its own
