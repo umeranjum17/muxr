@@ -517,4 +517,39 @@ export const darkTheme = {
     },
 } satisfies typeof lightTheme;
 
+/*
+ * Seamless dark: the same dark theme with its surfaces taken down to the
+ * terminal's near-black, so cards, grouped rows, sheets, bars and the composer
+ * blend into the page instead of sitting on it as grey slabs. Dividers keep a
+ * visible step so rows and cards still separate. Raised is `darkTheme` itself.
+ */
+const seamlessSurface = terminalChrome.canvas;
+const seamlessHigh = '#131312';
+const seamlessPressed = '#1c1c1b';
+
+export const darkSeamlessTheme = {
+    ...darkTheme,
+    colors: {
+        ...darkTheme.colors,
+        surface: seamlessSurface,
+        surfacePressed: seamlessPressed,
+        surfaceSelected: seamlessPressed,
+        surfacePressedOverlay: Platform.select({ web: 'transparent', default: seamlessPressed }),
+        surfaceHigh: seamlessHigh,
+        surfaceHighest: seamlessPressed,
+        divider: '#262625',
+        glass: {
+            ...darkTheme.colors.glass,
+            background: 'rgba(12, 12, 11, 0.44)',
+            backgroundStrong: 'rgba(12, 12, 11, 0.68)',
+        },
+        header: { ...darkTheme.colors.header, background: '#000000' },
+        groupped: { ...darkTheme.colors.groupped, background: '#000000' },
+        input: { ...darkTheme.colors.input, background: seamlessHigh },
+    },
+} satisfies typeof lightTheme;
+
+export type DarkSurfaces = 'seamless' | 'raised';
+export const darkThemes: Record<DarkSurfaces, typeof lightTheme> = { seamless: darkSeamlessTheme, raised: darkTheme };
+
 export type Theme = typeof lightTheme;

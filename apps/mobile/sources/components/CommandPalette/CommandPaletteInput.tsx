@@ -4,7 +4,8 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { darkTheme } from '@/theme';
+import { darkThemes } from '@/theme';
+import { useLocalSetting } from '@/catalog/store';
 
 interface CommandPaletteInputProps {
     value: string;
@@ -16,6 +17,7 @@ interface CommandPaletteInputProps {
 
 export function CommandPaletteInput({ value, onChangeText, onKeyPress, inputRef, appearance }: CommandPaletteInputProps) {
     const { theme: appTheme } = useUnistyles();
+    const darkTheme = darkThemes[useLocalSetting('darkSurfaces')];
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
     // A physical keyboard is the only kind on wide screens, so the field can
     // take focus immediately; on a phone the sheet opens with the IME down.

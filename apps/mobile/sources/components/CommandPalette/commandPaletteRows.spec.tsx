@@ -33,6 +33,7 @@ vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 // The hook resolves its quiet line through the catalogue; these rows are not
 // about wording, and the real module would drag Expo's native runtime in.
 vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('@/catalog/store', () => ({ useLocalSetting: () => 'seamless' }));
 vi.mock('@/components/ui', () => ({ SectionLabel: 'Text', withAlpha: (color: string) => color }));
 
 // eslint-disable-next-line

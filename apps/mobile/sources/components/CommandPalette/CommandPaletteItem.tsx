@@ -5,7 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Command } from '@/components/CommandPalette/types';
 import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
 import { Typography } from '@/constants/Typography';
-import { darkTheme } from '@/theme';
+import { darkThemes } from '@/theme';
+import { useLocalSetting } from '@/catalog/store';
 
 interface CommandPaletteItemProps {
     command: Command;
@@ -18,6 +19,7 @@ interface CommandPaletteItemProps {
 
 export function CommandPaletteItem({ command, isSelected, onPress, onSecondaryPress, onHover, appearance }: CommandPaletteItemProps) {
     const { theme: appTheme } = useUnistyles();
+    const darkTheme = darkThemes[useLocalSetting('darkSurfaces')];
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
     const [isHovered, setIsHovered] = React.useState(false);
     const active = isSelected || isHovered;

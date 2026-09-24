@@ -15,12 +15,11 @@ import { AvatarSkia } from '@/components/AvatarSkia';
 import { Appearance, Platform, StyleSheet, Text, View } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 import { Typography } from '@/constants/Typography';
-import { darkTheme, lightTheme, type Theme } from '@/theme';
+import { darkThemes, lightTheme, type DarkSurfaces, type Theme } from '@/theme';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 
 type ThemePreference = 'adaptive' | 'light' | 'dark';
 type AvatarStyle = 'pixelated' | 'gradient' | 'brutalist';
-type TerminalBars = 'seamless' | 'raised';
 
 const isAvatarStyle = (style: string): style is AvatarStyle =>
     style === 'pixelated' || style === 'gradient' || style === 'brutalist';
@@ -55,36 +54,19 @@ function ThemeTile({ palettes }: { palettes: readonly Theme['colors'][] }) {
     );
 }
 
-/**
- * A terminal in miniature: a header line, a few rows of output and the
- * composer, with the header and footer in the ink the choice would give them.
- */
-function BarsTile({ bars }: { bars: TerminalBars }) {
-    const ink = darkTheme.colors.terminalChrome;
-    const bar = bars === 'raised' ? ink.chrome : ink.canvas;
-    return (
-        <View style={[styles.tile, { flexDirection: 'column', borderColor: 'rgba(255, 255, 255, 0.2)', backgroundColor: ink.canvas }]}>
-            <View style={[styles.barsEdge, { height: 7, backgroundColor: bar }]}>
-                <View style={[styles.tileBar, { width: 14, backgroundColor: darkTheme.colors.textSecondary }]} />
-            </View>
-            <View style={styles.barsOutput}>
-                <View style={[styles.tileBar, { width: 26, backgroundColor: darkTheme.colors.textSecondary }]} />
-                <View style={[styles.tileBar, { width: 18, backgroundColor: darkTheme.colors.textSecondary }]} />
-            </View>
-            <View style={[styles.barsEdge, { height: 9, backgroundColor: bar }]}>
-                <View style={[styles.tileBar, { flex: 1, height: 4, borderRadius: 2, backgroundColor: 'rgba(255, 255, 255, 0.14)' }]} />
-            </View>
-        </View>
-    );
-}
-
-function applyTheme(next: ThemePreference): void {
+function applyTheme(next: ThemePreference, surfaces: DarkSurfaces): void {
     UnistylesRuntime.setAdaptiveThemes(next === 'adaptive');
     if (next !== 'adaptive') UnistylesRuntime.setTheme(next);
     const dark = next === 'adaptive' ? Appearance.getColorScheme() === 'dark' : next === 'dark';
-    const color = dark ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
+    const color = dark ? darkThemes[surfaces].colors.groupped.background : lightTheme.colors.groupped.background;
     UnistylesRuntime.setRootViewBackgroundColor(color);
     void SystemUI.setBackgroundColorAsync(color);
+}
+
+/** Swaps the registered dark palette in place, so every screen repaints now. */
+function applyDarkSurfaces(surfaces: DarkSurfaces, themePreference: ThemePreference): void {
+    UnistylesRuntime.updateTheme('dark', () => darkThemes[surfaces]);
+    applyTheme(themePreference, surfaces);
 }
 
 function languageName(preferred: string | null): string {
@@ -105,16 +87,16 @@ export default function AppearanceSettingsScreen() {
     const [terminalFontIndex, setTerminalFontIndex] = useLocalSettingMutable('terminalFontIndex');
     const [terminalFont, setTerminalFont] = useLocalSettingMutable('terminalFont');
     const [pinchZoom] = useLocalSettingMutable('terminalPinchZoom');
-    const [terminalBars, setTerminalBars] = useLocalSettingMutable('terminalBars');
+    const [darkSurfaces, setDarkSurfaces] = useLocalSettingMutable('darkSurfaces');
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
-    const [sheet, setSheet] = React.useState<'theme' | 'size' | 'font' | 'bars' | 'avatar' | null>(null);
+    const [sheet, setSheet] = React.useState<'theme' | 'surfaces' | 'size' | 'font' | 'avatar' | null>(null);
     const close = () => setSheet(null);
 
     const themeName = (key: ThemePreference) => t(`settingsAppearance.themeOptions.${key}`);
     const themeChoices: Choice[] = [
-        { key: 'adaptive', label: themeName('adaptive'), detail: t('settingsAppearance.themeDescriptions.adaptive'), preview: <ThemeTile palettes={[lightTheme.colors, darkTheme.colors]} /> },
+        { key: 'adaptive', label: themeName('adaptive'), detail: t('settingsAppearance.themeDescriptions.adaptive'), preview: <ThemeTile palettes={[lightTheme.colors, darkThemes[darkSurfaces].colors]} /> },
         { key: 'light', label: themeName('light'), preview: <ThemeTile palettes={[lightTheme.colors]} /> },
-        { key: 'dark', label: themeName('dark'), preview: <ThemeTile palettes={[darkTheme.colors]} /> },
+        { key: 'dark', label: themeName('dark'), preview: <ThemeTile palettes={[darkThemes[darkSurfaces].colors]} /> },
     ];
 
     // Samples draw in the face the terminal will use: the browser's chosen one,
@@ -133,10 +115,10 @@ export default function AppearanceSettingsScreen() {
         labelStyle: { fontFamily: TERMINAL_FONTS[key].family },
     }));
 
-    const barsName: Record<TerminalBars, string> = { seamless: 'Seamless', raised: 'Raised' };
-    const barsChoices: Choice[] = [
-        { key: 'seamless', label: barsName.seamless, detail: 'Default', preview: <BarsTile bars="seamless" /> },
-        { key: 'raised', label: barsName.raised, preview: <BarsTile bars="raised" /> },
+    const surfacesName: Record<DarkSurfaces, string> = { seamless: 'Seamless', raised: 'Raised' };
+    const surfacesChoices: Choice[] = [
+        { key: 'seamless', label: surfacesName.seamless, detail: 'Default', preview: <ThemeTile palettes={[darkThemes.seamless.colors]} /> },
+        { key: 'raised', label: surfacesName.raised, preview: <ThemeTile palettes={[darkThemes.raised.colors]} /> },
     ];
 
     const displayStyle: AvatarStyle = isAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
@@ -148,8 +130,9 @@ export default function AppearanceSettingsScreen() {
 
     return (
         <ItemList style={{ paddingTop: 0 }}>
-            <ItemGroup title="App">
+            <ItemGroup title="App" footer="In the dark theme and the terminal, Seamless blends cards and bars into the black page. Raised lifts them a shade.">
                 <Item title={t('settingsAppearance.theme')} subtitle={themeName(themePreference)} onPress={() => setSheet('theme')} />
+                <Item title="Dark surfaces" subtitle={surfacesName[darkSurfaces]} onPress={() => setSheet('surfaces')} />
                 <Item title={t('settingsLanguage.title')} subtitle={languageName(preferredLanguage)} onPress={() => router.push('/settings/language')} />
             </ItemGroup>
 
@@ -161,7 +144,6 @@ export default function AppearanceSettingsScreen() {
                 {Platform.OS === 'web' && (
                     <Item title="Font" subtitle={TERMINAL_FONTS[terminalFont].name} onPress={() => setSheet('font')} />
                 )}
-                <Item title="Header and footer" subtitle={barsName[terminalBars]} onPress={() => setSheet('bars')} />
             </ItemGroup>
 
             <ItemGroup title="Avatars" footer="Avatars appear next to recent sessions.">
@@ -185,7 +167,7 @@ export default function AppearanceSettingsScreen() {
                 selectedKey={themePreference}
                 onSelect={(key) => {
                     setThemePreference(key as ThemePreference);
-                    applyTheme(key as ThemePreference);
+                    applyTheme(key as ThemePreference, darkSurfaces);
                 }}
                 onClose={close}
             />
@@ -206,11 +188,14 @@ export default function AppearanceSettingsScreen() {
                 onClose={close}
             />
             <ChoiceSheet
-                visible={sheet === 'bars'}
-                title="Terminal header and footer"
-                choices={barsChoices}
-                selectedKey={terminalBars}
-                onSelect={(key) => setTerminalBars(key as TerminalBars)}
+                visible={sheet === 'surfaces'}
+                title="Dark surfaces"
+                choices={surfacesChoices}
+                selectedKey={darkSurfaces}
+                onSelect={(key) => {
+                    setDarkSurfaces(key as DarkSurfaces);
+                    applyDarkSurfaces(key as DarkSurfaces, themePreference);
+                }}
                 onClose={close}
             />
             <ChoiceSheet
@@ -232,7 +217,5 @@ const styles = StyleSheet.create({
     tileLine: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     tileDot: { width: 4, height: 4, borderRadius: 2 },
     tileBar: { height: 3, borderRadius: 1.5 },
-    barsEdge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 5 },
-    barsOutput: { flex: 1, justifyContent: 'center', gap: 3, paddingHorizontal: 5 },
     sizeSample: { width: 30 },
 });

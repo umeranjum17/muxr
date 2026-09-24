@@ -157,7 +157,7 @@ function TranscribingDots({ color }: { color: string }) {
 // the Ghostty background itself, and the floating control and its ring are the
 // chrome ink one step up from it. The header line, pane rail, key marks and
 // composer share the canvas by default, so the screen reads as one surface;
-// the Appearance setting `terminalBars` raises them to the chrome ink too.
+// the Appearance setting `darkSurfaces` raises them to the chrome ink too.
 const DesktopSurface = React.lazy(async () => ({ default: (await import('@/desktop')).DesktopSurface }));
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
@@ -242,7 +242,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         return () => clearInterval(timer);
     }, []);
     const swipeScope = useLocalSettingMutable('terminalSwipeScope')[0];
-    const barsRaised = useLocalSettingMutable('terminalBars')[0] === 'raised';
+    const barsRaised = useLocalSettingMutable('darkSurfaces')[0] === 'raised';
     const swipeNeighbours = React.useMemo(
         () => agentSwipeNeighbours(sharedLiveTerminalCards(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces))), props.id, swipeScope, swipeNow),
         [props.id, sessions, swipeNow, swipeScope, workspaces],

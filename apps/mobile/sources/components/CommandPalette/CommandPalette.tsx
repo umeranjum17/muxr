@@ -7,7 +7,8 @@ import { CommandPaletteInput } from '@/components/CommandPalette/CommandPaletteI
 import { CommandPaletteResults } from '@/components/CommandPalette/CommandPaletteResults';
 import { useCommandPalette } from '@/components/CommandPalette/useCommandPalette';
 import { Command } from '@/components/CommandPalette/types';
-import { darkTheme } from '@/theme';
+import { darkThemes } from '@/theme';
+import { useLocalSetting } from '@/catalog/store';
 
 interface CommandPaletteProps {
     commands: Command[];
@@ -25,6 +26,7 @@ export function CommandPalette({ commands, onClose, title, appearance, quietLine
     const { theme: appTheme } = useUnistyles();
     // A terminal pane stays dark in either app theme, so its command surface
     // uses the same dark chrome. The global navigation palette follows the app.
+    const darkTheme = darkThemes[useLocalSetting('darkSurfaces')];
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
     const sheet = appearance === 'terminal' && width < 500;
     const {
