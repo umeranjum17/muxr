@@ -17,9 +17,9 @@ their action or approval.
 
 ## Open a page on the desktop
 
-1. On a machine with a desktop session, open the page in that session's
-   default desktop browser: `xdg-open <url>` on Linux or `open <url>` on macOS.
-   Check that the window is on the screen Computer shows before handing off.
+1. On a supported Linux machine with a desktop session, open the page in that
+   session's default desktop browser: `xdg-open <url>`. Check that the window
+   is on the screen Computer shows before handing off.
 2. Tell the user where to look in plain words ("Open Computer on your phone;
    the sign-in page is up"). Never paste ports, token-bearing URLs, or ids.
 3. If you must drive the page yourself, keep its window on that desktop
