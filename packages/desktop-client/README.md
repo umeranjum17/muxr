@@ -9,9 +9,8 @@ the application.
 
 ## Install
 
-The package contains native code and is not an Expo Go package. It is not
-published to npm yet: inside this repository it resolves through the workspace,
-and the command below is what a consumer outside it will run once it is.
+The package contains native code and is not an Expo Go package. Inside this
+repository it resolves through the workspace; anywhere else, install it from npm:
 
 ```sh
 npx expo install @desklink/react-native      # or yarn add, then prebuild/rebuild

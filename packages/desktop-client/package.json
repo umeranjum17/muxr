@@ -15,8 +15,10 @@
     "files": [
         "index.ts",
         "src",
-        "android",
-        "ios",
+        "!src/**/*.spec.ts",
+        "android/build.gradle",
+        "android/gradle.properties",
+        "android/src/main",
         "expo-module.config.json",
         "NOTICE",
         "README.md"
