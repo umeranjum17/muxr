@@ -40,7 +40,7 @@ function endedCopy(snapshot: SessionSnapshot): { detail: string; canRetry: boole
  * start says where the one-time screen-sharing approval appears: on the
  * computer, where the person holding the phone would not think to look.
  */
-export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore = true): DesktopOverlay {
+export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore = true, consentSecondsLeft: number | null = null): DesktopOverlay {
     if (snapshot.status === 'failed' && snapshot.failure?.code === 'consent') {
         // The prompt was on the computer, where nobody answered it; the host's
         // own wording would only say that it timed out.
@@ -65,6 +65,11 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
             spinner: false,
             canRetry: ended.canRetry,
         };
+    }
+    if (snapshot.status === 'opening' && consentSecondsLeft !== null) {
+        const left = Math.max(0, consentSecondsLeft);
+        const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+        return { title: desktopCopy.awaitingConsentTitle, detail: `${desktopCopy.awaitingConsentBody} ${clock} left.`, spinner: true, canRetry: false };
     }
     if (snapshot.status === 'reconnecting') {
         return { title: desktopCopy.reconnectingTitle, detail: desktopCopy.reconnectingBody, spinner: true, canRetry: false };

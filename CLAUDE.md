@@ -40,6 +40,10 @@ behaviour it claims to cover and watch it go red.
 - The reference phone runs a large display scale: 1080x2376 at density 640 is a **270 x 594 dp** viewport. A fixed-height block that fits a 393 dp phone can still push the controls under it off the screen, and RN does not clip the overflow — it overlaps. Check any new fixed-height UI against a short viewport, not just a roomy one.
 - A screen that draws its own `<Header>` must also be registered in `apps/mobile/sources/app/(app)/_layout.tsx` with `headerShown: false`. `screenOptions` sets no default, so an unregistered route inherits expo-router's `true` and the navigator draws a second header above the screen's own — two back controls and two safe-area insets of empty band. Such a screen's content must not re-pay the safe area either: the header is a laid-out sibling above it, not a floating one.
 
+## Desktop
+
+- A Wayland screen-share grant is filed under the app id of the process that asked, which xdg-desktop-portal reads from its systemd unit (`app-…` units carry one, `muxr.service` does not). Anything asking consent on the host's behalf must run the engine the way `scripts/setup/application/approveScreenSharing.mjs` does, or the host can never restore the grant it saved.
+
 ## Builds
 
 - Long builds/servers run in their own shell pane, never inline inside an agent.

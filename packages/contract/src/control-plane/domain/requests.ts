@@ -238,6 +238,13 @@ export interface DesktopCapabilities {
     codec?: string;
 }
 
+/**
+ * How long `desktop.open` may wait on the computer's screen-sharing prompt
+ * before the host gives up with `consent-timeout`. A phone waits a little
+ * longer than this, so the host's answer always arrives first.
+ */
+export const DESKTOP_CONSENT_WAIT_MS = 110_000;
+
 export interface RequestMap extends PeerRequestMap {
     // --- live desktop -------------------------------------------------------
     /** Whether this machine can show and drive its own desktop right now. */
@@ -260,6 +267,13 @@ export interface RequestMap extends PeerRequestMap {
              * over TCP there, for the phone to carry through that forward.
              */
             loopbackTcp?: boolean;
+            /**
+             * The caller waits up to `DESKTOP_CONSENT_WAIT_MS` for the answer,
+             * so the host may too. Without it the host answers within its
+             * ordinary engine timeout, which an older phone's shorter request
+             * timeout still outlasts.
+             */
+            awaitConsent?: boolean;
         };
         result: {
             desktopId: string;

@@ -227,6 +227,76 @@ describe('desktop sessions, host side', () => {
         }
     }, 20_000);
 
+    it('keeps the engine waiting on a slow screen-sharing approval, and stops it at the consent window', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-consent-'));
+        const scriptPath = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        const approval = join(directory, 'approved');
+        const pids = join(directory, 'pids');
+        writeFileSync(log, '');
+        // The portal answers only once the person at the computer approves,
+        // which here is a file the test writes whenever it chooses.
+        writeFileSync(scriptPath, `require('node:fs').appendFileSync(${JSON.stringify(pids)}, process.pid + '\\n');\n` + STUB.replace("    case 'session.open':", `
+    case 'session.open': {
+      const waiting = setInterval(() => {
+        if (!require('node:fs').existsSync(${JSON.stringify(approval)})) return;
+        clearInterval(waiting);
+        out({ event: 'session.restoreToken', params: { sessionId: session.id, token: 'approved-grant' } });
+        out({ id: request.id, result: {
+          sessionId: session.id, generation: 1,
+          source: { kind: 'monitor', width: 2560, height: 1440, origin: { x: 0, y: 0 } },
+          geometry: { source: { width: 2560, height: 1440 }, encoded: { width: 1280, height: 720 }, origin: { x: 0, y: 0 } },
+        } });
+      }, 20);
+      return;
+    }
+    case 'unused':`));
+        const desktop = new DesktopSessions({
+            enginePath: process.execPath,
+            engineArguments: [scriptPath, log],
+            stateRoot: directory,
+        }, PORTAL_HOST);
+        const opens = () => readFileSync(log, 'utf8').split('\n').filter((line) => line.includes('"session.open"')).length;
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+            // A person takes a minute to find the prompt: long past the
+            // engine's ordinary request timeout, so the same engine must still
+            // be there when they approve.
+            const slow = desktop.open({ permissions: ['view'], awaitConsent: true });
+            await vi.waitFor(() => expect(opens()).toBe(1), { timeout: 5000 });
+            await vi.advanceTimersByTimeAsync(60_000);
+            writeFileSync(approval, '');
+            const opened = await slow;
+            expect(opened.desktopId).toBeTruthy();
+            expect(readFileSync(join(directory, 'desktop', 'portal-restore-token'), 'utf8')).toBe('approved-grant');
+            expect(readFileSync(pids, 'utf8').trim().split('\n')).toHaveLength(1);
+            await desktop.closeAll();
+
+            // Nobody answers: the host gives up at the consent window with the
+            // typed refusal, and the engine holding the prompt is gone.
+            rmSync(approval);
+            const unanswered = desktop.open({ permissions: ['view'], awaitConsent: true });
+            const refused = expect(unanswered).rejects.toMatchObject({ code: 'consent-timeout' });
+            await vi.waitFor(() => expect(opens()).toBe(2), { timeout: 5000 });
+            await vi.advanceTimersByTimeAsync(111_000);
+            await refused;
+            const pid = Number(readFileSync(pids, 'utf8').trim().split('\n')[1]);
+            await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 5000 });
+
+            // A phone that does not say it waits (an older app, with a shorter
+            // request timeout of its own) is answered within that timeout.
+            const older = desktop.open({ permissions: ['view'] });
+            const answered = expect(older).rejects.toMatchObject({ code: 'consent-timeout' });
+            await vi.waitFor(() => expect(opens()).toBe(3), { timeout: 5000 });
+            await vi.advanceTimersByTimeAsync(16_000);
+            await answered;
+        } finally {
+            vi.useRealTimers();
+            await desktop.closeAll();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    }, 20_000);
+
     it('refuses control up front when the machine has no input backend', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'desklink-stub-'));
         const scriptPath = join(directory, 'engine.cjs');

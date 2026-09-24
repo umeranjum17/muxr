@@ -24,6 +24,7 @@ import {
     stateDir,
 } from '../infrastructure/runtime.mjs';
 import { daemonDefinition, runDaemon } from '../infrastructure/daemon.mjs';
+import { approveScreenSharing } from './approveScreenSharing.mjs';
 import {
     readSelfhostState,
     selfhostControlBase,
@@ -263,7 +264,11 @@ export async function pairDevice(args = []) {
             healthy = await selfhostRelayHealthy(state);
         }
         if (!healthy) throw new Error('the relay could not restart; run `muxr doctor` for the exact failing check');
-        return await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority, pair.personal));
+        const paired = await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority, pair.personal));
+        // The person pairing is at this computer, which is the only place the
+        // desktop's screen-sharing prompt can be answered.
+        if (paired === 0) await approveScreenSharing();
+        return paired;
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));
         return 1;

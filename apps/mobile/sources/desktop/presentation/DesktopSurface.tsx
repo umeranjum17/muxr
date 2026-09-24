@@ -7,6 +7,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { DesktopView, observeWebKeyboardMotion, useDesktopSession } from '@desklink/react-native';
+import { DESKTOP_CONSENT_WAIT_MS } from '@muxr/contract';
 
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
@@ -28,6 +29,9 @@ const NOTICE_MS = 4000;
 
 /** The first live desktop on a device explains its gestures once, for longer. */
 const HINT_MS = 7000;
+
+/** An open that has not answered by now is waiting on a person at the computer. */
+const CONSENT_HINT_AFTER_MS = 2000;
 
 /** The two round controls: a thumb's size, in the terminal's floating material. */
 const BUTTON = 44;
@@ -108,6 +112,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
     const [notice, setNotice] = React.useState<{ text: string; ms: number } | null>(null);
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
     const [clipboardAvailable, setClipboardAvailable] = React.useState(false);
+    const [openSentAt, setOpenSentAt] = React.useState<number | null>(null);
     const [menu, setMenu] = React.useState<Menu | null>(null);
     const [landscape, setLandscape] = React.useState(false);
     const keyboard = useKeyboardState();
@@ -140,7 +145,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
                 ? ['view', 'control', 'clipboard']
                 : ['view', 'control'];
             return {
-                signaling: createDesktopSignaling({ permissions, maxFps: DESKTOP_FPS }),
+                signaling: createDesktopSignaling({ permissions, maxFps: DESKTOP_FPS, onOpenSent: () => setOpenSentAt(Date.now()) }),
                 session: { permissions },
             };
         }, []),
@@ -334,7 +339,25 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
         }
     }, [live, openedBefore, setOpenedBefore, clipboardAvailable, say]);
 
-    const described = describeDesktopOverlay(snapshot, openedBefore);
+    // An open still waiting after a moment is waiting on the computer's
+    // screen-sharing prompt, whether or not a grant was saved (the portal may
+    // have revoked it), so the phone says where to look and how long the host
+    // waits, counted from when the open was sent.
+    const waitingOnOpen = snapshot.status === 'opening' && openSentAt !== null;
+    const [now, setNow] = React.useState(() => Date.now());
+    React.useEffect(() => {
+        if (!waitingOnOpen) return;
+        setNow(Date.now());
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [waitingOnOpen]);
+    React.useEffect(() => {
+        if (snapshot.status !== 'opening') setOpenSentAt(null);
+    }, [snapshot.status]);
+    const consentSecondsLeft = waitingOnOpen && now - openSentAt >= CONSENT_HINT_AFTER_MS
+        ? Math.ceil((openSentAt + DESKTOP_CONSENT_WAIT_MS - now) / 1000)
+        : null;
+    const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft);
     const status = started
         ? { ...described, action: described.canRetry ? 'Try again' : undefined }
         : { title: desktopCopy.stoppedTitle, detail: desktopCopy.stoppedBody, command: undefined, spinner: false, action: desktopCopy.startAction };

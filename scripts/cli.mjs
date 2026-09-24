@@ -23,6 +23,7 @@ import {
     listMachines,
     manageMachines,
     pairDevice,
+    approveScreenSharing,
     prompt,
     revokeDevice,
     revokeMachine,
@@ -64,6 +65,7 @@ Get started
   muxr diagnostics               show bounded redacted host history for agents
   muxr report                    prepare a local redacted bug report draft
   muxr pair [--browser|--browser-view|--browser-personal] pair a phone, control/view-only browser, or personal browser
+  muxr desktop setup             approve screen sharing once, so your phone opens this computer without asking
   muxr connect --enrollment ...  connect this agent machine to a shared relay
   muxr shared-relay              host an always-on relay for other machines
 
@@ -114,6 +116,7 @@ const COMMAND_HELP = {
     'plugin update': `muxr plugin update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nReplace plugin files transactionally while preserving its enabled state.\n`,
     'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
     pair: `muxr pair [--browser|--browser-view|--browser-personal]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), an eight-hour view-only browser link (--browser-view), or a 30-day control link for a browser only you use (--browser-personal).\n`,
+    desktop: `muxr desktop setup\n\nOn a Wayland desktop, show the screen-sharing prompt here and save the approval, so the phone opens this computer without anyone at the screen. \`muxr setup\` and \`muxr pair\` do this once; run it again if the phone starts asking.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
     diagnostics: `muxr diagnostics\n\nPrint seven days of bounded redacted host, client, relay, collaboration, and broker history as JSON. No prompts, terminal output, paths, secrets, or internal ids are recorded.\n`,
     report: `muxr report > muxr-report.md\n\nPrepare a local GitHub issue draft with environment versions, redacted doctor check names, and the latest 50 bounded diagnostic events. The command only prints a draft. Review every line, add what happened, and explicitly decide whether to post it; muxr never opens or submits an issue.\n`,
@@ -499,6 +502,11 @@ async function dispatch(command, args = []) {
         catch (error) { process.stderr.write(`muxr name: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
     }
     if (command === 'pair') return pairDevice(args);
+    if (command === 'desktop') {
+        if (args[0] === 'setup') return approveScreenSharing({ force: true });
+        process.stderr.write('usage: muxr desktop setup\n');
+        return 1;
+    }
     if (command === 'version' || command === '--version' || command === '-v') {
         process.stdout.write(`${versionString()}\n`);
         return 0;

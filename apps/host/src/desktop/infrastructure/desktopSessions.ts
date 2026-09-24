@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
 import type { EngineCapabilities, SourceRequest } from '@desklink/host';
+import { DESKTOP_CONSENT_WAIT_MS } from '@muxr/contract';
 import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@muxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
@@ -114,13 +115,7 @@ const MAX_BACKLOG = 512;
  */
 const DESKTOP_SESSION_LEASE_SECONDS = 3600;
 
-/**
- * How long the engine may take to answer, which bounds how long a portal consent
- * prompt waits on the desktop. It must stay below the phone's 20s request
- * timeout: the host has to answer `desktop.open` first, with the typed
- * `consent-timeout`, or the phone shows its own timeout and a consent given
- * after it opens a session nobody is waiting for.
- */
+/** How long the engine may take to answer anything but a portal open. */
 const ENGINE_REQUEST_TIMEOUT_MS = 15_000;
 
 const UNAVAILABLE_INPUT = 'This computer cannot inject input, so there is nothing to control.';
@@ -212,6 +207,7 @@ export class DesktopSessions {
         bitrateKbps?: number;
         maxFps?: number;
         loopbackTcp?: boolean;
+        awaitConsent?: boolean;
     }, owner?: { connectionId: string; isConnected: () => boolean }): Promise<{ desktopId: string; generation: number; geometry: DesktopSurfaceGeometry; source: LiveSession['source'] }> {
         if (owner !== undefined && !owner.isConnected()) throw new EngineRefused('session', 'the requesting phone disconnected');
         // Before the engine: on a bare server its libraries are missing too, and
@@ -262,7 +258,11 @@ export class DesktopSessions {
             ...(request.maxFps === undefined ? {} : { maxFps: request.maxFps }),
             ...(request.loopbackTcp === true ? { loopbackTcp: true } : {}),
             ttlSeconds: DESKTOP_SESSION_LEASE_SECONDS,
-        }).finally(() => {
+            // A portal open may be waiting on a person at the computer. The
+            // engine stays up for the whole wait when the caller waits that
+            // long too, so an approval that takes a minute still opens the
+            // desktop and saves the grant that stops later opens asking.
+        }, source?.kind !== 'x11' && request.awaitConsent === true ? DESKTOP_CONSENT_WAIT_MS : undefined).finally(() => {
             for (const existing of this.sessions.values()) {
                 if (existing.revoked || existing.client !== client) continue;
                 existing.revoked = true;
