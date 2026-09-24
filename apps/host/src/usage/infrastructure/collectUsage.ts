@@ -4,7 +4,7 @@
  * Host product code -- provider environment access stays internal to the host,
  * and the pinned offline ccusage backend stays the measured-activity source.
  */
-import { scryptSync } from 'node:crypto';
+import { createHash, scryptSync } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { accessSync, chmodSync, constants, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -162,16 +162,27 @@ function claudeConfigDir(env: NodeJS.ProcessEnv): string {
     return env.CLAUDE_CONFIG_DIR?.trim() || join(env.HOME?.trim() || homedir(), '.claude');
 }
 
+/** The Claude account Claude Code is signed in to, re-read on every call so
+ *  Claude Code's own renewal is picked up the next time it runs. muxr never
+ *  renews these credentials itself: an expired token only means Claude is not
+ *  read until Claude Code renews it, while its last good reading stands. */
 function claudeAuth(env: NodeJS.ProcessEnv): { token: string; expired: boolean; account: string } | undefined {
     const stored = readJson(join(claudeConfigDir(env), '.credentials.json'), 64 * 1024)?.value;
     const credentials = isRecord(stored) && isRecord(stored.claudeAiOauth) ? stored.claudeAiOauth : undefined;
     const token = credentials?.accessToken;
-    if (typeof token !== 'string' || token === '' || token.length > 16 * 1024) return undefined;
-    const config = readJson(join(claudeConfigDir(env), '.claude.json'), 256 * 1024)?.value;
+    if (credentials === undefined || typeof token !== 'string' || token === '' || token.length > 16 * 1024) return undefined;
+    // Claude Code keeps the signed-in account beside its config: in the config
+    // directory when one is set, otherwise in the home directory.
+    const configFile = env.CLAUDE_CONFIG_DIR?.trim()
+        ? join(env.CLAUDE_CONFIG_DIR.trim(), '.claude.json')
+        : join(env.HOME?.trim() || homedir(), '.claude.json');
+    const config = readJson(configFile, 4 * 1024 * 1024)?.value;
     const oauthAccount = isRecord(config) && isRecord(config.oauthAccount) ? config.oauthAccount : undefined;
-    const account = typeof credentials?.accountUuid === 'string' ? credentials.accountUuid
-        : typeof oauthAccount?.accountUuid === 'string' ? oauthAccount.accountUuid : token;
-    return { token, expired: Number.isFinite(credentials?.expiresAt) && (credentials.expiresAt as number) <= Date.now(), account };
+    let account = token;
+    if (typeof credentials.accountUuid === 'string') account = credentials.accountUuid;
+    else if (typeof oauthAccount?.accountUuid === 'string') account = oauthAccount.accountUuid;
+    const expiresAt = credentials.expiresAt;
+    return { token, expired: typeof expiresAt === 'number' && Number.isFinite(expiresAt) && expiresAt <= Date.now(), account };
 }
 
 /** Anthropic answers its usage endpoint for Claude Code's own client and
@@ -187,23 +198,13 @@ interface ProviderAnswer {
     /** The HTTP status, absent when no answer arrived at all. */
     status?: number;
     body?: string;
-    /** A network failure or a server error: the kind a second ask a moment
-     *  later usually clears. A timeout is not one -- asking a slow provider
-     *  again only doubles the wait. */
-    transient?: true;
 }
 
-/** One provider read, retried once when the failure was transient. A 429
- *  backs the provider off instead, so its rate limit is never spent on us. */
+/** One bounded provider read. A failure is not retried here: the last good
+ *  reading stands and the next collection asks again. A 429 backs the
+ *  provider off, so its rate limit is never spent on us. */
 async function providerGet(provider: string, url: string, headers: Record<string, string>): Promise<ProviderAnswer> {
     if ((backoffUntil.get(provider) ?? 0) > Date.now()) return { status: 429 };
-    const answer = await providerGetOnce(provider, url, headers);
-    if (answer.transient !== true) return answer;
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-    return providerGetOnce(provider, url, headers);
-}
-
-async function providerGetOnce(provider: string, url: string, headers: Record<string, string>): Promise<ProviderAnswer> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
     try {
@@ -214,7 +215,7 @@ async function providerGetOnce(provider: string, url: string, headers: Record<st
         }
         if (!response.ok || response.body === null) {
             controller.abort();
-            return { status: response.status, ...(response.status >= 500 ? { transient: true as const } : {}) };
+            return { status: response.status };
         }
         let body = '';
         for await (const chunk of response.body) {
@@ -223,7 +224,7 @@ async function providerGetOnce(provider: string, url: string, headers: Record<st
         }
         return { status: response.status, body };
     } catch {
-        return controller.signal.aborted ? {} : { transient: true };
+        return {};
     } finally { clearTimeout(timer); }
 }
 
@@ -437,10 +438,30 @@ const PLAN_LAST_KNOWN_MS = 24 * 60 * 60_000;
 interface PlanReading { at: number; raw: unknown; account: string }
 type PlanReadings = Partial<Record<PlanId, PlanReading>>;
 
+/** Account fingerprints already derived: the KDF is deliberately slow, and a
+ *  collection asks for every provider's more than once. */
+const fingerprints = new Map<string, string>();
+
+function accountFingerprint(id: PlanId, value: string): string {
+    const key = `${id}\u0000${value}`;
+    let fingerprint = fingerprints.get(key);
+    if (fingerprint === undefined) {
+        fingerprint = scryptSync(value, `muxr/usage/account/${id}`, 32, { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }).toString('hex');
+        if (fingerprints.size >= 32) fingerprints.clear();
+        fingerprints.set(key, fingerprint);
+    }
+    return fingerprint;
+}
+
+/** Whose reading each provider's would be now. A stored reading is only ever
+ *  shown for the account it was read from, one provider at a time: switching
+ *  one account never costs another provider its reading. */
 function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
     const codexAuth = readJson(join(env.CODEX_HOME || join(env.HOME?.trim() || homedir(), '.codex'), 'auth.json'), 64 * 1024)?.value;
     const tokens = isRecord(codexAuth) && isRecord(codexAuth.tokens) ? codexAuth.tokens : undefined;
-    const codex = tokens?.account_id ?? tokens?.id_token ?? tokens?.access_token;
+    // The account id is stable across Codex's own token rotation; a login
+    // without one (an API key) is the one account this CODEX_HOME has.
+    const codex = typeof tokens?.account_id === 'string' ? tokens.account_id : 'codex-home';
     const accounts: Partial<Record<PlanId, string>> = {};
     const selected: Partial<Record<PlanId, unknown>> = {
         claude: claudeAuth(env)?.account, codex,
@@ -449,18 +470,16 @@ function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
     };
     for (const id of PLAN_IDS) {
         const value = selected[id];
-        if (typeof value === 'string' && value !== '' && value.length <= 16 * 1024) {
-            accounts[id] = scryptSync(value, `muxr/usage/account/${id}`, 32, { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }).toString('hex');
-        }
+        if (typeof value === 'string' && value !== '' && value.length <= 16 * 1024) accounts[id] = accountFingerprint(id, value);
     }
     return accounts;
 }
 
 /** The last good reading of every plan, per provider, on disk: what a failed
  *  read stands on and what a restarted host paints first. */
-function readPlans(env: NodeJS.ProcessEnv, identity: string, accounts: Partial<Record<PlanId, string>>): PlanReadings {
+function readPlans(env: NodeJS.ProcessEnv, accounts: Partial<Record<PlanId, string>>): PlanReadings {
     const saved = readJson(join(usageStateDir(env), 'plans-v1.json'), 256 * 1024)?.value;
-    if (!isRecord(saved) || saved.identity !== identity || !isRecord(saved.plans)) return {};
+    if (!isRecord(saved) || saved.identity !== plansIdentity(env) || !isRecord(saved.plans)) return {};
     const plans: PlanReadings = {};
     for (const id of PLAN_IDS) {
         const reading = saved.plans[id];
@@ -471,17 +490,24 @@ function readPlans(env: NodeJS.ProcessEnv, identity: string, accounts: Partial<R
     return plans;
 }
 
-function savePlans(env: NodeJS.ProcessEnv, identity: string, updates: PlanReadings, accounts: Partial<Record<PlanId, string>>): void {
+/** Where the plans were read from: the configuration, never an account, which
+ *  each reading carries for itself. Nothing secret goes in, so a plain hash. */
+function plansIdentity(env: NodeJS.ProcessEnv): string {
+    return createHash('sha256').update(JSON.stringify(CONFIG_ENV_KEYS.map((key) => env[key] ?? null))).digest('hex');
+}
+
+/** Merge this collection's new readings into the file: another collection
+ *  running beside it may have landed a reading this one did not. */
+function savePlans(env: NodeJS.ProcessEnv, updates: PlanReadings, accounts: Partial<Record<PlanId, string>>): void {
     const path = join(usageStateDir(env), 'plans-v1.json');
     const temporary = `${path}.${process.pid}.tmp`;
     try {
-        if (cacheIdentity(env, planAccounts(env)) !== identity) return;
-        const plans = readPlans(env, identity, accounts);
+        const plans = readPlans(env, accounts);
         for (const id of PLAN_IDS) {
             const next = updates[id];
             if (next !== undefined && next.account === accounts[id] && next.at >= (plans[id]?.at ?? -Infinity)) plans[id] = next;
         }
-        const body = JSON.stringify({ identity, plans });
+        const body = JSON.stringify({ identity: plansIdentity(env), plans });
         if (Buffer.byteLength(body) > 256 * 1024) return;
         mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
         writeFileSync(temporary, body, { mode: 0o600 });
@@ -521,11 +547,11 @@ function planStrip(vmsById: Partial<Record<PlanId, UsageWindowVM[]>>) {
 
 /** What the card can paint before any collection answers: the last good
  *  reading of every still-connected plan, recomputed for now. */
-export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): (Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'> & { current: boolean }) | undefined {
+export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'> | undefined {
     const nowMs = Date.now();
     const at = nowDate(env).getTime();
     const accounts = planAccounts(env);
-    const stored = readPlans(env, cacheIdentity(env, accounts), accounts);
+    const stored = readPlans(env, accounts);
     const vmsById: Partial<Record<PlanId, UsageWindowVM[]>> = {};
     let oldest = Number.POSITIVE_INFINITY;
     let newest = 0;
@@ -547,9 +573,6 @@ export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): (Pick<Usag
         connected,
         capturedAt: new Date(newest).toISOString(),
         readingsFrom: new Date(oldest).toISOString(),
-        // Every plan read inside the reuse window: a collection would read none
-        // of them again, so these are as current as its answer would be.
-        current: at - oldest < PLAN_MIN_READ_MS,
     };
 }
 
@@ -628,10 +651,10 @@ function codexWindowsOrdered(result: CodexRateLimitResult | undefined, nowMs: nu
 
 /** The identity includes the selected Go credential. Use a bounded KDF rather
  * than a fast hash; the stable domain salt keeps cache comparisons deterministic. */
-function cacheIdentity(env: NodeJS.ProcessEnv, accounts: Partial<Record<PlanId, string>>): string {
+function cacheIdentity(env: NodeJS.ProcessEnv): string {
     return scryptSync(JSON.stringify({
         config: Object.fromEntries(CONFIG_ENV_KEYS.map((key) => [key, env[key] ?? null])),
-        accounts,
+        go: goAuthSelection(env),
     }), 'muxr/usage/cache-identity/v4', 32, { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }).toString('hex');
 }
 
@@ -662,7 +685,7 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
     const NOW = nowDate(env);
     const TODAY = localDate(NOW);
     const accounts = planAccounts(env);
-    const identity = cacheIdentity(env, accounts);
+    const identity = cacheIdentity(env);
     const cached = input.refresh === true ? undefined : cachedOutput(env, identity, TODAY, NOW.getTime(), selected);
     if (cached !== undefined) {
         return withAge(cached.stale ? { ...cached.output, stale: true } : cached.output, NOW.getTime());
@@ -691,7 +714,7 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     // under load the activity scan is the long pole, and the plans are what
     // the Home card waits on. Codex limits load every time: the home card
     // lists them whatever tab the details screen last showed.
-    const stored = readPlans(env, identity, accounts);
+    const stored = readPlans(env, accounts);
     const recent = (id: PlanId) => NOW.getTime() - (stored[id]?.at ?? Number.NEGATIVE_INFINITY) < PLAN_MIN_READ_MS;
     const planConnected: string[] = (['claude', 'opencode', 'zai'] as const).filter((id) => planStillConnected(id, env));
     // A connected plan read moments ago answers from that reading; one that is
@@ -717,7 +740,11 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     const windowsOf = (id: PlanId, raw: unknown): UsageWindowVM[] => {
         const nowMs = Date.now();
         const vms = planWindows(id, raw, nowMs);
-        if (vms.length > 0 && accounts[id] !== undefined) { readings[id] = { at: NOW.getTime(), raw, account: accounts[id] }; return vms; }
+        if (vms.length > 0) {
+            const account = accounts[id];
+            if (account !== undefined) readings[id] = { at: NOW.getTime(), raw, account };
+            return vms;
+        }
         const last = stored[id];
         if (last === undefined || NOW.getTime() - last.at > PLAN_LAST_KNOWN_MS || !planStillConnected(id, env)) return [];
         readingsFrom = Math.min(readingsFrom, last.at);
@@ -828,8 +855,11 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     const zaiVMs = windowsOf('zai', zaiPlan.raw);
     const goVMs = windowsOf('opencode', go.raw);
     const updates: PlanReadings = {};
-    for (const id of PLAN_IDS) if (readings[id] !== stored[id]) updates[id] = readings[id];
-    if (Object.keys(updates).length > 0) savePlans(env, identity, updates, accounts);
+    for (const id of PLAN_IDS) {
+        const reading = readings[id];
+        if (reading !== undefined && reading !== stored[id]) updates[id] = reading;
+    }
+    if (Object.keys(updates).length > 0) savePlans(env, updates, accounts);
     const selectedVMs = selectedWindows(provider, claudeVMs, codex, zaiVMs, goVMs);
     // Every plan collector's real windows, most urgent first: the borrow rule
     // and the Home card's connected strip read the same list, so a machine-level
@@ -889,7 +919,7 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     const limitsUnavailable = goUnavailable(provider, goVMs) || claudeUnavailable(provider, claudeVMs)
         || zaiUnavailable(provider, zaiVMs) || codexUnavailable(provider, codex);
     if (activityFailure === undefined && reports[provider]?.unavailable !== true && !limitsUnavailable && (selected === '' || selected === output.provider)) {
-        if (cacheIdentity(env, planAccounts(env)) === identity) saveOutput(env, output, identity, TODAY, NOW.getTime(), selected);
+        saveOutput(env, output, identity, TODAY, NOW.getTime(), selected);
     }
     return withAge(output, NOW.getTime());
 }

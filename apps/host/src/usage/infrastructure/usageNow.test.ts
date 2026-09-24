@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -48,13 +48,19 @@ it('keeps the aged Claude plan while its token expires and reads Claude Code ren
     expect(healthy.connected?.map(({ id }) => id)).toContain('claude');
     const firstReads = fetch.mock.calls.filter(([url]) => String(url).includes('anthropic')).length;
 
-    env.MUXR_USAGE_NOW = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    // Two hours on, Claude Code has not run and its token has expired: the
+    // reading from then stays on the card, aged, and nothing asks Anthropic.
+    const plansFile = join(env.MUXR_HOME!, 'usage', 'plans-v1.json');
+    const saved = JSON.parse(readFileSync(plansFile, 'utf8')) as { plans: Record<string, { at: number }> };
+    for (const reading of Object.values(saved.plans)) reading.at -= 2 * 3_600_000;
+    writeFileSync(plansFile, JSON.stringify(saved));
     save('claude-token', Date.now() - 1);
     const expired = await usageNow(env, { refresh: true });
     expect(expired.connected?.map(({ id }) => id)).toContain('claude');
     expect(expired.ageSeconds).toBeGreaterThanOrEqual(2 * 3_600 - 5);
     expect(fetch.mock.calls.filter(([url]) => String(url).includes('anthropic'))).toHaveLength(firstReads);
 
+    // Claude Code renews its own token; the next refresh reads with it.
     save('renewed-token', Date.now() + 3_600_000);
     await usageNow(env, { refresh: true });
     expect(fetch.mock.calls.some(([url, init]) => String(url).includes('anthropic') &&
