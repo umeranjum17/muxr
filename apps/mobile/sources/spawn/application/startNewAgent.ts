@@ -6,6 +6,7 @@
 
 import { router } from 'expo-router';
 import { Modal } from '@/modal';
+import { navigateToSession } from '@/herd';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
 import type { AgentCatalogOption } from '@/catalog';
 import { SpawnRequest } from '../domain/SpawnRequest';
@@ -61,7 +62,7 @@ export async function startNewAgent(input: {
     for (;;) {
         const result = await startAgent({ ...input, createCwd });
         if (result.ok) {
-            router.replace(`/session/${result.agentRoute}`);
+            navigateToSession(router, result.agentRoute);
             return {};
         }
         if (result.reason === 'needs-directory' && !createCwd) {

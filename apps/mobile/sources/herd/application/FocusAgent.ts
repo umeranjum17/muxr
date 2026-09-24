@@ -1,19 +1,26 @@
 export type FocusAgentCommand = {
     agentRoute: string;
-    alreadyViewingAgent?: boolean;
-    splitView?: boolean;
+    /** Something sits above Home, so the stack can already hold an agent. */
+    aboveHome: boolean;
 };
 
 export type FocusAgentResult = {
     href: `/session/${string}`;
-    replace: boolean;
+    action: 'push' | 'dismissTo';
 };
 
-/** Focus the phone on one Agent. The Agent Route authorizes; names never do. */
+/**
+ * Focus the phone on one Agent. The Agent Route authorizes; names never do.
+ *
+ * The stack holds one agent screen over Home however many agents are opened,
+ * so back from an agent is always Home; stepping between agents is the
+ * pager's job. From Home the agent is pushed. Anywhere above it the agent
+ * screen already in the stack takes the new route and everything over it is
+ * popped; with none there, the screen on top is swapped for it.
+ */
 export function focusAgent(command: FocusAgentCommand): FocusAgentResult {
-    const href = `/session/${encodeURIComponent(command.agentRoute)}` as const;
     return {
-        href,
-        replace: command.splitView === true && command.alreadyViewingAgent === true,
+        href: `/session/${encodeURIComponent(command.agentRoute)}`,
+        action: command.aboveHome ? 'dismissTo' : 'push',
     };
 }

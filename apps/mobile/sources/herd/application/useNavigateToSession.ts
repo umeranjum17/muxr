@@ -1,7 +1,6 @@
 import * as React from 'react';
 import type { Router } from 'expo-router';
-import { usePathname, useRouter } from 'expo-router';
-import { useSplitViewLayout } from '@/utils/responsive';
+import { useRouter } from 'expo-router';
 import type { HerdrTreeTab } from '@muxr/contract';
 import { focusAgent } from './FocusAgent';
 
@@ -28,26 +27,15 @@ export function resolveTabPane(tab: HerdrTreeTab, scope: { machineId: string; wo
     return (kept ?? openable.find((pane) => pane.focused) ?? openable[0])?.sessionId;
 }
 
-export function navigateToSession(router: Router, sessionId: string) {
-    const { href } = focusAgent({ agentRoute: sessionId });
-    router.push(href);
+type AgentNavigation = Pick<Router, 'canDismiss' | 'dismissTo' | 'push'>;
+
+export function navigateToSession(router: AgentNavigation, sessionId: string) {
+    const { href, action } = focusAgent({ agentRoute: sessionId, aboveHome: router.canDismiss() });
+    if (action === 'dismissTo') router.dismissTo(href);
+    else router.push(href);
 }
 
 export function useNavigateToSession() {
     const router = useRouter();
-    const pathname = usePathname();
-    const splitViewLayout = useSplitViewLayout();
-
-    return React.useCallback((sessionId: string) => {
-        const focused = focusAgent({
-            agentRoute: sessionId,
-            alreadyViewingAgent: pathname.startsWith('/session/'),
-            splitView: splitViewLayout,
-        });
-        if (focused.replace) {
-            router.replace(focused.href);
-            return;
-        }
-        router.push(focused.href);
-    }, [pathname, router, splitViewLayout]);
+    return React.useCallback((sessionId: string) => navigateToSession(router, sessionId), [router]);
 }
