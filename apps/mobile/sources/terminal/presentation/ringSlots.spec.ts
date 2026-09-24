@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { RingSlot } from './FloatingTerminalControls';
-import { assembleRing, desktopRingSlot } from './ringSlots';
+import { assembleRing } from './ringSlots';
 
 /** The slots a control-granted Android pane builds before the desktop one. */
 function baseSlots(): RingSlot[] {
@@ -13,43 +13,17 @@ function baseSlots(): RingSlot[] {
     }));
 }
 
-describe('the ring\u2019s desktop slot', () => {
-    it('offers Computer where the action is available', () => {
-        const slot = desktopRingSlot(true, vi.fn(), vi.fn());
-
-        expect(slot.id).toBe('computer');
-        expect(slot.label).toBe('Computer');
-    });
-
-    it('keeps the Browser shortcut where Computer is not offered', () => {
-        const browser = vi.fn();
-        const slot = desktopRingSlot(false, vi.fn(), browser);
-
-        expect(slot.id).toBe('browser');
-        slot.run();
-        expect(browser).toHaveBeenCalledTimes(1);
-    });
-});
-
 describe('the assembled ring on a control-granted pane', () => {
-    it('ends in Computer, not Browser, and fits the ring cap', () => {
-        const ring = assembleRing(baseSlots(), true, vi.fn(), vi.fn());
+    it('ends in Computer and fits the ring cap', () => {
+        const openComputer = vi.fn();
+        const ring = assembleRing(baseSlots(), true, openComputer);
 
-        expect(ring.map((slot) => slot.id)).toEqual([
-            'continue',
-            'changes',
-            'keyboard',
-            'commands',
-            'paste',
-            'computer',
-        ]);
-        expect(ring).toHaveLength(6);
-        expect(ring.some((slot) => slot.id === 'browser')).toBe(false);
+        expect(ring.map((slot) => slot.id)).toEqual(['continue', 'changes', 'keyboard', 'commands', 'paste', 'computer']);
+        ring.at(-1)?.run();
+        expect(openComputer).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps Browser as the last slot where Computer is not offered', () => {
-        const ring = assembleRing(baseSlots(), false, vi.fn(), vi.fn());
-
-        expect(ring.map((slot) => slot.id).at(-1)).toBe('browser');
+    it('offers no desktop slot where Computer is not available', () => {
+        expect(assembleRing(baseSlots(), false, vi.fn()).map((slot) => slot.id)).toEqual(['continue', 'changes', 'keyboard', 'commands', 'paste']);
     });
 });

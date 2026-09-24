@@ -763,7 +763,6 @@ export const pl: TranslationStructure = {
         connectTerminal: 'Połącz terminal',
         linkNewDevice: 'Połącz nowe urządzenie',
         restoreWithSecretKey: 'Przywróć kluczem tajnym',
-        browserTakeover: 'Przeglądarka',
         whatsNew: 'Co nowego',
         friends: 'Przyjaciele',
     },
@@ -947,26 +946,6 @@ export const pl: TranslationStructure = {
         notSupportedMessage: 'Ten agent nie obsługuje załączników obrazów. Obrazy nie zostały wysłane.',
     },
 
-    browser: {
-        statusBrowsing: ({ agent }: { agent: string }) => `${agent} przegląda`,
-        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent} czeka na Twoje zalogowanie`,
-        statusStopped: ({ agent }: { agent: string }) => `${agent} zatrzymał się`,
-        statusIdleBrowser: ({ agent }: { agent: string }) => `Przeglądarka agenta ${agent}`,
-        waitingForConnection: ({ machine }: { machine: string }) => `Oczekiwanie na połączenie z ${machine}…`,
-        lostBody: ({ machine }: { machine: string }) => `Strona może być nadal otwarta na ${machine}.`,
-        openFailedTitle: ({ machine }: { machine: string }) => `Nie można otworzyć przeglądarki na ${machine}.`,
-        noDriverTitle: ({ machine }: { machine: string }) => `Na ${machine} brakuje sterownika przeglądarki.`,
-        noDriverBody: 'Zainstaluj go raz na tym komputerze, a następnie otwórz ten ekran ponownie.',
-        installBody: ({ machine }: { machine: string }) => `Na ${machine} nie ma zainstalowanej przeglądarki. Uruchom to raz na tamtym komputerze (około 500 MB), a następnie spróbuj ponownie.`,
-        copyCommand: 'Kopiuj polecenie',
-        copied: 'Skopiowano',
-        copyFailedTitle: 'Nie udało się skopiować',
-        copyFailedBody: 'Spróbuj ponownie.',
-        goTo: 'Przejdź do',
-        goToPlaceholder: 'Strona lub adres',
-        goToConfirm: 'Przejdź',
-        goToFailed: 'Nie można otworzyć tego adresu',
-    },
 
     feed: {
         // Feed notifications for friend requests and acceptances

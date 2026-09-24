@@ -80,8 +80,10 @@ native slots, declarative terminal keys/navigation/settings/data cards, shortcut
 and a central primitive registry. The phone is a dumb translator of `muxr-ui.json`:
 it mounts slots and draws widgets. Realtime voice, usage and machine health,
 dictation, the terminal key row, the workspace tree, and Panes are product code,
-not plugins. Preview transport is kernel substrate for browser takeover; plugins
-do not expose a preview action.
+not plugins. The phone has no browser surface of its own: agents open pages in
+the computer's desktop browser and the user watches them through Computer. The
+host still answers the preview transport for older phone builds; plugins do not
+expose a preview action.
 Navigation destinations open `/plugin`.
 
 The app registers widgets (`item-list`, `collection`, `icon-button`, …), not

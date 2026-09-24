@@ -748,7 +748,6 @@ export const zhHant: TranslationStructure = {
         connectTerminal: '連線終端',
         linkNewDevice: '連結新裝置',
         restoreWithSecretKey: '透過金鑰恢復',
-        browserTakeover: '瀏覽器',
         whatsNew: "更新日誌",
         friends: '好友',
     },
@@ -931,26 +930,6 @@ export const zhHant: TranslationStructure = {
         notSupportedMessage: '此代理不支援圖片附件。圖片未傳送。',
     },
 
-    browser: {
-        statusBrowsing: ({ agent }: { agent: string }) => `${agent}正在瀏覽`,
-        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent}正在等待你登入`,
-        statusStopped: ({ agent }: { agent: string }) => `${agent}已停止`,
-        statusIdleBrowser: ({ agent }: { agent: string }) => `${agent}的瀏覽器`,
-        waitingForConnection: ({ machine }: { machine: string }) => `正在等待連線到${machine}…`,
-        lostBody: ({ machine }: { machine: string }) => `頁面可能仍在${machine}上開啟。`,
-        openFailedTitle: ({ machine }: { machine: string }) => `無法在${machine}上開啟瀏覽器。`,
-        noDriverTitle: ({ machine }: { machine: string }) => `${machine}上缺少瀏覽器驅動。`,
-        noDriverBody: '在那部電腦上安裝一次，然後重新開啟此畫面。',
-        installBody: ({ machine }: { machine: string }) => `${machine}上未安裝瀏覽器。在那部電腦上執行一次此命令（約 500 MB），然後重試。`,
-        copyCommand: '複製命令',
-        copied: '已複製',
-        copyFailedTitle: '複製失敗',
-        copyFailedBody: '請再試一次。',
-        goTo: '前往',
-        goToPlaceholder: '網站或地址',
-        goToConfirm: '前往',
-        goToFailed: '無法開啟該地址',
-    },
 
     feed: {
         // Feed notifications for friend requests and acceptances

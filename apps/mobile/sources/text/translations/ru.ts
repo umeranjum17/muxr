@@ -753,7 +753,6 @@ export const ru: TranslationStructure = {
         connectTerminal: 'Подключить терминал',
         linkNewDevice: 'Связать новое устройство',
         restoreWithSecretKey: 'Восстановить секретным ключом',
-        browserTakeover: 'Браузер',
         whatsNew: 'Что нового',
         friends: 'Друзья',
     },
@@ -948,26 +947,6 @@ export const ru: TranslationStructure = {
         notSupportedMessage: 'Этот агент не поддерживает вложения изображений. Изображения не были отправлены.',
     },
 
-    browser: {
-        statusBrowsing: ({ agent }: { agent: string }) => `${agent} просматривает`,
-        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent} ждёт вашего входа`,
-        statusStopped: ({ agent }: { agent: string }) => `${agent} остановился`,
-        statusIdleBrowser: ({ agent }: { agent: string }) => `Браузер ${agent}`,
-        waitingForConnection: ({ machine }: { machine: string }) => `Ожидание подключения к ${machine}…`,
-        lostBody: ({ machine }: { machine: string }) => `Возможно, страница всё ещё открыта на ${machine}.`,
-        openFailedTitle: ({ machine }: { machine: string }) => `Не удалось открыть браузер на ${machine}.`,
-        noDriverTitle: ({ machine }: { machine: string }) => `На ${machine} нет драйвера браузера.`,
-        noDriverBody: 'Установите его один раз на этом компьютере, затем откройте этот экран снова.',
-        installBody: ({ machine }: { machine: string }) => `На ${machine} не установлен браузер. Выполните это один раз на том компьютере (около 500 МБ), затем повторите попытку.`,
-        copyCommand: 'Скопировать команду',
-        copied: 'Скопировано',
-        copyFailedTitle: 'Не удалось скопировать',
-        copyFailedBody: 'Пожалуйста, попробуйте ещё раз.',
-        goTo: 'Перейти',
-        goToPlaceholder: 'Сайт или адрес',
-        goToConfirm: 'Открыть',
-        goToFailed: 'Не удалось открыть этот адрес',
-    },
 
     feed: {
         // Feed notifications for friend requests and acceptances

@@ -40,7 +40,7 @@ A package module exists only when the packages own the behavior. Product operati
 | Interrupt Playback | `pause_output` / `stop` | Realtime control | `apps/mobile/sources/playback/realtimePlayback.ts` |
 | Report Agent Outcome | `voice.report` | Voice Report, Agent Lifecycle | `apps/mobile/sources/watch/wakeAndReport.ts` |
 | Open Terminal | terminal channel | Routing Channel `terminal` | `apps/mobile/sources/terminal/application/OpenTerminal.ts`, `apps/host/src/herdr/terminalManager.ts` |
-| Attach Preview Tunnel | `preview.attach` | Routing Channel `preview` | host/mobile takeover tunnel adapters |
+| Attach Preview Tunnel | `preview.attach` | Routing Channel `preview` | host adapter; kept for older phone builds |
 | Run Plugin Action | `plugin.call` / `plugin.invoke` | Plugin Identity | dispatcher, `screenModel.ts`, `usePluginEvents.ts` |
 
 ## Convention

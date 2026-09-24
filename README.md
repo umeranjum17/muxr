@@ -77,7 +77,7 @@ Open the real diff, inspect every changed line, then accept or reject it without
 
 ### Peek at your computer
 
-Tap **Computer** inside an agent's conversation to see your own desktop live and check what the agent is doing. Tap in to take over: the pointer follows your finger, with a keyboard and a shared clipboard. It works over Tailscale, any mesh VPN or LAN address, or SSH alone, including a cloud server. [Routes and setup →](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server)
+Tap **Computer** inside an agent's conversation to see your own desktop live and check what the agent is doing. When an agent needs you to sign in or clear a CAPTCHA, it opens the page in your desktop browser and you finish it here. Tap in to take over: the pointer follows your finger, with a keyboard and a shared clipboard. It works over Tailscale, any mesh VPN or LAN address, or SSH alone, including a cloud server. [Routes and setup →](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server)
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/computer.webp" type="image/webp"><img src="docs/assets/readme/computer.jpg" alt="An agent's computer desktop shown live in muxr: the agent's progress above the page it is editing" width="100%" /></picture>

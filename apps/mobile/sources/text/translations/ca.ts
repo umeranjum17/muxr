@@ -747,7 +747,6 @@ export const ca: TranslationStructure = {
         connectTerminal: 'Connecta el terminal',
         linkNewDevice: 'Enllaça un nou dispositiu', 
         restoreWithSecretKey: 'Restaura amb clau secreta',
-        browserTakeover: 'Navegador',
         whatsNew: 'Novetats',
         friends: 'Amics',
     },
@@ -930,26 +929,6 @@ export const ca: TranslationStructure = {
         notSupportedMessage: 'Aquest agent no admet fitxers adjunts d\'imatge. Les imatges no s\'han enviat.',
     },
 
-    browser: {
-        statusBrowsing: ({ agent }: { agent: string }) => `${agent} està navegant`,
-        statusWaitingForYou: ({ agent }: { agent: string }) => `${agent} espera que iniciïs la sessió`,
-        statusStopped: ({ agent }: { agent: string }) => `${agent} s'ha aturat`,
-        statusIdleBrowser: ({ agent }: { agent: string }) => `Navegador de ${agent}`,
-        waitingForConnection: ({ machine }: { machine: string }) => `Esperant la connexió amb ${machine}…`,
-        lostBody: ({ machine }: { machine: string }) => `Pot ser que la pàgina continuï oberta a ${machine}.`,
-        openFailedTitle: ({ machine }: { machine: string }) => `No s'ha pogut obrir un navegador a ${machine}.`,
-        noDriverTitle: ({ machine }: { machine: string }) => `Falta el controlador del navegador a ${machine}.`,
-        noDriverBody: "Instal·la'l una vegada en aquell ordinador i torna a obrir aquesta pantalla.",
-        installBody: ({ machine }: { machine: string }) => `Cap navegador està instal·lat a ${machine}. Executa-ho una vegada en aquell ordinador (uns 500 MB) i torna-ho a provar.`,
-        copyCommand: "Copia l'ordre",
-        copied: 'Copiat',
-        copyFailedTitle: "No s'ha pogut copiar",
-        copyFailedBody: 'Torna-ho a provar.',
-        goTo: 'Vés a',
-        goToPlaceholder: 'Lloc o adreça',
-        goToConfirm: 'Vés',
-        goToFailed: "No s'ha pogut obrir l'adreça",
-    },
 
     feed: {
         // Feed notifications for friend requests and acceptances
