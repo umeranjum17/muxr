@@ -1,6 +1,6 @@
 import { StyleSheet, UnistylesRuntime } from 'react-native-unistyles';
-import { darkTheme, lightTheme } from '@/theme';
-import { loadThemePreference } from '@/catalog/application/persistence';
+import { darkThemes, lightTheme } from '@/theme';
+import { loadDarkSurfaces, loadThemePreference } from '@/catalog/application/persistence';
 import { Appearance, Platform } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 
@@ -10,7 +10,7 @@ import * as SystemUI from 'expo-system-ui';
 
 const appThemes = {
     light: lightTheme,
-    dark: darkTheme
+    dark: darkThemes[loadDarkSurfaces()]
 };
 
 const breakpoints = {

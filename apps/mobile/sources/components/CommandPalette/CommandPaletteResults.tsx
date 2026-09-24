@@ -5,7 +5,8 @@ import { CommandPaletteItem } from '@/components/CommandPalette/CommandPaletteIt
 import { SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { useUnistyles } from 'react-native-unistyles';
-import { darkTheme } from '@/theme';
+import { darkThemes } from '@/theme';
+import { useLocalSetting } from '@/catalog/store';
 
 interface CommandPaletteResultsProps {
     categories: CommandCategory[];
@@ -28,6 +29,7 @@ export function CommandPaletteResults({
     quietLine,
 }: CommandPaletteResultsProps) {
     const { theme: appTheme } = useUnistyles();
+    const darkTheme = darkThemes[useLocalSetting('darkSurfaces')];
     const theme = appearance === 'terminal' ? darkTheme : appTheme;
     const scrollViewRef = useRef<ScrollView>(null);
     const itemRefs = useRef<{ [key: number]: View | null }>({});

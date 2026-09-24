@@ -128,6 +128,10 @@ export function loadThemePreference(): 'light' | 'dark' | 'adaptive' {
     return loadLocalSettings().themePreference;
 }
 
+export function loadDarkSurfaces(): 'seamless' | 'raised' {
+    return loadLocalSettings().darkSurfaces;
+}
+
 export function loadSessionDrafts(): Record<string, string> {
     const drafts = mmkv.getString('session-drafts');
     if (drafts) {

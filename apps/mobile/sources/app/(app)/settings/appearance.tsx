@@ -15,7 +15,7 @@ import { AvatarSkia } from '@/components/AvatarSkia';
 import { Appearance, Platform, StyleSheet, Text, View } from 'react-native';
 import * as SystemUI from 'expo-system-ui';
 import { Typography } from '@/constants/Typography';
-import { darkTheme, lightTheme, type Theme } from '@/theme';
+import { darkThemes, lightTheme, type DarkSurfaces, type Theme } from '@/theme';
 import { t, getLanguageNativeName, SUPPORTED_LANGUAGES } from '@/text';
 
 type ThemePreference = 'adaptive' | 'light' | 'dark';
@@ -54,13 +54,19 @@ function ThemeTile({ palettes }: { palettes: readonly Theme['colors'][] }) {
     );
 }
 
-function applyTheme(next: ThemePreference): void {
+function applyTheme(next: ThemePreference, surfaces: DarkSurfaces): void {
     UnistylesRuntime.setAdaptiveThemes(next === 'adaptive');
     if (next !== 'adaptive') UnistylesRuntime.setTheme(next);
     const dark = next === 'adaptive' ? Appearance.getColorScheme() === 'dark' : next === 'dark';
-    const color = dark ? darkTheme.colors.groupped.background : lightTheme.colors.groupped.background;
+    const color = dark ? darkThemes[surfaces].colors.groupped.background : lightTheme.colors.groupped.background;
     UnistylesRuntime.setRootViewBackgroundColor(color);
     void SystemUI.setBackgroundColorAsync(color);
+}
+
+/** Swaps the registered dark palette in place, so every screen repaints now. */
+function applyDarkSurfaces(surfaces: DarkSurfaces, themePreference: ThemePreference): void {
+    UnistylesRuntime.updateTheme('dark', () => darkThemes[surfaces]);
+    applyTheme(themePreference, surfaces);
 }
 
 function languageName(preferred: string | null): string {
@@ -81,15 +87,16 @@ export default function AppearanceSettingsScreen() {
     const [terminalFontIndex, setTerminalFontIndex] = useLocalSettingMutable('terminalFontIndex');
     const [terminalFont, setTerminalFont] = useLocalSettingMutable('terminalFont');
     const [pinchZoom] = useLocalSettingMutable('terminalPinchZoom');
+    const [darkSurfaces, setDarkSurfaces] = useLocalSettingMutable('darkSurfaces');
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
-    const [sheet, setSheet] = React.useState<'theme' | 'size' | 'font' | 'avatar' | null>(null);
+    const [sheet, setSheet] = React.useState<'theme' | 'surfaces' | 'size' | 'font' | 'avatar' | null>(null);
     const close = () => setSheet(null);
 
     const themeName = (key: ThemePreference) => t(`settingsAppearance.themeOptions.${key}`);
     const themeChoices: Choice[] = [
-        { key: 'adaptive', label: themeName('adaptive'), detail: t('settingsAppearance.themeDescriptions.adaptive'), preview: <ThemeTile palettes={[lightTheme.colors, darkTheme.colors]} /> },
+        { key: 'adaptive', label: themeName('adaptive'), detail: t('settingsAppearance.themeDescriptions.adaptive'), preview: <ThemeTile palettes={[lightTheme.colors, darkThemes[darkSurfaces].colors]} /> },
         { key: 'light', label: themeName('light'), preview: <ThemeTile palettes={[lightTheme.colors]} /> },
-        { key: 'dark', label: themeName('dark'), preview: <ThemeTile palettes={[darkTheme.colors]} /> },
+        { key: 'dark', label: themeName('dark'), preview: <ThemeTile palettes={[darkThemes[darkSurfaces].colors]} /> },
     ];
 
     // Samples draw in the face the terminal will use: the browser's chosen one,
@@ -108,6 +115,12 @@ export default function AppearanceSettingsScreen() {
         labelStyle: { fontFamily: TERMINAL_FONTS[key].family },
     }));
 
+    const surfacesName: Record<DarkSurfaces, string> = { seamless: 'Seamless', raised: 'Raised' };
+    const surfacesChoices: Choice[] = [
+        { key: 'seamless', label: surfacesName.seamless, detail: 'Default', preview: <ThemeTile palettes={[darkThemes.seamless.colors]} /> },
+        { key: 'raised', label: surfacesName.raised, preview: <ThemeTile palettes={[darkThemes.raised.colors]} /> },
+    ];
+
     const displayStyle: AvatarStyle = isAvatarStyle(avatarStyle) ? avatarStyle : 'gradient';
     const avatarChoices: Choice[] = [
         { key: 'brutalist', label: t('settingsAppearance.avatarOptions.brutalist'), preview: <AvatarBrutalist id="muxr-appearance" size={32} /> },
@@ -117,8 +130,9 @@ export default function AppearanceSettingsScreen() {
 
     return (
         <ItemList style={{ paddingTop: 0 }}>
-            <ItemGroup title="App">
+            <ItemGroup title="App" footer="In the dark theme and the terminal, Seamless blends cards and bars into the black page. Raised lifts them a shade.">
                 <Item title={t('settingsAppearance.theme')} subtitle={themeName(themePreference)} onPress={() => setSheet('theme')} />
+                <Item title="Dark surfaces" subtitle={surfacesName[darkSurfaces]} onPress={() => setSheet('surfaces')} />
                 <Item title={t('settingsLanguage.title')} subtitle={languageName(preferredLanguage)} onPress={() => router.push('/settings/language')} />
             </ItemGroup>
 
@@ -153,7 +167,7 @@ export default function AppearanceSettingsScreen() {
                 selectedKey={themePreference}
                 onSelect={(key) => {
                     setThemePreference(key as ThemePreference);
-                    applyTheme(key as ThemePreference);
+                    applyTheme(key as ThemePreference, darkSurfaces);
                 }}
                 onClose={close}
             />
@@ -171,6 +185,17 @@ export default function AppearanceSettingsScreen() {
                 choices={fontChoices}
                 selectedKey={terminalFont}
                 onSelect={(key) => setTerminalFont(key as TerminalFont)}
+                onClose={close}
+            />
+            <ChoiceSheet
+                visible={sheet === 'surfaces'}
+                title="Dark surfaces"
+                choices={surfacesChoices}
+                selectedKey={darkSurfaces}
+                onSelect={(key) => {
+                    setDarkSurfaces(key as DarkSurfaces);
+                    applyDarkSurfaces(key as DarkSurfaces, themePreference);
+                }}
                 onClose={close}
             />
             <ChoiceSheet
