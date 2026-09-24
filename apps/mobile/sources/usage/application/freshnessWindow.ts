@@ -89,11 +89,22 @@ export type UsageDisplay =
     | { status: 'waiting'; askedAt: number; vitals?: UsageVitals }
     | { status: 'unavailable'; reason: string; vitals?: UsageVitals };
 
+/** Whether capture `a` was taken before capture `b`, both named on the host's
+ *  clock. An unreadable name orders nothing, so it is never "before". */
+export function capturedBefore(a: string | undefined, b: string | undefined): boolean {
+    return Date.parse(a ?? '') < Date.parse(b ?? '');
+}
+
 /** A projection may only write what it can answer for. The merge keeps, from
  *  the record already held, every field the writer did not speak for; a fresh
- *  answer naming no window or connected plan clears the fields it contradicts. */
+ *  answer naming no window or connected plan clears the fields it contradicts.
+ *  An answer captured before the held figures -- a cache replay reaching one
+ *  surface after the other landed a collection -- never takes the limits back
+ *  to it: only what it alone speaks for (activity, tabs, vitals) lands. */
 function mergeFigures(held: UsageFigures | undefined, spoken: Pick<UsageFigures, 'limits'> & Partial<UsageFigures>): UsageFigures {
-    return { ...held, ...spoken };
+    if (held === undefined || !capturedBefore(spoken.capturedAt, held.capturedAt)) return { ...held, ...spoken };
+    const { limits: _limits, windows: _windows, cardWindow: _cardWindow, connected: _connected, ageSeconds: _age, capturedAt: _at, ...rest } = spoken;
+    return { ...held, ...rest };
 }
 
 /** The figures a settled usage.now read answers for: machine facts, connected

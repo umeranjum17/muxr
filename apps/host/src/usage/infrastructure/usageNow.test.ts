@@ -67,6 +67,28 @@ it('keeps the aged Claude plan while its token expires and reads Claude Code ren
         new Headers(init?.headers).get('authorization') === 'Bearer renewed-token')).toBe(true);
 }, 20_000);
 
+it('never answers with a cached day older than the plan readings stored since', async () => {
+    vi.stubGlobal('fetch', vi.fn(provider));
+    const env = host();
+    const activity = join(env.HOME!, 'ccusage');
+    writeFileSync(activity, '#!/bin/sh\necho \'{"daily":[],"session":[]}\'\n', { mode: 0o755 });
+    env.MUXR_CCUSAGE_BIN = activity;
+    const { usageNow } = await import('./usageNow.js');
+    const cached = await usageNow(env, { refresh: true });
+
+    // Two minutes on, local activity cannot be measured: the collection reads
+    // every plan again, but the day's cached payload cannot be replaced.
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 120_000).toISOString();
+    writeFileSync(activity, '#!/bin/sh\nexit 1\n');
+    const fresh = await usageNow(env, { refresh: true });
+    expect(fresh.capturedAt).not.toBe(cached.capturedAt);
+
+    // The card's follow-up does not force a collection, and still gets the
+    // newer reading rather than the day's replay.
+    const next = await usageNow(env);
+    expect(next.capturedAt).toBe(fresh.capturedAt);
+}, 20_000);
+
 it('keeps every plan on the card through failed reads and paints the last good reading after a restart', async () => {
     vi.stubGlobal('fetch', vi.fn(provider));
     const env = host();
