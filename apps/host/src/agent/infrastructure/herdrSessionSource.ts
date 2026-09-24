@@ -3142,7 +3142,7 @@ export async function createHerdrSessionSource(
             await closeExactWorkspace(client, workspaceId);
         },
 
-        async createTab(sessionId: string, options: { kind?: string; label?: string }): Promise<void> {
+        async createTab(sessionId: string, options: { kind?: string; label?: string }): Promise<{ sessionId?: string }> {
             const record = await resolvePane(sessionId);
             const workspaceId = record.agent?.workspace_id ?? record.pane.workspace_id;
             const cwd = cwdForSession(sessionId);
@@ -3157,7 +3157,7 @@ export async function createHerdrSessionSource(
             if (options.kind === undefined) {
                 await refreshSnapshot();
                 emitState(shellRoute(paneId));
-                return;
+                return { sessionId: shellRoute(paneId) };
             }
             const launchName = `pp_${randomBytes(8).toString('hex')}`;
             seedLaunchPane(paneId, {
@@ -3176,10 +3176,12 @@ export async function createHerdrSessionSource(
                 const session = bindListedPane(paneId) ?? await waitForListedAgent(paneId, 5_000);
                 emitState(session.sessionId);
                 void confirmLaunch(paneId, options.kind, session.sessionId);
+                return { sessionId: session.sessionId };
             } catch {
                 forgetLaunch(paneId);
                 await refreshSnapshot().catch(() => undefined);
                 emitState(shellRoute(paneId));
+                return { sessionId: shellRoute(paneId) };
             }
         },
 

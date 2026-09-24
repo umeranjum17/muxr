@@ -39,6 +39,7 @@ behaviour it claims to cover and watch it go red.
 ## Terminal
 
 - A terminal attaches at the first grid it measures, and a later change to the chrome around it re-attaches the pane before it can paint. Anything on the terminal screen that waits on data (the pane tabs row waits on the tree) must hold its final height from the first layout.
+- Herdr's model is workspace → tabs → panes, and the terminal screen keeps them apart: the row above the composer lists the workspace's tabs (its + is `tab.create`), while panes are the header's `n/N`, the pager and New pane (`pane.split`). Never list a tab's panes in that row.
 - Herdr owns a pane's scrollback and its viewport. The phone must never infer how far back it is by counting the scrolls it sent: that count is of requests, and a harness on the alternate screen (Claude Code, opencode) has no scrollback ring behind it at all, so the scroll goes to the program as wheel reports it may ignore. Read `terminal.scroll-state` instead — see the frame's own comment in `packages/contract/src/control-plane/infrastructure/terminal.ts`.
 
 ## Screens

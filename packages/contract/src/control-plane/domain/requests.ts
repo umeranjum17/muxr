@@ -482,11 +482,12 @@ export interface RequestMap extends PeerRequestMap {
     /**
      * Create a tab in this session's workspace (same cwd). With `kind`, an
      * agent of that kind starts in the new tab's root pane; the new session
-     * arrives as a normal session.created once herdr detects it.
+     * arrives as a normal session.created once herdr detects it. The result
+     * names that session; hosts before it answered null.
      */
     'tab.create': {
         params: { sessionId: string; kind?: string; label?: string };
-        result: null;
+        result: { sessionId?: string } | null;
     };
     /** Close exactly the selected tab; if Herdr would widen to its workspace or worktree group, fail without mutation. */
     'tab.close': { params: { sessionId: string; tabId: string }; result: null };
