@@ -35,7 +35,7 @@ import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { AgentPager, arrivingBySwipe } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentLabels, agentNameLine, agentStatusColor, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, resolveTabPane, tabLabel, useNavigateToSession } from '@/herd';
+import { agentLabels, agentNameLine, agentStatusColor, agentTaskLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, resolveTabPane, tabLabel, useNavigateToSession } from '@/herd';
 import {
     DIALOG_GUARD_ACTION,
     DIALOG_GUARD_MESSAGE,
@@ -1075,7 +1075,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const linesAdded = gitStatus !== null && gitStatus.linesAdded > 0 ? `+${gitStatus.linesAdded}` : null;
     const linesRemoved = gitStatus !== null && gitStatus.linesRemoved > 0 ? `−${gitStatus.linesRemoved}` : null;
     const hasStatusRow = branch !== null || linesAdded !== null || linesRemoved !== null || permission !== null;
-    const contextTitle = labels.taskTitle;
+    const contextTitle = labels.title;
+    const contextTask = agentTaskLine(labels);
     const identityKnown = currentPane !== undefined;
     const headerLifecycle = terminalPaneStatus(currentPane);
     const headerLifecycleLabel = headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
@@ -1257,6 +1258,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
                             {identityKnown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
                             {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{contextTitle}</Text>}
+                            {/* The task, after whose it is: the same order as the Spaces
+                                row that opened this, and the first thing to give way. */}
+                            {identityKnown && contextTask !== undefined && <Text numberOfLines={1} style={{ flexShrink: 1000, color: theme.colors.textSecondary, fontSize: 13 }}>{contextTask}</Text>}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).
@@ -1557,7 +1561,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Pressable
                                             onPress={active || pane.sessionId === undefined ? undefined : () => { if (pane.sessionId !== undefined) navigateToSession(pane.sessionId); }}
                                             accessibilityRole="button"
-                                            accessibilityLabel={`${active ? 'Current pane' : 'Open pane'} ${pl.taskTitle}`}
+                                            accessibilityLabel={`${active ? 'Current pane' : 'Open pane'} ${pl.title}`}
                                             accessibilityState={{ selected: active }}
                                             style={({ pressed }) => ({
                                                 minHeight: 24,
@@ -1572,7 +1576,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         >
                                             <AgentGlyph name={isShellLabels(pl) ? 'shell' : pl.agentKind ?? pl.agentName} size={13} />
                                             <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : tone.color, fontSize: 11, fontWeight: '500' }}>
-                                                {pl.taskTitle}
+                                                {pl.title}
                                             </Text>
                                         </Pressable>
                                         {/* Close lives on the active chip, the same

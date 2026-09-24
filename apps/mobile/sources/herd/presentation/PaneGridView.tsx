@@ -69,7 +69,7 @@ const PaneCard = React.memo(function PaneCard(props: {
     const openable = sessionId !== undefined && !props.pending;
     const closable = props.canClose && sessionId !== undefined && !props.pending;
     const context = shell ? (pane.cwd ?? 'Shell') : `${agentNameLine(labels)} · ${HERD_STATUS_LABELS[status]}`;
-    const title = `${labels.taskTitle}. ${shell ? 'Shell' : HERD_STATUS_LABELS[status]}`;
+    const title = `${labels.title}. ${shell ? 'Shell' : HERD_STATUS_LABELS[status]}`;
     return (
         <View
             accessible={false}
@@ -97,7 +97,7 @@ const PaneCard = React.memo(function PaneCard(props: {
                         <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={18} selected={props.selected} />
                     </View>
                     <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                        <Text numberOfLines={2} style={{ ...Typography.default('semiBold'), fontSize: 13, color: theme.colors.text }}>{labels.taskTitle}</Text>
+                        <Text numberOfLines={2} style={{ ...Typography.default('semiBold'), fontSize: 13, color: theme.colors.text }}>{labels.title}</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                             {!shell && <StatusDot color={tone.color} isPulsing={tone.pulsing} />}
                             <Text numberOfLines={1} style={{ ...Typography.default(), fontSize: 11, color: theme.colors.textSecondary, flexShrink: 1 }}>{context}</Text>
@@ -110,7 +110,7 @@ const PaneCard = React.memo(function PaneCard(props: {
                     disabled={!closable}
                     hitSlop={4}
                     accessibilityRole="button"
-                    accessibilityLabel={`Close ${labels.taskTitle}${props.closeReason === undefined ? '' : `, unavailable: ${props.closeReason}`}`}
+                    accessibilityLabel={`Close ${labels.title}${props.closeReason === undefined ? '' : `, unavailable: ${props.closeReason}`}`}
                     accessibilityState={{ disabled: !closable }}
                     style={({ pressed }) => ({ width: 44, height: 44, alignItems: 'center', justifyContent: 'center', opacity: !closable ? 0.35 : pressed ? 0.6 : 1 })}
                 >

@@ -4,6 +4,7 @@ import { t } from '@/text';
 import { useUnistyles } from 'react-native-unistyles';
 import type { Theme } from '@/theme';
 import { formatLastSeen, formatPathRelativeToHome } from '../domain/sessionIdentity';
+import { agentLabels, agentNameLine } from '../domain/agentPresentation';
 import type { HerdrTreePane } from '@muxr/contract';
 
 export type SessionState = 'disconnected' | 'thinking' | 'waiting' | 'permission_required';
@@ -118,7 +119,7 @@ export function useSessionStatus(session: Session | undefined): SessionStatus {
 
 /** Generic sessions may carry their own summary; Herdr Agent titles come from the tree. */
 export function getSessionName(session: Session, pane?: HerdrTreePane): string {
-    if (pane !== undefined) return pane.taskTitle ?? pane.label ?? pane.agentName ?? (pane.agentKind === undefined ? 'Untitled task' : 'Unnamed agent');
+    if (pane !== undefined) return agentLabels(pane).title;
     return session.metadata?.summary?.text?.trim() || t('session.newChat');
 }
 
@@ -157,7 +158,7 @@ export function getSessionAvatarId(session: Session): string {
 
 /** Herdr Agent Names come from the current tree, never session metadata. */
 export function getSessionSubtitle(_session: Session, pane?: HerdrTreePane): string {
-    return pane?.agentName ?? '';
+    return pane === undefined ? '' : agentNameLine(agentLabels(pane));
 }
 
 /**

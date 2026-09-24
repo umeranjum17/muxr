@@ -27,18 +27,18 @@ describe('visible herd tree flow', () => {
         expect(buildSpaceRows(workspaces, new Set(['w1']), 'maria')).toHaveLength(1);
         expect(buildSpaceRows(workspaces, new Set(['w1']), 'beta')).toEqual([]);
         const labels = agentLabels(agent);
-        expect({ primary: labels.taskTitle, secondary: labels.agentName, kind: labels.agentKind })
-            .toEqual({ primary: 'Review monitoring stability', secondary: 'Maria', kind: 'pi' });
+        expect({ primary: labels.title, task: labels.taskTitle, kind: labels.agentKind })
+            .toEqual({ primary: 'Maria', task: 'Review monitoring stability', kind: 'pi' });
         expect(labels.taskTitle).not.toContain(labels.agentName);
-        expect(agentNameLine(labels)).toBe('pi/Maria');
-        expect(agentIdentityLine(labels)).toBe('pi/Maria');
+        expect(agentNameLine(labels)).toBe('Review monitoring stability · pi');
+        expect(agentIdentityLine(labels)).toBe('Review monitoring stability · pi');
         expect(agentLabels(pane('p-review', 'codex', { agentName: 'opus-review' }))).toMatchObject({
             taskTitle: 'opus-review',
             agentName: 'opus-review',
             agentKind: 'codex',
         });
         expect(agentNameLine(agentLabels(pane('p-review', 'codex', { agentName: 'opus-review' })))).toBe('codex');
-        expect(agentNameLine(agentLabels(pane('p-fox', 'pi', { agentName: 'fox', taskTitle: 'Cursor Local Fast On' })))).toBe('pi/fox');
+        expect(agentNameLine(agentLabels(pane('p-fox', 'pi', { agentName: 'fox', taskTitle: 'Cursor Local Fast On' })))).toBe('Cursor Local Fast On · pi');
         expect(agentKindLabel('opencode')).toBe('OpenCode');
         expect(agentKindLabel('pi')).toBe('Pi');
         expect(agentLabels(pane('p-unnamed', 'opencode'))).toMatchObject({

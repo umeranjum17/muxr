@@ -114,7 +114,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
                 <View style={stylesheet.titleRow}>
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
                     <View style={stylesheet.footerCopy}>
-                        <Text numberOfLines={1} style={stylesheet.title}>{labels.taskTitle}</Text>
+                        <Text numberOfLines={1} style={stylesheet.title}>{labels.title}</Text>
                         <Text numberOfLines={1} style={stylesheet.identity}>{agentNameLine(labels)}</Text>
                     </View>
                     <View style={stylesheet.status}>

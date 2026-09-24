@@ -128,7 +128,7 @@ const PeerPage = React.memo(({ card, fontSize }: { card: LiveTerminalOrderCard; 
             <PaneSnapshot sessionId={card.id} fontSize={fontSize} />
             <View style={[styles.identity, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
                 <AgentGlyph name={isShellLabels(labels) ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />
-                <Text numberOfLines={1} style={[styles.identityTitle, { color: theme.colors.text }]}>{labels.taskTitle}</Text>
+                <Text numberOfLines={1} style={[styles.identityTitle, { color: theme.colors.text }]}>{labels.title}</Text>
                 {statusLabel !== undefined && <View style={[styles.identityDot, { backgroundColor: status.color }]} />}
             </View>
         </>

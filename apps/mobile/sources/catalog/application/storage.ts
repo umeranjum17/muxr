@@ -34,6 +34,7 @@ import type { AttentionEntry, AttentionReason, HerdrTreeWorkspace, LifecycleCata
 import { buildMessagesMap } from '../infrastructure/messageAdapter';
 import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig';
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/herd';
+import { agentLabels } from '@/herd/labels';
 import { agentRowAttention, mergeCatalogAgent } from '../domain/agent';
 import { herdrPaneForSession } from '@/herd';
 import { readAgentSession } from './readAgentSession';
@@ -646,7 +647,7 @@ export function useAttentionRows(): AttentionRowData[] {
                 const pane = herdrPaneForSession(workspaces, entry.sessionId);
                 return {
                     sessionId: entry.sessionId,
-                    name: session !== undefined ? getSessionName(session, pane) : pane?.taskTitle ?? pane?.agentName ?? 'Agent',
+                    name: session !== undefined ? getSessionName(session, pane) : pane === undefined ? 'Agent' : agentLabels(pane).title,
                     reason: entry.reason,
                     detail: entry.detail,
                     at: Date.parse(entry.at) || 0,

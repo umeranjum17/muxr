@@ -121,7 +121,7 @@ export default React.memo(function WorkspaceScreen() {
                                                 <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />
                                                 <View style={{ flex: 1, minWidth: 0, gap: 1 }}>
                                                     <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 11, fontWeight: '600' }}>
-                                                        {shell ? 'Shell' : labels.taskTitle}
+                                                        {shell ? 'Shell' : labels.title}
                                                     </Text>
                                                     <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 10 }}>
                                                         {paneIdentity}

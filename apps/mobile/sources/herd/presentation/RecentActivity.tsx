@@ -63,6 +63,7 @@ export const RecentActivity = React.memo((props: {
                 {visible.map((row, index) => {
                     const color = row.status === 'done' ? theme.colors.status.done : theme.colors.status.error;
                     const labels = {
+                        title: row.agentName ?? row.taskTitle,
                         taskTitle: row.taskTitle,
                         agentName: row.agentName ?? row.taskTitle,
                         ...(row.agentKind === undefined ? {} : { agentKind: row.agentKind }),
@@ -78,14 +79,14 @@ export const RecentActivity = React.memo((props: {
                         <Pressable
                             key={row.eventId}
                             accessibilityRole="button"
-                            accessibilityLabel={`${row.taskTitle}. ${[identity || undefined, recentActivityStatus(row), compactAge(Date.now() - row.at)].filter(Boolean).join(' · ')}`}
+                            accessibilityLabel={`${labels.title}. ${[identity || undefined, recentActivityStatus(row), compactAge(Date.now() - row.at)].filter(Boolean).join(' · ')}`}
                             onPress={() => props.onSelect(row)}
                             style={({ pressed }) => [styles.row, last && { borderBottomWidth: 0 }, pressed && { opacity: 0.7 }]}
                         >
                             <Ionicons name={icon(row)} size={16} color={color} />
                             <AgentGlyph name={shell ? 'shell' : row.agentKind ?? row.agentName ?? row.taskTitle} size={16} />
                             <View style={styles.copy}>
-                                <Text numberOfLines={1} style={styles.task}>{row.taskTitle}</Text>
+                                <Text numberOfLines={1} style={styles.task}>{labels.title}</Text>
                                 <Text numberOfLines={1} style={styles.meta}>{meta}</Text>
                             </View>
                             <Ionicons name="chevron-forward" size={14} color={theme.colors.groupped.chevron} />

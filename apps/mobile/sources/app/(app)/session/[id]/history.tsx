@@ -157,7 +157,7 @@ export default React.memo(() => {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surface }}>
                 <AgentGlyph name={glyphName} size={24} />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600' }}>{labels.taskTitle}</Text>
+                    <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600' }}>{labels.title}</Text>
                     <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{agentNameLine(labels)} · pane scrollback</Text>
                 </View>
                 <Pressable onPress={load} disabled={loading || targetMissing} accessibilityRole="button" accessibilityLabel="Refresh conversation history" accessibilityState={{ disabled: loading || targetMissing }} hitSlop={8} style={{ padding: 6, opacity: loading || targetMissing ? 0.45 : 1 }}>
