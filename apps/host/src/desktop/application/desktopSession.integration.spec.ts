@@ -182,8 +182,6 @@ describe('desktop sessions, host side', () => {
         };
         try {
             const first = restart();
-            // No grant yet: the phone is told the open will wait on the prompt.
-            expect((await first.capabilities()).consentRequired).toBe(true);
             const opened = await first.open({ permissions: ['view', 'control'] });
             // Persist before the first poll, not when the phone happens to ask.
             expect(readFileSync(grantPath, 'utf8')).toBe('test-grant-1');
@@ -196,7 +194,6 @@ describe('desktop sessions, host side', () => {
             await first.closeAll();
 
             const restored = restart();
-            expect((await restored.capabilities()).consentRequired).toBeUndefined();
             await restored.open({ permissions: ['view'] });
             await restored.closeAll(); // No poll: the replacement must already be durable.
             expect(readFileSync(grantPath, 'utf8')).toBe('test-grant-2');
@@ -205,7 +202,6 @@ describe('desktop sessions, host side', () => {
 
             const x11 = restart({ MUXR_DESKTOP_SOURCE: 'x11' });
             expect((await x11.capabilities()).clipboard).toBe(false);
-            expect((await x11.capabilities()).consentRequired).toBeUndefined();
             await expect(x11.open({ permissions: ['view', 'clipboard'] })).rejects.toMatchObject({ code: 'clipboard-unsupported' });
             await x11.open({ permissions: ['view'] });
             await x11.closeAll();

@@ -1,7 +1,8 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import { atomicWrite, ensurePrivateDir, error, executable, print, stateDir } from '../infrastructure/runtime.mjs';
+import { configFilePath, validateMuxrConfig } from '../presentation/configInit.mjs';
 
 /** Long enough for a person to find and answer the prompt; the host waits as long. */
 const APPROVAL_WAIT_MS = 120_000;
@@ -9,7 +10,13 @@ const APPROVAL_WAIT_MS = 120_000;
 /** One command asks once: setup that also pairs a browser must not ask twice. */
 let asked = false;
 
-const grantDirectory = () => join(stateDir(), 'desktop');
+const grantDirectory = () => {
+    const path = configFilePath();
+    const config = existsSync(path) ? validateMuxrConfig(path, readFileSync(path, 'utf8')) : { ok: true, config: {} };
+    if (!config.ok) throw new Error(config.error);
+    const dataDir = process.env.MUXR_DATA_DIR?.trim() || config.config.dataDir || join(stateDir(), 'host');
+    return join(dirname(dataDir), 'desktop');
+};
 /** The host's own grant file: it sends this token with the next desktop open. */
 const grantPath = () => join(grantDirectory(), 'portal-restore-token');
 
@@ -20,7 +27,18 @@ const grantPath = () => join(grantDirectory(), 'portal-restore-token');
  */
 function asksBeforeSharing(env = process.env) {
     if (process.platform !== 'linux' || env.MUXR_DESKTOP_SOURCE?.trim() === 'x11') return false;
-    return Boolean(env.WAYLAND_DISPLAY?.trim()) || env.XDG_SESSION_TYPE?.trim() === 'wayland';
+    if (env.WAYLAND_DISPLAY?.trim() || env.XDG_SESSION_TYPE?.trim() === 'wayland') return true;
+    const uid = process.getuid?.();
+    const runtime = env.XDG_RUNTIME_DIR?.trim() || (uid === undefined ? undefined : `/run/user/${uid}`);
+    if (runtime === undefined) return false;
+    try {
+        return readdirSync(runtime).some((name) => {
+            if (!/^wayland-\d+$/.test(name)) return false;
+            try { return statSync(join(runtime, name)).isSocket(); } catch { return false; }
+        });
+    } catch {
+        return false;
+    }
 }
 
 /**

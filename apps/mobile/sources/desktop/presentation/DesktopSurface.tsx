@@ -138,7 +138,6 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
             const capabilities = await sync.request('desktop.capabilities', {}).catch(() => null);
             const canClipboard = capabilities?.clipboard === true;
             setClipboardAvailable(canClipboard);
-            setConsentUntil(capabilities?.consentRequired === true ? Date.now() + DESKTOP_CONSENT_WAIT_MS : null);
             const permissions: DesktopPermission[] = canClipboard
                 ? ['view', 'control', 'clipboard']
                 : ['view', 'control'];
@@ -337,16 +336,21 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
         }
     }, [live, openedBefore, setOpenedBefore, clipboardAvailable, say]);
 
-    // While the open waits on the computer's prompt, the countdown ticks once a second.
-    const awaitingConsent = consentUntil !== null && snapshot.status === 'opening';
     const [now, setNow] = React.useState(() => Date.now());
     React.useEffect(() => {
-        if (!awaitingConsent) return;
-        setNow(Date.now());
+        if (snapshot.status !== 'opening') {
+            setConsentUntil(null);
+            return;
+        }
+        const startedAt = Date.now();
+        setConsentUntil(startedAt + DESKTOP_CONSENT_WAIT_MS);
+        setNow(startedAt);
         const timer = setInterval(() => setNow(Date.now()), 1000);
         return () => clearInterval(timer);
-    }, [awaitingConsent]);
-    const consentSecondsLeft = awaitingConsent ? Math.ceil((consentUntil - now) / 1000) : null;
+    }, [snapshot.status]);
+    const consentSecondsLeft = snapshot.status === 'opening' && consentUntil !== null && now >= consentUntil - DESKTOP_CONSENT_WAIT_MS + 2000
+        ? Math.ceil((consentUntil - now) / 1000)
+        : null;
     const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft);
     const status = started
         ? { ...described, action: described.canRetry ? 'Try again' : undefined }

@@ -24,7 +24,7 @@ export const desktopCopy = {
     consentTitle: 'Screen sharing was not approved',
     consentBody: 'Try again and approve it on the computer, or run muxr desktop setup there once.',
     awaitingConsentTitle: 'Approve screen sharing on your computer',
-    awaitingConsentBody: 'Choose the screen to share there. It only asks once.',
+    awaitingConsentBody: 'If a screen-sharing prompt appears there, choose the screen to share.',
     endedTitle: 'Desktop closed',
     endedBody: 'The desktop session has ended.',
     endedTakeover: 'This desktop is open on another device.',

@@ -35,7 +35,9 @@ describe('the desktop overlay', () => {
     });
 
     it('says where to approve screen sharing while the computer waits, then the step to take', () => {
-        const waiting = describeDesktopOverlay({ status: 'opening', geometry: null, presented: false, failure: null, diagnostics: {} }, true, 95);
+        const opening = { status: 'opening', geometry: null, presented: false, failure: null, diagnostics: {} } as const;
+        expect(describeDesktopOverlay(opening).title).toBe('Starting desktop…');
+        const waiting = describeDesktopOverlay(opening, true, 95);
         expect(waiting.title).toBe('Approve screen sharing on your computer');
         expect(waiting.detail).toContain('1:35 left');
         expect(waiting.canRetry).toBe(false);

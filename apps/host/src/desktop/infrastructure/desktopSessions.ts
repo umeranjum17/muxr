@@ -189,7 +189,6 @@ export class DesktopSessions {
                     : { inputUnavailableReason: reported.input.unavailable_reason.reason }),
                 clipboard: !x11 && reported.clipboard.read && reported.clipboard.write,
                 codec: reported.encode.codecs[0] ?? 'unknown',
-                ...(this.consentRequired(x11) ? { consentRequired: true } : {}),
             };
         } catch (error) {
             return {
@@ -198,20 +197,6 @@ export class DesktopSessions {
                 input: false,
                 clipboard: false,
             };
-        }
-    }
-
-    /**
-     * The next open will show the portal's consent prompt: a Wayland desktop
-     * with no saved grant. A grant the portal no longer honours still prompts,
-     * which only the portal can tell.
-     */
-    private consentRequired(x11: boolean): boolean {
-        if (x11 || !waylandSession(this.environment)) return false;
-        try {
-            return this.portalGrant?.saved() !== true;
-        } catch {
-            return true;
         }
     }
 

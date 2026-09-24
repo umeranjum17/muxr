@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Host-local credential, never part of a device response or diagnostics. */
@@ -19,11 +19,6 @@ export class PortalGrant {
             throw new Error('Desktop grant directory is not privately owned.');
         }
         chmodSync(this.directory, 0o700);
-    }
-
-    /** Whether a grant is waiting for the next open. */
-    saved(): boolean {
-        return existsSync(this.path);
     }
 
     /** Claim before sending: a failed/crashed open must never replay a used token. */

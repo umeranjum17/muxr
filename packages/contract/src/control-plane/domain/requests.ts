@@ -236,11 +236,6 @@ export interface DesktopCapabilities {
     inputUnavailableReason?: string;
     clipboard: boolean;
     codec?: string;
-    /**
-     * The next open waits on a screen-sharing prompt on the computer, because
-     * no earlier approval was saved there.
-     */
-    consentRequired?: boolean;
 }
 
 /**

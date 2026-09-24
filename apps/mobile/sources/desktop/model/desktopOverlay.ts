@@ -67,8 +67,6 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
         };
     }
     if (snapshot.status === 'opening' && consentSecondsLeft !== null) {
-        // The open is waiting on a person at the computer, so the phone says
-        // where to look and how long the computer will wait.
         const left = Math.max(0, consentSecondsLeft);
         const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
         return { title: desktopCopy.awaitingConsentTitle, detail: `${desktopCopy.awaitingConsentBody} ${clock} left.`, spinner: true, canRetry: false };
