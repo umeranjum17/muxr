@@ -45,7 +45,7 @@ Open the same live terminal the agent owns on your computer, with native Ghostty
 
 ### Every agent, every machine
 
-The Herd groups agents by repository and nests spawned workspaces when their lineage is declared. See real terminal thumbnails and agent lifecycle: working, needs you, done. Tap any agent and you are back in the same session.
+The Herd groups agents by repository and nests spawned workspaces when their lineage is declared. A nested workspace with one named agent shows that Herdr name before its workspace label, so you can pick the right agent; unnamed or multi-agent workspaces keep their workspace label. See real terminal thumbnails and agent lifecycle: working, needs you, done. Tap any agent and you are back in the same session.
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/herd.webp" type="image/webp"><img src="docs/assets/readme/herd.jpg" alt="The muxr Herd with live terminal thumbnails, repository spaces, and agent lifecycle states" width="100%" /></picture>

@@ -149,6 +149,12 @@ export function agentNameLine(labels: AgentLabels): string {
     return uniqueLabels([identity, labels.displayAgent ?? labels.provider, labels.model]).join(' · ');
 }
 
+/** What runs the agent, without its name, e.g. `pi · gpt-5`: for a row that already leads with the name. */
+export function agentKindLine(labels: AgentLabels): string {
+    if (isShellLabels(labels)) return 'Shell';
+    return uniqueLabels([agentKindSlug(labels.agentKind), labels.displayAgent ?? labels.provider, labels.model]).join(' · ');
+}
+
 export function agentIdentityLine(labels: AgentLabels): string {
     return agentNameLine(labels);
 }
