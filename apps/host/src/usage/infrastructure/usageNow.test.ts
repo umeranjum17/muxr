@@ -7,7 +7,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 function host(): NodeJS.ProcessEnv {
     const home = mkdtempSync(join(tmpdir(), 'muxr-usage-'));
     mkdirSync(join(home, 'claude'));
-    writeFileSync(join(home, 'claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'claude-token', expiresAt: Date.now() + 3_600_000 } }));
+    writeFileSync(join(home, 'claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'claude-token', accountUuid: 'claude-account', expiresAt: Date.now() + 3_600_000 } }));
     mkdirSync(join(home, 'pi'));
     writeFileSync(join(home, 'pi', 'auth.json'), JSON.stringify({ zai: { type: 'api_key', key: 'zai-token' } }));
     return {
@@ -34,6 +34,32 @@ function provider(url: string, init?: RequestInit): Promise<Response> {
 }
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); health = 'up'; });
+
+it('keeps the aged Claude plan while its token expires and reads Claude Code renewal', async () => {
+    const fetch = vi.fn(provider);
+    vi.stubGlobal('fetch', fetch);
+    const env = host();
+    const credentials = join(env.CLAUDE_CONFIG_DIR!, '.credentials.json');
+    const save = (token: string, expiresAt: number) => writeFileSync(credentials, JSON.stringify({
+        claudeAiOauth: { accessToken: token, accountUuid: 'claude-account', expiresAt },
+    }));
+    const { usageNow } = await import('./usageNow.js');
+    const healthy = await usageNow(env, { refresh: true });
+    expect(healthy.connected?.map(({ id }) => id)).toContain('claude');
+    const firstReads = fetch.mock.calls.filter(([url]) => String(url).includes('anthropic')).length;
+
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    save('claude-token', Date.now() - 1);
+    const expired = await usageNow(env, { refresh: true });
+    expect(expired.connected?.map(({ id }) => id)).toContain('claude');
+    expect(expired.ageSeconds).toBeGreaterThanOrEqual(2 * 3_600 - 5);
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes('anthropic'))).toHaveLength(firstReads);
+
+    save('renewed-token', Date.now() + 3_600_000);
+    await usageNow(env, { refresh: true });
+    expect(fetch.mock.calls.some(([url, init]) => String(url).includes('anthropic') &&
+        new Headers(init?.headers).get('authorization') === 'Bearer renewed-token')).toBe(true);
+}, 20_000);
 
 it('keeps every plan on the card through failed reads and paints the last good reading after a restart', async () => {
     vi.stubGlobal('fetch', vi.fn(provider));
