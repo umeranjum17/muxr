@@ -307,7 +307,9 @@ try {
     // it to one freshness window instead of collecting on the cache's 60 s flag.
     assert.equal(typeof cached.ageSeconds, 'number', 'a served report must name its age');
     assert.equal(readFileSync(ccusageMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate ccusage scan');
-    assert.equal(readFileSync(codexMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate Codex app-server');
+    // Four tabs collected, but Codex was read once: a plan reading under a
+    // minute old answers for every collection that follows it.
+    assert.equal(readFileSync(codexMarker, 'utf8'), 'x', 'a recent Codex reading did not prevent a duplicate Codex app-server');
 
     // Pi is accounted locally, so a collection that failed must surface on the
     // tab it belongs to: an honest unavailable notice, not a quiet zero.
@@ -480,7 +482,9 @@ try {
     rmSync(stateFile('all'), { force: true });
     const codexFixture = readFileSync(join(scratch, 'codex'), 'utf8');
     rmSync(join(scratch, 'codex'));
-    const fallback = await run({ provider: 'codex' }, { MUXR_CCUSAGE_BIN: join(scratch, 'missing') });
+    // No Codex anywhere on PATH: a CLI installed on the machine running this
+    // check would otherwise keep the fixture's last Codex reading standing.
+    const fallback = await run({ provider: 'codex' }, { MUXR_CCUSAGE_BIN: join(scratch, 'missing'), PATH: `${scratch}:${dirname(process.execPath)}` });
     // Codex without its CLI earns no tab, so the deep link falls back; the
     // measured-local tab it lands on still answers from its own collector.
     assert.equal(fallback.provider, 'omp');
@@ -721,6 +725,16 @@ try {
         const huge = await flowRun('pi', { PI_AGENT_DIR: oversized, MUXR_HOME: join(flow, 'state-m4') });
         assert.equal(huge.todayTokens, '—');
         assert.match(huge.activityNotice ?? '', /could not be measured/);
+        // A tool result that long (an image, a file dump) names itself in its
+        // head and never carries usage: it is skipped, and the rest still counts.
+        const toolDump = join(flow, 'tool-dump-agent');
+        writeTranscript(join(toolDump, 'sessions/proj/dump.jsonl'), [
+            `{"type":"message","id":"dump","message":{"role":"toolResult","content":"${'p'.repeat(5 * 1024 * 1024)}"}}`,
+            record('after-dump', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
+        ]);
+        const dumped = await flowRun('pi', { PI_AGENT_DIR: toolDump, MUXR_HOME: join(flow, 'state-m5') });
+        assert.equal(dumped.todayTokens, '10');
+        assert.equal(dumped.activityNotice, undefined);
 
         // A root that is there but cannot be read is not an empty root. Only
         // portable where the process is not root, which ignores the mode.
