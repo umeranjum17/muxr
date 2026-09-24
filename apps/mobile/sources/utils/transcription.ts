@@ -16,6 +16,23 @@ export function appendTranscript(base: string, spoken: string): string {
     return base.trim() ? `${base.trimEnd()} ${trimmed}` : trimmed;
 }
 
+const wordKey = (word: string) => word.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+
+/**
+ * Live words for speech that is still being re-read: only the words two
+ * readings in a row agree on are shown, and shown words are never taken back,
+ * so the text grows without flicker while its unsure tail waits a beat.
+ */
+export function settleWords(shown: string, previous: string, next: string): string {
+    const before = previous.split(/\s+/).filter(Boolean);
+    const after = next.split(/\s+/).filter(Boolean);
+    let agreed = 0;
+    while (agreed < before.length && agreed < after.length && wordKey(before[agreed]) === wordKey(after[agreed])) agreed += 1;
+    const kept = shown.split(/\s+/).filter(Boolean);
+    if (agreed <= kept.length || kept.some((word, index) => wordKey(word) !== wordKey(after[index]))) return shown;
+    return after.slice(0, agreed).join(' ');
+}
+
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\[\]\\]/g, '\\$&');
 }

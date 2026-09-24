@@ -30,6 +30,7 @@ behaviour it claims to cover and watch it go red.
 - Voice adapters are product code under the host voice module: no catalog entry, manifest hash, or per-device plugin approval. Several engines are selectable; the default is Codex Voice (experimental).
 - Never display or speak internal ids (`pp_*`, pane ids, session ids).
 - The microphone foreground service must be running before the realtime mic opens, or Android silently returns a deaf session.
+- Dictation speed rests on `patches/whisper.rn+0.7.2.patch`, which passes `audioCtx` to whisper.cpp; without it every reading pays for a full 30 s window (~2.5 s on a flagship). Carry it across whisper.rn upgrades; `verifyNativePatches.mjs` checks it.
 
 ## Naming
 
