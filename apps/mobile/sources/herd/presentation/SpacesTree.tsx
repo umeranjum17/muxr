@@ -28,18 +28,20 @@ import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
 
 // Tree geometry in dp from the card's left edge. Depth 1 hangs off the card's
-// own rail; each deeper level hangs one step in, off its spawner's dot.
+// own rail; each deeper level hangs one step in, off its spawner's glyph.
 const RAIL = 2;
-const DOT = 8;
+// The agent glyph, at the parent rows' size; rails stop GAP short of it.
+const GLYPH = 16;
+const GAP = 3;
 const CHILD_INSET = 28;
 const DEPTH_STEP = 16;
 // ponytail: deeper lineage clamps to this indent (a 270dp phone keeps its
 // text); a clamped row draws as its parent's sibling but is never hidden.
 const MAX_DRAWN_DEPTH = 4;
 const childInset = (depth: number) => CHILD_INSET + (depth - 1) * DEPTH_STEP;
-const dotCenter = (depth: number) => childInset(depth) + DOT / 2;
-/** The rail joining depth-`depth` siblings: the card's rail, else the spawner's dot column. */
-const railLeft = (depth: number) => (depth <= 1 ? 17 : dotCenter(depth - 1) - RAIL / 2);
+const glyphCenter = (depth: number) => childInset(depth) + GLYPH / 2;
+/** The rail joining depth-`depth` siblings: the card's rail, else the spawner's glyph column. */
+const railLeft = (depth: number) => (depth <= 1 ? 17 : glyphCenter(depth - 1) - RAIL / 2);
 
 const stylesheet = StyleSheet.create((theme) => ({
     // Matches a Live card while the host is away.
@@ -288,7 +290,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     railStem: {
         position: 'absolute',
         top: '50%',
-        marginTop: DOT / 2,
+        marginTop: GLYPH / 2 + GAP,
         bottom: 0,
         width: RAIL,
         backgroundColor: theme.colors.groupped.rail,
@@ -312,7 +314,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     childPressable: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
+        gap: 9,
         minHeight: 52,
         paddingVertical: 8,
     },
@@ -489,14 +491,14 @@ const TreeRails = React.memo(({ depth, rails, last }: { depth: number; rails: re
     </View>
 ));
 
-/** The elbow from this row's rail into its dot, drawn under the dot. */
+/** The elbow from this row's rail up to its glyph. */
 const RowElbow = React.memo(({ depth }: { depth: number }) => (
     <View style={stylesheet.railOverlay} {...railHidden}>
-        <View style={[stylesheet.railElbow, { left: railLeft(depth), width: dotCenter(depth) - railLeft(depth) }]} />
+        <View style={[stylesheet.railElbow, { left: railLeft(depth), width: childInset(depth) - GAP - railLeft(depth) }]} />
     </View>
 ));
 
-/** The stem from under this row's dot down to its own children, drawn over a selected row. */
+/** The stem from under this row's glyph down to its own children, drawn over a selected row. */
 const RowStem = React.memo(({ depth }: { depth: number }) => (
     <View style={stylesheet.railOverlay} {...railHidden}>
         <View style={[stylesheet.railStem, { left: railLeft(depth + 1) }]} />
@@ -566,7 +568,7 @@ const FamilySummary = React.memo(({ groupChildren, compact }: { groupChildren: H
 /**
  * Quiet subheader naming the family and its counts: it states the subtree,
  * it does not control it — the card header is the single disclosure.
- * Indented to the child status-dot column so it reads as the rail's label.
+ * Indented to the child glyph column so it reads as the rail's label.
  */
 const GroupSubheader = React.memo(({ groupChildren, compact }: { groupChildren: HerdChildSpace[]; compact: boolean }) => (
     <View
@@ -623,11 +625,14 @@ const ChildRow = React.memo(({
     // The agent row's weight rule: settled and seen goes quiet.
     const quiet = (child.workspace.agentStatus === 'done' || child.workspace.agentStatus === 'idle')
         && !panes.some((pane) => pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId));
+    // The parent rows' mark: the lead agent's kind, else the shell.
+    const leadLabels = agentPanes[0] === undefined ? undefined : agentLabels(agentPanes[0]);
+    const glyphName = leadLabels === undefined || isShellLabels(leadLabels) ? 'shell' : leadLabels.agentKind ?? leadLabels.agentName;
 
     return (
         <View style={styles.childRow}>
             <TreeRails depth={depth} rails={child.rails} last={child.last} />
-            <View style={[styles.childSeparator, { marginLeft: inset + DOT + 12 }]} />
+            <View style={[styles.childSeparator, { marginLeft: inset + GLYPH + 9 }]} />
             <View>
                 <RowElbow depth={depth} />
                 <Pressable
@@ -646,7 +651,7 @@ const ChildRow = React.memo(({
                         ? [label, ...parts].join(', ')
                         : t('spacesTree.openLabel', { label, line2: parts.join(', ') })}
                 >
-                    <StatusDot color={dot.color} isPulsing={dot.pulsing} size={DOT} />
+                    <AgentGlyph name={glyphName} size={GLYPH} />
                     <View style={styles.childText}>
                         <Text numberOfLines={1} style={[styles.childLabel, quiet && styles.childLabelQuiet]}>
                             {agentName === undefined
@@ -655,6 +660,7 @@ const ChildRow = React.memo(({
                         </Text>
                         <Text numberOfLines={1} style={styles.childLine2}>{line2}</Text>
                     </View>
+                    <StatusDot color={quiet ? theme.colors.status.disconnected : dot.color} isPulsing={dot.pulsing} size={7} />
                 </Pressable>
                 {child.hasChildren && <RowStem depth={depth} />}
             </View>
