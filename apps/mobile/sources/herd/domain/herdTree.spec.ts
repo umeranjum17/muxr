@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildSpaceRows, defaultExpandedSpaces, displayedWorkspaceNames, effectiveExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceCloseMessage, workspaceName, workspaceNames, workspacePath } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
+import { paneMapTiles } from './paneMap';
 
 const pane = (id: string, agentKind?: string, extra: Partial<ContractPane> = {}): ContractPane => ({ paneId: id, tabId: 't1', agentStatus: 'idle', promptable: false, focused: false, agentKind, ...extra });
 const ws = (id: string, label: string | undefined, tabs: HerdrTreeTab[]): ContractWorkspace => ({ workspaceId: id, label, focused: false, agentStatus: 'idle', tabs });
@@ -280,4 +281,24 @@ it('reports installed app and host versions without confusing stale Expo metadat
         expect(getAppVersion()).toBe('0.1.12');
         expect(getAppBuildNumber()).toBeUndefined();
     } finally { installedBuild.version = '0.1.26'; installedBuild.build = '356'; }
+});
+
+it('draws a tab\'s desk split to phone width, and stacks when the geometry no longer matches', () => {
+    // One tall pane on the left, two stacked on the right, and a thin strip under the right pair.
+    const layout = { area: { x: 0, y: 0, width: 120, height: 40 }, panes: [
+        { paneId: 'a', rect: { x: 0, y: 0, width: 60, height: 40 } },
+        { paneId: 'b', rect: { x: 60, y: 0, width: 60, height: 18 } },
+        { paneId: 'c', rect: { x: 60, y: 18, width: 60, height: 18 } },
+        { paneId: 'd', rect: { x: 60, y: 36, width: 60, height: 4 } },
+    ] };
+    const map = paneMapTiles(layout, ['a', 'b', 'c', 'd'], 300, 52)!;
+    const [a, b, c, d] = map.tiles;
+    expect(a).toMatchObject({ left: 0, top: 0, width: 150, height: map.height });
+    expect([b!.left, b!.width, b!.top]).toEqual([150, 150, 0]);
+    // Neighbours share an edge, and the thinnest pane still gets a full tap target.
+    expect(c!.top).toBe(b!.top + b!.height);
+    expect(d!.top + d!.height).toBe(map.height);
+    expect(d!.height).toBeGreaterThanOrEqual(52);
+    // A pane the layout does not know (a stale read) means no map at all.
+    expect(paneMapTiles(layout, ['a', 'b', 'c', 'e'], 300, 52)).toBeUndefined();
 });

@@ -220,11 +220,11 @@ const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
  * drew a second dictate mic beside the app's own in every composer, and
  * panes/control surfaces must not present as disableable plugins. Realtime voice
  * is product code now too, so its retired registrations are retracted here the
- * same way.
+ * same way, and so is the in-app Browser that Computer replaced.
  * User-authored plugins under their own ids are unaffected.
  * Keep in step with LEGACY_BUNDLED_PLUGIN_IDS in scripts/setup/infrastructure/herdr.mjs.
  */
-const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status', 'muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai', 'muxr.voice-codex']);
+const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status', 'muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai', 'muxr.voice-codex', 'muxr.browser']);
 function fromPackagedRoot(plugin: HerdrPlugin): HerdrPlugin {
     const root = PACKAGED_BUNDLED_ROOTS.get(plugin.plugin_id);
     return root === undefined ? plugin : { ...plugin, plugin_root: root };
@@ -2412,7 +2412,7 @@ export async function createHerdrSessionSource(
         const result = await client.call<{ plugins?: HerdrPlugin[] }>('plugin.list');
         const entries: ApplicationAction[] = [];
         for (const plugin of result.plugins ?? []) {
-            if (plugin.enabled !== true || typeof plugin.plugin_id !== 'string' || plugin.plugin_id === '') continue;
+            if (plugin.enabled !== true || typeof plugin.plugin_id !== 'string' || plugin.plugin_id === '' || RETIRED_PLUGIN_IDS.has(plugin.plugin_id)) continue;
             const displayName = typeof plugin.name === 'string' && plugin.name.trim() !== '' ? plugin.name.trim() : 'Extension';
             const global = (plugin.actions ?? []).filter((action) => {
                 const contexts = (action as Record<string, unknown>).contexts;

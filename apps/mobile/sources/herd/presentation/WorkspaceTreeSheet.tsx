@@ -1,7 +1,7 @@
 /**
  * The workspace sheet: the home tree in a sheet, opened from the session
- * header. Every workspace with the current one expanded and the current pane
- * selected; long-press closes like on home. Reads the shared live tree and
+ * header or the Panes screen. Every workspace with the current one expanded
+ * and the current pane selected; long-press closes like on home. Reads the shared live tree and
  * refreshes on open, no poller of its own.
  */
 import * as React from 'react';
@@ -13,10 +13,13 @@ import { spaceExpansionDefaults } from '../domain/herdTree';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { SpacesTree } from './SpacesTree';
 
-export function WorkspaceTreeSheet(props: { visible: boolean; sessionId: string; onClose: () => void }): React.JSX.Element {
+export function WorkspaceTreeSheet(props: { visible: boolean; sessionId?: string; onClose: () => void }): React.JSX.Element {
     const { workspaces } = useHerdrTree();
     const navigate = useNavigateToSession();
-    const located = herdrTabForSession(workspaces, props.sessionId);
+    // Opened from a session, its workspace; otherwise the desk's focused one.
+    const current = props.sessionId === undefined
+        ? workspaces.find((workspace) => workspace.focused)
+        : herdrTabForSession(workspaces, props.sessionId)?.workspace;
     const refresh = React.useCallback(async () => { await sync.refreshHerdTree().catch(() => undefined); }, []);
 
     React.useEffect(() => {
@@ -39,7 +42,7 @@ export function WorkspaceTreeSheet(props: { visible: boolean; sessionId: string;
             body={(
                 <SpacesTree
                     workspaces={workspaces}
-                    defaultExpandedWorkspaceIds={located === undefined ? [] : spaceExpansionDefaults(workspaces, located.workspace.workspaceId)}
+                    defaultExpandedWorkspaceIds={current === undefined ? [] : spaceExpansionDefaults(workspaces, current.workspaceId)}
                     refresh={refresh}
                     density="compact"
                     selectedSessionId={props.sessionId}

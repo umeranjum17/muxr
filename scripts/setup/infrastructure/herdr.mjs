@@ -48,6 +48,8 @@ import { parseBundledPlugin } from '../../plugin/index.mjs';
 const LEGACY_BUNDLED_PLUGIN_IDS = [
     // Retired product surfaces that used to ship as bundled add-ons.
     'muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status',
+    // The in-app Browser, which Computer replaced.
+    'muxr.browser',
     // Realtime voice, which is product code now.
     'muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai', 'muxr.voice-codex',
 ];
