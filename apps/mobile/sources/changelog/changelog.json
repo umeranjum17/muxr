@@ -1,6 +1,44 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.0",
+            "title": "Rename anything, and a steadier terminal and Right now",
+            "summary": "Rename agents, tabs, panes and spaces from the app, keep the terminal's quick actions while you type, and trust that Right now shows the latest reading.",
+            "features": [
+                {
+                    "title": "Rename agents, tabs, panes and spaces",
+                    "detail": "Long-press an agent, tab, pane or space and choose Rename. The new name is saved on your computer, so every device and the desk see it, and automatic naming leaves it alone. If a name cannot be used, the app says why."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Right now stays current",
+                    "detail": "Refreshing the Right now strip no longer slips back to an older reading a few seconds later, and the age it shows is the age of the figures on screen."
+                },
+                {
+                    "title": "Quick actions stay while you type",
+                    "detail": "The terminal's quick-actions button stays on screen with the keyboard open and moves with the composer, and the ring opens above the keyboard."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Final acceptance on the frozen candidate",
+                    "status": "not-run",
+                    "detail": "The owner's final local test of the exact release candidate has not run yet."
+                },
+                {
+                    "title": "iOS acceptance",
+                    "status": "not-run",
+                    "detail": "No iOS simulator or device run is recorded for this version."
+                }
+            ],
+            "knownLimits": [
+                "Computer needs a Linux x64 computer with glibc 2.36 or newer; other systems are not supported yet.",
+                "On a Wayland desktop, controlling the computer needs a one-time input permission; until it is granted, Computer is view only.",
+                "No iOS run of any kind is recorded for this version."
+            ]
+        },
+        {
             "appVersion": "0.1.29",
             "title": "Your computer, your terminals, your voice",
             "summary": "Open your computer's screen from the phone, work terminals by tab and pane, dictate as you speak, and see plan limits at a glance. This is the first stable release since 0.1.25, so it also includes every change from 0.1.26 to 0.1.28.",
