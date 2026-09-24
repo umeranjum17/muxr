@@ -35,7 +35,7 @@ import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { AgentPager, arrivingBySwipe } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentLabels, agentNameLine, agentStatusColor, agentTaskLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, resolveTabPane, tabLabel, useNavigateToSession } from '@/herd';
+import { agentLabels, agentNameLine, agentStatusColor, agentTaskLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, renameInHerdr, renamePane, resolveTabPane, showTabActions, tabLabel, useNavigateToSession } from '@/herd';
 import {
     DIALOG_GUARD_ACTION,
     DIALOG_GUARD_MESSAGE,
@@ -815,6 +815,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             });
     }, [props.id, navigateToSession]);
     React.useEffect(() => { if (!actionsOpen) setFocusFailure(null); }, [actionsOpen]);
+    const renameThisPane = React.useCallback(() => {
+        setActionsOpen(false);
+        if (currentPane !== undefined) void renamePane(currentPane);
+    }, [currentPane]);
+    const renameTab = React.useCallback((tabId: string, label: string) => {
+        setActionsOpen(false);
+        void renameInHerdr('tab', tabId, label);
+    }, []);
 
     /**
      * What you can do with ONE link the terminal printed. The link is the
@@ -1610,6 +1618,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Pressable
                                             onLayout={active ? ({ nativeEvent }) => { activeChipX.current = nativeEvent.layout.x; } : undefined}
                                             onPress={active ? undefined : () => openTab(tab)}
+                                            onLongPress={canControl ? () => showTabActions(tab.tabId, label) : undefined}
                                             accessibilityRole="button"
                                             accessibilityLabel={`${active ? 'Current tab' : 'Open tab'} ${label}, ${tab.panes.length === 1 ? '1 pane' : `${tab.panes.length} panes`}`}
                                             accessibilityState={{ selected: active }}
@@ -1844,6 +1853,16 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                     {canControl && <DeclarativeSessionActions actions={declaredActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
                                     {canControl && (
                                         <View>
+                                            {currentPane !== undefined && <Pressable onPress={renameThisPane} accessibilityRole="button" accessibilityLabel={shell ? 'Rename pane' : 'Rename agent'}
+                                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                                <Ionicons name="pencil-outline" size={18} color={theme.colors.textSecondary} />
+                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{shell ? 'Rename pane' : 'Rename agent'}</Text>
+                                            </Pressable>}
+                                            {currentTab !== undefined && <Pressable onPress={() => renameTab(currentTab.tabId, tabLabel(currentTab, workspaceTabs.indexOf(currentTab)))} accessibilityRole="button" accessibilityLabel="Rename tab"
+                                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                                <Ionicons name="pricetag-outline" size={18} color={theme.colors.textSecondary} />
+                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Rename tab</Text>
+                                            </Pressable>}
                                             <Pressable onPress={newTab} accessibilityRole="button" accessibilityLabel="New tab"
                                                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                                 <Ionicons name="add" size={18} color={theme.colors.textSecondary} />

@@ -7,6 +7,7 @@
 
 import type {
     ApplicationLauncher,
+    HerdrRenameTarget,
     PluginManifestV1,
     PluginSummary,
     HerdrTreeWorkspace,
@@ -179,6 +180,8 @@ export interface SessionSource {
     closePane(sessionId: string): Promise<void>;
     /** Close a workspace and everything in it. */
     closeWorkspace(workspaceId: string): Promise<void>;
+    /** Rename an agent (by its pane), a pane, a tab or a workspace in Herdr. */
+    rename(target: HerdrRenameTarget, id: string, name: string): Promise<void>;
     /** Send literal keys to the session's pane (blocked-agent answers). */
     sendKeys(sessionId: string, keys: string[]): Promise<void>;
     paneZoom(options: { sessionId: string; mode?: 'toggle' | 'on' | 'off' }): Promise<{

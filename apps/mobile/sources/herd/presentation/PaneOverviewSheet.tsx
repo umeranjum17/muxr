@@ -23,6 +23,7 @@ import { getCachedConnectionSettings } from '@/connection';
 import { agentLabels, herdrTabForSession, tabLabel } from '../domain/agentPresentation';
 import { agentStatusColor } from '../application/sessionUtils';
 import { rememberPaneSelection, useNavigateToSession } from '../application/useNavigateToSession';
+import { showPaneActions, showTabActions } from '../application/renameInHerdr';
 import { AgentPickerSheet } from './AgentPickerSheet';
 import { PaneMap } from './PaneMap';
 
@@ -104,6 +105,10 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
         ]);
     }, [tab, props.sessionId, navigate, close, refresh]);
 
+    const paneActions = React.useCallback((pane: HerdrTreePane) => {
+        showPaneActions(pane, () => closePane(pane));
+    }, [closePane]);
+
     const splitPane = React.useCallback((option: ModelMode) => {
         const direction = splitDirection;
         const anchor = target?.sessionId;
@@ -157,6 +162,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                             <Pressable
                                 key={entry.tabId}
                                 onPress={() => setViewedTabId(entry.tabId)}
+                                onLongPress={canMutate ? () => showTabActions(entry.tabId, label) : undefined}
                                 accessibilityRole="button"
                                 accessibilityState={{ selected: active }}
                                 accessibilityLabel={`${label}, ${count}${here ? ', this tab' : ''}`}
@@ -217,6 +223,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                                 canClose={canMutate}
                                 onOpen={openPane}
                                 onClose={closePane}
+                                onLongPress={paneActions}
                             />
                         )}
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 12 }}>

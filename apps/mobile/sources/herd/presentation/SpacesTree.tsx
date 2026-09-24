@@ -26,6 +26,7 @@ import { t } from '@/text';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
+import { renameInHerdr, showNameActions, showPaneActions } from '../application/renameInHerdr';
 
 // Tree geometry in dp from the card's left edge. Depth 1 hangs off the card's
 // own rail; each deeper level hangs one step in, off its spawner's glyph.
@@ -380,7 +381,7 @@ interface SpacesTreeProps {
 export const AgentRow = React.memo(({
     pane,
     first,
-    onClose,
+    onLongPress,
     onNavigatePane,
     compact,
     selected,
@@ -390,7 +391,7 @@ export const AgentRow = React.memo(({
 }: {
     pane: HerdrTreePane;
     first?: boolean;
-    onClose: (pane: HerdrTreePane) => void;
+    onLongPress: (pane: HerdrTreePane) => void;
     onNavigatePane?: (sessionId: string) => void;
     compact: boolean;
     selected: boolean;
@@ -417,7 +418,7 @@ export const AgentRow = React.memo(({
             {first !== true && <View style={styles.separator} />}
             <Pressable
                 onPress={sessionId === undefined ? undefined : () => (onNavigatePane ?? navigateToSession)(sessionId)}
-                onLongPress={canClose ? () => onClose(pane) : undefined}
+                onLongPress={canClose ? () => onLongPress(pane) : undefined}
                 disabled={sessionId === undefined}
                 style={({ pressed }) => [
                     styles.agentPressable,
@@ -589,8 +590,8 @@ const ChildRow = React.memo(({
     child,
     name,
     onToggle,
-    onClose,
-    onClosePane,
+    onLongPress,
+    onLongPressPane,
     onNavigatePane,
     selectedSessionId,
     canClose,
@@ -599,8 +600,8 @@ const ChildRow = React.memo(({
     child: HerdChildSpace;
     name: string;
     onToggle: (workspaceId: string) => void;
-    onClose: (workspace: HerdrTreeWorkspace) => void;
-    onClosePane: (pane: HerdrTreePane) => void;
+    onLongPress: (workspace: HerdrTreeWorkspace) => void;
+    onLongPressPane: (pane: HerdrTreePane) => void;
     onNavigatePane?: (sessionId: string) => void;
     selectedSessionId?: string;
     canClose: boolean;
@@ -641,7 +642,7 @@ const ChildRow = React.memo(({
                 <RowElbow depth={depth} />
                 <Pressable
                     onPress={onPress}
-                    onLongPress={canClose ? () => onClose(child.workspace) : undefined}
+                    onLongPress={canClose ? () => onLongPress(child.workspace) : undefined}
                     style={({ pressed }) => [
                         styles.childPressable,
                         { marginLeft: inset },
@@ -676,7 +677,7 @@ const ChildRow = React.memo(({
                             key={pane.paneId}
                             pane={pane}
                             first
-                            onClose={onClosePane}
+                            onLongPress={onLongPressPane}
                             onNavigatePane={onNavigatePane}
                             compact={false}
                             selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
@@ -701,8 +702,8 @@ const WorkspaceCard = React.memo(({
     searchForced,
     onToggle,
     onToggleChild,
-    onClose,
-    onClosePane,
+    onLongPress,
+    onLongPressPane,
     onNavigatePane,
     compact,
     selectedSessionId,
@@ -720,8 +721,8 @@ const WorkspaceCard = React.memo(({
     searchForced: boolean;
     onToggle: (workspaceId: string) => void;
     onToggleChild: (workspaceId: string) => void;
-    onClose: (workspace: HerdrTreeWorkspace) => void;
-    onClosePane: (pane: HerdrTreePane) => void;
+    onLongPress: (workspace: HerdrTreeWorkspace) => void;
+    onLongPressPane: (pane: HerdrTreePane) => void;
     onNavigatePane?: (sessionId: string) => void;
     compact: boolean;
     selectedSessionId?: string;
@@ -758,7 +759,7 @@ const WorkspaceCard = React.memo(({
         <View style={[styles.card, compact && styles.cardCompact]}>
             <Pressable
                 onPress={searchForced ? undefined : () => onToggle(workspace.workspaceId)}
-                onLongPress={canClose ? () => onClose(workspace) : undefined}
+                onLongPress={canClose ? () => onLongPress(workspace) : undefined}
                 style={({ pressed }) => [
                     styles.cardHeader,
                     compact && styles.cardHeaderCompact,
@@ -802,7 +803,7 @@ const WorkspaceCard = React.memo(({
                     key={pane.paneId}
                     pane={pane}
                     first={index === 0}
-                    onClose={onClosePane}
+                    onLongPress={onLongPressPane}
                     onNavigatePane={onNavigatePane}
                     compact={compact}
                     selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
@@ -819,8 +820,8 @@ const WorkspaceCard = React.memo(({
                     child={child}
                     name={childNames[index]!}
                     onToggle={onToggleChild}
-                    onClose={onClose}
-                    onClosePane={onClosePane}
+                    onLongPress={onLongPress}
+                    onLongPressPane={onLongPressPane}
                     onNavigatePane={onNavigatePane}
                     selectedSessionId={selectedSessionId}
                     canClose={canClose}
@@ -947,6 +948,16 @@ export const SpacesTree = React.memo(({
         ]);
     }, [refresh]);
 
+    const workspaceActions = React.useCallback((workspace: HerdrTreeWorkspace) => {
+        const name = namesRef.current.get(workspace.workspaceId)!;
+        showNameActions(name, 'Workspace', () => void renameInHerdr('workspace', workspace.workspaceId, workspace.label?.trim() || name),
+            { label: 'Close workspace', onPress: () => confirmCloseWorkspace(workspace) });
+    }, [confirmCloseWorkspace]);
+
+    const paneActions = React.useCallback((pane: HerdrTreePane) => {
+        showPaneActions(pane, pane.sessionId === undefined ? undefined : () => confirmClosePane(pane));
+    }, [confirmClosePane]);
+
     const renderItem = React.useCallback(({ item }: { item: HerdSpaceRow }) => (
         <View style={stale && styles.stale}>
             <WorkspaceCard
@@ -962,8 +973,8 @@ export const SpacesTree = React.memo(({
                 // every time the list around it does.
                 onToggle={toggleWorkspace}
                 onToggleChild={toggleChildWorkspace}
-                onClose={confirmCloseWorkspace}
-                onClosePane={confirmClosePane}
+                onLongPress={workspaceActions}
+                onLongPressPane={paneActions}
                 onNavigatePane={onNavigatePane}
                 compact={compact}
                 selectedSessionId={selectedSessionId}
@@ -971,7 +982,7 @@ export const SpacesTree = React.memo(({
                 unseenDoneSessionIds={unseenDoneSessionIds}
             />
         </View>
-    ), [canClose, childNames, compact, confirmClosePane, confirmCloseWorkspace, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, childNames, compact, paneActions, workspaceActions, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (

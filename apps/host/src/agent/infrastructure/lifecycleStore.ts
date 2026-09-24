@@ -88,9 +88,10 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
             taskTitle = safeTaskTitle(taskTitle);
             agentKind = safeAgentKind(agentKind);
             const previous = this.current(sessionId);
-            if (previous?.state === state && previous.reasonCode === reason && previous.agentName === agentName) {
-                if (previous.taskTitle !== taskTitle || previous.agentKind !== agentKind) {
-                    const updated = { ...previous };
+            // A rename is not a transition: the agent keeps its state and its age.
+            if (previous?.state === state && previous.reasonCode === reason) {
+                if (previous.agentName !== agentName || previous.taskTitle !== taskTitle || previous.agentKind !== agentKind) {
+                    const updated = { ...previous, agentName };
                     if (taskTitle === undefined) delete updated.taskTitle;
                     else updated.taskTitle = taskTitle;
                     if (agentKind === undefined) delete updated.agentKind;

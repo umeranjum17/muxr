@@ -4,7 +4,8 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsFocused } from '@react-navigation/native';
 import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { Text } from '@/components/StyledText';
-import { useHomeHerd, useLifecycleEvents, useSocketStatus } from '@/catalog/store';
+import { storage, useHomeHerd, useLifecycleEvents, useSocketStatus } from '@/catalog/store';
+import { useDeviceAuthority } from '@/pairing';
 import { t } from '@/text';
 import { agentStatusColor } from '../application/sessionUtils';
 import { herdPanes } from '../domain/herd';
@@ -19,7 +20,8 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
-import { agentLabels, agentNameLine, isShellLabels, liveCardState } from '../domain/agentPresentation';
+import { agentLabels, agentNameLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
+import { showPaneActions } from '../application/renameInHerdr';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import type { LifecycleEvent } from '@muxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
@@ -91,13 +93,14 @@ interface CardProps {
     paused: boolean;
     disconnected: boolean;
     unseenDone: boolean;
+    canRename: boolean;
 }
 
 function terminalIsLive(card: LiveTerminalOrderCard): boolean {
     return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
 }
 
-const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone }: CardProps) => {
+const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone, canRename }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
@@ -105,9 +108,14 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
     const live = terminalIsLive(card);
     const shell = isShellLabels(labels);
     const state = liveCardState(labels, card.agentStatus, card.id, events, now);
+    const rename = () => {
+        const pane = herdrPaneForSession(storage.getState().herdrWorkspaces, card.id);
+        if (pane !== undefined) showPaneActions(pane);
+    };
     return (
         <Pressable
             onPress={() => navigateToSession(card.id)}
+            onLongPress={canRename ? rename : undefined}
             accessibilityRole="button"
             accessibilityLabel={state.accessibilityLabel}
             style={({ pressed }) => [
@@ -153,6 +161,7 @@ export const LiveTerminalsRow = React.memo(({
     const { sessions, workspaces, stale } = useHomeHerd();
     const lifecycleEvents = useLifecycleEvents();
     const { status: socketStatus } = useSocketStatus();
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
     const { ready, seenEventIds, markSeen } = useActivityAcknowledgements();
     const scrollRef = React.useRef<FlatList<LiveTerminalOrderCard>>(null);
     const stripListRef = React.useRef<View>(null);
@@ -337,6 +346,7 @@ export const LiveTerminalsRow = React.memo(({
             paused={stale || Math.abs(index - firstVisible) > 2}
             disconnected={socketStatus !== 'connected' || stale}
             unseenDone={readySessionIds.has(card.id)}
+            canRename={authority === 'control' && !authorityLoading && !stale}
         />
     );
 

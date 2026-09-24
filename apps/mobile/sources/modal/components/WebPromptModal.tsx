@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, KeyboardTypeOptions, Platform } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, KeyboardTypeOptions, Platform, useWindowDimensions } from 'react-native';
 import { BaseModal } from '@/modal/components/BaseModal';
 import { PromptModalConfig } from '@/modal/types';
 import { Typography } from '@/constants/Typography';
@@ -14,7 +14,9 @@ interface WebPromptModalProps {
 
 export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalProps) {
     const { theme } = useUnistyles();
+    const { width: windowWidth } = useWindowDimensions();
     const [inputValue, setInputValue] = useState(config.defaultValue || '');
+    const blocked = config.required === true && inputValue.trim() === '';
     const inputRef = useRef<TextInput>(null);
 
     useEffect(() => {
@@ -31,6 +33,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
     };
 
     const handleConfirm = () => {
+        if (blocked) return;
         onConfirm(inputValue);
         onClose();
     };
@@ -51,11 +54,13 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
             backgroundColor: Platform.select({
                 web: theme.colors.surface,
                 ios: theme.colors.glass.overlay,
-                android: theme.colors.glass.backgroundStrong,
+                // Opaque: Android draws no blur, and the screen behind showed through the field.
+                android: theme.colors.surface,
                 default: theme.colors.surface,
             }),
             borderRadius: 14,
-            width: 270,
+            // A 270 pt phone would otherwise run the card edge to edge.
+            width: Math.min(270, windowWidth - 32),
             overflow: 'hidden',
             borderWidth: Platform.OS === 'web' ? 0 : StyleSheet.hairlineWidth,
             borderColor: theme.colors.glass.border,
@@ -149,7 +154,9 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
                         ref={inputRef}
                         style={[styles.input, Typography.default()]}
                         value={inputValue}
-                        onChangeText={setInputValue}
+                        onChangeText={(text) => setInputValue(config.transform === undefined ? text : config.transform(text))}
+                        maxLength={config.maxLength}
+                        selectTextOnFocus={config.defaultValue !== undefined && config.defaultValue !== ''}
                         placeholder={config.placeholder}
                         accessibilityLabel={config.placeholder || config.title}
                         placeholderTextColor={theme.colors.input.placeholder}
@@ -188,12 +195,15 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
                             pressed && styles.buttonPressed
                         ]}
                         onPress={handleConfirm}
+                        disabled={blocked}
                         accessibilityRole="button"
                         accessibilityLabel={config.confirmText || 'OK'}
+                        accessibilityState={{ disabled: blocked }}
                     >
                         <Text style={[
                             styles.buttonText,
-                            Typography.default('semiBold')
+                            Typography.default('semiBold'),
+                            blocked && { opacity: 0.4 }
                         ]}>
                             {config.confirmText || 'OK'}
                         </Text>

@@ -60,6 +60,7 @@ const PaneTile = React.memo(function PaneTile(props: {
     canClose: boolean;
     onOpen: (pane: HerdrTreePane) => void;
     onClose: (pane: HerdrTreePane) => void;
+    onLongPress?: (pane: HerdrTreePane) => void;
 }): React.JSX.Element {
     const { theme } = useUnistyles();
     const { pane } = props;
@@ -78,12 +79,12 @@ const PaneTile = React.memo(function PaneTile(props: {
         <View style={{ flex: 1, borderRadius: 10, overflow: 'hidden', borderWidth: props.current ? 2 : needsYou ? 1.5 : 1, borderColor: props.current ? theme.colors.accent : needsYou ? theme.colors.status.error : theme.colors.divider, opacity: props.pending ? 0.5 : 1 }}>
             <Pressable
                 onPress={() => props.onOpen(pane)}
-                onLongPress={closable ? () => props.onClose(pane) : undefined}
+                onLongPress={closable ? () => (props.onLongPress ?? props.onClose)(pane) : undefined}
                 disabled={pane.sessionId === undefined || props.pending}
                 accessibilityRole="button"
                 accessibilityState={{ selected: props.current, disabled: pane.sessionId === undefined || props.pending }}
                 accessibilityLabel={[props.current ? 'Current pane' : 'Open pane', labels.title, state, task].filter(Boolean).join(', ')}
-                accessibilityHint={closable ? 'Long-press to close' : undefined}
+                accessibilityHint={closable ? (props.onLongPress === undefined ? 'Long-press to close' : 'Long-press to rename or close') : undefined}
                 style={({ pressed }) => ({ flex: 1, padding: 8, gap: 3, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}
             >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -120,6 +121,8 @@ export function PaneMap(props: {
     canClose: boolean;
     onOpen: (pane: HerdrTreePane) => void;
     onClose: (pane: HerdrTreePane) => void;
+    /** Long-press; without it a long-press closes. */
+    onLongPress?: (pane: HerdrTreePane) => void;
 }): React.JSX.Element {
     const [width, setWidth] = React.useState(0);
     const layout = useTabLayout(props.tab);
@@ -143,6 +146,7 @@ export function PaneMap(props: {
                             canClose={props.canClose}
                             onOpen={props.onOpen}
                             onClose={props.onClose}
+                            {...(props.onLongPress === undefined ? {} : { onLongPress: props.onLongPress })}
                         />
                     </View>
                 );

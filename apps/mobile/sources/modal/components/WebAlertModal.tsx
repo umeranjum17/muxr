@@ -125,13 +125,15 @@ export function WebAlertModal({ config, onClose, onConfirm }: WebAlertModalProps
                     )}
                 </View>
                 
-                <View style={styles.buttonContainer}>
+                {/* Three or more choices stack, as a system alert does, so none is squeezed. */}
+                <View style={[styles.buttonContainer, buttons.length > 2 && { flexDirection: 'column' }]}>
                     {buttons.map((button, index) => (
                         <React.Fragment key={index}>
-                            {index > 0 && <View style={styles.buttonSeparator} />}
+                            {index > 0 && <View style={buttons.length > 2 ? { height: 1, backgroundColor: theme.colors.divider } : styles.buttonSeparator} />}
                             <Pressable
                                 style={({ pressed }) => [
                                     styles.button,
+                                    buttons.length > 2 && { flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
                                     pressed && styles.buttonPressed
                                 ]}
                                 onPress={() => handleButtonPress(index)}

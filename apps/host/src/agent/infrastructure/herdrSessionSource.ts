@@ -19,6 +19,7 @@ import type {
     AgentLifecycle,
     ApplicationLauncher,
     CloseResult,
+    HerdrRenameTarget,
     PluginsInvalidatedFrame,
     HerdrTreeWorkspace,
     LayoutSnapshot,
@@ -30,7 +31,7 @@ import type {
     SessionStartResult,
     SessionStatus,
 } from '@muxr/contract';
-import { ATTENTION_REASONS, capUtf8Bytes, realtimePluginPublicContext, relayControlUrl, sanitizeDisplayText } from '@muxr/contract';
+import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, relayControlUrl, sanitizeDisplayText } from '@muxr/contract';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
@@ -451,7 +452,7 @@ function herdrFailureCode(error: unknown): string | undefined {
     return /herdr: ([a-z0-9_]+):/i.exec(message)?.[1];
 }
 
-function unavailable(kind: 'pane' | 'tab' | 'workspace'): Error {
+function unavailable(kind: 'agent' | 'pane' | 'tab' | 'workspace'): Error {
     return Object.assign(new Error(`That ${kind} is no longer available. Refresh and try again.`), {
         code: `${kind}-unavailable`,
     });
@@ -533,6 +534,46 @@ export async function closeExactTab(
         });
     }
     await client.call('tab.close', { tab_id: tabId });
+}
+
+/**
+ * Rename one agent, pane, tab or workspace in Herdr, where every client and the
+ * naming plugin read names from. Refuses an empty or over-long name without
+ * calling Herdr; Herdr's own refusals come back in plain words.
+ */
+export async function renameInHerdr(
+    client: Pick<HerdrClient, 'call'>,
+    target: HerdrRenameTarget,
+    id: string,
+    name: string,
+): Promise<void> {
+    const clean = sanitizeDisplayText(name).replace(/\s+/g, ' ').trim();
+    const max = target === 'agent' ? HERDR_AGENT_NAME_MAX : HERDR_NAME_MAX;
+    if (clean === '') throw Object.assign(new Error('A name cannot be empty.'), { code: 'rename-invalid' });
+    if ([...clean].length > max) {
+        throw Object.assign(new Error(`Names are at most ${max} characters.`), { code: 'rename-invalid' });
+    }
+    try {
+        if (target === 'agent') await client.call('agent.rename', { target: id, name: clean });
+        else if (target === 'pane') await client.call('pane.rename', { pane_id: id, label: clean });
+        else if (target === 'tab') await client.call('tab.rename', { tab_id: id, label: clean });
+        else await client.call('workspace.rename', { workspace_id: id, label: clean });
+    } catch (error) {
+        const code = herdrFailureCode(error);
+        if (code === 'invalid_agent_name') {
+            throw Object.assign(new Error('Agent names start with a lowercase letter and use only lowercase letters, numbers, - and _.'), {
+                code: 'rename-invalid',
+            });
+        }
+        if (code === 'agent_name_taken') {
+            // Herdr's sentence goes on to list the other pane's ids.
+            throw Object.assign(new Error(`Another agent is already called ${clean}.`), { code: 'rename-invalid' });
+        }
+        if (code?.endsWith('_not_found') === true) throw unavailable(target);
+        // Herdr's own sentence, without the wire prefix (a name already taken, say).
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(code === undefined ? message : message.replace(/^herdr: [a-z0-9_]+: /i, ''), { cause: error });
+    }
 }
 
 /** Close one workspace, refusing Herdr's implicit parent-worktree group widening. */
@@ -3133,6 +3174,13 @@ export async function createHerdrSessionSource(
         async closePane(sessionId: string): Promise<void> {
             const record = await resolvePane(sessionId);
             await closeExactPane(client, record.paneId);
+        },
+
+        async rename(target: HerdrRenameTarget, id: string, name: string): Promise<void> {
+            await renameInHerdr(client, target, id, name);
+            // Herdr announces no agent or pane rename, so every client reads it now.
+            await refreshSnapshot();
+            emitAllStates();
         },
 
         async closeWorkspace(workspaceId: string): Promise<void> {

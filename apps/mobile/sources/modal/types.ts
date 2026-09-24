@@ -38,6 +38,9 @@ export interface PromptModalConfig extends BaseModalConfig {
     cancelText?: string;
     confirmText?: string;
     inputType?: 'default' | 'secure-text' | 'email-address' | 'numeric';
+    required?: boolean;
+    maxLength?: number;
+    transform?: (text: string) => string;
 }
 
 export interface CustomModalConfig extends BaseModalConfig {
@@ -77,6 +80,11 @@ export interface IModal {
         cancelText?: string;
         confirmText?: string;
         inputType?: 'default' | 'secure-text' | 'email-address' | 'numeric';
+        /** Keeps Save off while the trimmed value is empty. */
+        required?: boolean;
+        maxLength?: number;
+        /** Reshapes the text as it is typed, e.g. to a handle's alphabet. */
+        transform?: (text: string) => string;
     }): Promise<string | null>;
     show(config: Omit<CustomModalConfig, 'id' | 'type'>): string;
     hide(id: string): void;

@@ -23,7 +23,7 @@ import { Text } from '@/components/StyledText';
 import { SectionLabel } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { agentLabels, isShellLabels, tabLabel, workspaceName } from '@/herd';
-import { rememberPaneSelection, useNavigateToSession, useUnseenDoneSessionIds } from '@/herd';
+import { rememberPaneSelection, showPaneActions, showTabActions, useNavigateToSession, useUnseenDoneSessionIds } from '@/herd';
 import { AgentPickerSheet, AgentRow, WorkspaceTreeSheet, paneTaskLine, shellPath } from '@/herd/ui';
 
 const VIEW_ONLY = 'View-only devices cannot change panes';
@@ -148,7 +148,7 @@ const TabCard = React.memo(function TabCard(props: {
     canControl: boolean;
     unseenDone: ReadonlySet<string>;
     onOpen: (tab: HerdrTreeTab, sessionId: string) => void;
-    onClose: (pane: HerdrTreePane) => void;
+    onPaneActions: (pane: HerdrTreePane) => void;
     onNewPane: (tab: HerdrTreeTab) => void;
 }): React.JSX.Element {
     const { theme } = useUnistyles();
@@ -159,7 +159,13 @@ const TabCard = React.memo(function TabCard(props: {
     const open = React.useCallback((sessionId: string) => props.onOpen(tab, sessionId), [props, tab]);
     return (
         <View style={stylesheet.card}>
-            <View style={stylesheet.tabHeader} accessible accessibilityRole="header" accessibilityLabel={`${label}, ${count}${tab.focused ? ', current tab' : ''}`}>
+            <Pressable
+                style={stylesheet.tabHeader}
+                onLongPress={props.canControl ? () => showTabActions(tab.tabId, label) : undefined}
+                accessibilityRole="header"
+                accessibilityLabel={`${label}, ${count}${tab.focused ? ', current tab' : ''}`}
+                accessibilityHint={props.canControl ? 'Long-press to rename' : undefined}
+            >
                 <Text numberOfLines={1} style={stylesheet.tabTitle}>{label}</Text>
                 {tab.focused && <Text style={[stylesheet.meta, { color: theme.colors.textLink }]}>Current</Text>}
                 <Text style={[stylesheet.meta, { marginLeft: 'auto' }]}>{count}</Text>
@@ -173,13 +179,13 @@ const TabCard = React.memo(function TabCard(props: {
                 >
                     <Ionicons name="add" size={20} color={theme.colors.textSecondary} />
                 </Pressable>
-            </View>
+            </Pressable>
             {tab.panes.map((pane, index) => (
                 <AgentRow
                     key={pane.paneId}
                     pane={pane}
                     first={index === 0}
-                    onClose={props.onClose}
+                    onLongPress={props.onPaneActions}
                     onNavigatePane={open}
                     compact={false}
                     selected={false}
@@ -247,6 +253,10 @@ export default React.memo(() => {
         ]);
     }, [refresh]);
 
+    const paneActions = React.useCallback((pane: HerdrTreePane) => {
+        showPaneActions(pane, pane.sessionId === undefined ? undefined : () => closePane(pane));
+    }, [closePane]);
+
     const splitPane = React.useCallback((option: ModelMode) => {
         const anchor = newPaneTab === null ? undefined : anchorOf(newPaneTab.panes);
         setNewPaneTab(null);
@@ -312,7 +322,7 @@ export default React.memo(() => {
                         canControl={canControl}
                         unseenDone={unseenDone}
                         onOpen={openPane}
-                        onClose={closePane}
+                        onPaneActions={paneActions}
                         onNewPane={setNewPaneTab}
                     />
                 ))}

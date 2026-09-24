@@ -135,6 +135,7 @@ removed grants, and web secure-store reset clear it.
 | pane.close | close only the selected pane | `pane.close`; refuse if its tab could not remain |
 | tab.close | close only the selected tab | `tab.close`; refuse if its workspace could not remain |
 | workspace.close | close only the selected workspace | `workspace.close`; refuse if its worktree group would also close |
+| herdr.rename | rename an agent, pane, tab or workspace in Herdr, which owns every name | `agent.rename` / `pane.rename` / `tab.rename` / `workspace.rename`, then refresh the snapshot (Herdr announces no agent or pane rename) |
 | Close worktree group | final explicit scope of `session.stop`, after its own confirmation | revalidate the parent workspace, then call Herdr `workspace.close`; Herdr has no separate group-close method |
 | status | `idle · working · blocked · done · unknown` | `pane.agent_status_changed` |
 | inbox / attention | blocked → needs you, done → finished | derived host-side |

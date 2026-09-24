@@ -213,3 +213,14 @@ export function liveCardState(
     };
 }
 
+
+/** An agent's name is Herdr's handle: typed straight into its alphabet. */
+export function agentHandle(text: string): string {
+    return text.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9_-]/g, '');
+}
+
+/** The name a rename sheet's answer sets, or null when it changes nothing (cancelled, blank or unchanged). */
+export function renamedTo(typed: string | null, current: string): string | null {
+    const name = typed?.trim() ?? '';
+    return name === '' || name === current ? null : name;
+}
