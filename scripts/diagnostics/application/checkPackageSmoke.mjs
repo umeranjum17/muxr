@@ -95,7 +95,7 @@ function assertCompactSkillOutput(output) {
     assert.match(output, /checked safe repairs/);
     assert.match(output, /muxr skill collaboration/);
     assert.match(output, /\$MUXR_AGENT_CAPABILITIES/);
-    assert.match(output, /desktop browser/);
+    assert.match(output, /machine with a desktop session/);
     assert.match(output, /muxr skill browser-takeover/);
     assert.match(output, /muxr share <path>/);
     assert.doesNotMatch(output, /show-image/);

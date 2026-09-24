@@ -182,6 +182,7 @@ describe('phone launch before herdr detects the agent', () => {
             await source.refreshHerdr();
             expect(herdr.agents[0]).toEqual({ pane_id: 'w1:p1', name: expect.stringMatching(/^pp_/), agent_status: 'idle' });
             expect(herdr.tabs[0]).toMatchObject({ env: MUXR_AGENT_ENV });
+            expect(herdr.tabs[0]).toMatchObject({ env: { MUXR_AGENT_CAPABILITIES: expect.stringContaining('on a machine with a desktop session') } });
             expect(MUXR_AGENT_ENV.MUXR_AGENT_CAPABILITIES).toContain('muxr skill browser-takeover');
             expect(MUXR_AGENT_ENV.MUXR_AGENT_CAPABILITIES).toContain('muxr share <path>');
             expect(MUXR_AGENT_ENV.MUXR_AGENT_CAPABILITIES).not.toContain('show-image');
