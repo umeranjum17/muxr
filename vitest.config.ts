@@ -16,7 +16,11 @@ export default defineConfig({
         exclude: [...configDefaults.exclude, '**/dist/**', 'dist-npm/**', 'perf/**'],
     },
     resolve: {
-        alias: [{ find: /^@\//, replacement: path.resolve('apps/mobile/sources') + '/' }],
+        alias: [
+            { find: /^@\//, replacement: path.resolve('apps/mobile/sources') + '/' },
+            // whisper.rn exports only subpaths; Metro falls back to its main field.
+            { find: /^whisper\.rn$/, replacement: 'whisper.rn/index' },
+        ],
     },
     // Metro defines this global for the app. A spec that reaches a product
     // module which imports an Expo module must fail on behaviour, not on an

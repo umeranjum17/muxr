@@ -54,6 +54,8 @@ const androidBuild = read('scripts/buildAndroidLocal.sh');
 const voiceOverlayService = read('apps/mobile/modules/voice-overlay/android/src/main/java/expo/modules/voiceoverlay/VoiceOverlayService.kt');
 const voiceOverlayModule = read('apps/mobile/modules/voice-overlay/android/src/main/java/expo/modules/voiceoverlay/VoiceOverlayModule.kt');
 const whisperModel = readFileSync(new URL('apps/mobile/sources/assets/models/ggml-base.en-q5_1.bin', root));
+const whisperPatch = read('patches/whisper.rn+0.7.2.patch');
+const whisperJsi = read('node_modules/whisper.rn/cpp/jsi/RNWhisperJSI.cpp');
 const nativeGuard = androidBuild.indexOf('node "$ROOT/scripts/diagnostics/application/verifyNativePatches.mjs"');
 const workspaceBuild = androidBuild.indexOf('(cd "$ROOT" && yarn build)');
 const vitestGate = androidBuild.indexOf('npx vitest run');
@@ -145,6 +147,12 @@ const checks = [
         'on-device dictation bundles the verified quantized Whisper Base English model',
         whisperModel.length === 59_721_011 &&
             createHash('sha256').update(whisperModel).digest('hex') === '4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f',
+    ],
+    [
+        // Without it every dictation reading pays for a full 30 s window.
+        'dictation readings size the Whisper window to the audio',
+        whisperPatch.includes('+    config.params.audio_ctx =') &&
+            (whisperJsi.match(/getIntProperty\(runtime, options, "audioCtx", config\.params\.audio_ctx\)/g) ?? []).length === 2,
     ],
     [
         'notification Talk foregrounds the Activity before microphone capture',

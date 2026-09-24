@@ -1,0 +1,40 @@
+diff --git a/node_modules/whisper.rn/cpp/jsi/RNWhisperJSI.cpp b/node_modules/whisper.rn/cpp/jsi/RNWhisperJSI.cpp
+index 22a0e9a..59812d8 100644
+--- a/node_modules/whisper.rn/cpp/jsi/RNWhisperJSI.cpp
++++ b/node_modules/whisper.rn/cpp/jsi/RNWhisperJSI.cpp
+@@ -902,6 +902,9 @@ TranscribeConfig createTranscribeConfig(
+         "jobId",
+         static_cast<int>(std::rand()));
+ 
++    config.params.audio_ctx =
++        getIntProperty(runtime, options, "audioCtx", config.params.audio_ctx);
++
+     int beamSize = getIntProperty(runtime, options, "beamSize", -1);
+     if (beamSize > 0) {
+         config.params.strategy = WHISPER_SAMPLING_BEAM_SEARCH;
+diff --git a/node_modules/whisper.rn/lib/typescript/NativeRNWhisper.d.ts b/node_modules/whisper.rn/lib/typescript/NativeRNWhisper.d.ts
+index 0d1a41b..caceeae 100644
+--- a/node_modules/whisper.rn/lib/typescript/NativeRNWhisper.d.ts
++++ b/node_modules/whisper.rn/lib/typescript/NativeRNWhisper.d.ts
+@@ -30,6 +30,8 @@ export type TranscribeOptions = {
+     beamSize?: number;
+     /** Number of best candidates to keep */
+     bestOf?: number;
++    /** Audio context size in 20 ms frames; smaller than the full 1500 reads short audio faster (Default: 0, the full window) */
++    audioCtx?: number;
+     /** Initial Prompt */
+     prompt?: string;
+ };
+diff --git a/node_modules/whisper.rn/src/NativeRNWhisper.ts b/node_modules/whisper.rn/src/NativeRNWhisper.ts
+index 61250ef..75a818c 100644
+--- a/node_modules/whisper.rn/src/NativeRNWhisper.ts
++++ b/node_modules/whisper.rn/src/NativeRNWhisper.ts
+@@ -33,6 +33,8 @@ export type TranscribeOptions = {
+   beamSize?: number
+   /** Number of best candidates to keep */
+   bestOf?: number
++  /** Audio context size in 20 ms frames; smaller than the full 1500 reads short audio faster (Default: 0, the full window) */
++  audioCtx?: number
+   /** Initial Prompt */
+   prompt?: string
+ }

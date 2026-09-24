@@ -11,6 +11,10 @@ export default defineConfig({
     // otherwise fail at import time on an environment detail, not on behaviour.
     define: { __DEV__: 'false' },
     resolve: {
-        alias: [{ find: /^@\//, replacement: path.join(__dirname, 'sources/') }],
+        alias: [
+            { find: /^@\//, replacement: path.join(__dirname, 'sources/') },
+            // whisper.rn exports only subpaths; Metro falls back to its main field.
+            { find: /^whisper\.rn$/, replacement: 'whisper.rn/index' },
+        ],
     },
 });

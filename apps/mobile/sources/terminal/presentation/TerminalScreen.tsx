@@ -1754,7 +1754,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 the size of the send. */}
                             {dictating ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                                 <DictationBars level={dictation.level} color={theme.colors.status.error} />
-                                <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15, marginLeft: 10 }}>Dictating…</Text>
+                                {/* Heard words replace the label as they settle; the newest
+                                    stay in view and older ones slide off the start. */}
+                                <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.text, fontSize: 15, marginLeft: 10 }}>{dictation.live || 'Dictating…'}</Text>
                                 <Pressable onPress={dictation.toggle} accessibilityRole="button" accessibilityLabel="Stop dictation"
                                     accessibilityHint="Stops listening and transcribes"
                                     style={({ pressed }) => ({ ...inField, backgroundColor: withAlpha(theme.colors.status.error, pressed ? 0.28 : 0.18), transform: [{ scale: pressed ? 0.94 : 1 }] })}>
@@ -1762,7 +1764,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 </Pressable>
                             </Animated.View> : transcribing ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
                                 <TranscribingDots color={theme.colors.textSecondary} />
-                                <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 15, marginLeft: 10 }}>Transcribing…</Text>
+                                <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 15, marginLeft: 10 }}>{dictation.live || 'Transcribing…'}</Text>
                                 <Pressable onPress={dictation.cancel} accessibilityRole="button" accessibilityLabel="Cancel dictation"
                                     style={({ pressed }) => ({ ...inField, opacity: pressed ? 0.6 : 1 })}>
                                     <Ionicons name="close" size={19} color={theme.colors.textSecondary} />

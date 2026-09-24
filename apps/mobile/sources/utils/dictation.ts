@@ -1,35 +1,22 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
-import LiveAudioStream from 'react-native-live-audio-stream';
 import { Modal } from '@/modal';
 import { requestMicrophonePermission, showMicrophonePermissionDeniedAlert } from '@/utils/microphonePermissions';
 import { claimDictation, releaseDictation } from '@/conversation/session';
 import { voiceDiagnostic } from '@/conversation/diagnostics';
-import { Buffer } from 'buffer';
 import { appendTranscript } from '@/utils/transcription';
-import { transcribePcm16 } from '@/utils/localTranscription';
+import { startLiveTranscription, type LiveTranscription } from '@/utils/localTranscription';
 
-const stopRecorder = async () => { await LiveAudioStream.stop(); };
+// Put `spoken` where the last live words were, keeping anything typed before them.
+function replaceSpoken(draft: string, shown: string, spoken: string): string {
+    const trimmed = draft.trimEnd();
+    const stem = shown && trimmed.endsWith(shown) ? trimmed.slice(0, trimmed.length - shown.length) : draft;
+    return spoken ? appendTranscript(stem, spoken) : stem.trimEnd();
+}
 
 // Below this a recording is a mis-tap, not speech.
 const MIN_RECORDING_MS = 400;
-
-/** Real input level from the PCM chunks already flowing to Whisper; no extra capture. */
-function rmsLevel(chunk: string): number {
-    const buf = Buffer.from(chunk, 'base64');
-    const samples = Math.floor(buf.length / 2);
-    if (samples === 0) return 0;
-    const step = Math.max(1, Math.floor(samples / 64));
-    let sum = 0;
-    let count = 0;
-    for (let i = 0; i < samples; i += step) {
-        const s = buf.readInt16LE(i * 2) / 32768;
-        sum += s * s;
-        count += 1;
-    }
-    return Math.min(1, Math.sqrt(sum / count) * 4);
-}
 
 export function useDictation(getText: () => string, setText: (text: string) => void, hint?: string) {
     const [recording, setRecording] = React.useState(false);
@@ -37,21 +24,34 @@ export function useDictation(getText: () => string, setText: (text: string) => v
     // A reanimated shared value, not state: the level changes ~12 times a
     // second while recording, and only the bars that read it may re-render.
     const level = useSharedValue(0);
+    // Words heard so far, while the microphone is live and until the final
+    // reading lands. They are also written into the draft as they settle.
+    const [live, setLive] = React.useState('');
     const [pending, setPending] = React.useState<string | null>(null);
     const [finished, setFinished] = React.useState<string | null>(null);
     const startedAtRef = React.useRef(0);
     const stoppingRef = React.useRef(false);
-    const recordingRef = React.useRef(false);
-    const chunksRef = React.useRef<string[]>([]);
+    const sessionRef = React.useRef<LiveTranscription | null>(null);
+    const shownRef = React.useRef('');
     const transcriptionRef = React.useRef<AbortController | null>(null);
     const sinkRef = React.useRef({ getText, setText, hint });
     sinkRef.current = { getText, setText, hint };
 
+    const showSpoken = React.useCallback((spoken: string) => {
+        setLive(spoken);
+        if (spoken === shownRef.current) return;
+        const { getText, setText } = sinkRef.current;
+        setText(replaceSpoken(getText(), shownRef.current, spoken));
+        shownRef.current = spoken;
+    }, []);
+
     React.useEffect(() => () => {
         transcriptionRef.current?.abort();
-        if (!recordingRef.current) return;
-        recordingRef.current = false;
-        void stopRecorder().catch(() => undefined).finally(releaseDictation);
+        const session = sessionRef.current;
+        sessionRef.current = null;
+        if (session === null) return;
+        session.cancel();
+        releaseDictation();
     }, []);
 
     const start = React.useCallback(async () => {
@@ -80,85 +80,67 @@ export function useDictation(getText: () => string, setText: (text: string) => v
             return;
         }
 
+        const controller = new AbortController();
+        transcriptionRef.current = controller;
+        shownRef.current = '';
+        setLive('');
+        setPending(null);
+        setFinished(null);
         try {
-            transcriptionRef.current = new AbortController();
-            chunksRef.current = [];
-            setPending(null);
-            setFinished(null);
-            await LiveAudioStream.init({
-                sampleRate: 16_000,
-                channels: 1,
-                bitsPerSample: 16,
-                audioSource: 6,
-                bufferSize: 2560,
-                wavFile: '',
+            sessionRef.current = await startLiveTranscription({
+                hint: sinkRef.current.hint,
+                onLevel: (value) => { level.value = value; },
+                onText: (spoken) => { if (!controller.signal.aborted) showSpoken(spoken); },
             });
-            LiveAudioStream.on('data', (chunk) => {
-                if (!recordingRef.current) return;
-                chunksRef.current.push(chunk);
-                level.value = rmsLevel(chunk);
-            });
-            recordingRef.current = true;
-            await LiveAudioStream.start();
             startedAtRef.current = Date.now();
             setRecording(true);
         } catch (error) {
-            recordingRef.current = false;
-            await stopRecorder().catch(() => undefined);
             releaseDictation();
             console.error('Failed to start recording:', error);
             Modal.alert('Dictation failed', 'Could not start recording.');
         }
-    }, []);
+    }, [showSpoken]);
 
     const stop = React.useCallback(async () => {
-        if (!recording || stoppingRef.current) return;
+        const session = sessionRef.current;
+        if (!recording || stoppingRef.current || session === null) return;
         stoppingRef.current = true;
-        recordingRef.current = false;
+        sessionRef.current = null;
         setRecording(false);
         level.value = 0;
         const elapsed = Date.now() - startedAtRef.current;
         const signal = transcriptionRef.current?.signal;
-        setTranscribing(!signal?.aborted && elapsed >= MIN_RECORDING_MS && chunksRef.current.length > 0);
-
-        try {
-            await stopRecorder();
-        } catch (error) {
-            console.error('Failed to stop recording:', error);
+        if (signal?.aborted || elapsed < MIN_RECORDING_MS) {
+            session.cancel();
             releaseDictation();
-            setTranscribing(false);
-            stoppingRef.current = false;
-            return;
-        }
-        releaseDictation();
-
-        const chunks = chunksRef.current;
-        chunksRef.current = [];
-        if (signal?.aborted || elapsed < MIN_RECORDING_MS || chunks.length === 0) {
-            setTranscribing(false);
+            showSpoken('');
             stoppingRef.current = false;
             return;
         }
 
+        setTranscribing(true);
+        const cancel = () => session.cancel();
+        signal?.addEventListener('abort', cancel, { once: true });
         try {
-            const { getText, setText, hint } = sinkRef.current;
-            const text = await transcribePcm16(chunks, hint, signal);
-            const trimmed = (text ?? '').trim();
-            if (trimmed && !signal?.aborted) {
-                setText(appendTranscript(getText(), trimmed));
-                setPending(trimmed);
-                setFinished(null);
-            }
+            const text = await session.finish().finally(releaseDictation);
+            if (signal?.aborted) return;
+            showSpoken(text);
+            if (text) setPending(text);
+            setFinished(null);
         } catch (error) {
             if (!signal?.aborted) {
                 console.error('Transcription failed:', error);
                 Modal.alert('Dictation failed', error instanceof Error ? error.message : 'Could not transcribe audio.');
             }
         } finally {
+            signal?.removeEventListener('abort', cancel);
+            if (signal?.aborted) showSpoken('');
+            shownRef.current = '';
+            setLive('');
             setTranscribing(false);
             stoppingRef.current = false;
         }
-    }, [recording]);
+    }, [recording, showSpoken]);
 
     const toggle = React.useCallback(() => {
         voiceDiagnostic('dictate.tap');
@@ -196,5 +178,5 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         setFinished(null);
     }, []);
 
-    return { recording, transcribing, level, pending, finished, accept, discard, clearFinished, toggle, cancel };
+    return { recording, transcribing, level, live, pending, finished, accept, discard, clearFinished, toggle, cancel };
 }
