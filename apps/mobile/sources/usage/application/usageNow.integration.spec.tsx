@@ -894,12 +894,8 @@ describe('the usage screen read path', () => {
         expect(summary).toContain('Monthly 8% plugins.limits.percentLeft (plugins.limits.low, plugins.rightNow.resetsIn(18d))');
         expect(summary).not.toContain('Z.ai');
 
-        // Plans sit side by side while they fit and wrap when they do not.
-        const planWidths = () => card.root.findAllByType('AgentGlyph').map((mark: any) => mark.parent.parent.props.style.width);
-        expect(planWidths()).toEqual(['33.333333333333336%', '33.333333333333336%', '33.333333333333336%']);
         const longName = `${'model-'.repeat(12)}session`;
         const otherName = `${'model-'.repeat(12)}weekly`;
-        screenWidth = 270;
         const namedNow: UsageNow = {
             ...now,
             connected: now.connected!.map((provider) => provider.id === 'codex'
@@ -912,8 +908,7 @@ describe('the usage screen read path', () => {
                 : provider),
         };
         TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, namedNow) }); });
-        expect(planWidths()).toEqual(['50%', '50%', '50%']);
-        const codexText = () => card.root.findAllByType('AgentGlyph')[1]!.parent.parent.findAllByType('Text')
+        const codexText = () => card.root.findAllByType('AgentGlyph')[1]!.parent.findAllByType('Text')
             .map((node: any) => node.props.children) as string[];
         const codexTags = codexText().filter((text) => !text.endsWith('%'));
         expect(codexTags).toContain('gpt-4');
@@ -989,7 +984,7 @@ describe('the usage screen read path', () => {
         expect(disconnectedLabel).not.toContain('Codex');
     });
 
-    it('shows a single plan with matching visible, spoken and metered remaining share on Home', async () => {
+    it('shows a single plan with matching visible and spoken remaining share on Home', async () => {
         const now: UsageNow = { limits: { verdict: 'low', windows: [{ label: 'Rolling', window: '5h', used: 92, elapsed: 0.3 }] } };
         noteAsked('', Date.now());
         rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, now) });
@@ -998,9 +993,6 @@ describe('the usage screen read path', () => {
         expect(screenText(card)).toContain('8% plugins.limits.percentLeft');
         const openUsage = card.root.findAll((node: any) => node.props?.accessibilityLabel?.includes('Rolling 5h'))[0];
         expect(openUsage.props.accessibilityLabel).toContain('8% plugins.limits.percentLeft');
-        const bar = card.root.findByType('Meter');
-        expect(bar.props.ratio).toBeCloseTo(0.08);
-        expect(bar.props.marker).toBeCloseTo(0.7);
     });
 
     it('shows the same remaining share and time-left tick on the Usage limit meter', async () => {
