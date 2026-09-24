@@ -113,7 +113,12 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     clusterKeys?: readonly ClusterKey[];
     /** 0 at rest, 1 while the ring is open: the screen's rails recede by it. */
     dim: SharedValue<number>;
-}>(function FloatingTerminalControls({ width, height, terminalHeight, slots, clusterKeys, dim }, handle) {
+    /** How far the terminal's visible bottom currently sits from the one
+     *  `terminalHeight` measured (negative while the keyboard lifts the rails
+     *  ahead of the next measure). The control rides it in proportion to where
+     *  it rests, so it moves with the keyboard instead of jumping. */
+    shift?: SharedValue<number>;
+}>(function FloatingTerminalControls({ width, height, terminalHeight, slots, clusterKeys, dim, shift }, handle) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
     const [rest, setRest] = useLocalSettingMutable('terminalCommandKeyDock');
@@ -330,9 +335,12 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     })).current;
 
     const scrim = useAnimatedStyle(() => ({ opacity: progress.value }));
+    // A control resting low follows the terminal's bottom edge all the way; one
+    // resting high barely moves, the same as a resize would place it.
+    const shiftShare = clamp01(rest?.fy ?? 1);
     const controlStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: dragX.value }, { translateY: dragY.value }, { scale: 1 + lifted.value * 0.08 }],
-    }));
+        transform: [{ translateX: dragX.value }, { translateY: dragY.value + shiftShare * (shift?.value ?? 0) }, { scale: 1 + lifted.value * 0.08 }],
+    }), [shiftShare, shift]);
 
     // At rest the control is a quiet disc on the terminal; opening it raises
     // the same material to the ring's own weight rather than swapping it for a

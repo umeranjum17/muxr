@@ -217,6 +217,29 @@ describe('floating terminal control', () => {
         expect(ringUp(dragged)).toBe(false);
     });
 
+    it('rides the keyboard with the rails and lands where the shorter terminal puts it', () => {
+        const shift = { value: 0 };
+        const render = (terminalHeight: number) => (
+            <FloatingTerminalControls width={360} height={740} terminalHeight={terminalHeight} slots={[arrows, other]} dim={{ value: 0 } as never} shift={shift as never} />
+        );
+        let renderer: any;
+        TestRenderer.act(() => { renderer = TestRenderer.create(render(620)); });
+        const puck = () => renderer.root.findAll((node: any) => Array.isArray(node.props.style) && node.props.style[0]?.height === 44)[0];
+        const shown = () => puck().props.style[0].top + puck().props.style[1].transform[1].translateY;
+        const resting = shown();
+
+        // The keyboard has lifted the rails 300dp; the terminal is not yet re-measured.
+        shift.value = -300;
+        TestRenderer.act(() => { renderer.update(render(620)); });
+        expect(shown()).toBe(resting - 300);
+
+        // It settles: the terminal is measured 300dp shorter and the shift is spent.
+        shift.value = 0;
+        TestRenderer.act(() => { renderer.update(render(320)); });
+        expect(shown()).toBe(resting - 300);
+        expect(shown() + 44).toBeLessThanOrEqual(320);
+    });
+
     it('keeps a drag inside a 45dp terminal and routes compact actions through the pane menu', () => {
         const dragged = mount(45);
         const box = puckBox(dragged);
