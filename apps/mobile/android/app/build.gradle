@@ -96,6 +96,10 @@ def developmentDistribution = (findProperty('muxrDevelopmentApp') ?: 'false').to
 if (developmentDistribution && System.getenv('APP_ENV') != 'development') {
     throw new GradleException('The development APK requires APP_ENV=development')
 }
+// Play restricts REQUEST_INSTALL_PACKAGES to apps whose purpose is installing
+// apps, so a store build drops it; a direct or nightly APK keeps it and opens a
+// shared APK artifact in the installer. Same default as app.config.js.
+def storeDistribution = !developmentDistribution && (System.getenv('MUXR_DISTRIBUTION')?.trim() ?: 'store') == 'store'
 def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
 def releaseVersionName = findProperty('appVersion')
 def releaseVersionCode = findProperty('androidVersionCode')
@@ -177,6 +181,9 @@ android {
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
         }
+    }
+    sourceSets {
+        if (storeDistribution) release.manifest.srcFile 'src/store/AndroidManifest.xml'
     }
     packagingOptions {
         jniLibs {

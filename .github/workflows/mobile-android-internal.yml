@@ -206,6 +206,13 @@ jobs:
             ! grep -q 'android:scheme="muxr"' "$RUNNER_TEMP/compiled-manifest.xml"
             ! grep -q 'android:host="trymuxr.com"' "$RUNNER_TEMP/compiled-manifest.xml"
           fi
+          # Play rejects an undeclared REQUEST_INSTALL_PACKAGES, so the store app
+          # must not ask for it; the nightly keeps it to install shared APKs.
+          if [ "$expected_id" = com.trymuxr.app ]; then
+            ! grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' "$RUNNER_TEMP/compiled-manifest.xml"
+          else
+            grep -q 'android.permission.REQUEST_INSTALL_PACKAGES' "$RUNNER_TEMP/compiled-manifest.xml"
+          fi
           "$apksigner" verify --print-certs "$apk" > "$RUNNER_TEMP/signer.txt"
           test "$("$apkanalyzer" manifest version-name "$apk")" = "$APP_VERSION"
           test "$("$apkanalyzer" manifest version-code "$apk")" = "$ANDROID_VERSION_CODE"
