@@ -39,6 +39,7 @@ import { openTerminalLink } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
 import { openExternalUrl } from '@/utils/openExternalUrl';
+import { terminalCanvas } from '@/theme';
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -356,7 +357,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 scrollGate.beginGesture();
                 scrollOriginRef.current = { x: Math.max(0, nativeEvent.locationX), y: Math.max(0, nativeEvent.locationY), ...viewport };
             }}
-            style={{ flex: 1, backgroundColor: '#0c0c0b', overflow: 'hidden' }}>
+            style={{ flex: 1, backgroundColor: terminalCanvas, overflow: 'hidden' }}>
             {/* The native surface renders as a plain android.view.View and does
                 not publish its own class name, so this wrapper -- which is
                 exactly the terminal's box -- carries the surface's name. */}
@@ -366,7 +367,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 style={{ flex: 1 }}
                 autoShowKeyboard={!terminalKeyboardDisabled}
                 fontSize={FONT_STEPS[safeFontIndex]}
-                theme={{ background: '#0c0c0b' }}
+                theme={{ background: terminalCanvas }}
                 onInput={({ nativeEvent }) => {
                     if (nativeEvent.data) channelRef.current?.sendBytes(nativeEvent.data);
                     else if (nativeEvent.text) channelRef.current?.sendText(nativeEvent.text);

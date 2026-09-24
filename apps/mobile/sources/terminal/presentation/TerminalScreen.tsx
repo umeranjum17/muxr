@@ -49,6 +49,7 @@ import { useImagePicker } from '@/hooks/useImagePicker';
 import { useDraft } from '@/hooks/useDraft';
 import { ComposerAttachments, type ComposerAttachment } from '@/components/ComposerAttachments';
 import { withAlpha } from '@/components/ui';
+import { LinearGradient } from 'expo-linear-gradient';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { agentSwipeNeighbours, herdPanes, selectLiveTerminalCards, sharedLiveTerminalCards } from '@/herd';
@@ -158,6 +159,9 @@ function TranscribingDots({ color }: { color: string }) {
 // chrome ink one step up from it. The header line, pane rail, key marks and
 // composer share the canvas by default, so the screen reads as one surface;
 // the Appearance setting `darkSurfaces` raises them to the chrome ink too.
+/** The pane and key rows' trailing fade: wide enough that a chip or key cut by
+ *  the edge dissolves instead of reading as a clipped glyph. */
+const RAIL_FADE = 32;
 const DesktopSurface = React.lazy(async () => ({ default: (await import('@/desktop')).DesktopSurface }));
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
@@ -243,6 +247,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     }, []);
     const swipeScope = useLocalSettingMutable('terminalSwipeScope')[0];
     const barsRaised = useLocalSettingMutable('darkSurfaces')[0] === 'raised';
+    const keyRowVisible = useLocalSettingMutable('terminalKeyRowVisible')[0];
+    const paneTabsSetting = useLocalSettingMutable('terminalPaneTabs')[0];
     const swipeNeighbours = React.useMemo(
         () => agentSwipeNeighbours(sharedLiveTerminalCards(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces))), props.id, swipeScope, swipeNow),
         [props.id, sessions, swipeNow, swipeScope, workspaces],
@@ -1082,6 +1088,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const showConnectingStatus = shownStatus !== 'live' && gestureHint === null && shownStatus === 'connecting';
             const showRetryStatus = shownStatus !== 'live' && gestureHint === null && shownStatus !== 'connecting' && shownStatus !== 'unconfirmed';
             const showUnconfirmedStatus = shownStatus === 'unconfirmed' && gestureHint === null;
+            const railInk = theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'];
+            // Settings can put away the pane tabs at one pane and the key row
+            // altogether; the rail's top air stays with whatever row is first.
+            const showPaneTabs = treeLoaded && located !== undefined && (paneTabsSetting === 'always' || tabPanes.length > 1 || workspaceTabs.length > 1);
+            const showKeyRow = keyRowVisible && !(dictationActive && keyboardVisible);
             // The rail's one alignment rule. The field is the tallest thing on
             // the row and it carries its own padding, so the band its text
             // actually occupies is `RAIL_BAND`. Every control — the two ends
@@ -1095,8 +1106,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // the keyboard arrived, so every control on it resized on the same
             // frame the terminal was reflowing. The 4dp bought nothing and the
             // resize was visible.
-            const RAIL_MEASURE = 48;
-            const FIELD_PAD = 5;
+            // 44 with 36dp circles: the composer was the heaviest row on a
+            // screen whose job is the terminal above it.
+            const RAIL_MEASURE = 44;
+            const FIELD_PAD = 4;
             const RAIL_BAND = RAIL_MEASURE - FIELD_PAD * 2;
             const RAIL_END = RAIL_BAND;
             const railEnd = (child: React.ReactNode) => <View style={{ height: RAIL_BAND, marginBottom: FIELD_PAD, alignItems: 'center', justifyContent: 'center' }}>{child}</View>;
@@ -1136,7 +1149,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 placeholderTextColor={theme.colors.textSecondary}
                 accessibilityLabel="Prompt"
                 // Web: remove the focus ring; the rail is not a browser widget.
-                style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingLeft: 12, paddingRight: 2, paddingVertical: 8, fontSize: 15, maxHeight: 120,
+                style={{ flex: 1, minWidth: 0, color: theme.colors.text, paddingLeft: 14, paddingRight: 2, paddingVertical: 8, fontSize: 15, maxHeight: 120,
                     ...(Platform.OS === 'web' ? { outlineStyle: 'none', outlineWidth: 0 } as any : {}) }}
             />;
             // In-field controls are circles on one size, like everything else
@@ -1161,7 +1174,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 accessibilityHint={dictating ? 'Stops listening and transcribes' : 'Adds what you say to the prompt. It never sends by itself.'}
                 accessibilityState={{ busy: transcribing, selected: dictating, disabled: transcribing }}
                 style={({ pressed }) => ({ ...inField, opacity: pressed ? 0.6 : 1 })}>
-                <Ionicons name="mic-outline" size={19} color={theme.colors.textSecondary} />
+                <Ionicons name="mic-outline" size={18} color={theme.colors.textSecondary} />
             </Pressable>;
             // Send is ours, and it has always been the pane's own lifecycle
             // colour: blue while the agent works, green when it is done, the
@@ -1170,7 +1183,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const sendColor = headerLifecycle === 'idle' || headerLifecycle === 'unknown' ? theme.colors.accent : headerStatus.color;
             const sendAction = railEnd(<Pressable onPress={sendPrompt} disabled={!canSend} accessibilityRole="button" accessibilityLabel="Send" accessibilityState={{ disabled: !canSend }}
                 style={({ pressed }) => ({ ...endCircle(pressed, canSend ? sendColor : withAlpha(theme.colors.text, 0.08)), opacity: canSend ? (pressed ? 0.8 : 1) : 0.55, transform: [{ scale: pressed && canSend ? 0.94 : 1 }] })}>
-                <Ionicons name="send" size={17} color={canSend ? theme.colors.terminalChrome.canvas : theme.colors.textSecondary} style={{ marginLeft: 1 }} />
+                <Ionicons name="send" size={16} color={canSend ? theme.colors.terminalChrome.canvas : theme.colors.textSecondary} style={{ marginLeft: 1 }} />
             </Pressable>);
             // 31669's trailing control: one circle at the rail's end. With
             // nothing to send it is the realtime agent, beside the microphone
@@ -1188,7 +1201,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const readyToSend = draft.trim() !== '' || attachedPaths.length > 0 || selectedImages.length > 0;
             const trailingAction = !readyToSend && canControl
                 ? railEnd(<View style={endCircle(false)}>
-                    <RealtimeTalkButton sessionId={props.id} accessibilityLabel="Talk to this session" size={RAIL_END} />
+                    {/* The trailing circle is the rail's primary action, so its
+                        mark is drawn in the text colour; the microphone inside
+                        the field stays the quiet grey. */}
+                    <RealtimeTalkButton sessionId={props.id} accessibilityLabel="Talk to this session" size={RAIL_END} idleTint={theme.colors.text} />
                 </View>)
                 : sendAction;
             // Only what the channel can vouch for: 'live' means frames flow with
@@ -1226,7 +1242,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             flexDirection: 'row',
                             alignItems: 'center',
                             gap: 2,
-                            paddingHorizontal: 6,
+                            // The back glyph starts on the rail's glyph column
+                            // (16) and the ⋮ sits over the trailing circle's centre.
+                            paddingLeft: 10,
+                            paddingRight: 11,
                             paddingTop: 0,
                             backgroundColor: theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'],
                         }, ringRecede]}
@@ -1237,7 +1256,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </Pressable>
                         <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentNameLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
                             {identityKnown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
-                            {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '500', opacity: 0.88 }}>{contextTitle}</Text>}
+                            {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{contextTitle}</Text>}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).
@@ -1249,8 +1268,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             </View>}
                         </Pressable>
                         {/* Position in the tab and the way into the pane overview:
-                            borderless and tiny; loading shows as such, never as 0/0. */}
-                        <Pressable
+                            borderless and tiny; loading shows as such, never as 0/0.
+                            At one pane it says nothing, and what the overview
+                            offers there (new pane, close) is on the rail and in ⋮. */}
+                        {(!treeLoaded || located === undefined || paneTotal > 1) && <Pressable
                             onPress={() => { setActionsOpen(false); setOverviewOpen(true); }}
                             disabled={!treeLoaded || located === undefined}
                             accessibilityRole="button"
@@ -1263,13 +1284,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             {treeLoaded && located !== undefined
                                 ? <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', fontVariant: ['tabular-nums'] }}>{Math.max(paneIndex, 0) + 1}/{Math.max(paneTotal, 1)}</Text>
                                 : <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
-                        </Pressable>
+                        </Pressable>}
                         {!authorityLoading && <Pressable onPress={() => setActionsOpen((open) => !open)} accessibilityRole="button" accessibilityLabel={`Pane actions${artifactsCount !== null && artifactsCount > 0 ? `, ${t('sessionArtifacts.title', { count: artifactsCount })}` : ''}`}
                             accessibilityState={{ expanded: actionsOpen }} hitSlop={12} style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                             <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
-                            {artifactsCount !== null && artifactsCount > 0 && <View style={{ position: 'absolute', top: 1, right: 0, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.accent }}>
-                                <Text style={{ color: theme.colors.surface, fontSize: 9, fontWeight: '700' }}>{artifactsCount > 99 ? '99+' : artifactsCount}</Text>
-                            </View>}
+                            {/* Artifacts are a history, not unread alerts: a small
+                                ring beside the ⋮ says the menu holds some, and the
+                                count lives on its Shared Artifacts row. A ring, not
+                                a dot, so it never reads as a fourth dot of the glyph. */}
+                            {artifactsCount !== null && artifactsCount > 0 && <View style={{ position: 'absolute', top: 3, right: 1, width: 7, height: 7, borderRadius: 4, borderWidth: 1.5, borderColor: theme.colors.textSecondary }} />}
                         </Pressable>}
                     </Animated.View>
 
@@ -1487,7 +1510,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         composer read as the same piece of chrome rather than as
                         three stacked bands, and the whole of it recedes
                         together while the ring is open. */}
-                    <Animated.View style={[{ backgroundColor: theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'] }, railsFollowKeyboard]}>
+                    <Animated.View style={[{ backgroundColor: railInk, paddingTop: 6 }, railsFollowKeyboard]}>
 
                     {/* Session/pane chip rail: one scrollable row of identity
                         chips for the open panes (or, across tabs, the other
@@ -1497,7 +1520,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         is exactly when the question gets asked — and it stays
                         at one pane too, where it is the only way to add a
                         second. No band, no underline. */}
-                    {treeLoaded && located !== undefined && (
+                    {showPaneTabs && (
+                        <View style={{ marginBottom: 4 }}>
                         <ScrollView
                             aria-hidden={desktopVisible}
                             accessibilityElementsHidden={desktopVisible}
@@ -1506,8 +1530,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             horizontal
                             showsHorizontalScrollIndicator={false}
                             keyboardShouldPersistTaps="always"
-                            style={{ maxHeight: 30, backgroundColor: 'transparent' }}
-                            contentContainerStyle={{ alignItems: 'center', gap: 8, paddingHorizontal: 8, paddingVertical: 0 }}
+                            style={{ flexGrow: 0, backgroundColor: 'transparent' }}
+                            contentContainerStyle={{ alignItems: 'center', gap: 4, paddingLeft: 8, paddingRight: RAIL_FADE, paddingVertical: 0 }}
                         >
                             {workspaceTabs.length <= 1 || tabPanes.length > 1 ? tabPanes.map((pane) => {
                                 const active = pane.sessionId === props.id;
@@ -1519,7 +1543,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         style={{
                                             flexDirection: 'row',
                                             alignItems: 'center',
-                                            maxHeight: 26,
+                                            height: 24,
                                             borderRadius: 999,
                                             overflow: 'hidden',
                                             // Names on the plane, not tabs in a strip: the
@@ -1541,13 +1565,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                                 flexDirection: 'row',
                                                 alignItems: 'center',
                                                 gap: 4,
-                                                paddingLeft: 7,
-                                                paddingRight: active && canControl ? 1 : 7,
+                                                paddingLeft: 8,
+                                                paddingRight: active && canControl ? 2 : 8,
                                                 opacity: pressed ? 0.65 : 1,
                                             })}
                                         >
                                             <AgentGlyph name={isShellLabels(pl) ? 'shell' : pl.agentKind ?? pl.agentName} size={13} />
-                                            <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : tone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
+                                            <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : tone.color, fontSize: 11, fontWeight: '500' }}>
                                                 {pl.taskTitle}
                                             </Text>
                                         </Pressable>
@@ -1575,7 +1599,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         style={{
                                             flexDirection: 'row',
                                             alignItems: 'center',
-                                            maxHeight: 26,
+                                            height: 24,
                                             borderRadius: 999,
                                             overflow: 'hidden',
                                             // Names on the plane, not tabs in a strip: the
@@ -1598,15 +1622,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                                 flexDirection: 'row',
                                                 alignItems: 'center',
                                                 gap: 4,
-                                                paddingLeft: 7,
-                                                paddingRight: 7,
+                                                paddingLeft: 8,
+                                                paddingRight: 8,
                                                 opacity: pressed ? 0.65 : 1,
                                             })}
                                         >
                                             {singleLabels !== undefined
                                                 ? <AgentGlyph name={isShellLabels(singleLabels) ? 'shell' : singleLabels.agentKind ?? singleLabels.agentName} size={13} />
-                                                : <Ionicons name="grid-outline" size={12} color={theme.colors.textSecondary} />}
-                                            <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : tone.color, fontSize: 11, fontWeight: active ? '600' : '400' }}>
+                                                : <Ionicons name="grid-outline" size={13} color={theme.colors.textSecondary} />}
+                                            <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : tone.color, fontSize: 11, fontWeight: '500' }}>
                                                 {label}
                                             </Text>
                                         </Pressable>
@@ -1617,17 +1641,26 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 onPress={() => splitPane('right')}
                                 accessibilityRole="button"
                                 accessibilityLabel="Add pane"
-                                hitSlop={6}
-                                style={({ pressed }) => ({ width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
-                                <Ionicons name="add" size={15} color={theme.colors.textSecondary} />
+                                hitSlop={8}
+                                style={({ pressed }) => ({ width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
+                                <Ionicons name="add" size={16} color={theme.colors.textSecondary} />
                             </Pressable>}
                         </ScrollView>
+                        {/* Chips running off the edge dissolve, like the key row's. */}
+                        <LinearGradient
+                            pointerEvents="none"
+                            colors={[withAlpha(railInk, 0), railInk]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: RAIL_FADE }}
+                        />
+                        </View>
                     )}
 
                     {canControl && <View aria-hidden={desktopVisible}>
                         {/* The key strip stands down while dictation owns the footer
                             with the keyboard up; the composer capsule stays. */}
-                        {!(dictationActive && keyboardVisible) && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>{keySlot}</TerminalKeyRow>}
+                        {showKeyRow && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>{keySlot}</TerminalKeyRow>}
 
                     <ComposerAttachments
                         images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
@@ -1643,7 +1676,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         only container here — and one trailing circle that is
                         the realtime agent while the field is empty and becomes
                         send the moment there is something to send. */}
-                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingHorizontal: 10, paddingTop: 4, paddingBottom: insets.bottom + 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 8, paddingTop: 4, paddingBottom: insets.bottom + 8 }}>
                         {!dictationActive && attachmentAction}
                         <View style={{
                             flex: 1,
@@ -1691,10 +1724,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     </Animated.View>
 
                     {/* The control rests on the terminal and stands down while
-                        a link card is open. Its overlay extends through the
-                        rails so the ring can borrow room below a short terminal;
-                        the control itself stays on the terminal surface. */}
-                    {hasTools && !choicesVisible && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
+                        a link card is open, and while the keyboard is up: the
+                        few lines left above it are the ones being answered, and
+                        every slot is also in the pane menu or on the key row.
+                        Its overlay extends through the rails so the ring can
+                        borrow room below a short terminal; the control itself
+                        stays on the terminal surface. */}
+                    {hasTools && !choicesVisible && linkMenu === null && !keyboardVisible && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
                         <View
                             aria-hidden={desktopVisible}
                             pointerEvents="box-none"
