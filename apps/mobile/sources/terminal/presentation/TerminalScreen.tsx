@@ -12,7 +12,7 @@ import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useKeyboardHandler, useKeyboardState } from 'react-native-keyboard-controller';
-import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useReducedMotion, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
@@ -72,7 +72,7 @@ import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { useIsFocused } from '@react-navigation/native';
 import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
-import { useDictation } from '@/utils/dictation';
+import { DictateAction, DictationStrip, useComposerDictation } from '@/components/ComposerDictation';
 import { getCachedConnectionSettings } from '@/connection';
 import { displayLink } from '../domain/TerminalLink';
 import { TerminalLinkMenu, terminalLinkCardFits, type LinkAction } from './TerminalLinkMenu';
@@ -118,40 +118,6 @@ const PANE_TABS_HEIGHT = 24;
 const SCROLL_ANSWER_MS = 1_000;
 /** Rows counted back in a program that scrolls itself, by pane route, across its streams. */
 const ALT_SCROLL_BACK = new Map<string, number>();
-
-// Live recording level as five honest bars; the same fixed weights keep every
-// bar following the real input level, taller through the middle. The level is
-// a shared value read on the UI thread, so a recording chunk never re-renders
-// the screen around the bars.
-const BAR_WEIGHTS = [0.45, 0.7, 1, 0.7, 0.45];
-function DictationBars({ level, color }: { level: SharedValue<number>; color: string }) {
-    return <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 10 }}>
-        {BAR_WEIGHTS.map((weight, index) => (
-            <DictationBar key={index} level={level} weight={weight} color={color} first={index === 0} />
-        ))}
-    </View>;
-}
-
-function DictationBar({ level, weight, color, first }: { level: SharedValue<number>; weight: number; color: string; first: boolean }) {
-    const bar = useAnimatedStyle(() => ({ height: 4 + level.value * 11 * weight }));
-    return <Animated.View style={[{ width: 2.5, borderRadius: 1.25, backgroundColor: color, marginLeft: first ? 0 : 3 }, bar]} />;
-}
-
-/** The restrained resolving state: three dots that breathe while text lands. */
-function TranscribingDots({ color }: { color: string }) {
-    const reduceMotion = useReducedMotion();
-    const [phase, setPhase] = React.useState(0);
-    React.useEffect(() => {
-        if (reduceMotion === true) return;
-        const timer = setInterval(() => setPhase((current) => (current + 1) % 3), 380);
-        return () => clearInterval(timer);
-    }, [reduceMotion]);
-    return <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 10 }}>
-        {[0, 1, 2].map((index) => (
-            <View key={index} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: color, opacity: reduceMotion === true ? 0.6 : phase === index ? 1 : 0.35, marginLeft: index === 0 ? 0 : 3 }} />
-        ))}
-    </View>;
-}
 
 /**
  * The session is one dark surface: the terminal paints dark whatever the app
@@ -321,10 +287,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     draftRef.current = draft;
     // Dictation lives in the composer rail itself: one pill that reads
     // Dictating… then Transcribing…, then commits into the editable draft.
-    // The terminal owns the transcript, so it never renders a second copy.
-    const dictation = useDictation(() => draftRef.current, setDraft);
+    const dictation = useComposerDictation(() => draftRef.current, setDraft);
     const dictationActive = dictation.recording || dictation.transcribing;
-    React.useEffect(() => { if (dictation.pending !== null) dictation.accept(); }, [dictation.pending, dictation.accept]);
     // Held in a ref so the link menu, built once, always inserts through the
     // current draft rather than a captured one.
     const insertDraftRef = React.useRef<(value: string) => void>(() => {});
@@ -1202,8 +1166,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // One pill that is the composer: idle input, multiline compose,
             // Dictating…, Transcribing… — same geometry, same material, only
             // the contents swap, exactly like the supplied frames.
-            const dictating = dictation.recording;
-            const transcribing = dictation.transcribing;
             const composerInput = <TextInput
                 ref={composerRef}
                 value={draft}
@@ -1243,13 +1205,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // appends to the draft rather than replacing it, so speaking the
             // rest of a half-typed prompt is the same control, in the same
             // place, as speaking the whole of one.
-            const dictateAction = <Pressable onPress={dictation.toggle} disabled={transcribing} accessibilityRole="button"
-                accessibilityLabel={dictating ? 'Stop dictation' : 'Dictate'}
-                accessibilityHint={dictating ? 'Stops listening and transcribes' : 'Adds what you say to the prompt. It never sends by itself.'}
-                accessibilityState={{ busy: transcribing, selected: dictating, disabled: transcribing }}
-                style={({ pressed }) => ({ ...inField, opacity: pressed ? 0.6 : 1 })}>
-                <Ionicons name="mic-outline" size={18} color={theme.colors.textSecondary} />
-            </Pressable>;
+            const dictateAction = <DictateAction dictation={dictation} control={inField} />;
             // Send is ours, and it has always been the pane's own lifecycle
             // colour: blue while the agent works, green when it is done, the
             // plain accent when it is idle. A flat brand green here belonged to
@@ -1728,28 +1684,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             paddingRight: 4,
                             paddingVertical: FIELD_PAD,
                         }}>
-                            {/* Listening is a state, not an alarm: the level and
-                                the stop carry the one red between them, and the
-                                stop is a tinted target rather than a solid disc
-                                the size of the send. */}
-                            {dictating ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
-                                <DictationBars level={dictation.level} color={theme.colors.status.error} />
-                                {/* Heard words replace the label as they settle; the newest
-                                    stay in view and older ones slide off the start. */}
-                                <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.text, fontSize: 15, marginLeft: 10 }}>{dictation.live || 'Dictating…'}</Text>
-                                <Pressable onPress={dictation.toggle} accessibilityRole="button" accessibilityLabel="Stop dictation"
-                                    accessibilityHint="Stops listening and transcribes"
-                                    style={({ pressed }) => ({ ...inField, backgroundColor: withAlpha(theme.colors.status.error, pressed ? 0.28 : 0.18), transform: [{ scale: pressed ? 0.94 : 1 }] })}>
-                                    <Ionicons name="stop" size={13} color={theme.colors.status.error} />
-                                </Pressable>
-                            </Animated.View> : transcribing ? <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
-                                <TranscribingDots color={theme.colors.textSecondary} />
-                                <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 15, marginLeft: 10 }}>{dictation.live || 'Transcribing…'}</Text>
-                                <Pressable onPress={dictation.cancel} accessibilityRole="button" accessibilityLabel="Cancel dictation"
-                                    style={({ pressed }) => ({ ...inField, opacity: pressed ? 0.6 : 1 })}>
-                                    <Ionicons name="close" size={19} color={theme.colors.textSecondary} />
-                                </Pressable>
-                            </Animated.View> : <>
+                            {dictationActive ? <DictationStrip dictation={dictation} control={inField} /> : <>
                                 {composerInput}
                                 {clearAction}
                                 {dictateAction}
