@@ -171,8 +171,8 @@ export interface SessionSource {
     focusTabNeighbor(sessionId: string, direction: 'next' | 'prev'): Promise<void>;
     /** Focus the adjacent workspace, from this session's workspace. */
     focusWorkspaceNeighbor(sessionId: string, direction: 'next' | 'prev'): Promise<void>;
-    /** Create a tab in this session's workspace; with kind, an agent starts in it. */
-    createTab(sessionId: string, options: { kind?: string; label?: string }): Promise<void>;
+    /** Create a tab in this session's workspace; with kind, an agent starts in it. Resolves to the new tab's session when it is known. */
+    createTab(sessionId: string, options: { kind?: string; label?: string }): Promise<{ sessionId?: string }>;
     /** Close a tab in this session's workspace. */
     closeTab(sessionId: string, tabId: string): Promise<void>;
     /** Close this session's pane; the tab survives if other panes remain. */

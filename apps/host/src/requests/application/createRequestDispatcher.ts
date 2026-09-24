@@ -261,8 +261,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             target: 'workspace-neighbor', sessionId: params.sessionId, direction: params.direction,
         })),
         'tab.create': async (params) => {
-            await source.createTab(params.sessionId, { ...(params.kind === undefined ? {} : { kind: params.kind }), ...(params.label === undefined ? {} : { label: params.label }) });
-            return null;
+            return await source.createTab(params.sessionId, { ...(params.kind === undefined ? {} : { kind: params.kind }), ...(params.label === undefined ? {} : { label: params.label }) });
         },
         'tab.close': async (params) => {
             await source.closeTab(params.sessionId, params.tabId);

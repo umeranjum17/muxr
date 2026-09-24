@@ -818,7 +818,21 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 if (result.sessionId !== undefined) navigateToSession(result.sessionId);
             })
             .catch((error: unknown) => {
-                Modal.alert('Split failed', humanError(error).message);
+                Modal.alert('New pane failed', humanError(error).message);
+                void sync.refreshHerdTree().catch(() => undefined);
+            });
+    }, [props.id, navigateToSession]);
+    // A new tab is a shell of its own in this workspace; its panes come from
+    // New pane once it is open.
+    const newTab = React.useCallback(() => {
+        setActionsOpen(false);
+        void sync.request('tab.create', { sessionId: props.id })
+            .then((result) => {
+                void sync.refreshHerdTree().catch(() => undefined);
+                if (result?.sessionId !== undefined) navigateToSession(result.sessionId);
+            })
+            .catch((error: unknown) => {
+                Modal.alert('New tab failed', humanError(error).message);
                 void sync.refreshHerdTree().catch(() => undefined);
             });
     }, [props.id, navigateToSession]);
@@ -1019,9 +1033,18 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     setStopping(false);
                     return;
                 }
+                const neighbourTabPane = () => {
+                    if (located === undefined) return undefined;
+                    const tabs = located.workspace.tabs;
+                    const at = tabs.findIndex((tab) => tab.tabId === located.tab.tabId);
+                    const beside = tabs[at + 1] ?? tabs[at - 1];
+                    return beside === undefined ? undefined : resolveTabPane(beside, { machineId: getCachedConnectionSettings().machineId, workspaceId: located.workspace.workspaceId });
+                };
                 const index = siblings.indexOf(props.id);
                 const remaining = siblings.filter((id) => id !== props.id);
-                const next = remaining[index] ?? remaining[remaining.length - 1];
+                // The last pane of a tab closes the tab: land on the tab beside
+                // it, and leave the workspace only when it has no other tab.
+                const next = remaining[index] ?? remaining[remaining.length - 1] ?? neighbourTabPane();
                 if (next === undefined) router.back();
                 else router.replace(`/session/${encodeURIComponent(next)}`);
             })
@@ -1032,7 +1055,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     { text: 'Retry', onPress: () => stopSession() },
                 ]);
             });
-    }, [props.id, siblings, shell]);
+    }, [located, props.id, siblings, shell]);
 
     const canSend = !dictationActive && !attaching && selectedImages.length === 0 && terminalPaneCanSend(currentPane, draft.trim() !== '' || attachedPaths.length > 0, canControl && channel !== undefined);
     // The ring needs at least one slot to be worth its control; view-only
@@ -1136,7 +1159,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const railInk = theme.colors.terminalChrome[barsRaised ? 'chrome' : 'canvas'];
             // Settings can put away the pane tabs at one pane and the key row
             // altogether; the rail's top air stays with whatever row is first.
-            const showPaneTabs = treeLoaded && located !== undefined && (paneTabsSetting === 'always' || tabPanes.length > 1 || workspaceTabs.length > 1);
+            const showPaneTabs = treeLoaded && located !== undefined && (paneTabsSetting === 'always' || workspaceTabs.length > 1);
             // A pane the tree has not listed yet -- one just split off, or one
             // opened before the tree arrived -- keeps the tabs row's height
             // meanwhile. The row filling in later would shrink the grid the
@@ -1566,14 +1589,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         together while the ring is open. */}
                     <Animated.View style={[{ backgroundColor: railInk, paddingTop: 6 }, railsFollowKeyboard]}>
 
-                    {/* Session/pane chip rail: one scrollable row of identity
-                        chips for the open panes (or, across tabs, the other
-                        tabs); the active chip carries close, a trailing + adds
-                        a pane. It answers "which pane am I in", so it stays
-                        while the keyboard is up and while dictation runs — that
-                        is exactly when the question gets asked — and it stays
-                        at one pane too, where it is the only way to add a
-                        second. No band, no underline. */}
+                    {/* Tabs row: one chip per tab of this workspace, never
+                        its panes -- those are the header's 1/3 and the pager.
+                        A one-pane current tab carries close, and a trailing +
+                        opens a new tab. It answers "which tab am I in", so it
+                        stays while the keyboard is up and while dictation
+                        runs, and by default at one tab too, where its + is the
+                        way to a second. No band, no underline. */}
                     {paneTabsPending && <View style={{ height: PANE_TABS_HEIGHT, marginBottom: 4 }} />}
                     {showPaneTabs && (
                         <View style={{ marginBottom: 4 }}>
@@ -1588,66 +1610,16 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             style={{ flexGrow: 0, height: PANE_TABS_HEIGHT, backgroundColor: 'transparent' }}
                             contentContainerStyle={{ alignItems: 'center', gap: 4, paddingLeft: 8, paddingRight: RAIL_FADE, paddingVertical: 0 }}
                         >
-                            {workspaceTabs.length <= 1 || tabPanes.length > 1 ? tabPanes.map((pane) => {
-                                const active = pane.sessionId === props.id;
-                                const pl = agentLabels(pane);
-                                const tone = agentStatusColor(pane.agentStatus, theme);
-                                return (
-                                    <View
-                                        key={pane.sessionId}
-                                        style={{
-                                            flexDirection: 'row',
-                                            alignItems: 'center',
-                                            height: 24,
-                                            borderRadius: 999,
-                                            overflow: 'hidden',
-                                            // Names on the plane, not tabs in a strip: the
-                                            // current pane is the brighter one, and nothing
-                                            // here draws a box around itself.
-                                            backgroundColor: active ? withAlpha(theme.colors.text, 0.07) : 'transparent',
-                                            borderWidth: 0,
-                                            borderColor: 'transparent',
-                                        }}
-                                    >
-                                        <Pressable
-                                            onPress={active || pane.sessionId === undefined ? undefined : () => { if (pane.sessionId !== undefined) navigateToSession(pane.sessionId); }}
-                                            accessibilityRole="button"
-                                            accessibilityLabel={`${active ? 'Current pane' : 'Open pane'} ${pl.title}`}
-                                            accessibilityState={{ selected: active }}
-                                            style={({ pressed }) => ({
-                                                minHeight: 24,
-                                                maxWidth: 150,
-                                                flexDirection: 'row',
-                                                alignItems: 'center',
-                                                gap: 4,
-                                                paddingLeft: 8,
-                                                paddingRight: active && canControl ? 2 : 8,
-                                                opacity: pressed ? 0.65 : 1,
-                                            })}
-                                        >
-                                            <AgentGlyph name={isShellLabels(pl) ? 'shell' : pl.agentKind ?? pl.agentName} size={13} />
-                                            <Text numberOfLines={1} style={{ flexShrink: 1, color: active ? theme.colors.text : tone.color, fontSize: 11, fontWeight: '500' }}>
-                                                {pl.title}
-                                            </Text>
-                                        </Pressable>
-                                        {/* Close lives on the active chip, the same
-                                            close the overflow menu carries. */}
-                                        {active && canControl && !stopping && <Pressable
-                                            onPress={stopSession}
-                                            accessibilityRole="button"
-                                            accessibilityLabel={shell ? 'Close pane' : 'Stop agent'}
-                                            hitSlop={6}
-                                            style={({ pressed }) => ({ width: 20, height: 20, alignItems: 'center', justifyContent: 'center', marginRight: 2, borderRadius: 10, opacity: pressed ? 0.6 : 1 })}>
-                                            <Ionicons name="close" size={12} color={theme.colors.textSecondary} />
-                                        </Pressable>}
-                                    </View>
-                                );
-                            }) : workspaceTabs.map((tab, index) => {
+                            {workspaceTabs.map((tab, index) => {
                                 const active = tab.tabId === currentTab?.tabId;
                                 const single = tab.panes.length === 1 ? tab.panes[0] : undefined;
                                 const singleLabels = single === undefined ? undefined : agentLabels(single);
                                 const tone = agentStatusColor(tab.agentStatus, theme);
                                 const label = tabLabel(tab, index);
+                                // Close on the current tab only while it is one
+                                // pane: closing that pane is closing the tab.
+                                // A tab of several closes pane by pane.
+                                const closable = active && single !== undefined && canControl && !stopping;
                                 return (
                                     <View
                                         key={tab.tabId}
@@ -1678,7 +1650,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                                 alignItems: 'center',
                                                 gap: 4,
                                                 paddingLeft: 8,
-                                                paddingRight: 8,
+                                                paddingRight: closable ? 2 : 8,
                                                 opacity: pressed ? 0.65 : 1,
                                             })}
                                         >
@@ -1689,13 +1661,21 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                                 {label}
                                             </Text>
                                         </Pressable>
+                                        {closable && <Pressable
+                                            onPress={stopSession}
+                                            accessibilityRole="button"
+                                            accessibilityLabel={shell ? 'Close tab' : 'Stop agent'}
+                                            hitSlop={6}
+                                            style={({ pressed }) => ({ width: 20, height: 20, alignItems: 'center', justifyContent: 'center', marginRight: 2, borderRadius: 10, opacity: pressed ? 0.6 : 1 })}>
+                                            <Ionicons name="close" size={12} color={theme.colors.textSecondary} />
+                                        </Pressable>}
                                     </View>
                                 );
                             })}
                             {canControl && <Pressable
-                                onPress={() => splitPane('right')}
+                                onPress={newTab}
                                 accessibilityRole="button"
-                                accessibilityLabel="Add pane"
+                                accessibilityLabel="New tab"
                                 hitSlop={8}
                                 style={({ pressed }) => ({ width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                                 <Ionicons name="add" size={16} color={theme.colors.textSecondary} />
@@ -1915,15 +1895,20 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                     {canControl && <DeclarativeSessionActions actions={declaredActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
                                     {canControl && (
                                         <View>
-                                            <Pressable onPress={() => splitPane('right')} accessibilityRole="button" accessibilityLabel="Split right"
+                                            <Pressable onPress={newTab} accessibilityRole="button" accessibilityLabel="New tab"
+                                                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                                <Ionicons name="add" size={18} color={theme.colors.textSecondary} />
+                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>New tab</Text>
+                                            </Pressable>
+                                            <Pressable onPress={() => splitPane('right')} accessibilityRole="button" accessibilityLabel="New pane to the right"
                                                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                                 <Ionicons name="git-commit-outline" size={18} color={theme.colors.textSecondary} />
-                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Split right</Text>
+                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>New pane to the right</Text>
                                             </Pressable>
-                                            <Pressable onPress={() => splitPane('down')} accessibilityRole="button" accessibilityLabel="Split down"
+                                            <Pressable onPress={() => splitPane('down')} accessibilityRole="button" accessibilityLabel="New pane below"
                                                 style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                                 <Ionicons name="git-commit-outline" size={18} color={theme.colors.textSecondary} style={{ transform: [{ rotate: '90deg' }] }} />
-                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Split down</Text>
+                                                <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>New pane below</Text>
                                             </Pressable>
                                         </View>
                                     )}

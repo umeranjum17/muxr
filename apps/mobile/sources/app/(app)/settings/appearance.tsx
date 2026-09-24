@@ -117,10 +117,10 @@ export default function AppearanceSettingsScreen() {
         labelStyle: { fontFamily: TERMINAL_FONTS[key].family },
     }));
 
-    const paneTabsName: Record<typeof paneTabs, string> = { always: 'Always', several: 'Multiple panes' };
+    const paneTabsName: Record<typeof paneTabs, string> = { always: 'Always', several: 'With 2+ tabs' };
     const paneTabsChoices: Choice[] = [
         { key: 'always', label: paneTabsName.always, detail: 'Default' },
-        { key: 'several', label: paneTabsName.several, detail: 'Hidden for one pane' },
+        { key: 'several', label: paneTabsName.several, detail: 'Hidden for one tab' },
     ];
 
     const surfacesName: Record<DarkSurfaces, string> = { seamless: 'Seamless', raised: 'Raised' };
@@ -146,13 +146,13 @@ export default function AppearanceSettingsScreen() {
 
             <ItemGroup
                 title="Terminal"
-                footer={`${pinchZoom ? 'Pinch a terminal to change its size there too. ' : ''}New pane and close are always in the pane menu.`}
+                footer={`${pinchZoom ? 'Pinch a terminal to change its size there too. ' : ''}New tab, new pane and close are always in the pane menu.`}
             >
                 <Item title="Text size" subtitle={`${FONT_STEPS[fontIndex]} pt`} onPress={() => setSheet('size')} />
                 {Platform.OS === 'web' && (
                     <Item title="Font" subtitle={TERMINAL_FONTS[terminalFont].name} onPress={() => setSheet('font')} />
                 )}
-                <Item title="Pane tabs" subtitle={paneTabsName[paneTabs]} onPress={() => setSheet('tabs')} />
+                <Item title="Tabs row" subtitle={paneTabsName[paneTabs]} onPress={() => setSheet('tabs')} />
                 <Item
                     title="Key row"
                     subtitle={keyRowVisible ? 'Above the prompt' : 'Hidden'}
@@ -204,7 +204,7 @@ export default function AppearanceSettingsScreen() {
             />
             <ChoiceSheet
                 visible={sheet === 'tabs'}
-                title="Pane tabs"
+                title="Tabs row"
                 choices={paneTabsChoices}
                 selectedKey={paneTabs}
                 onSelect={(key) => setPaneTabs(key as typeof paneTabs)}
