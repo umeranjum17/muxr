@@ -1,15 +1,19 @@
 import * as React from 'react';
-import { AppState, FlatList, Pressable, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { AppState, type FlatList, Pressable, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useIsFocused } from '@react-navigation/native';
+import Animated, { LinearTransition, ReduceMotion } from 'react-native-reanimated';
 import { Text } from '@/components/StyledText';
 import { useHomeHerd, useLifecycleEvents, useSocketStatus } from '@/catalog/store';
 import { t } from '@/text';
 import { agentStatusColor } from '../application/sessionUtils';
 import { herdPanes } from '../domain/herd';
 import {
+    holdLiveTerminalOrder,
     liveTerminalBucket,
     sharedLiveTerminalCards,
+    sharedLiveTerminalOrderSettlesAt,
+    subscribeLiveTerminalOrder,
     selectLiveTerminalCards,
     visibleActivityEventIds,
     type LiveTerminalOrderCard,
@@ -28,6 +32,11 @@ const CARD_WIDTH = 300;
 const CARD_HEIGHT = 200;
 const CARD_GAP = 12;
 const STRIP_GUTTER = 16;
+// A reorder waits this long after the last touch or scroll, so a card never
+// moves while the eye is still following the flick that brought it there.
+const REORDER_GRACE_MS = 1_500;
+// Cards slide to their new places; with reduced motion they simply appear there.
+const reorderTransition = LinearTransition.duration(280).reduceMotion(ReduceMotion.System);
 
 const stylesheet = StyleSheet.create((theme) => ({
     // Home's section rhythm: 20pt from the content above to a section label,
@@ -166,7 +175,37 @@ export const LiveTerminalsRow = React.memo(({
         () => selectLiveTerminalCards(sessions, panes),
         [panes, sessions],
     );
-    const cards = React.useMemo(() => sharedLiveTerminalCards(candidateCards), [candidateCards]);
+    // Bumped when a deferred reorder or a working agent's dwell comes due.
+    const [orderTick, setOrderTick] = React.useState(0);
+    const bumpOrder = React.useCallback(() => setOrderTick((tick) => tick + 1), []);
+    // orderTick only asks for the arrangement to be read again at a new time.
+    const cards = React.useMemo(() => sharedLiveTerminalCards(candidateCards), [candidateCards, orderTick]);
+    React.useEffect(() => subscribeLiveTerminalOrder(bumpOrder), [bumpOrder]);
+    React.useEffect(() => {
+        const settlesAt = sharedLiveTerminalOrderSettlesAt();
+        if (settlesAt === undefined) return;
+        const timer = setTimeout(bumpOrder, Math.max(0, settlesAt - Date.now()));
+        return () => clearTimeout(timer);
+    }, [bumpOrder, cards, orderTick]);
+    // Hold the order while a finger is on the strip and for a grace after.
+    const touchingRef = React.useRef(false);
+    const releaseHoldRef = React.useRef<(() => void) | null>(null);
+    const graceTimerRef = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const noteInteraction = React.useCallback(() => {
+        releaseHoldRef.current ??= holdLiveTerminalOrder();
+        clearTimeout(graceTimerRef.current);
+        if (touchingRef.current) return;
+        graceTimerRef.current = setTimeout(() => {
+            releaseHoldRef.current?.();
+            releaseHoldRef.current = null;
+        }, REORDER_GRACE_MS);
+    }, []);
+    const touchStart = React.useCallback(() => { touchingRef.current = true; noteInteraction(); }, [noteInteraction]);
+    const touchEnd = React.useCallback(() => { touchingRef.current = false; noteInteraction(); }, [noteInteraction]);
+    React.useEffect(() => () => {
+        clearTimeout(graceTimerRef.current);
+        releaseHoldRef.current?.();
+    }, []);
     const liveTitles = React.useMemo(() => {
         const titles = new Map<string, string>();
         for (const pane of panes) {
@@ -215,11 +254,27 @@ export const LiveTerminalsRow = React.memo(({
     const commitVisibleIndex = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const x = event.nativeEvent.contentOffset.x;
         scrollXRef.current = x;
+        noteInteraction();
         setFirstVisible((current) => {
             const next = Math.max(0, Math.floor(x / cardInterval));
             return next === current ? current : next;
         });
-    }, [cardInterval]);
+    }, [cardInterval, noteInteraction]);
+    // At the head of the strip the head is what the user reads, so the new
+    // order shows there. Scrolled in, the card they were reading stays put.
+    const atHead = scrollXRef.current < cardInterval / 2;
+    const anchorIdRef = React.useRef<string | undefined>(undefined);
+    React.useLayoutEffect(() => {
+        const anchorId = anchorIdRef.current;
+        const anchorIndex = anchorId === undefined ? -1 : cards.findIndex((card) => card.id === anchorId);
+        if (!atHead && anchorIndex !== -1 && anchorIndex !== firstVisible) {
+            scrollRef.current?.scrollToOffset({ offset: anchorIndex * cardInterval, animated: false });
+            scrollXRef.current = anchorIndex * cardInterval;
+            setFirstVisible(anchorIndex);
+        }
+        anchorIdRef.current = cards[anchorIndex === -1 ? firstVisible : anchorIndex]?.id;
+    }, [cards]);
+    React.useEffect(() => { anchorIdRef.current = cards[firstVisible]?.id; }, [firstVisible]);
     React.useEffect(() => {
         setFirstVisible(Math.max(0, Math.floor(scrollXRef.current / cardInterval)));
     }, [cardInterval]);
@@ -307,7 +362,7 @@ export const LiveTerminalsRow = React.memo(({
                 ) : null
             ) : (
                 <View ref={stripListRef} collapsable={false} style={{ marginTop: 4 }}>
-                <FlatList
+                <Animated.FlatList
                     ref={scrollRef}
                     data={cards}
                     keyExtractor={(card) => card.id}
@@ -322,11 +377,18 @@ export const LiveTerminalsRow = React.memo(({
                     onScroll={commitVisibleIndex}
                     scrollEventThrottle={32}
                     onMomentumScrollEnd={commitVisibleIndex}
-                    onScrollEndDrag={commitVisibleIndex}
+                    onScrollEndDrag={(event) => { touchingRef.current = false; commitVisibleIndex(event); }}
                     snapToInterval={cardInterval}
                     decelerationRate="fast"
                     ItemSeparatorComponent={() => <View style={{ width: CARD_GAP }} />}
                     contentContainerStyle={{ paddingHorizontal: STRIP_GUTTER }}
+                    // Scrolled in, the anchor scroll already keeps the read card still; sliding it too would double the move.
+                    itemLayoutAnimation={atHead ? reorderTransition : undefined}
+                    onTouchStart={touchStart}
+                    onTouchEnd={touchEnd}
+                    onTouchCancel={touchEnd}
+                    onScrollBeginDrag={touchStart}
+                    onMomentumScrollBegin={noteInteraction}
                 />
                 </View>
             )}

@@ -85,7 +85,7 @@ vi.mock('@/herd', async () => {
 });
 import { applyStatusToSession, sessionInfoToSession } from '../infrastructure/sessionMapping';
 import { applyHostInfoToAgent } from '../domain/agent';
-import { reconcileLiveTerminalCards } from '@/herd/application/liveTerminalOrder';
+import { arrangeLiveTerminalCards, EMPTY_LIVE_TERMINAL_ARRANGEMENT } from '@/herd/application/liveTerminalOrder';
 import { homeShowsSnapshot, storage } from './storage';
 
 async function spawn(options: { modelMode?: string; effortLevel?: string }) {
@@ -823,7 +823,8 @@ describe('session sync flow', () => {
             sessionInfoToSession(info('b')),
         ]);
         const before = storage.getState().sessions;
-        const cards = selectLiveTerminalCards(Object.values(before), panes);
+        const arranged = arrangeLiveTerminalCards(EMPTY_LIVE_TERMINAL_ARRANGEMENT, selectLiveTerminalCards(Object.values(before), panes), 0);
+        const cards = arranged.cards;
 
         // A repeated frame must not look like a changed session, or every live
         // card re-renders for every frame the herd sends.
@@ -832,11 +833,11 @@ describe('session sync flow', () => {
             applyHostInfoToAgent(before.a!, sessionInfoToSession(info('a'))),
         ]);
         expect(storage.getState().sessions).toBe(before);
-        expect(reconcileLiveTerminalCards(cards, selectLiveTerminalCards(Object.values(before), panes))).toBe(cards);
+        expect(arrangeLiveTerminalCards(arranged, selectLiveTerminalCards(Object.values(before), panes), 5_000).cards).toBe(cards);
 
         // A card changes when its status does, which is what the tree publishes.
         const movedPanes = panes.map((pane) => pane.id === 'a' ? { ...pane, agentStatus: 'blocked' as const } : pane);
-        const next = reconcileLiveTerminalCards(cards, selectLiveTerminalCards(Object.values(before), movedPanes));
+        const next = arrangeLiveTerminalCards(arranged, selectLiveTerminalCards(Object.values(before), movedPanes), 5_000).cards;
         expect(next[0]).not.toBe(cards[0]);
         expect(next[0]!.agentStatus).toBe('blocked');
         expect(next[1]).toBe(cards[1]);

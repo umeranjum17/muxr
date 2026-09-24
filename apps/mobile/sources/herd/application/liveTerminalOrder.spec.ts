@@ -6,8 +6,10 @@ import { agentAccessibilityLabel, agentLabels, agentStateLabel, liveCardState } 
 import { lifecycleStateSince, unseenActivityRows, unseenDoneSessionIds, type RecentActivityRow } from '../domain/recentActivity';
 import {
     agentSwipeNeighbours,
-    orderLiveTerminalCards,
-    reconcileLiveTerminalCards,
+    arrangeLiveTerminalCards,
+    EMPTY_LIVE_TERMINAL_ARRANGEMENT,
+    LIVE_WORKING_DWELL_MS,
+    liveTerminalOrderSettlesAt,
     selectLiveTerminalCards,
     sharedLiveTerminalCards,
     visibleActivityEventIds,
@@ -39,16 +41,57 @@ function card(
 }
 
 describe('agent lifecycle presentation', () => {
-    it('keeps terminal slots in creation order across lifecycle changes and old completions', () => {
-        const cards = orderLiveTerminalCards([
-            card('done', 900, 'done', 100),
-            card('blocked', 800, 'blocked', 300),
-            card('working', 1_000, 'working', 200),
-        ]);
+    it('leads with needs-you then working agents, without flapping, racing or moving under a finger', () => {
+        let arrangement = EMPTY_LIVE_TERMINAL_ARRANGEMENT;
+        const frame = (now: number, cards: LiveTerminalOrderCard[], held = false) => {
+            arrangement = arrangeLiveTerminalCards(arrangement, cards, now, held);
+            return arrangement.cards.map((item) => item.id);
+        };
+        // leopard was made first and sits idle; the busy ones lead.
+        let now = 1_000;
+        expect(frame(now, [
+            card('leopard', 900, 'idle', 1),
+            card('otter', 950, 'working', 2),
+            card('badger', 990, 'working', 3),
+            card('heron', 990, 'blocked', 4),
+        ])).toEqual(['heron', 'otter', 'badger', 'leopard']);
 
-        expect(cards.map((item) => item.id)).toEqual(['done', 'working', 'blocked']);
-        expect(orderLiveTerminalCards(cards.map((item) => ({ ...item, agentStatus: 'done' })))
-            .map((item) => item.id)).toEqual(['done', 'working', 'blocked']);
+        // Two agents streaming output never trade places, whatever changes per frame.
+        for (let tick = 1; tick <= 20; tick += 1) {
+            now += 500;
+            expect(frame(now, [
+                card('leopard', 900, 'idle', 1),
+                card('otter', now - (tick % 2) * 400, 'working', 2),
+                card('badger', now - ((tick + 1) % 2) * 400, 'working', 3),
+                card('heron', 990, 'blocked', 4),
+            ])).toEqual(['heron', 'otter', 'badger', 'leopard']);
+        }
+
+        // A pause between tool calls does not bounce otter out of the lead...
+        const pause = now;
+        const quiet = [card('leopard', 900, 'idle', 1), card('otter', pause, 'idle', 2), card('badger', now, 'working', 3), card('heron', 990, 'working', 4)];
+        expect(frame(now, quiet)).toEqual(['otter', 'badger', 'heron', 'leopard']);
+        expect(liveTerminalOrderSettlesAt(arrangement)).toBe(pause + LIVE_WORKING_DWELL_MS);
+        now += LIVE_WORKING_DWELL_MS - 1;
+        expect(frame(now, quiet)).toEqual(['otter', 'badger', 'heron', 'leopard']);
+        // ...and resuming keeps its place in the queue rather than rejoining the back.
+        now += 1;
+        expect(frame(now, [card('leopard', 900, 'idle', 1), card('otter', now, 'working', 2), card('badger', now, 'working', 3), card('heron', 990, 'working', 4)]))
+            .toEqual(['otter', 'badger', 'heron', 'leopard']);
+        expect(liveTerminalOrderSettlesAt(arrangement)).toBeUndefined();
+
+        // Staying quiet past the dwell hands otter back its home slot among the rest.
+        const done = [card('leopard', 900, 'idle', 1), card('otter', now, 'done', 2), card('badger', now, 'working', 3), card('heron', 990, 'working', 4)];
+        frame(now, done);
+        now += LIVE_WORKING_DWELL_MS;
+        expect(frame(now, done)).toEqual(['badger', 'heron', 'leopard', 'otter']);
+
+        // Under a finger nothing moves: leopard starting waits, a newcomer joins the end,
+        // a closed agent simply leaves. The order catches up when the hold lifts.
+        const touched = [card('leopard', now, 'working', 1), card('otter', now, 'done', 2), card('badger', now, 'working', 3), card('kite', now, 'working', 5)];
+        expect(frame(now, touched, true)).toEqual(['badger', 'leopard', 'otter', 'kite']);
+        now += 3_000;
+        expect(frame(now, touched)).toEqual(['badger', 'leopard', 'kite', 'otter']);
     });
 
     it('keeps terminal slots stable through catalog joins and equivalent snapshots', () => {
@@ -88,10 +131,12 @@ describe('agent lifecycle presentation', () => {
             agentName: 'Shell',
         });
 
-        const joined = reconcileLiveTerminalCards(treeOnly, selectLiveTerminalCards([
+        const treeArranged = arrangeLiveTerminalCards(EMPTY_LIVE_TERMINAL_ARRANGEMENT, treeOnly, 0);
+        const joinedArranged = arrangeLiveTerminalCards(treeArranged, selectLiveTerminalCards([
             session('second', 200, 'done', 20),
             session('first', 200, 'blocked', 10),
-        ], [pane('first', 'blocked', 200), pane('second', 'done', 200)]));
+        ], [pane('first', 'blocked', 200), pane('second', 'done', 200)]), 0);
+        const joined = joinedArranged.cards;
         expect(joined.map((item) => [item.id, item.agentStatus, item.session?.id])).toEqual([
             ['first', 'blocked', 'first'],
             ['second', 'done', 'second'],
@@ -100,7 +145,7 @@ describe('agent lifecycle presentation', () => {
             joined.flatMap((item) => item.session === undefined ? [] : [item.session]),
             [pane('first', 'blocked', 200), pane('second', 'done', 200)],
         );
-        expect(reconcileLiveTerminalCards(joined, equivalent)).toBe(joined);
+        expect(arrangeLiveTerminalCards(joinedArranged, equivalent, 0).cards).toBe(joined);
     });
 
     it('shows only unseen meaningful transitions from the last day, latest per agent', () => {
@@ -292,9 +337,9 @@ describe('agent lifecycle presentation', () => {
         const joined = sharedLiveTerminalCards([
             card('first', now, 'working', 20), card('second', now, 'blocked', 10),
         ]);
-        expect(treeOnly.map((item) => item.id)).toEqual(['first', 'second']);
-        expect(joined.map((item) => item.id)).toEqual(['first', 'second']);
-        expect(agentSwipeNeighbours(joined, 'first', 'working', now).next?.id).toBe('second');
+        expect(treeOnly.map((item) => item.id)).toEqual(['second', 'first']);
+        expect(joined.map((item) => item.id)).toEqual(['second', 'first']);
+        expect(agentSwipeNeighbours(joined, 'first', 'working', now).previous?.id).toBe('second');
         sharedLiveTerminalCards([]);
     });
 });

@@ -52,7 +52,7 @@ import { withAlpha } from '@/components/ui';
 import { LinearGradient } from 'expo-linear-gradient';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
-import { agentSwipeNeighbours, herdPanes, selectLiveTerminalCards, sharedLiveTerminalCards } from '@/herd';
+import { agentSwipeNeighbours, herdPanes, holdLiveTerminalOrder, selectLiveTerminalCards, sharedLiveTerminalCards } from '@/herd';
 import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
@@ -221,6 +221,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const barsRaised = useLocalSettingMutable('darkSurfaces')[0] === 'raised';
     const keyRowVisible = useLocalSettingMutable('terminalKeyRowVisible')[0];
     const paneTabsSetting = useLocalSettingMutable('terminalPaneTabs')[0];
+    // The pager walks the strip's order; it must not reshuffle while an agent is open.
+    React.useEffect(() => holdLiveTerminalOrder(), []);
     const swipeNeighbours = React.useMemo(
         () => agentSwipeNeighbours(sharedLiveTerminalCards(selectLiveTerminalCards(sessions, herdPanes(sessions, workspaces))), props.id, swipeScope, swipeNow),
         [props.id, sessions, swipeNow, swipeScope, workspaces],
