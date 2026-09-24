@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, KeyboardTypeOptions, Platform } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, KeyboardTypeOptions, Platform, useWindowDimensions } from 'react-native';
 import { BaseModal } from '@/modal/components/BaseModal';
 import { PromptModalConfig } from '@/modal/types';
 import { Typography } from '@/constants/Typography';
@@ -14,6 +14,7 @@ interface WebPromptModalProps {
 
 export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalProps) {
     const { theme } = useUnistyles();
+    const { width: windowWidth } = useWindowDimensions();
     const [inputValue, setInputValue] = useState(config.defaultValue || '');
     const blocked = config.required === true && inputValue.trim() === '';
     const inputRef = useRef<TextInput>(null);
@@ -53,11 +54,13 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
             backgroundColor: Platform.select({
                 web: theme.colors.surface,
                 ios: theme.colors.glass.overlay,
-                android: theme.colors.glass.backgroundStrong,
+                // Opaque: Android draws no blur, and the screen behind showed through the field.
+                android: theme.colors.surface,
                 default: theme.colors.surface,
             }),
             borderRadius: 14,
-            width: 270,
+            // A 270 pt phone would otherwise run the card edge to edge.
+            width: Math.min(270, windowWidth - 32),
             overflow: 'hidden',
             borderWidth: Platform.OS === 'web' ? 0 : StyleSheet.hairlineWidth,
             borderColor: theme.colors.glass.border,

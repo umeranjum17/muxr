@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
+import { createLifecycleStore } from './lifecycleStore.js';
 
 /**
  * Manual rename, through the real session source against a Herdr socket that
  * keeps its own names: each kind reaches Herdr's own rename method, the tree
- * every client reads carries the new name straight after, and a name Herdr or
- * the host refuses leaves the old one standing with a plain reason.
+ * every client reads carries the new name straight after, an agent's rename is
+ * not a lifecycle transition, and a name Herdr or the host refuses leaves the
+ * old one standing with a plain reason.
  */
 function fakeHerdr(dir: string) {
     const state = {
@@ -65,6 +67,8 @@ function fakeHerdr(dir: string) {
                     case 'agent.rename':
                         if (!/^[a-z][a-z0-9_-]{0,31}$/.test(p.name as string)) {
                             error = { code: 'invalid_agent_name', message: 'agent name must start with a lowercase letter' };
+                        } else if (p.name === 'bravo') {
+                            error = { code: 'agent_name_taken', message: 'agent name bravo is already used; candidates: pane_id=w2:p1' };
                         } else state.agentName = p.name as string;
                         break;
                     default:
@@ -84,7 +88,9 @@ describe('Rename: agents, panes, tabs and workspaces are named in Herdr', () => 
     it('renames each kind, shows it in the tree at once, and refuses bad names plainly', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-rename-'));
         const herdr = fakeHerdr(dir);
+        const lifecycle = createLifecycleStore(join(dir, 'lifecycle'));
         const source = await createHerdrSessionSource({
+            lifecycle,
             socketPath: herdr.socketPath,
             dataDir: join(dir, 'data'),
             artifactsDir: join(dir, 'attachments'),
@@ -107,14 +113,17 @@ describe('Rename: agents, panes, tabs and workspaces are named in Herdr', () => 
             await source.rename('agent', 'w1:p1', 'auth-fixer');
             expect(herdr.calls).toEqual(['workspace.rename', 'tab.rename', 'pane.rename', 'agent.rename']);
             expect(await tree()).toEqual({ workspace: 'Auth rework', tab: 'Review', agent: 'auth-fixer', pane: 'Dev server' });
+            // Still the one idle since before, now under its new name.
+            expect(lifecycle.catalog().events.map((event) => [event.agentName, event.state])).toEqual([['auth-fixer', 'idle']]);
 
             // Refused before Herdr: nothing blank, nothing past the limit.
             await expect(source.rename('tab', 'w1:t1', '   ')).rejects.toThrow('A name cannot be empty.');
             await expect(source.rename('pane', 'w1:p2', 'x'.repeat(65))).rejects.toThrow('at most 64 characters');
             // Refused by Herdr: said plainly, and the old name stands.
             await expect(source.rename('agent', 'w1:p1', 'Auth Fixer')).rejects.toThrow(/lowercase letters, numbers, - and _/);
+            await expect(source.rename('agent', 'w1:p1', 'bravo')).rejects.toThrow(/^Another agent is already called bravo\.$/);
             await expect(source.rename('workspace', 'gone', 'Elsewhere')).rejects.toThrow('That workspace is no longer available.');
-            expect(herdr.calls).toHaveLength(6);
+            expect(herdr.calls).toHaveLength(7);
             expect(await tree()).toEqual({ workspace: 'Auth rework', tab: 'Review', agent: 'auth-fixer', pane: 'Dev server' });
         } finally {
             await source.dispose();

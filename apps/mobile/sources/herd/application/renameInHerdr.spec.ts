@@ -41,6 +41,7 @@ vi.mock('@/catalog/sync', () => ({
     },
 }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
+vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
 
 import { renameInHerdr, renamePane } from './renameInHerdr';
 import { agentLabels, herdrPaneForSession, tabLabel } from '../domain/agentPresentation';

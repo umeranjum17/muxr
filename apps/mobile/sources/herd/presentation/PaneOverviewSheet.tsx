@@ -23,7 +23,7 @@ import { getCachedConnectionSettings } from '@/connection';
 import { agentLabels, herdrTabForSession, tabLabel } from '../domain/agentPresentation';
 import { agentStatusColor } from '../application/sessionUtils';
 import { rememberPaneSelection, useNavigateToSession } from '../application/useNavigateToSession';
-import { renameInHerdr, renamePane, showNameActions } from '../application/renameInHerdr';
+import { showPaneActions, showTabActions } from '../application/renameInHerdr';
 import { AgentPickerSheet } from './AgentPickerSheet';
 import { PaneMap } from './PaneMap';
 
@@ -106,7 +106,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
     }, [tab, props.sessionId, navigate, close, refresh]);
 
     const paneActions = React.useCallback((pane: HerdrTreePane) => {
-        showNameActions(agentLabels(pane).title, () => void renamePane(pane), { label: 'Close pane', onPress: () => closePane(pane) });
+        showPaneActions(pane, () => closePane(pane));
     }, [closePane]);
 
     const splitPane = React.useCallback((option: ModelMode) => {
@@ -162,7 +162,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                             <Pressable
                                 key={entry.tabId}
                                 onPress={() => setViewedTabId(entry.tabId)}
-                                onLongPress={canMutate ? () => showNameActions(label, () => void renameInHerdr('tab', entry.tabId, label)) : undefined}
+                                onLongPress={canMutate ? () => showTabActions(entry.tabId, label) : undefined}
                                 accessibilityRole="button"
                                 accessibilityState={{ selected: active }}
                                 accessibilityLabel={`${label}, ${count}${here ? ', this tab' : ''}`}

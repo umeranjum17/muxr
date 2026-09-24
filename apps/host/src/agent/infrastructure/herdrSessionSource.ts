@@ -565,6 +565,10 @@ export async function renameInHerdr(
                 code: 'rename-invalid',
             });
         }
+        if (code === 'agent_name_taken') {
+            // Herdr's sentence goes on to list the other pane's ids.
+            throw Object.assign(new Error(`Another agent is already called ${clean}.`), { code: 'rename-invalid' });
+        }
         if (code?.endsWith('_not_found') === true) throw unavailable(target);
         // Herdr's own sentence, without the wire prefix (a name already taken, say).
         const message = error instanceof Error ? error.message : String(error);

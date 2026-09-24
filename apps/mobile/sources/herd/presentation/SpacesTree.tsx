@@ -26,7 +26,7 @@ import { t } from '@/text';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
-import { renameInHerdr, renamePane, showNameActions } from '../application/renameInHerdr';
+import { renameInHerdr, showNameActions, showPaneActions } from '../application/renameInHerdr';
 
 // Tree geometry in dp from the card's left edge. Depth 1 hangs off the card's
 // own rail; each deeper level hangs one step in, off its spawner's glyph.
@@ -950,13 +950,12 @@ export const SpacesTree = React.memo(({
 
     const workspaceActions = React.useCallback((workspace: HerdrTreeWorkspace) => {
         const name = namesRef.current.get(workspace.workspaceId)!;
-        showNameActions(name, () => void renameInHerdr('workspace', workspace.workspaceId, workspace.label?.trim() || name),
+        showNameActions(name, 'Workspace', () => void renameInHerdr('workspace', workspace.workspaceId, workspace.label?.trim() || name),
             { label: 'Close workspace', onPress: () => confirmCloseWorkspace(workspace) });
     }, [confirmCloseWorkspace]);
 
     const paneActions = React.useCallback((pane: HerdrTreePane) => {
-        showNameActions(agentLabels(pane).title, () => void renamePane(pane),
-            pane.sessionId === undefined ? undefined : { label: 'Close pane', onPress: () => confirmClosePane(pane) });
+        showPaneActions(pane, pane.sessionId === undefined ? undefined : () => confirmClosePane(pane));
     }, [confirmClosePane]);
 
     const renderItem = React.useCallback(({ item }: { item: HerdSpaceRow }) => (

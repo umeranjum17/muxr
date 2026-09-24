@@ -23,7 +23,7 @@ import { Text } from '@/components/StyledText';
 import { SectionLabel } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { agentLabels, isShellLabels, tabLabel, workspaceName } from '@/herd';
-import { rememberPaneSelection, renameInHerdr, renamePane, showNameActions, useNavigateToSession, useUnseenDoneSessionIds } from '@/herd';
+import { rememberPaneSelection, showPaneActions, showTabActions, useNavigateToSession, useUnseenDoneSessionIds } from '@/herd';
 import { AgentPickerSheet, AgentRow, WorkspaceTreeSheet, paneTaskLine, shellPath } from '@/herd/ui';
 
 const VIEW_ONLY = 'View-only devices cannot change panes';
@@ -161,7 +161,7 @@ const TabCard = React.memo(function TabCard(props: {
         <View style={stylesheet.card}>
             <Pressable
                 style={stylesheet.tabHeader}
-                onLongPress={props.canControl ? () => showNameActions(label, () => void renameInHerdr('tab', tab.tabId, label)) : undefined}
+                onLongPress={props.canControl ? () => showTabActions(tab.tabId, label) : undefined}
                 accessibilityRole="header"
                 accessibilityLabel={`${label}, ${count}${tab.focused ? ', current tab' : ''}`}
                 accessibilityHint={props.canControl ? 'Long-press to rename' : undefined}
@@ -254,8 +254,7 @@ export default React.memo(() => {
     }, [refresh]);
 
     const paneActions = React.useCallback((pane: HerdrTreePane) => {
-        showNameActions(agentLabels(pane).title, () => void renamePane(pane),
-            pane.sessionId === undefined ? undefined : { label: 'Close pane', onPress: () => closePane(pane) });
+        showPaneActions(pane, pane.sessionId === undefined ? undefined : () => closePane(pane));
     }, [closePane]);
 
     const splitPane = React.useCallback((option: ModelMode) => {

@@ -21,7 +21,7 @@ import {
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
 import { agentLabels, agentNameLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
-import { renamePane, showNameActions } from '../application/renameInHerdr';
+import { showPaneActions } from '../application/renameInHerdr';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import type { LifecycleEvent } from '@muxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
@@ -110,7 +110,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
     const state = liveCardState(labels, card.agentStatus, card.id, events, now);
     const rename = () => {
         const pane = herdrPaneForSession(storage.getState().herdrWorkspaces, card.id);
-        if (pane !== undefined) showNameActions(labels.title, () => void renamePane(pane));
+        if (pane !== undefined) showPaneActions(pane);
     };
     return (
         <Pressable

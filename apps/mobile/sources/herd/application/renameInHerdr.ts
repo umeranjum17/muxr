@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, type HerdrRenameTarget, type HerdrTreePane } from '@muxr/contract';
 import type { AlertButton } from '@/modal';
 import { Modal } from '@/modal';
@@ -16,7 +17,7 @@ export function agentHandle(text: string): string {
  */
 export async function renameInHerdr(target: HerdrRenameTarget, id: string, current: string): Promise<void> {
     const agent = target === 'agent';
-    const typed = await Modal.prompt(`Rename ${target}`, agent ? 'Lowercase letters, numbers, - and _.' : undefined, {
+    const typed = await Modal.prompt(`Rename ${target}`, agent ? 'Use a–z, 0–9, - and _.' : undefined, {
         defaultValue: agent ? agentHandle(current) : current,
         confirmText: 'Save',
         required: true,
@@ -43,11 +44,25 @@ export function renamePane(pane: HerdrTreePane): Promise<void> {
 
 /**
  * What a long-press on a named item offers: Rename, and Close where the item
- * already closed on long-press, so that stays one more tap away.
+ * already closed on long-press, so that stays one more tap away. `kind` says
+ * what the item is under its name.
  */
-export function showNameActions(title: string, rename: () => void, close?: { label: string; onPress: () => void }): void {
-    const buttons: AlertButton[] = [{ text: 'Rename', onPress: rename }];
-    if (close !== undefined) buttons.push({ text: close.label, style: 'destructive', onPress: close.onPress });
-    buttons.push({ text: 'Cancel', style: 'cancel' });
-    Modal.alert(title, undefined, buttons);
+export function showNameActions(title: string, kind: string, rename: () => void, close?: { label: string; onPress: () => void }): void {
+    const actions: AlertButton[] = [{ text: 'Rename', onPress: rename }];
+    if (close !== undefined) actions.push({ text: close.label, style: 'destructive', onPress: close.onPress });
+    const cancel: AlertButton = { text: 'Cancel', style: 'cancel' };
+    // Android lays buttons out left to right and keeps the last for the main action.
+    Modal.alert(title, kind, Platform.OS === 'android' ? [cancel, ...actions.reverse()] : [...actions, cancel]);
+}
+
+/** A pane's long-press: its agent or shell, renamed, or closed when `close` is given. */
+export function showPaneActions(pane: HerdrTreePane, close?: () => void): void {
+    const labels = agentLabels(pane);
+    showNameActions(labels.title, isShellLabels(labels) ? 'Shell' : 'Agent', () => void renamePane(pane),
+        close === undefined ? undefined : { label: 'Close pane', onPress: close });
+}
+
+/** A tab's long-press. */
+export function showTabActions(tabId: string, label: string): void {
+    showNameActions(label, 'Tab', () => void renameInHerdr('tab', tabId, label));
 }

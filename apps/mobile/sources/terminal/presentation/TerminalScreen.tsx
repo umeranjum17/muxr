@@ -35,7 +35,7 @@ import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { AgentPager, arrivingBySwipe } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
-import { agentLabels, agentNameLine, agentStatusColor, agentTaskLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, renameInHerdr, renamePane, resolveTabPane, showNameActions, tabLabel, useNavigateToSession } from '@/herd';
+import { agentLabels, agentNameLine, agentStatusColor, agentTaskLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, renameInHerdr, renamePane, resolveTabPane, showTabActions, tabLabel, useNavigateToSession } from '@/herd';
 import {
     DIALOG_GUARD_ACTION,
     DIALOG_GUARD_MESSAGE,
@@ -1618,7 +1618,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Pressable
                                             onLayout={active ? ({ nativeEvent }) => { activeChipX.current = nativeEvent.layout.x; } : undefined}
                                             onPress={active ? undefined : () => openTab(tab)}
-                                            onLongPress={canControl ? () => showNameActions(label, () => renameTab(tab.tabId, label)) : undefined}
+                                            onLongPress={canControl ? () => showTabActions(tab.tabId, label) : undefined}
                                             accessibilityRole="button"
                                             accessibilityLabel={`${active ? 'Current tab' : 'Open tab'} ${label}, ${tab.panes.length === 1 ? '1 pane' : `${tab.panes.length} panes`}`}
                                             accessibilityState={{ selected: active }}

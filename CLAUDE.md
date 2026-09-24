@@ -34,6 +34,7 @@ behaviour it claims to cover and watch it go red.
 
 ## Naming
 
+- A manual rename goes to Herdr through the host's `herdr.rename` (`apps/mobile/sources/herd/application/renameInHerdr.ts`), never a name kept on the phone: Herdr owns every name, so all clients and the naming plugin agree. An agent's name is Herdr's handle (a–z, 0–9, `-`, `_`, 32 max).
 - Every surface names a pane through `agentLabels()` in `apps/mobile/sources/herd/domain/agentPresentation.ts`: `title` leads (Herdr agent name, else task title or pane label, else the terminal's window title), and `agentNameLine()` / `agentTaskLine()` carry the task under it. Lead with `title`, never `taskTitle`: a naming plugin falls back to the repo name for the task title, so leading with it made every agent in one repo read the same.
 
 ## Terminal
