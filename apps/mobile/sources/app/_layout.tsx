@@ -100,7 +100,11 @@ function PluginEventRunner() {
 function RealtimeAppControlBridge() {
     const pathname = usePathname();
     const router = useRouter();
-    React.useEffect(() => realtimeAppController.setNavigation((path) => router.push(path as never)), [router]);
+    React.useEffect(() => realtimeAppController.setNavigation((path) => {
+        const agentRoute = /^\/session\/([^/]+)$/.exec(path)?.[1];
+        if (agentRoute !== undefined) navigateToSession(router, decodeURIComponent(agentRoute));
+        else router.push(path as never);
+    }), [router]);
     React.useEffect(() => realtimeAppController.setScreen(pathname), [pathname]);
     React.useEffect(() => realtimeAppController.setAgents(() => sync.request('session.list', {})), []);
     return null;

@@ -44,7 +44,7 @@ import { useVisibleSessionListViewData } from '../application/useVisibleSessionL
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
-import { herdrPaneForSession } from '@/herd';
+import { herdrPaneForSession, navigateToSession } from '@/herd';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
@@ -401,7 +401,7 @@ export const MainView = React.memo(() => {
                 storage.getState().applyLocalSettings({ lastTerminal: null });
                 return;
             }
-            router.push(`/session/${encodeURIComponent(candidate.sessionId)}`);
+            navigateToSession(router, candidate.sessionId);
         }).catch(() => undefined);
     }, [authorityLoading, router, sessionsLoaded, socketStatus.status]);
 

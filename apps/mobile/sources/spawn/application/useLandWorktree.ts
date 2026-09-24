@@ -5,7 +5,7 @@ import { t } from '@/text';
 import { ActionError } from '@/utils/errors';
 import { useAsyncAction } from '@/hooks/useAsyncAction';
 import { isWorktreePath } from './worktree';
-import { getSessionName, herdrPaneForSession } from '@/herd';
+import { getSessionName, herdrPaneForSession, navigateToSession } from '@/herd';
 import { useHerdrTree } from '@/catalog/store';
 import type { Session } from '@/catalog';
 import { landWorktreeBranch } from './LandWorktree';
@@ -71,7 +71,7 @@ export function useLandWorktree(session: Session | null | undefined) {
         if (!handoff) return;
         result = await landWorktreeBranch({ ...command, onConflict: 'handoff', knownConflict: { branch: result.branch, detail: result.detail } });
         if (result.status === 'handoff-started') {
-            router.push(`/session/${result.agentRoute}`);
+            navigateToSession(router, result.agentRoute);
             return;
         }
         throw new ActionError(result.status === 'failed' ? result.message ?? t('sessionInfo.landWorktreeFailed') : t('sessionInfo.landWorktreeFailed'), false);

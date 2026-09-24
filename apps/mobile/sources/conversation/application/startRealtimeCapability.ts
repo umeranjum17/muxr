@@ -33,7 +33,13 @@ async function startConfiguredBlankSession(): Promise<string | null> {
     return startSessionFromDraft({
         machines,
         blank: true,
-        navigateToSession: (sessionId) => router.navigate(`/session/${encodeURIComponent(sessionId)}` as never),
+        // herd's FocusAgent rule, inlined because herd already depends on
+        // conversation: one agent screen over Home, so back is Home.
+        navigateToSession: (sessionId) => {
+            const href = `/session/${encodeURIComponent(sessionId)}` as const;
+            if (router.canDismiss()) router.dismissTo(href);
+            else router.push(href);
+        },
     });
 }
 

@@ -13,7 +13,7 @@ import {
     codexListRewindPoints,
     type ForkSource,
 } from '@/catalog/ops';
-import { getSessionForkSource } from '@/herd';
+import { getSessionForkSource, navigateToSession } from '@/herd';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 
 export interface DuplicateSheetProps {
@@ -151,7 +151,7 @@ export const DuplicateSheet = React.memo(function DuplicateSheet(props: Duplicat
 
         if (result.type === 'success') {
             onClose?.();
-            router.replace(`/session/${result.sessionId}`);
+            navigateToSession(router, result.sessionId);
             return;
         }
 
