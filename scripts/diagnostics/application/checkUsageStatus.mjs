@@ -786,6 +786,10 @@ try {
     // publishes a competing 5-hour and 7-day window, so there is something to
     // select between. MUXR_USAGE_NOW pins NOW, so the seeded entry is age 0
     // and is served fresh rather than flagged stale.
+    // The host-env flow above read plans on the real clock, after this pinned
+    // NOW; usage.now rightly serves a plan reading newer than the cache, so
+    // those readings go and the Claude run stores its own at the pinned NOW.
+    rmSync(join(scratch, 'usage', 'plans-v1.json'), { force: true });
     const claudeRun = await run({ provider: 'claude' });
     assert.equal(claudeRun.provider, 'claude');
     cpSync(stateFile('claude'), stateFile('all'));

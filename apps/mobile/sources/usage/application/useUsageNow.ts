@@ -2,7 +2,7 @@ import * as React from 'react';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type UsageNow, type UsageVitals } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { forcedReadWait } from './forcedRead';
-import { FRESH_MS, collectionDue, lastForcedRead, noteAsked, noteForcedRead, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withNow, type UsageDisplay, type UsageFigures } from './freshnessWindow';
+import { FRESH_MS, capturedBefore, collectionDue, lastForcedRead, noteAsked, noteForcedRead, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withNow, type UsageDisplay, type UsageFigures } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
 
 /** The tab the card's read answers for: `usage.now` collects the default one,
@@ -264,8 +264,8 @@ export function useUsageNow(): UsageNowRead {
 }
 
 /** Whether an answer is newer than the figures it would replace. The host names
- *  the reading it served, so the same capture is exactly a cache replay and a
- *  new one is a collection that landed: an exact test.
+ *  the reading it served on its own clock, so a later capture is a collection
+ *  that landed, and the same or an earlier one is a replay: an exact test.
  *
  *  An older host carries no name, and the age comparison below is then only a
  *  heuristic: the two ages were measured at different moments, so a slow frame
@@ -273,7 +273,7 @@ export function useUsageNow(): UsageNowRead {
  *  older pairing still makes progress, not because it can be trusted. With no
  *  age to compare there is nothing to hold the read open for. */
 function isNewer(next: UsageNow, previous: { capturedAt?: string; ageSeconds?: number }, previousObservedAtMs: number, nowMs: number): boolean {
-    if (next.capturedAt !== undefined && previous.capturedAt !== undefined) return next.capturedAt !== previous.capturedAt;
+    if (next.capturedAt !== undefined && previous.capturedAt !== undefined) return capturedBefore(previous.capturedAt, next.capturedAt);
     if (previous.ageSeconds === undefined || next.ageSeconds === undefined) return true;
     return nowMs - next.ageSeconds * 1_000 > previousObservedAtMs - previous.ageSeconds * 1_000 + 1_000;
 }

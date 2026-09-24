@@ -18,6 +18,11 @@ const NOW_WAIT_MS = 5_000;
  *  running, and the next ask picks up the collection when it lands. */
 const KNOWN_WAIT_MS = 1_500;
 
+function capturedMs(reading: { capturedAt?: string } | undefined): number {
+    const at = Date.parse(reading?.capturedAt ?? '');
+    return Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY;
+}
+
 export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh = false }: { refresh?: boolean } = {}): Promise<UsageNow> {
     let output: Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'> | undefined;
     // A forced read re-collects past a still-valid cache: the cache serves any
@@ -35,7 +40,10 @@ export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh =
     // However recent the known reading, the collection behind it has not
     // landed yet: the reader is told to ask again for it.
     const refreshing = output === undefined && known !== undefined;
-    if (refreshing) output = known;
+    // The collection may answer with the usage cache's same-day replay, which a
+    // collection that could not be cached (its local activity unmeasured) leaves
+    // hours behind the plan readings it did store: the newer reading wins.
+    if (refreshing || capturedMs(known) > capturedMs(output)) output = known;
     // `windows` is the unrounded view-model list `limitsPayload` derived the
     // verdict from, parallel to the rendered `limits.windows`. Running the same
     // selection over it is what keeps the window the card labels and the window

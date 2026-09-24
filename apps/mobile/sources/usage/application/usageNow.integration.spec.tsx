@@ -642,6 +642,41 @@ describe('the Home card read path', () => {
         expect(card.latest().failed).toBe(false);
     });
 
+    it('keeps a refreshed reading rather than going back to an older one, whichever read brings it', async () => {
+        const at = (minute: number) => new Date(Date.UTC(2026, 8, 24, 10, minute)).toISOString();
+        // Two-hour-old figures are on screen. A tap paints the host's newer
+        // last good reading while its collection runs; the follow-up is
+        // answered by the day's cached payload, captured before either.
+        request.mockResolvedValueOnce(collected(7_200, 89, at(0)))
+            .mockResolvedValueOnce({ ...collected(60, 20, at(119)), refreshing: true })
+            .mockResolvedValueOnce(collected(7_206, 89, at(0)))
+            .mockResolvedValue(collected(0, 21, at(120)));
+        const card = mount();
+        await tick();
+        await tick(11_000);
+        TestRenderer.act(() => { card.latest().refresh(); });
+        await tick();
+        expect(figuresOf(card.latest())?.capturedAt).toBe(at(119));
+
+        await tick(6_000);
+        expect(figuresOf(card.latest())?.capturedAt).toBe(at(119));
+        expect(figuresOf(card.latest())?.ageSeconds).toBe(60);
+        expect(card.latest().refreshing).toBe(true);
+
+        // The collection lands on the next follow-up and the read settles on it.
+        await tick(6_000);
+        expect(figuresOf(card.latest())?.capturedAt).toBe(at(120));
+        expect(card.latest().refreshing).toBe(false);
+
+        // The Usage screen, answered from the same old cache, writes the store
+        // the card paints: its tabs land, its older limits do not.
+        const held = shownUsage('');
+        TestRenderer.act(() => rememberShown('', { status: 'figures', at: Date.now(), figures: withReport(held?.status === 'figures' ? held.figures : undefined, { ...report('claude', 7_212), capturedAt: at(0) }) }));
+        expect(figuresOf(card.latest())?.capturedAt).toBe(at(120));
+        expect(figuresOf(card.latest())?.connected?.[0]?.windows[0]?.used).toBe(21);
+        expect(figuresOf(card.latest())?.providers).toHaveLength(2);
+    });
+
     it('runs a tap refused by a read in flight past the cache once that read settles', async () => {
         let release: (value: UsageNow) => void = () => undefined;
         request.mockRejectedValueOnce(new Error('host unreachable'))
