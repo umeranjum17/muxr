@@ -275,6 +275,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             await source.closeWorkspace(params.workspaceId);
             return null;
         },
+        'herdr.rename': async (params) => {
+            await source.rename(params.target, params.id, params.name);
+            return null;
+        },
         'session.answer': async (params) => useCaseData(await answerAgent(source, params)),
         'pane.zoom': (params) => source.paneZoom(params),
         'session.stop': async (params) => useCaseData(await stopAgent(

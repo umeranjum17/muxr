@@ -217,6 +217,10 @@ export function createFakeSessionSource(): SessionSource {
             throw new Error('fake source has no workspaces');
         },
 
+        async rename() {
+            throw new Error('fake source has nothing to rename');
+        },
+
         async sendKeys() {
             throw new Error('fake source has no panes');
         },

@@ -15,6 +15,7 @@ interface WebPromptModalProps {
 export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalProps) {
     const { theme } = useUnistyles();
     const [inputValue, setInputValue] = useState(config.defaultValue || '');
+    const blocked = config.required === true && inputValue.trim() === '';
     const inputRef = useRef<TextInput>(null);
 
     useEffect(() => {
@@ -31,6 +32,7 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
     };
 
     const handleConfirm = () => {
+        if (blocked) return;
         onConfirm(inputValue);
         onClose();
     };
@@ -149,7 +151,9 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
                         ref={inputRef}
                         style={[styles.input, Typography.default()]}
                         value={inputValue}
-                        onChangeText={setInputValue}
+                        onChangeText={(text) => setInputValue(config.transform === undefined ? text : config.transform(text))}
+                        maxLength={config.maxLength}
+                        selectTextOnFocus={config.defaultValue !== undefined && config.defaultValue !== ''}
                         placeholder={config.placeholder}
                         accessibilityLabel={config.placeholder || config.title}
                         placeholderTextColor={theme.colors.input.placeholder}
@@ -188,12 +192,15 @@ export function WebPromptModal({ config, onClose, onConfirm }: WebPromptModalPro
                             pressed && styles.buttonPressed
                         ]}
                         onPress={handleConfirm}
+                        disabled={blocked}
                         accessibilityRole="button"
                         accessibilityLabel={config.confirmText || 'OK'}
+                        accessibilityState={{ disabled: blocked }}
                     >
                         <Text style={[
                             styles.buttonText,
-                            Typography.default('semiBold')
+                            Typography.default('semiBold'),
+                            blocked && { opacity: 0.4 }
                         ]}>
                             {config.confirmText || 'OK'}
                         </Text>

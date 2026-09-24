@@ -150,9 +150,16 @@ class ModalManagerClass implements IModal {
             cancelText?: string;
             confirmText?: string;
             inputType?: 'default' | 'secure-text' | 'email-address' | 'numeric';
+            /** Keeps Save off while the trimmed value is empty. */
+            required?: boolean;
+            maxLength?: number;
+            /** Reshapes the text as it is typed, e.g. to a handle's alphabet. */
+            transform?: (text: string) => string;
         }
     ): Promise<string | null> {
-        if (Platform.OS === 'ios' && !options?.inputType) {
+        // The native iOS prompt cannot hold a limit or keep Save off.
+        const plain = !options?.inputType && !options?.required && options?.maxLength === undefined && !options?.transform;
+        if (Platform.OS === 'ios' && plain) {
             // Use native Alert.prompt on iOS (only supports basic text input)
             return new Promise<string | null>((resolve) => {
                 // @ts-ignore - Alert.prompt is iOS only
@@ -190,7 +197,10 @@ class ModalManagerClass implements IModal {
                 defaultValue: options?.defaultValue,
                 cancelText: options?.cancelText,
                 confirmText: options?.confirmText,
-                inputType: options?.inputType
+                inputType: options?.inputType,
+                required: options?.required,
+                maxLength: options?.maxLength,
+                transform: options?.transform,
             } as Omit<ModalConfig, 'id'>);
 
             return new Promise<string | null>((resolve) => {

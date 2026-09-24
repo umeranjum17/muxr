@@ -3,6 +3,7 @@ export * from './application/FocusAgent';
 export * from './application/WatchAgentLifecycle';
 export * from './application/copySessionMetadataToClipboard';
 export * from './application/liveTerminalOrder';
+export * from './application/renameInHerdr';
 export * from './application/sessionFork';
 export * from './application/sessionUtils';
 export * from './application/useActivityAcknowledgements';

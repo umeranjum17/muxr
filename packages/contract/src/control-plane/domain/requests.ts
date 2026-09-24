@@ -496,6 +496,13 @@ export interface RequestMap extends PeerRequestMap {
     /** Close exactly the selected workspace; if Herdr would widen to its worktree group, fail and require the explicit group action. */
     'workspace.close': { params: { workspaceId: string }; result: null };
     /**
+     * Rename in Herdr, so every client and the naming plugin see the same name.
+     * `id` is the Herdr id the tree carries: the pane's for an agent or a pane,
+     * else the tab's or the workspace's. An agent name is Herdr's handle
+     * (lowercase letters, digits, `-` and `_`).
+     */
+    'herdr.rename': { params: { target: HerdrRenameTarget; id: string; name: string }; result: null };
+    /**
      * Zoom this session's pane to fill its tab. herdr no-ops on a single-pane
      * tab, so the outcome is reported rather than silently doing nothing.
      */
@@ -806,6 +813,11 @@ export type ClientRequest = {
 export type RequestResponse =
     | { type: 'result'; requestId: string; ok: true; data: unknown }
     | { type: 'result'; requestId: string; ok: false; error: string; code?: string };
+
+export type HerdrRenameTarget = 'agent' | 'pane' | 'tab' | 'workspace';
+/** Longest name a rename accepts; Herdr caps an agent's at 32. */
+export const HERDR_NAME_MAX = 64;
+export const HERDR_AGENT_NAME_MAX = 32;
 
 /** session.start marker for a cwd that does not exist; clients prompt to create it. */
 export const MISSING_CWD_ERROR_PREFIX = 'cwd-does-not-exist:';
