@@ -31,6 +31,10 @@ behaviour it claims to cover and watch it go red.
 - Never display or speak internal ids (`pp_*`, pane ids, session ids).
 - The microphone foreground service must be running before the realtime mic opens, or Android silently returns a deaf session.
 
+## Naming
+
+- Every surface names a pane through `agentLabels()` in `apps/mobile/sources/herd/domain/agentPresentation.ts`: `title` leads (Herdr agent name, else task title or pane label, else the terminal's window title), and `agentNameLine()` / `agentTaskLine()` carry the task under it. Lead with `title`, never `taskTitle`: a naming plugin falls back to the repo name for the task title, so leading with it made every agent in one repo read the same.
+
 ## Terminal
 
 - A terminal attaches at the first grid it measures, and a later change to the chrome around it re-attaches the pane before it can paint. Anything on the terminal screen that waits on data (the pane tabs row waits on the tree) must hold its final height from the first layout.

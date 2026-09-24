@@ -42,7 +42,7 @@ import {
     sessionInfoToSession,
 } from '../infrastructure/sessionMapping';
 import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
-import type { SessionInfo } from '@muxr/contract';
+import type { HerdrTreePane, SessionInfo } from '@muxr/contract';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 // Its own entry, like wakeAndReport: it pulls in expo-notifications, which the barrel keeps out.
 import { alertAgent, dismissAgentAlert } from '@/watch/lifecycleAlert';
@@ -59,14 +59,18 @@ const LIFECYCLE_CATALOG_UNAVAILABLE_CODES = new Set([
     'unsupported',
 ]);
 
-function currentAgentName(sessionId: string): string {
+function treePane(sessionId: string): HerdrTreePane | undefined {
     for (const workspace of storage.getState().herdrWorkspaces) {
         for (const tab of workspace.tabs) {
             const pane = tab.panes.find((candidate) => candidate.sessionId === sessionId);
-            if (pane?.agentName !== undefined) return pane.agentName;
+            if (pane !== undefined) return pane;
         }
     }
-    return 'Agent';
+    return undefined;
+}
+
+function currentAgentName(sessionId: string): string {
+    return treePane(sessionId)?.agentName ?? 'Agent';
 }
 
 function lifecycleCatalogUnavailable(error: unknown): boolean {
@@ -392,6 +396,13 @@ class MuxrSync {
 
         if (event.type === 'session.updated') {
             this.queueSessionUpdate(sessionId, event.session);
+            // Every surface names a pane from the tree. A Herdr rename or a
+            // plugin's new title arrives only here, so re-read the tree when
+            // the names differ; otherwise the header keeps the old name.
+            const pane = treePane(sessionId);
+            if (pane !== undefined && (pane.agentName !== event.session.agentName || pane.taskTitle !== event.session.taskTitle)) {
+                void this.refreshHerdTree().catch(() => undefined);
+            }
         }
 
         if (event.type === 'attention.update') {

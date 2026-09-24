@@ -3,6 +3,8 @@ import { compactAge } from '../../utils/compactAge';
 import { lifecycleStateSince } from './recentActivity';
 
 export interface AgentLabels {
+    /** What every surface leads with, so a row and the screen it opens agree. */
+    title: string;
     taskTitle: string;
     agentName: string;
     agentKind?: string;
@@ -93,16 +95,29 @@ export function agentKindLabel(kind?: string): string | undefined {
 
 
 
-/** One-to-one live Herdr DTO presentation. Only absent-value placeholders are local. */
+const UNNAMED_AGENT = 'Unnamed agent';
+
+/**
+ * One-to-one live Herdr DTO presentation. Only absent-value placeholders are local.
+ *
+ * Which Herdr field leads: an agent's name (Herdr's agent name), then its task
+ * title (title metadata, else the pane label), then the terminal's own window
+ * title. That last one is whatever the program set, often just its working
+ * directory, so it only stands in when Herdr supplies nothing better. A shell
+ * has no agent name and leads with its pane label, else that window title
+ * (`user@host:path`).
+ */
 export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
     const named = pane?.agentName?.trim();
     const kind = pane?.agentKind?.trim();
     const hasAgent = named !== undefined && named !== '' || kind !== undefined && kind !== '';
-    const agentName = named || (hasAgent ? 'Unnamed agent' : 'Shell');
+    const agentName = named || (hasAgent ? UNNAMED_AGENT : 'Shell');
+    const task = pane?.taskTitle?.trim() || pane?.label?.trim();
     const shellTitle = pane?.label?.trim() || pane?.terminalTitle?.trim() || pane?.taskTitle?.trim()
         || pane?.cwd?.replace(/\/+$/, '').split('/').pop() || 'Shell';
     return {
-        taskTitle: hasAgent ? pane?.taskTitle?.trim() || pane?.label?.trim() || agentName : shellTitle,
+        title: hasAgent ? named || task || pane?.terminalTitle?.trim() || agentName : shellTitle,
+        taskTitle: hasAgent ? task || agentName : shellTitle,
         agentName,
         ...(pane?.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
         ...(pane?.provider === undefined ? {} : { provider: pane.provider }),
@@ -127,11 +142,11 @@ function uniqueLabels(values: readonly (string | undefined)[]): string[] {
     });
 }
 
-function distinctAgentName(labels: AgentLabels): string | undefined {
-    const name = labels.agentName.trim();
-    if (name === '') return undefined;
-    if (sameLabel(name, labels.taskTitle)) return undefined;
-    return name;
+/** `label` unless the title already says it. */
+function besideTitle(labels: AgentLabels, label: string): string | undefined {
+    const value = label.trim();
+    if (value === '' || sameLabel(value, labels.title)) return undefined;
+    return value;
 }
 
 function agentKindSlug(kind?: string): string | undefined {
@@ -140,13 +155,21 @@ function agentKindSlug(kind?: string): string | undefined {
     return value.toLowerCase();
 }
 
-/** Kind and animal name as one token, e.g. `pi/fox`. */
+/**
+ * The line under the title: whatever of task, kind and name the title does not
+ * already say, e.g. `Fix login redirect · pi · gpt-5` under `lima`.
+ */
 export function agentNameLine(labels: AgentLabels): string {
     if (isShellLabels(labels)) return 'Shell';
     const kind = agentKindSlug(labels.agentKind);
-    const name = distinctAgentName(labels);
+    const name = labels.agentName === UNNAMED_AGENT ? undefined : besideTitle(labels, labels.agentName);
     const identity = kind !== undefined && name !== undefined ? `${kind}/${name}` : kind ?? name;
-    return uniqueLabels([identity, labels.displayAgent ?? labels.provider, labels.model]).join(' · ');
+    return uniqueLabels([besideTitle(labels, labels.taskTitle), identity, labels.displayAgent ?? labels.provider, labels.model]).join(' · ');
+}
+
+/** The task title, when the title leads with something else: a header's second word. */
+export function agentTaskLine(labels: AgentLabels): string | undefined {
+    return isShellLabels(labels) ? undefined : besideTitle(labels, labels.taskTitle);
 }
 
 /** What runs the agent, without its name, e.g. `pi · gpt-5`: for a row that already leads with the name. */
@@ -171,7 +194,7 @@ export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now 
 
 export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
     const state = agentStateLabel(status, changedAt, now);
-    return [labels.taskTitle, state, agentIdentityLine(labels)]
+    return [labels.title, state, agentIdentityLine(labels)]
         .filter((value): value is string => value !== undefined && value !== '')
         .join('. ');
 }

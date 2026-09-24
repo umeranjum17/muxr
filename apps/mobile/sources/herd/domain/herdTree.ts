@@ -245,7 +245,7 @@ export function buildSpaceRows(
     const query = searchQuery.trim().toLocaleLowerCase();
     const searching = query !== '';
     const matches = (pane: HerdrTreePane): boolean =>
-        query === '' || [pane.taskTitle, pane.agentName, pane.agentKind, pane.label]
+        query === '' || [pane.taskTitle, pane.agentName, pane.agentKind, pane.label, pane.terminalTitle]
             .some((value) => value !== undefined && value.toLocaleLowerCase().includes(query));
     const names = workspaceNames(workspaces);
     const selfMatches = (ws: HerdrTreeWorkspace): boolean =>

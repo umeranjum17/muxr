@@ -402,7 +402,7 @@ const AgentRow = React.memo(({
     const labels = agentLabels(pane);
     const sessionId = pane.sessionId;
     const shell = isShellLabels(labels);
-    const title = labels.taskTitle;
+    const title = labels.title;
     const subtitle = agentIdentityLine(labels);
     // One weight rule: bright means "has something for you". A finished
     // outcome you have not opened stays loud; settled-and-seen goes quiet.
@@ -919,7 +919,7 @@ export const SpacesTree = React.memo(({
         if (sessionId === undefined) return;
         const labels = agentLabels(pane);
         const identity = ` (${labels.agentName})`;
-        Modal.alert('Close pane?', `Closes only the pane for "${labels.taskTitle}"${identity} in herdr. If that would also close its tab, nothing closes.`, [
+        Modal.alert('Close pane?', `Closes only the pane for "${labels.title}"${identity} in herdr. If that would also close its tab, nothing closes.`, [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Close',

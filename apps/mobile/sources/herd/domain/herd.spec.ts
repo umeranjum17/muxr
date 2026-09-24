@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
 import { herdDigest, herdNotificationState, paneStatus, sortHerd } from './herd';
+import { agentLabels, agentNameLine, agentTaskLine } from './agentPresentation';
 import type { Session } from '@/catalog';
 
 const pane = (id: string, overrides: Partial<Session> = {}): Session => ({
@@ -65,5 +66,21 @@ describe('spoken herd flow', () => {
         });
         expect(herdNotificationState([], 'connected').mode).toBe('idle');
         expect(herdNotificationState([], 'error').mode).toBe('offline');
+    });
+
+    it('leads every surface with the agent name, the terminal title only as a last resort', () => {
+        const base = { paneId: 'p', tabId: 't', focused: false, promptable: true, agentStatus: 'working' as const, cwd: '/home/u/pockit' };
+        // Plugin named the agent; its title fell back to the repo, like the terminal title did.
+        const named = agentLabels({ ...base, agentKind: 'pi', agentName: 'lima', taskTitle: 'Pockit', terminalTitle: 'Pockit' });
+        expect([named.title, agentTaskLine(named), agentNameLine(named)]).toEqual(['lima', 'Pockit', 'Pockit · pi']);
+        // Renamed in Herdr: the next tree reads the new name, nothing cached.
+        expect(agentLabels({ ...base, agentKind: 'pi', agentName: 'india', taskTitle: 'Fix login' }).title).toBe('india');
+        // No naming plugin: the task title, else the pane label, else the window title.
+        const unnamed = agentLabels({ ...base, agentKind: 'pi', label: 'Fix login' });
+        expect([unnamed.title, agentTaskLine(unnamed), agentNameLine(unnamed)]).toEqual(['Fix login', undefined, 'pi']);
+        expect(agentLabels({ ...base, agentKind: 'pi', terminalTitle: 'π - pockit' }).title).toBe('π - pockit');
+        // A plain shell keeps what the shell says about itself.
+        const shell = agentLabels({ ...base, agentStatus: 'unknown', terminalTitle: 'u@host:~/pockit' });
+        expect([shell.title, agentTaskLine(shell), agentNameLine(shell)]).toEqual(['u@host:~/pockit', undefined, 'Shell']);
     });
 });

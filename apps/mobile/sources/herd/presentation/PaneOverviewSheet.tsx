@@ -69,7 +69,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
         const sessionId = pane.sessionId;
         if (sessionId === undefined) return;
         const labels = agentLabels(pane);
-        Modal.alert(`Close ${labels.taskTitle}?`, 'Its running process stops. If it is the last pane of its tab, nothing closes.', [
+        Modal.alert(`Close ${labels.title}?`, 'Its running process stops. If it is the last pane of its tab, nothing closes.', [
             { text: 'Cancel', style: 'cancel' },
             {
                 text: 'Close',
