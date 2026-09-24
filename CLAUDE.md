@@ -31,6 +31,10 @@ behaviour it claims to cover and watch it go red.
 - Never display or speak internal ids (`pp_*`, pane ids, session ids).
 - The microphone foreground service must be running before the realtime mic opens, or Android silently returns a deaf session.
 
+## Naming
+
+- Every surface names a pane through `agentLabels()` in `apps/mobile/sources/herd/domain/agentPresentation.ts`: `title` leads (Herdr agent name, else task title or pane label, else the terminal's window title), and `agentNameLine()` / `agentTaskLine()` carry the task under it. Lead with `title`, never `taskTitle`: a naming plugin falls back to the repo name for the task title, so leading with it made every agent in one repo read the same.
+
 ## Terminal
 
 - Herdr owns a pane's scrollback and its viewport. The phone must never infer how far back it is by counting the scrolls it sent: that count is of requests, and a harness on the alternate screen (Claude Code, opencode) has no scrollback ring behind it at all, so the scroll goes to the program as wheel reports it may ignore. Read `terminal.scroll-state` instead — see the frame's own comment in `packages/contract/src/control-plane/infrastructure/terminal.ts`.

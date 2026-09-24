@@ -16,7 +16,8 @@ the pane's current workspace from Herdr before mutating anything. Raw callers
 without the authorization capability are rejected.
 
 - `workspace` → `herdr workspace rename` on Herdr's current workspace membership.
-- `pane` → `herdr pane rename` (the title muxr shows on the phone).
+- `pane` → `herdr pane rename`: the task line muxr shows under the agent's
+  name (a plain shell leads with it).
 - `provider`/`model` → Herdr pane metadata tokens (`--source muxr.naming`).
   Herdr metadata is the single canonical source consumed by the host and both
   mobile clients; there is no second JSON naming authority.
