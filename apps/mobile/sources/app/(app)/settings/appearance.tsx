@@ -88,8 +88,10 @@ export default function AppearanceSettingsScreen() {
     const [terminalFont, setTerminalFont] = useLocalSettingMutable('terminalFont');
     const [pinchZoom] = useLocalSettingMutable('terminalPinchZoom');
     const [darkSurfaces, setDarkSurfaces] = useLocalSettingMutable('darkSurfaces');
+    const [keyRowVisible, setKeyRowVisible] = useLocalSettingMutable('terminalKeyRowVisible');
+    const [paneTabs, setPaneTabs] = useLocalSettingMutable('terminalPaneTabs');
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
-    const [sheet, setSheet] = React.useState<'theme' | 'surfaces' | 'size' | 'font' | 'avatar' | null>(null);
+    const [sheet, setSheet] = React.useState<'theme' | 'surfaces' | 'size' | 'font' | 'tabs' | 'avatar' | null>(null);
     const close = () => setSheet(null);
 
     const themeName = (key: ThemePreference) => t(`settingsAppearance.themeOptions.${key}`);
@@ -115,6 +117,12 @@ export default function AppearanceSettingsScreen() {
         labelStyle: { fontFamily: TERMINAL_FONTS[key].family },
     }));
 
+    const paneTabsName: Record<typeof paneTabs, string> = { always: 'Always', several: 'Multiple panes' };
+    const paneTabsChoices: Choice[] = [
+        { key: 'always', label: paneTabsName.always, detail: 'Default' },
+        { key: 'several', label: paneTabsName.several, detail: 'Hidden for one pane' },
+    ];
+
     const surfacesName: Record<DarkSurfaces, string> = { seamless: 'Seamless', raised: 'Raised' };
     const surfacesChoices: Choice[] = [
         { key: 'seamless', label: surfacesName.seamless, detail: 'Default', preview: <ThemeTile palettes={[darkThemes.seamless.colors]} /> },
@@ -138,12 +146,19 @@ export default function AppearanceSettingsScreen() {
 
             <ItemGroup
                 title="Terminal"
-                footer={pinchZoom ? 'Pinch a terminal to change its size there too.' : undefined}
+                footer={`${pinchZoom ? 'Pinch a terminal to change its size there too. ' : ''}New pane and close are always in the pane menu.`}
             >
                 <Item title="Text size" subtitle={`${FONT_STEPS[fontIndex]} pt`} onPress={() => setSheet('size')} />
                 {Platform.OS === 'web' && (
                     <Item title="Font" subtitle={TERMINAL_FONTS[terminalFont].name} onPress={() => setSheet('font')} />
                 )}
+                <Item title="Pane tabs" subtitle={paneTabsName[paneTabs]} onPress={() => setSheet('tabs')} />
+                <Item
+                    title="Key row"
+                    subtitle={keyRowVisible ? 'Above the prompt' : 'Hidden'}
+                    showChevron={false}
+                    rightElement={<Switch accessibilityLabel="Key row" value={keyRowVisible} onValueChange={setKeyRowVisible} />}
+                />
             </ItemGroup>
 
             <ItemGroup title="Avatars" footer="Avatars appear next to recent sessions.">
@@ -185,6 +200,14 @@ export default function AppearanceSettingsScreen() {
                 choices={fontChoices}
                 selectedKey={terminalFont}
                 onSelect={(key) => setTerminalFont(key as TerminalFont)}
+                onClose={close}
+            />
+            <ChoiceSheet
+                visible={sheet === 'tabs'}
+                title="Pane tabs"
+                choices={paneTabsChoices}
+                selectedKey={paneTabs}
+                onSelect={(key) => setPaneTabs(key as typeof paneTabs)}
                 onClose={close}
             />
             <ChoiceSheet

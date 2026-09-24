@@ -1,10 +1,20 @@
 import { Platform } from 'react-native';
 
+/**
+ * The terminal's own ground, which the header and rails share so the screen
+ * reads as one surface. Android's terminal surface keeps the black it is
+ * created with and takes a theme background only on some later updates, so
+ * there the ground IS that black: header, rails and terminal then match
+ * however the theme lands. Elsewhere the near-black the terminal honours.
+ */
+export const terminalCanvas = Platform.OS === 'android' ? '#000000' : '#0c0c0b';
+
 const terminalChrome = {
-    canvas: '#0c0c0b',
+    canvas: terminalCanvas,
     chrome: '#191918',
     floating: 'rgba(25, 25, 24, 0.95)',
-    resting: 'rgba(25, 25, 24, 0.7)',
+    // Opaque enough that terminal text does not read through the resting disc.
+    resting: 'rgba(25, 25, 24, 0.92)',
     cluster: 'rgba(48, 48, 46, 0.92)',
     clusterPressed: 'rgba(72, 72, 69, 0.96)',
     scrim: 'rgba(0, 0, 0, 0.62)',
@@ -273,7 +283,9 @@ export const darkTheme = {
 
         text: '#ececec',
         textDestructive: Platform.select({ ios: '#FF453A', default: '#F48FB1' }),
-        textSecondary: '#9a9a9f',
+        // The same warm-neutral temperature as the ink ramp it sits on; a
+        // blue-leaning grey on the near-black read as a second palette.
+        textSecondary: '#9b9b98',
         textLink: '#0A84FF',
         accent: '#ececec',
         accentSubtle: 'rgba(236, 236, 236, 0.12)',
@@ -523,7 +535,7 @@ export const darkTheme = {
  * blend into the page instead of sitting on it as grey slabs. Dividers keep a
  * visible step so rows and cards still separate. Raised is `darkTheme` itself.
  */
-const seamlessSurface = terminalChrome.canvas;
+const seamlessSurface = '#0c0c0b';
 const seamlessHigh = '#131312';
 const seamlessPressed = '#1c1c1b';
 

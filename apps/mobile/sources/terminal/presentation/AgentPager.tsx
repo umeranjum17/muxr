@@ -26,6 +26,7 @@ import { terminalColumns } from '../application/recentOutput';
 import { openTerminalAhead, terminalGrid } from '../application/terminalAhead';
 import { FONT_STEPS, clampFontIndex } from '../domain/fontSteps';
 import { reflowScreen } from '../domain/reflowScreen';
+import { terminalCanvas } from '@/theme';
 
 /** The screen's own edges stay with the system's back gesture. */
 const EDGE_INSET = 24;
@@ -344,7 +345,7 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'flex-end',
         overflow: 'hidden',
-        backgroundColor: '#0c0c0b',
+        backgroundColor: terminalCanvas,
     },
     line: {
         ...Typography.mono(),

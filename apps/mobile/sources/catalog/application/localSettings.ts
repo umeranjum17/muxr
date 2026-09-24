@@ -45,6 +45,8 @@ export const LocalSettingsSchema = z.object({
     // position survives a restart and a terminal of any size.
     terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().catch(null).describe('Where the floating terminal command control rests, as fractions of the terminal surface'),
     terminalModifierIcons: z.boolean().describe('Draw ctrl and shift as modifier glyphs in the terminal key row'),
+    terminalKeyRowVisible: z.boolean().catch(true).describe('Whether the terminal key row shows above the composer'),
+    terminalPaneTabs: z.enum(['always', 'several']).catch('always').describe('Whether the pane tabs above the key row always show, or only when a tab or workspace holds more than one'),
     // Terminal gestures. A value this build does not know falls back to the
     // default rather than taking every other device setting down with it.
     terminalSwipeFingers: z.enum(['one', 'two', 'off']).catch('one').describe('How many fingers a sideways swipe on a terminal uses to switch agents, or off'),
@@ -96,6 +98,8 @@ export const localSettingsDefaults: LocalSettings = {
     terminalQuickActions: null,
     terminalCommandKeyDock: null,
     terminalModifierIcons: false,
+    terminalKeyRowVisible: true,
+    terminalPaneTabs: 'always',
     terminalSwipeFingers: 'one',
     terminalSwipeScope: 'working',
     terminalPinchZoom: true,

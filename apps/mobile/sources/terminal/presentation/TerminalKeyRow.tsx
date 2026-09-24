@@ -13,7 +13,7 @@ import { BUILTIN_KEY_CATALOG, modifiedSend, resolveKeyRow, type RowEntry, type T
  * Keys that read better as a mark than as a word. An arrow rendered as the
  * character `\u2190` is a text glyph at text size — the thing on this row a
  * thumb reaches for most, drawn smallest. These are icons, at icon size, and
- * they keep the same 34dp target the text keys have.
+ * they keep the same 32dp target the text keys have.
  */
 const KEY_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
     '\u001b[D': 'arrow-back', '\u001b[A': 'arrow-up', '\u001b[B': 'arrow-down', '\u001b[C': 'arrow-forward',
@@ -29,7 +29,7 @@ const KEY_ICON_SIZE = 18;
 /** The row's trailing inset, and the fade drawn over it: a key running off
  *  the edge dissolves into the chrome instead of being cut through its glyph,
  *  and at the end of the row the fade covers only this empty inset. */
-const TRAILING_EDGE = 18;
+const TRAILING_EDGE = 32;
 
 // Sticky modifiers: tap = applies to the next key, tap again =
 // locked until tapped once more. A touchscreen makes hold-and-reach a
@@ -83,12 +83,14 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
     // filled caps at a single grey was most of what read as a band of chrome
     // under the terminal; unboxed, the row disappears until it is wanted and
     // an armed modifier is the only thing that takes colour.
+    // Equal padding and no gap: every glyph sits the same 16dp from the next,
+    // whatever its width, instead of a minimum box re-centring the short ones.
     const style = (locked = false) => ({
-        minHeight: 34,
-        minWidth: 34,
+        minHeight: 32,
+        minWidth: 32,
         justifyContent: 'center' as const,
         alignItems: 'center' as const,
-        paddingHorizontal: 6,
+        paddingHorizontal: 8,
         // Round, like every other control on this plane: an armed modifier is a
         // pill, not the one rounded rectangle on the screen.
         borderRadius: 999,
@@ -96,7 +98,7 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
         borderWidth: 0,
         borderColor: 'transparent',
     });
-    const labelStyle = (tint: string) => ({ color: tint, fontSize: 12, ...Typography.mono() });
+    const labelStyle = (tint: string) => ({ color: tint, fontSize: 13, ...Typography.mono() });
     const fire = (key: TerminalKey) => {
         if (key.action !== undefined) {
             hapticsSelection();
@@ -121,8 +123,8 @@ export const TerminalKeyRow = React.memo(function TerminalKeyRow({ channel, chil
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 keyboardShouldPersistTaps="always"
-                style={{ flexGrow: 0, maxHeight: 36 }}
-                contentContainerStyle={{ alignItems: 'center', gap: 10, paddingLeft: 8, paddingRight: TRAILING_EDGE, paddingVertical: 0 }}
+                style={{ flexGrow: 0, maxHeight: 32 }}
+                contentContainerStyle={{ alignItems: 'center', gap: 0, paddingLeft: 8, paddingRight: TRAILING_EDGE, paddingVertical: 0 }}
             >
             <Pressable
                 onPress={() => { hapticsSelection(); applyMods(cycle(ctrlRef.current), shiftRef.current); }}
