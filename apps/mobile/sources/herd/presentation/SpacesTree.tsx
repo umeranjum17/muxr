@@ -18,7 +18,7 @@ import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
 import { buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
-import { agentIdentityLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
+import { agentIdentityLine, agentKindLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
 import { SectionLabel } from '@/components/ui';
@@ -447,7 +447,16 @@ function childLine2Parts(child: HerdChildSpace): string[] {
     if (agentPanes.length > 1) return [t('spacesTree.childAgents', { count: agentPanes.length })];
     const agent = agentPanes[0];
     if (agent === undefined) return [t('spacesTree.childEmpty')];
-    return [agentNameLine(agentLabels(agent)), agentStateLabel(agent.agentStatus)];
+    const labels = agentLabels(agent);
+    // A named agent already leads the row, so this line only says what runs it.
+    return [childAgentName(child) === undefined ? agentNameLine(labels) : agentKindLine(labels), agentStateLabel(agent.agentStatus)];
+}
+
+/** A child's one agent's Herdr name, verbatim, when Herdr has one. */
+function childAgentName(child: HerdChildSpace): string | undefined {
+    const agentPanes = child.workspace.tabs.flatMap((tab) => tab.panes).filter((pane) => pane.agentKind !== undefined);
+    if (agentPanes.length !== 1) return undefined;
+    return agentPanes[0]?.agentName?.trim() || undefined;
 }
 
 /** A group-subheader status pill: colored dot + mono count, visual only (subheader label speaks it). */
@@ -601,7 +610,8 @@ const ChildRow = React.memo(({
     const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
     const singleAgent = agentPanes.length === 1 ? agentPanes[0] : undefined;
     const singleSessionId = singleAgent?.sessionId;
-    const label = name;
+    const agentName = childAgentName(child);
+    const label = agentName === undefined ? name : `${agentName}, ${name}`;
     const baseName = workspaceName(child.workspace);
     const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
     const parts = childLine2Parts(child);
@@ -639,7 +649,9 @@ const ChildRow = React.memo(({
                     <StatusDot color={dot.color} isPulsing={dot.pulsing} size={DOT} />
                     <View style={styles.childText}>
                         <Text numberOfLines={1} style={[styles.childLabel, quiet && styles.childLabelQuiet]}>
-                            {suffix === undefined ? label : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>}
+                            {agentName === undefined
+                                ? suffix === undefined ? name : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>
+                                : <>{agentName}<Text style={styles.nameSuffix}>{` · ${name}`}</Text></>}
                         </Text>
                         <Text numberOfLines={1} style={styles.childLine2}>{line2}</Text>
                     </View>
