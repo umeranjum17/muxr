@@ -3,12 +3,7 @@ import { HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, type HerdrRenameTarget, type Herd
 import type { AlertButton } from '@/modal';
 import { Modal } from '@/modal';
 import { sync } from '@/catalog/sync';
-import { agentLabels, isShellLabels } from '../domain/agentPresentation';
-
-/** An agent's name is Herdr's handle: typed straight into its alphabet. */
-export function agentHandle(text: string): string {
-    return text.toLowerCase().replace(/\s/g, '-').replace(/[^a-z0-9_-]/g, '');
-}
+import { agentHandle, agentLabels, isShellLabels, renamedTo } from '../domain/agentPresentation';
 
 /**
  * Ask for a new name and set it in Herdr, where every client reads names from.
@@ -24,8 +19,8 @@ export async function renameInHerdr(target: HerdrRenameTarget, id: string, curre
         maxLength: agent ? HERDR_AGENT_NAME_MAX : HERDR_NAME_MAX,
         ...(agent ? { transform: agentHandle } : {}),
     });
-    const name = typed?.trim() ?? '';
-    if (name === '' || name === current) return;
+    const name = renamedTo(typed, current);
+    if (name === null) return;
     try {
         await sync.request('herdr.rename', { target, id, name });
     } catch (cause) {
