@@ -42,7 +42,8 @@ function npm(args, { allowMissing = false, timeout = 20000 } = {}) {
 }
 const published = (spec) => {
     const value = npm(['view', spec, 'dist.integrity', '--json'], { allowMissing: true });
-    return value ? JSON.parse(value) : undefined;
+    // npm 12 wraps every --json view in an array; npm 10 and 11 print the value itself.
+    return value ? [JSON.parse(value)].flat()[0] : undefined;
 };
 
 for (const { spec, tarball } of order) {
