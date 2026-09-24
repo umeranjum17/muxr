@@ -3,7 +3,7 @@
         {
             "appVersion": "0.1.29",
             "title": "Your computer, your terminals, your voice",
-            "summary": "Open your computer's screen from the phone, work terminals by tab and pane, dictate as you speak, and see plan limits at a glance. This is the first stable release since 0.1.25, so it also carries everything in the 0.1.26 to 0.1.28 notes below.",
+            "summary": "Open your computer's screen from the phone, work terminals by tab and pane, dictate as you speak, and see plan limits at a glance. This is the first stable release since 0.1.25, so it also includes every change from 0.1.26 to 0.1.28.",
             "features": [
                 {
                     "title": "Your computer's screen on your phone",
