@@ -6,7 +6,8 @@ const GUIDE = 'packages/desktop-host/README.md#building-and-packing-a-release';
 
 function npmView(spec, field) {
     const result = spawnSync('npm', ['view', spec, field, '--json'], { encoding: 'utf8', timeout: 20000 });
-    if (result.status === 0) return result.stdout.trim() ? JSON.parse(result.stdout) : undefined;
+    // npm 12 wraps every --json view in an array; npm 10 and 11 print the value itself.
+    if (result.status === 0) return result.stdout.trim() ? [JSON.parse(result.stdout)].flat()[0] : undefined;
     if (/E404/.test(result.stderr)) return undefined;
     throw new Error(`npm view ${spec} ${field} failed: ${(result.stderr || result.error?.message || 'no output').trim().slice(-400)}`);
 }
