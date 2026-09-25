@@ -98,14 +98,24 @@ it('stops delivering both push channels when an unpublished native claim expires
         await expect(notify('before-expiry')).resolves.toEqual({ sent: 6 });
         expect(sendWeb).toHaveBeenCalledTimes(3);
         expect(JSON.parse(String(sendExpo.mock.calls[0]?.[1]?.body))).toHaveLength(3);
+        let finishWeb!: () => void;
+        const stalledWeb = new Promise<void>((resolve) => { finishWeb = resolve; });
+        sendWeb.mockImplementationOnce(async () => { await stalledWeb; return {} as never; });
+        const crossing = notify('crossing-window');
+        await vi.waitFor(() => expect(sendWeb).toHaveBeenCalledTimes(6));
         vi.setSystemTime(Date.now() + 121_000);
+        finishWeb();
+        await expect(crossing).resolves.toEqual({ sent: 4 });
+        expect(JSON.parse(String(sendExpo.mock.calls[1]?.[1]?.body))).toEqual([
+            expect.objectContaining({ to: 'ExpoPushToken[published]' }),
+        ]);
         await expect(pairing.isDeviceActive(pending.issued.deviceId)).resolves.toBe(false);
         await expect(pairing.isDeviceActive(interrupted.issued.deviceId)).resolves.toBe(false);
         await expect(pairing.isDeviceActive(published.issued.deviceId)).resolves.toBe(true);
         await expect(notify('after-expiry')).resolves.toEqual({ sent: 2 });
-        expect(sendWeb).toHaveBeenCalledTimes(4);
-        expect(sendWeb.mock.calls[3]?.[0]).toMatchObject({ endpoint: 'https://push.example.com/published' });
-        expect(JSON.parse(String(sendExpo.mock.calls[1]?.[1]?.body))).toEqual([
+        expect(sendWeb).toHaveBeenCalledTimes(7);
+        expect(sendWeb.mock.calls[6]?.[0]).toMatchObject({ endpoint: 'https://push.example.com/published' });
+        expect(JSON.parse(String(sendExpo.mock.calls[2]?.[1]?.body))).toEqual([
             expect.objectContaining({ to: 'ExpoPushToken[published]' }),
         ]);
     } finally {

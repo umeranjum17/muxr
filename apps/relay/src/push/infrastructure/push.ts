@@ -335,7 +335,7 @@ export class PushService {
         const expo = this.expoSubs[accountId] ?? [];
         const activeDevices = new Map<string, boolean>();
         if (isDeviceActive !== undefined) {
-            const ids = new Set([...list, ...expo].map((entry) => entry.deviceId).filter((id): id is string => id !== undefined));
+            const ids = new Set(list.map((entry) => entry.deviceId).filter((id): id is string => id !== undefined));
             await Promise.all([...ids].map(async (id) => activeDevices.set(id, await isDeviceActive(id))));
         }
         const active = (deviceId: string | undefined): boolean => isDeviceActive === undefined
@@ -357,8 +357,11 @@ export class PushService {
             this.subs[accountId] = list.filter((sub) => !gone.has(sub));
         }
 
-        const eligibleExpo = expo.filter((entry) => active(entry.deviceId)
-            && lifecycleNotificationAllowed(entry.level ?? 'important', payload.kind));
+        let eligibleExpo = expo.filter((entry) => lifecycleNotificationAllowed(entry.level ?? 'important', payload.kind));
+        if (isDeviceActive !== undefined) {
+            const statuses = await Promise.all(eligibleExpo.map((entry) => entry.deviceId !== undefined && isDeviceActive(entry.deviceId)));
+            eligibleExpo = eligibleExpo.filter((_, index) => statuses[index] === true);
+        }
         let expoSent = 0;
         if (eligibleExpo.length > 0) {
             try {
