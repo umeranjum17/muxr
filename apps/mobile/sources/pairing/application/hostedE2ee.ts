@@ -361,7 +361,7 @@ interface PendingHostedPair {
     source?: 'selfhost';
 }
 
-async function completePendingHostedPair(pending: PendingHostedPair, wait: boolean): Promise<StoredHostedGrant | undefined> {
+async function completePendingHostedPair(pending: PendingHostedPair, wait: boolean, resumable = false): Promise<StoredHostedGrant | undefined> {
     const keys = await getOrCreateHostedDeviceKey();
     let sealed: SealedDeviceGrant | undefined;
     const deadline = wait ? Date.now() + 5 * 60_000 : Date.now();
@@ -379,6 +379,7 @@ async function completePendingHostedPair(pending: PendingHostedPair, wait: boole
             } catch (error) {
                 if (error instanceof Error && (error.name === 'AbortError' || error instanceof TypeError)) {
                     if (!wait) return undefined;
+                    if (resumable) throw new PairingInterrupted('The SSH connection dropped. Check the connection, then try again with the same code.');
                     continue;
                 }
                 if (!(error instanceof Error) || (error.message !== 'grant_not_available' && error.message !== 'not_found')) throw error;
@@ -501,6 +502,9 @@ export async function claimHostedPairing(url: string, options: { resumable?: boo
         // failed verification ends it.
         const interrupted = cause instanceof PairingInterrupted || cause instanceof TypeError;
         if (held !== undefined && !interrupted) resumablePairings.delete(held);
+        if (options.resumable === true && cause instanceof Error && (
+            cause.message === friendlyRelayError('invalid_pairing_code') || cause.message === friendlyRelayError('already_claimed')
+        )) throw new Error('This pairing code cannot be reused. Create a fresh one on the machine (run `muxr pair`).');
         throw cause;
     }
 }
@@ -570,7 +574,7 @@ async function claimResolvedPairing(url: string, resumable: boolean, hold: (code
         const raw = await secretGet(PENDING_PAIR_KEY);
         const pending = raw === null ? undefined : JSON.parse(raw) as PendingHostedPair;
         if (pending?.pairId === pairId) {
-            const completed = await completePendingHostedPair({ ...pending, controlBase }, true);
+            const completed = await completePendingHostedPair({ ...pending, controlBase }, true, true);
             if (completed !== undefined) return completed;
         }
     }
@@ -625,7 +629,7 @@ async function claimResolvedPairing(url: string, resumable: boolean, hold: (code
     // Claim is one-shot. Persist its credential and binding before waiting so
     // a process death resumes instead of creating an orphaned paired device.
     await secretSet(PENDING_PAIR_KEY, JSON.stringify(pending));
-    const completed = await completePendingHostedPair(pending, true);
+    const completed = await completePendingHostedPair(pending, true, resumable);
     if (completed === undefined) throw new Error('the machine did not finish the secure grant');
     return completed;
 }
