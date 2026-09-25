@@ -5,8 +5,8 @@
 # Precondition: the app sits on the terminal screen of an idle pane, ring
 # closed, composer empty. Taps the floating control open and closed <cycles>
 # times, all on-device so adb adds no jitter, then reports gfxinfo for that
-# window AND splits framestats into ring frames (bursts that start with the tap)
-# and lone frames (the idle terminal redrawing its cursor between bursts).
+# window AND splits framestats into ring frames (within 400 ms of a tap)
+# and idle terminal frames outside tap windows.
 # gfxinfo's "Janky frames" counts both; only the first population is the ring.
 # See docs/perf/command-ring-frames.md.
 set -euo pipefail
@@ -35,13 +35,12 @@ for line in open(sys.argv[1]):
         v = line.rstrip(',').split(',')
         if len(v) >= len(hdr): rows.append(dict(zip(hdr, map(int, v[:len(hdr)]))))
 rows = sorted((r for r in rows if r['Flags'] == 0), key=lambda r: r['IntendedVsync'])
-bursts, cur = [], []
+ring, idle = [], []
+last_tap = None
 for r in rows:
-    if cur and r['IntendedVsync'] - cur[-1]['IntendedVsync'] > 80e6: bursts.append(cur); cur = []
-    cur.append(r)
-bursts.append(cur)
+    if r['InputEventId']:
+        last_tap = r['IntendedVsync']
+    (ring if last_tap is not None and r['IntendedVsync'] - last_tap <= 400_000_000 else idle).append(r)
 late = lambda xs: sum(r['FrameCompleted'] > r['FrameDeadline'] for r in xs)
-ring = [r for b in bursts if any(f['InputEventId'] for f in b) for r in b]
-lone = [r for b in bursts if not any(f['InputEventId'] for f in b) for r in b]
-print(f'ring frames {len(ring)} late {late(ring)} | idle terminal frames {len(lone)} late {late(lone)}')
+print(f'ring frames {len(ring)} late {late(ring)} | idle terminal frames {len(idle)} late {late(idle)}')
 PY
