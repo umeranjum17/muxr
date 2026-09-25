@@ -52,7 +52,7 @@ to recalculate those counts.
   was reported. Any gfxinfo window taken on the terminal screen includes these
   frames.
 
-A fix, if one is wanted, is in the terminal's idle redraw cost, not in the ring.
+The fix is in the terminal's idle redraws, not in the ring (below).
 
 ## The idle cursor blink, measured and fixed — 2026-09-25
 
@@ -79,9 +79,9 @@ assumed:
 
 So the shipped fix stops the idle frames: after 30 s with no input or output
 the blink timer stops and the cursor holds **solid and visible**; any terminal
-write (input echo or output) restarts the blink. The cursor remains painted
-by the terminal view; the cell-sized layer was a measurement experiment, not
-the shipped fix. The web terminal (xterm.js) is untouched by the patch.
+input (even without echo) or output restarts the blink. The cursor remains
+painted by the terminal view; the cell-sized layer was a measurement experiment,
+not the shipped fix. The web terminal (xterm.js) is untouched by the patch.
 
 Before/after on the same phone (CPH2649, a4b93ea2, 120 Hz), same build type
 (release, arm64, test-signed `com.trymuxr.app.blinklab`), same scenario, same
@@ -99,8 +99,8 @@ IssueDrawCommandsStart`):
 - The steady idle terminal renders **zero frames** — the 13–18 ms per-blink
   GPU cost and the ~15% idle janky share are gone, and with them the continuous
   battery/heat drain for a terminal nobody is using.
-- While active (any input/output within the last 30 s) the blink still runs at
-  600 ms and the cursor is always visible — blinking during use, solid at rest.
+- While active (any input/output within the last 30 s) the cursor blinks at
+  600 ms; after 30 s quiet it holds solid and visible.
 - The ring is unchanged: ring-frame late counts and GPU are within run-to-run
   noise of the baseline runs above and the original A/B runs.
 - For a measurement APK, add a local, uncommitted `buildTypes.blinklab` block in
