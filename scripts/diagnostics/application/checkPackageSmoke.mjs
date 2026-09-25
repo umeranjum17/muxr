@@ -94,6 +94,7 @@ function assertCompactSkillOutput(output) {
     assert.match(output, /## Task router/);
     assert.match(output, /checked safe repairs/);
     assert.match(output, /muxr skill collaboration/);
+    assert.match(output, /muxr skill desktop-browser/);
     assert.match(output, /\$MUXR_AGENT_CAPABILITIES/);
     assert.match(output, /machine with a desktop session/);
     assert.match(output, /muxr share <path>/);
@@ -104,7 +105,7 @@ function assertCompactSkillOutput(output) {
 function assertUnifiedSkillOutput(output, { liveHerdr = true } = {}) {
     assert.match(output, /^---\nname: muxr\ndescription: /);
     assert.match(output, /## Task router/);
-    const references = ['collaboration.md', 'herdr.md', 'onboarding.md', 'plugins.md'];
+    const references = ['collaboration.md', 'desktop-browser.md', 'herdr.md', 'onboarding.md', 'plugins.md'];
     let previous = -1;
     for (const name of references) {
         const index = output.indexOf(`<!-- muxr-skill-reference: references/${name} -->`);
@@ -115,6 +116,7 @@ function assertUnifiedSkillOutput(output, { liveHerdr = true } = {}) {
         '# Onboarding: install, pair, self-host, maintain',
         '# Herdr orchestration',
         '# Cross-machine agent collaboration',
+        '# Desktop browser handoff through Computer',
         '# muxr plugins: author, install, debug, override',
     ]) assert.match(output, new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
     assert.doesNotMatch(output, /browser-takeover|# Browser work the user can see and take over/);
@@ -330,6 +332,7 @@ try {
     assert.equal(run(process.execPath, ['scripts/cli.mjs', 'skill'], { env: sourceEnv }).stdout, sourceSkill, 'source skill alias diverged from --skill');
     assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'onboarding'], { env: sourceEnv }).stdout, /## Diagnose and recover[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'collaboration'], { env: sourceEnv }).stdout, /muxr peers prompt/);
+    assert.match(run(process.execPath, ['scripts/cli.mjs', 'skill', 'desktop-browser'], { env: sourceEnv }).stdout, /# Desktop browser handoff through Computer/);
     assertUnifiedSkillOutput(run(process.execPath, ['scripts/cli.mjs', 'skill', 'all'], { env: sourceEnv }).stdout);
     const fallbackHome = join(scratch, 'skill-fallback-home');
     mkdirSync(fallbackHome);
@@ -449,6 +452,7 @@ try {
     assert.ok(listing.includes('package/skills/muxr/SKILL.md'), 'muxr skill missing from npm artifact');
     assert.deepEqual(listing.filter((file) => /^package\/skills\/.*\/SKILL\.md$/.test(file)), ['package/skills/muxr/SKILL.md'], 'npm artifact must ship exactly one public skill');
     assert.ok(listing.includes('package/skills/muxr/references/plugins.md'), 'muxr skill references missing from npm artifact');
+    assert.ok(listing.includes('package/skills/muxr/references/desktop-browser.md'), 'desktop browser handoff reference missing from npm artifact');
     assert.ok(!listing.includes('package/skills/muxr/references/browser-takeover.md'), 'deprecated browser takeover reference shipped in npm artifact');
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
     assert.ok(listing.includes('package/web/install.sh'), 'hosted npm installer wrapper missing from web artifact');
@@ -599,6 +603,7 @@ try {
     assert.match(onboardingSkill, /shows all six routes[\s\S]*NetBird[\s\S]*WireGuard/);
     assert.match(onboardingSkill, /## Diagnose and recover[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(cli, ['skill', 'collaboration'], { cwd: installDir, env: cliEnv() }).stdout, /muxr peers prompt/);
+    assert.match(run(cli, ['skill', 'desktop-browser'], { cwd: installDir, env: cliEnv() }).stdout, /# Desktop browser handoff through Computer/);
     assertUnifiedSkillOutput(run(cli, ['skill', 'all'], { cwd: installDir, env: cliEnv() }).stdout);
     const unavailablePeers = run(cli, ['peers', 'list'], { cwd: installDir, env: cliEnv(), allowFailure: true });
     assert.equal(unavailablePeers.status, 1);
