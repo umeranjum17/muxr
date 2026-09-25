@@ -32,7 +32,7 @@ child.once('error', (error) => {
 });
 child.once('exit', (code, signal) => {
     const finish = () => {
-        const unused = scratchUnused(root);
+        const unused = scratchUnused(root, true);
         if (vitest && unused) cleanTestScratch(root);
         const leftovers = readdirSync(root).filter((name) => name !== 'owner').map((name) => join(root, name));
         if (vitest && unused && leftovers.length) process.stderr.write(`FAIL: host test scratch leftovers:\n${leftovers.join('\n')}\n`);

@@ -26,18 +26,36 @@ try {
     assert.match(clean.stdout, /\/node-compile-cache/);
     assert.deepEqual(readdirSync(base), ['bin']);
 
-    const live = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
-    writeFileSync(join(live, 'owner'), `${process.pid} ${processStart(process.pid)}`);
-    assert.equal(scratchUnused(live), false);
+    const previous = process.env.TMPDIR;
+    process.env.TMPDIR = base;
+    try {
+        const { default: setupHostTestScratch } = await import('../../../apps/host/src/testScratchCleanup.ts');
+        const teardown = setupHostTestScratch();
+        const direct = process.env.TMPDIR;
+        mkdirSync(join(direct, 'muxr-direct'));
+        teardown();
+        assert.equal(existsSync(direct), false);
+    } finally {
+        if (previous === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = previous;
+    }
 
     const empty = spawnSync(process.execPath, ['-e', ''], { detached: true, stdio: 'ignore' });
     assert.equal(empty.status, 0);
+    const live = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
+    writeFileSync(join(live, 'owner'), `${process.pid} ${processStart(process.pid)}\n${empty.pid}`);
+    assert.equal(scratchUnused(live), false);
+    assert.equal(scratchUnused(live, true), true);
     const departed = mkdtempSync(join(base, `muxr-host-test-${empty.pid}-`));
     writeFileSync(join(departed, 'owner'), `${empty.pid} departed\n${empty.pid}`);
     assert.equal(scratchUnused(departed), true);
+    const partial = mkdtempSync(join(base, `muxr-host-test-${empty.pid}-`));
+    writeFileSync(join(partial, 'owner'), `${empty.pid} departed`);
+    assert.equal(scratchUnused(partial), false);
     testScratchOwner(base);
     assert.equal(existsSync(departed), false);
     assert.equal(existsSync(live), true);
+    assert.equal(existsSync(partial), true);
 
     const leader = spawnSync(process.execPath, ['-e',
         'const {spawn}=require("node:child_process"); const child=spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"}); console.log(child.pid); process.exit(0)'],

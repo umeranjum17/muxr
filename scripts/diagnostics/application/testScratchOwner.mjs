@@ -13,7 +13,7 @@ export function processStart(pid) {
     } catch { return undefined; }
 }
 
-export function scratchUnused(root) {
+export function scratchUnused(root, finishing = false) {
     const match = /^muxr-host-test-([1-9]\d*)-.+$/.exec(basename(root));
     if (!match) return false;
     let owner;
@@ -21,15 +21,18 @@ export function scratchUnused(root) {
     catch { return false; }
     const [pid, ...parts] = owner[0].split(' ');
     if (pid !== match[1] || !parts.join(' ')) return false;
-    if (owner.length > 1) {
-        if (owner.length !== 2 || !/^[1-9]\d*$/.test(owner[1])) return false;
-        // ponytail: a descendant calling setsid() escapes this group; record new groups if test hosts ever do that.
-        try { process.kill(-Number(owner[1]), 0); return false; }
-        catch (error) { return error.code === 'ESRCH'; }
+    // ponytail: interruption between spawn and group recording leaves one root; retain it rather than delete a live child's scratch.
+    if (owner.length !== 2 || !/^[1-9]\d*$/.test(owner[1])) return false;
+    if (!finishing) {
+        const current = processStart(Number(pid));
+        if (current === parts.join(' ')) return false;
+        if (current === undefined) {
+            try { process.kill(Number(pid), 0); return false; }
+            catch (error) { if (error.code !== 'ESRCH') return false; }
+        }
     }
-    const current = processStart(Number(pid));
-    if (current !== undefined) return current !== parts.join(' ');
-    try { process.kill(Number(pid), 0); return false; }
+    // ponytail: a descendant calling setsid() escapes this group; record new groups if test hosts ever do that.
+    try { process.kill(-Number(owner[1]), 0); return false; }
     catch (error) { return error.code === 'ESRCH'; }
 }
 
