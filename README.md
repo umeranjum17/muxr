@@ -103,7 +103,7 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 
 ### Dictate the prompt
 
-Tap the mic in the composer and speak. In the app, speech is transcribed on your phone as you talk, and the words land in the prompt for you to check before sending.
+Tap the mic in the composer and speak. In the app, speech is transcribed on your phone as you talk, and the words land in the prompt for you to check before sending. Tap Stop to finish; during transcription, Cancel is on the opposite side so a second stop tap cannot discard your words. If you cancel, tap Undo within five seconds to restore them.
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/dictation.webp" type="image/webp"><img src="docs/assets/readme/dictation.jpg" alt="A prompt dictated into an agent's composer: add a test for the free shipping threshold, then open a pull request when the cart tests pass" width="300" /></picture>
