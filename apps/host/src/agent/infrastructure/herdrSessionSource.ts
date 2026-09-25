@@ -94,7 +94,7 @@ const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 
 /** Provider-neutral hint inherited by every pane muxr creates through Herdr. */
 export const MUXR_AGENT_ENV = {
-    MUXR_AGENT_CAPABILITIES: "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer (details: muxr skill browser-takeover). Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.",
+    MUXR_AGENT_CAPABILITIES: "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer. Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.",
 } as const;
 
 /** How long to watch a started Herdr action before reporting it as merely started. */

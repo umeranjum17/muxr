@@ -49,7 +49,7 @@ a second browser or sending a filesystem path as the user experience:
 
 - On a machine with a desktop session, open web pages in that desktop's browser;
   the user watches and takes over through the phone's Computer action. Load
-  `muxr skill browser-takeover` for the handoff and authorization rules.
+  `muxr skill desktop-browser` for login and 2FA handoff rules.
 - Share a finished file with `muxr share <path>`. It resolves the current pane
   from `$HERDR_PANE_ID` and adds the file to that session's durable history.
 
@@ -65,7 +65,7 @@ work.
 | Install, pair a phone or browser, self-host, update, uninstall, diagnose | `muxr skill onboarding` · [source](references/onboarding.md) |
 | Create panes/tabs/workspaces/worktrees, run and read agents, socket API | `muxr skill herdr` · [source](references/herdr.md) |
 | Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
-| Hand a browser login, 2FA, or CAPTCHA to the phone | `muxr skill browser-takeover` · [source](references/browser-takeover.md) |
+| Hand a desktop browser login, 2FA, or CAPTCHA to the phone | `muxr skill desktop-browser` · [source](references/desktop-browser.md) |
 | Name the current Herdr workspace/pane | `muxr name --workspace LABEL --pane TITLE --provider PROVIDER --model MODEL` |
 | Build, install, debug, or override a plugin | `muxr skill plugins` · [source](references/plugins.md) |
 | Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
