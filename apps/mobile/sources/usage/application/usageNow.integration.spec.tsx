@@ -817,14 +817,19 @@ describe('the usage screen read path', () => {
         TestRenderer.act(() => { screen.unmount(); });
 
         // The card's own read answers with usage.now figures: the screen paints
-        // the limits it carries and dashes the activity it never had, and asks
-        // for the tab list that record cannot name.
+        // the limits they carry and says the activity they are silent about is
+        // still collecting -- never "nothing measured" -- and asks for the tab
+        // list that record cannot name.
         rememberShown('', { status: 'figures', at: claimed, figures: withNow(undefined, collected(undefined, 20)) });
         request.mockImplementation(() => Promise.resolve(report('claude', 60)));
         screen = renderScreen();
-        expect(screenText(screen)).toContain('—');
+        expect(screenText(screen)).toContain('plugins.rightNow.collecting');
+        expect(screenText(screen)).not.toContain('No measured activity');
         await tick();
         expect(request).toHaveBeenCalledTimes(1);
+        // The report answers: the same limits now carry the measured activity.
+        expect(screenText(screen)).not.toContain('plugins.rightNow.collecting');
+        expect(screenText(screen)).toContain('Tokens 1');
         TestRenderer.act(() => { screen.unmount(); });
         request.mockClear();
 
@@ -845,6 +850,22 @@ describe('the usage screen read path', () => {
         expect(screen.root.findAll((node: any) => node.props?.accessibilityLabel === 'plugins.rightNow.unavailable. plugins.retry').length).toBeGreaterThan(0);
     });
 
+    it('names a read the host refused behind the card\'s figures, rather than letting it read as an empty measurement', async () => {
+        // The card collected limits; the screen's own report read is refused.
+        // What the tab must not do is paint the card's silence about activity
+        // as "No measured activity" -- a confident statement nobody earned.
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, collected(undefined, 20)) });
+        request.mockRejectedValue(new Error('rate limited'));
+        const screen = renderScreen();
+        await tick();
+        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screenText(screen)).not.toContain('No measured activity');
+        // The limits the card did collect stay on screen, and the failure
+        // offers the way back it always does.
+        expect(screen.root.findAllByType('ScreenLimits').length).toBeGreaterThan(0);
+        expect(screen.root.findAll((node: any) => node.props?.accessibilityLabel === 'plugins.rightNow.refreshFailed. plugins.rightNow.refreshNow').length).toBeGreaterThan(0);
+    });
+
     it('shows what the other surface learns without a remount', async () => {
         // The card asks for the default tab, and the host answers that it is
         // still collecting.
@@ -861,7 +882,11 @@ describe('the usage screen read path', () => {
         expect(screenText(screen)).toContain('plugins.rightNow.collecting');
         answer = Promise.resolve(collected(undefined, 20, '2026-09-22T18:00:00.000Z'));
         await tick(6_000);
-        expect(screenText(screen)).toContain('—');
+        // The card's learning shows on the screen -- the tab strip names the
+        // plan it connected -- and the screen still says the activity half is
+        // collecting, because its own report ask has not answered yet.
+        expect(screenText(screen)).toContain('OpenCode');
+        expect(screenText(screen)).toContain('plugins.rightNow.collecting');
         TestRenderer.act(() => { card.unmount(); });
     });
 
@@ -1077,7 +1102,7 @@ describe('the usage screen read path', () => {
         await tick();
         expect(request).toHaveBeenCalledTimes(1);
         expect(screen.root.findAllByType('ScreenLimits').length).toBeGreaterThan(0);
-        expect(screenText(screen)).toContain('—');
+        expect(screenText(screen)).toContain('plugins.rightNow.collecting');
     });
 
     it('leaves the window askable again when a read is abandoned', async () => {

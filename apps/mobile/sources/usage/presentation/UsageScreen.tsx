@@ -230,6 +230,12 @@ export function UsageScreen() {
     // and must paint the limits they do hold rather than nothing.
     const empty = report !== undefined && report.providers.length === 0
         && (report.noProviders !== undefined || report.noProvidersTitle !== undefined);
+    // Whether any usage.report read has answered for this tab's measured
+    // activity. A usage.now record -- the card's -- carries limits only, so its
+    // silence about activity is "not answered yet" (or, with a refused read,
+    // "could not be read"), never "nothing measured": the three are different
+    // facts and this screen is where they must not look alike.
+    const activityUnread = display.status === 'figures' && display.figures.activity === undefined;
     return (
         <>
             <Header
@@ -270,7 +276,16 @@ export function UsageScreen() {
                         {report?.noProviders !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 14, marginTop: 4, textAlign: 'center' }}>{report.noProviders}</Text>}
                     </View>
                     : <>
-                        {report !== undefined && <View style={{ opacity: busy ? 0.55 : 1 }}>
+                        {report !== undefined && (activityUnread
+                            ? <View style={{ opacity: busy ? 0.55 : 1 }}>
+                                <ScreenLimits node={LIMITS_NODE} data={report} />
+                                {failed
+                                    ? <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${t('plugins.rightNow.refreshFailed')}. ${t('plugins.rightNow.refreshNow')}`} style={{ marginTop: 10, paddingVertical: 10 }}>
+                                        <Notice tone="danger" text={t('plugins.rightNow.refreshFailed')} style={{ marginBottom: 0 }} />
+                                    </Pressable>
+                                    : <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 12 }}>{t('plugins.rightNow.collecting')}</Text>}
+                            </View>
+                            : <View style={{ opacity: busy ? 0.55 : 1 }}>
                             <ScreenLimits node={LIMITS_NODE} data={report} />
                             <SectionLabel style={{ marginBottom: 10 }}>Today</SectionLabel>
                             <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14 }]}>
@@ -295,7 +310,7 @@ export function UsageScreen() {
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 14 }}>
                                 Local activity and estimated costs are separate from provider plan limits. Prompts and project details stay out.
                             </Text>
-                        </View>}
+                            </View>)}
                     </>)}
             </View>
             </ScrollView>

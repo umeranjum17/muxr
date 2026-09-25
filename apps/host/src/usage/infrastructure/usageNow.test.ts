@@ -124,3 +124,41 @@ it('keeps every plan on the card through failed reads and paints the last good r
     expect(landed.capturedAt).not.toBe(restarted.capturedAt);
     expect(plans(landed)).toEqual(['claude', 'zai']);
 }, 20_000);
+
+it('answers the card and every Usage tab from one collection, however many readers ask', async () => {
+    const fetch = vi.fn(provider);
+    vi.stubGlobal('fetch', fetch);
+    const env = host();
+    // Local activity the tab's report can carry, measured the way ccusage
+    // measures it: one agent, one day, one model.
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const activity = join(env.HOME!, 'ccusage');
+    writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${today}","agents":[{"agent":"opencode","totalTokens":1234,"totalCost":0.5,"modelBreakdowns":[{"modelName":"go-model","inputTokens":1000,"outputTokens":200,"cacheCreationTokens":0,"cacheReadTokens":34}]}]}],"session":[]}'\n`, { mode: 0o755 });
+    env.MUXR_CCUSAGE_BIN = activity;
+    const { collectUsage } = await import('./collectUsage.js');
+
+    // The card's ask and a Usage tab's ask landing together -- the tap from
+    // the card into the screen -- cost one collection, not one per reader.
+    // The tab's answer carries the whole report, activity included.
+    health = 'slow';
+    const [now_, report] = await Promise.all([
+        collectUsage({ refresh: true }, env),
+        collectUsage({ provider: 'opencode', refresh: true }, env),
+    ]);
+    const reads = fetch.mock.calls.length;
+    expect(reads).toBe(2);
+    expect(now_.capturedAt).toBe(report.capturedAt);
+    expect(report.provider).toBe('opencode');
+    expect(report.providers.map(({ id }) => id)).toContain('opencode');
+    expect(report.todayTokens).toBe('1.2K');
+    expect(report.modelSeries.map(({ label }) => label)).toEqual(['go-model']);
+
+    // A second tab's forced ask right behind them re-collects, but the stored
+    // plan readings answer for the providers: the rate limit is not spent
+    // again, and the figures are the same ones the first collection landed.
+    const other = await collectUsage({ provider: 'claude', refresh: true }, env);
+    expect(fetch.mock.calls).toHaveLength(reads);
+    expect(other.capturedAt).not.toBe(report.capturedAt);
+    expect(other.windows).toEqual(now_.windows);
+}, 20_000);
