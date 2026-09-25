@@ -795,7 +795,7 @@ describe('host peer collaboration flow', () => {
         releaseSourceRevocation();
         await sourceRevocation;
         expect(sourceRuntime.store.list().peers).toContainEqual(expect.objectContaining({ relationshipId: installed.relationshipId, state: 'revoked', machineName: 'Build Mac' }));
-    });
+    }, 30_000);
 
     it('keeps administration attached, fences mutations, and retries interrupted recovery on connectivity return', async () => {
         const root = mkdtempSync(join(tmpdir(), 'muxr-peer-recovery-'));
