@@ -46,12 +46,12 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
 
 /**
  * The machine on @byokit/link, beside the relay transport. It proves the
- * machine's existing box key to the relay and enrols every paired phone under
- * the key it already holds, so a phone paired before this existed reaches the
- * machine over the link without pairing again.
+ * machine's existing box key to the relay and enrols native phones under
+ * their existing keys, so a future link client can reuse its pairing.
  *
- * `selfhost.json` stays the only authority: the link's grants are rebuilt from
- * it on start and on every change, so a device revoked there is revoked here.
+ * `selfhost.json` stays the only authority. Grants are reconciled on changes,
+ * while admission, replies and broadcasts check the live device table so a
+ * revoked device cannot use a stale grant before reconciliation.
  */
 export class LinkEndpoint {
     private synced: Promise<void> = Promise.resolve();
