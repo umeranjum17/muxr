@@ -779,7 +779,24 @@ index 9d6ad16..0bd5332 100644
        Settings.Global.getFloat(
          context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
        ) != 0f
-@@ -777,11 +1067,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -754,10 +1044,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+   private fun holdBlinkSolid() {
+     if (!blinkPhaseOn) {
+       blinkPhaseOn = true
+       invalidate()
+     }
+-    if (blinkScheduled) {
+-      removeCallbacks(blinkRunnable)
+-      postDelayed(blinkRunnable, BLINK_INTERVAL_MS)
++    removeCallbacks(blinkRunnable)
++    if (wantsBlink()) {
++      blinkScheduled = true
++      postDelayed(blinkRunnable, BLINK_INTERVAL_MS)
++    } else {
++      blinkScheduled = false
+     }
+   }
+@@ -777,11 +1070,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      syncBlinkTimer()
    }
  
@@ -794,7 +811,7 @@ index 9d6ad16..0bd5332 100644
      if (rowIndex < rowSelStart.size) {
        rowSelStart[rowIndex] = selStart
        rowSelEnd[rowIndex] = selEnd
-@@ -836,12 +1128,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -836,12 +1131,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
      buf.position(nextRecord)
  
@@ -816,7 +833,7 @@ index 9d6ad16..0bd5332 100644
      for (col in 0 until colCount) {
        val bg = cellBg[col]
        if (bg == defaultBg) continue
-@@ -851,12 +1149,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -851,12 +1152,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        canvas.drawRect(x, top, x + width, bottom, fillPaint)
      }
  
@@ -841,7 +858,7 @@ index 9d6ad16..0bd5332 100644
        val paint = when {
          symbolsPaint != null &&
            (codepoint in PUA_BMP_FIRST..PUA_BMP_LAST || codepoint >= PUA_SUPPLEMENTARY_FIRST) ->
-@@ -868,23 +1174,123 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -868,24 +1177,123 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        }
        paint.color = cellFg[col]
        if (flags and FLAG_FAINT != 0) paint.alpha = 160
@@ -970,11 +987,11 @@ index 9d6ad16..0bd5332 100644
 +    } else {
 +      bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
 +    }
-+    drawCursor(canvas)
+     drawCursor(canvas)
      drawSelectionHandles(canvas)
      drawScrollIndicator(canvas)
      drawJumpToBottomChip(canvas)
-@@ -940,35 +1346,48 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -940,34 +1348,48 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      canvas.drawPath(jumpChipArrow, jumpChipPaint)
    }
  
@@ -1022,9 +1039,9 @@ index 9d6ad16..0bd5332 100644
 +    context.getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(windowToken, 0)
 +    if (hasFocus()) clearFocus()
 +  }
- 
++
    // ── Input ──
-@@ -1094,17 +1513,26 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1094,17 +1516,26 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -1052,7 +1069,7 @@ index 9d6ad16..0bd5332 100644
  
      // Nerd Font glyph ranges: BMP private-use area plus the supplementary
      // private-use planes (material icons live at U+F0000+ since v3).
-@@ -1131,7 +1559,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1131,7 +1562,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
  
      const val HEADER_BYTES = 52
@@ -1061,7 +1078,7 @@ index 9d6ad16..0bd5332 100644
      const val CELL_RECORD_BYTES = 16
      const val MAX_CELL_TEXT_UNITS = 32
  
-@@ -1153,5 +1581,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1153,5 +1584,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val FLAG_SPACER = 1 shl 8
      const val FLAG_FG_DEFAULT = 1 shl 9
      const val FLAG_BG_NONE = 1 shl 10
