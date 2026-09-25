@@ -270,10 +270,15 @@ describe('link upgrade for an already-paired phone', () => {
         otherLink.stop();
     }, 180_000);
 
-    it('admits the first link dial right after pairing and moves a live session to a new role without removing it', async () => {
+    it('admits the first dial and reconnects the pairing in both roles without removal', async () => {
         vi.stubGlobal('WebSocket', WebSocket);
         await stopMachine();
-        await startMachine(join(home, 'custom', 'host'));
+        const sourceClosesPath = join(home, 'link-source-closes.jsonl');
+        const hostModule = pathToFileURL(join(repoRoot, 'node_modules/@byokit/link/dist/host.js')).href;
+        const recordCloses = `const { Host } = await import(${JSON.stringify(hostModule)}); const { appendFileSync } = await import('node:fs'); const connection = Host.prototype.connection; Host.prototype.connection = function(conn, ...args) { const close = conn.close; conn.close = (code, reason) => { appendFileSync(${JSON.stringify(sourceClosesPath)}, JSON.stringify({ code, reason }) + '\\n'); return close(code, reason); }; return connection.call(this, conn, ...args); };`;
+        await startMachine(join(home, 'custom', 'host'), { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(recordCloses)}` });
+        const sourceCloses = (): { code: number; reason: string }[] => existsSync(sourceClosesPath)
+            ? readFileSync(sourceClosesPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { code: number; reason: string }) : [];
         phone.secure.clear();
         vi.resetModules();
         const { claimHostedPairing: claimFresh } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
@@ -293,7 +298,14 @@ describe('link upgrade for an already-paired phone', () => {
         // phone must never see `removed` - whose words are "This device was
         // removed on your computer." - for a pre-admission moment.
         const statuses: LinkStatus[] = [];
-        const link = new DeviceLink(linkGrantFrom(stored), { WebSocket: WebSocket as never, onStatus: (status) => statuses.push(status) });
+        const closes: { code: number; reason: string }[] = [];
+        class TrackedWebSocket extends WebSocket {
+            constructor(url: string | URL) {
+                super(url);
+                this.on('close', (code, reason) => closes.push({ code, reason: reason.toString() }));
+            }
+        }
+        const link = new DeviceLink(linkGrantFrom(stored), { WebSocket: TrackedWebSocket as never, onStatus: (status) => statuses.push(status) });
         await until(() => (link.status === 'online' || link.status === 'removed' ? true : undefined), 'first link dial settles before pair exits', 30_000);
         expect(statuses).not.toContain('removed');
         writeFileSync(release, 'go');
@@ -305,33 +317,30 @@ describe('link upgrade for an already-paired phone', () => {
         };
         expect(started).toMatchObject({ ok: true });
 
-        // A role change moves the live session to the new role instead of
-        // ending it: the same stored pairing stays online, reads keep working,
-        // and a write is refused in the device's own words. It must never be
-        // told it was removed.
+        const viewStart = statuses.length;
+        const viewClose = closes.length;
+        const viewSourceClose = sourceCloses().length;
         setAuthority(stored.deviceId, 'observe');
-        await until(async () => {
-            try {
-                await link.request('session.start', { type: 'session.start', requestId: 'as-view', params: { cwd: home } });
-                return undefined; // still admitted as control; the grant has not moved yet
-            } catch (error) {
-                return error instanceof Error && error.message === 'This device can watch but not make changes.' ? error.message : undefined;
-            }
-        }, 'a write is refused as view-only, in exactly those words', 30_000);
+        await until(() => closes.length > viewClose ? true : undefined, 'view role closes the old socket', 15_000);
+        expect(sourceCloses().slice(viewSourceClose)).toEqual([{ code: 1001, reason: 'grant changed' }]);
+        expect(closes.slice(viewClose)).toEqual([{ code: 1000, reason: '' }]);
+        await until(() => link.status === 'online' && statuses.slice(viewStart).includes('offline') ? true : undefined, 'view role reconnects', 15_000);
+        expect(statuses.slice(viewStart)).toEqual(['offline', 'online']);
+        await expect(link.request('session.start', { type: 'session.start', requestId: 'as-view', params: { cwd: home } }))
+            .rejects.toThrow('This device can watch but not make changes.');
         expect(await link.request('client.hello', { type: 'client.hello', clientId: 'link-phone' })).toMatchObject({ type: 'session.list' });
-        expect(link.status).toBe('online');
-        expect(statuses).not.toContain('removed');
 
-        // Moving the role back takes the same live session with it, no
-        // re-pairing, still never removed.
+        const controlStart = statuses.length;
+        const controlClose = closes.length;
+        const controlSourceClose = sourceCloses().length;
         setAuthority(stored.deviceId, 'control');
-        await until(async () => {
-            try {
-                const again = await link.request('session.start', { type: 'session.start', requestId: 'as-control', params: { cwd: home } }) as { ok?: boolean };
-                return again.ok === true ? true : undefined;
-            } catch { return undefined; }
-        }, 'the same session writes again as control', 30_000);
-        expect(link.status).toBe('online');
+        await until(() => closes.length > controlClose ? true : undefined, 'control role closes the old socket', 15_000);
+        expect(sourceCloses().slice(controlSourceClose)).toEqual([{ code: 1001, reason: 'grant changed' }]);
+        expect(closes.slice(controlClose)).toEqual([{ code: 1000, reason: '' }]);
+        await until(() => link.status === 'online' && statuses.slice(controlStart).includes('offline') ? true : undefined, 'control role reconnects', 15_000);
+        expect(statuses.slice(controlStart)).toEqual(['offline', 'online']);
+        expect(await link.request('session.start', { type: 'session.start', requestId: 'as-control', params: { cwd: home } })).toMatchObject({ ok: true });
+        expect(statuses.every((status) => status === 'connecting' || status === 'online' || status === 'offline')).toBe(true);
         expect(statuses).not.toContain('removed');
         link.stop();
 

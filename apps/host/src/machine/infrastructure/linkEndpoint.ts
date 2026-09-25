@@ -143,12 +143,8 @@ export class LinkEndpoint {
             const device = deviceId === undefined ? undefined : wanted.get(deviceId);
             const sameKey = device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key;
             const roleMatches = device !== undefined && (device.authority === 'observe' ? 'view' : 'control') === grant.role;
-            // A grant whose device or key is gone is a real removal: the phone
-            // is told `removed`, and that is then true. A grant whose only lag
-            // is its role stays for the enrol below, which replaces grants by
-            // key through a change that does not notify removal, so a live
-            // session is moved to the new role instead of being ended as
-            // removed and wiping the phone's stored pairing.
+            // A role-only change keeps the pairing: the phone reconnects under
+            // the new grant without being told it was removed.
             if (device === undefined || !sameKey) await this.host.revoke(grant.id);
             else if (roleMatches) enrolled.add(device.deviceId);
         }
