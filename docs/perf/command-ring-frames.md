@@ -23,14 +23,15 @@ Herdr lab session holding one idle shell pane.
 
 Method: [`perf/ringJank.sh`](../../perf/ringJank.sh), 20 open/close cycles per
 run, tapping the floating control on the device itself every 0.8 s. The script
-now attributes framestats frames within 400 ms of each input frame to the ring,
-including frames after a long stall; frames outside tap windows count as idle.
-The table below records the original runs, whose split used 80 ms frame bursts;
-the original captures are not available to recalculate those counts.
+now attributes framestats frames within 400 ms of the latest input frame to
+the ring, including resumed frames after a stall within that window; frames
+outside tap windows count as idle. The table below records the original runs,
+whose split used 80 ms frame bursts; the original captures are not available
+to recalculate those counts.
 
 ## Results
 
-| run | gfxinfo frames | gfxinfo janky | p99 | ring frames late (framestats) | idle terminal frames late |
+| run | gfxinfo frames | gfxinfo janky | p99 | burst-classified ring frames late | burst-classified idle frames late |
 |---|---|---|---|---|---|
 | A1 | 653 | 27 (4.13%) | 16 ms | 1 / 105 | 4 / 15 |
 | A2 | 651 | 31 (4.76%) | 16 ms | 1 / 107 | 5 / 13 |
