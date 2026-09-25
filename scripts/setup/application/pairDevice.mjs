@@ -44,25 +44,24 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
     const base = selfhostControlBase(state);
     const authHeaders = { authorization: `Bearer ${selfhostCredential(state)}` };
     let pending = state.machine.crypto.pendingPair;
-    let recoveredPoll;
-    if (pending !== undefined && typeof pending.expiresAt === 'number' && pending.expiresAt <= Date.now()) {
-        // A claimed relay session remains recoverable after its local display
-        // deadline. Poll once before discarding the only copy of its pair key.
+    if (pending !== undefined && pending.grantUploaded !== true && typeof pending.expiresAt === 'number' && pending.expiresAt <= Date.now()) {
         const polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
         if (!polled.response.ok) {
             if (polled.response.status !== 403 && polled.response.status !== 404) throw new Error(polled.body.error || 'pair recovery polling failed');
             delete state.machine.crypto.pendingPair;
             writeSelfhostState(state);
             pending = undefined;
-        } else if (polled.body.state === 'claimed') recoveredPoll = polled;
-        else if (polled.body.state === 'expired') {
+        } else if (polled.body.state === 'claimed') {
+            delete state.machine.crypto.pendingPair;
+            writeSelfhostState(state);
+            throw new Error('pairing did not complete; the device was dropped when the pairing window ended');
+        } else if (polled.body.state === 'expired') {
             delete state.machine.crypto.pendingPair;
             writeSelfhostState(state);
             pending = undefined;
         }
     }
-    if (pending !== undefined && recoveredPoll === undefined
-        && (!intent.matchesPending(pending) || typeof pending.pairString !== 'string')) {
+    if (pending !== undefined && (!intent.matchesPending(pending) || typeof pending.pairString !== 'string')) {
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
         pending = undefined;
@@ -159,7 +158,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         return 0;
     }
 
-    if (recoveredPoll === undefined) {
+    {
         print('');
         const waiting = pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal });
         if (!waiting.requiresWebHosting) {
@@ -196,12 +195,8 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         print(`Waiting for the ${waiting.requiresWebHosting ? 'browser' : 'device'} to finish pairing…`);
     }
     while (true) {
-        let polled = recoveredPoll;
-        recoveredPoll = undefined;
-        if (polled === undefined) {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-            polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
-        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
         if (!polled.response.ok) throw new Error(polled.body.error || 'pair polling failed');
         if (polled.body.state === 'pending') continue;
         if (polled.body.state === 'expired') {
@@ -218,6 +213,11 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             return mintDeviceGrant(state, requestedKind, requestedAuthority, requestedPersonal);
         }
         if (polled.body.state !== 'claimed') throw new Error(`pairing session ${polled.body.state}`);
+        if (pending.expiresAt <= Date.now()) {
+            delete state.machine.crypto.pendingPair;
+            writeSelfhostState(state);
+            throw new Error('pairing did not complete; the device was dropped when the pairing window ended');
+        }
         const mailbox = polled.body.mailbox;
         const deviceId = polled.body.deviceId;
         const devicePublicKey = polled.body.devicePublicKey;

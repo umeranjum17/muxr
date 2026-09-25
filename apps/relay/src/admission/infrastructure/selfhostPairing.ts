@@ -291,8 +291,8 @@ export class SelfhostPairing {
             session.deviceId = deviceId;
             // Credential lifetime comes from the owner-created session, not
             // the claim body: normal browsers stay 8h, explicit personal
-            // browsers get 30d. Natives carry no relay-side expiry.
-            let credentialExpiresAt = input.expiresAt;
+            // browsers get 30d.
+            let credentialExpiresAt = session.deviceKind === 'native' ? session.expiresAt : input.expiresAt;
             if (session.deviceKind === 'browser') {
                 const ttl = session.personal === true ? BROWSER_PERSONAL_GRANT_TTL_MS : BROWSER_GRANT_TTL_MS;
                 credentialExpiresAt = now + ttl;
@@ -342,11 +342,13 @@ export class SelfhostPairing {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
-            if (session === undefined || machineSlug !== undefined && session.machineSlug !== machineSlug || session.usedAt === undefined) return false;
+            if (session === undefined || machineSlug !== undefined && session.machineSlug !== machineSlug
+                || session.usedAt === undefined || session.expiresAt <= now) return false;
             const device = this.state.devices.find((entry) => entry.deviceId === session.deviceId && entry.revokedAt === undefined);
             if (device === undefined) return false;
             session.grant = grant;
             device.currentGrant = grant;
+            if (session.deviceKind === 'native') delete device.expiresAt;
             await this.persist();
             return true;
         });

@@ -154,11 +154,13 @@ describe('link upgrade for an already-paired phone', () => {
         vi.stubGlobal('WebSocket', WebSocket);
         await startMachine();
         const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
-        setTimeout(() => console.error('PAIR1 OUTPUT AT 170s:\n' + pair.output().slice(-1200)), 170_000);
         const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'muxr pair string');
         const stored = await claimHostedPairing(text);
         await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'muxr pair finishes');
         expect(pair.exitCode, pair.output()).toBe(0);
+        expect((await fetch(`http://127.0.0.1:${port}/v1/push/vapid-public`, {
+            headers: { authorization: `Bearer ${stored.credential}` },
+        })).status).toBe(200);
         phone.secure.clear();
         vi.resetModules();
         const { claimHostedPairing: claimOther } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
@@ -433,6 +435,13 @@ describe('link upgrade for an already-paired phone', () => {
             return state.machine.crypto.devices.find((device) => device.deviceId === doomed)!;
         };
         const windowEnd = Date.parse(record()!.expiresAt);
+        const relayStatePath = join(home, 'relay', 'selfhost-pairing.json');
+        const claimedState = JSON.parse(readFileSync(relayStatePath, 'utf8')) as { devices: { deviceId: string; expiresAt?: number }[] };
+        expect(claimedState.devices.find((device) => device.deviceId === doomed)?.expiresAt).toBeGreaterThan(Date.now() + 60_000);
+        expect(Math.abs(claimedState.devices.find((device) => device.deviceId === doomed)!.expiresAt! - windowEnd)).toBeLessThan(3_000);
+        const credential = (JSON.parse(phone.secure.get('muxr.hosted-e2ee.pending-pair.v1')!) as { deviceCredential: string }).deviceCredential;
+        const subscription = () => fetch(`http://127.0.0.1:${port}/v1/push/vapid-public`, { headers: { authorization: `Bearer ${credential}` } });
+        expect((await subscription()).status).toBe(200);
         expect(windowEnd).toBeGreaterThan(Date.now() + 60_000);
         expect(windowEnd).toBeLessThan(Date.now() + 150_000);
 
@@ -458,10 +467,18 @@ describe('link upgrade for an already-paired phone', () => {
         // revoked, and the phone is told it was removed - which is then true.
         const statePath = join(home, 'selfhost.json');
         const expired = JSON.parse(readFileSync(statePath, 'utf8')) as {
-            machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
+            machine: { crypto: { pendingPair?: { expiresAt: number }; devices: { deviceId: string; expiresAt: string }[] } };
         };
+        expired.machine.crypto.pendingPair!.expiresAt = Date.now() - 1000;
         for (const device of expired.machine.crypto.devices) if (device.deviceId === doomed) device.expiresAt = new Date(Date.now() - 1000).toISOString();
         writeFileSync(statePath, `${JSON.stringify(expired, null, 2)}\n`, { mode: 0o600 });
+        const relayState = JSON.parse(readFileSync(relayStatePath, 'utf8')) as { devices: { deviceId: string; expiresAt?: number }[] };
+        for (const device of relayState.devices) if (device.deviceId === doomed) device.expiresAt = Date.now() - 1000;
+        writeFileSync(relayStatePath, `${JSON.stringify(relayState)}\n`, { mode: 0o600 });
+        expect((await subscription()).status).toBe(403);
+        const retry = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
+        expect(await until(() => retry.exitCode === null ? undefined : retry.exitCode, 'expired retry exits'), retry.output()).toBe(1);
+        expect(retry.output()).toContain('pairing did not complete; the device was dropped');
         const statuses: LinkStatus[] = [];
         const dropped = new DeviceLink(doomedGrant, { WebSocket: WebSocket as never, onStatus: (status) => statuses.push(status) });
         await until(() => (dropped.status === 'removed' ? true : undefined), 'expired window drops the device', 30_000).catch((error: Error) => {
