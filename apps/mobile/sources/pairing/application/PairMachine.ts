@@ -7,6 +7,8 @@ export type PairMachineCommand = {
     url?: string;
     grant?: StoredHostedGrant;
     endVoiceIfPinned?: boolean;
+    /** Direct SSH: a retry of an interrupted code resumes it while it is still valid. */
+    resumable?: boolean;
 };
 
 export type PairMachineResult =
@@ -44,7 +46,7 @@ export async function pairMachine(command: PairMachineCommand): Promise<PairMach
             if (command.url === undefined) return { ok: false, reason: 'failed', message: 'Pairing link missing' };
             const parsed = parsePairingString(command.url);
             if (!parsed.ok) return { ok: false, reason: 'failed', message: parsed.error };
-            grant = await claimHostedPairing(parsed.pairing.url);
+            grant = await claimHostedPairing(parsed.pairing.url, { resumable: command.resumable === true });
         }
         return activateGrant(grant, command.endVoiceIfPinned === true);
     } catch (error) {

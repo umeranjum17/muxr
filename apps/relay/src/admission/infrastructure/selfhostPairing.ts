@@ -184,7 +184,7 @@ export class SelfhostPairing {
     }
 
     /** Phone side: consume the encrypted lookup before claiming the underlying session. */
-    resolveCode(codeHash: string, now = Date.now()): Promise<{ state: 'resolved'; payload: string } | { state: 'invalid' | 'expired' }> {
+    resolveCode(codeHash: string, now = Date.now()): Promise<{ state: 'resolved'; payload: string; expiresAt: number } | { state: 'invalid' | 'expired' }> {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((entry) => entry.codeHash === codeHash);
@@ -195,11 +195,12 @@ export class SelfhostPairing {
                 return { state: 'expired' };
             }
             const payload = session.codePayload;
+            const expiresAt = session.codeExpiresAt ?? session.expiresAt;
             delete session.codeHash;
             delete session.codePayload;
             delete session.codeExpiresAt;
             await this.persist();
-            return { state: 'resolved', payload };
+            return { state: 'resolved', payload, expiresAt };
         });
     }
 

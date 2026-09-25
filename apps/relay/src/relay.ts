@@ -610,7 +610,9 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     writeJsonError(res, codeError.status, codeError.error);
                     return;
                 }
-                writeJson(res, 200, { payload: result.payload });
+                // The phone holds the opened pairing for exactly this window so an
+                // interrupted Direct SSH claim can resume without a second lookup.
+                writeJson(res, 200, { payload: result.payload, expires_in: Math.max(0, Math.floor((result.expiresAt - Date.now()) / 1000)) });
                 return;
             }
             // Self-host pairing: CLI opens sessions with owner/machine authority;
