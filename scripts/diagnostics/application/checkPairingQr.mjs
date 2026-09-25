@@ -79,6 +79,19 @@ writeSelfhostState({
 });
 
 // ---------------------------------------------------------------------------
+// The native grant is not published until the running host enrols the phone
+// on the link. Exercise that host, not just its relay and pairing CLI.
+const host = spawn('node', [join(repoRoot, 'apps/host/dist/main.js'), '--fake'], {
+    cwd: repoRoot,
+    env: { ...process.env, MUXR_HOME: cliHome, MUXR_MODE: 'selfhost', MUXR_DATA_DIR: join(cliHome, 'host-data') },
+    stdio: ['ignore', 'pipe', 'pipe'],
+});
+children.push(host);
+let hostOut = '';
+host.stdout.on('data', (chunk) => { hostOut += chunk; });
+host.stderr.on('data', (chunk) => { hostOut += chunk; });
+await waitFor(() => hostOut.includes('host -> ') ? true : undefined, 20_000, `host did not start: ${hostOut}`);
+
 // 3. The QR a user scans must encode exactly the pairing string they could
 //    paste. Render through printTerminalQr with a stubbed TTY, decode the
 //    utf8 half-block art back to modules, and compare against a fresh
@@ -176,6 +189,7 @@ for (let waited = 0; waited <= 15_000; waited += 500) {
     if (typeof grantResponse.grant === 'string') break;
     await new Promise((resolve) => setTimeout(resolve, 500));
 }
+if (typeof grantResponse.grant !== 'string') fail(`host did not enrol and publish the native grant: ${pairOut.slice(-400)} ${hostOut.slice(-400)}`);
 const grant = verifyDeviceGrant(JSON.parse(grantResponse.grant), {
     pinnedMachineSigningPublicKey: payload.machinePk,
     deviceKey,
