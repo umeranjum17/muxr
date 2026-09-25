@@ -17,7 +17,6 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { DeviceLink, hostId, type DeviceGrant, type LinkStatus } from '@byokit/link';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -50,6 +49,16 @@ import { MuxrClient } from '../../../apps/mobile/sources/pairing/infrastructure/
 const repoRoot = join(import.meta.dirname, '../../..');
 const home = mkdtempSync(join(tmpdir(), 'muxr-link-upgrade-'));
 const children = new Set<ChildProcess>();
+// Static loader: the spawned process imports the hook fixture from its own
+// working directory (repo root); per-scenario settings travel through
+// LINK_TEST_HOOK, never through generated source text.
+const CHILD_HOOK = `--import=data:text/javascript,${encodeURIComponent(
+    "import('node:url').then((u) => import(u.pathToFileURL(process.cwd() + '/scripts/diagnostics/application/linkHookFixture.mjs').href))",
+)}`;
+const childHookEnv = (cfg: Record<string, unknown>): { NODE_OPTIONS: string; LINK_TEST_HOOK: string } => ({
+    NODE_OPTIONS: CHILD_HOOK,
+    LINK_TEST_HOOK: JSON.stringify(cfg),
+});
 
 function launch(args: string[], extra: NodeJS.ProcessEnv = {}): ChildProcess & { output: () => string } {
     const env: NodeJS.ProcessEnv = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1', ...extra };
@@ -175,9 +184,7 @@ describe('link upgrade for an already-paired phone', () => {
         rmSync(join(home, 'relay', 'link-relay.json'), { force: true });
         const enteredEnrol = join(home, 'entered-enrol');
         const releaseEnrol = join(home, 'release-enrol');
-        const hostModule = pathToFileURL(join(repoRoot, 'node_modules/@byokit/link/dist/host.js')).href;
-        const holdEnrol = `const { Host } = await import(${JSON.stringify(hostModule)}); const { existsSync, writeFileSync } = await import('node:fs'); const enrol = Host.prototype.enrol; Host.prototype.enrol = async function(...args) { writeFileSync(${JSON.stringify(enteredEnrol)}, 'entered'); while (!existsSync(${JSON.stringify(releaseEnrol)})) await new Promise(resolve => setTimeout(resolve, 20)); return enrol.apply(this, args); };`;
-        await startMachine(undefined, { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(holdEnrol)}` });
+        await startMachine(undefined, childHookEnv({ hook: 'holdEnrol', entered: enteredEnrol, release: releaseEnrol }));
         await until(() => existsSync(enteredEnrol) ? true : undefined, 'host begins initial link enrolment');
         await new Promise((resolve) => setTimeout(resolve, 1500));
 
@@ -278,17 +285,14 @@ describe('link upgrade for an already-paired phone', () => {
         vi.stubGlobal('WebSocket', WebSocket);
         await stopMachine();
         const sourceClosesPath = join(home, 'link-source-closes.jsonl');
-        const hostModule = pathToFileURL(join(repoRoot, 'node_modules/@byokit/link/dist/host.js')).href;
-        const recordCloses = `const { Host } = await import(${JSON.stringify(hostModule)}); const { appendFileSync } = await import('node:fs'); const connection = Host.prototype.connection; Host.prototype.connection = function(conn, ...args) { const close = conn.close; conn.close = (code, reason) => { appendFileSync(${JSON.stringify(sourceClosesPath)}, JSON.stringify({ code, reason }) + '\\n'); return close(code, reason); }; return connection.call(this, conn, ...args); };`;
-        await startMachine(join(home, 'custom', 'host'), { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(recordCloses)}` });
+        await startMachine(join(home, 'custom', 'host'), childHookEnv({ hook: 'recordCloses', to: sourceClosesPath }));
         const sourceCloses = (): { code: number; reason: string }[] => existsSync(sourceClosesPath)
             ? readFileSync(sourceClosesPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { code: number; reason: string }) : [];
         phone.secure.clear();
         vi.resetModules();
         const { claimHostedPairing: claimFresh } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
         const release = join(home, 'release-pair');
-        const pause = `const { existsSync } = await import('node:fs'); const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { if (String(args[0]).endsWith('/release')) while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 20)); return fetch(...args); };`;
-        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(pause)}` });
+        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], childHookEnv({ hook: 'holdResponse', suffix: '/release', release }));
         const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'pair string');
         const claiming = claimFresh(text);
         const stored = await Promise.race([
@@ -369,8 +373,7 @@ describe('link upgrade for an already-paired phone', () => {
         vi.resetModules();
         const { claimHostedPairing: claimAfterRestart } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
         const holdUpload = join(home, 'hold-upload');
-        const hold = `const { existsSync } = await import('node:fs'); const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { if (String(args[0]).endsWith('/grant')) while (!existsSync(${JSON.stringify(holdUpload)})) await new Promise(resolve => setTimeout(resolve, 20)); return fetch(...args); };`;
-        const interrupted = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(hold)}` });
+        const interrupted = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], childHookEnv({ hook: 'holdRequest', suffix: '/grant', release: holdUpload }));
         const nextText = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(interrupted.output())?.[1], 'recovery pair string');
         const recovering = claimAfterRestart(nextText);
         await until(() => {
@@ -385,10 +388,9 @@ describe('link upgrade for an already-paired phone', () => {
         await stop(interrupted);
         await stop(host);
         const releaseHost = join(home, 'release-host');
-        const holdHost = `const { existsSync } = await import('node:fs'); const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { if (String(args[0]).endsWith('/relay/v1/hosts')) while (!existsSync(${JSON.stringify(releaseHost)})) await new Promise(resolve => setTimeout(resolve, 20)); return fetch(...args); };`;
         host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], {
             MUXR_MODE: 'selfhost', MUXR_DATA_DIR: join(home, 'custom', 'host'),
-            NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(holdHost)}`,
+            ...childHookEnv({ hook: 'holdRequest', suffix: '/relay/v1/hosts', release: releaseHost }),
         });
         await until(() => host!.output().includes('host -> ') ? true : undefined, 'restarted host');
         const retry = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
@@ -415,8 +417,7 @@ describe('link upgrade for an already-paired phone', () => {
         phone.secure.clear();
         vi.resetModules();
         const { claimHostedPairing: claimDoomed } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
-        const failUpload = `const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { if (String(args[1]?.method).toUpperCase() === 'POST' && String(args[0]).endsWith('/grant')) return new Response(JSON.stringify({ error: 'publish failed' }), { status: 500 }); return fetch(...args); };`;
-        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(failUpload)}` });
+        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], childHookEnv({ hook: 'failPost', suffix: '/grant' }));
         const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'pair string');
         // The phone claims and then waits for a grant that never publishes;
         // its claim state (device id, device key) is what this scenario needs.
