@@ -230,7 +230,7 @@ export function UsageScreen() {
     // as current. The failure line says when the attempt failed, not when the
     // figures were last true.
     const figuresAge = display.status === 'figures' && display.figures.ageSeconds !== undefined
-        ? ageWord(display.figures.ageSeconds)
+        ? ageWord(display.figures.ageSeconds, display.at)
         : undefined;
     const failureText = failure === undefined ? undefined
         : `${t('plugins.rightNow.refreshFailed')}: ${failure.reason} · ${new Date(failure.at).toLocaleTimeString()} · Retry available now`;
@@ -238,7 +238,7 @@ export function UsageScreen() {
     // reader already saw -- the card's connected strip carries them -- instead
     // of a refusal that reads as nothing.
     const lastKnown = display.status === 'unavailable' ? lastKnownPlan(provider) : undefined;
-    const lastKnownAge = lastKnown === undefined || lastKnown.ageSeconds === undefined ? undefined : ageWord(lastKnown.ageSeconds);
+    const lastKnownAge = lastKnown === undefined || lastKnown.ageSeconds === undefined ? undefined : ageWord(lastKnown.ageSeconds, lastKnown.shownAt);
     return (
         <>
             <Header
@@ -439,7 +439,8 @@ function ProviderTabs({ tabs, active, onSelect }: { tabs: UsageReport['providers
 }
 
 /** The age of retained figures, in the words every other surface uses. */
-function ageWord(ageSeconds: number): string | undefined {
+function ageWord(ageSeconds: number, shownAt: number): string | undefined {
+    ageSeconds += Math.max(0, (Date.now() - shownAt) / 1_000);
     if (ageSeconds < 60) return t('time.justNow');
     const minutes = Math.round(ageSeconds / 60);
     if (minutes < 60) return t('time.minutesAgo', { count: minutes });

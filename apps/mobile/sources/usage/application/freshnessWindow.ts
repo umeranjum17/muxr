@@ -253,9 +253,9 @@ export function tabListAskOwed(provider: string, recordAt: number): boolean {
  *  strip of any record that carries it: what a tab whose own read has never
  *  answered can still show instead of a blank. Another provider's refused
  *  read must not take a figure the reader already saw away. */
-export function lastKnownPlan(provider: string): { plan: string; windows: UsageLimitsPayload['windows']; ageSeconds?: number } | undefined {
+export function lastKnownPlan(provider: string): { plan: string; windows: UsageLimitsPayload['windows']; ageSeconds?: number; shownAt: number } | undefined {
     const machine = getCachedConnectionSettings().machineId;
-    let newest: { at: number; plan: string; windows: UsageLimitsPayload['windows']; ageSeconds?: number } | undefined;
+    let newest: { at: number; plan: string; windows: UsageLimitsPayload['windows']; ageSeconds?: number; shownAt: number } | undefined;
     for (const [key, display] of displays) {
         if (!key.startsWith(`${machine}\u0000`) || display.status !== 'figures') continue;
         const plan = (display.figures.connected ?? []).find((candidate) => candidate.id === provider);
@@ -266,6 +266,7 @@ export function lastKnownPlan(provider: string): { plan: string; windows: UsageL
             at: Number.isFinite(at) ? at : -Infinity,
             plan: plan.plan ?? plan.label,
             windows: plan.windows,
+            shownAt: display.at,
             ...(display.figures.ageSeconds === undefined ? {} : { ageSeconds: display.figures.ageSeconds }),
         };
     }

@@ -854,11 +854,12 @@ describe('the usage screen read path', () => {
         // The card collected limits; the screen's own report read is refused.
         // What the tab must not do is paint the card's silence about activity
         // as "No measured activity" -- a confident statement nobody earned.
-        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, collected(undefined, 20)) });
+        rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: withNow(undefined, collected(0, 20)) });
         request.mockRejectedValue(new Error('rate limited'));
         const screen = renderScreen();
         await tick();
         expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screenText(screen)).toContain('time.minutesAgo(10)');
         expect(screenText(screen)).not.toContain('No measured activity');
         // The limits the card did collect stay on screen, and the failure
         // offers the way back it always does.
@@ -881,10 +882,16 @@ describe('the usage screen read path', () => {
         rememberShown('older', { status: 'figures', at: Date.now(), figures: {
             limits: { verdict: 'go', windows: [] }, connected: claudePlan(18), capturedAt: '2026-01-01T00:00:00Z',
         } });
-        rememberShown('newer', { status: 'figures', at: Date.now(), figures: {
-            limits: { verdict: 'go', windows: [] }, connected: claudePlan(40), capturedAt: '2026-01-01T00:01:00Z',
+        rememberShown('newer', { status: 'figures', at: Date.now() - 600_000, figures: {
+            limits: { verdict: 'go', windows: [] }, connected: claudePlan(40), capturedAt: '2026-01-01T00:01:00Z', ageSeconds: 0,
         } });
         expect(lastKnownPlan('claude')?.windows[0]?.used).toBe(40);
+        noteAsked('claude', Date.now());
+        rememberShown('claude', { status: 'unavailable', reason: 'rate limited' });
+        const claude = renderScreen();
+        press(claude, 'Claude');
+        await tick();
+        expect(screenText(claude)).toContain('time.minutesAgo(10)');
     });
 
     it('shows what the other surface learns without a remount', async () => {
@@ -1171,7 +1178,9 @@ describe('the usage screen read path', () => {
     });
 
     it('names a failed refresh at the control rather than passing it off as success', async () => {
-        request.mockResolvedValueOnce(report('claude', 60)).mockRejectedValue(new Error('host unreachable'));
+        noteAsked('', Date.now());
+        rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: withReport(undefined, report('claude', 0)) });
+        request.mockRejectedValue(new Error('host unreachable'));
         const screen = renderScreen();
         await tick();
         expect(screenText(screen)).toContain('OpenCode');
@@ -1184,6 +1193,7 @@ describe('the usage screen read path', () => {
         // looking exactly like a refresh that worked.
         expect(screenText(screen)).toContain('OpenCode');
         expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screenText(screen)).toContain('time.minutesAgo(10)');
         expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
     });
 
