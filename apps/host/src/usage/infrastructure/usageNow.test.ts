@@ -239,4 +239,12 @@ it('keeps a completed activity-only scan for card follow-ups without writing all
     writeFileSync(activity, '#!/bin/sh\nexit 1\n');
     const revisited = await collectUsage({}, env);
     expect(revisited.capturedAt).not.toBe(first.capturedAt);
+
+    env.MUXR_USAGE_NOW = new Date(firstDay.getTime() + 1_000).toISOString();
+    writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${today}","agents":[{"agent":"opencode","totalTokens":1234}]}],"session":[]}'\n`, { mode: 0o755 });
+    const refreshed = await collectUsage({ refresh: true }, env);
+    env.MUXR_USAGE_NOW = new Date(firstDay.getTime() + 2_000).toISOString();
+    writeFileSync(activity, '#!/bin/sh\nexit 1\n');
+    const cached = await collectUsage({}, env);
+    expect(cached.capturedAt).toBe(refreshed.capturedAt);
 }, 20_000);
