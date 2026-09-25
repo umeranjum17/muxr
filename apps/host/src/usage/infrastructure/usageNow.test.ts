@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -65,6 +65,10 @@ it('keeps the aged Claude plan while its token expires and reads Claude Code ren
     await usageNow(env, { refresh: true });
     expect(fetch.mock.calls.some(([url, init]) => String(url).includes('anthropic') &&
         new Headers(init?.headers).get('authorization') === 'Bearer renewed-token')).toBe(true);
+    writeFileSync(join(env.CLAUDE_CONFIG_DIR!, 'last-statusline-input.json'), JSON.stringify(CLAUDE));
+    rmSync(credentials);
+    const disconnected = await usageNow(env, { refresh: true });
+    expect(disconnected.connected?.some(({ id }) => id === 'claude')).toBe(false);
 }, 20_000);
 
 it('never answers with a cached day older than the plan readings stored since', async () => {
@@ -153,6 +157,7 @@ it('answers the card and every Usage tab from one collection, however many reade
     expect(report.providers.map(({ id }) => id)).toContain('opencode');
     expect(report.todayTokens).toBe('1.2K');
     expect(report.modelSeries.map(({ label }) => label)).toEqual(['go-model']);
+    expect(existsSync(join(env.MUXR_HOME!, 'usage', 'usage-v2-all.json'))).toBe(false);
 
     // A second tab's forced ask right behind them re-collects, but the stored
     // plan readings answer for the providers: the rate limit is not spent
@@ -161,4 +166,21 @@ it('answers the card and every Usage tab from one collection, however many reade
     expect(fetch.mock.calls).toHaveLength(reads);
     expect(other.capturedAt).not.toBe(report.capturedAt);
     expect(other.windows).toEqual(now_.windows);
+}, 20_000);
+
+it('keeps a completed activity-only scan for card follow-ups without writing all agents to disk', async () => {
+    const env = host();
+    rmSync(join(env.CLAUDE_CONFIG_DIR!, '.credentials.json'));
+    rmSync(join(env.PI_AGENT_DIR!, 'auth.json'));
+    const activity = join(env.HOME!, 'ccusage');
+    const today = new Date().toLocaleDateString('sv-SE');
+    writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${today}","agents":[{"agent":"opencode","totalTokens":1234}]}],"session":[]}'\n`, { mode: 0o755 });
+    env.MUXR_CCUSAGE_BIN = activity;
+    const { collectUsage } = await import('./collectUsage.js');
+    const first = await collectUsage({ refresh: true }, env);
+    writeFileSync(activity, '#!/bin/sh\nexit 1\n');
+    const next = await collectUsage({}, env);
+    expect(next.capturedAt).toBe(first.capturedAt);
+    expect(next.providers.map(({ id }) => id)).toContain('opencode');
+    expect(existsSync(join(env.MUXR_HOME!, 'usage', 'usage-v2-all.json'))).toBe(false);
 }, 20_000);

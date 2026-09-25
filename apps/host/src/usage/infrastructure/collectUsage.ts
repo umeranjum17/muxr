@@ -420,43 +420,34 @@ interface RawCollection {
     /** The plan collectors' own words for a plan they could not read. */
     goLabel: string;
     zaiLabel: string;
-    /** Whether this collection stored at least one fresh plan reading: a
-     *  collection that learned nothing new is not kept as an answer. */
+    /** A successful plan read or local activity scan produced this answer. */
     storedFresh: boolean;
 }
 
-/** The one cache file: a collection is the machine's, not a tab's -- the card
- *  and every Usage tab project the same stored answer. */
-const CACHE_FILE = 'usage-v2-all.json';
+const completed = new Map<string, RawCollection>();
 
-function cachedRaw(env: NodeJS.ProcessEnv, identity: string, today: string, nowMs: number): { raw: RawCollection; stale: boolean } | undefined {
-    try {
-        const saved = readJson(join(usageStateDir(env), CACHE_FILE), 128 * 1024)?.value as {
-            at?: number; date?: string; identity?: string; raw?: RawCollection;
-        } | undefined;
-        const age = nowMs - (saved?.at ?? Number.NaN);
-        // A payload captured yesterday would keep labelling its last day "Today".
-        // Past the fresh window the payload still paints instantly -- flagged
-        // stale so the screen refreshes itself in place -- because last-known
-        // numbers beat a skeleton while a fresh collection runs.
-        if (saved?.identity === identity && saved?.date === today && age >= 0
-            && isRecord(saved.raw) && Array.isArray(saved.raw.providerIds)) {
-            return { raw: saved.raw, stale: age >= PLAN_MIN_READ_MS };
-        }
-    } catch { /* no cache yet */ }
-    return undefined;
+function cacheName(selected: string): string {
+    return `usage-v2-${selected === '' ? 'all' : selected}.json`;
 }
 
-function saveRaw(env: NodeJS.ProcessEnv, raw: RawCollection, identity: string, today: string, nowMs: number): void {
-    const body = JSON.stringify({ at: nowMs, date: today, identity, raw });
+function cachedOutput(env: NodeJS.ProcessEnv, identity: string, today: string, nowMs: number, selected: string): UsageReport | undefined {
+    const saved = readJson(join(usageStateDir(env), cacheName(selected)), 128 * 1024)?.value;
+    if (!isRecord(saved) || saved.identity !== identity || saved.date !== today || !isRecord(saved.output)
+        || !Array.isArray(saved.output.providers) || typeof saved.at !== 'number' || nowMs - saved.at < 0) return undefined;
+    const output = saved.output as unknown as UsageReport;
+    return withAge({ ...output, ...(nowMs - saved.at >= PLAN_MIN_READ_MS ? { stale: true as const } : {}) }, nowMs);
+}
+
+function saveOutput(env: NodeJS.ProcessEnv, output: UsageReport, identity: string, today: string, nowMs: number, selected: string): void {
+    const body = JSON.stringify({ at: nowMs, date: today, identity, output });
     if (Buffer.byteLength(body) > 65_536) return;
-    const cache = join(usageStateDir(env), CACHE_FILE);
+    const cache = join(usageStateDir(env), cacheName(selected));
     const temporary = `${cache}.${process.pid}.tmp`;
     try {
         mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
         writeFileSync(temporary, body, { mode: 0o600 });
         renameSync(temporary, cache);
-    } catch { /* a cache that cannot be written is a slower next paint, not an error */ }
+    } catch { /* an unwritten cache only makes the next paint slower */ }
 }
 
 type PlanId = 'claude' | 'codex' | 'opencode' | 'zai';
@@ -688,6 +679,7 @@ function cacheIdentity(env: NodeJS.ProcessEnv): string {
 
 export interface CollectUsageInput {
     provider?: string;
+    report?: boolean;
     /** Re-collect past a still-valid cache (the screen's quiet revalidation). */
     refresh?: boolean;
 }
@@ -713,35 +705,44 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
     const NOW = nowDate(env);
     const TODAY = localDate(NOW);
     const accounts = planAccounts(env);
-    const identity = cacheIdentity(env);
-    // Past it, a reader that did not force still gets the day's stored
-    // collection rather than re-collecting; `stale` says it may be old.
-    if (input.refresh !== true) {
-        const cached = cachedRaw(env, identity, TODAY, NOW.getTime());
-        if (cached !== undefined) return project(cached.raw, selected, NOW.getTime(), cached.stale);
-    }
-    // A cold cache asked for by several readers at once -- the Home card's
-    // follow-ups, the Usage screen's revalidation, another screen or device --
-    // costs one collection, not one per reader. Every waiter gets the same
-    // answer or the same rejection; the entry is cleared however it settles.
+    const identity = `${cacheIdentity(env)}:${JSON.stringify(accounts)}`;
+    // A reader that did not force reuses the day's completed collection.
     const key = `${identity}\u0000${TODAY}`;
-    const running = inFlight.get(key);
-    if (running !== undefined) return project(await running, selected, NOW.getTime());
-    let collection: Promise<RawCollection>;
-    collection = collectFresh(NOW, TODAY, identity, accounts, env).finally(() => {
-        if (inFlight.get(key) === collection) inFlight.delete(key);
-    });
-    inFlight.set(key, collection);
+    if (input.refresh !== true) {
+        const cached = completed.get(key);
+        if (cached !== undefined) return project(cached, selected, NOW.getTime(), NOW.getTime() - cached.at >= PLAN_MIN_READ_MS);
+        if (input.report) {
+            const saved = cachedOutput(env, identity, TODAY, NOW.getTime(), selected);
+            if (saved !== undefined) return saved;
+        }
+    }
+    // Concurrent card and tab reads join one collection.
+    let collection = inFlight.get(key);
+    if (collection === undefined) {
+        collection = collectFresh(NOW, accounts, env).then((raw) => {
+            if (raw.storedFresh) completed.set(key, raw);
+            return raw;
+        }).finally(() => { inFlight.delete(key); });
+        inFlight.set(key, collection);
+    }
     const raw = await collection;
-    if (raw.storedFresh) saveRaw(env, raw, identity, TODAY, NOW.getTime());
-    return project(raw, selected, NOW.getTime());
+    const output = project(raw, selected, NOW.getTime());
+    const limitsUnavailable = (selected === 'claude' && raw.plans.claude?.length === 0)
+        || (selected === 'codex' && raw.plans.codex?.length === 0)
+        || (selected === 'opencode' && raw.plans.opencode?.length === 0)
+        || (selected === 'zai' && raw.plans.zai?.length === 0);
+    if (input.report && raw.storedFresh && output.activityNotice === undefined && raw.reports[output.provider]?.unavailable !== true && !limitsUnavailable
+        && (selected === '' || selected === output.provider)) {
+        saveOutput(env, output, identity, TODAY, NOW.getTime(), selected);
+    }
+    return output;
 }
 
 /** The collection itself, once the caller knows the cache is cold. It measures
  *  the whole machine -- every plan, every agent's local activity -- once; which
  *  tab asked is a projection concern and never reaches this code. The instant
  *  and the cache identity are fixed for the whole payload. */
-async function collectFresh(NOW: Date, TODAY: string, identity: string, accounts: Partial<Record<PlanId, string>>, env: NodeJS.ProcessEnv): Promise<RawCollection> {
+async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>, env: NodeJS.ProcessEnv): Promise<RawCollection> {
     const PERIODS = windowPeriods(NOW);
     const skipPlan: PlanOutcome = { label: '' };
     // Every connected plan is read alongside local activity, not after it:
@@ -751,16 +752,14 @@ async function collectFresh(NOW: Date, TODAY: string, identity: string, accounts
     const stored = readPlans(env, accounts);
     const recent = (id: PlanId) => NOW.getTime() - (stored[id]?.at ?? Number.NEGATIVE_INFINITY) < PLAN_MIN_READ_MS;
     const planConnected: string[] = (['claude', 'opencode', 'zai'] as const).filter((id) => planStillConnected(id, env));
-    // A connected plan read moments ago answers from that reading; one that is
-    // not connected is read below anyway -- with no credentials the read only
-    // produces the collector's own honest label, and that label is part of the
-    // machine's answer, whichever tab asks for it.
+    // Connected plans read moments ago answer from their last reading; the
+    // other collectors still provide their own unavailable labels.
     const readEarly = <T,>(id: PlanId, read: () => Promise<T>, skip: T): Promise<T> | undefined => {
         if (!planConnected.includes(id)) return undefined;
         return recent(id) ? Promise.resolve(skip) : read();
     };
     const early = {
-        claude: readEarly<unknown>('claude', () => claudePlanLimits(env), undefined) ?? claudePlanLimits(env),
+        claude: readEarly<unknown>('claude', () => claudePlanLimits(env), undefined) ?? Promise.resolve(undefined),
         opencode: readEarly('opencode', () => goPlanLimits(env), skipPlan) ?? goPlanLimits(env),
         zai: readEarly('zai', () => zaiPlanLimits(env), skipPlan) ?? zaiPlanLimits(env),
     };
@@ -894,7 +893,7 @@ async function collectFresh(NOW: Date, TODAY: string, identity: string, accounts
         zaiModelCount: zaiModelIds.size,
         goLabel: go.label,
         zaiLabel: zaiPlan.label,
-        storedFresh: Object.keys(updates).length > 0,
+        storedFresh: Object.keys(updates).length > 0 || range !== undefined || Object.values(local).some((report) => Array.isArray(report.rows)),
     };
 }
 

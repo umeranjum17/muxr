@@ -17,7 +17,7 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, collectionDue, knownProviders, lastForcedRead, noteAsked, noteForcedRead, noteTabListAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
+import { FRESH_MS, clearReportFailure, collectionDue, knownProviders, lastForcedRead, noteAsked, noteForcedRead, noteReportFailure, noteTabListAsked, releaseAsked, rememberShown, reportFailure, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
@@ -53,10 +53,6 @@ export function UsageScreen() {
     React.useSyncExternalStore(subscribeUsage, usageWrites);
     const display = shownUsage(provider) ?? NOTHING_SHOWN_YET;
     const [refreshing, setRefreshing] = React.useState(false);
-    // The tab whose last read did not produce figures: the card's own rule, so a
-    // refresh that failed behind figures a reader can see is named rather than
-    // passed off as a refresh that worked -- and named for that tab only.
-    const [failedTab, setFailedTab] = React.useState<string | undefined>(undefined);
     // Any read in flight. It drives the hairline and the refresh control, never
     // the figures: what is on screen stays there until a newer answer lands.
     const [busy, setBusy] = React.useState(false);
@@ -69,7 +65,8 @@ export function UsageScreen() {
     // outstanding: a read abandoned before that has no answer coming.
     const claim = React.useRef<{ target: string; at: number } | undefined>(undefined);
     const error = display.status === 'unavailable' ? (display.reason === '' ? t('plugins.rightNow.unavailable') : display.reason) : undefined;
-    const failed = failedTab === provider;
+    const failure = reportFailure(provider);
+    const failed = failure !== undefined;
     rejected.current = failed || display.status === 'unavailable';
 
     const report = display.status === 'figures' ? reportFrom(display.figures, provider) : undefined;
@@ -107,14 +104,14 @@ export function UsageScreen() {
             .then((value) => {
                 if (request !== version.current) { abandon(); return; }
                 claim.current = undefined;
-                setFailedTab((current) => (current === target ? undefined : current));
+                clearReportFailure(target);
                 const previous = shownUsage(target);
                 rememberShown(target, { status: 'figures', at: Date.now(), figures: withReport(previous?.status === 'figures' ? previous.figures : undefined, value) });
             })
             .catch((cause: unknown) => {
                 if (request !== version.current) { abandon(); return; }
                 claim.current = undefined;
-                setFailedTab(target);
+                noteReportFailure(target, claimedAtMs, cause instanceof Error ? cause.message : String(cause));
                 const previous = shownUsage(target);
                 if (previous === undefined || previous.status !== 'figures') {
                     rememberShown(target, { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause), ...measured(previous ?? {}) });
@@ -236,6 +233,8 @@ export function UsageScreen() {
     // "could not be read"), never "nothing measured": the three are different
     // facts and this screen is where they must not look alike.
     const activityUnread = display.status === 'figures' && display.figures.activity === undefined;
+    const failureText = failure === undefined ? undefined
+        : `${t('plugins.rightNow.refreshFailed')}: ${failure.reason} · ${new Date(failure.at).toLocaleTimeString()} · Retry available now`;
     return (
         <>
             <Header
@@ -266,7 +265,7 @@ export function UsageScreen() {
                     with no way back to the figures another tab holds. */}
                 {tabs.length > 0 && <ProviderTabs tabs={tabs} active={report?.provider ?? provider} onSelect={selectTab} />}
                 {display.status === 'unavailable' && <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${error ?? t('plugins.rightNow.unavailable')}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
-                    <Notice tone="danger" text={error ?? t('plugins.rightNow.unavailable')} style={{ marginBottom: 0 }} />
+                    <Notice tone="danger" text={failureText ?? error ?? t('plugins.rightNow.unavailable')} style={{ marginBottom: 0 }} />
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
                 </Pressable>}
                 {display.status === 'waiting' && <WaitingSkeleton />}
@@ -281,12 +280,13 @@ export function UsageScreen() {
                                 <ScreenLimits node={LIMITS_NODE} data={report} />
                                 {failed
                                     ? <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${t('plugins.rightNow.refreshFailed')}. ${t('plugins.rightNow.refreshNow')}`} style={{ marginTop: 10, paddingVertical: 10 }}>
-                                        <Notice tone="danger" text={t('plugins.rightNow.refreshFailed')} style={{ marginBottom: 0 }} />
+                                        <Notice tone="danger" text={failureText ?? t('plugins.rightNow.refreshFailed')} style={{ marginBottom: 0 }} />
                                     </Pressable>
                                     : <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 12 }}>{t('plugins.rightNow.collecting')}</Text>}
                             </View>
                             : <View style={{ opacity: busy ? 0.55 : 1 }}>
                             <ScreenLimits node={LIMITS_NODE} data={report} />
+                            {failureText !== undefined && <Notice tone="danger" text={failureText} />}
                             <SectionLabel style={{ marginBottom: 10 }}>Today</SectionLabel>
                             <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14 }]}>
                                 {report.activityNotice !== undefined && <Notice tone="warning" text={report.activityNotice} />}

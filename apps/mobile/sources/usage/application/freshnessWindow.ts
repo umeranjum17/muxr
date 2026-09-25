@@ -38,6 +38,23 @@ const askedAt = new Map<string, number>();
  *  the floor under every forced read, kept here rather than in a mounted hook
  *  so a remount or a surface switch cannot walk around it. */
 const lastForcedAt = new Map<string, number>();
+const reportFailures = new Map<string, { at: number; reason: string }>();
+
+export function reportFailure(provider: string): { at: number; reason: string } | undefined {
+    return reportFailures.get(machineKey(provider));
+}
+
+export function noteReportFailure(provider: string, at: number, reason: string): void {
+    reportFailures.set(machineKey(provider), { at, reason });
+    writes += 1;
+    for (const listener of [...listeners]) listener();
+}
+
+export function clearReportFailure(provider: string): void {
+    if (!reportFailures.delete(machineKey(provider))) return;
+    writes += 1;
+    for (const listener of [...listeners]) listener();
+}
 
 /** The measured local activity a usage.report read carries, and the host's own
  *  words for having none. */

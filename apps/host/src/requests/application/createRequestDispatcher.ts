@@ -349,6 +349,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),
         'machine.listDir': (params) => listDir(params.path),
         'usage.report': (params) => collectUsage({
+            report: true,
             ...(params.provider === undefined ? {} : { provider: params.provider }),
             ...(params.refresh === undefined ? {} : { refresh: params.refresh }),
         }),
