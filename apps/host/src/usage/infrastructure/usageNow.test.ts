@@ -159,13 +159,20 @@ it('answers the card and every Usage tab from one collection, however many reade
     expect(report.modelSeries.map(({ label }) => label)).toEqual(['go-model']);
     expect(existsSync(join(env.MUXR_HOME!, 'usage', 'usage-v2-all.json'))).toBe(false);
 
-    // A second tab's forced ask right behind them re-collects, but the stored
-    // plan readings answer for the providers: the rate limit is not spent
-    // again, and the figures are the same ones the first collection landed.
-    const other = await collectUsage({ provider: 'claude', refresh: true }, env);
+    const other = await collectUsage({ provider: 'claude' }, env);
     expect(fetch.mock.calls).toHaveLength(reads);
-    expect(other.capturedAt).not.toBe(report.capturedAt);
+    expect(other.capturedAt).toBe(report.capturedAt);
     expect(other.windows).toEqual(now_.windows);
+
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 61_000).toISOString();
+    const [staleCard, staleTab] = await Promise.all([
+        collectUsage({}, env), collectUsage({ provider: 'opencode' }, env),
+    ]);
+    expect(staleCard.capturedAt).toBe(staleTab.capturedAt);
+    expect(staleCard.capturedAt).not.toBe(report.capturedAt);
+    expect(fetch.mock.calls).toHaveLength(reads + 2);
+    await collectUsage({ provider: 'claude' }, env);
+    expect(fetch.mock.calls).toHaveLength(reads + 2);
 }, 20_000);
 
 it('persists a measured default OpenCode report only when its resolved plan is available', async () => {

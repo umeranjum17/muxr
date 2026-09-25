@@ -73,19 +73,11 @@ export function UsageScreen() {
     const report = display.status === 'figures' ? reportFrom(display.figures, provider) : undefined;
     const tabs = report?.providers ?? knownProviders();
 
-    /**
-     * Ask the host to collect this tab past its cache, and paint the answer.
-     * This is the only kind of ask the screen sends: our own window decides
-     * whether it happens at all, so a window costs one collection rather than a
-     * cached read beside it. The read claims our window and the shared budget
-     * at `claimedAtMs`, the instant the decision was taken, so the next window
-     * is measured from where it decided rather than from a round trip.
-     */
-    const load = React.useCallback((target: string, claimedAtMs = Date.now()): Promise<void> => {
+    const load = React.useCallback((target: string, claimedAtMs = Date.now(), force = false): Promise<void> => {
         const request = ++version.current;
         inFlight.current = true;
         setBusy(true);
-        noteForcedRead(target, claimedAtMs);
+        if (force) noteForcedRead(target, claimedAtMs);
         // This read supersedes whatever was in flight: that answer will be
         // dropped, so its claim goes with it now rather than a window later.
         const superseded = claim.current;
@@ -101,7 +93,7 @@ export function UsageScreen() {
         // behind an answer, not a reason to take that answer away.
         const before = shownUsage(target);
         if (before === undefined || before.status === 'waiting') rememberShown(target, { status: 'waiting', askedAt: claimedAtMs, ...measured(before ?? {}) });
-        return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), refresh: true }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
+        return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), refresh: force }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((value) => {
                 if (request !== version.current) { abandon(); return; }
                 claim.current = undefined;
@@ -130,7 +122,7 @@ export function UsageScreen() {
                 if (pressed === undefined) return;
                 pendingRetry.current = undefined;
                 setThrottledSeconds(undefined);
-                void load(pressed);
+                void load(pressed, Date.now(), true);
             });
     }, []);
 
@@ -150,13 +142,13 @@ export function UsageScreen() {
      *  showing a wait or a failure is not asked for again: what it holds is the
      *  truth about it. `replace` lets a tab change through while another read
      *  is in flight. */
-    const loadIfDue = React.useCallback((target: string, replace = false): void => {
+    const loadIfDue = React.useCallback((target: string, replace = false, force = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
         const owed = unaskedTabList(target);
         if (!collectionDue(target, now) && !owed) return;
         if (owed) noteTabListAsked(target, now);
-        void load(target, now);
+        void load(target, now, force);
     }, [load, unaskedTabList]);
 
     React.useEffect(() => {
@@ -181,7 +173,7 @@ export function UsageScreen() {
     // Refreshing while focused and in the foreground only, and never on top of
     // a read that is already running -- opening the screen must not queue a
     // second ask behind the first.
-    useForegroundRefresh(() => { loadIfDue(provider); }, FRESH_MS);
+    useForegroundRefresh(() => { loadIfDue(provider, false, true); }, FRESH_MS);
 
     // A pressed tab paints its own state at once; another tab's figures are not
     // this one's, and a tab showing a wait says so.
@@ -206,7 +198,7 @@ export function UsageScreen() {
         if (inFlight.current) { setRefreshing(true); return; }
         if (!askNow()) return;
         setRefreshing(true);
-        void load(provider);
+        void load(provider, Date.now(), true);
     };
     // A pressed retry is an instruction: it runs, or it waits for the read in
     // flight and then runs, and a refusal is named at the control.
@@ -214,7 +206,7 @@ export function UsageScreen() {
         hapticsSelection();
         if (inFlight.current) { pendingRetry.current = provider; return; }
         if (!askNow()) return;
-        void load(provider);
+        void load(provider, Date.now(), true);
     };
 
     React.useEffect(() => {

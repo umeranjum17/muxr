@@ -708,16 +708,15 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
     const identity = `${cacheIdentity(env)}:${JSON.stringify(accounts)}`;
     // A reader that did not force reuses the day's completed collection.
     const key = `${identity}\u0000${TODAY}`;
-    if (input.refresh !== true) {
+    let collection = inFlight.get(key);
+    if (input.refresh !== true && collection === undefined) {
         const cached = completed.get(key);
-        if (cached !== undefined) return project(cached, selected, NOW.getTime(), NOW.getTime() - cached.at >= PLAN_MIN_READ_MS);
-        if (input.report) {
+        if (cached !== undefined && NOW.getTime() - cached.at < PLAN_MIN_READ_MS) return project(cached, selected, NOW.getTime());
+        if (cached === undefined && input.report) {
             const saved = cachedOutput(env, identity, TODAY, NOW.getTime(), selected);
-            if (saved !== undefined) return saved;
+            if (saved !== undefined && saved.stale !== true) return saved;
         }
     }
-    // Concurrent card and tab reads join one collection.
-    let collection = inFlight.get(key);
     if (collection === undefined) {
         collection = collectFresh(NOW, accounts, env).then((raw) => {
             if (raw.storedFresh) completed.set(key, raw);

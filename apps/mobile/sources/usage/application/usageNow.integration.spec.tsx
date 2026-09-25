@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import type { UsageNow, UsageReport } from '@muxr/contract';
-import { FRESH_MS, noteAsked, rememberShown, shownUsage, withNow, withReport } from './freshnessWindow';
+import { FRESH_MS, lastKnownPlan, noteAsked, rememberShown, shownUsage, withNow, withReport } from './freshnessWindow';
 
 /**
  * The Home card's whole read path, end to end against a scripted host.
@@ -721,16 +721,19 @@ describe('the usage screen read path', () => {
         request.mockResolvedValue(report('claude', 1_200));
         const screen = renderScreen();
         await tick();
-        // The first view collected once, spending the forced-read budget.
-        expect(forcedReads()).toHaveLength(1);
+        // Opening reads the shared collection without spending the forced-read budget.
+        expect(request).toHaveBeenLastCalledWith('usage.report', { refresh: false }, expect.any(Number));
+        expect(forcedReads()).toHaveLength(0);
 
         const control = refreshControls(screen)[0];
         expect(control).toBeDefined();
         TestRenderer.act(() => { control.props.onPress(); });
         await tick();
 
-        // The refusal is named on the button itself, with its countdown, and it
-        // gets the same feedback as a press that ran.
+        // The first press is explicit, so it forces; a second is refused.
+        expect(request).toHaveBeenLastCalledWith('usage.report', { refresh: true }, expect.any(Number));
+        TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
+        await tick();
         const pressed = refreshControls(screen)[0];
         expect(hapticsSelection).toHaveBeenCalled();
         expect(pressed.props.accessibilityLabel).toContain('plugins.rightNow.refreshThrottled');
@@ -754,12 +757,10 @@ describe('the usage screen read path', () => {
             return Promise.resolve(report(tab, Math.max(0, Math.round((Date.now() - cachedAt[tab]) / 1_000))));
         });
 
-        // Opening asks for the collection itself...
         let screen = renderScreen();
         await tick();
-        expect(request.mock.calls[0]?.[1]).toEqual({ refresh: true });
-        // ...which is the only ask this screen makes.
-        expect(forcedReads()).toHaveLength(1);
+        expect(request.mock.calls[0]?.[1]).toEqual({ refresh: false });
+        expect(forcedReads()).toHaveLength(0);
 
         // Re-entry...
         await tick(90_000);
@@ -770,15 +771,13 @@ describe('the usage screen read path', () => {
         await tick(90_000);
         TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
         await tick();
-        expect(forcedReads()).toHaveLength(1);
+        expect(forcedReads()).toHaveLength(0);
 
-        // A tab nobody has asked is its own window: it asks at once, and
-        // asking it does not hand claude another collection.
         await tick(90_000);
         press(screen, 'OpenCode');
         await tick();
-        expect(forcedReads()).toHaveLength(2);
-        expect(forcedReads()[1]?.[1]).toMatchObject({ provider: 'opencode' });
+        expect(request.mock.calls.at(-1)?.[1]).toEqual({ provider: 'opencode', refresh: false });
+        expect(forcedReads()).toHaveLength(0);
     });
 
     it('asks at most once per window when the host cannot store a reading', async () => {
@@ -790,7 +789,8 @@ describe('the usage screen read path', () => {
 
         let screen = renderScreen();
         await tick();
-        expect(forcedReads()).toHaveLength(1);
+        expect(request).toHaveBeenCalledWith('usage.report', { refresh: false }, expect.any(Number));
+        expect(forcedReads()).toHaveLength(0);
 
         // Reopen...
         await tick(90_000);
@@ -802,7 +802,7 @@ describe('the usage screen read path', () => {
         TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
         await tick();
 
-        expect(forcedReads()).toHaveLength(1);
+        expect(forcedReads()).toHaveLength(0);
     });
 
     it('paints the state the card left, rather than nothing, when the window is already claimed', async () => {
@@ -876,6 +876,15 @@ describe('the usage screen read path', () => {
         press(remounted, 'plugins.rightNow.refreshFailed. plugins.rightNow.refreshNow');
         await tick();
         expect(remounted.root.findAllByType('Notice').some((node: any) => node.props.text.includes('Retry available now'))).toBe(false);
+
+        const claudePlan = (used: number) => [{ id: 'claude', label: 'Claude', plan: 'Claude plan', windows: [{ label: 'Rolling', used }] }];
+        rememberShown('older', { status: 'figures', at: Date.now(), figures: {
+            limits: { verdict: 'go', windows: [] }, connected: claudePlan(18), capturedAt: '2026-01-01T00:00:00Z',
+        } });
+        rememberShown('newer', { status: 'figures', at: Date.now(), figures: {
+            limits: { verdict: 'go', windows: [] }, connected: claudePlan(40), capturedAt: '2026-01-01T00:01:00Z',
+        } });
+        expect(lastKnownPlan('claude')?.windows[0]?.used).toBe(40);
     });
 
     it('shows what the other surface learns without a remount', async () => {
@@ -1475,13 +1484,13 @@ describe('the usage screen read path', () => {
 
         renderScreen();
         await tick();
-        expect(forcedReads()).toHaveLength(1);
+        expect(forcedReads()).toHaveLength(0);
 
         await tick(FRESH_MS - 1_000);
-        expect(forcedReads()).toHaveLength(1);
+        expect(forcedReads()).toHaveLength(0);
 
         await tick(2_000);
-        expect(forcedReads()).toHaveLength(2);
+        expect(forcedReads()).toHaveLength(1);
     });
 
     it('shows the read a pull lands on rather than a gesture that did nothing', async () => {

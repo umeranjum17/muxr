@@ -4,9 +4,7 @@ import { getCachedConnectionSettings } from '@/connection';
 /** How long a collected reading stays good enough to show as it is, on both
  *  the Home card and the Usage screen: quota windows move over hours, so
  *  within this the figures are the answer and asking again costs a full
- *  collection for nothing. Past it a read asks the host to collect again
- *  rather than be served the same payload -- the host reuses a completed
- *  collection unless asked to refresh it. Doubles as the refresh cadence on
+ *  collection for nothing. Doubles as the refresh cadence on
  *  both surfaces. */
 export const FRESH_MS = 15 * 60_000;
 
@@ -257,18 +255,23 @@ export function tabListAskOwed(provider: string, recordAt: number): boolean {
  *  read must not take a figure the reader already saw away. */
 export function lastKnownPlan(provider: string): { plan: string; windows: UsageLimitsPayload['windows']; ageSeconds?: number } | undefined {
     const machine = getCachedConnectionSettings().machineId;
+    let newest: { at: number; plan: string; windows: UsageLimitsPayload['windows']; ageSeconds?: number } | undefined;
     for (const [key, display] of displays) {
         if (!key.startsWith(`${machine}\u0000`) || display.status !== 'figures') continue;
         const plan = (display.figures.connected ?? []).find((candidate) => candidate.id === provider);
-        if (plan !== undefined && plan.windows.length > 0) {
-            return {
-                plan: plan.plan ?? plan.label,
-                windows: plan.windows,
-                ...(display.figures.ageSeconds === undefined ? {} : { ageSeconds: display.figures.ageSeconds }),
-            };
-        }
+        if (plan === undefined || plan.windows.length === 0) continue;
+        const at = Date.parse(display.figures.capturedAt ?? '');
+        if (newest !== undefined && !(at > newest.at)) continue;
+        newest = {
+            at: Number.isFinite(at) ? at : -Infinity,
+            plan: plan.plan ?? plan.label,
+            windows: plan.windows,
+            ...(display.figures.ageSeconds === undefined ? {} : { ageSeconds: display.figures.ageSeconds }),
+        };
     }
-    return undefined;
+    if (newest === undefined) return undefined;
+    const { at: _at, ...reading } = newest;
+    return reading;
 }
 
 /** What this machine's tab shows, if anything has been asked for it yet. */
