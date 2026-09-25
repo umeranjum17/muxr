@@ -27,7 +27,7 @@ child.once('error', (error) => {
 child.once('exit', (code, signal) => {
     const finish = () => {
         const unused = scratchUnused(root, true);
-        const leftovers = readdirSync(root).filter((name) => name !== 'owner').map((name) => join(root, name));
+        const leftovers = readdirSync(root).filter((name) => name !== 'owner' && name !== 'node-compile-cache').map((name) => join(root, name));
         if (vitest && unused && leftovers.length) process.stderr.write(`FAIL: host test scratch leftovers:\n${leftovers.join('\n')}\n`);
         if (unused) rmSync(root, { recursive: true, force: true });
         process.exit(vitest && unused && leftovers.length ? 1 : signalExit ?? code ?? (signal ? 1 : 0));
