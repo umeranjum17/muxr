@@ -117,7 +117,10 @@ needs it [built from source](../packages/desktop-host/README.md#building-from-so
 muxr never enables Funnel. Restrict the Serve endpoint with a tailnet grant/ACL to intended devices even though muxr pairing and E2EE remain authoritative. `--web` requires a secure `wss://` route; insecure LAN HTTP is refused.
 
 Set `MUXR_TRUST_PROXY=1` when the relay sits behind cloudflared/nginx so rate
-limits key on real client IPs.
+limits key on real client IPs. The relay keeps at most 10,000 active per-IP
+rate-limit windows across HTTP and WebSocket requests. Once full, it rejects
+rate-limited requests with new keys until a window expires; existing windows
+keep their quotas rather than having them reset.
 
 ## Pairing, security model
 
