@@ -81,7 +81,7 @@ it('stops delivering both push channels when an unpublished native claim expires
             await push.subscribe('local:machine-a', {
                 endpoint: `https://push.example.com/${name}`,
                 keys: { p256dh: 'key', auth: 'auth' },
-            }, { deviceId: issued.deviceId });
+            }, { deviceId: issued.deviceId, level: 'all' });
             await push.subscribeExpo('local:machine-a', `ExpoPushToken[${name}]`, 'all', issued.deviceId);
             return { session, issued };
         };

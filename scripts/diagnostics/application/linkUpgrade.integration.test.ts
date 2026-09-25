@@ -192,6 +192,7 @@ describe('link upgrade for an already-paired phone', () => {
         expect(statuses).not.toContain('removed');
         writeFileSync(releaseEnrol, 'go');
         await until(() => (link.status === 'online' ? true : undefined), 'already-paired phone comes online over the link', 30_000);
+        console.log('restart link before revocation:', statuses.join(' -> '));
         expect(link.grant.device.id).not.toBe('pending');
         const started = await link.request('session.start', { type: 'session.start', requestId: 'r1', params: { cwd: home } }) as {
             type: string; ok: boolean; data?: { info?: { id?: string } };
@@ -265,6 +266,7 @@ describe('link upgrade for an already-paired phone', () => {
         expect(events.some((event) => (event as { sessionId?: string }).sessionId === nextId)).toBe(false);
         expect(await until(() => revoking.exitCode === null ? undefined : revoking.exitCode, 'revocation completes'), revoking.output()).toBe(0);
         await until(() => (link.status === 'removed' ? true : undefined), 'revoked phone is removed from the link', 30_000);
+        console.log('restart link after revocation:', statuses.join(' -> '));
         await until(() => (client.state === 'stale' ? true : undefined), 'revoked phone loses the relay transport', 60_000);
         expect(statuses).not.toContain('refused');
         client.close();
@@ -360,6 +362,7 @@ describe('link upgrade for an already-paired phone', () => {
         expect(await link.request('session.start', { type: 'session.start', requestId: 'as-control', params: { cwd: home } })).toMatchObject({ ok: true });
         expect(statuses.every((status) => status === 'connecting' || status === 'online' || status === 'offline')).toBe(true);
         expect(statuses).not.toContain('removed');
+        console.log('link role changes:', statuses.join(' -> '), 'source closes:', JSON.stringify(sourceCloses()));
         link.stop();
 
         phone.secure.clear();
@@ -491,6 +494,7 @@ describe('link upgrade for an already-paired phone', () => {
             throw new Error(`${error.message}\nstatuses: ${statuses.join(', ')}\nrecord now: ${JSON.stringify(nowState.machine.crypto.devices.find((d) => d.deviceId === doomed))}\nhost tail: ${host!.output().slice(-400)}`);
         });
         expect(statuses).toContain('removed');
+        console.log('expired unpublished link:', statuses.join(' -> '), 'push credential status:', (await subscription()).status);
         dropped.stop();
     }, 120_000);
 

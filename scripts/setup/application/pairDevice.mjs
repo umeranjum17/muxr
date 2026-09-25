@@ -247,9 +247,9 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         }
         // The record written before the grant is published carries only the
         // pairing window: if publishing fails, the device is dropped when the
-        // window ends. Publishing success extends it to the normal expiry.
-        // The sealed grant itself keeps the full lifetime; the host's device
-        // record is what gates access before and after publishing.
+        // window ends. Only after relay credential release does the host
+        // record receive its normal expiry. The sealed grant itself keeps the
+        // full lifetime; the host record gates access throughout.
         pending.device = claimed.deviceRecord({ deviceId, devicePublicKey, ingressKey, expiresAt: new Date(pending.expiresAt).toISOString() });
         pending.deviceName = typeof request.deviceName === 'string' && request.deviceName.trim() !== '' ? request.deviceName.trim() : 'phone';
         // A future link dialer must treat enrolment still pending as distinct from a device actually removed.
