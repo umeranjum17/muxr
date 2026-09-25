@@ -307,7 +307,7 @@ async function json(base: string, path: string, options: RequestInit = {}): Prom
         const message = String(body.error ?? `request failed (${response.status})`);
         throw new Error(friendlyRelayError(message));
     } catch (cause) {
-        if (cause instanceof Error && cause.name === 'AbortError') throw new PairingInterrupted('The relay did not respond. Check the network, then run `muxr doctor` on the machine.');
+        if (cause instanceof Error && cause.name === 'AbortError') throw new PairingInterrupted(RELAY_TIMEOUT_MESSAGE);
         throw cause;
     } finally {
         if (timeout !== undefined) clearTimeout(timeout);
@@ -316,6 +316,8 @@ async function json(base: string, path: string, options: RequestInit = {}): Prom
 
 /** The route dropped before the relay answered; nothing was refused. */
 class PairingInterrupted extends Error {}
+const RELAY_TIMEOUT_MESSAGE = 'The relay did not respond. Check the network, then run `muxr doctor` on the machine.';
+const SSH_DROP_MESSAGE = 'The SSH connection dropped. Check the connection, then try again with the same code.';
 
 function friendlyRelayError(message: string): string {
     if (message === 'invalid_claim') return 'This pairing string is invalid. Create a fresh one on the machine.';
@@ -379,7 +381,7 @@ async function completePendingHostedPair(pending: PendingHostedPair, wait: boole
             } catch (error) {
                 if (error instanceof Error && (error.name === 'AbortError' || error instanceof TypeError)) {
                     if (!wait) return undefined;
-                    if (resumable) throw new PairingInterrupted('The SSH connection dropped. Check the connection, then try again with the same code.');
+                    if (resumable) throw new PairingInterrupted(SSH_DROP_MESSAGE);
                     continue;
                 }
                 if (!(error instanceof Error) || (error.message !== 'grant_not_available' && error.message !== 'not_found')) throw error;
@@ -502,9 +504,14 @@ export async function claimHostedPairing(url: string, options: { resumable?: boo
         // failed verification ends it.
         const interrupted = cause instanceof PairingInterrupted || cause instanceof TypeError;
         if (held !== undefined && !interrupted) resumablePairings.delete(held);
-        if (options.resumable === true && cause instanceof Error && (
-            cause.message === friendlyRelayError('invalid_pairing_code') || cause.message === friendlyRelayError('already_claimed')
-        )) throw new Error('This pairing code cannot be reused. Create a fresh one on the machine (run `muxr pair`).');
+        if (options.resumable === true && cause instanceof Error) {
+            if (cause.message === friendlyRelayError('invalid_pairing_code') || cause.message === friendlyRelayError('already_claimed')) {
+                throw new Error('This pairing code cannot be reused. Create a fresh one on the machine (run `muxr pair`).');
+            }
+            if (cause instanceof TypeError || (cause instanceof PairingInterrupted && cause.message === RELAY_TIMEOUT_MESSAGE)) {
+                throw new PairingInterrupted(SSH_DROP_MESSAGE);
+            }
+        }
         throw cause;
     }
 }

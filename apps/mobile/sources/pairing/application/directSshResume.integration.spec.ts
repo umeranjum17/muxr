@@ -46,7 +46,7 @@ async function muxrPair(relay: SelfhostPairing): Promise<string> {
 }
 
 /** The SSH forward: the phone's fetches reach the relay store until the tunnel drops. */
-function tunnel(relay: SelfhostPairing, drop: { claim?: boolean; claimResponse?: boolean; lookupResponse?: boolean; grant?: boolean }) {
+function tunnel(relay: SelfhostPairing, drop: { claim?: boolean; claimAbort?: boolean; claimResponse?: boolean; lookupResponse?: boolean; grant?: boolean; grantAbort?: boolean }) {
     const calls: string[] = [];
     vi.stubGlobal('fetch', async (input: string, init: RequestInit = {}) => {
         const path = new URL(input).pathname;
@@ -63,6 +63,7 @@ function tunnel(relay: SelfhostPairing, drop: { claim?: boolean; claimResponse?:
         }
         const pairId = decodeURIComponent(path.split('/')[4]!);
         if (path.endsWith('/claim')) {
+            if (drop.claimAbort) throw new DOMException('The request was aborted', 'AbortError');
             if (drop.claim === true) throw new TypeError('Network request failed');
             const result = await relay.claim(pairId, {
                 claim: body.claim, devicePublicKey: body.device_public_key, deviceName: body.device_name, deviceKind: body.device_kind === 'browser' ? 'browser' : 'native', mailbox: body.mailbox,
@@ -79,6 +80,7 @@ function tunnel(relay: SelfhostPairing, drop: { claim?: boolean; claimResponse?:
             if (drop.claimResponse) throw new TypeError('Network request failed');
             return reply(200, { device_id: result.deviceId, device_credential: result.credential });
         }
+        if (drop.grantAbort) throw new DOMException('The request was aborted', 'AbortError');
         if (drop.grant) throw new TypeError('Network request failed');
         const grant = await relay.fetchGrant(pairId, (await relay.poll(pairId, MACHINE_ID)).deviceId ?? '');
         return grant === undefined ? reply(404, { error: 'grant_not_available' }) : reply(200, { grant });
@@ -87,9 +89,10 @@ function tunnel(relay: SelfhostPairing, drop: { claim?: boolean; claimResponse?:
 }
 
 const sshPairingString = (code: string) => `ws://127.0.0.1:41234?pair=${code}`;
+const sshDropMessage = 'The SSH connection dropped. Check the connection, then try again with the same code.';
 
 describe('an interrupted Direct SSH pairing', () => {
-    afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+    afterEach(() => { secrets.delete('muxr.hosted-e2ee.pending-pair.v1'); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
     it('resumes with the same code inside the window and ends with an uninterrupted pairing\'s authority', async () => {
         const relay = new SelfhostPairing(mkdtempSync(join(tmpdir(), 'muxr-resume-')));
@@ -97,10 +100,13 @@ describe('an interrupted Direct SSH pairing', () => {
         const drop = { claim: true };
         const calls = tunnel(relay, drop);
 
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(TypeError);
+        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
         drop.claim = false;
+        drop.grantAbort = true;
+        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
+        drop.grantAbort = false;
         drop.grant = true;
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow('The SSH connection dropped. Check the connection, then try again with the same code.');
+        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
         drop.grant = false;
         const grant = await claimHostedPairing(sshPairingString(code), { resumable: true });
 
@@ -114,11 +120,11 @@ describe('an interrupted Direct SSH pairing', () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         const relay = new SelfhostPairing(mkdtempSync(join(tmpdir(), 'muxr-resume-')));
         const code = await muxrPair(relay);
-        const drop = { claim: true };
+        const drop = { claimAbort: true };
         tunnel(relay, drop);
 
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(TypeError);
-        drop.claim = false;
+        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
+        drop.claimAbort = false;
         vi.setSystemTime(Date.now() + 2 * 60_000 + 1);
         await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow('This pairing code expired. Create a fresh one on the machine.');
     });
@@ -129,7 +135,7 @@ describe('an interrupted Direct SSH pairing', () => {
             const code = await muxrPair(relay);
             const drop = { [lost]: true };
             tunnel(relay, drop);
-            await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(TypeError);
+            await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
             drop[lost] = false;
             await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow('This pairing code cannot be reused. Create a fresh one on the machine (run `muxr pair`).');
         }
@@ -141,7 +147,7 @@ describe('an interrupted Direct SSH pairing', () => {
         const drop = { claim: true };
         tunnel(relay, drop);
 
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(TypeError);
+        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
         // Someone holding the opened pairing claims it before the retry.
         const [session] = (relay as unknown as { state: { sessions: { pairId: string }[] } }).state.sessions;
         await relay.claim(session!.pairId, { claim: 'claim_'.padEnd(43, 'c'), devicePublicKey: generateKeyPair().publicKey, deviceName: 'other', deviceKind: 'native', mailbox: 'm' });
