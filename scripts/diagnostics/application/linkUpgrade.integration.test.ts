@@ -128,7 +128,6 @@ function linkGrantFrom(stored: StoredHostedGrant): DeviceGrant {
         hostName: stored.machineName ?? 'Computer',
         urls: [`ws://127.0.0.1:${port}/link/v1/${hostId(machineKey)}`],
         device: { id: 'pending', name: 'Android phone', role: 'control' },
-        pendingUntil: Number.MAX_SAFE_INTEGER,
     };
 }
 
@@ -279,7 +278,7 @@ describe('link upgrade for an already-paired phone', () => {
         // removed on your computer." - for a pre-admission moment.
         const statuses: LinkStatus[] = [];
         const link = new DeviceLink(linkGrantFrom(stored), { WebSocket: WebSocket as never, onStatus: (status) => statuses.push(status) });
-        await until(() => (link.status === 'offline' || link.status === 'removed' ? true : undefined), 'first link dial settles while grant publication is pending', 30_000);
+        await until(() => (link.status === 'online' || link.status === 'removed' ? true : undefined), 'first link dial settles before pair exits', 30_000);
         expect(statuses).not.toContain('removed');
         writeFileSync(release, 'go');
         await until(() => (link.status === 'online' ? true : undefined), 'first link dial comes online right after pairing', 30_000);

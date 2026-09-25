@@ -54,7 +54,7 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
  * revoked device cannot use a stale grant before reconciliation.
  */
 export class LinkEndpoint {
-    private synced: Promise<void> = Promise.resolve();
+    private synced: Promise<boolean> = Promise.resolve(true);
 
     private constructor(private readonly host: Host, private readonly client: RelayClient,
         private readonly currentCrypto: () => MachineCryptoState | undefined) {}
@@ -102,9 +102,13 @@ export class LinkEndpoint {
     }
 
     /** Enrol the phones this machine now trusts and revoke the ones it no longer does. */
-    sync(crypto: MachineCryptoState): Promise<void> {
-        this.synced = this.synced.then(() => this.reconcile(crypto)).catch((error: unknown) => {
+    sync(crypto: MachineCryptoState): Promise<boolean> {
+        this.synced = this.synced.then(async () => {
+            await this.reconcile(crypto);
+            return true;
+        }).catch((error: unknown) => {
             process.stderr.write(`link: device sync failed: ${error instanceof Error ? error.message : String(error)}\n`);
+            return false;
         });
         return this.synced;
     }

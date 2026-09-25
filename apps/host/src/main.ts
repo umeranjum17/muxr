@@ -1,9 +1,9 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, watch, watchFile, writeFileSync, type FSWatcher } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, watchFile, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { createDeviceGrant } from '@muxr/crypto';
 import { isPeerCapabilities, relayControlUrl } from '@muxr/contract';
 import { homedir, hostname } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores } from './agent/index.js';
 import { startHost } from './host.js';
@@ -500,9 +500,6 @@ if (mode === 'selfhost' && selfhostAuth === undefined) {
     process.exit(0);
 }
 
-/** Watchers on the machine state files; held so the GC cannot silence them. */
-const stateFileWatchers: FSWatcher[] = [];
-
 async function main(): Promise<void> {
     const hostVersion = resolveHostVersion() ?? '0.0.0';
     let diagnostics: HostDiagnosticsJournal | undefined;
@@ -528,13 +525,12 @@ async function main(): Promise<void> {
     };
     let linkEndpoint: LinkEndpoint | undefined;
     let linkOnline = false;
+    const recordLinkAdmission = (crypto: MachineCryptoState): void => {
+        atomicWriteJson(join(stateRoot, 'link-enrolled.json'), crypto.devices.map(({ deviceId, devicePublicKey }) => ({ deviceId, devicePublicKey })));
+    };
     if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined) {
         // Pairing is a separate CLI process. Reload its appended per-device
-        // ingress key without making an already-running host restart. The
-        // watch is event-driven because a phone's first link dial lands
-        // within milliseconds of the pair CLI's write: a device the machine
-        // trusts but has not yet link-enrolled is told, terminally, that it
-        // was removed.
+        // ingress key without making an already-running host restart.
         const keys = hostedE2ee;
         const stateFile = mode === 'selfhost' ? selfhostFile() : authFile();
         const applyStateFile = (): void => {
@@ -551,24 +547,14 @@ async function main(): Promise<void> {
                     replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(keys, crypto);
-                void linkEndpoint?.sync(crypto).then(() => { if (linkOnline) host.refreshLinkEnrolment(); });
+                if (mode === 'selfhost') void linkEndpoint?.sync(crypto).then((ok) => { if (ok) recordLinkAdmission(crypto); if (linkOnline) host.refreshLinkEnrolment(); }).catch((error: unknown) => {
+                    process.stderr.write(`link: admission record failed: ${error instanceof Error ? error.message : String(error)}\n`);
+                });
+                else void linkEndpoint?.sync(crypto).then(() => { if (linkOnline) host.refreshLinkEnrolment(); });
             } catch {
                 // Keep serving with the last fully validated key set.
             }
         };
-        // Every write replaces the file by rename, so watch its directory;
-        // events name the file and other files' events are ignored. Hold the
-        // watcher somewhere durable: an unreferenced FSWatcher is collected,
-        // and its events silently stop.
-        const stateName = basename(stateFile);
-        try {
-            stateFileWatchers.push(watch(dirname(stateFile), (_event, filename) => {
-                if (filename === stateName) applyStateFile();
-            }));
-        } catch {
-            // Filesystems without event notifications: the stat poll covers it.
-        }
-        // The stat poll stays as the backstop for missed events.
         watchFile(stateFile, { interval: 2000 }, applyStateFile);
     }
     let peerRuntime: PeerRuntime | undefined;
@@ -764,7 +750,7 @@ async function main(): Promise<void> {
                     });
                     if (linkEndpoint !== undefined) {
                         const latest = currentCrypto();
-                        if (latest !== undefined) await linkEndpoint.sync(latest);
+                        if (latest !== undefined && await linkEndpoint.sync(latest)) recordLinkAdmission(latest);
                         host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
                         if (linkOnline) host.refreshLinkEnrolment();
                     }

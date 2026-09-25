@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import nacl from 'tweetnacl';
 import {
@@ -113,6 +113,21 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         writeSelfhostState(state);
     }
     if (pending.grant !== undefined && pending.device !== undefined) {
+        state.machine.crypto.devices = [
+            ...state.machine.crypto.devices.filter((entry) => entry.deviceId !== pending.device.deviceId),
+            pending.device,
+        ];
+        writeSelfhostState(state);
+        if (pending.deviceKind === 'native' && pending.grantUploaded !== true) {
+            const admission = join(stateDir(), 'link-enrolled.json');
+            const deadline = Date.now() + 30_000;
+            while (true) {
+                const enrolled = existsSync(admission) ? JSON.parse(readFileSync(admission, 'utf8')) : [];
+                if (enrolled.some((device) => device.deviceId === pending.device.deviceId && device.devicePublicKey === pending.device.devicePublicKey)) break;
+                if (Date.now() >= deadline) throw new Error('the host has not enrolled this device on the link; start muxr and rerun `muxr pair`');
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+        }
         if (pending.grantUploaded !== true) {
             const uploaded = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}/grant`, {
                 method: 'POST', headers: authHeaders, body: JSON.stringify({ grant: pending.grant }),
@@ -133,10 +148,6 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             }
             if (!acknowledged) throw new Error('the browser claimed the pairing but did not save it; reload the browser to recover, then rerun `muxr pair --browser` if needed');
         }
-        state.machine.crypto.devices = [
-            ...state.machine.crypto.devices.filter((entry) => entry.deviceId !== pending.device.deviceId),
-            pending.device,
-        ];
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
         print(`  ✓ paired and verified ${pending.deviceName || 'device'}`);
@@ -230,6 +241,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         const expiresAt = claimed.grantExpiresAt();
         pending.device = claimed.deviceRecord({ deviceId, devicePublicKey, ingressKey, expiresAt });
         pending.deviceName = typeof request.deviceName === 'string' && request.deviceName.trim() !== '' ? request.deviceName.trim() : 'phone';
+        // A future link dialer must treat enrolment still pending as distinct from a device actually removed.
         pending.grant = JSON.stringify(createDeviceGrant({
             machineId: state.machine.id,
             machineSigningSecretKey: state.machine.crypto.signingSecretKey,
