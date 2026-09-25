@@ -226,6 +226,12 @@ export function UsageScreen() {
     // "could not be read"), never "nothing measured": the three are different
     // facts and this screen is where they must not look alike.
     const activityUnread = display.status === 'figures' && display.figures.activity === undefined;
+    // How old the retained figures are: after a failed read they must not read
+    // as current. The failure line says when the attempt failed, not when the
+    // figures were last true.
+    const figuresAge = display.status === 'figures' && display.figures.ageSeconds !== undefined
+        ? ageWord(display.figures.ageSeconds)
+        : undefined;
     const failureText = failure === undefined ? undefined
         : `${t('plugins.rightNow.refreshFailed')}: ${failure.reason} · ${new Date(failure.at).toLocaleTimeString()} · Retry available now`;
     // A tab whose own read has never answered still speaks for the limits the
@@ -283,12 +289,14 @@ export function UsageScreen() {
                                 {failed
                                     ? <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${failureText ?? t('plugins.rightNow.refreshFailed')}. ${t('plugins.rightNow.refreshNow')}`} style={{ marginTop: 10, paddingVertical: 10 }}>
                                         <Notice tone="danger" text={failureText ?? t('plugins.rightNow.refreshFailed')} style={{ marginBottom: 0 }} />
+                                        {figuresAge !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 6 }}>{figuresAge}</Text>}
                                     </Pressable>
                                     : <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 12 }}>{t('plugins.rightNow.collecting')}</Text>}
                             </View>
                             : <View style={{ opacity: busy ? 0.55 : 1 }}>
                             <ScreenLimits node={LIMITS_NODE} data={report} />
                             {failureText !== undefined && <Notice tone="danger" text={failureText} />}
+                            {failureText !== undefined && figuresAge !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: -4 }}>{figuresAge}</Text>}
                             <SectionLabel style={{ marginBottom: 10 }}>Today</SectionLabel>
                             <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14 }]}>
                                 {report.activityNotice !== undefined && <Notice tone="warning" text={report.activityNotice} />}
@@ -430,10 +438,10 @@ function ProviderTabs({ tabs, active, onSelect }: { tabs: UsageReport['providers
     );
 }
 
-/** The age of the last-known figures, in the words every other surface uses. */
+/** The age of retained figures, in the words every other surface uses. */
 function ageWord(ageSeconds: number): string | undefined {
+    if (ageSeconds < 60) return t('time.justNow');
     const minutes = Math.round(ageSeconds / 60);
-    if (minutes < 1) return undefined;
     if (minutes < 60) return t('time.minutesAgo', { count: minutes });
     const hours = Math.round(minutes / 60);
     if (hours < 24) return t('time.hoursAgo', { count: hours });
