@@ -182,15 +182,7 @@ diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/lib
 index 2d3ed62..aa9d6a9 100644
 --- a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
 +++ b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt
-@@ -2,6 +2,7 @@ package expo.modules.libghostty
- 
- import android.content.Context
- import android.util.Base64
-+import android.widget.FrameLayout
- import androidx.core.view.ViewCompat
- import androidx.core.view.WindowInsetsCompat
- import expo.modules.kotlin.AppContext
-@@ -19,6 +20,9 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -19,6 +19,9 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
  
    private val onInput by EventDispatcher<Map<String, Any>>()
    private val onResize by EventDispatcher<Map<String, Any>>()
@@ -200,7 +192,7 @@ index 2d3ed62..aa9d6a9 100644
  
    private val terminal = GhosttyTerminalView(context).also { view ->
      view.onInputBytes = { bytes ->
-@@ -32,6 +36,15 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -32,6 +35,15 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
      view.onGridResize = { cols, rows ->
        onResize(mapOf("cols" to cols, "rows" to rows))
      }
@@ -216,28 +208,7 @@ index 2d3ed62..aa9d6a9 100644
    }
  
    private val accessoryBar = TerminalAccessoryBar(context).also { bar ->
-@@ -41,10 +54,19 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
-     bar.visibility = GONE
-   }
- 
-+  private val cursorOverlay = CursorOverlayView(context).also { it.visibility = GONE }
-+
-   init {
-     orientation = VERTICAL
-     terminal.accessoryBar = accessoryBar
--    addView(terminal, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-+    terminal.cursorOverlay = cursorOverlay
-+    // The cursor paints on its own cell-sized layer (CursorOverlayView) above
-+    // the grid. The host frame keeps the terminal's weight, so layout is
-+    // unchanged; the overlay is not clickable, so gestures fall through.
-+    val terminalHost = FrameLayout(context)
-+    terminalHost.addView(terminal, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-+    terminalHost.addView(cursorOverlay, FrameLayout.LayoutParams(1, 1))
-+    addView(terminalHost, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-     addView(accessoryBar, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-     // The bar rides the soft keyboard: visible only while the IME is up.
-     // React Native does not reliably dispatch insets down to nested native
-@@ -56,21 +78,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -56,21 +68,12 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
    }
  
    private fun syncAccessoryBar(insets: WindowInsetsCompat) {
@@ -265,7 +236,7 @@ index 2d3ed62..aa9d6a9 100644
    }
  
    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-@@ -82,6 +95,10 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
+@@ -82,6 +85,10 @@ class ExpoLibghosttyView(context: Context, appContext: AppContext) :
    /** Base font size in dp; applied live (the grid reflows in place). */
    fun setFontSize(dp: Float) = terminal.setFontSize(dp)
  
@@ -292,15 +263,7 @@ index 9d6ad16..0bd5332 100644
  import android.provider.Settings
  import android.text.InputType
  import android.view.ActionMode
-@@ -23,6 +27,7 @@ import android.view.MenuItem
- import android.view.MotionEvent
- import android.view.ScaleGestureDetector
- import android.view.View
-+import android.widget.FrameLayout
- import android.view.inputmethod.BaseInputConnection
- import android.view.inputmethod.EditorInfo
- import android.view.inputmethod.InputConnection
-@@ -30,6 +35,7 @@ import android.view.inputmethod.InputMethodManager
+@@ -30,6 +34,7 @@ import android.view.inputmethod.InputMethodManager
  import android.widget.OverScroller
  import java.nio.ByteBuffer
  import java.nio.ByteOrder
@@ -308,7 +271,7 @@ index 9d6ad16..0bd5332 100644
  import kotlin.math.ceil
  import kotlin.math.floor
  import kotlin.math.hypot
-@@ -42,26 +48,64 @@ import kotlin.math.roundToInt
+@@ -42,26 +47,64 @@ import kotlin.math.roundToInt
   * Owns a libghostty-vt session via [GhosttyVt]. PTY output is fed in with
   * [write]; user input (IME text, key escape sequences, VT query responses)
   * comes back through [onInputBytes]. Rendering pulls flattened dirty-row
@@ -379,11 +342,11 @@ index 9d6ad16..0bd5332 100644
  
    // Nerd Font private-use glyphs (powerline, devicons, …) are absent from the
    // system fallback chain; route those cells to the bundled symbols-only font.
-@@ -71,8 +115,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -71,8 +114,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      null
    }
    private val fillPaint = Paint()
--  private val cursorPaint = Paint()
+   private val cursorPaint = Paint()
 -  private var cellWidth = textPaint.measureText("M")
 +  private var cellWidth = measureCellWidth()
    private var cellHeight = ceil(
@@ -419,17 +382,12 @@ index 9d6ad16..0bd5332 100644
    // ── Selection state ──
    private var selectionMode = false
    private var actionMode: ActionMode? = null
-@@ -126,15 +185,29 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -126,15 +185,24 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private var cursorVisible = false
    private var cursorBlinks = false
  
--  // The cursor is an onDraw overlay, so blinking only re-blits the cached
--  // bitmap; the grid is untouched.
-+  // The cursor paints on CursorOverlayView, a cell-sized layer above the
-+  // grid, so a blink is a visibility flip that damages one cell. Invalidating
-+  // the whole view here re-recorded the full surface and cost 13-18 ms of GPU
-+  // per blink frame on the measurement phone (docs/perf/command-ring-frames.md).
-+  internal var cursorOverlay: CursorOverlayView? = null
+   // The cursor is an onDraw overlay, so blinking only re-blits the cached
+   // bitmap; the grid is untouched.
    private var blinkPhaseOn = true
    private var blinkScheduled = false
 +  /** Last input/output; the blink stops (cursor stays solid) after a quiet period. */
@@ -439,20 +397,17 @@ index 9d6ad16..0bd5332 100644
        if (!blinkScheduled) return
 +      if (SystemClock.uptimeMillis() - lastTerminalActivityAt >= BLINK_IDLE_STOP_MS) {
 +        // Quiet: hold the cursor solid and stop waking the GPU every 600 ms.
-+        // Even a one-cell blink frame costs ~8-14 ms of GPU here because the
-+        // GPU has idled down between frames (docs/perf/command-ring-frames.md).
 +        blinkScheduled = false
 +        blinkPhaseOn = true
-+        pushCursorOverlay()
++        invalidate()
 +        return
 +      }
        blinkPhaseOn = !blinkPhaseOn
--      invalidate()
-+      pushCursorOverlay()
+       invalidate()
        postDelayed(this, BLINK_INTERVAL_MS)
      }
    }
-@@ -166,7 +239,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -166,7 +234,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        val deltaRows = (scrollAccum / cellHeight).toInt()
        if (deltaRows != 0) {
          scrollAccum -= deltaRows * cellHeight
@@ -461,7 +416,7 @@ index 9d6ad16..0bd5332 100644
          markScrollActivity()
          scheduleFrame()
        }
-@@ -193,9 +266,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -193,9 +261,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
            clearSelection()
            return true
          }
@@ -478,7 +433,7 @@ index 9d6ad16..0bd5332 100644
          return true
        }
  
-@@ -204,6 +282,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -204,6 +277,12 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          lastPressCol = (e.x / cellWidth).toInt().coerceIn(0, cols - 1)
          lastPressRow = (e.y / cellHeight).toInt().coerceIn(0, rows - 1)
          performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -491,7 +446,7 @@ index 9d6ad16..0bd5332 100644
          selectionMode = GhosttyVt.nativeSelectWord(handle, lastPressCol, lastPressRow)
          scheduleFrame()
          if (selectionMode) {
-@@ -229,7 +313,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -229,7 +308,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          val deltaRows = (scrollAccum / cellHeight).toInt()
          if (deltaRows != 0) {
            scrollAccum -= deltaRows * cellHeight
@@ -500,7 +455,7 @@ index 9d6ad16..0bd5332 100644
            markScrollActivity()
            scheduleFrame()
          }
-@@ -262,11 +346,19 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -262,11 +341,19 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
          pinchScale = 1f
          pinchLastScale = 1f
@@ -520,7 +475,7 @@ index 9d6ad16..0bd5332 100644
          val steps = ((pinchScale - pinchLastScale) / PINCH_SCALE_STEP).toInt()
          if (steps != 0) {
            pinchLastScale += steps * PINCH_SCALE_STEP
-@@ -274,6 +366,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -274,6 +361,10 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
          }
          return true
        }
@@ -531,7 +486,7 @@ index 9d6ad16..0bd5332 100644
      }
    )
  
-@@ -285,6 +381,28 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -285,6 +376,28 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private fun newTextPaint(typeface: Typeface) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
      this.typeface = typeface
      textSize = fontSizeDp * resources.displayMetrics.density
@@ -560,7 +515,7 @@ index 9d6ad16..0bd5332 100644
    }
  
    /**
-@@ -300,7 +418,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -300,7 +413,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      for (paint in arrayOf(textPaint, boldPaint, italicPaint, boldItalicPaint, symbolsPaint)) {
        paint?.textSize = px
      }
@@ -569,7 +524,7 @@ index 9d6ad16..0bd5332 100644
      cellHeight = ceil(textPaint.fontMetrics.descent - textPaint.fontMetrics.ascent).toInt()
      baseline = -textPaint.fontMetrics.ascent
      // Cell geometry moved under any active selection handles.
-@@ -342,6 +460,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -342,6 +455,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      if (response != null && response.isNotEmpty() && !finished) {
        onInputBytes?.invoke(response)
      }
@@ -577,7 +532,7 @@ index 9d6ad16..0bd5332 100644
      holdBlinkSolid()
      scheduleFrame()
    }
-@@ -365,9 +484,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -365,9 +479,11 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        GhosttyVt.nativeFree(handle)
        handle = 0
      }
@@ -589,7 +544,7 @@ index 9d6ad16..0bd5332 100644
      if (!finished && bytes.isNotEmpty()) {
        if (selectionMode) clearSelection()
        // Typing while scrolled into history jumps back to the live view.
-@@ -454,7 +575,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -454,7 +570,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      val changed = newCols != cols || newRows != rows
      cols = newCols
      rows = newRows
@@ -598,7 +553,7 @@ index 9d6ad16..0bd5332 100644
        GhosttyVt.nativeResize(handle, cols, rows, cellWidth.roundToInt(), cellHeight)
        allocateGridBuffers()
        onGridResize?.invoke(cols, rows)
-@@ -465,9 +586,27 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -465,9 +581,27 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
    private fun allocateGridBuffers() {
      val widthPx = max(1, ceil(cols * cellWidth).toInt())
      val heightPx = max(1, rows * cellHeight)
@@ -629,7 +584,7 @@ index 9d6ad16..0bd5332 100644
      }
      val capacity = HEADER_BYTES +
        rows * (ROW_HEADER_BYTES + cols * CELL_RECORD_BYTES + cols * MAX_CELL_TEXT_UNITS * 2 + 4)
-@@ -481,6 +620,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -481,6 +615,9 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      rowSelStart = IntArray(rows) { -1 }
      rowSelEnd = IntArray(rows) { -1 }
      rowSelEndWide = BooleanArray(rows)
@@ -639,7 +594,7 @@ index 9d6ad16..0bd5332 100644
    }
  
    // ── Rendering ──
-@@ -493,7 +635,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -493,7 +630,8 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun renderFrame() {
      val buf = snapshotBuf ?: return
@@ -649,11 +604,10 @@ index 9d6ad16..0bd5332 100644
      if (handle == 0L) return
  
      val rowCount = GhosttyVt.nativeSnapshot(handle, buf)
-@@ -519,13 +662,165 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -519,13 +657,164 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      cursorBlinks = buf.int != 0
      cursorColor = buf.int
      syncBlinkTimer()
-+    pushCursorOverlay()
  
 -    if (dirtyKind == DIRTY_FULL) canvas.drawColor(defaultBg)
 -    repeat(rowCount) { drawRowRecord(buf, canvas, snapCols) }
@@ -817,7 +771,7 @@ index 9d6ad16..0bd5332 100644
    // ── Selection ──
  
    /** Top-left / bottom-right cells of the rendered selection, or null. */
-@@ -730,6 +1025,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -730,6 +1019,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
  
    private fun wantsBlink(): Boolean {
      return cursorBlinks && cursorVisible && isAttachedToWindow && hasWindowFocus() &&
@@ -825,25 +779,7 @@ index 9d6ad16..0bd5332 100644
        Settings.Global.getFloat(
          context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f
        ) != 0f
-@@ -745,7 +1041,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
-       removeCallbacks(blinkRunnable)
-       if (!blinkPhaseOn) {
-         blinkPhaseOn = true
--        invalidate()
-+        pushCursorOverlay()
-       }
-     }
-   }
-@@ -754,7 +1050,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
-   private fun holdBlinkSolid() {
-     if (!blinkPhaseOn) {
-       blinkPhaseOn = true
--      invalidate()
-+      pushCursorOverlay()
-     }
-     if (blinkScheduled) {
-       removeCallbacks(blinkRunnable)
-@@ -777,11 +1073,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -777,11 +1067,13 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      syncBlinkTimer()
    }
  
@@ -858,7 +794,7 @@ index 9d6ad16..0bd5332 100644
      if (rowIndex < rowSelStart.size) {
        rowSelStart[rowIndex] = selStart
        rowSelEnd[rowIndex] = selEnd
-@@ -836,12 +1134,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -836,12 +1128,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
      buf.position(nextRecord)
  
@@ -880,7 +816,7 @@ index 9d6ad16..0bd5332 100644
      for (col in 0 until colCount) {
        val bg = cellBg[col]
        if (bg == defaultBg) continue
-@@ -851,12 +1155,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -851,12 +1149,20 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        canvas.drawRect(x, top, x + width, bottom, fillPaint)
      }
  
@@ -905,7 +841,7 @@ index 9d6ad16..0bd5332 100644
        val paint = when {
          symbolsPaint != null &&
            (codepoint in PUA_BMP_FIRST..PUA_BMP_LAST || codepoint >= PUA_SUPPLEMENTARY_FIRST) ->
-@@ -868,24 +1180,138 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -868,23 +1174,123 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
        }
        paint.color = cellFg[col]
        if (flags and FLAG_FAINT != 0) paint.alpha = 160
@@ -1024,26 +960,9 @@ index 9d6ad16..0bd5332 100644
 +    }
 +  }
 +
-+  /** Push cursor state to the overlay layer; damages only the cursor cell. */
-+  private fun pushCursorOverlay() {
-+    cursorOverlay?.applyCursor(
-+      CursorSnapshot(
-+        x = cursorX * cellWidth,
-+        y = (cursorY * cellHeight).toFloat(),
-+        width = ceil(cellWidth).toInt().coerceAtLeast(1),
-+        height = cellHeight,
-+        color = if (cursorColor != 0) cursorColor else defaultFg,
-+        style = cursorStyle,
-+        visible = cursorVisible && cursorX >= 0 && cursorY >= 0 &&
-+          !(cursorBlinks && blinkScheduled && !blinkPhaseOn)
-+      )
-+    )
-+  }
-+
    override fun onDraw(canvas: Canvas) {
      canvas.drawColor(defaultBg)
 -    bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
--    drawCursor(canvas)
 +    // Row display lists replay only on a hardware canvas; older releases
 +    // use the bitmap fallback.
 +    if (rowDisplayLists != null && canvas.isHardwareAccelerated) {
@@ -1051,41 +970,45 @@ index 9d6ad16..0bd5332 100644
 +    } else {
 +      bitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
 +    }
++    drawCursor(canvas)
      drawSelectionHandles(canvas)
      drawScrollIndicator(canvas)
      drawJumpToBottomChip(canvas)
-@@ -940,34 +1366,18 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -940,35 +1346,48 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      canvas.drawPath(jumpChipArrow, jumpChipPaint)
    }
  
--  private fun drawCursor(canvas: Canvas) {
--    if (!cursorVisible || cursorX < 0 || cursorY < 0) return
--    if (cursorBlinks && blinkScheduled && !blinkPhaseOn) return
--    val x = cursorX * cellWidth
--    val top = (cursorY * cellHeight).toFloat()
--    val bottom = top + cellHeight
--    cursorPaint.color = if (cursorColor != 0) cursorColor else defaultFg
--    when (cursorStyle) {
--      CURSOR_STYLE_BAR -> {
--        cursorPaint.style = Paint.Style.FILL
--        canvas.drawRect(x, top, x + underlineThickness * 2, bottom, cursorPaint)
--      }
--      CURSOR_STYLE_UNDERLINE -> {
--        cursorPaint.style = Paint.Style.FILL
--        canvas.drawRect(x, bottom - underlineThickness * 2, x + cellWidth, bottom, cursorPaint)
--      }
--      CURSOR_STYLE_BLOCK_HOLLOW -> {
--        cursorPaint.style = Paint.Style.STROKE
--        cursorPaint.strokeWidth = underlineThickness
--        canvas.drawRect(x, top, x + cellWidth, bottom, cursorPaint)
--      }
--      else -> {
--        cursorPaint.style = Paint.Style.FILL
--        cursorPaint.alpha = 170
--        canvas.drawRect(x, top, x + cellWidth, bottom, cursorPaint)
--        cursorPaint.alpha = 255
--      }
--    }
+   private fun drawCursor(canvas: Canvas) {
+     if (!cursorVisible || cursorX < 0 || cursorY < 0) return
+     if (cursorBlinks && blinkScheduled && !blinkPhaseOn) return
+     val x = cursorX * cellWidth
+     val top = (cursorY * cellHeight).toFloat()
+     val bottom = top + cellHeight
+     cursorPaint.color = if (cursorColor != 0) cursorColor else defaultFg
+     when (cursorStyle) {
+       CURSOR_STYLE_BAR -> {
+         cursorPaint.style = Paint.Style.FILL
+         canvas.drawRect(x, top, x + underlineThickness * 2, bottom, cursorPaint)
+       }
+       CURSOR_STYLE_UNDERLINE -> {
+         cursorPaint.style = Paint.Style.FILL
+         canvas.drawRect(x, bottom - underlineThickness * 2, x + cellWidth, bottom, cursorPaint)
+       }
+       CURSOR_STYLE_BLOCK_HOLLOW -> {
+         cursorPaint.style = Paint.Style.STROKE
+         cursorPaint.strokeWidth = underlineThickness
+         canvas.drawRect(x, top, x + cellWidth, bottom, cursorPaint)
+       }
+       else -> {
+         cursorPaint.style = Paint.Style.FILL
+         cursorPaint.alpha = 170
+         canvas.drawRect(x, top, x + cellWidth, bottom, cursorPaint)
+         cursorPaint.alpha = 255
+       }
+     }
+   }
+-
++
 +  /** Explicit keyboard control; pointer focus alone must not open the IME. */
 +  fun showKeyboard() {
 +    if (handle == 0L || finished || !isAttachedToWindow) return
@@ -1098,10 +1021,10 @@ index 9d6ad16..0bd5332 100644
 +    if (!isAttachedToWindow || windowToken == null) return
 +    context.getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(windowToken, 0)
 +    if (hasFocus()) clearFocus()
-   }
++  }
  
    // ── Input ──
-@@ -1094,17 +1504,26 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1094,17 +1513,26 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      }
    }
  
@@ -1129,7 +1052,7 @@ index 9d6ad16..0bd5332 100644
  
      // Nerd Font glyph ranges: BMP private-use area plus the supplementary
      // private-use planes (material icons live at U+F0000+ since v3).
-@@ -1131,7 +1550,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1131,7 +1559,7 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val JUMP_CHIP_ARROW_COLOR = 0xFFE0E0E0.toInt()
  
      const val HEADER_BYTES = 52
@@ -1138,7 +1061,7 @@ index 9d6ad16..0bd5332 100644
      const val CELL_RECORD_BYTES = 16
      const val MAX_CELL_TEXT_UNITS = 32
  
-@@ -1153,5 +1572,77 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
+@@ -1153,5 +1581,14 @@ internal class GhosttyTerminalView(context: Context) : View(context) {
      const val FLAG_SPACER = 1 shl 8
      const val FLAG_FG_DEFAULT = 1 shl 9
      const val FLAG_BG_NONE = 1 shl 10
@@ -1151,69 +1074,6 @@ index 9d6ad16..0bd5332 100644
 +    const val LINK_MAX_CHARS = 4096
 +    /** URL delimiters trimmed off a joined link's tail, xterm-style. */
 +    const val URL_TRAILING_TRIM = ".,:!?\"')]}>|~[]"
-+  }
-+}
-+
-+/** One frame of cursor state pushed from the terminal view to its overlay. */
-+internal class CursorSnapshot(
-+  val x: Float,
-+  val y: Float,
-+  val width: Int,
-+  val height: Int,
-+  val color: Int,
-+  val style: Int,
-+  val visible: Boolean,
-+)
-+
-+/**
-+ * The cursor paints here, on its own cell-sized layer above the grid, not
-+ * inside the terminal view's display list. A blink is a visibility flip on
-+ * this small view, so the RenderThread redraws one cell; drawing the cursor
-+ * from the grid's onDraw made every blink invalidate the whole surface and
-+ * re-render every row at 13-18 ms of GPU per frame on the measurement phone
-+ * (docs/perf/command-ring-frames.md). The view is not clickable, so terminal
-+ * gestures fall through untouched.
-+ */
-+internal class CursorOverlayView(context: Context) : View(context) {
-+  private val cursorPaint = Paint()
-+  private val underlineThickness = max(1f, resources.displayMetrics.density)
-+  private var snapshot = CursorSnapshot(0f, 0f, 1, 1, 0, GhosttyTerminalView.CURSOR_STYLE_BLOCK, false)
-+
-+  internal fun applyCursor(next: CursorSnapshot) {
-+    snapshot = next
-+    if (layoutParams?.width != next.width || layoutParams?.height != next.height) {
-+      layoutParams = FrameLayout.LayoutParams(next.width, next.height)
-+    }
-+    translationX = next.x
-+    translationY = next.y
-+    visibility = if (next.visible) VISIBLE else INVISIBLE
-+  }
-+
-+  override fun onDraw(canvas: Canvas) {
-+    val width = snapshot.width.toFloat()
-+    val height = snapshot.height.toFloat()
-+    cursorPaint.color = snapshot.color
-+    when (snapshot.style) {
-+      GhosttyTerminalView.CURSOR_STYLE_BAR -> {
-+        cursorPaint.style = Paint.Style.FILL
-+        canvas.drawRect(0f, 0f, underlineThickness * 2, height, cursorPaint)
-+      }
-+      GhosttyTerminalView.CURSOR_STYLE_UNDERLINE -> {
-+        cursorPaint.style = Paint.Style.FILL
-+        canvas.drawRect(0f, height - underlineThickness * 2, width, height, cursorPaint)
-+      }
-+      GhosttyTerminalView.CURSOR_STYLE_BLOCK_HOLLOW -> {
-+        cursorPaint.style = Paint.Style.STROKE
-+        cursorPaint.strokeWidth = underlineThickness
-+        canvas.drawRect(0f, 0f, width, height, cursorPaint)
-+      }
-+      else -> {
-+        cursorPaint.style = Paint.Style.FILL
-+        cursorPaint.alpha = 170
-+        canvas.drawRect(0f, 0f, width, height, cursorPaint)
-+        cursorPaint.alpha = 255
-+      }
-+    }
    }
  }
 diff --git a/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt b/node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/GhosttyVt.kt

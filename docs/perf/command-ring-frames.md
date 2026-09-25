@@ -79,10 +79,9 @@ assumed:
 
 So the shipped fix stops the idle frames: after 30 s with no input or output
 the blink timer stops and the cursor holds **solid and visible**; any terminal
-write (input echo or output) restarts the blink. The cursor also paints on its
-own cell-sized layer (`CursorOverlayView`), so a blink during use damages one
-cell instead of re-recording the full surface. The web terminal (xterm.js) is
-untouched by the patch.
+write (input echo or output) restarts the blink. The cursor remains painted
+by the terminal view; the cell-sized layer was a measurement experiment, not
+the shipped fix. The web terminal (xterm.js) is untouched by the patch.
 
 Before/after on the same phone (CPH2649, a4b93ea2, 120 Hz), same build type
 (release, arm64, test-signed `com.trymuxr.app.blinklab`), same scenario, same
@@ -104,8 +103,9 @@ IssueDrawCommandsStart`):
   600 ms and the cursor is always visible — blinking during use, solid at rest.
 - The ring is unchanged: ring-frame late counts and GPU are within run-to-run
   noise of the baseline runs above and the original A/B runs.
-- The lab APK recipe: `apps/mobile/android/app/build.gradle`'s `blinklab`
-  build type (release settings, test-signed, `.blinklab` applicationId so a
-  measurement install never touches the production app), built with
-  `APP_ENV=preview` and the lab's `EXPO_PUBLIC_MUXR_*` connection baked in,
+- For a measurement APK, temporarily add a `blinklab` build type in
+  `apps/mobile/android/app/build.gradle` with `initWith release`,
+  `signingConfig signingConfigs.debug`, `applicationIdSuffix '.blinklab'`, and
+  `matchingFallbacks += 'release'`; remove it after measurement.
+  Build with `APP_ENV=preview` and the lab's `EXPO_PUBLIC_MUXR_*` connection,
   reached over `adb reverse`.
