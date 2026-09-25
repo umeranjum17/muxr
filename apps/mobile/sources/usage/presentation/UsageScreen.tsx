@@ -17,10 +17,11 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, collectionDue, knownProviders, lastForcedRead, noteAsked, noteForcedRead, noteTabListAsked, releaseAsked, rememberShown, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
+import { FRESH_MS, capturedBefore, clearReportFailure, collectionDue, knownProviders, lastForcedRead, lastKnownPlan, noteAsked, noteForcedRead, noteReportFailure, noteTabListAsked, releaseAsked, rememberShown, reportFailure, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
+const LAST_KNOWN_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits' };
 const MODEL_CHART_NODE: PluginScreenChartNode = { type: 'chart', variant: 'bar', path: 'modelSeries', emptyText: 'No measured activity today' };
 const WEEK_CHART_NODE: PluginScreenChartNode = { type: 'chart', variant: 'column', path: 'weekSeries', emptyText: 'No measured activity this week' };
 
@@ -53,10 +54,6 @@ export function UsageScreen() {
     React.useSyncExternalStore(subscribeUsage, usageWrites);
     const display = shownUsage(provider) ?? NOTHING_SHOWN_YET;
     const [refreshing, setRefreshing] = React.useState(false);
-    // The tab whose last read did not produce figures: the card's own rule, so a
-    // refresh that failed behind figures a reader can see is named rather than
-    // passed off as a refresh that worked -- and named for that tab only.
-    const [failedTab, setFailedTab] = React.useState<string | undefined>(undefined);
     // Any read in flight. It drives the hairline and the refresh control, never
     // the figures: what is on screen stays there until a newer answer lands.
     const [busy, setBusy] = React.useState(false);
@@ -69,25 +66,18 @@ export function UsageScreen() {
     // outstanding: a read abandoned before that has no answer coming.
     const claim = React.useRef<{ target: string; at: number } | undefined>(undefined);
     const error = display.status === 'unavailable' ? (display.reason === '' ? t('plugins.rightNow.unavailable') : display.reason) : undefined;
-    const failed = failedTab === provider;
+    const failure = reportFailure(provider);
+    const failed = failure !== undefined;
     rejected.current = failed || display.status === 'unavailable';
 
     const report = display.status === 'figures' ? reportFrom(display.figures, provider) : undefined;
     const tabs = report?.providers ?? knownProviders();
 
-    /**
-     * Ask the host to collect this tab past its cache, and paint the answer.
-     * This is the only kind of ask the screen sends: our own window decides
-     * whether it happens at all, so a window costs one collection rather than a
-     * cached read beside it. The read claims our window and the shared budget
-     * at `claimedAtMs`, the instant the decision was taken, so the next window
-     * is measured from where it decided rather than from a round trip.
-     */
-    const load = React.useCallback((target: string, claimedAtMs = Date.now()): Promise<void> => {
+    const load = React.useCallback((target: string, claimedAtMs = Date.now(), force = false): Promise<void> => {
         const request = ++version.current;
         inFlight.current = true;
         setBusy(true);
-        noteForcedRead(target, claimedAtMs);
+        if (force) noteForcedRead(target, claimedAtMs);
         // This read supersedes whatever was in flight: that answer will be
         // dropped, so its claim goes with it now rather than a window later.
         const superseded = claim.current;
@@ -103,18 +93,20 @@ export function UsageScreen() {
         // behind an answer, not a reason to take that answer away.
         const before = shownUsage(target);
         if (before === undefined || before.status === 'waiting') rememberShown(target, { status: 'waiting', askedAt: claimedAtMs, ...measured(before ?? {}) });
-        return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), refresh: true }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
+        return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), refresh: force }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
             .then((value) => {
                 if (request !== version.current) { abandon(); return; }
                 claim.current = undefined;
-                setFailedTab((current) => (current === target ? undefined : current));
+                clearReportFailure(target);
                 const previous = shownUsage(target);
-                rememberShown(target, { status: 'figures', at: Date.now(), figures: withReport(previous?.status === 'figures' ? previous.figures : undefined, value) });
+                const at = Date.now();
+                rememberShown(target, { status: 'figures', at, figures: withReport(previous?.status === 'figures' ? previous.figures : undefined, value) });
+                if (previous?.status !== 'figures' || !capturedBefore(value.capturedAt, previous.figures.capturedAt)) noteTabListAsked(target, at);
             })
             .catch((cause: unknown) => {
                 if (request !== version.current) { abandon(); return; }
                 claim.current = undefined;
-                setFailedTab(target);
+                noteReportFailure(target, claimedAtMs, cause instanceof Error ? cause.message : String(cause));
                 const previous = shownUsage(target);
                 if (previous === undefined || previous.status !== 'figures') {
                     rememberShown(target, { status: 'unavailable', reason: cause instanceof Error ? cause.message : String(cause), ...measured(previous ?? {}) });
@@ -132,7 +124,7 @@ export function UsageScreen() {
                 if (pressed === undefined) return;
                 pendingRetry.current = undefined;
                 setThrottledSeconds(undefined);
-                void load(pressed);
+                void load(pressed, Date.now(), true);
             });
     }, []);
 
@@ -152,13 +144,16 @@ export function UsageScreen() {
      *  showing a wait or a failure is not asked for again: what it holds is the
      *  truth about it. `replace` lets a tab change through while another read
      *  is in flight. */
-    const loadIfDue = React.useCallback((target: string, replace = false): void => {
+    const loadIfDue = React.useCallback((target: string, replace = false, force = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
-        const owed = unaskedTabList(target);
+        const stored = shownUsage(target);
+        const owed = unaskedTabList(target) || (stored?.status === 'figures'
+            && capturedBefore(stored.figures.activity?.capturedAt, stored.figures.capturedAt)
+            && tabListAskOwed(target, stored.figures.ageAt ?? stored.at));
         if (!collectionDue(target, now) && !owed) return;
         if (owed) noteTabListAsked(target, now);
-        void load(target, now);
+        void load(target, now, force);
     }, [load, unaskedTabList]);
 
     React.useEffect(() => {
@@ -169,7 +164,7 @@ export function UsageScreen() {
     // arrives: the store is the trigger, not the next foreground or tick.
     React.useEffect(() => {
         loadIfDue(provider);
-    }, [display, provider, loadIfDue]);
+    }, [display, provider, busy, loadIfDue]);
 
     // A read still running when the screen goes cannot paint into it, and its
     // claim goes with it: no answer is coming for it.
@@ -183,7 +178,7 @@ export function UsageScreen() {
     // Refreshing while focused and in the foreground only, and never on top of
     // a read that is already running -- opening the screen must not queue a
     // second ask behind the first.
-    useForegroundRefresh(() => { loadIfDue(provider); }, FRESH_MS);
+    useForegroundRefresh(() => { loadIfDue(provider, false, true); }, FRESH_MS);
 
     // A pressed tab paints its own state at once; another tab's figures are not
     // this one's, and a tab showing a wait says so.
@@ -208,7 +203,7 @@ export function UsageScreen() {
         if (inFlight.current) { setRefreshing(true); return; }
         if (!askNow()) return;
         setRefreshing(true);
-        void load(provider);
+        void load(provider, Date.now(), true);
     };
     // A pressed retry is an instruction: it runs, or it waits for the read in
     // flight and then runs, and a refusal is named at the control.
@@ -216,7 +211,7 @@ export function UsageScreen() {
         hapticsSelection();
         if (inFlight.current) { pendingRetry.current = provider; return; }
         if (!askNow()) return;
-        void load(provider);
+        void load(provider, Date.now(), true);
     };
 
     React.useEffect(() => {
@@ -230,6 +225,26 @@ export function UsageScreen() {
     // and must paint the limits they do hold rather than nothing.
     const empty = report !== undefined && report.providers.length === 0
         && (report.noProviders !== undefined || report.noProvidersTitle !== undefined);
+    // Whether any usage.report read has answered for this tab's measured
+    // activity. A usage.now record -- the card's -- carries limits only, so its
+    // silence about activity is "not answered yet" (or, with a refused read,
+    // "could not be read"), never "nothing measured": the three are different
+    // facts and this screen is where they must not look alike.
+    const activityUnread = display.status === 'figures' && display.figures.activity === undefined;
+    // How old the retained figures are: after a failed read they must not read
+    // as current. The failure line says when the attempt failed, not when the
+    // figures were last true.
+    const aged = display.status === 'figures' ? (activityUnread ? display.figures : display.figures.activity) : undefined;
+    const figuresAge = display.status === 'figures' && aged?.ageSeconds !== undefined
+        ? ageWord(aged.ageSeconds, aged.ageAt ?? display.at)
+        : undefined;
+    const failureText = failure === undefined ? undefined
+        : `${t('plugins.rightNow.refreshFailed')}: ${failure.reason} · ${new Date(failure.at).toLocaleTimeString()} · Retry available now`;
+    // A tab whose own read has never answered still speaks for the limits the
+    // reader already saw -- the card's connected strip carries them -- instead
+    // of a refusal that reads as nothing.
+    const lastKnown = display.status === 'unavailable' ? lastKnownPlan(provider) : undefined;
+    const lastKnownAge = lastKnown === undefined || lastKnown.ageSeconds === undefined ? undefined : ageWord(lastKnown.ageSeconds, lastKnown.shownAt);
     return (
         <>
             <Header
@@ -259,10 +274,14 @@ export function UsageScreen() {
                     tab is only waiting or unavailable: a reader is never left
                     with no way back to the figures another tab holds. */}
                 {tabs.length > 0 && <ProviderTabs tabs={tabs} active={report?.provider ?? provider} onSelect={selectTab} />}
-                {display.status === 'unavailable' && <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${error ?? t('plugins.rightNow.unavailable')}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
-                    <Notice tone="danger" text={error ?? t('plugins.rightNow.unavailable')} style={{ marginBottom: 0 }} />
+                {display.status === 'unavailable' && <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${failureText ?? error ?? t('plugins.rightNow.unavailable')}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
+                    <Notice tone="danger" text={failureText ?? error ?? t('plugins.rightNow.unavailable')} style={{ marginBottom: 0 }} />
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
                 </Pressable>}
+                {display.status === 'unavailable' && lastKnown !== undefined && <View style={{ marginBottom: 8 }}>
+                    <ScreenLimits node={LAST_KNOWN_NODE} data={{ limits: { verdict: 'unknown' as const, plan: lastKnown.plan, windows: lastKnown.windows } }} />
+                    {lastKnownAge !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: -4 }}>{lastKnownAge}</Text>}
+                </View>}
                 {display.status === 'waiting' && <WaitingSkeleton />}
                 {display.status === 'figures' && (empty
                     ? <View style={{ paddingVertical: 24, alignItems: 'center' }}>
@@ -270,8 +289,20 @@ export function UsageScreen() {
                         {report?.noProviders !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 14, marginTop: 4, textAlign: 'center' }}>{report.noProviders}</Text>}
                     </View>
                     : <>
-                        {report !== undefined && <View style={{ opacity: busy ? 0.55 : 1 }}>
+                        {report !== undefined && (activityUnread
+                            ? <View style={{ opacity: busy ? 0.55 : 1 }}>
+                                <ScreenLimits node={LIMITS_NODE} data={report} />
+                                {failed
+                                    ? <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${failureText ?? t('plugins.rightNow.refreshFailed')}. ${t('plugins.rightNow.refreshNow')}`} style={{ marginTop: 10, paddingVertical: 10 }}>
+                                        <Notice tone="danger" text={failureText ?? t('plugins.rightNow.refreshFailed')} style={{ marginBottom: 0 }} />
+                                        {figuresAge !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 6 }}>{figuresAge}</Text>}
+                                    </Pressable>
+                                    : <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 12 }}>{t('plugins.rightNow.collecting')}</Text>}
+                            </View>
+                            : <View style={{ opacity: busy ? 0.55 : 1 }}>
                             <ScreenLimits node={LIMITS_NODE} data={report} />
+                            {failureText !== undefined && <Notice tone="danger" text={failureText} />}
+                            {failureText !== undefined && figuresAge !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: -4 }}>{figuresAge}</Text>}
                             <SectionLabel style={{ marginBottom: 10 }}>Today</SectionLabel>
                             <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14 }]}>
                                 {report.activityNotice !== undefined && <Notice tone="warning" text={report.activityNotice} />}
@@ -295,7 +326,7 @@ export function UsageScreen() {
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 14 }}>
                                 Local activity and estimated costs are separate from provider plan limits. Prompts and project details stay out.
                             </Text>
-                        </View>}
+                            </View>)}
                     </>)}
             </View>
             </ScrollView>
@@ -411,6 +442,17 @@ function ProviderTabs({ tabs, active, onSelect }: { tabs: UsageReport['providers
             })}
         </ScrollView>
     );
+}
+
+/** The age of retained figures, in the words every other surface uses. */
+function ageWord(ageSeconds: number, shownAt: number): string | undefined {
+    ageSeconds += Math.max(0, (Date.now() - shownAt) / 1_000);
+    if (ageSeconds < 60) return t('time.justNow');
+    const minutes = Math.round(ageSeconds / 60);
+    if (minutes < 60) return t('time.minutesAgo', { count: minutes });
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return t('time.hoursAgo', { count: hours });
+    return t('time.daysAgo', { count: Math.round(hours / 24) });
 }
 
 /** Caption + one big mono figure; a missing figure is information, not a

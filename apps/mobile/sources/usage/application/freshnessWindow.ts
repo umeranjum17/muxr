@@ -4,10 +4,8 @@ import { getCachedConnectionSettings } from '@/connection';
 /** How long a collected reading stays good enough to show as it is, on both
  *  the Home card and the Usage screen: quota windows move over hours, so
  *  within this the figures are the answer and asking again costs a full
- *  collection for nothing. Past it a read asks the host to collect again
- *  rather than be served the same payload -- the usage cache answers with any
- *  same-day payload, so nothing else makes figures a reader can see are old
- *  become current. Doubles as the refresh cadence on both surfaces. */
+ *  collection for nothing. Doubles as the refresh cadence on
+ *  both surfaces. */
 export const FRESH_MS = 15 * 60_000;
 
 /** The slack the window comparison below carries. A cadence arms its timer
@@ -38,6 +36,23 @@ const askedAt = new Map<string, number>();
  *  the floor under every forced read, kept here rather than in a mounted hook
  *  so a remount or a surface switch cannot walk around it. */
 const lastForcedAt = new Map<string, number>();
+const reportFailures = new Map<string, { at: number; reason: string }>();
+
+export function reportFailure(provider: string): { at: number; reason: string } | undefined {
+    return reportFailures.get(machineKey(provider));
+}
+
+export function noteReportFailure(provider: string, at: number, reason: string): void {
+    reportFailures.set(machineKey(provider), { at, reason });
+    writes += 1;
+    for (const listener of [...listeners]) listener();
+}
+
+export function clearReportFailure(provider: string): void {
+    if (!reportFailures.delete(machineKey(provider))) return;
+    writes += 1;
+    for (const listener of [...listeners]) listener();
+}
 
 /** The measured local activity a usage.report read carries, and the host's own
  *  words for having none. */
@@ -51,6 +66,9 @@ export interface UsageActivity {
     weekTokens: string;
     weekCost: string;
     weekSeries: UsageSeriesPoint[];
+    capturedAt?: string;
+    ageSeconds?: number;
+    ageAt?: number;
     activityNotice?: string;
     noProvidersTitle?: string;
     noProviders?: string;
@@ -75,6 +93,7 @@ export interface UsageFigures {
     vitals?: UsageVitals;
     activity?: UsageActivity;
     ageSeconds?: number;
+    ageAt?: number;
     capturedAt?: string;
 }
 
@@ -103,7 +122,7 @@ export function capturedBefore(a: string | undefined, b: string | undefined): bo
  *  to it: only what it alone speaks for (activity, tabs, vitals) lands. */
 function mergeFigures(held: UsageFigures | undefined, spoken: Pick<UsageFigures, 'limits'> & Partial<UsageFigures>): UsageFigures {
     if (held === undefined || !capturedBefore(spoken.capturedAt, held.capturedAt)) return { ...held, ...spoken };
-    const { limits: _limits, windows: _windows, cardWindow: _cardWindow, connected: _connected, ageSeconds: _age, capturedAt: _at, ...rest } = spoken;
+    const { limits: _limits, windows: _windows, cardWindow: _cardWindow, connected: _connected, ageSeconds: _age, ageAt: _ageAt, capturedAt: _at, ...rest } = spoken;
     return { ...held, ...rest };
 }
 
@@ -118,7 +137,7 @@ export function withNow(previous: UsageFigures | undefined, value: UsageNow): Us
         ...(value.limits.windows.length === 0 ? { windows: [] } : {}),
         connected: value.connected,
         ...(value.vitals === undefined ? {} : { vitals: value.vitals }),
-        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds }),
+        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds, ageAt: Date.now() }),
         ...(value.capturedAt === undefined ? {} : { capturedAt: value.capturedAt }),
     });
 }
@@ -126,6 +145,8 @@ export function withNow(previous: UsageFigures | undefined, value: UsageNow): Us
 /** The figures a usage.report read answers for: the whole window list, the tab
  *  list and the activity. It cannot speak for the machine facts. */
 export function withReport(previous: UsageFigures | undefined, value: UsageReport): UsageFigures {
+    const now = Date.now();
+    const activityCapturedAt = Date.parse(value.capturedAt);
     return mergeFigures(previous, {
         limits: value.limits,
         windows: value.limits.windows,
@@ -141,12 +162,14 @@ export function withReport(previous: UsageFigures | undefined, value: UsageRepor
             weekTokens: value.weekTokens,
             weekCost: value.weekCost,
             weekSeries: value.weekSeries,
+            capturedAt: value.capturedAt,
+            ...(Number.isFinite(activityCapturedAt) ? { ageSeconds: Math.max(0, (now - activityCapturedAt) / 1_000), ageAt: now } : {}),
             ...(value.activityNotice === undefined ? {} : { activityNotice: value.activityNotice }),
             ...(value.noProvidersTitle === undefined ? {} : { noProvidersTitle: value.noProvidersTitle }),
             ...(value.noProviders === undefined ? {} : { noProviders: value.noProviders }),
         },
         connected: value.connected,
-        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds }),
+        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds, ageAt: now }),
         ...(value.capturedAt === undefined ? {} : { capturedAt: value.capturedAt }),
     });
 }
@@ -232,6 +255,32 @@ export function noteTabListAsked(provider: string, nowMs: number): void {
 export function tabListAskOwed(provider: string, recordAt: number): boolean {
     const asked = tabListAskedAt.get(machineKey(provider));
     return asked === undefined || asked < recordAt;
+}
+
+/** The last limits this machine holds for one provider, from the connected
+ *  strip of any record that carries it: what a tab whose own read has never
+ *  answered can still show instead of a blank. Another provider's refused
+ *  read must not take a figure the reader already saw away. */
+export function lastKnownPlan(provider: string): { plan: string; windows: UsageLimitsPayload['windows']; ageSeconds?: number; shownAt: number } | undefined {
+    const machine = getCachedConnectionSettings().machineId;
+    let newest: { at: number; plan: string; windows: UsageLimitsPayload['windows']; ageSeconds?: number; shownAt: number } | undefined;
+    for (const [key, display] of displays) {
+        if (!key.startsWith(`${machine}\u0000`) || display.status !== 'figures') continue;
+        const plan = (display.figures.connected ?? []).find((candidate) => candidate.id === provider);
+        if (plan === undefined || plan.windows.length === 0) continue;
+        const at = Date.parse(display.figures.capturedAt ?? '');
+        if (newest !== undefined && !(at > newest.at)) continue;
+        newest = {
+            at: Number.isFinite(at) ? at : -Infinity,
+            plan: plan.plan ?? plan.label,
+            windows: plan.windows,
+            shownAt: display.figures.ageAt ?? display.at,
+            ...(display.figures.ageSeconds === undefined ? {} : { ageSeconds: display.figures.ageSeconds }),
+        };
+    }
+    if (newest === undefined) return undefined;
+    const { at: _at, ...reading } = newest;
+    return reading;
 }
 
 /** What this machine's tab shows, if anything has been asked for it yet. */

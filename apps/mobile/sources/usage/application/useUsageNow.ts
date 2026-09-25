@@ -5,14 +5,13 @@ import { forcedReadWait } from './forcedRead';
 import { FRESH_MS, capturedBefore, collectionDue, lastForcedRead, noteAsked, noteForcedRead, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withNow, type UsageDisplay, type UsageFigures } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
 
-/** The tab the card's read answers for: `usage.now` collects the default one,
- *  which is the same cache entry the Usage screen's default tab reads. */
+/** The default projection of the host's shared collection: the Usage screen
+ *  can select another tab without starting a separate provider collection. */
 const READ_TAB = '';
 
-/** `collecting` is the host saying its usage cache was cold, not that there is
- *  nothing to have: it answers with the vitals it already measured while the
- *  collection it just started keeps running and warms the cache behind the
- *  reply. Asking again is what finishes that read. */
+/** `collecting` means the host's collection has not answered yet, not that
+ *  there is nothing to show: it answers with measured vitals while the
+ *  collection keeps running. Asking again retrieves the finished read. */
 const COLLECTING_RETRY_MS = 6_000;
 
 /** Long enough to outlast a full cold collection. Past it the host is not
@@ -135,10 +134,9 @@ export function useUsageNow(): UsageNowRead {
                 // it produced figures is a different question (`failed`).
                 rejected.current = false;
                 // Only a newer payload, or an explicit failure, ends a read. The
-                // host's cache replays any same-day payload, so a follow-up can
-                // be answered by the very figures this read set out to replace:
-                // that is not the collection finishing, and the read keeps
-                // waiting rather than settling on what it already had.
+                // a follow-up can return the figures it set out to replace
+                // while the collection is running. That is not a newer answer,
+                // so keep waiting rather than settling on them.
                 let showsFigures = displayRef.current.status === 'figures';
                 if (result.collecting !== true && (replaced === undefined || isNewer(result, replaced, replacedAt, Date.now()))) {
                     retries.current = 0;

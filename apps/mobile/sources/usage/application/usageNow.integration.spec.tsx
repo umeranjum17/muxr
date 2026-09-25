@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import type { UsageNow, UsageReport } from '@muxr/contract';
-import { FRESH_MS, noteAsked, rememberShown, shownUsage, withNow, withReport } from './freshnessWindow';
+import { FRESH_MS, lastKnownPlan, noteAsked, rememberShown, shownUsage, withNow, withReport } from './freshnessWindow';
 
 /**
  * The Home card's whole read path, end to end against a scripted host.
@@ -721,16 +721,19 @@ describe('the usage screen read path', () => {
         request.mockResolvedValue(report('claude', 1_200));
         const screen = renderScreen();
         await tick();
-        // The first view collected once, spending the forced-read budget.
-        expect(forcedReads()).toHaveLength(1);
+        // Opening reads the shared collection without spending the forced-read budget.
+        expect(request).toHaveBeenLastCalledWith('usage.report', { refresh: false }, expect.any(Number));
+        expect(forcedReads()).toHaveLength(0);
 
         const control = refreshControls(screen)[0];
         expect(control).toBeDefined();
         TestRenderer.act(() => { control.props.onPress(); });
         await tick();
 
-        // The refusal is named on the button itself, with its countdown, and it
-        // gets the same feedback as a press that ran.
+        // The first press is explicit, so it forces; a second is refused.
+        expect(request).toHaveBeenLastCalledWith('usage.report', { refresh: true }, expect.any(Number));
+        TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
+        await tick();
         const pressed = refreshControls(screen)[0];
         expect(hapticsSelection).toHaveBeenCalled();
         expect(pressed.props.accessibilityLabel).toContain('plugins.rightNow.refreshThrottled');
@@ -754,12 +757,10 @@ describe('the usage screen read path', () => {
             return Promise.resolve(report(tab, Math.max(0, Math.round((Date.now() - cachedAt[tab]) / 1_000))));
         });
 
-        // Opening asks for the collection itself...
         let screen = renderScreen();
         await tick();
-        expect(request.mock.calls[0]?.[1]).toEqual({ refresh: true });
-        // ...which is the only ask this screen makes.
-        expect(forcedReads()).toHaveLength(1);
+        expect(request.mock.calls[0]?.[1]).toEqual({ refresh: false });
+        expect(forcedReads()).toHaveLength(0);
 
         // Re-entry...
         await tick(90_000);
@@ -770,15 +771,13 @@ describe('the usage screen read path', () => {
         await tick(90_000);
         TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
         await tick();
-        expect(forcedReads()).toHaveLength(1);
+        expect(forcedReads()).toHaveLength(0);
 
-        // A tab nobody has asked is its own window: it asks at once, and
-        // asking it does not hand claude another collection.
         await tick(90_000);
         press(screen, 'OpenCode');
         await tick();
-        expect(forcedReads()).toHaveLength(2);
-        expect(forcedReads()[1]?.[1]).toMatchObject({ provider: 'opencode' });
+        expect(request.mock.calls.at(-1)?.[1]).toEqual({ provider: 'opencode', refresh: false });
+        expect(forcedReads()).toHaveLength(0);
     });
 
     it('asks at most once per window when the host cannot store a reading', async () => {
@@ -790,7 +789,8 @@ describe('the usage screen read path', () => {
 
         let screen = renderScreen();
         await tick();
-        expect(forcedReads()).toHaveLength(1);
+        expect(request).toHaveBeenCalledWith('usage.report', { refresh: false }, expect.any(Number));
+        expect(forcedReads()).toHaveLength(0);
 
         // Reopen...
         await tick(90_000);
@@ -802,7 +802,7 @@ describe('the usage screen read path', () => {
         TestRenderer.act(() => { appState.currentState = 'active'; appState.listeners.forEach((listener) => listener('active')); });
         await tick();
 
-        expect(forcedReads()).toHaveLength(1);
+        expect(forcedReads()).toHaveLength(0);
     });
 
     it('paints the state the card left, rather than nothing, when the window is already claimed', async () => {
@@ -817,14 +817,19 @@ describe('the usage screen read path', () => {
         TestRenderer.act(() => { screen.unmount(); });
 
         // The card's own read answers with usage.now figures: the screen paints
-        // the limits it carries and dashes the activity it never had, and asks
-        // for the tab list that record cannot name.
+        // the limits they carry and says the activity they are silent about is
+        // still collecting -- never "nothing measured" -- and asks for the tab
+        // list that record cannot name.
         rememberShown('', { status: 'figures', at: claimed, figures: withNow(undefined, collected(undefined, 20)) });
         request.mockImplementation(() => Promise.resolve(report('claude', 60)));
         screen = renderScreen();
-        expect(screenText(screen)).toContain('—');
+        expect(screenText(screen)).toContain('plugins.rightNow.collecting');
+        expect(screenText(screen)).not.toContain('No measured activity');
         await tick();
         expect(request).toHaveBeenCalledTimes(1);
+        // The report answers: the same limits now carry the measured activity.
+        expect(screenText(screen)).not.toContain('plugins.rightNow.collecting');
+        expect(screenText(screen)).toContain('Tokens 1');
         TestRenderer.act(() => { screen.unmount(); });
         request.mockClear();
 
@@ -845,6 +850,62 @@ describe('the usage screen read path', () => {
         expect(screen.root.findAll((node: any) => node.props?.accessibilityLabel === 'plugins.rightNow.unavailable. plugins.retry').length).toBeGreaterThan(0);
     });
 
+    it('names a read the host refused behind the card\'s figures, rather than letting it read as an empty measurement', async () => {
+        // The card collected limits; the screen's own report read is refused.
+        // What the tab must not do is paint the card's silence about activity
+        // as "No measured activity" -- a confident statement nobody earned.
+        rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: { ...withNow(undefined, collected(0, 20, '2026-01-02T00:00:00Z')), ageAt: Date.now() - 600_000 } });
+        const cardFigures = shownUsage('');
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(cardFigures?.status === 'figures' ? cardFigures.figures : undefined, collected(0, 18, '2026-01-01T00:00:00Z')) });
+        request.mockRejectedValue(new Error('rate limited'));
+        const screen = renderScreen();
+        await tick();
+        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screenText(screen)).toContain('time.minutesAgo(10)');
+        expect(screenText(screen)).not.toContain('No measured activity');
+        // The limits the card did collect stay on screen, and the failure
+        // offers the way back it always does.
+        expect(screen.root.findAllByType('ScreenLimits').length).toBeGreaterThan(0);
+        expect(screen.root.findAll((node: any) => node.props?.accessibilityLabel === 'plugins.rightNow.refreshFailed. plugins.rightNow.refreshNow').length).toBeGreaterThan(0);
+        expect(screen.root.findAllByType('Notice').some((node: any) => node.props.text.includes('rate limited') && node.props.text.includes('Retry available now'))).toBe(true);
+        TestRenderer.act(() => { screen.unmount(); });
+        request.mockClear();
+        const remounted = renderScreen();
+        await tick();
+        expect(request).not.toHaveBeenCalled();
+        expect(remounted.root.findAllByType('Notice').some((node: any) => node.props.text.includes('rate limited'))).toBe(true);
+        expect(screenText(remounted)).not.toContain('plugins.rightNow.collecting');
+        request.mockResolvedValue(report('opencode', 0));
+        press(remounted, 'plugins.rightNow.refreshFailed. plugins.rightNow.refreshNow');
+        await tick();
+        expect(remounted.root.findAllByType('Notice').some((node: any) => node.props.text.includes('Retry available now'))).toBe(false);
+
+        const claudePlan = (used: number) => [{ id: 'claude', label: 'Claude', plan: 'Claude plan', windows: [{ label: 'Rolling', used }] }];
+        rememberShown('older', { status: 'figures', at: Date.now(), figures: {
+            limits: { verdict: 'go', windows: [] }, connected: claudePlan(18), capturedAt: '2026-01-01T00:00:00Z',
+        } });
+        rememberShown('newer', { status: 'figures', at: Date.now() - 600_000, figures: {
+            limits: { verdict: 'go', windows: [] }, connected: claudePlan(40), capturedAt: '2026-01-01T00:01:00Z', ageSeconds: 0, ageAt: Date.now() - 600_000,
+        } });
+        expect(lastKnownPlan('claude')?.windows[0]?.used).toBe(40);
+        const newerFigures = shownUsage('newer');
+        rememberShown('newer', { status: 'figures', at: Date.now(), figures: withNow(newerFigures?.status === 'figures' ? newerFigures.figures : undefined, {
+            limits: { verdict: 'go', windows: [] }, connected: claudePlan(18), capturedAt: '2025-12-31T00:00:00Z', ageSeconds: 0,
+        }) });
+        expect(lastKnownPlan('claude')?.windows[0]?.used).toBe(40);
+        const retained = shownUsage('newer');
+        rememberShown('newer', { status: 'figures', at: Date.now(), figures: withReport(retained?.status === 'figures' ? retained.figures : undefined, {
+            ...report('claude', 0), connected: claudePlan(18), capturedAt: '2025-12-30T00:00:00Z',
+        }) });
+        expect(lastKnownPlan('claude')?.windows[0]?.used).toBe(40);
+        noteAsked('claude', Date.now());
+        rememberShown('claude', { status: 'unavailable', reason: 'rate limited' });
+        const claude = renderScreen();
+        press(claude, 'Claude');
+        await tick();
+        expect(screenText(claude)).toContain('time.minutesAgo(10)');
+    });
+
     it('shows what the other surface learns without a remount', async () => {
         // The card asks for the default tab, and the host answers that it is
         // still collecting.
@@ -861,7 +922,11 @@ describe('the usage screen read path', () => {
         expect(screenText(screen)).toContain('plugins.rightNow.collecting');
         answer = Promise.resolve(collected(undefined, 20, '2026-09-22T18:00:00.000Z'));
         await tick(6_000);
-        expect(screenText(screen)).toContain('—');
+        // The card's learning shows on the screen -- the tab strip names the
+        // plan it connected -- and the screen still says the activity half is
+        // collecting, because its own report ask has not answered yet.
+        expect(screenText(screen)).toContain('OpenCode');
+        expect(screenText(screen)).toContain('plugins.rightNow.collecting');
         TestRenderer.act(() => { card.unmount(); });
     });
 
@@ -1077,7 +1142,7 @@ describe('the usage screen read path', () => {
         await tick();
         expect(request).toHaveBeenCalledTimes(1);
         expect(screen.root.findAllByType('ScreenLimits').length).toBeGreaterThan(0);
-        expect(screenText(screen)).toContain('—');
+        expect(screenText(screen)).toContain('plugins.rightNow.collecting');
     });
 
     it('leaves the window askable again when a read is abandoned', async () => {
@@ -1125,7 +1190,20 @@ describe('the usage screen read path', () => {
     });
 
     it('names a failed refresh at the control rather than passing it off as success', async () => {
-        request.mockResolvedValueOnce(report('claude', 60)).mockRejectedValue(new Error('host unreachable'));
+        noteAsked('', Date.now());
+        const initial = withReport(undefined, { ...report('claude', 72_000), capturedAt: new Date().toISOString() });
+        expect(initial.ageSeconds).toBe(72_000);
+        expect(initial.activity?.ageSeconds).toBe(0);
+        rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: {
+            ...initial, activity: { ...initial.activity!, ageAt: Date.now() - 600_000 }, ageAt: Date.now() - 600_000,
+        } });
+        const held = shownUsage('');
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withReport(held?.status === 'figures' ? held.figures : undefined, {
+            ...report('claude', 600), capturedAt: new Date(Date.now() - 720_000).toISOString(),
+        }) });
+        const mixed = shownUsage('');
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(mixed?.status === 'figures' ? mixed.figures : undefined, collected(0, 20, new Date(Date.now() + 1_000).toISOString())) });
+        request.mockRejectedValue(new Error('host unreachable'));
         const screen = renderScreen();
         await tick();
         expect(screenText(screen)).toContain('OpenCode');
@@ -1138,6 +1216,7 @@ describe('the usage screen read path', () => {
         // looking exactly like a refresh that worked.
         expect(screenText(screen)).toContain('OpenCode');
         expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screenText(screen)).toContain('time.minutesAgo(12)');
         expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
     });
 
@@ -1175,6 +1254,51 @@ describe('the usage screen read path', () => {
         await tick();
         expect(request).toHaveBeenCalledTimes(0);
         expect(screenText(screen)).toContain('OpenCode');
+    });
+
+    it('projects newer Home figures into the detailed report without a forced collection', async () => {
+        const start = Date.now();
+        noteAsked('', start);
+        rememberShown('', { status: 'figures', at: start, figures: withReport(undefined, {
+            ...report('claude', 0), limits: { verdict: 'go', windows: [{ label: 'Rolling', window: '5h', used: 40 }] },
+        }) });
+        vi.setSystemTime(start + 5 * 60_000);
+        const capturedAt = new Date().toISOString();
+        const held = shownUsage('');
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(held?.status === 'figures' ? held.figures : undefined, collected(0, 20, capturedAt)) });
+        noteAsked('', Date.now());
+        request.mockResolvedValue({
+            ...report('claude', 0), capturedAt, todayTokens: '99',
+            limits: { verdict: 'go', windows: [{ label: 'Rolling', window: '5h', used: 20 }] },
+        });
+        const screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenCalledWith('usage.report', { refresh: false }, expect.any(Number));
+        expect(screen.root.findAllByType('ScreenLimits')[0].props.data.limits.windows[0].used).toBe(20);
+        expect(screenText(screen)).toContain('99');
+
+        let releaseOlder: (value: UsageReport) => void = () => undefined;
+        request.mockImplementationOnce(() => new Promise<UsageReport>((resolve) => { releaseOlder = resolve; }));
+        const newer = { ...report('claude', 0), todayTokens: '111', limits: { verdict: 'go' as const, windows: [{ label: 'Rolling', window: '5h', used: 10 }] } };
+        vi.setSystemTime(start + 6 * 60_000);
+        const firstCapture = new Date().toISOString();
+        const first = shownUsage('');
+        TestRenderer.act(() => rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(first?.status === 'figures' ? first.figures : undefined, collected(0, 15, firstCapture)) }));
+        expect(request).toHaveBeenCalledTimes(2);
+        vi.setSystemTime(start + 7 * 60_000);
+        const newestCapture = new Date().toISOString();
+        const second = shownUsage('');
+        TestRenderer.act(() => rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(second?.status === 'figures' ? second.figures : undefined, collected(0, 10, newestCapture)) }));
+        expect(request).toHaveBeenCalledTimes(2);
+        request.mockResolvedValueOnce({ ...newer, capturedAt: newestCapture });
+        await TestRenderer.act(async () => { releaseOlder({ ...report('claude', 0), capturedAt: firstCapture, todayTokens: '88' }); });
+        await tick();
+        expect(request).toHaveBeenCalledTimes(3);
+        expect(request.mock.calls.slice(1).every((call) => call[1].refresh === false)).toBe(true);
+        expect(screen.root.findAllByType('ScreenLimits')[0].props.data.limits.windows[0].used).toBe(10);
+        expect(screenText(screen)).toContain('111');
+        expect(screenText(screen)).not.toContain('88');
     });
 
     it('leaves the tab of a superseded read askable again', async () => {
@@ -1363,7 +1487,11 @@ describe('the usage screen read path', () => {
         expect(request).toHaveBeenCalledTimes(0);
         TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
         await tick();
-        expect(request).toHaveBeenCalledTimes(0);
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenLastCalledWith('usage.report', { refresh: true }, expect.any(Number));
+        TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
         expect(screenText(screen)).toContain('plugins.rightNow.refreshIn');
     });
 
@@ -1438,13 +1566,13 @@ describe('the usage screen read path', () => {
 
         renderScreen();
         await tick();
-        expect(forcedReads()).toHaveLength(1);
+        expect(forcedReads()).toHaveLength(0);
 
         await tick(FRESH_MS - 1_000);
-        expect(forcedReads()).toHaveLength(1);
+        expect(forcedReads()).toHaveLength(0);
 
         await tick(2_000);
-        expect(forcedReads()).toHaveLength(2);
+        expect(forcedReads()).toHaveLength(1);
     });
 
     it('shows the read a pull lands on rather than a gesture that did nothing', async () => {

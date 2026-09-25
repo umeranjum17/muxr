@@ -393,37 +393,53 @@ function usageStateDir(env: NodeJS.ProcessEnv): string {
     return join(home, 'usage');
 }
 
+/** Everything one collection measured, before any tab borrows it: every plan's
+ *  windows, every agent's local activity rows, the tab list and the connected
+ *  strip. One answer per machine per moment, which the Home card's compact
+ *  payload and every Usage tab project from -- never one collection each. */
+interface RawCollection {
+    /** The collection's one captured instant. */
+    at: number;
+    capturedAt: string;
+    /** The oldest plan reading shown, when a last good reading stood in. */
+    readingsFrom: number;
+    periods: string[];
+    plans: Partial<Record<PlanId, UsageWindowVM[]>>;
+    /** Every plan collector's real windows, most urgent first. */
+    shapes: ReturnType<typeof planStrip>['planShapes'];
+    connected: UsageConnectedProvider[];
+    providerIds: string[];
+    /** Measured local activity per agent, in the report's own day shape. */
+    agents: Record<string, UsageDayRow[]>;
+    reports: Record<string, LocalAgentReport>;
+    /** Why local activity could not be measured, when it could not. */
+    ccusageFailure?: string;
+    /** The Z.ai attribution facts its activity rules read. */
+    zaiConnected: boolean;
+    zaiModelCount: number;
+    /** The plan collectors' own words for a plan they could not read. */
+    goLabel: string;
+    zaiLabel: string;
+    /** A successful plan read or local activity scan produced this answer. */
+    storedFresh: boolean;
+}
+
+const completed = new Map<string, RawCollection>();
+
 function cacheName(selected: string): string {
     return `usage-v2-${selected === '' ? 'all' : selected}.json`;
 }
 
-function cachedOutput(env: NodeJS.ProcessEnv, identity: string, today: string, nowMs: number, selected: string): { output: UsageReport; stale: boolean } | undefined {
-    try {
-        const saved = JSON.parse(readFileSync(join(usageStateDir(env), cacheName(selected)), 'utf8')) as {
-            at?: number; date?: string; identity?: string; output?: UsageReport;
-        };
-        const age = nowMs - (saved.at ?? Number.NaN);
-        const maxAge = saved.output?.provider === 'claude' ? 15_000 : 60_000;
-        // A payload captured yesterday would keep labelling its last day "Today".
-        // Past the fresh window the payload still paints instantly -- flagged
-        // stale so the screen refreshes itself in place -- because last-known
-        // numbers beat a skeleton while a fresh collection runs.
-        if (saved.identity === identity && saved.date === today && age >= 0 && Array.isArray(saved.output?.providers) && Buffer.byteLength(JSON.stringify(saved.output)) <= 65_536) {
-            return { output: saved.output!, stale: age >= maxAge };
-        }
-    } catch { /* no cache yet */ }
-    return undefined;
-}
-
 function saveOutput(env: NodeJS.ProcessEnv, output: UsageReport, identity: string, today: string, nowMs: number, selected: string): void {
-    if (Buffer.byteLength(JSON.stringify(output)) > 65_536) return;
+    const body = JSON.stringify({ at: nowMs, date: today, identity, output });
+    if (Buffer.byteLength(body) > 65_536) return;
     const cache = join(usageStateDir(env), cacheName(selected));
     const temporary = `${cache}.${process.pid}.tmp`;
     try {
         mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
-        writeFileSync(temporary, JSON.stringify({ at: nowMs, date: today, identity, output }), { mode: 0o600 });
+        writeFileSync(temporary, body, { mode: 0o600 });
         renameSync(temporary, cache);
-    } catch { /* a cache that cannot be written is a slower next paint, not an error */ }
+    } catch { /* an unwritten cache only makes the next paint slower */ }
 }
 
 type PlanId = 'claude' | 'codex' | 'opencode' | 'zai';
@@ -655,22 +671,23 @@ function cacheIdentity(env: NodeJS.ProcessEnv): string {
 
 export interface CollectUsageInput {
     provider?: string;
-    /** Re-collect past a still-valid cache (the screen's quiet revalidation). */
+    report?: boolean;
+    /** Re-collect past the recent shared collection on an explicit refresh. */
     refresh?: boolean;
 }
 
 /** The provider whose limits message the selected tab would speak. */
-function selectedLimitsMessage(provider: string, claudeVMs: UsageWindowVM[], goVMs: UsageWindowVM[], go: PlanOutcome, zaiVMs: UsageWindowVM[], zaiPlan: PlanOutcome, codex: UsageWindowVM[]): string | undefined {
+function selectedLimitsMessage(provider: string, claudeVMs: UsageWindowVM[], goVMs: UsageWindowVM[], goLabel: string, zaiVMs: UsageWindowVM[], zaiLabel: string, codex: UsageWindowVM[]): string | undefined {
     if (provider === 'claude' && claudeVMs.length === 0) return 'Claude plan limits unavailable';
-    if (provider === 'opencode' && goVMs.length === 0) return go.label;
-    if (provider === 'zai' && zaiVMs.length === 0) return zaiPlan.label;
+    if (provider === 'opencode' && goVMs.length === 0) return goLabel;
+    if (provider === 'zai' && zaiVMs.length === 0) return zaiLabel;
     if (provider === 'codex' && codex.length === 0) return 'Codex plan limits unavailable';
     return NOT_CONNECTED_MESSAGE;
 }
 
-/** Collections in flight, keyed exactly as the cache is: identity, local date
- *  and selected tab. */
-const inFlight = new Map<string, Promise<UsageReport>>();
+/** Collections in flight, keyed by identity and local date: the card's ask and
+ *  any tab's ask join the one collection instead of racing a second one. */
+const inFlight = new Map<string, Promise<RawCollection>>();
 
 export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.ProcessEnv = process.env): Promise<UsageReport> {
     const requested = (input.provider ?? '').slice(0, MAX_PROVIDER_INPUT);
@@ -680,29 +697,43 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
     const NOW = nowDate(env);
     const TODAY = localDate(NOW);
     const accounts = planAccounts(env);
-    const identity = cacheIdentity(env);
-    const cached = input.refresh === true ? undefined : cachedOutput(env, identity, TODAY, NOW.getTime(), selected);
-    if (cached !== undefined) {
-        return withAge(cached.stale ? { ...cached.output, stale: true } : cached.output, NOW.getTime());
+    const identity = `${cacheIdentity(env)}:${JSON.stringify(accounts)}`;
+    const key = `${identity}\u0000${TODAY}`;
+    let collection = inFlight.get(key);
+    if (input.refresh !== true && collection === undefined) {
+        const cached = completed.get(key);
+        if (cached !== undefined && NOW.getTime() - cached.at < PLAN_MIN_READ_MS) return project(cached, selected, NOW.getTime());
     }
-    // A cold cache asked for by several readers at once -- the Home card's
-    // follow-ups, the Usage screen's revalidation, another screen or device --
-    // costs one collection, not one per reader. Every waiter gets the same
-    // answer or the same rejection; the entry is cleared however it settles.
-    const key = `${identity}\u0000${TODAY}\u0000${selected}`;
-    const running = inFlight.get(key);
-    if (running !== undefined) return running;
-    let collection: Promise<UsageReport>;
-    collection = collectFresh(selected, NOW, TODAY, identity, accounts, env).finally(() => {
-        if (inFlight.get(key) === collection) inFlight.delete(key);
-    });
-    inFlight.set(key, collection);
-    return collection;
+    if (collection === undefined) {
+        collection = collectFresh(NOW, accounts, env).then((raw) => {
+            if (raw.storedFresh) {
+                for (const storedKey of completed.keys()) {
+                    if (storedKey.slice(-10) < TODAY) completed.delete(storedKey);
+                }
+                completed.set(key, raw);
+            }
+            return raw;
+        }).finally(() => { inFlight.delete(key); });
+        inFlight.set(key, collection);
+    }
+    const raw = await collection;
+    const output = project(raw, selected, NOW.getTime());
+    const limitsUnavailable = (output.provider === 'claude' && raw.plans.claude?.length === 0)
+        || (output.provider === 'codex' && raw.plans.codex?.length === 0)
+        || (output.provider === 'opencode' && raw.plans.opencode?.length === 0)
+        || (output.provider === 'zai' && raw.plans.zai?.length === 0);
+    if (input.report && raw.storedFresh && output.activityNotice === undefined && !limitsUnavailable
+        && (selected === '' || selected === output.provider)) {
+        saveOutput(env, output, identity, TODAY, NOW.getTime(), selected);
+    }
+    return output;
 }
 
-/** The collection itself, once the caller knows the cache is cold. The instant,
- *  the provider tab and the cache identity are fixed for the whole payload. */
-async function collectFresh(selected: string, NOW: Date, TODAY: string, identity: string, accounts: Partial<Record<PlanId, string>>, env: NodeJS.ProcessEnv): Promise<UsageReport> {
+/** The collection itself, once the caller knows the cache is cold. It measures
+ *  the whole machine -- every plan, every agent's local activity -- once; which
+ *  tab asked is a projection concern and never reaches this code. The captured
+ *  instant is fixed for the whole payload. */
+async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>, env: NodeJS.ProcessEnv): Promise<RawCollection> {
     const PERIODS = windowPeriods(NOW);
     const skipPlan: PlanOutcome = { label: '' };
     // Every connected plan is read alongside local activity, not after it:
@@ -712,16 +743,16 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     const stored = readPlans(env, accounts);
     const recent = (id: PlanId) => NOW.getTime() - (stored[id]?.at ?? Number.NEGATIVE_INFINITY) < PLAN_MIN_READ_MS;
     const planConnected: string[] = (['claude', 'opencode', 'zai'] as const).filter((id) => planStillConnected(id, env));
-    // A connected plan read moments ago answers from that reading; one that is
-    // not connected is only read below, if its own tab asks.
+    // Connected plans read moments ago answer from their last reading; the
+    // other collectors still provide their own unavailable labels.
     const readEarly = <T,>(id: PlanId, read: () => Promise<T>, skip: T): Promise<T> | undefined => {
         if (!planConnected.includes(id)) return undefined;
         return recent(id) ? Promise.resolve(skip) : read();
     };
     const early = {
-        claude: readEarly<unknown>('claude', () => claudePlanLimits(env), undefined),
-        opencode: readEarly('opencode', () => goPlanLimits(env), skipPlan),
-        zai: readEarly('zai', () => zaiPlanLimits(env), skipPlan),
+        claude: readEarly<unknown>('claude', () => claudePlanLimits(env), undefined) ?? Promise.resolve(undefined),
+        opencode: readEarly('opencode', () => goPlanLimits(env), skipPlan) ?? goPlanLimits(env),
+        zai: readEarly('zai', () => zaiPlanLimits(env), skipPlan) ?? zaiPlanLimits(env),
     };
     const [{ range, failure: ccusageFailure }, codexRaw, local] = await Promise.all([
         ccusageRange(env), recent('codex') ? Promise.resolve(undefined) : codexUsage(env), collectLocalUsage(PERIODS, NOW.getTime(), env),
@@ -770,7 +801,10 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
     for (const [agent, report] of Object.entries(reports)) {
         if (report === undefined) continue;
         if (Number.isFinite(report.latest) && (report.latest as number) <= NOW.getTime()) latest.set(agent, report.latest as number);
-        if (report.unavailable) { agents.delete(agent); continue; }
+        if (report.unavailable) {
+            if (agent === 'omp' || agent === 'pi') agents.delete(agent);
+            continue;
+        }
         if (!report.rows) continue;
         const days: UsageDayRow[] = PERIODS.map((period) => ({ period, row: undefined }));
         for (const aggregate of report.rows) {
@@ -817,33 +851,11 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
         ...(codex.length > 0 ? ['codex'] : []),
     ])]
         .sort((a, b) => (latest.get(b) ?? 0) - (latest.get(a) ?? 0) || (AGENTS[a] ?? a).localeCompare(AGENTS[b] ?? b));
-    const provider = selected !== '' && (providerIds.includes(selected) || reports[selected] !== undefined)
-        ? selected
-        : providerIds[0] ?? '';
-    const activitySupported = CCUSAGE_AGENTS.has(provider) || provider === 'omp' || provider === 'zai';
-    const localReport = reports[provider];
-    let activityFailure = ccusageFailure;
-    if (localReport?.rows) activityFailure = undefined;
-    if (localReport?.unavailable) activityFailure = localReport.reason ?? 'Local activity unavailable';
-    // Z.ai is measured from Pi's records, so ccusage's health says nothing about
-    // this tab; only whether its models could be attributed does.
-    if (provider === 'zai' && zaiConnected && zaiModelIds.size === 0) activityFailure = 'Local activity unavailable for this provider';
-    else if (provider === 'zai' && zaiConnected && reports.pi?.unavailable) activityFailure = reports.pi.reason ?? 'Local activity unavailable';
-    else if (provider === 'zai' && zaiConnected) activityFailure = undefined;
-    const activityAvailable = activitySupported && activityFailure === undefined;
-    // Only failures speak on the screen now (a notice inside the Today card).
-    const days = agents.get(provider) ?? PERIODS.map((period) => ({ period, row: undefined }));
-    const totals = activityTotals(days);
-    const { today, tokensToday, tokensWeek, costToday, costWeek } = totals;
     // Connected plans load whatever tab is on screen: a machine-level view
     // (the default tab, the Home card) must see every real window, not just
-    // the selected tab's. An explicitly selected tab still collects its own
-    // source even when disconnected, so its honest unavailable message stands.
-    const [claudeRaw, go, zaiPlan] = await Promise.all([
-        early.claude ?? (provider === 'claude' ? claudePlanLimits(env) : Promise.resolve(undefined)),
-        early.opencode ?? (provider === 'opencode' ? goPlanLimits(env) : Promise.resolve(skipPlan)),
-        early.zai ?? (provider === 'zai' ? zaiPlanLimits(env) : Promise.resolve(skipPlan)),
-    ]);
+    // the selected tab's. A disconnected plan's collector answers with its
+    // own honest label, so that label is on hand for whichever tab asks.
+    const [claudeRaw, go, zaiPlan] = await Promise.all([early.claude, early.opencode, early.zai]);
     // One transform per source, one view model for the screen: everything below
     // renders from these, never from a provider payload.
     const claudeVMs = windowsOf('claude', claudeRaw);
@@ -855,32 +867,83 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
         if (reading !== undefined && reading !== stored[id]) updates[id] = reading;
     }
     if (Object.keys(updates).length > 0) savePlans(env, updates, accounts);
-    const selectedVMs = selectedWindows(provider, claudeVMs, codex, zaiVMs, goVMs);
     // Every plan collector's real windows, most urgent first: the borrow rule
     // and the Home card's connected strip read the same list, so a machine-level
     // view and a per-tab view can never disagree about which plan is tightest.
     const { planShapes, connected } = planStrip({ claude: claudeVMs, codex, opencode: goVMs, zai: zaiVMs });
-    // One quiet line when the plan has nothing to card; the message is the
-    // provider-specific truth (not connected, reconnect, unavailable).
-    const noProvidersFields = providerIds.length === 0
-        ? { noProviders: 'Run a coding agent on this computer or connect a plan.', noProvidersTitle: 'No supported providers detected' }
-        : {};
+    return {
+        at: NOW.getTime(),
+        capturedAt: NOW.toISOString(),
+        readingsFrom,
+        periods: PERIODS,
+        plans: { claude: claudeVMs, codex, opencode: goVMs, zai: zaiVMs },
+        shapes: planShapes,
+        connected,
+        providerIds,
+        agents: Object.fromEntries(agents),
+        reports,
+        ...(ccusageFailure === undefined ? {} : { ccusageFailure }),
+        zaiConnected,
+        zaiModelCount: zaiModelIds.size,
+        goLabel: go.label,
+        zaiLabel: zaiPlan.label,
+        storedFresh: Object.keys(updates).length > 0 || range !== undefined || Object.values(local).some((report) => Array.isArray(report.rows)),
+    };
+}
+
+/** One tab's report, projected from the shared collection: which provider this
+ *  tab answers for, its measured activity, and the limits it speaks. A
+ *  projection only reshapes what the collection measured; it measures nothing
+ *  of its own, so the card's compact figures and every tab's detailed ones are
+ *  the same figures by construction. */
+function project(raw: RawCollection, selected: string, nowMs: number): UsageReport {
+    const { plans, providerIds, reports } = raw;
+    const claudeVMs = plans.claude ?? [];
+    const codex = plans.codex ?? [];
+    const zaiVMs = plans.zai ?? [];
+    const goVMs = plans.opencode ?? [];
+    const provider = selected !== '' && (providerIds.includes(selected) || reports[selected] !== undefined)
+        ? selected
+        : providerIds[0] ?? '';
+    const activitySupported = CCUSAGE_AGENTS.has(provider) || provider === 'omp' || provider === 'zai';
+    const localReport = reports[provider];
+    let activityFailure = raw.ccusageFailure;
+    if (localReport?.rows) activityFailure = undefined;
+    // A local report gates only the activity it is itself the source of: omp
+    // and pi are measured from their own transcripts, so an unavailable scan
+    // really means no rows. opencode's own database is only probed for recency
+    // -- its tab's activity is ccusage's, and a missing database must not
+    // blank activity ccusage measured.
+    if (localReport?.unavailable && (provider === 'omp' || provider === 'pi')) activityFailure = localReport.reason ?? 'Local activity unavailable';
+    // Z.ai is measured from Pi's records, so ccusage's health says nothing about
+    // this tab; only whether its models could be attributed does.
+    if (provider === 'zai' && raw.zaiConnected && raw.zaiModelCount === 0) activityFailure = 'Local activity unavailable for this provider';
+    else if (provider === 'zai' && raw.zaiConnected && reports.pi?.unavailable) activityFailure = reports.pi.reason ?? 'Local activity unavailable';
+    else if (provider === 'zai' && raw.zaiConnected) activityFailure = undefined;
+    const activityAvailable = activitySupported && activityFailure === undefined;
+    // Only failures speak on the screen now (a notice inside the Today card).
+    const days = raw.agents[provider] ?? raw.periods.map((period) => ({ period, row: undefined }));
+    const totals = activityTotals(days);
+    const { today, tokensToday, tokensWeek, costToday, costWeek } = totals;
+    const selectedVMs = selectedWindows(provider, claudeVMs, codex, zaiVMs, goVMs);
     // A selection without its own plan collector (pi, omp, gemini, ...) borrows
     // the tightest connected plan, so the default view answers with a real
     // window instead of a machine-level "not connected" that is false whenever
     // any plan is connected. A plan tab keeps speaking for itself: its own
     // unavailable message beats another plan's numbers.
-    const borrowed = (PLAN_PROVIDERS[provider] === undefined && selectedVMs.length === 0) ? planShapes[0] : undefined;
+    const borrowed = (PLAN_PROVIDERS[provider] === undefined && selectedVMs.length === 0) ? raw.shapes[0] : undefined;
     const limitsVMs = borrowed !== undefined ? borrowed.vms : selectedVMs;
     const limitsPlan = borrowed !== undefined ? borrowed.plan : PLAN_PROVIDERS[provider];
     const limitsMessage = (providerIds.length > 0 && limitsVMs.length === 0)
-        ? selectedLimitsMessage(provider, claudeVMs, goVMs, go, zaiVMs, zaiPlan, codex)
+        ? selectedLimitsMessage(provider, claudeVMs, goVMs, raw.goLabel, zaiVMs, raw.zaiLabel, codex)
         : undefined;
     const output: UsageReport = {
         providers: providerIds.map((agent) => ({ id: agent, label: TAB_LABELS[agent] ?? AGENTS[agent] ?? agent, glyph: agent })),
         provider,
         providerName: AGENTS[provider] ?? 'Usage',
-        ...noProvidersFields,
+        ...(providerIds.length === 0
+            ? { noProviders: 'Run a coding agent on this computer or connect a plan.', noProvidersTitle: 'No supported providers detected' }
+            : {}),
         ...(activityFailure === undefined ? {} : { activityNotice: activityFailure }),
         todayTokens: activityTokens(tokensToday, activityAvailable),
         // A measured day with no activity cost nothing; a measured row whose cost
@@ -892,9 +955,9 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
         weekSeries: (activityAvailable ? days : []).map(({ period, row }): UsageSeriesPoint => ({
             label: dayLabel(period), value: row?.totalTokens ?? 0, valueLabel: tokens(row?.totalTokens ?? 0) ?? '0', detail: period,
         })),
-        capturedAt: NOW.toISOString(),
-        ...(readingsFrom < NOW.getTime() ? { readingsFrom: new Date(readingsFrom).toISOString() } : {}),
-        windowPeriods: PERIODS,
+        capturedAt: raw.capturedAt,
+        ...(raw.readingsFrom < raw.at ? { readingsFrom: new Date(raw.readingsFrom).toISOString() } : {}),
+        windowPeriods: raw.periods,
         // The normalized view model behind every rendered rate-limit shape.
         windows: limitsVMs,
         limits: limitsPayload(limitsVMs, {
@@ -904,23 +967,13 @@ async function collectFresh(selected: string, NOW: Date, TODAY: string, identity
         // One compact entry per provider with real quota windows, most urgent
         // first: the Home card's strip reads this instead of re-deriving every
         // tab's state from a payload that answers for one tab.
-        ...(connected.length === 0 ? {} : { connected }),
+        ...(raw.connected.length === 0 ? {} : { connected: raw.connected }),
     };
-    // Never pin a failure or a fallback provider under the requested key: one
-    // blocked read would otherwise own the screen for the whole TTL. The gate
-    // is the selected tab's own health: another provider's blocked limits must
-    // not stop this tab from caching, or every visit pays the full rescan. A
-    // stale paint never persists its own flag: the saved payload stays clean.
-    const limitsUnavailable = goUnavailable(provider, goVMs) || claudeUnavailable(provider, claudeVMs)
-        || zaiUnavailable(provider, zaiVMs) || codexUnavailable(provider, codex);
-    if (activityFailure === undefined && reports[provider]?.unavailable !== true && !limitsUnavailable && (selected === '' || selected === output.provider)) {
-        saveOutput(env, output, identity, TODAY, NOW.getTime(), selected);
-    }
-    return withAge(output, NOW.getTime());
+    return withAge(output, nowMs);
 }
 
 /** The age of the reading, by the host's clock, so every reader can apply its
- *  own freshness window to one number rather than the coarser cache flag. */
+ *  own freshness window independently of the host's collection cadence. */
 function withAge(output: UsageReport, nowMs: number): UsageReport {
     const capturedAt = Date.parse(output.readingsFrom ?? output.capturedAt ?? '');
     if (!Number.isFinite(capturedAt)) return output;
@@ -947,20 +1000,4 @@ function activityCost(cost: number | undefined, measured: boolean, available: bo
     // was never recorded is unknown, and a dash is the only honest figure.
     if (!measured) return '$0.00';
     return money(cost ?? Number.NaN) ?? '—';
-}
-
-function goUnavailable(provider: string, goVMs: UsageWindowVM[]): boolean {
-    return provider === 'opencode' && goVMs.length === 0;
-}
-
-function claudeUnavailable(provider: string, claudeVMs: UsageWindowVM[]): boolean {
-    return provider === 'claude' && claudeVMs.length === 0;
-}
-
-function zaiUnavailable(provider: string, zaiVMs: UsageWindowVM[]): boolean {
-    return provider === 'zai' && zaiVMs.length === 0;
-}
-
-function codexUnavailable(provider: string, codex: UsageWindowVM[]): boolean {
-    return provider === 'codex' && codex.length === 0;
 }

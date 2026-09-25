@@ -131,7 +131,7 @@ export interface UsageVitals {
 export interface UsageNow {
     limits: UsageLimitsPayload;
     connected?: UsageConnectedProvider[];
-    /** Cold usage cache; the host fell back so the vitals could answer. */
+    /** Collection still running; the host fell back so vitals could answer. */
     collecting?: true;
     /** These are the last known figures and a collection is still running
      *  behind them: ask again shortly for the one that lands. */
@@ -139,8 +139,8 @@ export interface UsageNow {
     /** How old the limit figures are, by the host's clock. */
     ageSeconds?: number;
     /** The instant this reading was captured, by the host's clock: the host
-     *  names the reading so a reader can tell a replayed cache entry from a
-     *  new collection instead of inferring it from the age. */
+     *  names the reading so a reader can tell a reused collection from a
+     *  new one instead of inferring it from the age. */
     capturedAt?: string;
     vitals?: UsageVitals;
 }
