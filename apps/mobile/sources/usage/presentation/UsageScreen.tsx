@@ -101,7 +101,7 @@ export function UsageScreen() {
                 const previous = shownUsage(target);
                 const at = Date.now();
                 rememberShown(target, { status: 'figures', at, figures: withReport(previous?.status === 'figures' ? previous.figures : undefined, value) });
-                noteTabListAsked(target, at);
+                if (previous?.status !== 'figures' || !capturedBefore(value.capturedAt, previous.figures.capturedAt)) noteTabListAsked(target, at);
             })
             .catch((cause: unknown) => {
                 if (request !== version.current) { abandon(); return; }
@@ -150,7 +150,7 @@ export function UsageScreen() {
         const stored = shownUsage(target);
         const owed = unaskedTabList(target) || (stored?.status === 'figures'
             && capturedBefore(stored.figures.activity?.capturedAt, stored.figures.capturedAt)
-            && tabListAskOwed(target, stored.at));
+            && tabListAskOwed(target, stored.figures.ageAt ?? stored.at));
         if (!collectionDue(target, now) && !owed) return;
         if (owed) noteTabListAsked(target, now);
         void load(target, now, force);
@@ -164,7 +164,7 @@ export function UsageScreen() {
     // arrives: the store is the trigger, not the next foreground or tick.
     React.useEffect(() => {
         loadIfDue(provider);
-    }, [display, provider, loadIfDue]);
+    }, [display, provider, busy, loadIfDue]);
 
     // A read still running when the screen goes cannot paint into it, and its
     // claim goes with it: no answer is coming for it.

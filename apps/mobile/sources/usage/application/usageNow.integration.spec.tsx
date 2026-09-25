@@ -1277,6 +1277,28 @@ describe('the usage screen read path', () => {
         expect(request).toHaveBeenCalledWith('usage.report', { refresh: false }, expect.any(Number));
         expect(screen.root.findAllByType('ScreenLimits')[0].props.data.limits.windows[0].used).toBe(20);
         expect(screenText(screen)).toContain('99');
+
+        let releaseOlder: (value: UsageReport) => void = () => undefined;
+        request.mockImplementationOnce(() => new Promise<UsageReport>((resolve) => { releaseOlder = resolve; }));
+        const newer = { ...report('claude', 0), todayTokens: '111', limits: { verdict: 'go' as const, windows: [{ label: 'Rolling', window: '5h', used: 10 }] } };
+        vi.setSystemTime(start + 6 * 60_000);
+        const firstCapture = new Date().toISOString();
+        const first = shownUsage('');
+        TestRenderer.act(() => rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(first?.status === 'figures' ? first.figures : undefined, collected(0, 15, firstCapture)) }));
+        expect(request).toHaveBeenCalledTimes(2);
+        vi.setSystemTime(start + 7 * 60_000);
+        const newestCapture = new Date().toISOString();
+        const second = shownUsage('');
+        TestRenderer.act(() => rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(second?.status === 'figures' ? second.figures : undefined, collected(0, 10, newestCapture)) }));
+        expect(request).toHaveBeenCalledTimes(2);
+        request.mockResolvedValueOnce({ ...newer, capturedAt: newestCapture });
+        await TestRenderer.act(async () => { releaseOlder({ ...report('claude', 0), capturedAt: firstCapture, todayTokens: '88' }); });
+        await tick();
+        expect(request).toHaveBeenCalledTimes(3);
+        expect(request.mock.calls.slice(1).every((call) => call[1].refresh === false)).toBe(true);
+        expect(screen.root.findAllByType('ScreenLimits')[0].props.data.limits.windows[0].used).toBe(10);
+        expect(screenText(screen)).toContain('111');
+        expect(screenText(screen)).not.toContain('88');
     });
 
     it('leaves the tab of a superseded read askable again', async () => {
