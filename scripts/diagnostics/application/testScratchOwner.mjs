@@ -13,9 +13,9 @@ export function processStart(pid) {
     } catch { return undefined; }
 }
 
-export function scratchUnused(root, completed = false) {
+export function scratchUnused(root) {
     const result = spawnSync('lsof', ['-n', '+D', root], { encoding: 'utf8' });
-    return result.status === 1 && (completed || !result.stderr);
+    return result.status === 1 && !result.stderr;
 }
 
 export function testScratchOwner(base) {
@@ -35,6 +35,6 @@ export function testScratchOwner(base) {
             try { process.kill(Number(pid), 0); continue; }
             catch (error) { if (error.code !== 'ESRCH') continue; }
         }
-        rmSync(path, { recursive: true, force: true });
+        if (scratchUnused(path)) rmSync(path, { recursive: true, force: true });
     }
 }

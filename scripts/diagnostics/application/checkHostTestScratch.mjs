@@ -13,7 +13,7 @@ const root = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
 writeFileSync(join(root, 'owner'), `${process.pid} ${birth}`);
 const args = process.argv.slice(3);
 const vitest = args[0] === 'npx' && args[1] === 'vitest';
-const child = spawn(args[0], args.slice(1), { stdio: 'inherit', env: { ...process.env, TMPDIR: root } });
+const child = spawn(args[0], args.slice(1), { stdio: 'inherit', env: { ...process.env, TMPDIR: root, NODE_COMPILE_CACHE: join(root, 'node-compile-cache') } });
 let signalExit;
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
     signalExit = signal === 'SIGINT' ? 130 : 143;
@@ -26,8 +26,9 @@ child.once('error', (error) => {
 });
 child.once('exit', (code, signal) => {
     const finish = () => {
-        const unused = scratchUnused(root, true);
-        const leftovers = readdirSync(root).filter((name) => name !== 'owner' && name !== 'node-compile-cache').map((name) => join(root, name));
+        const unused = scratchUnused(root);
+        if (vitest && unused) rmSync(join(root, 'node-compile-cache'), { recursive: true, force: true });
+        const leftovers = readdirSync(root).filter((name) => name !== 'owner').map((name) => join(root, name));
         if (vitest && unused && leftovers.length) process.stderr.write(`FAIL: host test scratch leftovers:\n${leftovers.join('\n')}\n`);
         if (unused) rmSync(root, { recursive: true, force: true });
         process.exit(vitest && unused && leftovers.length ? 1 : signalExit ?? code ?? (signal ? 1 : 0));
