@@ -103,9 +103,7 @@ IssueDrawCommandsStart`):
   600 ms and the cursor is always visible — blinking during use, solid at rest.
 - The ring is unchanged: ring-frame late counts and GPU are within run-to-run
   noise of the baseline runs above and the original A/B runs.
-- For a measurement APK, temporarily add a `blinklab` build type in
-  `apps/mobile/android/app/build.gradle` with `initWith release`,
-  `signingConfig signingConfigs.debug`, `applicationIdSuffix '.blinklab'`, and
-  `matchingFallbacks += 'release'`; remove it after measurement.
-  Build with `APP_ENV=preview` and the lab's `EXPO_PUBLIC_MUXR_*` connection,
-  reached over `adb reverse`.
+- For a measurement APK, add a local, uncommitted `buildTypes.blinklab` block in
+  `apps/mobile/android/app/build.gradle`: `initWith release`, `signingConfig signingConfigs.debug`,
+  `applicationIdSuffix '.blinklab'`, `matchingFallbacks += 'release'`; remove it afterward.
+  Build with `APP_ENV=preview` and the lab's `EXPO_PUBLIC_MUXR_*` connection over `adb reverse`.
