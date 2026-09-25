@@ -11,8 +11,10 @@ import {
     loadSettings,
     loadLocalSettings,
     loadProfile,
+    loadSpacePins,
     saveSettings,
     saveLocalSettings,
+    saveSpacePins,
     loadHomeSnapshot,
     type HomeSnapshot,
     type HomeSession,
@@ -168,6 +170,8 @@ interface StorageState extends WatchSnapshot {
     sessions: Record<string, Session>;
     herdrWorkspaces: HerdrTreeWorkspace[];
     herdrTreeLoaded: boolean;
+    /** Spaces pins: workspace ids shown first, a per-device view preference. */
+    pinnedSpaceIds: string[];
     /** The last confirmed Home for this machine, drawn until the host answers. */
     homeSnapshot: HomeSnapshot | null;
     sessionListViewData: SessionListViewItem[] | null;
@@ -204,6 +208,7 @@ interface StorageState extends WatchSnapshot {
     discardVoiceReport: (identity: string) => void;
     applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: 'online' | number })[], replace?: boolean) => void;
     applyHerdrTree: (workspaces: HerdrTreeWorkspace[]) => void;
+    toggleSpacePin: (workspaceId: string) => void;
     applyHomeSnapshot: (snapshot: HomeSnapshot | null) => void;
     /** Draw this machine's last confirmed Home until the host answers. */
     restoreHome: (machineId: string) => void;
@@ -271,6 +276,7 @@ export const storage = create<StorageState>()((set, get) => ({
     sessions: {},
     herdrWorkspaces: [],
     herdrTreeLoaded: false,
+    pinnedSpaceIds: loadSpacePins(),
     homeSnapshot: null,
     machines: {},
     sessionListViewData: null,
@@ -333,6 +339,13 @@ export const storage = create<StorageState>()((set, get) => ({
                   herdrTreeLoaded: true,
                   sessionListViewData: buildSessionListViewData(state.sessions, herdrWorkspaces),
               }),
+    toggleSpacePin: (workspaceId) => set((state) => {
+        const pinnedSpaceIds = state.pinnedSpaceIds.includes(workspaceId)
+            ? state.pinnedSpaceIds.filter((id) => id !== workspaceId)
+            : [...state.pinnedSpaceIds, workspaceId];
+        saveSpacePins(pinnedSpaceIds);
+        return { pinnedSpaceIds };
+    }),
     applyHomeSnapshot: (homeSnapshot) => set({ homeSnapshot }),
     restoreHome: (machineId) => set({ homeSnapshot: loadHomeSnapshot(machineId) }),
     applyMachines: (machines, replace = false) => set((state) => {
@@ -500,6 +513,11 @@ export function useSessions(): Session[] {
 
 export function useHerdrTree(): { workspaces: HerdrTreeWorkspace[]; loaded: boolean } {
     return storage(useShallow((state) => ({ workspaces: state.herdrWorkspaces, loaded: state.herdrTreeLoaded })));
+}
+
+/** The Spaces pins, as a stable array reference. */
+export function useSpacePins(): readonly string[] {
+    return storage((state) => state.pinnedSpaceIds);
 }
 
 /** Home draws its snapshot until the host has sent both its tree and its agents. */

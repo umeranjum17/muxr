@@ -11,7 +11,7 @@ import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels } from '../../herd/domain/agentPresentation';
 import { terminalPaneCanSend, terminalPaneStatus } from '../../terminal/domain/promptAvailability';
 import { unseenActivityRows } from '../../herd/domain/recentActivity';
-import { loadLocalSettings } from './persistence';
+import { loadLocalSettings, loadSpacePins } from './persistence';
 
 const request = vi.fn();
 const refreshSessions = vi.fn();
@@ -1009,5 +1009,21 @@ describe('session sync flow', () => {
         // The installed binary is 0.1.26: 0.1.27 is neither history nor current.
         installedVersion.value = '0.1.26';
         expect(currentRelease()?.appVersion).toBe('0.1.26');
+    });
+
+    it('keeps a space pin across a remount and a machine tree switch', () => {
+        mmkvValues.clear();
+        expect(storage.getState().pinnedSpaceIds).toEqual([]);
+
+        storage.getState().toggleSpacePin('w-pin');
+        expect(storage.getState().pinnedSpaceIds).toEqual(['w-pin']);
+        // A remount loads what the last write left on disk.
+        expect(loadSpacePins()).toEqual(['w-pin']);
+
+        storage.getState().applyHerdrTree([
+            { workspaceId: 'w-other', label: 'other', focused: false, agentStatus: 'idle', tabs: [] },
+        ]);
+        expect(storage.getState().pinnedSpaceIds).toEqual(['w-pin']);
+        expect(loadSpacePins()).toEqual(['w-pin']);
     });
 });

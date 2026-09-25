@@ -46,7 +46,7 @@ Open the same live terminal the agent owns on your computer, with native Ghostty
 
 ### Every agent, every machine
 
-The Herd groups agents by repository and nests spawned workspaces when their lineage is declared. A nested workspace with one named agent shows that Herdr name before its workspace label, so you can pick the right agent; unnamed or multi-agent workspaces keep their workspace label. See real terminal thumbnails and agent lifecycle: working, needs you, done. Tap any agent and you are back in the same session.
+The Herd groups agents by repository and nests spawned workspaces when their lineage is declared. A nested workspace with one named agent shows that Herdr name before its workspace label, so you can pick the right agent; unnamed or multi-agent workspaces keep their workspace label. See real terminal thumbnails and agent lifecycle: working, needs you, done. Long-press a top-level space card and choose **Pin to top** to keep it above other spaces, or **Unpin** to return it to the ordinary list. Pins are saved on this device and retained across app restarts and machine switches; nested spaces remain inside their parent cards. Tap any agent and you are back in the same session.
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/herd.webp" type="image/webp"><img src="docs/assets/readme/herd.jpg" alt="Home with plan limits at a glance, a live terminal card for an agent that needs you, and agents grouped by repository" width="300" /></picture>

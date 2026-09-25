@@ -306,6 +306,7 @@ export const zhHans: TranslationStructure = {
     spacesTree: {
         // Spaces section on Home
         title: '空间',
+        pinned: '置顶',
         empty: '没有打开的空间',
         rootFolder: '根文件夹',
         homeFolder: '主文件夹',

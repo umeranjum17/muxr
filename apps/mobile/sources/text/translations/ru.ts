@@ -291,6 +291,7 @@ export const ru: TranslationStructure = {
     spacesTree: {
         // Spaces section on Home
         title: 'Пространства',
+        pinned: 'Закреплённые',
         empty: 'Нет открытых пространств',
         rootFolder: 'Корневая папка',
         homeFolder: 'Домашняя папка',

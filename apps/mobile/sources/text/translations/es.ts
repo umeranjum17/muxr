@@ -304,6 +304,7 @@ export const es: TranslationStructure = {
     spacesTree: {
         // Spaces section on Home
         title: 'Espacios',
+        pinned: 'Fijados',
         empty: 'No hay espacios abiertos',
         rootFolder: 'Carpeta raíz',
         homeFolder: 'Carpeta de inicio',

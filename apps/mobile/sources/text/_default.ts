@@ -316,6 +316,8 @@ export const en = {
     spacesTree: {
         // Spaces section on Home
         title: 'Spaces',
+        // Section label above the pinned cards, shown only when something is pinned
+        pinned: 'Pinned',
         empty: 'No spaces open',
         rootFolder: 'Root folder',
         homeFolder: 'Home folder',

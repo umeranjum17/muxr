@@ -321,6 +321,7 @@ export const pl: TranslationStructure = {
     spacesTree: {
         // Spaces section on Home
         title: 'Przestrzenie',
+        pinned: 'Przypięte',
         empty: 'Brak otwartych przestrzeni',
         rootFolder: 'Folder główny',
         homeFolder: 'Folder domowy',

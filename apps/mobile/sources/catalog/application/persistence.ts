@@ -124,6 +124,29 @@ export function saveLocalSettings(settings: LocalSettings) {
     mmkv.set('local-settings', JSON.stringify(settings));
 }
 
+const SPACES_PINS_KEY = 'spaces-pins-v1';
+
+/**
+ * Workspace ids pinned to the top of Spaces, a per-device view preference.
+ * Keyed by the Herdr workspace id, the only stable identity the phone is
+ * told; absent workspaces are ignored until they appear again.
+ */
+export function loadSpacePins(): string[] {
+    const raw = mmkv.getString(SPACES_PINS_KEY);
+    if (!raw) return [];
+    try {
+        const parsed: unknown = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+    } catch {
+        mmkv.delete(SPACES_PINS_KEY);
+        return [];
+    }
+}
+
+export function saveSpacePins(pins: string[]) {
+    mmkv.set(SPACES_PINS_KEY, JSON.stringify(pins));
+}
+
 export function loadThemePreference(): 'light' | 'dark' | 'adaptive' {
     return loadLocalSettings().themePreference;
 }

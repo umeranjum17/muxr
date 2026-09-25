@@ -64,6 +64,19 @@ describe('visible herd tree flow', () => {
             .toMatchObject({ agentCount: 0, expanded: false });
     });
 
+    it('pins top-level cards above the rest in creation order', () => {
+        const workspaces = [ws('w1', 'repo-a', []), ws('w2', 'repo-b', []), ws('w3', 'repo-c', []), ws('w4', 'repo-d', [])];
+        const ids = (rows: ReturnType<typeof buildSpaceRows>) => rows.map((row) => row.workspace.workspaceId);
+        // Nothing pinned: exactly today's order.
+        expect(ids(buildSpaceRows(workspaces, new Set(), '', new Set()))).toEqual(['w1', 'w2', 'w3', 'w4']);
+        // Pin out of creation order; the pinned group still reads in creation order.
+        expect(ids(buildSpaceRows(workspaces, new Set(), '', new Set(['w3', 'w1'])))).toEqual(['w1', 'w3', 'w2', 'w4']);
+        // Search keeps pinned first among the results.
+        expect(ids(buildSpaceRows(workspaces, new Set(), 'repo', new Set(['w3'])))).toEqual(['w3', 'w1', 'w2', 'w4']);
+        expect(ids(buildSpaceRows(workspaces, new Set(), 'repo-b', new Set(['w3'])))).toEqual(['w2']);
+        expect(ids(buildSpaceRows(workspaces, new Set(), '', new Set(['w9'])))).toEqual(['w1', 'w2', 'w3', 'w4']);
+    });
+
     it('groups task workspaces behind their parent from declared lineage, never the label', () => {
         const mine = ws('w1', 'firstmate', [tab('t1', 'main', [agent])]);
         const byToken = { ...ws('w2', '└ opencode-extdir1 · p:8NwSBmQ5YerlAcFOBfSrqg', [tab('t2', undefined, [pane('p2', 'opencode', { agentName: 'donkey', agentStatus: 'idle' })])]), tokens: { parent: 'w1', kind: 'task' }, order: 2 };

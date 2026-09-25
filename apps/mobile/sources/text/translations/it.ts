@@ -303,6 +303,7 @@ export const it: TranslationStructure = {
     spacesTree: {
         // Spaces section on Home
         title: 'Spazi',
+        pinned: 'Fissati',
         empty: 'Nessuno spazio aperto',
         rootFolder: 'Cartella radice',
         homeFolder: 'Cartella Home',
