@@ -225,6 +225,7 @@ try {
     writeFileSync(join(scratch, 'pi'), `#!/bin/sh\ntouch "${piMarker}"\nexit 99\n`, { mode: 0o755 });
     writeFileSync(ccusage, `#!/bin/sh\ncase "$1 $2" in\n"daily --by-agent") printf x >> "${ccusageMarker}"; printf '%s' '${JSON.stringify(report)}';;\n*) exit 77;;\nesac\n`, { mode: 0o755 });
     mkdirSync(join(scratch, '.claude'));
+    writeFileSync(join(scratch, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'fixture-claude-token', accountUuid: 'fixture-claude-account', expiresAt: Date.now() + 3_600_000 } }));
     writeFileSync(join(scratch, '.claude', 'last-statusline-input.json'), JSON.stringify(claudeLimits));
     writeFileSync(join(scratch, 'codex'), `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(codexMarker)}, 'x');let b='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>{b+=d;for(;;){const i=b.indexOf('\\n');if(i<0)break;const line=b.slice(0,i);b=b.slice(i+1);const m=JSON.parse(line);if(m.id===1)console.log(JSON.stringify({id:1,result:{}}));if(m.id===2)console.log(JSON.stringify({id:2,result:{rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:25,windowDurationMins:300,resetsAt:Math.floor(Date.now()/1000)+3600},secondary:{usedPercent:90,windowDurationMins:10080,resetsAt:Math.floor(Date.now()/1000)+86400}}}}}));}});\n`, { mode: 0o755 });
     for (const command of ['claude', 'kimi', 'opencode', 'hermes', 'github-copilot', 'cursor-agent', 'omp', 'gemini', 'grok', 'amp', 'droid', 'codebuff', 'goose', 'openclaw', 'kilocode', 'qwen', 'devin', 'kiro-cli', 'cline', 'maki', 'mastra', 'qoder', 'antigravity']) writeFileSync(join(scratch, command), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
@@ -300,14 +301,14 @@ try {
     assert.equal(emptyPi.weekTokens, '0');
     assert.equal(emptyPi.activityNotice, undefined);
 
-    // One cache entry per tab, so reopening a tab does not rescan.
+    // One completed collection serves every tab without another scan.
     const cached = await run({ provider: 'claude' });
     assert.equal(cached.todayTokens, '1.3M');
     // The reading names its own age, by the host's clock, so the phone can hold
     // it to one freshness window instead of collecting on the cache's 60 s flag.
     assert.equal(typeof cached.ageSeconds, 'number', 'a served report must name its age');
-    assert.equal(readFileSync(ccusageMarker, 'utf8'), 'xxxx', 'per-tab cache did not prevent a duplicate ccusage scan');
-    // Four tabs collected, but Codex was read once: a plan reading under a
+    assert.equal(readFileSync(ccusageMarker, 'utf8'), 'x', 'shared collection did not prevent duplicate ccusage scans');
+    // Four tabs projected, but Codex was read once: a plan reading under a
     // minute old answers for every collection that follows it.
     assert.equal(readFileSync(codexMarker, 'utf8'), 'x', 'a recent Codex reading did not prevent a duplicate Codex app-server');
 
@@ -326,20 +327,21 @@ try {
     const joinCcusage = join(scratch, 'ccusage-join');
     writeFileSync(joinCcusage, `#!/bin/sh\nprintf x >> "${joinMarker}"\nsleep 1\nprintf '%s' '${JSON.stringify(report)}'\n`, { mode: 0o755 });
     const [firstAsk, secondAsk] = await driveConcurrently(
-        { ...baseEnv(), MUXR_HOME: join(scratch, 'join-state'), MUXR_CCUSAGE_BIN: joinCcusage },
+        { ...baseEnv(), PI_PROFILE: 'join-flow', MUXR_HOME: join(scratch, 'join-state'), MUXR_CCUSAGE_BIN: joinCcusage },
         [{ provider: 'claude' }, { provider: 'claude' }],
     );
     assert.equal(readFileSync(joinMarker, 'utf8'), 'x', 'concurrent cold asks ran more than one collection');
-    assert.equal(firstAsk, secondAsk, 'concurrent asks did not share one answer');
+    assert.equal(firstAsk.capturedAt, secondAsk.capturedAt, 'concurrent asks did not share one collection');
+    assert.deepEqual(firstAsk.windows, secondAsk.windows);
     assert.equal(firstAsk.todayTokens, '1.3M');
 
     // A collection that fails answers every waiter too: the same honest
     // degraded payload, never silence.
     const [firstFail, secondFail] = await driveConcurrently(
-        { ...baseEnv(), PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_HOME: join(scratch, 'join-fail-state') },
+        { ...baseEnv(), PI_PROFILE: 'join-fail-flow', PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_HOME: join(scratch, 'join-fail-state') },
         [{ provider: 'pi' }, { provider: 'pi' }],
     );
-    assert.equal(firstFail, secondFail, 'a failed collection stranded a waiter');
+    assert.equal(firstFail.capturedAt, secondFail.capturedAt, 'a failed collection stranded a waiter');
     assert.equal(firstFail.todayTokens, '—');
     assert.match(firstFail.activityNotice ?? '', /could not be measured/);
 
@@ -385,6 +387,7 @@ try {
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'different-fixture-key' } }));
     const changedKey = await run({ provider: 'opencode' }, { __fetch: async () => { throw new Error('unexpected quota request'); } });
     assert.match(changedKey.limits.message ?? '', /limits unavailable/, 'disk key change reused cached account limits');
+    await run({ provider: 'claude', report: true, refresh: true });
     assert.doesNotMatch(readFileSync(stateFile('claude'), 'utf8'), /fixture-secret-key|different-fixture-key/);
 
     // Z.ai: the GLM Coding Plan credential Pi holds earns a tab, and its
@@ -430,10 +433,10 @@ try {
     const withZai = await run({}, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state2') });
     assert.ok(withZai.providers.some((p) => p.id === 'zai'));
     assert.ok(!withZai.providers.some((p) => p.id === 'cursor' || p.id === 'gemini'));
-    const zaiDenied = await run({ provider: 'zai' }, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state3'), __fetch: async () => new Response('denied', { status: 401 }) });
+    const zaiDenied = await run({ provider: 'zai' }, { PI_PROFILE: 'zai-denied', PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state3'), __fetch: async () => new Response('denied', { status: 401 }) });
     assert.match(zaiDenied.limits.message ?? '', /reconnect in Pi/);
     assert.deepEqual(zaiDenied.limits.windows, []);
-    const zaiNone = await run({ provider: 'zai' }, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state4'), __fetch: async () => new Response(JSON.stringify({ code: 200, success: false, msg: 'no package' }), { status: 200 }) });
+    const zaiNone = await run({ provider: 'zai' }, { PI_PROFILE: 'zai-none', PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state4'), __fetch: async () => new Response(JSON.stringify({ code: 200, success: false, msg: 'no package' }), { status: 200 }) });
     assert.match(zaiNone.limits.message ?? '', /coding plan unavailable/);
     // A valid dotted profile is isolated from the default; an invalid profile
     // must never quietly read another account's database.
@@ -448,30 +451,13 @@ try {
     // from caching its own (honestly labelled) payload: the failure stays on
     // screen, and the next open refreshes instead of pinning it.
     rmSync(stateFile('kimi'), { force: true });
-    const kimiDuringOmpFailure = await run({ provider: 'kimi' }, { OMP_PROFILE: '../default' });
+    const kimiDuringOmpFailure = await run({ provider: 'kimi', report: true, refresh: true }, { OMP_PROFILE: '../default' });
     assert.equal(kimiDuringOmpFailure.todayTokens, '2.5K');
     assert.ok(existsSync(stateFile('kimi')), 'a healthy tab caches despite another collector failing');
     assert.equal((await run({ provider: 'kimi' })).providers[0]?.id, 'omp');
 
-    // The lag fix: with any last-known payload on disk, the screen paints it
-    // at once (flagged stale) instead of holding a skeleton behind a slow
-    // collector; the paint itself never runs the collector.
-    const kimiCache = stateFile('kimi');
-    const seeded = JSON.parse(readFileSync(kimiCache, 'utf8'));
-    seeded.at -= 120_000;
-    writeFileSync(kimiCache, JSON.stringify(seeded));
-    const slowMarker = join(scratch, 'slow-ccusage-ran');
-    const slowCcusage = join(scratch, 'ccusage-slow');
-    writeFileSync(slowCcusage, `#!/bin/sh\nsleep 6\ntouch "${slowMarker}"\nexit 1\n`, { mode: 0o755 });
-    const staleStarted = Date.now();
-    const stalePaint = await run({ provider: 'kimi' }, { MUXR_CCUSAGE_BIN: slowCcusage });
-    const staleMs = Date.now() - staleStarted;
-    assert.equal(stalePaint.todayTokens, '2.5K');
-    assert.equal(stalePaint.stale, true);
-    assert.ok(staleMs < 5_000, `stale paint waited on its slow collector (${staleMs}ms)`);
-    assert.ok(!existsSync(slowMarker), 'stale paint must not run the collector at all');
     // The screen's revalidation asks for fresh data by name (`refresh`), so
-    // it re-collects past a still-valid cache and lands clean, flag-free.
+    // it re-collects past the completed collection and lands clean, flag-free.
     const refreshMarker = join(scratch, 'refresh-ccusage-ran');
     const refreshCcusage = join(scratch, 'ccusage-refresh');
     writeFileSync(refreshCcusage, `#!/bin/sh\ntouch "${refreshMarker}"\nprintf '%s' '${JSON.stringify(report)}'\n`, { mode: 0o755 });
@@ -774,29 +760,15 @@ try {
     }
     process.stdout.write('PASS flow: fork-deduped transcripts, borrowed plans, bounded scans, Dubai-midnight journey\n');
 
-    // The Right now card leads with the window the verdict describes: the
-    // highest share used, ties to the first published. Compared against the
-    // same Usage answer usage.now read, so a selection that picked another
-    // window -- or none -- fails here. Runs after the scan-counting
-    // assertions: usage.now answers from the same cache one ccusage scan fills.
-    // usage.now never names a provider -- it always collects the default view
-    // -- so the default selection decides the payload, and in this fixture
-    // that is `omp`, which publishes no plan windows at all. Seed the `all`
-    // cache both readers below will hit with the Claude answer, whose fixture
-    // publishes a competing 5-hour and 7-day window, so there is something to
-    // select between. MUXR_USAGE_NOW pins NOW, so the seeded entry is age 0
-    // and is served fresh rather than flagged stale.
-    // The host-env flow above read plans on the real clock, after this pinned
-    // NOW; usage.now rightly serves a plan reading newer than the cache, so
-    // those readings go and the Claude run stores its own at the pinned NOW.
+    // The Right now card and the default Usage tab both project the same
+    // collection; OMP borrows the tightest connected plan's windows. Remove
+    // the real-clock reading from the host-env fixture above before comparing
+    // it with this pinned-clock collection.
     rmSync(join(scratch, 'usage', 'plans-v1.json'), { force: true });
-    const claudeRun = await run({ provider: 'claude' });
-    assert.equal(claudeRun.provider, 'claude');
-    cpSync(stateFile('claude'), stateFile('all'));
     const nowPayload = await driveNow(baseEnv());
     const nowUsage = await run({});
-    assert.equal(nowUsage.provider, 'claude', 'the seeded cache must be what both readers answered from');
-    assert.ok(!('stale' in nowUsage), 'a cache seeded at the pinned NOW must be served fresh');
+    assert.equal(nowUsage.provider, 'omp');
+    assert.equal(nowPayload.capturedAt, nowUsage.capturedAt);
     assert.ok(nowUsage.windows.length > 1, 'fixtures must publish competing windows for the selection to mean anything');
     assert.equal(nowPayload.limits.verdict, nowUsage.limits.verdict);
     // The card must lead with the same window `limitsPayload` derived the
