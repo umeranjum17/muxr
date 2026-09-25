@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, watchFile, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { createDeviceGrant } from '@muxr/crypto';
 import { isPeerCapabilities, relayControlUrl } from '@muxr/contract';
@@ -525,8 +525,10 @@ async function main(): Promise<void> {
     };
     let linkEndpoint: LinkEndpoint | undefined;
     let linkOnline = false;
+    const admissionFile = join(dirname(selfhostFile()), 'link-enrolled.json');
+    if (mode === 'selfhost') rmSync(admissionFile, { force: true });
     const recordLinkAdmission = (crypto: MachineCryptoState): void => {
-        atomicWriteJson(join(stateRoot, 'link-enrolled.json'), crypto.devices.map(({ deviceId, devicePublicKey }) => ({ deviceId, devicePublicKey })));
+        atomicWriteJson(admissionFile, crypto.devices.map(({ deviceId, devicePublicKey }) => ({ deviceId, devicePublicKey })));
     };
     if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined) {
         // Pairing is a separate CLI process. Reload its appended per-device

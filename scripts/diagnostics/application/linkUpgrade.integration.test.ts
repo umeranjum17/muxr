@@ -14,7 +14,7 @@
  * way a real self-host relay restarts.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -52,7 +52,8 @@ const children = new Set<ChildProcess>();
 
 function launch(args: string[], extra: NodeJS.ProcessEnv = {}): ChildProcess & { output: () => string } {
     const env: NodeJS.ProcessEnv = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1', ...extra };
-    for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'DATA_DIR']) delete env[`MUXR_${key}`];
+    for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH']) delete env[`MUXR_${key}`];
+    if (extra.MUXR_DATA_DIR === undefined) delete env.MUXR_DATA_DIR;
     if (extra.MUXR_RELAY_PORT === undefined) delete env.MUXR_RELAY_PORT;
     if (extra.MUXR_MODE === undefined) delete env.MUXR_MODE;
     const child = spawn(process.execPath, args, { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -85,7 +86,7 @@ let port = 0;
 let relay: ChildProcess | undefined;
 let host: (ChildProcess & { output: () => string }) | undefined;
 
-async function startMachine(): Promise<void> {
+async function startMachine(dataDir?: string): Promise<void> {
     const started = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
         MUXR_RELAY_PORT: String(port),
         MUXR_RELAY_HOST: '127.0.0.1',
@@ -108,7 +109,7 @@ async function startMachine(): Promise<void> {
             mintSecret: JSON.parse(readFileSync(join(home, 'relay', 'mint-secret'), 'utf8')),
         }, null, 2)}\n`, { mode: 0o600 });
     }
-    host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { MUXR_MODE: 'selfhost' });
+    host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { MUXR_MODE: 'selfhost', ...(dataDir === undefined ? {} : { MUXR_DATA_DIR: dataDir }) });
     const running = host;
     await until(() => (running.output().includes('host -> ') ? true : undefined), 'host start');
 }
@@ -262,7 +263,7 @@ describe('link upgrade for an already-paired phone', () => {
     it('admits the first link dial right after pairing and moves a live session to a new role without removing it', async () => {
         vi.stubGlobal('WebSocket', WebSocket);
         await stopMachine();
-        await startMachine();
+        await startMachine(join(home, 'custom', 'host'));
         phone.secure.clear();
         vi.resetModules();
         const { claimHostedPairing: claimFresh } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
@@ -270,7 +271,12 @@ describe('link upgrade for an already-paired phone', () => {
         const pause = `const { existsSync } = await import('node:fs'); const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { const response = await fetch(...args); if (String(args[0]).endsWith('/grant') && response.ok) while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 20)); return response; };`;
         const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(pause)}` });
         const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'pair string');
-        const stored = await claimFresh(text);
+        const claiming = claimFresh(text);
+        const stored = await Promise.race([
+            claiming,
+            until(() => pair.exitCode === null ? undefined : pair.exitCode, 'pair finishes', 45_000)
+                .then((code) => code === 0 ? claiming : Promise.reject(new Error(pair.output()))),
+        ]);
 
         // The race: the first dial starts the moment pairing lands. The host
         // must have enrolled the device from its own records by then, and the
@@ -318,6 +324,43 @@ describe('link upgrade for an already-paired phone', () => {
         expect(link.status).toBe('online');
         expect(statuses).not.toContain('removed');
         link.stop();
+
+        phone.secure.clear();
+        vi.resetModules();
+        const { claimHostedPairing: claimAfterRestart } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+        const holdUpload = join(home, 'hold-upload');
+        const hold = `const { existsSync } = await import('node:fs'); const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { if (String(args[0]).endsWith('/grant')) while (!existsSync(${JSON.stringify(holdUpload)})) await new Promise(resolve => setTimeout(resolve, 20)); return fetch(...args); };`;
+        const interrupted = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(hold)}` });
+        const nextText = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(interrupted.output())?.[1], 'recovery pair string');
+        const recovering = claimAfterRestart(nextText);
+        await until(() => {
+            const state = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+                machine: { crypto: { pendingPair?: { device?: { deviceId: string } } } };
+            };
+            const id = state.machine.crypto.pendingPair?.device?.deviceId;
+            if (id === undefined || !existsSync(join(home, 'link-enrolled.json'))) return undefined;
+            const enrolled = JSON.parse(readFileSync(join(home, 'link-enrolled.json'), 'utf8')) as { deviceId: string }[];
+            return enrolled.some((device) => device.deviceId === id) ? true : undefined;
+        }, 'device enrolled before upload');
+        await stop(interrupted);
+        await stop(host);
+        const releaseHost = join(home, 'release-host');
+        const holdHost = `const { existsSync } = await import('node:fs'); const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { if (String(args[0]).endsWith('/relay/v1/hosts')) while (!existsSync(${JSON.stringify(releaseHost)})) await new Promise(resolve => setTimeout(resolve, 20)); return fetch(...args); };`;
+        host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], {
+            MUXR_MODE: 'selfhost', MUXR_DATA_DIR: join(home, 'custom', 'host'),
+            NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(holdHost)}`,
+        });
+        await until(() => host!.output().includes('host -> ') ? true : undefined, 'restarted host');
+        const retry = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
+        const early = await Promise.race([recovering.then(() => true), new Promise<false>((resolve) => setTimeout(() => resolve(false), 2500))]);
+        expect(early).toBe(false);
+        writeFileSync(releaseHost, 'go');
+        const recovered = await recovering;
+        expect(await until(() => retry.exitCode === null ? undefined : retry.exitCode, 'pair recovers'), retry.output()).toBe(0);
+        const reconnected = new DeviceLink(linkGrantFrom(recovered), { WebSocket: WebSocket as never });
+        await until(() => reconnected.status === 'online' || reconnected.status === 'removed' ? true : undefined, 'recovered first dial');
+        expect(reconnected.status).toBe('online');
+        reconnected.stop();
     }, 120_000);
 
     it('keeps the host alive and retrying while its relay is down, then back online when it returns', async () => {
