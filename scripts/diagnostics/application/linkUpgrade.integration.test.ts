@@ -310,6 +310,11 @@ describe('link upgrade for an already-paired phone', () => {
         const link = new DeviceLink(linkGrantFrom(stored), { WebSocket: TrackedWebSocket as never, onStatus: (status) => statuses.push(status) });
         await until(() => (link.status === 'online' || link.status === 'removed' ? true : undefined), 'first link dial settles before pair exits', 30_000);
         expect(statuses).not.toContain('removed');
+        const admittedState = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+            machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
+        };
+        expect(Date.parse(admittedState.machine.crypto.devices.find((device) => device.deviceId === stored.deviceId)!.expiresAt))
+            .toBeGreaterThan(Date.now() + 8 * 60_000);
         writeFileSync(release, 'go');
         await until(() => (link.status === 'online' ? true : undefined), 'first link dial comes online right after pairing', 30_000);
         await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'pair finishes');
@@ -394,7 +399,7 @@ describe('link upgrade for an already-paired phone', () => {
         expect(Date.parse(resumedRecord!.expiresAt)).toBeGreaterThan(Date.now() + 8 * 60_000);
     }, 120_000);
 
-    it('drops a device whose grant never publishes once the pairing window ends', async () => {
+    it('expires an unpublished relay credential and rejects late recovery', async () => {
         vi.stubGlobal('WebSocket', WebSocket);
         await stopMachine();
         await startMachine();
@@ -426,15 +431,13 @@ describe('link upgrade for an already-paired phone', () => {
         expect(pair.output()).toContain('pairing did not complete');
         expect(pair.output()).toContain('pairing window');
 
-        // The machine's record for the claimed device carries only the
-        // pairing window - not the durable expiry a completed pairing grants.
-        const record = (): { expiresAt: string } => {
-            const state = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
-                machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
-            };
-            return state.machine.crypto.devices.find((device) => device.deviceId === doomed)!;
+        const statePath = join(home, 'selfhost.json');
+        const pendingState = JSON.parse(readFileSync(statePath, 'utf8')) as {
+            machine: { crypto: { pendingPair: { expiresAt: number }; devices: { deviceId: string; expiresAt: string }[] } };
         };
-        const windowEnd = Date.parse(record()!.expiresAt);
+        const windowEnd = pendingState.machine.crypto.pendingPair.expiresAt;
+        expect(Date.parse(pendingState.machine.crypto.devices.find((device) => device.deviceId === doomed)!.expiresAt))
+            .toBeGreaterThan(Date.now() + 8 * 60_000);
         const relayStatePath = join(home, 'relay', 'selfhost-pairing.json');
         const claimedState = JSON.parse(readFileSync(relayStatePath, 'utf8')) as { devices: { deviceId: string; expiresAt?: number }[] };
         expect(claimedState.devices.find((device) => device.deviceId === doomed)?.expiresAt).toBeGreaterThan(Date.now() + 60_000);
@@ -445,8 +448,6 @@ describe('link upgrade for an already-paired phone', () => {
         expect(windowEnd).toBeGreaterThan(Date.now() + 60_000);
         expect(windowEnd).toBeLessThan(Date.now() + 150_000);
 
-        // Inside the window the claimed device works over the link: the key
-        // the claim generated is the key the machine recorded.
         const machineKey = Buffer.from((JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
             machine: { crypto: { boxPublicKey: string } };
         }).machine.crypto.boxPublicKey, 'base64');
@@ -462,10 +463,6 @@ describe('link upgrade for an already-paired phone', () => {
         await until(() => (link.status === 'online' ? true : undefined), 'claimed device is usable inside the window', 30_000);
         link.stop();
 
-        // ...and once the window has passed it is dropped for real: the
-        // expired record falls out of the device table, the link grant is
-        // revoked, and the phone is told it was removed - which is then true.
-        const statePath = join(home, 'selfhost.json');
         const expired = JSON.parse(readFileSync(statePath, 'utf8')) as {
             machine: { crypto: { pendingPair?: { expiresAt: number }; devices: { deviceId: string; expiresAt: string }[] } };
         };

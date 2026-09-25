@@ -112,9 +112,11 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         writeSelfhostState(state);
     }
     if (pending.grant !== undefined && pending.device !== undefined) {
+        const existing = state.machine.crypto.devices.find((entry) => entry.deviceId === pending.device.deviceId
+            && entry.devicePublicKey === pending.device.devicePublicKey);
         state.machine.crypto.devices = [
             ...state.machine.crypto.devices.filter((entry) => entry.deviceId !== pending.device.deviceId),
-            pending.device,
+            existing ?? pending.device,
         ];
         writeSelfhostState(state);
         if (pending.deviceKind === 'native' && pending.grantUploaded !== true) {
@@ -122,7 +124,13 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             const deadline = Date.now() + 30_000;
             while (true) {
                 const enrolled = existsSync(admission) ? JSON.parse(readFileSync(admission, 'utf8')) : [];
-                if (enrolled.some((device) => device.deviceId === pending.device.deviceId && device.devicePublicKey === pending.device.devicePublicKey)) break;
+                if (enrolled.some((device) => device.deviceId === pending.device.deviceId && device.devicePublicKey === pending.device.devicePublicKey)) {
+                    const latest = readSelfhostState()?.machine.crypto.devices.find((device) => device.deviceId === pending.device.deviceId
+                        && device.devicePublicKey === pending.device.devicePublicKey);
+                    if (latest !== undefined) state.machine.crypto.devices = state.machine.crypto.devices.map((device) =>
+                        device.deviceId === latest.deviceId ? latest : device);
+                    break;
+                }
                 if (Date.now() >= deadline) throw new Error('the host has not enrolled this device on the link; start muxr and rerun `muxr pair`');
                 await new Promise((resolve) => setTimeout(resolve, 100));
             }
