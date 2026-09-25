@@ -22,7 +22,7 @@ import {
 } from '@muxr/contract';
 import { admitSocketFromUrl, extractBearerToken, secureEqual, admittedByTicket, type PeerIdentity, type Ticket } from './admission/index.js';
 import { handleHttpRequest, isExpoPushToken, isPushSubscription, readJsonBody, writeJson, writeJsonError, type PushActionOutcome } from './httpHandlers.js';
-import { OfflineBuffer, PeerTable, parseLastSeq, peerMayRoute, sendEnvelope, type ConnectedPeer, PreviewChannels, TerminalChannels, ReplayLog, deliverReplayAndOffline, routeEnvelope, type PeerRouteOutcome } from './routing/index.js';
+import { OfflineBuffer, PeerTable, parseLastSeq, peerMayRoute, sendEnvelope, type ConnectedPeer, PreviewChannels, TerminalChannels, ReplayLog, deliverReplayAndOffline, routeEnvelope, type PeerRouteOutcome, openLinkRelay } from './routing/index.js';
 import { type RelayConfig, clientIp, isLoopbackAddress, loadRelayConfig } from './config.js';
 import { isValidPublicKey, PairingRequests, FileTicketStore, SelfhostPairing, MachineAuthority, enrollmentProofMessage, MachineRegistry } from './admission/index.js';
 import { parsePushNotification, PushService, notificationEmailFromEnv, type PushWebhookConfig } from './push/index.js';
@@ -195,6 +195,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     // Mint secret gates self-host ticket issuance: filesystem read access to the
     // dataDir is the same-machine boundary (a proxy makes every request loopback).
     const mintSecret = config.localAuthority ? await ensureMintSecret(config.dataDir) : undefined;
+    const linkRelay = mintSecret === undefined ? undefined : await openLinkRelay(config.dataDir, mintSecret);
     const resolveAuthority = async (req: Parameters<typeof extractBearerToken>[0]) => {
         const presented = extractBearerToken(req);
         const owner = presented !== undefined && mintSecret !== undefined && secureEqual(mintSecret, presented);
@@ -384,6 +385,8 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 res.end();
                 return;
             }
+            // The link relay keeps its own per-address limits on its routes.
+            if (linkRelay !== undefined && await linkRelay.request(req, res)) return;
             if (!config.developmentApi && url.pathname !== '/health' && url.pathname !== '/ready'
                 && url.pathname !== '/v1/selfhost/tickets' && url.pathname !== '/v1/ws-tickets'
                 && rateLimited(`http:${clientIp(req, config.trustProxy)}`, 300, Date.now())) {
@@ -1054,7 +1057,11 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     http.requestTimeout = config.publicEdge ? 30_000 : 0;
     http.headersTimeout = 15_000;
 
-    const wss = new WebSocketServer({ server: http, maxPayload: config.maxPayloadBytes });
+    const wss = new WebSocketServer({ noServer: true, maxPayload: config.maxPayloadBytes });
+    http.on('upgrade', (req, socket, head) => {
+        if (linkRelay?.upgrade(req, socket, head) === true) return;
+        wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    });
 
     // Terminal keystrokes are small writes; Nagle would let each one sit
     // unacked for up to ~40ms per hop. Covers every socket this server
@@ -1372,6 +1379,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             realtimeStreams.closeAll();
             peers.closeAll();
             authenticatedSockets.clear();
+            linkRelay?.close();
             wss.close();
             await awaitPersistChain();
             await new Promise<void>((resolve) => http.close(() => resolve()));

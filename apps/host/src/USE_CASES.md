@@ -18,6 +18,7 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | Open / close a terminal | `agent/application/openTerminal.ts` | Device Grant observe/control | `terminal.attach`, `terminal.detach` |
 | Reconnect this Machine | `machine/application/reconnectMachine.ts` | Loopback vs ticket admission | `relayLink` |
 | List this Machine | `machine/application/listMachines.ts` | Machine | `machines.list` |
+| Serve paired phones over the link | `machine/infrastructure/linkEndpoint.ts` (`@byokit/link` + `@byokit/relay`) | Device records in `selfhost.json`; link grants are rebuilt from them | `/link/v1/<host id>` through the self-host relay |
 | Grant peer authority | `peer/application/grantPeerAuthority.ts` | Device Grant, peer limit | `peer.authorize` |
 | Revoke peer authority | `peer/application/revokePeerAuthority.ts` | Device Grant | `peer.revoke` |
 | Admit an inbound peer request | `peer/application/admitPeerRequest.ts` | Peer start surface, mutation receipt | PeerRuntime inbound |

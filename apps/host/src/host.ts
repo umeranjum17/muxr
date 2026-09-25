@@ -6,7 +6,7 @@
  * events start getting dropped and transcripts start feeling thin.
  */
 
-import { routingChannelForRequest, type ClientFrame, type ClientRequest, type SessionEvent, type SessionEventBody } from '@muxr/contract';
+import { routingChannelForRequest, type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@muxr/contract';
 import { connectToRelay, deviceTableCanMutate, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher } from './requests/index.js';
 import { DesktopSessions } from './desktop/index.js';
@@ -55,6 +55,10 @@ export interface HostOptions {
 
 export interface Host {
     close: () => Promise<void>;
+    /** The host's reply to one client frame, for a transport that returns replies itself (the link). */
+    answer: (frame: ClientFrame, authenticatedSenderId: string) => Promise<HostFrame | undefined>;
+    /** Every frame the relay transport broadcasts to all clients, for a second transport to broadcast too. */
+    onBroadcast: (listener: (frame: HostFrame) => void) => void;
 }
 
 export function startHost(options: HostOptions): Host {
@@ -117,7 +121,15 @@ export function startHost(options: HostOptions): Host {
         return seq;
     }
 
-    async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string): Promise<void> {
+    const broadcastListeners = new Set<(frame: HostFrame) => void>();
+    function broadcast(frame: HostFrame, sessionId?: string): void {
+        if (sessionId === undefined) link?.send(frame);
+        else link?.send(frame, sessionId);
+        for (const listener of broadcastListeners) listener(frame);
+    }
+
+    /** What the host replies to one frame; the caller's transport decides where the reply goes. */
+    async function answerFrame(frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string): Promise<HostFrame | undefined> {
         const clientKind = diagnosticClientKind(authenticatedSenderId, options.hostedE2ee);
         options.diagnostics?.client(authenticatedSenderId ?? 'local', clientKind, frame.type === 'client.hello');
         const startedAt = Date.now();
@@ -136,14 +148,9 @@ export function startHost(options: HostOptions): Host {
         if (frame.type === 'client.hello') {
             const peerMayList = peerRecipient === undefined
                 || options.hostedE2ee?.deviceCapabilities?.[peerRecipient]?.includes('list') === true;
-            if (peerMayList) {
-                const listed = await listAgents(source, {});
-                if (listed.ok) {
-                    link?.send({ type: 'session.list', sessions: listed.data }, undefined, 'session', peerRecipient);
-                }
-            }
-            if (peerRecipient === undefined) source.resendCumulativeState?.();
-            return;
+            if (!peerMayList) return undefined;
+            const listed = await listAgents(source, {});
+            return listed.ok ? { type: 'session.list', sessions: listed.data } : undefined;
         }
 
         let response;
@@ -159,6 +166,18 @@ export function startHost(options: HostOptions): Host {
         if (frame.type.startsWith('peer.') && options.peerRuntime !== undefined) {
             options.diagnostics?.relationships(options.peerRuntime.store.list().peers);
         }
+        return response;
+    }
+
+    async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string): Promise<void> {
+        const peerRecipient = peerRecipientFor(authenticatedSenderId, options.hostedE2ee);
+        const response = await answerFrame(frame, authenticatedSenderId, connectionId);
+        if (frame.type === 'client.hello') {
+            if (response !== undefined) link?.send(response, undefined, 'session', peerRecipient);
+            if (peerRecipient === undefined) source.resendCumulativeState?.();
+            return;
+        }
+        if (response === undefined) return;
         const channel = routingChannelForRequest(frame.type);
         // Artifact chunks go to the socket that asked: broadcast, every other
         // phone and browser paired to this machine pulled the whole file too.
@@ -228,15 +247,21 @@ export function startHost(options: HostOptions): Host {
 
     function forward(sessionId: string, body: SessionEventBody): void {
         const event: SessionEvent = { ...body, seq: nextSeq(sessionId) };
-        link?.send({ type: 'session.event', sessionId, event }, sessionId);
+        broadcast({ type: 'session.event', sessionId, event }, sessionId);
         if (body.type === 'session.removed') domain.unread.acknowledge(sessionId);
         else domain.unread.noteActivity(sessionId, '');
     }
 
     const unsubscribe = source.subscribe(forward);
-    const unsubscribeMachine = source.subscribeMachine?.((frame) => link?.send(frame));
+    const unsubscribeMachine = source.subscribeMachine?.((frame) => broadcast(frame));
 
     return {
+        answer: async (frame, authenticatedSenderId) => {
+            const response = await answerFrame(frame, authenticatedSenderId);
+            if (frame.type === 'client.hello') source.resendCumulativeState?.();
+            return response;
+        },
+        onBroadcast: (listener) => { broadcastListeners.add(listener); },
         close: async () => {
             unsubscribe();
             unsubscribeMachine?.();

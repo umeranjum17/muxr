@@ -13,6 +13,7 @@
         }
     },
     "dependencies": {
+        "@byokit/relay": "0.1.0",
         "@muxr/contract": "0.0.0",
         "bonjour-service": "^1.4.4",
         "web-push": "^3.6.7",

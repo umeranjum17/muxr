@@ -10,7 +10,7 @@ import { startHost } from './host.js';
 import { createPersistQueue } from './platform/persistedJson.js';
 import { HttpPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
-import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, hostPlatformLabel } from './machine/index.js';
+import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, hostPlatformLabel, LinkEndpoint } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
 import { muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
 import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
@@ -523,6 +523,7 @@ async function main(): Promise<void> {
             replayPersist.schedule(replaySnapshots);
         },
     };
+    let linkEndpoint: LinkEndpoint | undefined;
     if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined) {
         // Pairing is a separate CLI process. Reload its appended per-device
         // ingress key without making an already-running host restart.
@@ -542,6 +543,7 @@ async function main(): Promise<void> {
                     replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(keys, crypto);
+                void linkEndpoint?.sync(crypto);
             } catch {
                 // Keep serving with the last fully validated key set.
             }
@@ -567,6 +569,7 @@ async function main(): Promise<void> {
                     replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(hostedE2ee, next);
+                void linkEndpoint?.sync(next);
             },
         };
         try {
@@ -685,7 +688,7 @@ async function main(): Promise<void> {
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
     });
 
-    startHost({
+    const host = startHost({
         stateRoot,
         ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
         ...(token === undefined ? {} : { token }),
@@ -711,9 +714,34 @@ async function main(): Promise<void> {
 
     // A dead host must never leave --takeover streams holding the desk's panes.
     let shuttingDown = false;
+    // The link sits beside the relay transport on a self-host relay this
+    // machine owns. The relay may still be starting, so keep trying.
+    const ownerToken = mode === 'selfhost' ? selfhostAuth?.mintSecret : undefined;
+    if (ownerToken !== undefined && hostedE2ee !== undefined) {
+        void (async () => {
+            for (let attempt = 0; !shuttingDown; attempt++) {
+                try {
+                    linkEndpoint = await LinkEndpoint.open({
+                        relayUrl,
+                        ownerToken,
+                        machineName,
+                        crypto: selfhostAuth!.machine.crypto,
+                        answer: host.answer,
+                        onStatus: (status) => process.stdout.write(`link relay: ${status}\n`),
+                    });
+                    if (linkEndpoint !== undefined) host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
+                    return;
+                } catch (error) {
+                    if (attempt === 0) process.stderr.write(`link unavailable, retrying: ${error instanceof Error ? error.message : String(error)}\n`);
+                    await new Promise((resolve) => setTimeout(resolve, 5000));
+                }
+            }
+        })();
+    }
     const shutdown = (): void => {
         if (shuttingDown) return;
         shuttingDown = true;
+        linkEndpoint?.close();
         terminals.closeAll();
         peerRuntime?.close();
         diagnostics?.stopping();
