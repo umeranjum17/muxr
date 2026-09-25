@@ -18,7 +18,7 @@ export function scratchUnused(root, completed = false) {
     return result.status === 1 && (completed || !result.stderr);
 }
 
-export function reclaimScratch(base) {
+export function testScratchOwner(base) {
     for (const name of readdirSync(base)) {
         const match = /^muxr-host-test-([1-9]\d*)-.+$/.exec(name);
         if (!match) continue;

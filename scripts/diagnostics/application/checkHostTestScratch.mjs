@@ -2,11 +2,11 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { processStart, reclaimScratch, scratchBase, scratchUnused } from './testScratchOwner.mjs';
+import { processStart, scratchBase, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
 
 if (process.argv[2] !== '--' || !process.argv[3]) throw new Error('Expected -- followed by a command');
 const base = scratchBase();
-reclaimScratch(base);
+testScratchOwner(base);
 const birth = processStart(process.pid);
 if (!birth) throw new Error('Cannot identify test scratch owner');
 const root = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));

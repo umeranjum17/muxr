@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { processStart, reclaimScratch, scratchUnused } from './testScratchOwner.mjs';
+import { processStart, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
 
 const base = mkdtempSync(join(process.cwd(), '.scratch-check-'));
 try {
@@ -45,7 +45,7 @@ exit 1
         const scan = spawnSync('lsof', ['-n', '-F', 'p', '+D', live], { encoding: 'utf8' });
         assert.equal(scan.status, 0, scan.stderr);
         assert.ok(scan.stdout.split('\n').includes(`p${holder.pid}`), scan.stdout);
-        reclaimScratch(base);
+        testScratchOwner(base);
         assert.deepEqual(readdirSync(base).sort(), ['bin', live.split('/').at(-1)].sort());
         holder.kill('SIGKILL');
         await new Promise((resolve) => holder.once('exit', resolve));
@@ -55,7 +55,7 @@ exit 1
         assert.equal(scratchUnused(staleAgain), false);
         const unknown = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
         writeFileSync(join(unknown, 'owner'), 'unknown');
-        reclaimScratch(base);
+        testScratchOwner(base);
         assert.deepEqual(readdirSync(base).sort(), ['bin', live.split('/').at(-1), unknown.split('/').at(-1)].sort());
     } finally {
         if (holder.exitCode === null && holder.signalCode === null) {

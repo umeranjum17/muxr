@@ -1,11 +1,11 @@
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { processStart, reclaimScratch, scratchBase, scratchUnused } from '../../../scripts/diagnostics/application/testScratchOwner.mjs';
+import { processStart, scratchBase, scratchUnused, testScratchOwner } from '../../../scripts/diagnostics/application/testScratchOwner.mjs';
 
 export default function setupHostTestScratch(): () => void {
     const inherited = process.env.TMPDIR;
     const owned = !inherited || !basename(inherited).startsWith('muxr-host-test-');
-    if (owned) reclaimScratch(scratchBase());
+    if (owned) testScratchOwner(scratchBase());
     const birth = owned ? processStart(process.pid) : undefined;
     if (owned && !birth) throw new Error('Cannot identify test scratch owner');
     const root = owned ? mkdtempSync(join(scratchBase(), `muxr-host-test-${process.pid}-`)) : inherited!;
