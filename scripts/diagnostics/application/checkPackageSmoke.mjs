@@ -21,8 +21,7 @@ import { pathToFileURL } from 'node:url';
 import { packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, sealRelease, verifyRelease } from '../../release/index.mjs';
 
 const root = process.cwd();
-const scratchBase = process.platform === 'darwin' ? '/tmp' : tmpdir();
-const scratch = realpathSync(mkdtempSync(join(scratchBase, 'muxr-package-smoke-')));
+const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'muxr-package-smoke-')));
 const tarDir = join(scratch, 'tar');
 const installDir = join(scratch, 'install');
 const home = join(scratch, 'home');
