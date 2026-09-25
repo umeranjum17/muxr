@@ -32,7 +32,7 @@ const sourceDirty = execFileSync('git', ['status', '--porcelain', '--untracked-f
 const releaseMetadata = { ...release, commit, sourceTree, sourceDirty };
 // The desktop engine is a dependency, not inlined: installing muxr installs
 // @desklink/host, whose optional platform package carries the prebuilt engine.
-const desklinkHost = require(join(root, 'packages', 'desktop-host', 'package.json'));
+const desklinkHost = require(join(root, 'node_modules', '@desklink', 'host', 'package.json'));
 const hostPackage = require(join(root, 'apps', 'host', 'package.json'));
 // The link loads libsodium's native addon, which cannot be bundled: install it.
 const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', 'web-push': '^3.6.7', 'bonjour-service': '^1.4.4', '@desklink/host': desklinkHost.version,
@@ -121,7 +121,7 @@ const desklinkPlatformDependencies = ['linux-x64-gnu'].map((target) => ({
     auditedVersion: desklinkHost.version,
     license: desklinkHost.license,
     bundled: false,
-    licensePath: join(root, 'packages', 'desktop-host', 'LICENSE'),
+    licensePath: join(root, 'node_modules', '@desklink', 'host', 'LICENSE'),
     declaredRange: null,
     transitiveOf: '@desklink/host',
 }));

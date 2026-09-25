@@ -98,7 +98,7 @@ jobs:
         if: steps.select.outputs.build == 'true'
         run: node scripts/release/presentation/changelog.mjs validate --version "${{ steps.select.outputs.version }}" --channel "${{ steps.select.outputs.channel }}" --commit "$GITHUB_SHA"
       - name: Require the desktop engine packages on npm
-        # The CLI installs @desklink/host, which no workflow publishes. Refuse
+        # The CLI installs @desklink/host, released from the desklink repository. Refuse
         # before a build number is spent rather than at the candidate's install.
         if: steps.select.outputs.build == 'true'
         run: node scripts/release/presentation/requireDesktopEngine.mjs

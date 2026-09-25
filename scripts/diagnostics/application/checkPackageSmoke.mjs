@@ -565,14 +565,8 @@ try {
         assert.ok(licenseInventory.dependencies.some((dependency) => dependency.name === `@ccusage/ccusage-${target}` && dependency.transitiveOf === 'ccusage'), `${target} ccusage binary missing from license audit`);
     }
 
-    const desklinkDir = join(scratch, 'desklink');
-    mkdirSync(desklinkDir);
-    run('npm', ['pack', '--ignore-scripts', '--pack-destination', desklinkDir], {
-        cwd: join(root, 'packages', 'desktop-host'),
-    });
-    const desklinkTarball = join(desklinkDir, readdirSync(desklinkDir).find((name) => name.endsWith('.tgz')));
     writeFileSync(join(installDir, 'package.json'), '{"private":true}\n');
-    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball, desklinkTarball], {
+    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], {
         cwd: installDir,
         env: { ...process.env, npm_config_cache: join(scratch, 'npm-cache') },
     });

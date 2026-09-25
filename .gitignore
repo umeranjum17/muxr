@@ -1,7 +1,5 @@
 node_modules
 dist/
-# Rust build output for the desktop engine (multi-gigabyte, rebuilt from source)
-packages/desktop-host/engine/target/
 *.tsbuildinfo
 .expo/
 .pi-subagents/
@@ -31,8 +29,6 @@ apps/mobile/public/canvaskit.wasm
 # copied from mermaid at start/build time (see apps/mobile/package.json)
 apps/mobile/public/mermaid.min.js
 dist-npm/
-# desktop engine build and its packed tarballs (packages/desktop-host/release)
-dist-desklink/
 /*.apk
 
 # native module intermediates (paths from the machine that last built)

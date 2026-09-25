@@ -6,12 +6,13 @@ not included in that artifact.
 
 ## Desktop engine
 
-`packages/desktop-host` is **not** inlined into `host.js`. The artifact declares
+The desktop engine is **not** inlined into `host.js`. The artifact declares
 `@desklink/host` (Apache-2.0) as an exact-pinned runtime dependency, and that
 package declares its prebuilt engine as the optional dependency
 `@desklink/host-linux-x64-gnu`, which npm installs only on Linux x64 with glibc.
-That package is desklink's own Apache-2.0 build of `packages/desktop-host/engine`,
-made from pinned inputs by `packages/desktop-host/release/build-engine.sh`, and
+That package is desklink's own Apache-2.0 build of its engine crate, made from
+pinned inputs by [`release/build-engine.sh`](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/release/build-engine.sh) in
+[umeranjum17/desklink](https://github.com/umeranjum17/desklink), and
 it is the only native executable a muxr install adds for the desktop.
 
 What the executable contains:
@@ -32,14 +33,14 @@ with every licence text above and `COPYRIGHT-rust-library.html` for the standard
 library's own notices.
 
 The engine build is the licence gate for this part:
-`packages/desktop-host/release/notices.mjs` evaluates each crate's SPDX
+desklink's `release/notices.mjs` evaluates each crate's SPDX
 expression, build-only crates included, and fails the build when one cannot be
 satisfied by permissive licences alone; MPL, LGPL, GPL and AGPL all fail it.
 The build also fails if libvpx ends up dynamically linked. The pinned input
 versions and the exact licence inventory for a release are recorded in its
 `provenance.json` and generated `THIRD_PARTY_LICENSES.txt`.
 
-`packages/desktop-client` (the standalone React Native client) is not part of
+`@desklink/react-native` (the standalone React Native client) is not part of
 this artifact; its Android code compiles against the `org.webrtc` classes the
 app's existing `react-native-webrtc` ships.
 

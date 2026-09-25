@@ -6,7 +6,7 @@ physical phone controlling a real machine's own desktop, and it is named as the
 outstanding gate at the end of this document. Nothing here substitutes for it.
 
 Run on 2026-09-21/22 against **Xvfb `:99`** with a purpose-written X client
-(`packages/desktop-host/engine/examples/x11_target.rs`) as the thing being driven.
+(desklink's `packages/desktop-host/engine/examples/x11_target.rs`) as the thing being driven.
 No part of this touched the captain's session: his desktop was neither captured
 nor injected into.
 
@@ -18,7 +18,7 @@ machine, which is the one outstanding gate.
 ```text
 desklink-host bridge --listen 127.0.0.1:19400 --source x11 --display :99
   -> engine: portal-free X11 root capture + XTest input
-  -> browser: packages/desktop-host/examples/reference-client.html
+  -> browser: desklink's packages/desktop-host/examples/reference-client.html
 ```
 
 The reference client is a plain page with no build step. It is simultaneously
