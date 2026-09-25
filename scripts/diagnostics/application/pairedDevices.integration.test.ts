@@ -8,9 +8,6 @@
  * green while paired phones stopped connecting. This flow is that lock: pair
  * two phones and a second machine, restart everything from disk, then revoke
  * one phone. Nothing here may need a re-pair except the revoked phone.
- *
- * Each relay is spawned on MUXR_RELAY_PORT=0 and its port read from
- * waitForRelay, so the flow can never pass against a relay it did not start.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -74,30 +71,42 @@ class Machine {
     constructor(readonly name: string) { scratch.push(this.home); }
 
     async start(): Promise<void> {
-        const relay = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
-            ...labEnv(this.home),
-            MUXR_RELAY_PORT: '0',
-            MUXR_RELAY_HOST: '127.0.0.1',
-            MUXR_RELAY_DATA_DIR: join(this.home, 'relay'),
-            MUXR_RELAY_MDNS: '0',
-        });
-        this.relay = relay;
-        this.port = await waitForRelay(relay);
-        const state = this.id === '' ? {
-            version: 1,
-            machine: { ...machineIdentity(undefined), name: this.name },
-            relayLocation: 'local',
-            relayRole: 'single-machine',
-            connectionMode: 'lan',
-            webEnabled: false,
-            mintSecret: JSON.parse(readFileSync(join(this.home, 'relay', 'mint-secret'), 'utf8')),
-        } : JSON.parse(readFileSync(join(this.home, 'selfhost.json'), 'utf8'));
-        this.id = state.machine.id;
-        writeFileSync(join(this.home, 'selfhost.json'), `${JSON.stringify({
-            ...state,
-            relayPort: this.port,
-            relayUrl: `ws://127.0.0.1:${this.port}`,
-        }, null, 2)}\n`, { mode: 0o600 });
+        const restarting = this.id !== '';
+        const storedPort = restarting ? JSON.parse(readFileSync(join(this.home, 'selfhost.json'), 'utf8')).relayPort as number : 0;
+        for (let attempt = 0; ; attempt++) {
+            const relay = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
+                ...labEnv(this.home),
+                MUXR_RELAY_PORT: String(storedPort),
+                MUXR_RELAY_HOST: '127.0.0.1',
+                MUXR_RELAY_DATA_DIR: join(this.home, 'relay'),
+                MUXR_RELAY_MDNS: '0',
+            });
+            this.relay = relay;
+            try {
+                const port = await waitForRelay(relay);
+                if (restarting && port !== storedPort) throw new Error(`relay restarted on ${port}, expected ${storedPort}`);
+                this.port = port;
+                break;
+            } catch (error) {
+                if (!restarting || attempt === 2 || relay.exitCode === null && relay.signalCode === null) throw error;
+                await new Promise((resolve) => setTimeout(resolve, 150));
+            }
+        }
+        if (!restarting) {
+            const machine = { ...machineIdentity(undefined), name: this.name };
+            this.id = machine.id;
+            writeFileSync(join(this.home, 'selfhost.json'), `${JSON.stringify({
+                version: 1,
+                machine,
+                relayPort: this.port,
+                relayUrl: `ws://127.0.0.1:${this.port}`,
+                relayLocation: 'local',
+                relayRole: 'single-machine',
+                connectionMode: 'lan',
+                webEnabled: false,
+                mintSecret: JSON.parse(readFileSync(join(this.home, 'relay', 'mint-secret'), 'utf8')),
+            }, null, 2)}\n`, { mode: 0o600 });
+        }
         const host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { ...labEnv(this.home), MUXR_MODE: 'selfhost' });
         this.host = host;
         await until(() => (host.output().includes('host -> ') ? true : undefined), `${this.name} host start`);
@@ -156,9 +165,8 @@ async function launchApp(phone: Phone) {
         /** Open the machine the way the app does: stored grant, its relay, its credential. */
         async open(machine: Machine) {
             const machineId = machine.id;
-            const relayUrl = `ws://127.0.0.1:${machine.port}`;
-            const grant = await hosted.refreshHostedGrant(machineId, '', relayUrl);
-            if (grant?.relayUrl !== relayUrl) throw new Error(`phone cannot verify ${machineId} at ${relayUrl}`);
+            const grant = await hosted.loadHostedGrant(machineId);
+            if (grant === undefined) throw new Error(`phone has no grant for ${machineId}`);
             const permanentErrors: string[] = [];
             const client = new MuxrClient({
                 mode: 'hosted',
