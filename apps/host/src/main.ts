@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync, type StatWatcher } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { createDeviceGrant } from '@muxr/crypto';
 import { isPeerCapabilities, relayControlUrl } from '@muxr/contract';
@@ -500,6 +500,9 @@ if (mode === 'selfhost' && selfhostAuth === undefined) {
     process.exit(0);
 }
 
+/** Poll handles on the machine state files; held so the GC cannot silence them. */
+const stateFilePolls: StatWatcher[] = [];
+
 async function main(): Promise<void> {
     const hostVersion = resolveHostVersion() ?? '0.0.0';
     let diagnostics: HostDiagnosticsJournal | undefined;
@@ -557,7 +560,9 @@ async function main(): Promise<void> {
                 // Keep serving with the last fully validated key set.
             }
         };
-        watchFile(stateFile, { interval: 2000 }, applyStateFile);
+        // Hold the poll's handle somewhere durable: an unreferenced watcher
+        // is collected, and its events silently stop.
+        stateFilePolls.push(watchFile(stateFile, { interval: 2000 }, applyStateFile));
     }
     let peerRuntime: PeerRuntime | undefined;
     let peerBroker: PeerBroker | undefined;

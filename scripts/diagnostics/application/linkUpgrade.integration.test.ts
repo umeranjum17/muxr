@@ -154,6 +154,7 @@ describe('link upgrade for an already-paired phone', () => {
         vi.stubGlobal('WebSocket', WebSocket);
         await startMachine();
         const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
+        setTimeout(() => console.error('PAIR1 OUTPUT AT 170s:\n' + pair.output().slice(-1200)), 170_000);
         const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'muxr pair string');
         const stored = await claimHostedPairing(text);
         await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'muxr pair finishes');
@@ -315,6 +316,11 @@ describe('link upgrade for an already-paired phone', () => {
             type: string; ok?: boolean;
         };
         expect(started).toMatchObject({ ok: true });
+        const pairedState = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+            machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
+        };
+        const pairedRecord = pairedState.machine.crypto.devices.find((device) => device.deviceId === stored.deviceId);
+        expect(Date.parse(pairedRecord!.expiresAt)).toBeGreaterThan(Date.now() + 8 * 60_000);
 
         const viewStart = statuses.length;
         const viewClose = closes.length;
@@ -379,6 +385,91 @@ describe('link upgrade for an already-paired phone', () => {
         await until(() => reconnected.status === 'online' || reconnected.status === 'removed' ? true : undefined, 'recovered first dial');
         expect(reconnected.status).toBe('online');
         reconnected.stop();
+        const resumedState = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+            machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
+        };
+        const resumedRecord = resumedState.machine.crypto.devices.find((device) => device.deviceId === recovered.deviceId);
+        expect(Date.parse(resumedRecord!.expiresAt)).toBeGreaterThan(Date.now() + 8 * 60_000);
+    }, 120_000);
+
+    it('drops a device whose grant never publishes once the pairing window ends', async () => {
+        vi.stubGlobal('WebSocket', WebSocket);
+        await stopMachine();
+        await startMachine();
+        phone.secure.clear();
+        vi.resetModules();
+        const { claimHostedPairing: claimDoomed } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+        const failUpload = `const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { if (String(args[1]?.method).toUpperCase() === 'POST' && String(args[0]).endsWith('/grant')) return new Response(JSON.stringify({ error: 'publish failed' }), { status: 500 }); return fetch(...args); };`;
+        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(failUpload)}` });
+        const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'pair string');
+        // The phone claims and then waits for a grant that never publishes;
+        // its claim state (device id, device key) is what this scenario needs.
+        const claiming = claimDoomed(text).catch(() => undefined);
+        let doomedDeviceId: string | undefined;
+        let deviceKey: { publicKey: string; secretKey: string } | undefined;
+        await until(() => {
+            const pendingRaw = phone.secure.get('muxr.hosted-e2ee.pending-pair.v1');
+            if (pendingRaw == null) return undefined;
+            doomedDeviceId = (JSON.parse(pendingRaw) as { deviceId: string }).deviceId;
+            const keyRaw = phone.secure.get('muxr.hosted-e2ee.device.v2');
+            if (keyRaw == null) return undefined;
+            deviceKey = JSON.parse(keyRaw) as { publicKey: string; secretKey: string };
+            const state = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+                machine: { crypto: { devices: { deviceId: string }[] } };
+            };
+            return state.machine.crypto.devices.some((device) => device.deviceId === doomedDeviceId) ? true : undefined;
+        }, 'claimed device recorded before publication', 30_000);
+        const doomed = doomedDeviceId!;
+        expect(await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'failed pair exits'), pair.output()).toBe(1);
+        expect(pair.output()).toContain('pairing did not complete');
+        expect(pair.output()).toContain('pairing window');
+
+        // The machine's record for the claimed device carries only the
+        // pairing window - not the durable expiry a completed pairing grants.
+        const record = (): { expiresAt: string } => {
+            const state = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+                machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
+            };
+            return state.machine.crypto.devices.find((device) => device.deviceId === doomed)!;
+        };
+        const windowEnd = Date.parse(record()!.expiresAt);
+        expect(windowEnd).toBeGreaterThan(Date.now() + 60_000);
+        expect(windowEnd).toBeLessThan(Date.now() + 150_000);
+
+        // Inside the window the claimed device works over the link: the key
+        // the claim generated is the key the machine recorded.
+        const machineKey = Buffer.from((JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+            machine: { crypto: { boxPublicKey: string } };
+        }).machine.crypto.boxPublicKey, 'base64');
+        const doomedGrant: DeviceGrant = {
+            v: 1,
+            secretKey: Buffer.from(deviceKey!.secretKey, 'base64').toString('base64url'),
+            host: machineKey.toString('base64url'),
+            hostName: 'Link Lab Desk',
+            urls: [`ws://127.0.0.1:${port}/link/v1/${hostId(machineKey)}`],
+            device: { id: 'pending', name: 'Doomed phone', role: 'control' },
+        };
+        const link = new DeviceLink(doomedGrant, { WebSocket: WebSocket as never });
+        await until(() => (link.status === 'online' ? true : undefined), 'claimed device is usable inside the window', 30_000);
+        link.stop();
+
+        // ...and once the window has passed it is dropped for real: the
+        // expired record falls out of the device table, the link grant is
+        // revoked, and the phone is told it was removed - which is then true.
+        const statePath = join(home, 'selfhost.json');
+        const expired = JSON.parse(readFileSync(statePath, 'utf8')) as {
+            machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
+        };
+        for (const device of expired.machine.crypto.devices) if (device.deviceId === doomed) device.expiresAt = new Date(Date.now() - 1000).toISOString();
+        writeFileSync(statePath, `${JSON.stringify(expired, null, 2)}\n`, { mode: 0o600 });
+        const statuses: LinkStatus[] = [];
+        const dropped = new DeviceLink(doomedGrant, { WebSocket: WebSocket as never, onStatus: (status) => statuses.push(status) });
+        await until(() => (dropped.status === 'removed' ? true : undefined), 'expired window drops the device', 30_000).catch((error: Error) => {
+            const nowState = JSON.parse(readFileSync(statePath, 'utf8')) as { machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } } };
+            throw new Error(`${error.message}\nstatuses: ${statuses.join(', ')}\nrecord now: ${JSON.stringify(nowState.machine.crypto.devices.find((d) => d.deviceId === doomed))}\nhost tail: ${host!.output().slice(-400)}`);
+        });
+        expect(statuses).toContain('removed');
+        dropped.stop();
     }, 120_000);
 
     it('keeps the host alive and retrying while its relay is down, then back online when it returns', async () => {
