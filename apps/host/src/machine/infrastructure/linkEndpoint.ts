@@ -1,4 +1,4 @@
-import { Host, hostId, keyPairFrom, type Grant } from '@byokit/link';
+import { Host, PublicLinkError, hostId, keyPairFrom, type Grant } from '@byokit/link';
 import { RelayClient } from '@byokit/relay';
 import { parseClientFrame, relayControlUrl, type ClientFrame, type HostFrame } from '@muxr/contract';
 import type { MachineCryptoState, MachineDeviceRecord } from '../domain/crypto.js';
@@ -75,13 +75,16 @@ export class LinkEndpoint {
             allow: (req, grant) => {
                 if (!trusted(grant, options.currentCrypto())) return false;
                 const frame = parseClientFrame(req.args);
-                return frame.type === req.op && (grant.role === 'control' || options.canView(frame));
+                return frame.type === req.op && (frame.type.startsWith('desktop.') || grant.role === 'control' || options.canView(frame));
             },
             handle: async (req, grant) => {
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
                 const deviceId = muxrDeviceIdOf(grant)!;
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) throw new Error('link: request op does not match its frame');
+                if (frame.type.startsWith('desktop.')) {
+                    throw new PublicLinkError('Remote desktop is not available over this link yet; use the existing relay connection.');
+                }
                 const response = await options.answer(frame, deviceId);
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
                 return response;
