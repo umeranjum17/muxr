@@ -195,7 +195,7 @@ export default function PairScreen() {
             tunnelHostKey = tunnel.hostKey;
             claimUrl = tunnelPairingUrl(url, tunnel.localPort);
         }
-        const paired = await pairMachine({ url: claimUrl });
+        const paired = await pairMachine({ url: claimUrl, resumable: sshInput !== undefined });
         if (!paired.ok && paired.reason === 'voice-pinned') {
             const switchApproved = await Modal.confirm(
                 'End voice and switch?',
