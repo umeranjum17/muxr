@@ -1,8 +1,8 @@
 /**
  * The Home "Right now" card payload: the limits vocabulary the Usage screen
  * already speaks, narrowed to the one window its verdict describes, plus
- * machine vitals as figures; the phone owns every word. A warm usage cache
- * answers instantly; a cold one gets a bounded wait -- `collecting` -- so the
+ * machine vitals as figures; the phone owns every word. A completed shared
+ * collection answers instantly; a cold one gets a bounded wait -- `collecting` -- so the
  * vitals below are never withheld.
  */
 import type { UsageNow, UsageReport } from '@muxr/contract';
@@ -10,8 +10,8 @@ import { NOT_CONNECTED_MESSAGE, tightestWindow } from '../domain/usageWindows.js
 import { collectUsage, lastKnownPlans } from './collectUsage.js';
 import { vitalsFigures } from './vitals.js';
 
-/** Past this the cold cache answers without its limit window and the vitals
- *  still stand; the collection keeps running and warms the cache behind it. */
+/** Past this a cold collection answers without its limit window and the vitals
+ *  still stand; the collection keeps running for the next ask. */
 const NOW_WAIT_MS = 5_000;
 /** With a last good reading on disk there is no reason to hold the card on a
  *  slow collection: past this it paints that reading and says a refresh is
@@ -40,9 +40,8 @@ export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh =
     // However recent the known reading, the collection behind it has not
     // landed yet: the reader is told to ask again for it.
     const refreshing = output === undefined && known !== undefined;
-    // The collection may answer with the usage cache's same-day replay, which a
-    // collection that could not be cached (its local activity unmeasured) leaves
-    // hours behind the plan readings it did store: the newer reading wins.
+    // A completed collection can be older than the separately stored plan
+    // readings; the newer reading wins.
     if (refreshing || capturedMs(known) > capturedMs(output)) output = known;
     // `windows` is the unrounded view-model list `limitsPayload` derived the
     // verdict from, parallel to the rendered `limits.windows`. Running the same
@@ -73,12 +72,12 @@ export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh =
         ...(output === undefined ? { collecting: true as const } : {}),
         ...(refreshing ? { refreshing: true as const } : {}),
         // How old the limit figures are, not whether some other surface would call
-        // them stale: the usage cache replays its original `capturedAt`, and both
+        // them stale: a shared collection retains its original `capturedAt`, and both
         // timestamps come from this host's clock. Each reader owns its own
         // threshold for when age is worth mentioning.
         ...(ageSeconds === undefined ? {} : { ageSeconds }),
-        // The same instant by name, so a reader can tell the replayed cache entry
-        // from a collection that has just landed without inferring it from the
+        // The same instant by name, so a reader can tell a reused collection
+        // from one that has just landed without inferring it from the
         // age it was given.
         ...(captured === undefined ? {} : { capturedAt: captured }),
         vitals: vitalsFigures(),

@@ -740,8 +740,8 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
 
 /** The collection itself, once the caller knows the cache is cold. It measures
  *  the whole machine -- every plan, every agent's local activity -- once; which
- *  tab asked is a projection concern and never reaches this code. The instant
- *  and the cache identity are fixed for the whole payload. */
+ *  tab asked is a projection concern and never reaches this code. The captured
+ *  instant is fixed for the whole payload. */
 async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>, env: NodeJS.ProcessEnv): Promise<RawCollection> {
     const PERIODS = windowPeriods(NOW);
     const skipPlan: PlanOutcome = { label: '' };
@@ -810,7 +810,10 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     for (const [agent, report] of Object.entries(reports)) {
         if (report === undefined) continue;
         if (Number.isFinite(report.latest) && (report.latest as number) <= NOW.getTime()) latest.set(agent, report.latest as number);
-        if (report.unavailable) { agents.delete(agent); continue; }
+        if (report.unavailable) {
+            if (agent === 'omp' || agent === 'pi') agents.delete(agent);
+            continue;
+        }
         if (!report.rows) continue;
         const days: UsageDayRow[] = PERIODS.map((period) => ({ period, row: undefined }));
         for (const aggregate of report.rows) {

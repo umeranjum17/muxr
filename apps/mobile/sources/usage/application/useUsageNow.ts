@@ -5,8 +5,8 @@ import { forcedReadWait } from './forcedRead';
 import { FRESH_MS, capturedBefore, collectionDue, lastForcedRead, noteAsked, noteForcedRead, releaseAsked, rememberShown, shownUsage, subscribeUsage, usageWrites, withNow, type UsageDisplay, type UsageFigures } from './freshnessWindow';
 import { useForegroundRefresh } from './useForegroundRefresh';
 
-/** The tab the card's read answers for: `usage.now` collects the default one,
- *  which is the same cache entry the Usage screen's default tab reads. */
+/** The default projection of the host's shared collection: the Usage screen
+ *  can select another tab without starting a separate provider collection. */
 const READ_TAB = '';
 
 /** `collecting` is the host saying its usage cache was cold, not that there is

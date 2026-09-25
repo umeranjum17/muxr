@@ -864,19 +864,18 @@ describe('the usage screen read path', () => {
         // offers the way back it always does.
         expect(screen.root.findAllByType('ScreenLimits').length).toBeGreaterThan(0);
         expect(screen.root.findAll((node: any) => node.props?.accessibilityLabel === 'plugins.rightNow.refreshFailed. plugins.rightNow.refreshNow').length).toBeGreaterThan(0);
-        expect(screenText(screen)).toContain('rate limited');
-        expect(screenText(screen)).toContain('Retry available now');
+        expect(screen.root.findAllByType('Notice').some((node: any) => node.props.text.includes('rate limited') && node.props.text.includes('Retry available now'))).toBe(true);
         TestRenderer.act(() => { screen.unmount(); });
         request.mockClear();
         const remounted = renderScreen();
         await tick();
         expect(request).not.toHaveBeenCalled();
-        expect(screenText(remounted)).toContain('rate limited');
+        expect(remounted.root.findAllByType('Notice').some((node: any) => node.props.text.includes('rate limited'))).toBe(true);
         expect(screenText(remounted)).not.toContain('plugins.rightNow.collecting');
         request.mockResolvedValue(report('opencode', 0));
         press(remounted, 'plugins.rightNow.refreshFailed. plugins.rightNow.refreshNow');
         await tick();
-        expect(screenText(remounted)).not.toContain('Retry available now');
+        expect(remounted.root.findAllByType('Notice').some((node: any) => node.props.text.includes('Retry available now'))).toBe(false);
     });
 
     it('shows what the other surface learns without a remount', async () => {
