@@ -124,12 +124,15 @@ function run(name, cmd, args, timeoutMs = 150000) {
         for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'RELAY_PORT']) {
             delete env[`MUXR_${key}`];
         }
-        if (cmd === 'npx' && args[0] === 'vitest') env.NODE_ENV = 'test';
-        const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+        const wrappedVitest = cmd === 'npx' && args[0] === 'vitest';
+        if (wrappedVitest) env.NODE_ENV = 'test';
+        const child = spawn(wrappedVitest ? process.execPath : cmd,
+            wrappedVitest ? ['scripts/diagnostics/application/checkHostTestScratch.mjs', ...args.slice(1)] : args,
+            { stdio: ['ignore', 'pipe', 'pipe'], env });
         let out = '';
         child.stdout.on('data', (d) => { out += d; });
         child.stderr.on('data', (d) => { out += d; });
-        const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+        const timer = setTimeout(() => child.kill(wrappedVitest ? 'SIGTERM' : 'SIGKILL'), timeoutMs);
         child.on('exit', (code) => {
             clearTimeout(timer);
             const ms = Date.now() - started;

@@ -102,6 +102,8 @@ cleanup() {
   rm -rf "$workdir"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # PlistBuddy renders a boolean and the string "false" the same way, and a
 # profile may authorise domains with a scalar wildcard rather than a list, so
