@@ -722,11 +722,11 @@ export interface RequestMap extends PeerRequestMap {
     // --- usage + machine vitals ----------------------------------------------
     // Product surfaces served by typed host methods, not by plugins. Read-only;
     // the host collects, normalizes and bounds every figure.
-    /** One provider tab's Usage report; `provider` empty means the machine's
-     *  default tab. `refresh` re-collects past a still-valid cache. */
+    /** One provider tab's projection of the shared collection; `provider`
+     *  empty means the machine's default tab. `refresh` forces re-collection. */
     'usage.report': { params: { provider?: string; refresh?: boolean }; result: UsageReport };
-    /** The Home "Right now" card payload: the binding limit window plus vitals. */
-    /** A normal read joins or reuses a recent shared collection; `refresh`
+    /** The Home "Right now" card payload: the binding limit window plus vitals.
+     *  A normal read joins or reuses a recent shared collection; `refresh`
      *  explicitly re-collects past it. */
     'usage.now': { params: { refresh?: boolean }; result: UsageNow };
 

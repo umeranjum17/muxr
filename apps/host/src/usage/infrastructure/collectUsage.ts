@@ -672,7 +672,7 @@ function cacheIdentity(env: NodeJS.ProcessEnv): string {
 export interface CollectUsageInput {
     provider?: string;
     report?: boolean;
-    /** Re-collect past a still-valid cache (the screen's quiet revalidation). */
+    /** Re-collect past the recent shared collection on an explicit refresh. */
     refresh?: boolean;
 }
 
@@ -973,7 +973,7 @@ function project(raw: RawCollection, selected: string, nowMs: number): UsageRepo
 }
 
 /** The age of the reading, by the host's clock, so every reader can apply its
- *  own freshness window to one number rather than the coarser cache flag. */
+ *  own freshness window independently of the host's collection cadence. */
 function withAge(output: UsageReport, nowMs: number): UsageReport {
     const capturedAt = Date.parse(output.readingsFrom ?? output.capturedAt ?? '');
     if (!Number.isFinite(capturedAt)) return output;
