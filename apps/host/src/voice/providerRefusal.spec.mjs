@@ -97,10 +97,11 @@ describe('providerRefusal', () => {
         try {
             for (const provider of ['openai', 'gemini', 'xai']) {
                 const muxrHome = await mkdtemp(join(tmpdir(), `muxr-${provider}-refusal-`));
+                let child;
                 try {
                     await writeFile(join(muxrHome, `${provider}.key`), 'test-only-key\n', { mode: 0o600 });
                     await selectProvider(muxrHome, provider);
-                    const child = spawn(process.execPath, [streamEntry], {
+                    child = spawn(process.execPath, [streamEntry], {
                         cwd: fileURLToPath(new URL('../../..', import.meta.url)),
                         env: {
                             ...process.env,
@@ -116,13 +117,13 @@ describe('providerRefusal', () => {
                     createInterface({ input: child.stdout }).on('line', (line) => frames.push(JSON.parse(line)));
                     child.stdin.write(`${JSON.stringify({ type: 'realtime.open' })}\n`);
                     const closed = await waitFor(() => frames.find((frame) => frame.type === 'realtime.closed'), `${provider} did not close on refusal`);
-                    if (child.exitCode === null) child.kill('SIGKILL');
                     expect(closed.reason, provider).toMatch(/^Voice provider refused the connection \(HTTP 403\): /);
                     expect(closed.reason, provider).toContain('[credential redacted]');
                     expect(closed.reason, provider).toContain('[path hidden]');
                     expect(closed.reason, provider).not.toContain('provider-private');
                     expect(closed.reason, provider).not.toContain('/home/user');
                 } finally {
+                    if (child?.exitCode === null) child.kill('SIGKILL');
                     await rm(muxrHome, { recursive: true, force: true });
                 }
             }
