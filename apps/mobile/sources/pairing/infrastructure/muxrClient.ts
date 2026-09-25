@@ -55,6 +55,7 @@ export interface MuxrClientOptions {
     /** Permanent self-host credential failures must stop retrying and offer pairing again. */
     onPermanentError?: (message: string) => void;
     onLinkEnrolled?: (key: string) => void;
+    onHostHello?: () => void;
 }
 
 interface Pending {
@@ -513,6 +514,7 @@ export class MuxrClient {
         }
 
         if (this.hosted !== undefined && envelope.header.channel !== 'session') return;
+        if (frame.type === 'machine.hello') this.options.onHostHello?.();
         if (isPluginsInvalidatedFrame(frame)) {
             for (const listener of this.pluginInvalidationListeners) listener(frame);
             return;

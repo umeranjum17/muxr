@@ -184,7 +184,15 @@ export class LinkFirstClient implements SessionClient {
 
     private startRelay(): void {
         if (this.closed || this.inner !== undefined) return;
-        const relay = new MuxrClient({ ...this.options, onLinkEnrolled: (key) => this.onLinkEnrolled(key) });
+        const relay = new MuxrClient({
+            ...this.options,
+            onLinkEnrolled: (key) => this.onLinkEnrolled(key),
+            onHostHello: () => {
+                if (this.link === undefined && this.options.hostedGrant?.source === 'selfhost') {
+                    void this.inner?.request('herdr.tree', {}).catch(() => undefined);
+                }
+            },
+        });
         relay.onStateChange((state) => { if (!this.online) this.setState(state); });
         relay.onEvent((sessionId, event) => {
             if (!this.online) for (const listener of this.eventListeners) listener(sessionId, event);

@@ -61,6 +61,7 @@ export interface Host {
     canView: (frame: ClientFrame) => boolean;
     /** Every frame the relay transport broadcasts to all clients, for a second transport to broadcast too. */
     onBroadcast: (listener: (frame: HostFrame) => void) => void;
+    refreshLinkEnrolment: () => void;
 }
 
 export function startHost(options: HostOptions): Host {
@@ -205,11 +206,7 @@ export function startHost(options: HostOptions): Host {
                 void desktop.closeAll();
             }
             if (state === 'open') {
-                link?.send({
-                    type: 'machine.hello',
-                    machineId: options.machineId,
-                    hostVersion,
-                });
+                refreshLinkEnrolment();
                 // The watcher's first scan races this link: hashing a 250MB
                 // artifact outlives the connect, so the emit lands while
                 // link is still undefined and is dropped. The signature guard
@@ -258,6 +255,10 @@ export function startHost(options: HostOptions): Host {
         else domain.unread.noteActivity(sessionId, '');
     }
 
+    function refreshLinkEnrolment(): void {
+        link?.send({ type: 'machine.hello', machineId: options.machineId, hostVersion });
+    }
+
     const unsubscribe = source.subscribe(forward);
     const unsubscribeMachine = source.subscribeMachine?.((frame) => broadcast(frame));
 
@@ -269,6 +270,7 @@ export function startHost(options: HostOptions): Host {
             return response;
         },
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
+        refreshLinkEnrolment,
         close: async () => {
             unsubscribe();
             unsubscribeMachine?.();

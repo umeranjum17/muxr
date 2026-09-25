@@ -162,14 +162,11 @@ describe('the phone session channel on the byokit link', () => {
 
     it('dials the link with stored keys after enrollment is announced', async () => {
         await startMachine('fresh');
-        await until(() => (host?.output().includes('link relay: online') ? true : undefined), 'host link online');
         stored.relayUrl = `ws://127.0.0.1:${port}`;
         const eventSessions: string[] = [];
         const overLink = sessionClient(stored);
         overLink.onEvent((sessionId) => eventSessions.push(sessionId));
         overLink.connect();
-        await until(() => (overLink.state === 'open' ? true : undefined), 'relay session opens');
-        expect((await overLink.request('herdr.tree', {})).workspaces).toBeDefined();
         await until(() => (overLink.state === 'open' && overLink.transport === 'link' ? true : undefined),
             'session comes online over the link', 30_000);
         expect(linkDials.length).toBeGreaterThan(0);

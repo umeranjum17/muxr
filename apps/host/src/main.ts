@@ -543,7 +543,7 @@ async function main(): Promise<void> {
                     replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(keys, crypto);
-                void linkEndpoint?.sync(crypto);
+                void linkEndpoint?.sync(crypto).then(() => host.refreshLinkEnrolment());
             } catch {
                 // Keep serving with the last fully validated key set.
             }
@@ -569,7 +569,7 @@ async function main(): Promise<void> {
                     replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(hostedE2ee, next);
-                void linkEndpoint?.sync(next);
+                void linkEndpoint?.sync(next).then(() => host.refreshLinkEnrolment());
             },
         };
         try {
@@ -740,6 +740,7 @@ async function main(): Promise<void> {
                         const latest = currentCrypto();
                         if (latest !== undefined) await linkEndpoint.sync(latest);
                         host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
+                        host.refreshLinkEnrolment();
                     }
                     return;
                 } catch (error) {
