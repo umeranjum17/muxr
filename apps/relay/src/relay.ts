@@ -204,20 +204,22 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
         return { presented, owner, machine };
     };
     // Minimal per-IP fixed-window limiter for the self-host HTTP surface.
-    // When the table is full, prune expired windows; never reset live quotas.
+    const rateWindowMs = 60_000;
     const rateBuckets = new Map<string, { resetAt: number; count: number }>();
-    const rateLimited = (ip: string, limit: number, windowMs: number, now: number): boolean => {
+    const rateLimited = (ip: string, limit: number, now: number): boolean => {
         const bucket = rateBuckets.get(ip);
         if (bucket !== undefined && now < bucket.resetAt) {
             bucket.count += 1;
             return bucket.count > limit;
         }
         rateBuckets.delete(ip);
-        for (const [key, { resetAt }] of rateBuckets) {
-            if (now >= resetAt) rateBuckets.delete(key);
+        while (rateBuckets.size > 0) {
+            const [oldestIp, oldest] = rateBuckets.entries().next().value!;
+            if (now < oldest.resetAt) break;
+            rateBuckets.delete(oldestIp);
         }
         if (rateBuckets.size >= 10_000) return true;
-        rateBuckets.set(ip, { resetAt: now + windowMs, count: 1 });
+        rateBuckets.set(ip, { resetAt: now + rateWindowMs, count: 1 });
         return false;
     };
 
@@ -384,7 +386,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             }
             if (!config.developmentApi && url.pathname !== '/health' && url.pathname !== '/ready'
                 && url.pathname !== '/v1/selfhost/tickets' && url.pathname !== '/v1/ws-tickets'
-                && rateLimited(`http:${clientIp(req, config.trustProxy)}`, 300, 60_000, Date.now())) {
+                && rateLimited(`http:${clientIp(req, config.trustProxy)}`, 300, Date.now())) {
                 writeJsonError(res, 429, 'too many requests');
                 return;
             }
@@ -446,7 +448,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     return;
                 }
                 if (req.method === 'POST' && claimMatch?.[1] !== undefined) {
-                    if (rateLimited(`enroll:${clientIp(req, config.trustProxy)}`, 10, 60_000, Date.now())) {
+                    if (rateLimited(`enroll:${clientIp(req, config.trustProxy)}`, 10, Date.now())) {
                         writeJsonError(res, 429, 'too many requests'); return;
                     }
                     const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
@@ -529,7 +531,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     : await localPairing.resolveDeviceCredential(authority.presented);
                 if (!authority.owner && authority.machine === undefined && device === undefined) {
                     // Limit failures only: valid credentials are never throttled.
-                    if (rateLimited(ip, 10, 60_000, Date.now())) {
+                    if (rateLimited(ip, 10, Date.now())) {
                         writeJsonError(res, 429, 'too many requests');
                         return;
                     }
@@ -595,7 +597,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             // or high-entropy pairing secret inside it.
             if (config.localAuthority && localPairing !== undefined && req.method === 'POST'
                 && url.pathname === '/v1/selfhost/pair-code') {
-                if (rateLimited(`pair-code:${clientIp(req, config.trustProxy)}`, 10, 60_000, Date.now())) {
+                if (rateLimited(`pair-code:${clientIp(req, config.trustProxy)}`, 10, Date.now())) {
                     writeJsonError(res, 429, 'too many requests');
                     return;
                 }
@@ -665,7 +667,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 if (req.method === 'POST' && claimMatch?.[1] !== undefined) {
                     const sessionSlug = await localPairing.sessionMachineSlug(claimMatch[1]);
                     if (sessionSlug !== undefined && !(await machineAuthority?.isMachineAllowed(sessionSlug))) { writeJsonError(res, 403, 'machine is revoked or expired'); return; }
-                    if (rateLimited(`claim:${clientIp(req, config.trustProxy)}`, 20, 60_000, Date.now())) {
+                    if (rateLimited(`claim:${clientIp(req, config.trustProxy)}`, 20, Date.now())) {
                         writeJsonError(res, 429, 'too many requests');
                         return;
                     }
@@ -1076,7 +1078,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
         }
         void (async () => {
         if (!config.developmentApi
-            && rateLimited(`ws:${clientIp(req, config.trustProxy)}`, 60, 60_000, Date.now())) {
+            && rateLimited(`ws:${clientIp(req, config.trustProxy)}`, 60, Date.now())) {
             rejectConnection(1008, 'too many requests');
             return;
         }
