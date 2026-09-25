@@ -727,11 +727,11 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
     }
     const raw = await collection;
     const output = project(raw, selected, NOW.getTime());
-    const limitsUnavailable = (selected === 'claude' && raw.plans.claude?.length === 0)
-        || (selected === 'codex' && raw.plans.codex?.length === 0)
-        || (selected === 'opencode' && raw.plans.opencode?.length === 0)
-        || (selected === 'zai' && raw.plans.zai?.length === 0);
-    if (input.report && raw.storedFresh && output.activityNotice === undefined && raw.reports[output.provider]?.unavailable !== true && !limitsUnavailable
+    const limitsUnavailable = (output.provider === 'claude' && raw.plans.claude?.length === 0)
+        || (output.provider === 'codex' && raw.plans.codex?.length === 0)
+        || (output.provider === 'opencode' && raw.plans.opencode?.length === 0)
+        || (output.provider === 'zai' && raw.plans.zai?.length === 0);
+    if (input.report && raw.storedFresh && output.activityNotice === undefined && !limitsUnavailable
         && (selected === '' || selected === output.provider)) {
         saveOutput(env, output, identity, TODAY, NOW.getTime(), selected);
     }

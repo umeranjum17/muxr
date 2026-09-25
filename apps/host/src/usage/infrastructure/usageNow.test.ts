@@ -168,6 +168,35 @@ it('answers the card and every Usage tab from one collection, however many reade
     expect(other.windows).toEqual(now_.windows);
 }, 20_000);
 
+it('persists a measured default OpenCode report only when its resolved plan is available', async () => {
+    const env = host();
+    rmSync(join(env.CLAUDE_CONFIG_DIR!, '.credentials.json'));
+    rmSync(join(env.PI_AGENT_DIR!, 'auth.json'));
+    const today = new Date().toLocaleDateString('sv-SE');
+    const activity = join(env.HOME!, 'ccusage');
+    writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${today}","agents":[{"agent":"opencode","totalTokens":1234}]}],"session":[{"agent":"opencode","totalTokens":1234,"metadata":{"lastActivity":"${new Date(Date.now() - 1_000).toISOString()}"}}]}'\n`, { mode: 0o755 });
+    env.MUXR_CCUSAGE_BIN = activity;
+    const brokenDb = join(env.HOME!, 'broken.db');
+    writeFileSync(brokenDb, 'not a database');
+    env.OPENCODE_DB = brokenDb;
+    const { collectUsage } = await import('./collectUsage.js');
+    const cache = join(env.MUXR_HOME!, 'usage', 'usage-v2-all.json');
+    const missingPlan = await collectUsage({ report: true, refresh: true }, env);
+    expect(missingPlan.provider).toBe('opencode');
+    expect(missingPlan.todayTokens).toBe('1.2K');
+    expect(existsSync(cache)).toBe(false);
+
+    env.OPENCODE_AUTH_CONTENT = JSON.stringify({ 'opencode-go': { type: 'api', key: 'go-token' } });
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json({ usage: {
+        rolling: { percent: 20, status: 'ok', resetsAt: new Date(Date.now() + 3_600_000).toISOString() },
+    } }))));
+    const measured = await collectUsage({ report: true, refresh: true }, env);
+    expect(measured.provider).toBe('opencode');
+    expect(measured.todayTokens).toBe('1.2K');
+    expect(measured.windows).toHaveLength(1);
+    expect(JSON.parse(readFileSync(cache, 'utf8')).output.todayTokens).toBe('1.2K');
+}, 20_000);
+
 it('keeps a completed activity-only scan for card follow-ups without writing all agents to disk', async () => {
     const env = host();
     rmSync(join(env.CLAUDE_CONFIG_DIR!, '.credentials.json'));
