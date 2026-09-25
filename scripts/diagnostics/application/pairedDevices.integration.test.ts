@@ -23,25 +23,7 @@ import { machineIdentity } from '../../setup/index.mjs';
 
 interface Phone { os: 'android' | 'ios'; secure: Map<string, string>; local: Map<string, string> }
 
-const current = vi.hoisted(() => ({ phone: undefined as unknown as Phone }));
-
-vi.mock('react-native', () => ({
-    Platform: { get OS() { return current.phone.os; } },
-    AppState: { currentState: 'active', addEventListener: () => ({ remove: () => undefined }) },
-}));
 vi.mock('expo-device', () => ({ isDevice: true }));
-vi.mock('expo-secure-store', () => ({
-    getItemAsync: async (key: string) => current.phone.secure.get(key) ?? null,
-    setItemAsync: async (key: string, value: string) => { current.phone.secure.set(key, value); },
-    deleteItemAsync: async (key: string) => { current.phone.secure.delete(key); },
-}));
-vi.mock('@react-native-async-storage/async-storage', () => ({
-    default: {
-        getItem: async (key: string) => current.phone.local.get(key) ?? null,
-        setItem: async (key: string, value: string) => { current.phone.local.set(key, value); },
-        removeItem: async (key: string) => { current.phone.local.delete(key); },
-    },
-}));
 
 const repoRoot = join(import.meta.dirname, '../../..');
 const children = new Set<ChildProcess>();
@@ -94,28 +76,28 @@ class Machine {
     async start(): Promise<void> {
         const relay = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
             ...labEnv(this.home),
-            MUXR_RELAY_PORT: String(this.port),
+            MUXR_RELAY_PORT: '0',
             MUXR_RELAY_HOST: '127.0.0.1',
             MUXR_RELAY_DATA_DIR: join(this.home, 'relay'),
             MUXR_RELAY_MDNS: '0',
         });
         this.relay = relay;
         this.port = await waitForRelay(relay);
-        if (this.id === '') {
-            const machine = { ...machineIdentity(undefined), name: this.name };
-            this.id = machine.id;
-            writeFileSync(join(this.home, 'selfhost.json'), `${JSON.stringify({
-                version: 1,
-                machine,
-                relayPort: this.port,
-                relayUrl: `ws://127.0.0.1:${this.port}`,
-                relayLocation: 'local',
-                relayRole: 'single-machine',
-                connectionMode: 'lan',
-                webEnabled: false,
-                mintSecret: JSON.parse(readFileSync(join(this.home, 'relay', 'mint-secret'), 'utf8')),
-            }, null, 2)}\n`, { mode: 0o600 });
-        }
+        const state = this.id === '' ? {
+            version: 1,
+            machine: { ...machineIdentity(undefined), name: this.name },
+            relayLocation: 'local',
+            relayRole: 'single-machine',
+            connectionMode: 'lan',
+            webEnabled: false,
+            mintSecret: JSON.parse(readFileSync(join(this.home, 'relay', 'mint-secret'), 'utf8')),
+        } : JSON.parse(readFileSync(join(this.home, 'selfhost.json'), 'utf8'));
+        this.id = state.machine.id;
+        writeFileSync(join(this.home, 'selfhost.json'), `${JSON.stringify({
+            ...state,
+            relayPort: this.port,
+            relayUrl: `ws://127.0.0.1:${this.port}`,
+        }, null, 2)}\n`, { mode: 0o600 });
         const host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { ...labEnv(this.home), MUXR_MODE: 'selfhost' });
         this.host = host;
         await until(() => (host.output().includes('host -> ') ? true : undefined), `${this.name} host start`);
@@ -150,16 +132,33 @@ class Machine {
  * nothing survives in memory, everything the phone knows comes off its disk.
  */
 async function launchApp(phone: Phone) {
-    current.phone = phone;
     vi.resetModules();
+    vi.doMock('react-native', () => ({
+        Platform: { OS: phone.os },
+        AppState: { currentState: 'active', addEventListener: () => ({ remove: () => undefined }) },
+    }));
+    vi.doMock('expo-secure-store', () => ({
+        getItemAsync: async (key: string) => phone.secure.get(key) ?? null,
+        setItemAsync: async (key: string, value: string) => { phone.secure.set(key, value); },
+        deleteItemAsync: async (key: string) => { phone.secure.delete(key); },
+    }));
+    vi.doMock('@react-native-async-storage/async-storage', () => ({
+        default: {
+            getItem: async (key: string) => phone.local.get(key) ?? null,
+            setItem: async (key: string, value: string) => { phone.local.set(key, value); },
+            removeItem: async (key: string) => { phone.local.delete(key); },
+        },
+    }));
     const hosted = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
     const { MuxrClient } = await import('../../../apps/mobile/sources/pairing/infrastructure/muxrClient.js');
     return {
         ...hosted,
         /** Open the machine the way the app does: stored grant, its relay, its credential. */
-        async open(machineId: string) {
-            const grant = await hosted.loadHostedGrant(machineId);
-            if (grant === undefined) throw new Error(`phone has no grant for ${machineId}`);
+        async open(machine: Machine) {
+            const machineId = machine.id;
+            const relayUrl = `ws://127.0.0.1:${machine.port}`;
+            const grant = await hosted.refreshHostedGrant(machineId, '', relayUrl);
+            if (grant?.relayUrl !== relayUrl) throw new Error(`phone cannot verify ${machineId} at ${relayUrl}`);
             const permanentErrors: string[] = [];
             const client = new MuxrClient({
                 mode: 'hosted',
@@ -243,15 +242,20 @@ describe('paired devices across pairing, restarts and revoke', () => {
 
         // Both phones drive the desk, and the iPhone drives both machines.
         let app = await launchApp(android);
-        let androidLink = await app.open(desk.id);
+        let androidLink = await app.open(desk);
         const started = await androidLink.client.request('session.start', { cwd: desk.home });
         if (!('info' in started)) throw new Error(`session.start failed: ${JSON.stringify(started)}`);
         expect((await androidLink.client.request('session.list', {})).map((session) => session.id)).toContain(started.info.id);
-        androidLink.client.close();
+        const androidApp = app;
         app = await launchApp(iphone);
+        await androidLink.client.request('session.list', {});
+        await androidApp.flushReplay();
+        expect(android.local.has('muxr.hosted-e2ee.replay.v2')).toBe(true);
+        expect(iphone.local.has('muxr.hosted-e2ee.replay.v2')).toBe(false);
+        androidLink.client.close();
         expect((await app.listPairedGrants()).map((grant) => grant.machineId).sort()).toEqual([desk.id, laptop.id].sort());
         for (const machine of [desk, laptop]) {
-            const link = await app.open(machine.id);
+            const link = await app.open(machine);
             await link.client.request('session.list', {});
             link.client.close();
         }
@@ -261,11 +265,14 @@ describe('paired devices across pairing, restarts and revoke', () => {
         await Promise.all([desk.stop(), laptop.stop()]);
         await Promise.all([desk.start(), laptop.start()]);
         app = await launchApp(android);
-        androidLink = await app.open(desk.id);
+        androidLink = await app.open(desk);
         await androidLink.client.request('session.list', {});
         app = await launchApp(iphone);
-        const iphoneLink = await app.open(desk.id);
+        const iphoneLink = await app.open(desk);
         await iphoneLink.client.request('session.list', {});
+        const laptopLink = await app.open(laptop);
+        await laptopLink.client.request('session.list', {});
+        laptopLink.client.close();
 
         // Revoking the Android phone drops its live link and stops it for good,
         // with a message that says why. The iPhone on the same machine is not
