@@ -94,6 +94,11 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'desktop.capabilities',
 ]);
 
+export function viewOnlyRequestAllowed(request: ClientRequest, source: SessionSource): boolean {
+    return VIEW_ONLY_REQUESTS.has(request.type)
+        || (request.type === 'plugin.call' && source.pluginRpcMode?.(request.params) === 'read');
+}
+
 function desktopOrThrow(options: RequestDispatcherOptions): DesktopSessions {
     if (options.desktop === undefined) throw new Error('This host has no desktop engine.');
     return options.desktop;
@@ -380,9 +385,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             options.getDeviceContext?.(deviceId)?.kind,
             options.canMutateDevice?.(deviceId) !== false,
         );
-        const viewOnlyPluginRead = isViewOnlyDevice && request.type === 'plugin.call'
-            && source.pluginRpcMode?.(request.params) === 'read';
-        if (isViewOnlyDevice && !VIEW_ONLY_REQUESTS.has(request.type) && !viewOnlyPluginRead) {
+        if (isViewOnlyDevice && !viewOnlyRequestAllowed(request, source)) {
             return fail(request.requestId, 'this device grant is view-only; pair a control browser or use the native app');
         }
         if (isViewOnlyDevice && request.type === 'terminal.attach') {

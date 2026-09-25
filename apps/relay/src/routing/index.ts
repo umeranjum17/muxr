@@ -10,3 +10,4 @@ export { OfflineBuffer } from './infrastructure/buffer.js';
 export { ReplayLog } from './infrastructure/replay.js';
 export { PreviewChannels } from './infrastructure/preview.js';
 export { TerminalChannels } from './infrastructure/terminal.js';
+export { openLinkRelay } from './infrastructure/linkRelay.js';

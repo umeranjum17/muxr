@@ -280,8 +280,18 @@ request after ticket/grant checks. They never synthesize a plaintext answer.
 ## What the relay does
 
 The same Node process on your machine serves pairing, readiness, and WebSockets.
-Long-lived scoped credentials mint 60-second, one-use tickets; WebSockets consume
-only those tickets.
+Long-lived scoped credentials mint 60-second, one-use tickets; the existing
+muxr WebSockets consume only those tickets. On a self-host relay,
+`@byokit/relay` also serves optional
+`/relay/v1/*` and `/link/v1/<host id>` routes beside the existing muxr routes.
+The host uses its existing machine box key and enrolls native phones from its
+`selfhost.json` device records through `@byokit/link`; browsers, terminal and
+preview streams, and remote desktop still use the existing relay transport.
+The link checks the live device table for requests (including cached replies)
+and broadcasts, so revocation and role changes do not wait for grant sync.
+If link relay state cannot load, the existing relay continues without those
+routes. Pairing and the phone's production connection remain on the existing
+transport; this does not switch a paired phone to the link.
 
 The relay reads bounded `envelope.header` routing context and treats `payload` as
 opaque `e2ee:v2` ciphertext. Terminal frames stay off replay on the separate

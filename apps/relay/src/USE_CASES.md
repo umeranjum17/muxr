@@ -7,5 +7,6 @@ HTTP and WebSocket handlers in `relay.ts` / `httpHandlers.ts` are adapters.
 | Admit a socket | `admission/application/admitSocket.ts` | Peer Identity, Ticket, loopback | WebSocket upgrade |
 | Pair a device to an account | `admission/application/pairMachine.ts` | Pairing rendezvous (sealed blob only) | `POST /v1/auth/account/request`, `.../response` |
 | Route an envelope | `routing/application/routeEnvelope.ts` | Envelope route (never opens payload) | authenticated WebSocket frames |
+| Route link frames | `routing/infrastructure/linkRelay.ts` (`@byokit/relay`) | Host proof of its machine key; owner is the mint secret | `/link/v1/<host id>`, `/relay/v1/*` |
 
 Loopback query-string admission and `machinetok_` stay live for the local harness and probe. Display names never admit a socket.
