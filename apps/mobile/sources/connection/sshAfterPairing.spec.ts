@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /*
  * Flow test for the SSH route's payoff: once the pairing grant lands, the
@@ -22,11 +22,16 @@ vi.mock('@/pairing/secrets', () => secrets);
 
 const tunnel = vi.hoisted(() => ({
     openSshTunnel: vi.fn(),
+    closeSshTunnel: vi.fn(),
+    verifySshCredentials: vi.fn(),
+    livePort: 0,
 }));
 vi.mock('../../modules/ssh-tunnel', () => ({
     isSshTunnelSupported: () => true,
     openSshTunnel: tunnel.openSshTunnel,
-    closeSshTunnel: vi.fn(),
+    closeSshTunnel: tunnel.closeSshTunnel,
+    verifySshCredentials: tunnel.verifySshCredentials,
+    sshTunnelPort: () => tunnel.livePort,
     SshTunnelError: class extends Error {
         constructor(readonly code: string, message: string) { super(message); }
         static from(error: unknown) { return error as any; }
@@ -56,6 +61,12 @@ function pairAs(selfhost: boolean | undefined, machineId: string) {
         ...(selfhost === undefined ? {} : { selfhost }),
     });
 }
+
+beforeEach(() => {
+    tunnel.livePort = 0;
+    tunnel.verifySshCredentials.mockReset();
+    tunnel.verifySshCredentials.mockResolvedValue({ hostKey: 'SHA256:abc' });
+});
 
 const FIELDS = {
     host: 'box.lan',
@@ -142,6 +153,7 @@ describe('SSH tunnel established before pairing', () => {
         const result = await establishSshTunnel(FIELDS);
 
         expect(result).toEqual({ ok: true, localPort: 8792, hostKey: 'SHA256:abc' });
+        expect(tunnel.verifySshCredentials).toHaveBeenCalledWith(expect.objectContaining({ host: 'box.lan', password: 'hunter2' }));
         expect(tunnel.openSshTunnel).toHaveBeenCalledWith(expect.objectContaining({
             host: 'box.lan',
             port: 22,
@@ -156,6 +168,31 @@ describe('SSH tunnel established before pairing', () => {
         const result = await establishSshTunnel(FIELDS);
         expect(result.ok).toBe(false);
         expect(result.ok === false && result.message).toContain('refused these credentials');
+    });
+
+    it('re-pairing verifies the new key even if a tunnel opens concurrently, without disturbing a live route on failure', async () => {
+        tunnel.openSshTunnel.mockResolvedValue({ localPort: 8792, hostKey: 'SHA256:abc' });
+        tunnel.openSshTunnel.mockClear();
+        tunnel.closeSshTunnel.mockClear();
+        tunnel.verifySshCredentials.mockRejectedValueOnce(Object.assign(new Error('rejected'), { code: 'ssh-auth' }));
+
+        const stale = await establishSshTunnel({ ...FIELDS, password: '', privateKey: 'stale-key' });
+
+        expect(stale.ok).toBe(false);
+        expect(stale.ok === false && stale.message).toContain('refused these credentials');
+        expect(tunnel.verifySshCredentials).toHaveBeenCalledWith(expect.objectContaining({ privateKey: 'stale-key' }));
+        expect(tunnel.openSshTunnel).not.toHaveBeenCalled();
+        expect(tunnel.closeSshTunnel).not.toHaveBeenCalled();
+
+        tunnel.livePort = 8792;
+        tunnel.verifySshCredentials.mockResolvedValueOnce({ hostKey: 'SHA256:new' });
+        const changedHost = await establishSshTunnel(FIELDS);
+        expect(changedHost.ok).toBe(false);
+        expect(changedHost.ok === false && changedHost.message).toContain('SSH host key');
+        expect(tunnel.closeSshTunnel).not.toHaveBeenCalled();
+
+        expect(await establishSshTunnel(FIELDS)).toEqual({ ok: true, localPort: 8792, hostKey: 'SHA256:abc' });
+        tunnel.openSshTunnel.mockReset();
     });
 
     it('rewrites the pairing URL through the tunnel and leaves other URLs untouched', () => {

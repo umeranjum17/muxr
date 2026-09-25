@@ -7,6 +7,7 @@ import {
     openSshTunnel,
     sshTunnelPort,
     SshTunnelError,
+    verifySshCredentials,
     type SshCommandResult,
     type SshTunnelErrorCode,
 } from '../../modules/ssh-tunnel';
@@ -207,9 +208,35 @@ export function pinSshHostKey(previous: SshTarget | undefined, next: SshTarget):
 }
 
 /**
+ * Prove a just-entered credential signs in, on a connection of its own. A live
+ * tunnel is reused by endpoint alone, so without this a wrong key rides the
+ * old tunnel and looks fine until that tunnel drops. The live tunnel is never
+ * touched, so a failure here leaves a working route as it was.
+ */
+export async function verifySshCredential(target: SshTarget, credential: SshCredential): Promise<string> {
+    try {
+        const { hostKey } = await verifySshCredentials({
+            host: target.host,
+            port: target.port,
+            username: target.username,
+            ...(credential.privateKey ? { privateKey: credential.privateKey } : {}),
+            ...(credential.passphrase ? { passphrase: credential.passphrase } : {}),
+            ...(credential.password ? { password: credential.password } : {}),
+            ...(target.hostKey ? { knownHostKey: target.hostKey } : {}),
+            remoteHost: '127.0.0.1',
+            remotePort: target.relayPort,
+        });
+        return hostKey;
+    } catch (error) {
+        throw describe(error instanceof SshTunnelError ? error : SshTunnelError.from(error), target);
+    }
+}
+
+/**
  * Establish the SSH tunnel for a not-yet-paired SSH route BEFORE any claim:
  * the pairing then completes through ws://127.0.0.1:<localPort>, so success
- * always implies a working tunnel. Reuses an alive identical tunnel.
+ * always implies a working tunnel. Reuses an alive identical tunnel, but only
+ * after the entered credential has signed in on its own.
  */
 export async function establishSshTunnel(input: SshFieldInput): Promise<{ ok: true; localPort: number; hostKey: string | undefined } | { ok: false; message: string }> {
     if (!isSshTunnelSupported()) {
@@ -218,6 +245,7 @@ export async function establishSshTunnel(input: SshFieldInput): Promise<{ ok: tr
     const parsed = parseSshFields(input);
     if ('error' in parsed) return { ok: false, message: parsed.error };
     try {
+        const verifiedHostKey = await verifySshCredential(parsed.target, parsed.credential);
         const handle = await openSshTunnel({
             host: parsed.target.host,
             port: parsed.target.port,
@@ -230,8 +258,10 @@ export async function establishSshTunnel(input: SshFieldInput): Promise<{ ok: tr
             remotePort: parsed.target.relayPort,
             localPort: parsed.target.relayPort,
         });
+        if (handle.hostKey !== verifiedHostKey) throw describe(new SshTunnelError('ssh-host-key', 'the SSH host key changed'), parsed.target);
         return { ok: true, localPort: handle.localPort, hostKey: handle.hostKey };
     } catch (error) {
+        if (error instanceof SshConnectionError) return { ok: false, message: error.message };
         const described = describe(error instanceof SshTunnelError ? error : SshTunnelError.from(error), parsed.target);
         return { ok: false, message: described.message };
     }

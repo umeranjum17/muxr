@@ -159,6 +159,8 @@ class SshTunnelModule : Module() {
 
         AsyncFunction("openTunnel") { config: SshTunnelConfig -> open(config) }
 
+        AsyncFunction("verifyCredentials") { config: SshTunnelConfig -> verify(config) }
+
         AsyncFunction("execCommand") { config: SshTunnelConfig, command: String -> exec(config, command) }
 
         AsyncFunction("closeTunnel") { closeCurrent() }
@@ -209,6 +211,17 @@ class SshTunnelModule : Module() {
             throw SshUnreachableException("the SSH connection was closed before it opened", null)
         }
         return mapOf("localPort" to opened.localPort, "hostKey" to opened.hostKey)
+    }
+
+    /**
+     * Sign in on a throwaway connection and hang up. The live tunnel is never
+     * touched, so a credential that fails here leaves a working route as it was.
+     */
+    private fun verify(config: SshTunnelConfig): Map<String, Any> {
+        validate(config)
+        val (client, hostKey) = signIn(config)
+        try { client.disconnect() } catch (_: IOException) {}
+        return mapOf("hostKey" to hostKey)
     }
 
     /**
@@ -308,6 +321,29 @@ class SshTunnelModule : Module() {
     }
 
     private fun connect(config: SshTunnelConfig): Tunnel {
+        val (client, hostKey) = signIn(config)
+        val server = bindLocal(config.localPort) { client.disconnect() }
+        val tunnel = Tunnel(signatureOf(config), client, server, server.localPort, hostKey)
+        // Never turn this into a general SSH port forward: muxr's relay is
+        // intentionally reachable only from the SSH host's loopback.
+        val parameters = Parameters(LOOPBACK, server.localPort, LOOPBACK, config.remotePort)
+        val forwarder: LocalPortForwarder = try {
+            client.newLocalPortForwarder(parameters, server)
+        } catch (cause: Exception) {
+            tunnel.close()
+            throw SshLocalPortException("could not start the local SSH forward", cause)
+        }
+        val thread = Thread({
+            try { forwarder.listen() } catch (_: Exception) {} finally { tunnel.close() }
+        }, "muxr-ssh-tunnel")
+        thread.isDaemon = true
+        tunnel.forwarder = thread
+        thread.start()
+        return tunnel
+    }
+
+    /** A connected, authenticated client and the host key it saw. */
+    private fun signIn(config: SshTunnelConfig): Pair<SSHClient, String> {
         // SSHJ looks its algorithms up under one JCA provider name. Android's
         // built-in "BC" provider cannot do X25519, EC, or Ed25519 key
         // agreement and signatures, and the bundled Bouncy Castle jar loses
@@ -371,24 +407,7 @@ class SshTunnelModule : Module() {
                 try { client.disconnect() } catch (_: IOException) {}
                 throw SshHostKeyException("the server did not present a host key")
             }
-        val server = bindLocal(config.localPort) { client.disconnect() }
-        val tunnel = Tunnel(signatureOf(config), client, server, server.localPort, hostKey)
-        // Never turn this into a general SSH port forward: muxr's relay is
-        // intentionally reachable only from the SSH host's loopback.
-        val parameters = Parameters(LOOPBACK, server.localPort, LOOPBACK, config.remotePort)
-        val forwarder: LocalPortForwarder = try {
-            client.newLocalPortForwarder(parameters, server)
-        } catch (cause: Exception) {
-            tunnel.close()
-            throw SshLocalPortException("could not start the local SSH forward", cause)
-        }
-        val thread = Thread({
-            try { forwarder.listen() } catch (_: Exception) {} finally { tunnel.close() }
-        }, "muxr-ssh-tunnel")
-        thread.isDaemon = true
-        tunnel.forwarder = thread
-        thread.start()
-        return tunnel
+        return client to hostKey
     }
 
     private fun authenticate(client: SSHClient, config: SshTunnelConfig) {
