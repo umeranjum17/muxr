@@ -631,6 +631,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 const codeMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/code$/.exec(url.pathname);
                 const grantMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/grant$/.exec(url.pathname);
                 const completeMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/complete$/.exec(url.pathname);
+                const releaseMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)\/release$/.exec(url.pathname);
                 const pollMatch = /^\/v1\/selfhost\/pair-sessions\/([^/]+)$/.exec(url.pathname);
                 if (req.method === 'POST' && url.pathname === '/v1/selfhost/pair-sessions') {
                     const authority = await resolveAuthority(req);
@@ -692,8 +693,6 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                         writeJsonError(res, 400, 'claim, device_public_key, device_name and mailbox are required');
                         return;
                     }
-                    // Credential lifetime is decided inside claim() from the
-                    // owner-created session (personal marker or 8h default).
                     const resumeKey = readResumeKey(body);
                     const result = await localPairing.claim(claimMatch[1], {
                         claim, devicePublicKey, deviceName, deviceKind, mailbox, ...(resumeKey === undefined ? {} : { resumeKey }),
@@ -718,6 +717,17 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
                     if (device === undefined) { writeJsonError(res, 403, 'pairing completion requires a paired device credential'); return; }
                     if (!(await localPairing.acknowledgeGrant(completeMatch[1], device.deviceId))) { writeJsonError(res, 409, 'pairing_not_durable'); return; }
+                    writeJson(res, 200, { ok: true });
+                    return;
+                }
+                if (req.method === 'POST' && releaseMatch?.[1] !== undefined) {
+                    const authority = await resolveAuthority(req);
+                    if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'pairing release requires owner or machine authority'); return; }
+                    const sessionSlug = await localPairing.sessionMachineSlug(releaseMatch[1]);
+                    if (sessionSlug !== undefined && !(await machineAuthority?.isMachineAllowed(sessionSlug))) { writeJsonError(res, 403, 'machine is revoked or expired'); return; }
+                    if (!(await localPairing.completeGrant(releaseMatch[1], authority.machine?.slug))) {
+                        writeJsonError(res, 409, 'pairing_not_complete'); return;
+                    }
                     writeJson(res, 200, { ok: true });
                     return;
                 }

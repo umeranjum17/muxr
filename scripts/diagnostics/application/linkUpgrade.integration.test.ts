@@ -285,7 +285,7 @@ describe('link upgrade for an already-paired phone', () => {
         vi.resetModules();
         const { claimHostedPairing: claimFresh } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
         const release = join(home, 'release-pair');
-        const pause = `const { existsSync } = await import('node:fs'); const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { const response = await fetch(...args); if (String(args[0]).endsWith('/grant') && response.ok) while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 20)); return response; };`;
+        const pause = `const { existsSync } = await import('node:fs'); const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { if (String(args[0]).endsWith('/release')) while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 20)); return fetch(...args); };`;
         const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(pause)}` });
         const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'pair string');
         const claiming = claimFresh(text);
@@ -314,11 +314,17 @@ describe('link upgrade for an already-paired phone', () => {
             machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
         };
         expect(Date.parse(admittedState.machine.crypto.devices.find((device) => device.deviceId === stored.deviceId)!.expiresAt))
-            .toBeLessThan(Date.now() + 150_000);
+            .toBeGreaterThan(Date.now() + 8 * 60_000);
+        const credentialStatePath = join(home, 'relay', 'selfhost-pairing.json');
+        const credentialExpiry = () => (JSON.parse(readFileSync(credentialStatePath, 'utf8')) as {
+            devices: { deviceId: string; expiresAt?: number }[];
+        }).devices.find((device) => device.deviceId === stored.deviceId)?.expiresAt;
+        expect(credentialExpiry()).toBeLessThan(Date.now() + 150_000);
         writeFileSync(release, 'go');
         await until(() => (link.status === 'online' ? true : undefined), 'first link dial comes online right after pairing', 30_000);
         await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'pair finishes');
         expect(pair.exitCode, pair.output()).toBe(0);
+        expect(credentialExpiry()).toBeUndefined();
         const started = await link.request('session.start', { type: 'session.start', requestId: 'fresh', params: { cwd: home } }) as {
             type: string; ok?: boolean;
         };

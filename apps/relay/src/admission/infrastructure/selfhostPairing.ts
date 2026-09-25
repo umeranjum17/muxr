@@ -34,11 +34,7 @@ export interface SelfhostPairSession {
     machineSlug: string;
     deviceKind: Exclude<DeviceKind, 'peer'>;
     authority?: 'control' | 'observe';
-    /**
-     * Explicit owner-authorized personal browser. Minted only from
-     * `muxr pair --browser-personal`; never inferred client-side. Lifts the
-     * device credential lifetime from 8h to 30d at claim time.
-     */
+    /** Explicit owner-authorized personal browser, never inferred client-side. */
     personal?: boolean;
     createdAt: number;
     expiresAt: number;
@@ -50,6 +46,7 @@ export interface SelfhostPairSession {
     grant?: string;
     grantFetchedAt?: number;
     acknowledgedAt?: number;
+    completedAt?: number;
     codeHash?: string;
     codePayload?: string;
     codeExpiresAt?: number;
@@ -252,7 +249,7 @@ export class SelfhostPairing {
     /** Phone side: claim once, or replace a lost credential under `mayResume`. */
     claim(
         pairId: string,
-        input: { claim: string; devicePublicKey: string; deviceName: string; deviceKind: Exclude<DeviceKind, 'peer'>; mailbox: string; expiresAt?: number; resumeKey?: string },
+        input: { claim: string; devicePublicKey: string; deviceName: string; deviceKind: Exclude<DeviceKind, 'peer'>; mailbox: string; resumeKey?: string },
         now = Date.now(),
     ): Promise<{ state: 'issued'; deviceId: string; credential: string } | { state: 'already_claimed' | 'expired' | 'invalid_claim' | 'wrong_device_kind' }> {
         return this.serialized(async () => {
@@ -289,14 +286,6 @@ export class SelfhostPairing {
             const deviceId = opaque('dev');
             const credential = opaque('muxr_dc');
             session.deviceId = deviceId;
-            // Credential lifetime comes from the owner-created session, not
-            // the claim body: normal browsers stay 8h, explicit personal
-            // browsers get 30d.
-            let credentialExpiresAt = session.deviceKind === 'native' ? session.expiresAt : input.expiresAt;
-            if (session.deviceKind === 'browser') {
-                const ttl = session.personal === true ? BROWSER_PERSONAL_GRANT_TTL_MS : BROWSER_GRANT_TTL_MS;
-                credentialExpiresAt = now + ttl;
-            }
             this.state.devices.push({
                 deviceId,
                 credentialHash: hash(credential),
@@ -304,7 +293,7 @@ export class SelfhostPairing {
                 name: input.deviceName,
                 machineSlug: session.machineSlug,
                 createdAt: now,
-                ...(credentialExpiresAt === undefined ? {} : { expiresAt: credentialExpiresAt }),
+                expiresAt: session.expiresAt,
                 authority: claimedAuthority(session),
                 deviceKind: session.deviceKind,
                 credentialVersion: 1,
@@ -343,26 +332,23 @@ export class SelfhostPairing {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
             if (session === undefined || machineSlug !== undefined && session.machineSlug !== machineSlug
-                || session.usedAt === undefined || session.expiresAt <= now) return false;
+                || session.usedAt === undefined || session.expiresAt <= now || session.completedAt !== undefined) return false;
             const device = this.state.devices.find((entry) => entry.deviceId === session.deviceId && entry.revokedAt === undefined);
             if (device === undefined) return false;
             session.grant = grant;
             device.currentGrant = grant;
-            if (session.deviceKind === 'native') delete device.expiresAt;
             await this.persist();
             return true;
         });
     }
 
-    /** Browser grants remain recoverable until durable acknowledgement; native clients complete on fetch. */
     fetchGrant(pairId: string, deviceId: string, now = Date.now()): Promise<string | undefined> {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((s) => s.pairId === pairId);
             if (session === undefined || session.deviceId !== deviceId || session.grant === undefined) return undefined;
             const grant = session.grant;
-            if (session.deviceKind === 'native') this.state.sessions = this.state.sessions.filter((entry) => entry !== session);
-            else session.grantFetchedAt = now;
+            session.grantFetchedAt = now;
             await this.persist();
             return grant;
         });
@@ -374,6 +360,25 @@ export class SelfhostPairing {
             const session = this.state.sessions.find((entry) => entry.pairId === pairId && entry.deviceId === deviceId && entry.grantFetchedAt !== undefined);
             if (session === undefined) return false;
             session.acknowledgedAt = now;
+            await this.persist();
+            return true;
+        });
+    }
+
+    completeGrant(pairId: string, machineSlug: string | undefined, now = Date.now()): Promise<boolean> {
+        return this.serialized(async () => {
+            await this.load();
+            const session = this.state.sessions.find((entry) => entry.pairId === pairId
+                && (machineSlug === undefined || entry.machineSlug === machineSlug));
+            if (session === undefined || session.grant === undefined) return false;
+            if (session.completedAt !== undefined) return true;
+            if (session.expiresAt <= now || session.deviceKind === 'browser' && session.acknowledgedAt === undefined) return false;
+            const device = this.state.devices.find((entry) => entry.deviceId === session.deviceId
+                && entry.revokedAt === undefined && entry.currentGrant === session.grant && entry.expiresAt !== undefined && entry.expiresAt > now);
+            if (device === undefined) return false;
+            if (session.deviceKind === 'native') delete device.expiresAt;
+            else device.expiresAt = now + (session.personal === true ? BROWSER_PERSONAL_GRANT_TTL_MS : BROWSER_GRANT_TTL_MS);
+            session.completedAt = now;
             await this.persist();
             return true;
         });
