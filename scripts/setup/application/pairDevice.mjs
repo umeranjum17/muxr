@@ -121,9 +121,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         if (pending.deviceKind === 'native' && pending.grantUploaded !== true) {
             const admission = join(stateDir(), 'link-enrolled.json');
             const deadline = Date.now() + 30_000;
-            let dbg = 0;
             while (true) {
-                if (++dbg % 10 === 0) print(`DEBUG admission wait ${dbg} ${existsSync(admission) ? readFileSync(admission, 'utf8') : 'no marker'}`);
                 const enrolled = existsSync(admission) ? JSON.parse(readFileSync(admission, 'utf8')) : [];
                 if (enrolled.some((device) => device.deviceId === pending.device.deviceId && device.devicePublicKey === pending.device.devicePublicKey)) break;
                 if (Date.now() >= deadline) throw new Error('the host has not enrolled this device on the link; start muxr and rerun `muxr pair`');
@@ -197,7 +195,6 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         print(clipboard?.status === 0 ? '  ✓ copied link to clipboard' : `  saved exact link to ${pairFile}`);
         print(`Waiting for the ${waiting.requiresWebHosting ? 'browser' : 'device'} to finish pairing…`);
     }
-    let dbgPoll = 0;
     while (true) {
         let polled = recoveredPoll;
         recoveredPoll = undefined;
@@ -206,7 +203,6 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
         }
         if (!polled.response.ok) throw new Error(polled.body.error || 'pair polling failed');
-        if (++dbgPoll % 5 === 0) print(`DEBUG claim poll ${dbgPoll} state=${polled.body.state} pairId=${pending.pairId}`);
         if (polled.body.state === 'pending') continue;
         if (polled.body.state === 'expired') {
             delete state.machine.crypto.pendingPair;
