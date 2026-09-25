@@ -314,7 +314,7 @@ describe('link upgrade for an already-paired phone', () => {
             machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
         };
         expect(Date.parse(admittedState.machine.crypto.devices.find((device) => device.deviceId === stored.deviceId)!.expiresAt))
-            .toBeGreaterThan(Date.now() + 8 * 60_000);
+            .toBeLessThan(Date.now() + 150_000);
         const credentialStatePath = join(home, 'relay', 'selfhost-pairing.json');
         const credentialExpiry = () => (JSON.parse(readFileSync(credentialStatePath, 'utf8')) as {
             devices: { deviceId: string; expiresAt?: number }[];
@@ -473,7 +473,7 @@ describe('link upgrade for an already-paired phone', () => {
             machine: { crypto: { pendingPair?: { expiresAt: number }; devices: { deviceId: string; expiresAt: string }[] } };
         };
         expired.machine.crypto.pendingPair!.expiresAt = Date.now() - 1000;
-        for (const device of expired.machine.crypto.devices) if (device.deviceId === doomed) device.expiresAt = new Date(Date.now() - 1000).toISOString();
+        for (const device of expired.machine.crypto.devices) if (device.deviceId === doomed) device.expiresAt = new Date(Date.UTC(9999, 11, 31, 23, 59, 59, 999)).toISOString();
         writeFileSync(statePath, `${JSON.stringify(expired, null, 2)}\n`, { mode: 0o600 });
         const relayState = JSON.parse(readFileSync(relayStatePath, 'utf8')) as { devices: { deviceId: string; expiresAt?: number }[] };
         for (const device of relayState.devices) if (device.deviceId === doomed) device.expiresAt = Date.now() - 1000;
@@ -482,6 +482,8 @@ describe('link upgrade for an already-paired phone', () => {
         const retry = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
         expect(await until(() => retry.exitCode === null ? undefined : retry.exitCode, 'expired retry exits'), retry.output()).toBe(1);
         expect(retry.output()).toContain('pairing did not complete; the device was dropped');
+        const afterRetry = JSON.parse(readFileSync(statePath, 'utf8')) as { machine: { crypto: { devices: { deviceId: string }[] } } };
+        expect(afterRetry.machine.crypto.devices.some((device) => device.deviceId === doomed)).toBe(false);
         const statuses: LinkStatus[] = [];
         const dropped = new DeviceLink(doomedGrant, { WebSocket: WebSocket as never, onStatus: (status) => statuses.push(status) });
         await until(() => (dropped.status === 'removed' ? true : undefined), 'expired window drops the device', 30_000).catch((error: Error) => {

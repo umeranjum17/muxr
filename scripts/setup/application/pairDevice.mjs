@@ -47,20 +47,17 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
     if (pending !== undefined && (pending.grantUploaded !== true || pending.deviceKind === 'native')
         && typeof pending.expiresAt === 'number' && pending.expiresAt <= Date.now()) {
         const polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
-        if (!polled.response.ok) {
-            if (polled.response.status !== 403 && polled.response.status !== 404) throw new Error(polled.body.error || 'pair recovery polling failed');
-            delete state.machine.crypto.pendingPair;
-            writeSelfhostState(state);
-            pending = undefined;
-        } else if (polled.body.state === 'claimed') {
-            delete state.machine.crypto.pendingPair;
-            writeSelfhostState(state);
-            throw new Error('pairing did not complete; the device was dropped when the pairing window ended');
-        } else if (polled.body.state === 'expired') {
-            delete state.machine.crypto.pendingPair;
-            writeSelfhostState(state);
-            pending = undefined;
+        if (!polled.response.ok && polled.response.status !== 403 && polled.response.status !== 404) {
+            throw new Error(polled.body.error || 'pair recovery polling failed');
         }
+        if (pending.device !== undefined) state.machine.crypto.devices = state.machine.crypto.devices.filter((device) =>
+            device.deviceId !== pending.device.deviceId || device.devicePublicKey !== pending.device.devicePublicKey);
+        delete state.machine.crypto.pendingPair;
+        writeSelfhostState(state);
+        if (polled.response.ok && polled.body.state === 'claimed') {
+            throw new Error('pairing did not complete; the device was dropped when the pairing window ended');
+        }
+        pending = undefined;
     }
     if (pending !== undefined && (!intent.matchesPending(pending) || typeof pending.pairString !== 'string')) {
         delete state.machine.crypto.pendingPair;
@@ -113,11 +110,9 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         writeSelfhostState(state);
     }
     if (pending.grant !== undefined && pending.device !== undefined) {
-        const existing = state.machine.crypto.devices.find((entry) => entry.deviceId === pending.device.deviceId
-            && entry.devicePublicKey === pending.device.devicePublicKey);
         state.machine.crypto.devices = [
             ...state.machine.crypto.devices.filter((entry) => entry.deviceId !== pending.device.deviceId),
-            existing !== undefined && Date.parse(existing.expiresAt) > Date.parse(pending.device.expiresAt) ? existing : pending.device,
+            pending.device,
         ];
         writeSelfhostState(state);
         if (pending.deviceKind === 'native' && pending.grantUploaded !== true) {
@@ -137,11 +132,6 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             if (!uploaded.response.ok) throw new Error(`pairing did not complete: the grant could not be published. Run \`muxr pair\` again within the pairing window to finish; the device is dropped when the window ends.`);
             if (pending.expiresAt <= Date.now()) throw new Error('pairing did not complete; the device was dropped when the pairing window ended');
             pending.grantUploaded = true;
-            if (pending.deviceKind === 'native') {
-                state.machine.crypto.devices = state.machine.crypto.devices.map((entry) => entry.deviceId === pending.device.deviceId
-                    ? { ...entry, expiresAt: new Date(pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal }).grantExpiresAt()).toISOString() }
-                    : entry);
-            }
             state.machine.crypto.pendingPair = pending;
             writeSelfhostState(state);
         }
@@ -157,16 +147,13 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             if (!acknowledged) throw new Error('the browser claimed the pairing but did not save it; reload the browser to recover, then rerun `muxr pair --browser` if needed. The device is dropped when the pairing window ends unless pairing completes.');
         }
         if (pending.expiresAt <= Date.now()) throw new Error('pairing did not complete; the device was dropped when the pairing window ended');
-        if (pending.deviceKind === 'browser') {
-            state.machine.crypto.devices = state.machine.crypto.devices.map((entry) => entry.deviceId === pending.device.deviceId
-                ? { ...entry, expiresAt: new Date(pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal }).grantExpiresAt()).toISOString() }
-                : entry);
-            writeSelfhostState(state);
-        }
         const released = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}/release`, {
             method: 'POST', headers: authHeaders,
         });
         if (!released.response.ok) throw new Error('pairing did not complete: the relay could not release the device credential; rerun `muxr pair` within the pairing window');
+        state.machine.crypto.devices = state.machine.crypto.devices.map((entry) => entry.deviceId === pending.device.deviceId
+            ? { ...entry, expiresAt: new Date(pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal }).grantExpiresAt()).toISOString() }
+            : entry);
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
         print(`  ✓ paired and verified ${pending.deviceName || 'device'}`);
