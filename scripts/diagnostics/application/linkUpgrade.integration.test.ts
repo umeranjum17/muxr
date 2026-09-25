@@ -314,7 +314,7 @@ describe('link upgrade for an already-paired phone', () => {
             machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
         };
         expect(Date.parse(admittedState.machine.crypto.devices.find((device) => device.deviceId === stored.deviceId)!.expiresAt))
-            .toBeGreaterThan(Date.now() + 8 * 60_000);
+            .toBeLessThan(Date.now() + 150_000);
         writeFileSync(release, 'go');
         await until(() => (link.status === 'online' ? true : undefined), 'first link dial comes online right after pairing', 30_000);
         await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'pair finishes');
@@ -399,7 +399,7 @@ describe('link upgrade for an already-paired phone', () => {
         expect(Date.parse(resumedRecord!.expiresAt)).toBeGreaterThan(Date.now() + 8 * 60_000);
     }, 120_000);
 
-    it('expires an unpublished relay credential and rejects late recovery', async () => {
+    it('drops a device whose grant never publishes once the pairing window ends', async () => {
         vi.stubGlobal('WebSocket', WebSocket);
         await stopMachine();
         await startMachine();
@@ -437,7 +437,7 @@ describe('link upgrade for an already-paired phone', () => {
         };
         const windowEnd = pendingState.machine.crypto.pendingPair.expiresAt;
         expect(Date.parse(pendingState.machine.crypto.devices.find((device) => device.deviceId === doomed)!.expiresAt))
-            .toBeGreaterThan(Date.now() + 8 * 60_000);
+            .toBe(windowEnd);
         const relayStatePath = join(home, 'relay', 'selfhost-pairing.json');
         const claimedState = JSON.parse(readFileSync(relayStatePath, 'utf8')) as { devices: { deviceId: string; expiresAt?: number }[] };
         expect(claimedState.devices.find((device) => device.deviceId === doomed)?.expiresAt).toBeGreaterThan(Date.now() + 60_000);

@@ -531,20 +531,6 @@ async function main(): Promise<void> {
     const admissionFile = join(dirname(selfhostFile()), 'link-enrolled.json');
     if (mode === 'selfhost') rmSync(admissionFile, { force: true });
     const recordLinkAdmission = (crypto: MachineCryptoState): void => {
-        const state = readSelfhostAuth();
-        if (state === undefined) return;
-        const pending = (state.machine.crypto as MachineCryptoState & { pendingPair?: { device?: { deviceId: string; devicePublicKey: string } } }).pendingPair?.device;
-        const enrolled = pending === undefined ? undefined : crypto.devices.find((device) => device.kind === undefined
-            && device.deviceId === pending.deviceId && device.devicePublicKey === pending.devicePublicKey
-            && Date.parse(device.expiresAt) > Date.now());
-        if (enrolled !== undefined) {
-            const device = state.machine.crypto.devices.find((entry) => entry.deviceId === enrolled.deviceId
-                && entry.devicePublicKey === enrolled.devicePublicKey && Date.parse(entry.expiresAt) > Date.now());
-            if (device !== undefined && Date.parse(device.expiresAt) < DURABLE_GRANT_EXPIRES_AT) {
-                device.expiresAt = new Date(DURABLE_GRANT_EXPIRES_AT).toISOString();
-                writeSelfhostAuth(state);
-            }
-        }
         atomicWriteJson(admissionFile, crypto.devices.map(({ deviceId, devicePublicKey }) => ({ deviceId, devicePublicKey })));
     };
     if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined) {

@@ -44,7 +44,8 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
     const base = selfhostControlBase(state);
     const authHeaders = { authorization: `Bearer ${selfhostCredential(state)}` };
     let pending = state.machine.crypto.pendingPair;
-    if (pending !== undefined && pending.grantUploaded !== true && typeof pending.expiresAt === 'number' && pending.expiresAt <= Date.now()) {
+    if (pending !== undefined && (pending.grantUploaded !== true || pending.deviceKind === 'native')
+        && typeof pending.expiresAt === 'number' && pending.expiresAt <= Date.now()) {
         const polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
         if (!polled.response.ok) {
             if (polled.response.status !== 403 && polled.response.status !== 404) throw new Error(polled.body.error || 'pair recovery polling failed');
@@ -112,11 +113,9 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         writeSelfhostState(state);
     }
     if (pending.grant !== undefined && pending.device !== undefined) {
-        const existing = state.machine.crypto.devices.find((entry) => entry.deviceId === pending.device.deviceId
-            && entry.devicePublicKey === pending.device.devicePublicKey);
         state.machine.crypto.devices = [
             ...state.machine.crypto.devices.filter((entry) => entry.deviceId !== pending.device.deviceId),
-            existing ?? pending.device,
+            pending.device,
         ];
         writeSelfhostState(state);
         if (pending.deviceKind === 'native' && pending.grantUploaded !== true) {
@@ -124,13 +123,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             const deadline = Date.now() + 30_000;
             while (true) {
                 const enrolled = existsSync(admission) ? JSON.parse(readFileSync(admission, 'utf8')) : [];
-                if (enrolled.some((device) => device.deviceId === pending.device.deviceId && device.devicePublicKey === pending.device.devicePublicKey)) {
-                    const latest = readSelfhostState()?.machine.crypto.devices.find((device) => device.deviceId === pending.device.deviceId
-                        && device.devicePublicKey === pending.device.devicePublicKey);
-                    if (latest !== undefined) state.machine.crypto.devices = state.machine.crypto.devices.map((device) =>
-                        device.deviceId === latest.deviceId ? latest : device);
-                    break;
-                }
+                if (enrolled.some((device) => device.deviceId === pending.device.deviceId && device.devicePublicKey === pending.device.devicePublicKey)) break;
                 if (Date.now() >= deadline) throw new Error('the host has not enrolled this device on the link; start muxr and rerun `muxr pair`');
                 await new Promise((resolve) => setTimeout(resolve, 100));
             }
@@ -141,8 +134,19 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             });
             if (!uploaded.response.ok) throw new Error(`pairing did not complete: the grant could not be published. Run \`muxr pair\` again within the pairing window to finish; the device is dropped when the window ends.`);
             pending.grantUploaded = true;
-            state.machine.crypto.pendingPair = pending;
+            if (pending.deviceKind === 'browser') {
+                state.machine.crypto.pendingPair = pending;
+                writeSelfhostState(state);
+            }
+        }
+        if (pending.deviceKind === 'native') {
+            state.machine.crypto.devices = state.machine.crypto.devices.map((entry) => entry.deviceId === pending.device.deviceId
+                ? { ...entry, expiresAt: new Date(pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal }).grantExpiresAt()).toISOString() }
+                : entry);
+            delete state.machine.crypto.pendingPair;
             writeSelfhostState(state);
+            print(`  ✓ paired and verified ${pending.deviceName || 'device'}`);
+            return 0;
         }
         if (pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal }).requiresWebHosting) {
             const deadline = Date.now() + 2 * 60_000;
