@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { cleanTestScratch, processStart, scratchBase, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
+import { cleanTestScratch, processStart, scratchBase, scratchEntries, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
 
 if (process.argv[2] !== '--' || !process.argv[3]) throw new Error('Expected -- followed by a command');
 const base = scratchBase();
@@ -27,14 +27,15 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
 });
 child.once('error', (error) => {
     process.stderr.write(`${error}\n`);
-    if (scratchUnused(root)) rmSync(root, { recursive: true, force: true });
+    if (!child.pid) rmSync(root, { recursive: true, force: true });
+    else if (scratchUnused(root, true)) rmSync(root, { recursive: true, force: true });
     process.exit(1);
 });
 child.once('exit', (code, signal) => {
     const finish = () => {
         const unused = scratchUnused(root, true);
         if (vitest && unused) cleanTestScratch(root);
-        const leftovers = readdirSync(root).filter((name) => name !== 'owner').map((name) => join(root, name));
+        const leftovers = scratchEntries(root).filter((name) => name !== 'owner').map((name) => join(root, name));
         if (vitest && unused && leftovers.length) process.stderr.write(`FAIL: host test scratch leftovers:\n${leftovers.join('\n')}\n`);
         if (unused) rmSync(root, { recursive: true, force: true });
         process.exit(vitest && unused && leftovers.length ? 1 : signalExit ?? code ?? (signal ? 1 : 0));

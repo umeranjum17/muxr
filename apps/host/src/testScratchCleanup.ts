@@ -1,6 +1,6 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import { cleanTestScratch, processStart, scratchBase, scratchUnused, testScratchOwner } from '../../../scripts/diagnostics/application/testScratchOwner.mjs';
+import { cleanTestScratch, processGroup, processStart, scratchBase, scratchEntries, scratchUnused, testScratchOwner } from '../../../scripts/diagnostics/application/testScratchOwner.mjs';
 
 export default function setupHostTestScratch(): () => void {
     const inherited = process.env.TMPDIR;
@@ -9,7 +9,11 @@ export default function setupHostTestScratch(): () => void {
     const birth = owned ? processStart(process.pid) : undefined;
     if (owned && !birth) throw new Error('Cannot identify test scratch owner');
     const root = owned ? mkdtempSync(join(scratchBase(), `muxr-host-test-${process.pid}-`)) : inherited!;
-    if (owned) writeFileSync(join(root, 'owner'), `${process.pid} ${birth}`);
+    // A shared process group stays occupied until its long-lived parent exits; the sweep conservatively waits for it.
+    if (owned) {
+        const group = processGroup(process.pid);
+        writeFileSync(join(root, 'owner'), `${process.pid} ${birth}${group ? `\n${group}` : ''}`);
+    }
     process.env.TMPDIR = root;
     return () => {
         const unused = owned || scratchUnused(root);
@@ -17,7 +21,7 @@ export default function setupHostTestScratch(): () => void {
         if (unused) {
             cleanTestScratch(root);
             if (owned) {
-                for (const name of readdirSync(root)) {
+                for (const name of scratchEntries(root)) {
                     if (name !== 'owner') leftovers.push(join(root, name));
                 }
                 rmSync(root, { recursive: true, force: true });

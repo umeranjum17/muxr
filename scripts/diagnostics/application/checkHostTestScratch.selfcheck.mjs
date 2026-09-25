@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { processStart, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
+import { cleanTestScratch, processGroup, processStart, scratchEntries, scratchUnused, testScratchOwner } from './testScratchOwner.mjs';
 
 const base = mkdtempSync(join(process.cwd(), '.scratch-check-'));
 let orphan;
@@ -14,6 +14,9 @@ try {
     chmodSync(npx, 0o755);
     const env = { ...process.env, TMPDIR: base, PATH: `${bin}:${process.env.PATH}` };
     const wrapper = 'scripts/diagnostics/application/checkHostTestScratch.mjs';
+    const missing = spawnSync(process.execPath, [wrapper, '--', 'muxr-selfcheck-command-that-does-not-exist'], { env, encoding: 'utf8' });
+    assert.equal(missing.status, 1);
+    assert.deepEqual(readdirSync(base), ['bin']);
     const failure = spawnSync(process.execPath, [wrapper, '--', 'npx', 'vitest', 'run'], { env, encoding: 'utf8' });
     assert.equal(failure.status, 1);
     assert.match(failure.stderr, /FAIL: host test scratch leftovers:\n.*\/leak-check-injected/);
@@ -32,6 +35,9 @@ try {
         const { default: setupHostTestScratch } = await import('../../../apps/host/src/testScratchCleanup.ts');
         const teardown = setupHostTestScratch();
         const direct = process.env.TMPDIR;
+        const group = processGroup(process.pid);
+        assert.ok(group);
+        assert.equal(readFileSync(join(direct, 'owner'), 'utf8'), `${process.pid} ${processStart(process.pid)}\n${group}`);
         mkdirSync(join(direct, 'muxr-direct'));
         teardown();
         assert.equal(existsSync(direct), false);
@@ -54,6 +60,8 @@ try {
     assert.equal(scratchUnused(partial), false);
     testScratchOwner(base);
     assert.equal(existsSync(departed), false);
+    cleanTestScratch(departed);
+    assert.deepEqual(scratchEntries(departed), []);
     assert.equal(existsSync(live), true);
     assert.equal(existsSync(partial), true);
 

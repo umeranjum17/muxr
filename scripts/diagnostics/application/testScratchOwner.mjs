@@ -13,6 +13,13 @@ export function processStart(pid) {
     } catch { return undefined; }
 }
 
+export function processGroup(pid) {
+    try {
+        const group = execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+        return /^[1-9]\d*$/.test(group) ? Number(group) : undefined;
+    } catch { return undefined; }
+}
+
 export function scratchUnused(root, finishing = false) {
     const match = /^muxr-host-test-([1-9]\d*)-.+$/.exec(basename(root));
     if (!match) return false;
@@ -36,8 +43,16 @@ export function scratchUnused(root, finishing = false) {
     catch (error) { return error.code === 'ESRCH'; }
 }
 
+export function scratchEntries(root) {
+    try { return readdirSync(root); }
+    catch (error) {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+    }
+}
+
 export function cleanTestScratch(root) {
-    for (const name of readdirSync(root)) {
+    for (const name of scratchEntries(root)) {
         if (/^(?:muxr-|desklink-|v-|x-|attention-|node-compile-cache$)/.test(name)) {
             rmSync(join(root, name), { recursive: true, force: true });
         }
