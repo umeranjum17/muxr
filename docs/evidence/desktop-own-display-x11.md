@@ -1,17 +1,25 @@
 # Stand-in proof: the desktop engine end to end on a display this task owns
 
 **This is a stand-in, not the acceptance journey.** It drives an X server this
-task started; it never touches the real desktop. The acceptance journey is the
-physical phone controlling a real machine's own desktop, and it is named as the
-outstanding gate at the end of this document. Nothing here substitutes for it.
+task started; it never touches the real desktop. The real-device journey was
+completed on 2026-09-25: physical test phone `a4b93ea2` ran muxr for 25 minutes
+against the npm-linked build (APK from `dfb017cb7`; the host launched the
+published 0.1.0 prebuilt from `node_modules/@desklink/host-linux-x64-gnu`).
+Remote desktop used portal capture of the owner's real Wayland desktop: opening
+from the terminal screen, live picture, pointer, keyboard, clipboard in both
+directions, and clean return all passed. Fresh pairing, pairing retained across
+host restarts, shell and agent panes, realtime voice, and reconnect after a
+host restart passed. Dictation was partial (no speech source), as was
+agent-finished push (not deliverable on a local unsigned build). The full
+results table is in the pull request description.
 
 Run on 2026-09-21/22 against **Xvfb `:99`** with a purpose-written X client
 (desklink's `packages/desktop-host/engine/examples/x11_target.rs`) as the thing being driven.
 No part of this touched the captain's session: his desktop was neither captured
 nor injected into.
 
-The portal consent path and `uinput` input are exercised only against a real
-machine, which is the one outstanding gate.
+The X11 stand-in did not exercise portal consent or `uinput` input; those
+require a real machine and were part of the subsequent physical-phone run.
 
 ## What was driven
 
