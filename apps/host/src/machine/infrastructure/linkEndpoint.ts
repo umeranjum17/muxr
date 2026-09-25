@@ -27,9 +27,9 @@ const muxrDeviceIdOf = (grant: Grant): string | undefined => {
 };
 
 /**
- * Only native devices move onto the link for now: their grants never expire.
- * Browsers hold 8-hour and 30-day grants, and the link cannot end a grant on a
- * clock yet, so they stay on the relay transport, which does.
+ * Only native devices are enrolled here. Browser grants expire after 8 hours
+ * or 30 days, so browsers stay on the existing relay transport. The live
+ * device-table check below also enforces native device expiry.
  */
 function linkDevices(crypto: MachineCryptoState, now: number): MachineDeviceRecord[] {
     return crypto.devices.filter((device) => device.kind === undefined && device.deviceId !== crypto.pendingRotation?.revokedDeviceId
