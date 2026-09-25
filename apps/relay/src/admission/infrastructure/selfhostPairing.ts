@@ -194,7 +194,8 @@ export class SelfhostPairing {
      * A lost answer, asked for again. The relay commits a lookup or claim before
      * its reply travels, so a reply lost on the way leaves the phone with nothing
      * while the code is already spent. A phone that sent a resume key with its
-     * first request may ask again with that key and get the same answer:
+     * first request may ask again with that key for the lookup or a replacement
+     * credential for the claim:
      * - who: only the holder of that key (its hash is all the relay keeps), and
      *   for a claim also the claim secret and the same device key;
      * - how long: only inside the pairing window `muxr pair` opened, and never
@@ -248,7 +249,7 @@ export class SelfhostPairing {
         });
     }
 
-    /** Phone side: single-use claim. Returns the device credential on success. */
+    /** Phone side: claim once, or replace a lost credential under `mayResume`. */
     claim(
         pairId: string,
         input: { claim: string; devicePublicKey: string; deviceName: string; deviceKind: Exclude<DeviceKind, 'peer'>; mailbox: string; expiresAt?: number; resumeKey?: string },

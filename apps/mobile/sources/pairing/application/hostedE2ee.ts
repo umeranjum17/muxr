@@ -450,24 +450,13 @@ export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | 
 }
 
 /**
- * Pairings a Direct SSH retry may resume, by code hash. The relay's code lookup
- * is one-shot, and a tunnel can drop after it but before the claim lands or the
- * grant arrives. A retry of the same code on this device resumes from the
- * pairing the lookup already opened instead of demanding a fresh code.
- *
- * "Still valid" is the relay's own pair-session window (two minutes from
- * `muxr pair`), reported with the lookup. Past it, or once the relay refuses the
- * claim, the entry is gone and the code fails as expired or used. Resuming
- * skips only the lookup: the claim stays single-use at the relay and the grant
- * is verified against the same device key and machine key as a first attempt.
- * The lookup cache is memory-only; a claim acknowledged by the phone separately
- * persists its pending credential so grant retrieval can resume.
- *
- * A reply lost after the relay committed (the lookup or the claim) is asked for
- * again with `resumeKey`: a random key sent with the first lookup and claim, so
- * only this device can have the committed answer repeated. The relay bounds
- * that (see `SelfhostPairing.mayResume`); a relay that predates it ignores the
- * key and refuses the repeat as a spent code, as it always did.
+ * Direct SSH retry state, by code hash. Keep the resume key before lookup so
+ * a lost committed lookup reply can be requested again. Cache the opened
+ * payload only in memory; a claim acknowledged by the phone separately persists
+ * its pending credential for grant retrieval. The relay permits a lost claim
+ * reply to be retried with this key and the same device key, issuing a fresh
+ * credential. Its pairing window and fetched-grant cutoff govern both repeats;
+ * an older relay instead refuses a spent code.
  */
 const resumablePairings = new Map<string, { resumeKey: string; url?: string; expiresAt?: number }>();
 /** The window an older relay answers without `expires_in`: its pair-session TTL. */
@@ -649,8 +638,8 @@ async function claimResolvedPairing(url: string, resumable: boolean, hold: (code
         ...((expectedAuthority === 'control' || expectedAuthority === 'observe') ? { expectedAuthority } : {}),
         ...(selfhostRelay !== null ? { source: 'selfhost' as const } : {}),
     };
-    // Claim is one-shot. Persist its credential and binding before waiting so
-    // a process death resumes instead of creating an orphaned paired device.
+    // Persist the issued credential and binding before waiting so a process
+    // death resumes grant retrieval rather than repeating the claim.
     await secretSet(PENDING_PAIR_KEY, JSON.stringify(pending));
     const completed = await completePendingHostedPair(pending, true, resumable);
     if (completed === undefined) throw new Error('the machine did not finish the secure grant');
