@@ -66,6 +66,7 @@ export interface UsageActivity {
     weekTokens: string;
     weekCost: string;
     weekSeries: UsageSeriesPoint[];
+    capturedAt?: string;
     ageSeconds?: number;
     ageAt?: number;
     activityNotice?: string;
@@ -161,6 +162,7 @@ export function withReport(previous: UsageFigures | undefined, value: UsageRepor
             weekTokens: value.weekTokens,
             weekCost: value.weekCost,
             weekSeries: value.weekSeries,
+            capturedAt: value.capturedAt,
             ...(Number.isFinite(activityCapturedAt) ? { ageSeconds: Math.max(0, (now - activityCapturedAt) / 1_000), ageAt: now } : {}),
             ...(value.activityNotice === undefined ? {} : { activityNotice: value.activityNotice }),
             ...(value.noProvidersTitle === undefined ? {} : { noProvidersTitle: value.noProvidersTitle }),

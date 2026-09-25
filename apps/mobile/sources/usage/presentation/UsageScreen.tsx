@@ -17,7 +17,7 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, clearReportFailure, collectionDue, knownProviders, lastForcedRead, lastKnownPlan, noteAsked, noteForcedRead, noteReportFailure, noteTabListAsked, releaseAsked, rememberShown, reportFailure, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
+import { FRESH_MS, capturedBefore, clearReportFailure, collectionDue, knownProviders, lastForcedRead, lastKnownPlan, noteAsked, noteForcedRead, noteReportFailure, noteTabListAsked, releaseAsked, rememberShown, reportFailure, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
@@ -99,7 +99,9 @@ export function UsageScreen() {
                 claim.current = undefined;
                 clearReportFailure(target);
                 const previous = shownUsage(target);
-                rememberShown(target, { status: 'figures', at: Date.now(), figures: withReport(previous?.status === 'figures' ? previous.figures : undefined, value) });
+                const at = Date.now();
+                rememberShown(target, { status: 'figures', at, figures: withReport(previous?.status === 'figures' ? previous.figures : undefined, value) });
+                noteTabListAsked(target, at);
             })
             .catch((cause: unknown) => {
                 if (request !== version.current) { abandon(); return; }
@@ -145,7 +147,10 @@ export function UsageScreen() {
     const loadIfDue = React.useCallback((target: string, replace = false, force = false): void => {
         if (inFlight.current && !replace) return;
         const now = Date.now();
-        const owed = unaskedTabList(target);
+        const stored = shownUsage(target);
+        const owed = unaskedTabList(target) || (stored?.status === 'figures'
+            && capturedBefore(stored.figures.activity?.capturedAt, stored.figures.capturedAt)
+            && tabListAskOwed(target, stored.at));
         if (!collectionDue(target, now) && !owed) return;
         if (owed) noteTabListAsked(target, now);
         void load(target, now, force);

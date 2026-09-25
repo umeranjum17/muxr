@@ -1256,6 +1256,29 @@ describe('the usage screen read path', () => {
         expect(screenText(screen)).toContain('OpenCode');
     });
 
+    it('projects newer Home figures into the detailed report without a forced collection', async () => {
+        const start = Date.now();
+        noteAsked('', start);
+        rememberShown('', { status: 'figures', at: start, figures: withReport(undefined, {
+            ...report('claude', 0), limits: { verdict: 'go', windows: [{ label: 'Rolling', window: '5h', used: 40 }] },
+        }) });
+        vi.setSystemTime(start + 5 * 60_000);
+        const capturedAt = new Date().toISOString();
+        const held = shownUsage('');
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(held?.status === 'figures' ? held.figures : undefined, collected(0, 20, capturedAt)) });
+        noteAsked('', Date.now());
+        request.mockResolvedValue({
+            ...report('claude', 0), capturedAt, todayTokens: '99',
+            limits: { verdict: 'go', windows: [{ label: 'Rolling', window: '5h', used: 20 }] },
+        });
+        const screen = renderScreen();
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenCalledWith('usage.report', { refresh: false }, expect.any(Number));
+        expect(screen.root.findAllByType('ScreenLimits')[0].props.data.limits.windows[0].used).toBe(20);
+        expect(screenText(screen)).toContain('99');
+    });
+
     it('leaves the tab of a superseded read askable again', async () => {
         let hanging = false;
         request.mockImplementation((method: string, params?: { provider?: string }) => {
