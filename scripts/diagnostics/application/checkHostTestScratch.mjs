@@ -1,32 +1,16 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const prefix = 'muxr-host-test-';
-const base = tmpdir();
-const started = (pid) => {
-    try { return readFileSync(`/proc/${pid}/stat`, 'utf8').match(/^.*\) .*$/)?.[0].split(' ')[19]; }
-    catch { return undefined; }
-};
-for (const name of readdirSync(base)) {
-    if (!name.startsWith(prefix)) continue;
-    const path = join(base, name);
-    let pid;
-    let birth;
-    try { [pid, birth] = readFileSync(join(path, 'owner'), 'utf8').trim().split(' '); }
-    catch { continue; }
-    if (!/^[1-9]\d*$/.test(pid) || !name.startsWith(`${prefix}${pid}-`) || !birth) continue;
-    const current = started(Number(pid));
-    if (current === birth) continue;
-    if (current === undefined) {
-        try { process.kill(Number(pid), 0); continue; } catch (error) { if (error.code !== 'ESRCH') continue; }
-    }
-    rmSync(path, { recursive: true, force: true });
-}
+import { processStart, reclaimScratch } from './testScratchOwner.mjs';
 
-const root = mkdtempSync(join(base, `${prefix}${process.pid}-`));
-writeFileSync(join(root, 'owner'), `${process.pid} ${started(process.pid) ?? 'unknown'}`);
+const base = tmpdir();
+reclaimScratch(base);
+const birth = processStart(process.pid);
+if (!birth) throw new Error('Cannot identify test scratch owner');
+const root = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
+writeFileSync(join(root, 'owner'), `${process.pid} ${birth}`);
 const args = process.argv.slice(2);
 if (args[0] === '--') args.shift();
 const vitest = args[0] === 'npx' && args[1] === 'vitest';

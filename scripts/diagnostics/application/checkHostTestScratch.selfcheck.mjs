@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { processStart, reclaimScratch } from './testScratchOwner.mjs';
 
 const base = mkdtempSync(join(process.cwd(), '.scratch-check-'));
 try {
@@ -22,6 +23,15 @@ try {
     { env, encoding: 'utf8' });
     assert.equal(node.status, 0, node.stderr);
     assert.deepEqual(readdirSync(base), ['bin']);
+
+    const live = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
+    const birth = processStart(process.pid);
+    assert.match(birth, /^\d+$/);
+    writeFileSync(join(live, 'owner'), `${process.pid} ${birth}`);
+    const stale = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
+    writeFileSync(join(stale, 'owner'), `${process.pid} ${Number(birth) + 1}`);
+    reclaimScratch(base);
+    assert.deepEqual(readdirSync(base).sort(), ['bin', live.split('/').at(-1)].sort());
 } finally {
     rmSync(base, { recursive: true, force: true });
 }
