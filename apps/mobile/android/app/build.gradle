@@ -181,6 +181,15 @@ android {
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
         }
+        // Local measurement build for perf labs (perf/ringJank.sh); never ships.
+        // Same release settings, test-signed, own applicationId so a lab APK can
+        // sit beside the production app without touching its pairing.
+        blinklab {
+            initWith release
+            signingConfig signingConfigs.debug
+            applicationIdSuffix '.blinklab'
+            matchingFallbacks += 'release'
+        }
     }
     sourceSets {
         if (storeDistribution) release.manifest.srcFile 'src/store/AndroidManifest.xml'

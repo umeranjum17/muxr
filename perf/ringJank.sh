@@ -8,19 +8,28 @@
 # window AND splits framestats into ring frames (within 400 ms of a tap)
 # and idle terminal frames outside tap windows.
 # gfxinfo's "Janky frames" counts both; only the first population is the ring.
+# cycles=0 skips the taps and measures an idle-only window instead: reset,
+# 15 s untouched, dump. GPU ms is GpuCompleted - IssueDrawCommandsStart, the
+# RenderThread draw-to-GPU-done span that isolated the cursor-blink cost.
 # See docs/perf/command-ring-frames.md.
 set -euo pipefail
 serial=$1 pkg=$2 cycles=$3 label=$4
 out=${RING_JANK_OUT:-/tmp/ring-jank}; mkdir -p "$out"
 a() { adb -s "$serial" "$@"; }
-a shell uiautomator dump /sdcard/ring.xml >/dev/null
-bounds=$(a shell cat /sdcard/ring.xml | grep -o 'content-desc="Terminal quick actions"[^>]*bounds="[^"]*"' | grep -o 'bounds="[^"]*"' | head -1 || true)
-a shell rm -f /sdcard/ring.xml
-[ -n "$bounds" ] || { echo "floating control not on screen" >&2; exit 1; }
-read -r x1 y1 x2 y2 <<< "$(echo "$bounds" | grep -o '[0-9]\+' | tr '\n' ' ')"
-x=$(( (x1 + x2) / 2 )) y=$(( (y1 + y2) / 2 ))
+if [ "$cycles" -gt 0 ]; then
+  a shell uiautomator dump /sdcard/ring.xml >/dev/null
+  bounds=$(a shell cat /sdcard/ring.xml | grep -o 'content-desc="Terminal quick actions"[^>]*bounds="[^"]*"' | grep -o 'bounds="[^"]*"' | head -1 || true)
+  a shell rm -f /sdcard/ring.xml
+  [ -n "$bounds" ] || { echo "floating control not on screen" >&2; exit 1; }
+  read -r x1 y1 x2 y2 <<< "$(echo "$bounds" | grep -o '[0-9]\+' | tr '\n' ' ')"
+  x=$(( (x1 + x2) / 2 )) y=$(( (y1 + y2) / 2 ))
+fi
 a shell dumpsys gfxinfo "$pkg" reset >/dev/null
-a shell "for i in \$(seq $cycles); do input tap $x $y; sleep 0.8; input tap $x $y; sleep 0.8; done"
+if [ "$cycles" -gt 0 ]; then
+  a shell "for i in \$(seq $cycles); do input tap $x $y; sleep 0.8; input tap $x $y; sleep 0.8; done"
+else
+  sleep 15
+fi
 a shell dumpsys gfxinfo "$pkg" framestats > "$out/$label.txt"
 echo "== $label ($serial, $(a shell getprop ro.product.model | tr -d '\r'))"
 grep -E "Total frames rendered|Janky frames:|99th percentile:" "$out/$label.txt" | head -3
@@ -42,5 +51,9 @@ for r in rows:
         last_tap = r['IntendedVsync']
     (ring if last_tap is not None and r['IntendedVsync'] - last_tap <= 400_000_000 else idle).append(r)
 late = lambda xs: sum(r['FrameCompleted'] > r['FrameDeadline'] for r in xs)
-print(f'ring frames {len(ring)} late {late(ring)} | idle terminal frames {len(idle)} late {late(idle)}')
+def gpu(xs):
+    v = sorted((r['GpuCompleted'] - r['IssueDrawCommandsStart']) / 1e6 for r in xs if r['GpuCompleted'])
+    return f'gpu p50 {v[len(v)//2]:.1f}ms p90 {v[int(len(v)*0.9)]:.1f}ms' if v else 'gpu n/a'
+print(f'ring frames {len(ring)} late {late(ring)} {gpu(ring)}')
+print(f'idle terminal frames {len(idle)} late {late(idle)} {gpu(idle)}')
 PY

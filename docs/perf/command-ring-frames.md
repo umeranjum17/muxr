@@ -53,3 +53,59 @@ to recalculate those counts.
   frames.
 
 A fix, if one is wanted, is in the terminal's idle redraw cost, not in the ring.
+
+## The idle cursor blink, measured and fixed — 2026-09-25
+
+Why one blink costs 13–18 ms of GPU, established on the phone rather than
+assumed:
+
+- **Every idle frame is a blink.** With the terminal untouched, 15 s of
+  `gfxinfo framestats` holds exactly the blink frames (one per ~600 ms, 25–26
+  frames). Setting `animator_duration_scale 0` — the terminal's own blink gate
+  is `Settings.Global.ANIMATOR_DURATION_SCALE` — and forcing a re-render once
+  drops the same window to **0 frames**: without the blink an idle terminal
+  draws nothing at all.
+- **A blink re-rendered the whole surface.** The blink ran
+  `invalidate()` on the whole terminal view, so every blink re-recorded the
+  full grid display list (background fill + every row) to toggle one cell.
+  GPU time per blink frame (`GpuCompleted − IssueDrawCommandsStart`) was
+  12.2–14.5 ms p50 against 3.2–3.5 ms for ring frames.
+- **And the GPU has idled down between blinks.** With the cursor moved to its
+  own cell-sized layer (visibility flip, cell-only damage), a blink frame
+  still measured 8.6–14.5 ms GPU when it arrived on an idle GPU — but frames
+  landing back-to-back with a previous frame cost 2–3.5 ms. Per-frame work was
+  no longer the surface; the GPU clock ramp after 600 ms idle dominates any
+  once-per-blink frame. No per-blink damage trick avoids those misses.
+
+So the shipped fix stops the idle frames: after 30 s with no input or output
+the blink timer stops and the cursor holds **solid and visible**; any terminal
+write (input echo or output) restarts the blink. The cursor also paints on its
+own cell-sized layer (`CursorOverlayView`), so a blink during use damages one
+cell instead of re-recording the full surface. The web terminal (xterm.js) is
+untouched by the patch.
+
+Before/after on the same phone (CPH2649, a4b93ea2, 120 Hz), same build type
+(release, arm64, test-signed `com.trymuxr.app.blinklab`), same scenario, same
+method (`perf/ringJank.sh`, 15 s idle windows; GPU ms = `GpuCompleted −
+IssueDrawCommandsStart`):
+
+| run | window | frames | janky | idle-frame GPU p50 |
+|---|---|---|---|---|
+| base-idle1 / base-idle2 | idle 15 s | 25 / 25 | 16.00% / 16.00% | 12.2 / 13.6 ms |
+| fix2-idle-active | idle 15 s, first 30 s after output | 25 | 44.00% | 13.9 ms |
+| fix2-idle-steady | idle 15 s, after 30 s quiet | **0** | **0.00%** | — |
+| base-ring1 / base-ring2 | 20 ring cycles | 105 / 105 late 2 / 0 | 1.00% / 0.83% | ring GPU 3.2 / 3.5 ms |
+| fix2-ring1 / fix2-ring2 | 20 ring cycles | 120 / 118 late 1 / 2 | 1.33% / 2.16% | ring GPU 3.4 / 3.5 ms |
+
+- The steady idle terminal renders **zero frames** — the 13–18 ms per-blink
+  GPU cost and the ~15% idle janky share are gone, and with them the continuous
+  battery/heat drain for a terminal nobody is using.
+- While active (any input/output within the last 30 s) the blink still runs at
+  600 ms and the cursor is always visible — blinking during use, solid at rest.
+- The ring is unchanged: ring-frame late counts and GPU are within run-to-run
+  noise of the baseline runs above and the original A/B runs.
+- The lab APK recipe: `apps/mobile/android/app/build.gradle`'s `blinklab`
+  build type (release settings, test-signed, `.blinklab` applicationId so a
+  measurement install never touches the production app), built with
+  `APP_ENV=preview` and the lab's `EXPO_PUBLIC_MUXR_*` connection baked in,
+  reached over `adb reverse`.
