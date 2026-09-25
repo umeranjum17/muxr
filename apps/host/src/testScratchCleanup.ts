@@ -12,7 +12,7 @@ export default function setupHostTestScratch(): () => void {
     if (owned) writeFileSync(join(root, 'owner'), `${process.pid} ${birth}`);
     process.env.TMPDIR = root;
     return () => {
-        const unused = scratchUnused(root);
+        const unused = scratchUnused(root, true);
         const leftovers: string[] = [];
         if (unused) {
             for (const name of readdirSync(root)) {
