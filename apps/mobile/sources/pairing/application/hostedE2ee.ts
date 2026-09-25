@@ -314,7 +314,7 @@ async function json(base: string, path: string, options: RequestInit = {}): Prom
     }
 }
 
-/** The route dropped before the relay answered; nothing was refused. */
+/** A timed-out request or unfinished grant, distinct from a relay refusal. */
 class PairingInterrupted extends Error {}
 const RELAY_TIMEOUT_MESSAGE = 'The relay did not respond. Check the network, then run `muxr doctor` on the machine.';
 const SSH_DROP_MESSAGE = 'The SSH connection dropped. Check the connection, then try again with the same code.';
@@ -460,7 +460,8 @@ export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | 
  * claim, the entry is gone and the code fails as expired or used. Resuming
  * skips only the lookup: the claim stays single-use at the relay and the grant
  * is verified against the same device key and machine key as a first attempt.
- * Memory only, so a partial pairing never reaches storage.
+ * The lookup cache is memory-only; a claim acknowledged by the phone separately
+ * persists its pending credential so grant retrieval can resume.
  */
 const resumablePairings = new Map<string, { url: string; expiresAt: number }>();
 /** The window an older relay answers without `expires_in`: its pair-session TTL. */
