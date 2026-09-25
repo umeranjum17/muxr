@@ -235,10 +235,8 @@ export function defaultExpandedSpaces(workspaces: HerdrTreeWorkspace[]): string[
  * level; with no lineage declared anywhere the list is flat, in Herdr's
  * creation order. A non-empty `searchQuery` filters cards to workspaces with
  * matching names or panes; a matching descendant keeps the chain above it,
- * and its card opens. `pinnedSpaceIds` is the one user-chosen exception to
- * that order (spaces.md: "a place does not move" — pinning moves it because
- * the reader said so): pinned cards lead, each group keeping creation order
- * among itself, and a card joining them jumps, never animates.
+ * and its card opens. Pinned top-level cards lead, each group keeping
+ * creation order; nested workspaces stay inside their parent cards.
  */
 export function buildSpaceRows(
     workspaces: HerdrTreeWorkspace[],
