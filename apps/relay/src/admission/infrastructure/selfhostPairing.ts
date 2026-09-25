@@ -11,8 +11,6 @@ import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js'
 
 const PAIR_TTL_MS = 2 * 60_000;
 const MAX_SESSIONS = 100;
-/** How many times one pairing may answer a lookup or claim it already answered. */
-const MAX_RESUMES = 3;
 /** Shared temporary browser grant. Only an explicit owner-authorized personal intent extends it. */
 export const BROWSER_GRANT_TTL_MS = 8 * 60 * 60_000;
 export const BROWSER_PERSONAL_GRANT_TTL_MS = 30 * 24 * 60 * 60_000;
@@ -62,7 +60,6 @@ export interface SelfhostPairSession {
      * repeat carrying the same key gets the committed answer again; see `resolveCode`.
      */
     resumeHash?: string;
-    resumes?: number;
 }
 
 export interface SelfhostDevice {
@@ -201,15 +198,12 @@ export class SelfhostPairing {
      * - who: only the holder of that key (its hash is all the relay keeps), and
      *   for a claim also the claim secret and the same device key;
      * - how long: only inside the pairing window `muxr pair` opened, and never
-     *   once the grant was fetched;
-     * - how often: `MAX_RESUMES` per pairing, lookups and claims together.
+     *   once the grant was fetched.
      * Anything else is refused exactly as a spent code was before.
      */
     private mayResume(session: SelfhostPairSession, resumeKey: string | undefined, now: number): boolean {
         if (resumeKey === undefined || session.resumeHash === undefined || session.resumeHash !== hash(resumeKey)) return false;
-        if (session.expiresAt <= now || session.grantFetchedAt !== undefined || (session.resumes ?? 0) >= MAX_RESUMES) return false;
-        session.resumes = (session.resumes ?? 0) + 1;
-        return true;
+        return session.expiresAt > now && session.grantFetchedAt === undefined;
     }
 
     /**
@@ -225,7 +219,6 @@ export class SelfhostPairing {
             if (session.codeResolvedAt !== undefined) {
                 // A claim deletes the code, so a claimed pairing never gets here.
                 if (!this.mayResume(session, resumeKey, now)) return { state: 'invalid' };
-                await this.persist();
                 return { state: 'resolved', payload: session.codePayload, expiresAt };
             }
             if (expiresAt <= now) {

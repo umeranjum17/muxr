@@ -176,7 +176,7 @@ describe('an interrupted Direct SSH pairing', () => {
         await expect(pair(relay.port, code)).rejects.toThrow(reused);
     });
 
-    it('refuses to repeat a committed answer to anyone but the device that asked, past its window, or too often', async () => {
+    it('refuses committed answers to strangers, then recovers after repeated lost replies', async () => {
         const relay = await desk();
         const { code, pairId } = await relay.muxrPair();
         const faults: Faults = { 'pair-code': 'reply' };
@@ -192,17 +192,19 @@ describe('an interrupted Direct SSH pairing', () => {
         faults['pair-code'] = undefined;
         faults.claim = 'reply';
         await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
-        const stranger = (resumeKey: string) => relay.call(`/v1/selfhost/pair-sessions/${pairId}/claim`, {
+        const stranger = (devicePublicKey: string, resumeKey: string) => relay.call(`/v1/selfhost/pair-sessions/${pairId}/claim`, {
             method: 'POST',
-            body: JSON.stringify({ claim: CLAIM, device_public_key: generateKeyPair().publicKey, device_name: 'other', device_kind: 'android', mailbox: 'm', resume_key: resumeKey }),
+            body: JSON.stringify({ claim: CLAIM, device_public_key: devicePublicKey, device_name: 'other', device_kind: 'android', mailbox: 'm', resume_key: resumeKey }),
         });
-        expect(await stranger('k'.repeat(43))).toEqual({ status: 409, body: { error: 'already_claimed' } });
+        expect(await stranger(generateKeyPair().publicKey, 'k'.repeat(43))).toEqual({ status: 409, body: { error: 'already_claimed' } });
+        const phonePublicKey = (JSON.parse(secrets.get('muxr.hosted-e2ee.device.v2')!) as { publicKey: string }).publicKey;
+        expect(await stranger(phonePublicKey, 'k'.repeat(43))).toEqual({ status: 409, body: { error: 'already_claimed' } });
 
-        // The device itself: lookup and claim repeats count together, three in all
-        // (the lookup was the first).
-        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
-        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        for (let attempt = 0; attempt < 4; attempt++) {
+            await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        }
         faults.claim = undefined;
+        await expect(pair(relay.port, code)).resolves.toMatchObject({ machineId: MACHINE_ID, authority: 'control', source: 'selfhost' });
         await expect(pair(relay.port, code)).rejects.toThrow(reused);
         await expect(pair(relay.port, code)).rejects.toThrow(reused);
 
