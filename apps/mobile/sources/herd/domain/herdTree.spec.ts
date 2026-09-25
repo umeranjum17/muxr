@@ -1,7 +1,7 @@
 import { herdPanes } from './herd';
 import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it, vi } from 'vitest';
-import { buildSpaceRows, defaultExpandedSpaces, displayedWorkspaceNames, dropVanishedSpacePins, effectiveExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceCloseMessage, workspaceName, workspaceNames, workspacePath } from './herdTree';
+import { buildSpaceRows, defaultExpandedSpaces, displayedWorkspaceNames, effectiveExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceCloseMessage, workspaceName, workspaceNames, workspacePath } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
 import { paneMapTiles } from './paneMap';
@@ -64,7 +64,7 @@ describe('visible herd tree flow', () => {
             .toMatchObject({ agentCount: 0, expanded: false });
     });
 
-    it('pins cards above the rest, both groups in creation order, and drops vanished pins', () => {
+    it('pins top-level cards above the rest in creation order', () => {
         const workspaces = [ws('w1', 'repo-a', []), ws('w2', 'repo-b', []), ws('w3', 'repo-c', []), ws('w4', 'repo-d', [])];
         const ids = (rows: ReturnType<typeof buildSpaceRows>) => rows.map((row) => row.workspace.workspaceId);
         // Nothing pinned: exactly today's order.
@@ -74,8 +74,7 @@ describe('visible herd tree flow', () => {
         // Search keeps pinned first among the results.
         expect(ids(buildSpaceRows(workspaces, new Set(), 'repo', new Set(['w3'])))).toEqual(['w3', 'w1', 'w2', 'w4']);
         expect(ids(buildSpaceRows(workspaces, new Set(), 'repo-b', new Set(['w3'])))).toEqual(['w2']);
-        // A pin for a workspace no longer in the tree drops silently.
-        expect(dropVanishedSpacePins(['w3', 'w9'], workspaces)).toEqual(['w3']);
+        expect(ids(buildSpaceRows(workspaces, new Set(), '', new Set(['w9'])))).toEqual(['w1', 'w2', 'w3', 'w4']);
     });
 
     it('groups task workspaces behind their parent from declared lineage, never the label', () => {

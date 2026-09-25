@@ -75,10 +75,8 @@ const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
 vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
 vi.mock('@/herd', async () => {
     const { herdrPaneForSession } = await vi.importActual('@/herd/domain/agentPresentation');
-    const { dropVanishedSpacePins } = await vi.importActual('@/herd/domain/herdTree');
     return {
         herdrPaneForSession,
-        dropVanishedSpacePins,
         getSessionName: (session: Session, pane?: HerdrTreePane) =>
             pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
         getSessionSubtitle: (_session: Session, pane?: HerdrTreePane) => pane?.agentName ?? '',
@@ -1013,7 +1011,7 @@ describe('session sync flow', () => {
         expect(currentRelease()?.appVersion).toBe('0.1.26');
     });
 
-    it('keeps a space pin across a remount and drops it when the workspace vanishes', () => {
+    it('keeps a space pin across a remount and a machine tree switch', () => {
         mmkvValues.clear();
         expect(storage.getState().pinnedSpaceIds).toEqual([]);
 
@@ -1022,11 +1020,10 @@ describe('session sync flow', () => {
         // A remount loads what the last write left on disk.
         expect(loadSpacePins()).toEqual(['w-pin']);
 
-        // A confirmed tree without the pinned workspace prunes the pin silently.
-        storage.getState().pruneSpacePins([
+        storage.getState().applyHerdrTree([
             { workspaceId: 'w-other', label: 'other', focused: false, agentStatus: 'idle', tabs: [] },
         ]);
-        expect(storage.getState().pinnedSpaceIds).toEqual([]);
-        expect(loadSpacePins()).toEqual([]);
+        expect(storage.getState().pinnedSpaceIds).toEqual(['w-pin']);
+        expect(loadSpacePins()).toEqual(['w-pin']);
     });
 });

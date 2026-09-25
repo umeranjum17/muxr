@@ -227,15 +227,6 @@ export function defaultExpandedSpaces(workspaces: HerdrTreeWorkspace[]): string[
 }
 
 /**
- * Pins for workspaces no longer in the tree drop silently: the pin never
- * shows and never matches a future workspace by accident.
- */
-export function dropVanishedSpacePins(pins: readonly string[], workspaces: readonly HerdrTreeWorkspace[]): string[] {
-    const live = new Set(workspaces.map((ws) => ws.workspaceId));
-    return pins.filter((id) => live.has(id));
-}
-
-/**
  * Flatten the workspace tree into the Herd tab's spaces section: one card per
  * top-level workspace; expanded cards list EVERY pane, shells included — a
  * shell you cannot see is a shell you cannot close. A workspace with a

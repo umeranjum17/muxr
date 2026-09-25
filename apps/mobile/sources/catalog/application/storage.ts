@@ -39,7 +39,6 @@ import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionSta
 import { agentLabels } from '@/herd/labels';
 import { agentRowAttention, mergeCatalogAgent } from '../domain/agent';
 import { herdrPaneForSession } from '@/herd';
-import { dropVanishedSpacePins } from '@/herd';
 import { readAgentSession } from './readAgentSession';
 
 function resolveSessionOnlineState(session: { active: boolean; activeAt: number }): 'online' | number {
@@ -210,7 +209,6 @@ interface StorageState extends WatchSnapshot {
     applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: 'online' | number })[], replace?: boolean) => void;
     applyHerdrTree: (workspaces: HerdrTreeWorkspace[]) => void;
     toggleSpacePin: (workspaceId: string) => void;
-    pruneSpacePins: (workspaces: HerdrTreeWorkspace[]) => void;
     applyHomeSnapshot: (snapshot: HomeSnapshot | null) => void;
     /** Draw this machine's last confirmed Home until the host answers. */
     restoreHome: (machineId: string) => void;
@@ -345,12 +343,6 @@ export const storage = create<StorageState>()((set, get) => ({
         const pinnedSpaceIds = state.pinnedSpaceIds.includes(workspaceId)
             ? state.pinnedSpaceIds.filter((id) => id !== workspaceId)
             : [...state.pinnedSpaceIds, workspaceId];
-        saveSpacePins(pinnedSpaceIds);
-        return { pinnedSpaceIds };
-    }),
-    pruneSpacePins: (workspaces) => set((state) => {
-        const pinnedSpaceIds = dropVanishedSpacePins(state.pinnedSpaceIds, workspaces);
-        if (pinnedSpaceIds.length === state.pinnedSpaceIds.length) return state;
         saveSpacePins(pinnedSpaceIds);
         return { pinnedSpaceIds };
     }),

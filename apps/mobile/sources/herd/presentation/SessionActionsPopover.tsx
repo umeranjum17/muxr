@@ -4,13 +4,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { Typography } from '@/constants/Typography';
-import { useSessionQuickActions, SessionActionItem } from '../application/useSessionQuickActions';
+import { useSessionQuickActions } from '../application/useSessionQuickActions';
 import { useSession } from '@/catalog/store';
 import {
     formatShortcutChord,
     getPreferredShortcutModifier,
     matchesShortcutChord,
     SESSION_ACTION_SHORTCUTS,
+    type SessionActionShortcutId,
 } from '@/keyboard/shortcuts';
 import { MobileGlassSurface } from '@/components/MobileGlass';
 import { AnimatedPopup, LocalBlurHalo } from '@/components/AnimatedOverlay';
@@ -29,10 +30,19 @@ export type SessionActionsAnchor =
         height: number;
     };
 
-interface SessionActionsPopoverProps {
+export interface PopoverAction {
+    id: string;
+    label: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    onPress: () => void;
+    destructive?: boolean;
+    shortcut?: SessionActionShortcutId;
+}
+
+interface ActionsPopoverProps {
     anchor: SessionActionsAnchor | null;
     onClose: () => void;
-    sessionId: string;
+    actions: PopoverAction[];
     visible: boolean;
 }
 
@@ -130,18 +140,22 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
 }));
 
-export function SessionActionsPopover({
-    anchor,
-    onClose,
-    sessionId,
-    visible,
-}: SessionActionsPopoverProps) {
+export function SessionActionsPopover({ anchor, onClose, sessionId, visible }: Omit<ActionsPopoverProps, 'actions'> & { sessionId: string }) {
+    const session = useSession(sessionId);
+    const { actionItems } = useSessionQuickActions(session);
+    if (!session) return null;
+    return <ActionsPopover anchor={anchor} onClose={onClose} visible={visible} actions={actionItems.map((action) => ({
+        ...action,
+        icon: action.icon as keyof typeof Ionicons.glyphMap,
+        shortcut: action.id,
+    }))} />;
+}
+
+export function ActionsPopover({ anchor, onClose, actions, visible }: ActionsPopoverProps) {
     const styles = stylesheet;
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-    const session = useSession(sessionId);
-    const { actionItems: actions } = useSessionQuickActions(session!);
     const preferredModifier = React.useMemo(() => getPreferredShortcutModifier(
         typeof navigator === 'undefined' ? undefined : navigator
     ), []);
@@ -170,21 +184,21 @@ export function SessionActionsPopover({
         };
     }, [actions.length, anchor, windowHeight, windowWidth]);
 
-    const handleActionPress = React.useCallback((action: SessionActionItem) => {
+    const handleActionPress = React.useCallback((action: PopoverAction) => {
         onClose();
         action.onPress();
     }, [onClose]);
 
     React.useEffect(() => {
-        if (Platform.OS !== 'web' || typeof window === 'undefined' || !visible || !anchor || !session) {
+        if (Platform.OS !== 'web' || typeof window === 'undefined' || !visible || !anchor) {
             return;
         }
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            const action = actions.find((candidate) => matchesShortcutChord(
+            const action = actions.find((candidate) => candidate.shortcut && matchesShortcutChord(
                 event,
                 preferredModifier,
-                SESSION_ACTION_SHORTCUTS[candidate.id],
+                SESSION_ACTION_SHORTCUTS[candidate.shortcut],
             ));
             if (!action) {
                 return;
@@ -197,19 +211,19 @@ export function SessionActionsPopover({
 
         window.addEventListener('keydown', handleKeyDown, true);
         return () => window.removeEventListener('keydown', handleKeyDown, true);
-    }, [actions, anchor, handleActionPress, preferredModifier, session, visible]);
+    }, [actions, anchor, handleActionPress, preferredModifier, visible]);
 
-    if (!visible || !anchor || !session) {
+    if (!visible || !anchor) {
         return null;
     }
 
     const actionItems = actions.map((action, index) => {
         const isLast = index === actions.length - 1;
         const color = action.destructive ? theme.colors.status.error : theme.colors.text;
-        const shortcutLabel = formatShortcutChord(
+        const shortcutLabel = action.shortcut ? formatShortcutChord(
             preferredModifier,
-            SESSION_ACTION_SHORTCUTS[action.id],
-        );
+            SESSION_ACTION_SHORTCUTS[action.shortcut],
+        ) : undefined;
 
         return (
             <Pressable
@@ -224,13 +238,13 @@ export function SessionActionsPopover({
             >
                 <Ionicons
                     color={color}
-                    name={action.icon as keyof typeof Ionicons.glyphMap}
+                    name={action.icon}
                     size={18}
                 />
                 <Text numberOfLines={1} style={[styles.menuItemLabel, { color }]}>
                     {action.label}
                 </Text>
-                {Platform.OS === 'web' && (
+                {Platform.OS === 'web' && shortcutLabel && (
                     <Text style={styles.menuItemShortcut}>{shortcutLabel}</Text>
                 )}
             </Pressable>

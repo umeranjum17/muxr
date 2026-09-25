@@ -3,12 +3,11 @@ import deepEqual from 'fast-deep-equal';
 import {
     NativeScrollEvent,
     NativeSyntheticEvent,
-    Platform,
+    type GestureResponderEvent,
     Pressable,
     SectionList,
     View,
 } from 'react-native';
-import type { AlertButton } from '@/modal';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
@@ -28,7 +27,8 @@ import { t } from '@/text';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
-import { showNameActions, showPaneActions } from '../application/renameInHerdr';
+import { showPaneActions } from '../application/renameInHerdr';
+import { ActionsPopover, type SessionActionsAnchor, type PopoverAction } from './SessionActionsPopover';
 
 // Tree geometry in dp from the card's left edge. Depth 1 hangs off the card's
 // own rail; each deeper level hangs one step in, off its spawner's glyph.
@@ -706,6 +706,7 @@ const WorkspaceCard = React.memo(({
     onToggle,
     onToggleChild,
     onLongPress,
+    onLongPressChild,
     onLongPressPane,
     onNavigatePane,
     compact,
@@ -726,7 +727,8 @@ const WorkspaceCard = React.memo(({
     pinned: boolean;
     onToggle: (workspaceId: string) => void;
     onToggleChild: (workspaceId: string) => void;
-    onLongPress: (workspace: HerdrTreeWorkspace) => void;
+    onLongPress: (workspace: HerdrTreeWorkspace, event: GestureResponderEvent) => void;
+    onLongPressChild: (workspace: HerdrTreeWorkspace) => void;
     onLongPressPane: (pane: HerdrTreePane) => void;
     onNavigatePane?: (sessionId: string) => void;
     compact: boolean;
@@ -767,7 +769,7 @@ const WorkspaceCard = React.memo(({
                 onPress={searchForced ? undefined : () => onToggle(workspace.workspaceId)}
                 // The sheet is local (pin) plus host writes gated by `canClose`,
                 // so it opens on every card.
-                onLongPress={() => onLongPress(workspace)}
+                onLongPress={(event) => onLongPress(workspace, event)}
                 style={({ pressed }) => [
                     styles.cardHeader,
                     compact && styles.cardHeaderCompact,
@@ -796,7 +798,7 @@ const WorkspaceCard = React.memo(({
                     {pinned && (
                         <Ionicons
                             name="pin"
-                            size={12}
+                            size={13}
                             color={theme.colors.textSecondary}
                             {...railHidden}
                         />
@@ -836,7 +838,7 @@ const WorkspaceCard = React.memo(({
                     child={child}
                     name={childNames[index]!}
                     onToggle={onToggleChild}
-                    onLongPress={onLongPress}
+                    onLongPress={onLongPressChild}
                     onLongPressPane={onLongPressPane}
                     onNavigatePane={onNavigatePane}
                     selectedSessionId={selectedSessionId}
@@ -891,8 +893,6 @@ export const SpacesTree = React.memo(({
     const searching = searchQuery.trim() !== '';
     const pinnedIds = useSpacePins();
     const pinned = React.useMemo(() => new Set(pinnedIds), [pinnedIds]);
-    const pinnedRef = React.useRef(pinned);
-    pinnedRef.current = pinned;
     const previousRows = React.useRef(new Map<string, HerdSpaceRow>());
     const sections = React.useMemo(() => {
         const rows = buildSpaceRows(workspaces, expanded, searchQuery, pinned).map((row) => {
@@ -976,21 +976,25 @@ export const SpacesTree = React.memo(({
         ]);
     }, [refresh]);
 
-    const workspaceActions = React.useCallback((workspace: HerdrTreeWorkspace) => {
-        const name = namesRef.current.get(workspace.workspaceId)!;
-        const pinnedNow = pinnedRef.current.has(workspace.workspaceId);
-        // The app's action sheet is Modal.alert, and Android Alert renders at
-        // most three buttons — so this sheet carries exactly the pin action
-        // and, where closing is allowed, the close action, plus Cancel.
-        const actions: AlertButton[] = [{
-            text: pinnedNow ? 'Unpin' : 'Pin to top',
-            onPress: () => storage.getState().toggleSpacePin(workspace.workspaceId),
-        }];
-        if (canClose) actions.push({ text: 'Close workspace', style: 'destructive', onPress: () => confirmCloseWorkspace(workspace) });
-        const cancel: AlertButton = { text: 'Cancel', style: 'cancel' };
-        // Android lays buttons out left to right and keeps the last for the main action.
-        Modal.alert(name, 'Workspace', Platform.OS === 'android' ? [cancel, ...actions.reverse()] : [...actions, cancel]);
-    }, [canClose, confirmCloseWorkspace]);
+    const [workspaceMenu, setWorkspaceMenu] = React.useState<{ workspace: HerdrTreeWorkspace; anchor: SessionActionsAnchor } | null>(null);
+    const workspaceActions = React.useCallback((workspace: HerdrTreeWorkspace, event: GestureResponderEvent) => {
+        setWorkspaceMenu({ workspace, anchor: { type: 'point', x: event.nativeEvent.pageX, y: event.nativeEvent.pageY } });
+    }, []);
+    const menuWorkspace = workspaceMenu?.workspace;
+    const menuActions: PopoverAction[] = menuWorkspace === undefined ? [] : [
+        {
+            id: 'pin', label: pinned.has(menuWorkspace.workspaceId) ? 'Unpin' : 'Pin to top', icon: 'pin',
+            onPress: () => storage.getState().toggleSpacePin(menuWorkspace.workspaceId),
+        },
+        ...(canClose ? [{
+            id: 'close', label: 'Close workspace', icon: 'close-circle-outline' as const, destructive: true,
+            onPress: () => confirmCloseWorkspace(menuWorkspace),
+        }] : []),
+        { id: 'cancel', label: 'Cancel', icon: 'close-outline', onPress: () => setWorkspaceMenu(null) },
+    ];
+    const childActions = React.useCallback((workspace: HerdrTreeWorkspace) => {
+        confirmCloseWorkspace(workspace);
+    }, [confirmCloseWorkspace]);
 
     const paneActions = React.useCallback((pane: HerdrTreePane) => {
         showPaneActions(pane, pane.sessionId === undefined ? undefined : () => confirmClosePane(pane));
@@ -1013,6 +1017,7 @@ export const SpacesTree = React.memo(({
                 onToggle={toggleWorkspace}
                 onToggleChild={toggleChildWorkspace}
                 onLongPress={workspaceActions}
+                onLongPressChild={childActions}
                 onLongPressPane={paneActions}
                 onNavigatePane={onNavigatePane}
                 compact={compact}
@@ -1021,7 +1026,7 @@ export const SpacesTree = React.memo(({
                 unseenDoneSessionIds={unseenDoneSessionIds}
             />
         </View>
-    ), [canClose, childNames, compact, paneActions, pinned, workspaceActions, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, childNames, childActions, compact, paneActions, pinned, workspaceActions, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (
@@ -1033,6 +1038,12 @@ export const SpacesTree = React.memo(({
 
     return (
         <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>
+            <ActionsPopover
+                anchor={workspaceMenu?.anchor ?? null}
+                actions={menuActions}
+                onClose={() => setWorkspaceMenu(null)}
+                visible={workspaceMenu !== null}
+            />
             <SectionList
                 sections={sections}
                 keyExtractor={(item) => `ws-${item.workspace.workspaceId}`}

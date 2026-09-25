@@ -129,7 +129,7 @@ const SPACES_PINS_KEY = 'spaces-pins-v1';
 /**
  * Workspace ids pinned to the top of Spaces, a per-device view preference.
  * Keyed by the Herdr workspace id, the only stable identity the phone is
- * told; a pin for a workspace no longer in the tree is dropped silently.
+ * told; absent workspaces are ignored until they appear again.
  */
 export function loadSpacePins(): string[] {
     const raw = mmkv.getString(SPACES_PINS_KEY);
