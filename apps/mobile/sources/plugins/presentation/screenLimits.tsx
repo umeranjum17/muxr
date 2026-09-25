@@ -7,6 +7,7 @@ import { resolvePluginText } from '../domain/pluginText';
 import { toneColor } from '../domain/pluginTone';
 import { cardStyle, SectionLabel, Meter } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
+import { compactAge } from '@/utils/compactAge';
 import { t } from '@/text';
 
 /** One verdict vocabulary for every limit surface; the Right now card reads
@@ -16,6 +17,44 @@ export const verdictTone = (verdict: PluginLimitsPayload['verdict']): PluginScre
         : verdict === 'unknown' ? 'secondary'
             : verdict === 'watch' || verdict === 'ahead' ? 'warning'
                 : 'danger';
+
+/** Below this share of the window gone, a projection is noise, not a trend:
+ *  a window that just opened says nothing about how it will end. */
+const MIN_ELAPSED_FOR_PROJECTION = 0.01;
+/** A window that will not outlast its reset reads as urgent only when the
+ *  moment it runs out is close; earlier it is a plan, not an emergency. */
+const RUNS_OUT_SOON_MS = 60 * 60_000;
+
+/** Seconds in the host's reset spelling ("16d 23h", "4h 11m", "45m"). */
+function resetSeconds(resetsIn: string | undefined): number | undefined {
+    if (resetsIn === undefined) return undefined;
+    let seconds = 0;
+    for (const [, amount, unit] of resetsIn.matchAll(/(\d+)\s*([dhm])/g)) {
+        seconds += Number(amount) * { d: 86_400, h: 3_600, m: 60 }[unit as 'd' | 'h' | 'm']!;
+    }
+    return seconds > 0 ? seconds : undefined;
+}
+
+/** What one window's own pace says is coming, computed from the figures the
+ *  host already publishes: at the pace so far, does it outlast the reset?
+ *  Calm while it does (undefined -- the host's word stands); warm once it
+ *  will not, with the moment named; strong only when that moment is soon.
+ *  A window already out keeps the host's own verdict. */
+export function runOut(window: PluginLimitsWindow): { tone: 'warning' | 'danger'; note: string } | undefined {
+    const elapsed = window.elapsed;
+    if (elapsed === undefined || elapsed < MIN_ELAPSED_FOR_PROJECTION) return undefined;
+    if (window.used <= 0 || window.used >= 100 || window.pace === 'limited') return undefined;
+    if (window.used / elapsed <= 100) return undefined;
+    const reset = resetSeconds(window.resetsIn);
+    if (reset === undefined) return undefined;
+    // At the pace so far the remaining share takes the same fraction of the
+    // elapsed wall time as the share is of what was used when it was spent.
+    const ms = ((100 - window.used) / window.used) * (elapsed / (1 - elapsed)) * reset * 1_000;
+    return {
+        tone: ms <= RUNS_OUT_SOON_MS ? 'danger' : 'warning',
+        note: t('plugins.limits.runsOutIn', { time: compactAge(Math.max(ms, 60_000)) }),
+    };
+}
 
 const PACE_KEYS: Record<NonNullable<PluginLimitsWindow['pace']>, Parameters<typeof t>[0]> = {
     limited: 'plugins.limits.limited',
@@ -49,7 +88,9 @@ function limitsSummary(payload: PluginLimitsPayload): string {
     const rows = payload.windows.map((window) => {
         const parts = [[window.label, window.window, t('plugins.limits.percentLeft', { percent: 100 - Math.round(window.used) })].filter(Boolean).join(' ')];
         if (window.resetsIn !== undefined) parts.push(t('plugins.rightNow.resetsIn', { time: window.resetsIn }));
-        if (window.pace != null) parts.push(t(PACE_KEYS[window.pace]));
+        const run = runOut(window);
+        if (run !== undefined) parts.push(run.note);
+        else if (window.pace != null) parts.push(t(PACE_KEYS[window.pace]));
         return parts.join(', ');
     });
     return [`${payload.plan ?? t('plugins.rightNow.title')}: ${head}`, ...rows].join('. ');
@@ -59,9 +100,10 @@ function limitsSummary(payload: PluginLimitsPayload): string {
  * "Can I start a task right now, and when do I get more": one verdict word,
  * one headroom headline, then every window as evidence against the same 100
  * ceiling. The host normalizes each provider into the payload; this renderer
- * never learns a provider's name.
+ * never learns a provider's name. `asOf` pins retained figures to the moment
+ * they were true, on the card they describe.
  */
-export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; data: unknown }) {
+export function ScreenLimits({ node, data, asOf }: { node: PluginScreenLimitsNode; data: unknown; asOf?: string }) {
     const { theme } = useUnistyles();
     const payload = asLimitsPayload(resolvePath(data, node.path));
     const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
@@ -84,7 +126,9 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
     const tightest = bindingWindow(payload.windows);
     const verdictWord = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
     const tone = verdictTone(payload.verdict);
-    const headlineTone: PluginScreenTone = payload.verdict === 'go' ? 'secondary' : tone;
+    // The headline figure belongs to the tightest window, so it takes that
+    // window's own run-out verdict when its pace carries a projection.
+    const headlineTone: PluginScreenTone = (tightest === undefined ? undefined : runOut(tightest)?.tone) ?? (payload.verdict === 'go' ? 'secondary' : tone);
     return (
         <View style={{ marginBottom: 14 }}>
             {/* The section's own label row, like every other section: the card
@@ -100,7 +144,7 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
             <View
                 accessible
                 accessibilityRole="summary"
-                accessibilityLabel={limitsSummary(payload)}
+                accessibilityLabel={[limitsSummary(payload), asOf].filter(Boolean).join('. ')}
                 style={[cardStyle(theme), { padding: 16, paddingTop: 14 }]}
             >
                 {verdictWord !== undefined && (
@@ -121,7 +165,8 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
                 )}
                 {payload.windows.length > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginTop: 12, marginBottom: 12 }} />}
                 {payload.windows.map((window, index) => {
-                    const tone: PluginScreenTone | undefined = window.pace == null || window.pace === 'on pace' ? undefined : verdictTone(window.pace);
+                    const run = runOut(window);
+                    const tone: PluginScreenTone | undefined = run?.tone ?? (window.pace == null || window.pace === 'on pace' ? undefined : verdictTone(window.pace));
                     return (
                         <View key={`${window.label}-${index}`} style={index === payload.windows.length - 1 ? undefined : { marginBottom: 12 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
@@ -134,7 +179,7 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
                             {(window.resetsIn !== undefined || window.pace != null) && (
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 4, marginTop: 3, marginBottom: 5 }}>
                                     {window.resetsIn !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>{t('plugins.rightNow.resetsIn', { time: window.resetsIn })}</Text>}
-                                    {window.pace != null && <Text style={{ color: tone === undefined ? theme.colors.text : toneColor(theme, tone), fontSize: 11.5 }}>{t(PACE_KEYS[window.pace])}</Text>}
+                                    {window.pace != null && <Text style={{ color: tone === undefined ? theme.colors.text : toneColor(theme, tone), fontSize: 11.5 }}>{run?.note ?? t(PACE_KEYS[window.pace])}</Text>}
                                 </View>
                             )}
                             {/* Drains with what is left, as its figure says; the tick marks the time left. */}
@@ -142,6 +187,7 @@ export function ScreenLimits({ node, data }: { node: PluginScreenLimitsNode; dat
                         </View>
                     );
                 })}
+                {asOf !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, lineHeight: 16, marginTop: 10, ...Typography.mono('regular') }}>{asOf}</Text>}
             </View>
         </View>
     );

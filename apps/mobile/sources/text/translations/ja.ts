@@ -105,6 +105,8 @@ export const ja: TranslationStructure = {
             paceBurning: '消費が速い',
             percentLeft: ({ percent }: { percent: number }) => `残り ${percent}%`,
             percentUsed: ({ percent }: { percent: number }) => `${percent}% 使用済み`,
+            runsOutIn: ({ time }: { time: string }) => `あと${time}で上限`,
+            asOf: ({ time }: { time: string }) => `${time}時点の上限`,
         },
         rightNow: {
             title: '現在の状態',

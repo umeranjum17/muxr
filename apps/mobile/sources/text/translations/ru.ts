@@ -113,6 +113,8 @@ export const ru: TranslationStructure = {
             paceBurning: 'Быстрый расход',
             percentLeft: ({ percent }: { percent: number }) => `осталось ${percent}%`,
             percentUsed: ({ percent }: { percent: number }) => `использовано ${percent}%`,
+            runsOutIn: ({ time }: { time: string }) => `закончится через ${time}`,
+            asOf: ({ time }: { time: string }) => `Данные на ${time}`,
         },
         rightNow: {
             title: 'Прямо сейчас',

@@ -70,7 +70,7 @@ export function UsageScreen() {
     const failed = failure !== undefined;
     rejected.current = failed || display.status === 'unavailable';
 
-    const report = display.status === 'figures' ? reportFrom(display.figures, provider) : undefined;
+    const report = display.status === 'figures' ? reportFrom(display.figures, provider, failed) : undefined;
     const tabs = report?.providers ?? knownProviders();
 
     const load = React.useCallback((target: string, claimedAtMs = Date.now(), force = false): Promise<void> => {
@@ -231,20 +231,24 @@ export function UsageScreen() {
     // "could not be read"), never "nothing measured": the three are different
     // facts and this screen is where they must not look alike.
     const activityUnread = display.status === 'figures' && display.figures.activity === undefined;
-    // How old the retained figures are: after a failed read they must not read
-    // as current. The failure line says when the attempt failed, not when the
-    // figures were last true.
-    const aged = display.status === 'figures' ? (activityUnread ? display.figures : display.figures.activity) : undefined;
-    const figuresAge = display.status === 'figures' && aged?.ageSeconds !== undefined
-        ? ageWord(aged.ageSeconds, aged.ageAt ?? display.at)
+    // Retained figures carry the moment they were true on the card they
+    // describe -- never as a bare age floating between the failure line and
+    // the page, where it reads as the failure's timestamp.
+    const capturedAt = display.status === 'figures' ? Date.parse(display.figures.capturedAt ?? '') : NaN;
+    const limitsAsOf = display.status === 'figures' && failed && Number.isFinite(capturedAt)
+        ? t('plugins.limits.asOf', { time: asOfClock(capturedAt) })
         : undefined;
     const failureText = failure === undefined ? undefined
         : `${t('plugins.rightNow.refreshFailed')}: ${failure.reason} · ${new Date(failure.at).toLocaleTimeString()} · Retry available now`;
     // A tab whose own read has never answered still speaks for the limits the
     // reader already saw -- the card's connected strip carries them -- instead
-    // of a refusal that reads as nothing.
+    // of a refusal that reads as nothing. Those are dimmed and stamped like
+    // any retained figures: they are old, not live.
     const lastKnown = display.status === 'unavailable' ? lastKnownPlan(provider) : undefined;
-    const lastKnownAge = lastKnown === undefined || lastKnown.ageSeconds === undefined ? undefined : ageWord(lastKnown.ageSeconds, lastKnown.shownAt);
+    const lastKnownCapturedAt = lastKnown === undefined ? NaN : Date.parse(lastKnown.capturedAt ?? '');
+    const lastKnownAsOf = lastKnown !== undefined && Number.isFinite(lastKnownCapturedAt)
+        ? t('plugins.limits.asOf', { time: asOfClock(lastKnownCapturedAt) })
+        : undefined;
     return (
         <>
             <Header
@@ -278,9 +282,8 @@ export function UsageScreen() {
                     <Notice tone="danger" text={failureText ?? error ?? t('plugins.rightNow.unavailable')} style={{ marginBottom: 0 }} />
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
                 </Pressable>}
-                {display.status === 'unavailable' && lastKnown !== undefined && <View style={{ marginBottom: 8 }}>
-                    <ScreenLimits node={LAST_KNOWN_NODE} data={{ limits: { verdict: 'unknown' as const, plan: lastKnown.plan, windows: lastKnown.windows } }} />
-                    {lastKnownAge !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: -4 }}>{lastKnownAge}</Text>}
+                {display.status === 'unavailable' && lastKnown !== undefined && <View style={{ marginBottom: 8, opacity: 0.55 }}>
+                    <ScreenLimits node={LAST_KNOWN_NODE} data={{ limits: { verdict: 'unknown' as const, plan: lastKnown.plan, windows: lastKnown.windows } }} asOf={lastKnownAsOf} />
                 </View>}
                 {display.status === 'waiting' && <WaitingSkeleton />}
                 {display.status === 'figures' && (empty
@@ -290,19 +293,17 @@ export function UsageScreen() {
                     </View>
                     : <>
                         {report !== undefined && (activityUnread
-                            ? <View style={{ opacity: busy ? 0.55 : 1 }}>
-                                <ScreenLimits node={LIMITS_NODE} data={report} />
+                            ? <View style={{ opacity: failed || busy ? 0.55 : 1 }}>
+                                <ScreenLimits node={LIMITS_NODE} data={report} asOf={limitsAsOf} />
                                 {failed
                                     ? <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${failureText ?? t('plugins.rightNow.refreshFailed')}. ${t('plugins.rightNow.refreshNow')}`} style={{ marginTop: 10, paddingVertical: 10 }}>
                                         <Notice tone="danger" text={failureText ?? t('plugins.rightNow.refreshFailed')} style={{ marginBottom: 0 }} />
-                                        {figuresAge !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 6 }}>{figuresAge}</Text>}
                                     </Pressable>
                                     : <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 12 }}>{t('plugins.rightNow.collecting')}</Text>}
                             </View>
-                            : <View style={{ opacity: busy ? 0.55 : 1 }}>
-                            <ScreenLimits node={LIMITS_NODE} data={report} />
+                            : <View style={{ opacity: failed || busy ? 0.55 : 1 }}>
+                            <ScreenLimits node={LIMITS_NODE} data={report} asOf={limitsAsOf} />
                             {failureText !== undefined && <Notice tone="danger" text={failureText} />}
-                            {failureText !== undefined && figuresAge !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: -4 }}>{figuresAge}</Text>}
                             <SectionLabel style={{ marginBottom: 10 }}>Today</SectionLabel>
                             <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14 }]}>
                                 {report.activityNotice !== undefined && <Notice tone="warning" text={report.activityNotice} />}
@@ -334,11 +335,17 @@ export function UsageScreen() {
     );
 }
 
+/** The wall-clock moment a retained reading was true, as the failure line
+ *  already speaks times. */
+function asOfClock(at: number): string {
+    return new Date(at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
 /** The figures the store holds as this screen can paint them: one projection,
  *  so the limits and plans a usage.now read painted are here beside the
  *  activity a usage.report read painted. Activity nobody has measured is a
  *  dash, which is what the host sends when a figure is not measured. */
-function reportFrom(figures: UsageFigures, provider: string): UsageReport {
+function reportFrom(figures: UsageFigures, provider: string, stale = false): UsageReport {
     const plans = figures.connected ?? [];
     const providers = figures.providers ?? plans.map((plan) => ({ id: plan.id, label: plan.label, glyph: plan.glyph ?? plan.id }));
     const activity = figures.activity;
@@ -349,7 +356,14 @@ function reportFrom(figures: UsageFigures, provider: string): UsageReport {
         providerName: plans.find((plan) => plan.id === provider)?.label ?? provider,
         windowPeriods: [],
         windows: [],
-        limits: { ...figures.limits, windows: figures.windows ?? figures.limits.windows },
+        limits: {
+            ...figures.limits,
+            windows: figures.windows ?? figures.limits.windows,
+            // Figures a failed read could not refresh are old, not wrong: the
+            // card states no verdict over them rather than vouching "go" for
+            // numbers nothing has confirmed for a while.
+            ...(stale ? { verdict: 'unknown' as const } : {}),
+        },
         ...(figures.connected === undefined ? {} : { connected: figures.connected }),
         ...(figures.ageSeconds === undefined ? {} : { ageSeconds: figures.ageSeconds }),
         capturedAt: figures.capturedAt ?? new Date().toISOString(),
@@ -442,17 +456,6 @@ function ProviderTabs({ tabs, active, onSelect }: { tabs: UsageReport['providers
             })}
         </ScrollView>
     );
-}
-
-/** The age of retained figures, in the words every other surface uses. */
-function ageWord(ageSeconds: number, shownAt: number): string | undefined {
-    ageSeconds += Math.max(0, (Date.now() - shownAt) / 1_000);
-    if (ageSeconds < 60) return t('time.justNow');
-    const minutes = Math.round(ageSeconds / 60);
-    if (minutes < 60) return t('time.minutesAgo', { count: minutes });
-    const hours = Math.round(minutes / 60);
-    if (hours < 24) return t('time.hoursAgo', { count: hours });
-    return t('time.daysAgo', { count: Math.round(hours / 24) });
 }
 
 /** Caption + one big mono figure; a missing figure is information, not a
