@@ -115,7 +115,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             pending.device,
         ];
         writeSelfhostState(state);
-        if (pending.deviceKind === 'native' && pending.grantUploaded !== true) {
+        if (pending.deviceKind === 'native' && pending.grantUploaded !== true && typeof state.mintSecret === 'string') {
             const admission = join(stateDir(), 'link-enrolled.json');
             const deadline = Date.now() + 30_000;
             while (true) {
