@@ -241,9 +241,8 @@ describe('link upgrade for an already-paired phone', () => {
             return state.machine.crypto.pendingRotation?.revokedDeviceId === stored.deviceId ? true : undefined;
         }, 'revocation recorded');
         expect(answered).toBeDefined();
-        // With the state watch event-driven, the revocation can already have
-        // ended this link by now; the replay injection then has no live socket
-        // to ride, and the two refusals below are the revoked phone's lot.
+        // The state poll can already have ended this link by now; replay
+        // injection has no live socket to ride in that case.
         const replayWire = (link as unknown as { conn: { send: (message: unknown) => void } | null }).conn;
         if (replayWire !== null) {
             replayWire.send = (message) => {
