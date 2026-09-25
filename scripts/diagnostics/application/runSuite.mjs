@@ -8,11 +8,11 @@
  * from the one developers can run, and then nobody knows what green means.
  */
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { processStart, scratchBase, scratchUnused } from './testScratchOwner.mjs';
+import { scratchBase, testScratchOwner } from './testScratchOwner.mjs';
 // The herdr check drives a live herdr server through the real host. Without one
 // it burns its timeout and reports a misleading failure, so detect and skip.
 const herdrSocket = process.env.HERDR_SOCKET_PATH?.trim()
@@ -134,11 +134,10 @@ function run(name, cmd, args, timeoutMs = 150000) {
         let out = '';
         child.stdout.on('data', (d) => { out += d; });
         child.stderr.on('data', (d) => { out += d; });
-        const childBirth = wrapped ? processStart(child.pid) : undefined;
         let escalation;
         let timedOut = false;
         const killGroup = (signal) => {
-            if (!childBirth || child.exitCode !== null || child.signalCode !== null || processStart(child.pid) !== childBirth) return;
+            if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
             try { process.kill(-child.pid, signal); } catch {}
         };
         const timer = setTimeout(() => {
@@ -152,13 +151,7 @@ function run(name, cmd, args, timeoutMs = 150000) {
             clearTimeout(timer);
             if (timedOut && wrapped) {
                 killGroup('SIGKILL');
-                for (const entry of readdirSync(scratchBase())) {
-                    if (!entry.startsWith(`muxr-host-test-${child.pid}-`)) continue;
-                    const root = join(scratchBase(), entry);
-                    let owner;
-                    try { owner = readFileSync(join(root, 'owner'), 'utf8').trim(); } catch { continue; }
-                    if (owner === `${child.pid} ${childBirth}` && scratchUnused(root)) rmSync(root, { recursive: true, force: true });
-                }
+                testScratchOwner(scratchBase());
             }
             clearTimeout(escalation);
             const ms = Date.now() - started;

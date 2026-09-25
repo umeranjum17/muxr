@@ -1,7 +1,7 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 export const scratchBase = () => process.platform === 'darwin' ? '/tmp' : tmpdir();
 
@@ -14,27 +14,37 @@ export function processStart(pid) {
 }
 
 export function scratchUnused(root) {
-    const result = spawnSync('lsof', ['-n', '+D', root], { encoding: 'utf8' });
-    return result.status === 1 && !result.stderr;
+    const match = /^muxr-host-test-([1-9]\d*)-.+$/.exec(basename(root));
+    if (!match) return false;
+    let owner;
+    try { owner = readFileSync(join(root, 'owner'), 'utf8').trim().split('\n'); }
+    catch { return false; }
+    const [pid, ...parts] = owner[0].split(' ');
+    if (pid !== match[1] || !parts.join(' ')) return false;
+    if (owner.length > 1) {
+        if (owner.length !== 2 || !/^[1-9]\d*$/.test(owner[1])) return false;
+        // ponytail: a descendant calling setsid() escapes this group; record new groups if test hosts ever do that.
+        try { process.kill(-Number(owner[1]), 0); return false; }
+        catch (error) { return error.code === 'ESRCH'; }
+    }
+    const current = processStart(Number(pid));
+    if (current !== undefined) return current !== parts.join(' ');
+    try { process.kill(Number(pid), 0); return false; }
+    catch (error) { return error.code === 'ESRCH'; }
+}
+
+export function cleanTestScratch(root) {
+    for (const name of readdirSync(root)) {
+        if (/^(?:muxr-|desklink-|v-|x-|attention-|node-compile-cache$)/.test(name)) {
+            rmSync(join(root, name), { recursive: true, force: true });
+        }
+    }
 }
 
 export function testScratchOwner(base) {
     for (const name of readdirSync(base)) {
-        const match = /^muxr-host-test-([1-9]\d*)-.+$/.exec(name);
-        if (!match) continue;
+        if (!/^muxr-host-test-[1-9]\d*-.+$/.test(name)) continue;
         const path = join(base, name);
-        let owner;
-        try { owner = readFileSync(join(path, 'owner'), 'utf8').trim(); }
-        catch { continue; }
-        const [pid, ...parts] = owner.split(' ');
-        const birth = parts.join(' ');
-        if (pid !== match[1] || !birth) continue;
-        const current = processStart(Number(pid));
-        if (current === birth) continue;
-        if (current === undefined) {
-            try { process.kill(Number(pid), 0); continue; }
-            catch (error) { if (error.code !== 'ESRCH') continue; }
-        }
         if (scratchUnused(path)) rmSync(path, { recursive: true, force: true });
     }
 }
