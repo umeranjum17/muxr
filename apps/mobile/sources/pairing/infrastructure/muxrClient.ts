@@ -54,6 +54,7 @@ export interface MuxrClientOptions {
     onTicketRejected?: () => void;
     /** Permanent self-host credential failures must stop retrying and offer pairing again. */
     onPermanentError?: (message: string) => void;
+    onLinkEnrolled?: (key: string) => void;
 }
 
 interface Pending {
@@ -466,7 +467,8 @@ export class MuxrClient {
         const streamId = envelope.header.streamId ?? envelope.header.sessionId ?? 'machine';
         if (this.hosted !== undefined) {
             const channel = envelope.header.channel;
-            if (envelope.header.senderId !== this.options.machineId || envelope.header.recipientId !== '*'
+            if (envelope.header.senderId !== this.options.machineId
+                || (envelope.header.recipientId !== '*' && envelope.header.recipientId !== this.hosted.grant.deviceId)
                 || (channel !== 'session' && channel !== 'attachment') || envelope.header.streamId !== streamId
                 || envelope.header.keyVersion !== this.hosted.grant.keyVersion) {
                 this.recordDecodeFailure(socket, 'context-mismatch');
@@ -477,7 +479,7 @@ export class MuxrClient {
         try {
             const plaintext = this.hosted === undefined
                 ? envelope.payload
-                : this.hosted.open(envelope.header.channel as 'session' | 'attachment', streamId, envelope.payload, envelope.header.seq);
+                : this.hosted.open(envelope.header.channel as 'session' | 'attachment', streamId, envelope.payload, envelope.header.seq, envelope.header.recipientId);
             frame = decodePayload<HostFrame>(await plaintext);
         } catch {
             this.recordDecodeFailure(socket, 'open-failed');
@@ -507,6 +509,8 @@ export class MuxrClient {
         }
 
         if (this.hosted !== undefined && envelope.header.channel !== 'session') return;
+        if (frame.type === 'machine.hello' && envelope.header.recipientId === this.hosted?.grant.deviceId
+            && typeof frame.linkEnrolledKey === 'string') this.options.onLinkEnrolled?.(frame.linkEnrolledKey);
         if (isPluginsInvalidatedFrame(frame)) {
             for (const listener of this.pluginInvalidationListeners) listener(frame);
             return;

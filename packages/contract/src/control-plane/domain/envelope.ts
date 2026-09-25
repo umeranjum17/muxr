@@ -102,7 +102,7 @@ export interface PluginsInvalidatedFrame {
 export type HostFrame =
     | { type: 'session.event'; sessionId: string; event: SessionEvent }
     | { type: 'session.list'; sessions: SessionInfo[] }
-    | { type: 'machine.hello'; machineId: string; hostVersion: string }
+    | { type: 'machine.hello'; machineId: string; hostVersion: string; linkEnrolledKey?: string }
     | { type: 'machine.list'; machines: MachineInfo[] }
     | PluginsInvalidatedFrame
     | RequestResponse;

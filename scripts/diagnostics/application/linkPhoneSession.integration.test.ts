@@ -6,12 +6,10 @@
  * paired before a host restart reaches its machine over the link with no
  * re-pairing; when the link route is gone (what a relay without link state
  * serves) the same session client ends up on the relay transport instead; and
- * a phone whose key the host has not admitted is never told it was removed —
- * the session channel recovers on the relay transport.
+ * a phone without matching enrollment evidence stays on the relay transport.
  *
  * The relay is spawned on MUXR_RELAY_PORT=0 and its port read from
- * waitForRelay; the restarts reuse the port recorded in selfhost.json, the
- * way a real self-host machine restarts.
+ * waitForRelay; each restart records its newly bound port in selfhost.json.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -87,22 +85,25 @@ let host: (ChildProcess & { output: () => string }) | undefined;
 
 /** `linkState`: what the relay's link state file looks like when it starts. */
 async function startMachine(linkState: 'fresh' | 'damaged'): Promise<void> {
+    const stateFile = join(home, 'relay', 'link-relay.json');
+    if (linkState === 'damaged') writeFileSync(stateFile, '{broken', { mode: 0o600 });
+    else rmSync(stateFile, { force: true });
     const started = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
-        MUXR_RELAY_PORT: String(port),
+        MUXR_RELAY_PORT: '0',
         MUXR_RELAY_HOST: '127.0.0.1',
         MUXR_RELAY_DATA_DIR: join(home, 'relay'),
         MUXR_RELAY_MDNS: '0',
     });
     relay = started;
-    const stateFile = join(home, 'relay', 'link-relay.json');
-    if (linkState === 'damaged') writeFileSync(stateFile, '{broken', { mode: 0o600 });
-    else if (linkState === 'fresh') rmSync(stateFile, { force: true });
-    const first = port === 0;
     port = await waitForRelay(started);
-    if (first) {
-        writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({
+    const previous = (() => {
+        try { return JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')); }
+        catch { return undefined; }
+    })();
+    writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({
+            ...previous,
             version: 1,
-            machine: { ...machineIdentity(undefined), name: 'Desk' },
+            machine: previous?.machine ?? { ...machineIdentity(undefined), name: 'Desk' },
             relayPort: port,
             relayUrl: `ws://127.0.0.1:${port}`,
             relayLocation: 'local',
@@ -111,7 +112,6 @@ async function startMachine(linkState: 'fresh' | 'damaged'): Promise<void> {
             webEnabled: false,
             mintSecret: JSON.parse(readFileSync(join(home, 'relay', 'mint-secret'), 'utf8')),
         }, null, 2)}\n`, { mode: 0o600 });
-    }
     host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { MUXR_MODE: 'selfhost' });
     const running = host;
     await until(() => (running.output().includes('host -> ') ? true : undefined), 'host start');
@@ -156,6 +156,7 @@ describe('the phone session channel on the byokit link', () => {
         await stopMachine();
         await startMachine('fresh');
 
+        stored.relayUrl = `ws://127.0.0.1:${port}`;
         const eventSessions: string[] = [];
         const overLink = sessionClient(stored);
         overLink.onEvent((sessionId) => eventSessions.push(sessionId));
@@ -176,6 +177,7 @@ describe('the phone session channel on the byokit link', () => {
         await stopMachine();
         await startMachine('damaged');
 
+        stored.relayUrl = `ws://127.0.0.1:${port}`;
         const overRelay = sessionClient(stored);
         overRelay.connect();
         await until(() => (overRelay.state === 'open' && overRelay.transport === 'relay' ? true : undefined),
@@ -189,11 +191,13 @@ describe('the phone session channel on the byokit link', () => {
         await stopMachine();
         await startMachine('fresh');
 
+        stored.relayUrl = `ws://127.0.0.1:${port}`;
         const pendingGrant: StoredHostedGrant = { ...stored, deviceKey: generateKeyPair() };
         const pending = sessionClient(pendingGrant);
         pending.connect();
-        await until(() => (pending.state === 'open' && pending.transport === 'relay' ? true : undefined),
-            'an unadmitted device recovers on the relay transport', 45_000);
+        await until(() => (pending.state === 'open' ? true : undefined), 'relay session opens');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(pending.transport).toBe('relay');
         expect((await pending.request('machines.list', {})).length).toBeGreaterThan(0);
         pending.close();
     }, 300_000);

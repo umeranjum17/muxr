@@ -109,6 +109,16 @@ export class LinkEndpoint {
         return this.synced;
     }
 
+    enrolledIds(): string[] {
+        return this.host.devices().map(muxrDeviceIdOf).filter((id): id is string => id !== undefined && this.enrolledKey(id) !== undefined);
+    }
+
+    enrolledKey(deviceId: string): string | undefined {
+        const crypto = this.currentCrypto();
+        const grant = this.host.devices().find((entry) => muxrDeviceIdOf(entry) === deviceId && trusted(entry, crypto));
+        return grant === undefined ? undefined : Buffer.from(grant.key, 'base64url').toString('base64');
+    }
+
     broadcast(frame: HostFrame): void {
         const crypto = this.currentCrypto();
         this.host.broadcast(frame, (grant) => trusted(grant, crypto));

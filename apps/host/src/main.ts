@@ -524,7 +524,11 @@ async function main(): Promise<void> {
         },
     };
     let linkEndpoint: LinkEndpoint | undefined;
-    if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined) {
+    const announceEnrolled = async (crypto: MachineCryptoState): Promise<void> => {
+        await linkEndpoint?.sync(crypto);
+        for (const id of linkEndpoint?.enrolledIds() ?? []) host.announceLinkEnrolment(id);
+    };
+    if ((mode === 'selfhost'  || mode === 'hosted') && hostedE2ee !== undefined) {
         // Pairing is a separate CLI process. Reload its appended per-device
         // ingress key without making an already-running host restart.
         const keys = hostedE2ee;
@@ -543,7 +547,7 @@ async function main(): Promise<void> {
                     replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(keys, crypto);
-                void linkEndpoint?.sync(crypto);
+                void announceEnrolled(crypto);
             } catch {
                 // Keep serving with the last fully validated key set.
             }
@@ -569,7 +573,7 @@ async function main(): Promise<void> {
                     replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(hostedE2ee, next);
-                void linkEndpoint?.sync(next);
+                void announceEnrolled(next);
             },
         };
         try {
@@ -701,6 +705,7 @@ async function main(): Promise<void> {
         ...(peerRuntime === undefined ? {} : { peerRuntime }),
         ...(diagnostics === undefined ? {} : { diagnostics }),
         hostVersion,
+        linkEnrolledKey: (id) => linkEndpoint?.enrolledKey(id),
         ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
         onStateChange: (state) => {
             process.stdout.write(`relay link: ${state}\n`);
@@ -737,7 +742,7 @@ async function main(): Promise<void> {
                     });
                     if (linkEndpoint !== undefined) {
                         const latest = currentCrypto();
-                        if (latest !== undefined) await linkEndpoint.sync(latest);
+                        if (latest !== undefined) await announceEnrolled(latest);
                         host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
                     }
                     return;

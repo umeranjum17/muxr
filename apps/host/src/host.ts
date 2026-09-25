@@ -40,6 +40,7 @@ export interface HostOptions {
     domain: AgentWatchStores;
     terminals?: TerminalManager;
     hostVersion?: string;
+    linkEnrolledKey?: (deviceId: string) => string | undefined;
     connectionMode?: string;
     onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced', code?: RelayStateCode) => void;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
@@ -60,6 +61,7 @@ export interface Host {
     canView: (frame: ClientFrame) => boolean;
     /** Every frame the relay transport broadcasts to all clients, for a second transport to broadcast too. */
     onBroadcast: (listener: (frame: HostFrame) => void) => void;
+    announceLinkEnrolment: (deviceId: string) => void;
 }
 
 export function startHost(options: HostOptions): Host {
@@ -175,6 +177,7 @@ export function startHost(options: HostOptions): Host {
         const response = await answerFrame(frame, authenticatedSenderId, connectionId);
         if (frame.type === 'client.hello') {
             if (response !== undefined) link?.send(response, undefined, 'session', peerRecipient);
+            if (authenticatedSenderId !== undefined) announceLinkEnrolment(authenticatedSenderId);
             if (peerRecipient === undefined) source.resendCumulativeState?.();
             return;
         }
@@ -253,6 +256,13 @@ export function startHost(options: HostOptions): Host {
         else domain.unread.noteActivity(sessionId, '');
     }
 
+    function announceLinkEnrolment(deviceId: string): void {
+        const key = options.linkEnrolledKey?.(deviceId);
+        if (key === undefined) return;
+        link?.send({ type: 'machine.hello', machineId: options.machineId, hostVersion, linkEnrolledKey: key },
+            undefined, 'session', deviceId);
+    }
+
     const unsubscribe = source.subscribe(forward);
     const unsubscribeMachine = source.subscribeMachine?.((frame) => broadcast(frame));
 
@@ -264,6 +274,7 @@ export function startHost(options: HostOptions): Host {
             return response;
         },
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
+        announceLinkEnrolment,
         close: async () => {
             unsubscribe();
             unsubscribeMachine?.();

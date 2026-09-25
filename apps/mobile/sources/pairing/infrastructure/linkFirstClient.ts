@@ -39,23 +39,6 @@ function linkRequestFailure(type: RequestType, error: string, code?: string): Mu
     return new MuxrRequestError(normalized.message, normalized.code);
 }
 
-/**
- * The session channel on the byokit link, falling back to the relay transport.
- *
- * A self-host machine serves the link beside its relay (step 1), so this
- * client dials the link first from the keys the phone already stores — no
- * re-pairing. The relay transport is not built until the link cannot serve
- * the session: it never came online, went down for longer than the grace
- * window, refused a request the link cannot carry (remote desktop), or the
- * host said not-paired.
- *
- * A host's not-paired is deliberately never treated as the truth about the
- * device: it can mean revocation, or a host that has not finished enrolling
- * this device yet. The phone must never be told it was removed while its
- * admission is merely pending, so this client stays silent and lets the relay
- * transport decide — it reports a real revocation itself. No byokit device
- * store is passed either, so a link status can never clear the stored grant.
- */
 export class LinkFirstClient implements SessionClient {
     private inner: MuxrClient | undefined;
     private link: DeviceLink | undefined;
@@ -69,31 +52,14 @@ export class LinkFirstClient implements SessionClient {
     constructor(private readonly options: MuxrClientOptions) {}
 
     get state(): ConnectionState {
-        return this.inner !== undefined ? this.inner.state : this.stateField;
+        return this.stateField;
     }
     private stateField: ConnectionState = 'closed';
 
     connect(): void {
         if (this.closed) return;
-        if (this.inner !== undefined) {
-            this.inner.connect();
-            return;
-        }
-        if (this.link !== undefined) return;
-        const grant = deriveLinkGrant(this.options.hostedGrant);
-        if (grant === undefined) {
-            this.startRelay();
-            return;
-        }
-        this.setState('connecting');
-        this.link = new DeviceLink(grant, {
-            timeoutMs: 5_000,
-            onStatus: (status) => this.onLinkStatus(status),
-            onEvent: (event) => this.onLinkEvent(event),
-            // Dial retries are the link's normal state, not failures to log.
-            onError: () => undefined,
-        });
-        this.armFallback(LINK_TRIAL_MS);
+        if (this.inner === undefined) this.startRelay();
+        else this.inner.connect();
     }
 
     close(): void {
@@ -106,17 +72,31 @@ export class LinkFirstClient implements SessionClient {
     }
 
     isLive(): boolean {
-        return this.inner !== undefined ? this.inner.isLive() : this.online;
+        return this.online || this.inner?.isLive() === true;
     }
 
     /** Which transport is serving the session; diagnostics and tests read this. */
     get transport(): 'link' | 'relay' | 'closed' {
-        if (this.inner !== undefined) return 'relay';
-        return this.link !== undefined ? 'link' : 'closed';
+        if (this.online) return 'link';
+        return this.inner !== undefined ? 'relay' : 'closed';
     }
 
     request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
-        if (this.inner !== undefined) return this.inner.request(type, params, timeoutMs);
+        if (this.closed) return Promise.reject(new Error('not connected'));
+        const relay = this.inner;
+        if (type.startsWith('desktop.') || !this.online) {
+            if (relay === undefined) return Promise.reject(new Error('not connected'));
+            if (relay.isLive()) return relay.request(type, params, timeoutMs);
+            return new Promise<RequestResult<T>>((resolve, reject) => {
+                const timer = setTimeout(() => { off(); reject(new Error('not connected')); }, timeoutMs ?? 10_000);
+                const off = relay.onStateChange(() => {
+                    if (!relay.isLive()) return;
+                    clearTimeout(timer);
+                    off();
+                    void relay.request(type, params, timeoutMs).then(resolve, reject);
+                });
+            });
+        }
         const link = this.link;
         if (link === undefined || this.closed) return Promise.reject(new Error('not connected'));
         const frame = { type, requestId: nextRequestId('rn'), params } as ClientRequest;
@@ -143,7 +123,7 @@ export class LinkFirstClient implements SessionClient {
     }
 
     private onLinkStatus(status: LinkStatus): void {
-        if (this.closed || this.inner !== undefined) return;
+        if (this.closed || this.link === undefined) return;
         if (status === 'online') {
             this.clearFallbackTimer();
             this.online = true;
@@ -154,7 +134,7 @@ export class LinkFirstClient implements SessionClient {
         // this device yet; the relay transport, not this client, tells the user
         // which one it was. 'refused' means nothing answered as our host.
         if (status === 'removed' || status === 'refused') {
-            this.startRelay();
+            this.stopLink();
             return;
         }
         if (this.online) {
@@ -188,17 +168,13 @@ export class LinkFirstClient implements SessionClient {
 
     private mapLinkFailure(type: RequestType, cause: unknown): Error {
         if (cause instanceof PublicLinkError) {
-            // Only remote desktop produces these today, and only the link
-            // refuses it: move the session back to the transport that
-            // carries it instead of showing "use the existing relay
-            // connection" while none exists.
-            this.startRelay();
+            this.stopLink();
             return linkRequestFailure(type, cause.message);
         }
         if (cause instanceof LinkError) {
             if (cause.code === 'timeout' || cause.code === 'stopped' || cause.code === 'removed') {
                 // The link could not serve the session; the relay transport takes it from here.
-                this.startRelay();
+                this.stopLink();
                 return new Error('connection lost');
             }
             return linkRequestFailure(type, LINK_WORDS[cause.code]);
@@ -208,33 +184,47 @@ export class LinkFirstClient implements SessionClient {
 
     private startRelay(): void {
         if (this.closed || this.inner !== undefined) return;
-        this.clearFallbackTimer();
-        this.stopLink();
-        this.online = false;
-        const relay = new MuxrClient(this.options);
-        relay.onStateChange((state) => this.setState(state));
+        const relay = new MuxrClient({ ...this.options, onLinkEnrolled: (key) => this.onLinkEnrolled(key) });
+        relay.onStateChange((state) => { if (!this.online) this.setState(state); });
         relay.onEvent((sessionId, event) => {
-            for (const listener of this.eventListeners) listener(sessionId, event);
+            if (!this.online) for (const listener of this.eventListeners) listener(sessionId, event);
         });
         relay.onPluginsInvalidated((frame) => {
-            for (const listener of this.pluginListeners) listener(frame);
+            if (!this.online) for (const listener of this.pluginListeners) listener(frame);
         });
         this.inner = relay;
         this.setState('connecting');
         relay.connect();
     }
 
+    private onLinkEnrolled(key: string): void {
+        const stored = this.options.hostedGrant;
+        if (this.closed || this.link !== undefined || stored?.source !== 'selfhost'
+            || stored.deviceKey.publicKey !== key) return;
+        const grant = deriveLinkGrant(stored);
+        if (grant === undefined) return;
+        this.link = new DeviceLink(grant, {
+            timeoutMs: 5_000,
+            onStatus: (status) => this.onLinkStatus(status),
+            onEvent: (event) => this.onLinkEvent(event),
+            onError: () => undefined,
+        });
+        this.armFallback(LINK_TRIAL_MS);
+    }
+
     private stopLink(): void {
         const link = this.link;
         this.link = undefined;
+        this.online = false;
         link?.stop();
+        if (!this.closed) this.setState(this.inner?.state ?? 'connecting');
     }
 
     private armFallback(ms: number): void {
         this.clearFallbackTimer();
         this.fallbackTimer = setTimeout(() => {
             this.fallbackTimer = undefined;
-            this.startRelay();
+            this.stopLink();
         }, ms);
     }
 
