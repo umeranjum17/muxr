@@ -860,7 +860,8 @@ describe('the usage screen read path', () => {
         request.mockRejectedValue(new Error('rate limited'));
         const screen = renderScreen();
         await tick();
-        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        // The failure is named on the inline line, never as header prose.
+        expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
         // The age is the card's own stamp now, not a floating line.
         expect(screen.root.findAllByType('ScreenLimits')[0].props.asOf).toContain('plugins.limits.asOf(');
         expect(screenText(screen)).not.toContain('No measured activity');
@@ -1216,7 +1217,7 @@ describe('the usage screen read path', () => {
         // The figures stay, and the press is named as a failure rather than
         // looking exactly like a refresh that worked.
         expect(screenText(screen)).toContain('OpenCode');
-        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
         expect(screen.root.findAllByType('ScreenLimits')[0].props.asOf).toContain('plugins.limits.asOf(');
         expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
     });
@@ -1341,7 +1342,7 @@ describe('the usage screen read path', () => {
         await tick();
         press(screen, 'Claude');
         await tick();
-        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
 
         // Switching to a tab that never failed does not carry the word over.
         press(screen, 'OpenCode');
@@ -1360,7 +1361,7 @@ describe('the usage screen read path', () => {
         await tick(11_000);
         TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
         await tick();
-        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
 
         // ...and the retry is not throttled: the rejected read spent no quota.
         const before = request.mock.calls.length;
@@ -1623,24 +1624,13 @@ describe('the usage screen read path', () => {
             .map((node: any) => [node.props.children, node.props.style?.color] as const)
             .filter(([text]: any) => typeof text === 'string' && String(text).endsWith('plugins.limits.percentLeft'));
         expect(figures).toEqual([
-            ['8% plugins.limits.percentLeft', '#fa0'],
+            // The headline speaks the presented verdict: a window running out
+            // in minutes steps it to strong, so dot, word and number agree.
+            ['8% plugins.limits.percentLeft', '#f55'],
             ['40% plugins.limits.percentLeft', '#fff'],
             ['8% plugins.limits.percentLeft', '#fa0'],
             ['10% plugins.limits.percentLeft', '#f55'],
         ]);
-
-        // The run-out note replaces the pace adjective exactly where a
-        // projection exists; a calm window keeps the host's word.
-        const words = renderer.root.findAllByType('Text').map((node: any) => node.props.children);
-        expect(words).toContain('plugins.limits.runsOutIn(8h)');
-        expect(words).toContain('plugins.limits.runsOutIn(13m)');
-        expect(words).toContain('plugins.limits.paceOnTrack');
-        expect(words).not.toContain('plugins.limits.paceAhead');
-
-        // Spoken the same way, and the verdict is still the host's to give.
-        const summary: string = renderer.root.findAll((node: any) => node.props?.accessibilityRole === 'summary')[0].props.accessibilityLabel;
-        expect(summary).toContain('plugins.limits.runsOutIn(8h)');
-        expect(summary).toContain('plugins.limits.go');
 
         // And every bar drains with the share left, under a tick at the time
         // left -- the figure and the fill cannot disagree.
@@ -1651,6 +1641,49 @@ describe('the usage screen read path', () => {
         expect(bars[1][1]).toBeCloseTo(0.42);
         expect(bars[2][0]).toBeCloseTo(0.1);
         expect(bars[2][1]).toBeCloseTo(0.5);
+
+        // The run-out note replaces the pace adjective exactly where a
+        // projection exists; a calm window keeps the host's word.
+        const words = renderer.root.findAllByType('Text').map((node: any) => node.props.children);
+        expect(words).toContain('plugins.limits.runsOutIn(8h)');
+        expect(words).toContain('plugins.limits.runsOutIn(13m)');
+        expect(words).toContain('plugins.limits.paceOnTrack');
+        expect(words).not.toContain('plugins.limits.paceAhead');
+
+        // Spoken the same way. A window that runs out in minutes forbids the
+        // calm verdict: the presentation steps up to the strong level, so the
+        // word, its dot and the headline all agree with the figures.
+        const summary: string = renderer.root.findAll((node: any) => node.props?.accessibilityRole === 'summary')[0].props.accessibilityLabel;
+        expect(summary).toContain('plugins.limits.runsOutIn(8h)');
+        expect(summary).toContain('plugins.limits.low');
+        expect(summary).not.toContain('plugins.limits.go');
+        expect(words).toContain('plugins.limits.low');
+        expect(words).not.toContain('plugins.limits.go');
+
+        // Warm alone steps a green host verdict up only to the warm level: the
+        // verdict cannot stay "Go ahead" while a figure says it runs out first.
+        TestRenderer.act(() => {
+            renderer.update(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
+                limits: {
+                    verdict: 'go',
+                    windows: [
+                        { label: 'Session', window: '5h', used: 60, elapsed: 0.7, pace: 'on pace', resetsIn: '2h' },
+                        { label: 'Weekly', window: '7d', used: 46, elapsed: 0.4, pace: 'on pace', resetsIn: '4d 2h' },
+                    ],
+                },
+            }} />);
+        });
+        const warmWords = renderer.root.findAllByType('Text').map((node: any) => node.props.children);
+        expect(warmWords).toContain('plugins.limits.watch');
+        expect(warmWords).toContain('plugins.limits.runsOutIn(3d)');
+        expect(warmWords).not.toContain('plugins.limits.go');
+        const warmFigures = renderer.root.findAllByType('Text')
+            .map((node: any) => [node.props.children, node.props.style?.color] as const)
+            .filter(([text]: any) => typeof text === 'string' && String(text).endsWith('plugins.limits.percentLeft'));
+        // The headline keeps naming the tightest window, but in the warm
+        // verdict's colour now: dot, word and big number all agree.
+        expect(warmFigures[0]).toEqual(['40% plugins.limits.percentLeft', '#fa0']);
+
     });
 
     it('keeps a failed read\'s figures in place, dimmed and stamped, vouching nothing for them', async () => {
@@ -1668,7 +1701,7 @@ describe('the usage screen read path', () => {
         request.mockRejectedValueOnce(new Error('rate limited'));
         const screen = renderScreen();
         await tick();
-        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
 
         const card = () => screen.root.findAllByType('ScreenLimits')[0];
         expect(card().props.data.limits.verdict).toBe('unknown');
@@ -1676,6 +1709,13 @@ describe('the usage screen read path', () => {
         expect(card().parent.props.style.opacity).toBe(0.55);
         expect(screenText(screen)).not.toContain('time.justNow');
         expect(screenText(screen)).not.toContain('time.hoursAgo');
+
+        // The failure keeps its words on the inline line, not in the header:
+        // the control names the failure to the ear alone, so the title cannot
+        // be crushed by a sentence at narrow widths.
+        expect(refreshControls(screen)[0].findAllByType('Text').map((node: any) => node.props.children).join(' '))
+            .not.toContain('plugins.rightNow.refreshFailed');
+        expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
 
         // A read that answers restores the live card: the verdict returns and
         // the stamp goes.

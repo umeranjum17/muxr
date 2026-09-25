@@ -386,7 +386,10 @@ function reportFrom(figures: UsageFigures, provider: string, stale = false): Usa
 function RefreshControlButton({ busy, throttledSeconds, failed, onPress }: { busy: boolean; throttledSeconds?: number; failed: boolean; onPress: () => void }) {
     const { theme } = useUnistyles();
     const throttled = throttledSeconds !== undefined;
-    const word = throttled ? t('plugins.rightNow.refreshIn', { seconds: throttledSeconds }) : failed ? t('plugins.rightNow.refreshFailed') : undefined;
+    // Only the short throttle countdown lives at the control; a failure keeps
+    // its words on the inline line below the card, where they belong -- a
+    // sentence in the header crushed the title at narrow widths.
+    const word = throttled ? t('plugins.rightNow.refreshIn', { seconds: throttledSeconds }) : undefined;
     const label = throttled
         ? `${t('plugins.rightNow.refreshThrottled', { seconds: throttledSeconds })}. ${t('plugins.rightNow.refreshNow')}`
         : failed ? `${t('plugins.rightNow.refreshFailed')}. ${t('plugins.rightNow.refreshNow')}` : t('plugins.rightNow.refreshNow');

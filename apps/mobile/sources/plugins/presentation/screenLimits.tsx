@@ -72,6 +72,26 @@ export const VERDICT_KEYS: Record<Exclude<PluginLimitsPayload['verdict'], 'unkno
     go: 'plugins.limits.go',
 };
 
+/** The verdict this payload may show, after its own windows' projections:
+ *  a window that runs out before its reset forbids the calm green "Go
+ *  ahead", so the presentation steps the host verdict up to the same three
+ *  levels the figures use. A host verdict already at or past that severity
+ *  stands. */
+export function presentedVerdict(payload: PluginLimitsPayload): PluginLimitsPayload['verdict'] {
+    if (payload.verdict === 'unknown') return 'unknown';
+    let worst: 'warning' | 'danger' | undefined;
+    for (const window of payload.windows) {
+        const run = runOut(window);
+        if (run === undefined) continue;
+        if (run.tone === 'danger') { worst = 'danger'; break; }
+        worst = 'warning';
+    }
+    if (worst === undefined) return payload.verdict;
+    const SEVERITY: Record<string, number> = { primary: 0, secondary: 0, positive: 0, warning: 1, danger: 2 };
+    if (SEVERITY[verdictTone(payload.verdict)] >= SEVERITY[worst]) return payload.verdict;
+    return worst === 'danger' ? 'low' : 'watch';
+}
+
 /** The tightest window leads the card: highest share used; on ties, the first
  *  published window wins (the host keeps provider order, so ties fall to the
  *  window the provider named first). */
@@ -81,9 +101,9 @@ function bindingWindow(windows: PluginLimitsWindow[]): PluginLimitsWindow | unde
 }
 
 function limitsSummary(payload: PluginLimitsPayload): string {
+    const verdict = presentedVerdict(payload);
     const tightest = bindingWindow(payload.windows);
-    const verdict = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
-    const head = [verdict, tightest === undefined ? undefined : t('plugins.limits.percentLeft', { percent: 100 - Math.round(tightest.used) })]
+    const head = [verdict === 'unknown' ? undefined : t(VERDICT_KEYS[verdict]), tightest === undefined ? undefined : t('plugins.limits.percentLeft', { percent: 100 - Math.round(tightest.used) })]
         .filter((part) => part !== undefined).join(', ');
     const rows = payload.windows.map((window) => {
         const parts = [[window.label, window.window, t('plugins.limits.percentLeft', { percent: 100 - Math.round(window.used) })].filter(Boolean).join(' ')];
@@ -124,11 +144,12 @@ export function ScreenLimits({ node, data, asOf }: { node: PluginScreenLimitsNod
         );
     }
     const tightest = bindingWindow(payload.windows);
-    const verdictWord = payload.verdict === 'unknown' ? undefined : t(VERDICT_KEYS[payload.verdict]);
-    const tone = verdictTone(payload.verdict);
-    // The headline figure belongs to the tightest window, so it takes that
-    // window's own run-out verdict when its pace carries a projection.
-    const headlineTone: PluginScreenTone = (tightest === undefined ? undefined : runOut(tightest)?.tone) ?? (payload.verdict === 'go' ? 'secondary' : tone);
+    // Verdict word, dot and headline all speak the presentation verdict, so
+    // none of them can read calm while a figure below is warm or strong.
+    const presented = presentedVerdict(payload);
+    const verdictWord = presented === 'unknown' ? undefined : t(VERDICT_KEYS[presented]);
+    const tone = verdictTone(presented);
+    const headlineTone: PluginScreenTone = presented === 'go' ? 'secondary' : tone;
     return (
         <View style={{ marginBottom: 14 }}>
             {/* The section's own label row, like every other section: the card
