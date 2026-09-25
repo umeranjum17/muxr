@@ -115,9 +115,9 @@ function assertUnifiedSkillOutput(output, { liveHerdr = true } = {}) {
         '# Onboarding: install, pair, self-host, maintain',
         '# Herdr orchestration',
         '# Cross-machine agent collaboration',
-        '# Browser work the user can see and take over',
         '# muxr plugins: author, install, debug, override',
     ]) assert.match(output, new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
+    assert.doesNotMatch(output, /browser-takeover|# Browser work the user can see and take over/);
     assert.match(output, /installed binary is the only command\s+contract/);
     assert.match(output, /## Packaged-reference behavior/);
     if (liveHerdr) {
