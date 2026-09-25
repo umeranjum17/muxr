@@ -467,8 +467,7 @@ export class MuxrClient {
         const streamId = envelope.header.streamId ?? envelope.header.sessionId ?? 'machine';
         if (this.hosted !== undefined) {
             const channel = envelope.header.channel;
-            if (envelope.header.senderId !== this.options.machineId
-                || (envelope.header.recipientId !== '*' && envelope.header.recipientId !== this.hosted.grant.deviceId)
+            if (envelope.header.senderId !== this.options.machineId || envelope.header.recipientId !== '*'
                 || (channel !== 'session' && channel !== 'attachment') || envelope.header.streamId !== streamId
                 || envelope.header.keyVersion !== this.hosted.grant.keyVersion) {
                 this.recordDecodeFailure(socket, 'context-mismatch');
@@ -479,7 +478,7 @@ export class MuxrClient {
         try {
             const plaintext = this.hosted === undefined
                 ? envelope.payload
-                : this.hosted.open(envelope.header.channel as 'session' | 'attachment', streamId, envelope.payload, envelope.header.seq, envelope.header.recipientId);
+                : this.hosted.open(envelope.header.channel as 'session' | 'attachment', streamId, envelope.payload, envelope.header.seq);
             frame = decodePayload<HostFrame>(await plaintext);
         } catch {
             this.recordDecodeFailure(socket, 'open-failed');
@@ -503,14 +502,17 @@ export class MuxrClient {
             if (this.hosted !== undefined && envelope.header.channel !== pending.channel) return;
             clearTimeout(pending.timer);
             this.pending.delete(frame.requestId);
-            if (frame.ok) pending.resolve(frame.data);
-            else pending.reject(requestFailure(pending.requestType, frame.error, frame.code));
+            if (frame.ok) {
+                if (pending.requestType === 'herdr.tree' && frame.data !== null && typeof frame.data === 'object'
+                    && 'linkEnrolledKey' in frame.data && typeof frame.data.linkEnrolledKey === 'string') {
+                    this.options.onLinkEnrolled?.(frame.data.linkEnrolledKey);
+                }
+                pending.resolve(frame.data);
+            } else pending.reject(requestFailure(pending.requestType, frame.error, frame.code));
             return;
         }
 
         if (this.hosted !== undefined && envelope.header.channel !== 'session') return;
-        if (frame.type === 'machine.hello' && envelope.header.recipientId === this.hosted?.grant.deviceId
-            && typeof frame.linkEnrolledKey === 'string') this.options.onLinkEnrolled?.(frame.linkEnrolledKey);
         if (isPluginsInvalidatedFrame(frame)) {
             for (const listener of this.pluginInvalidationListeners) listener(frame);
             return;

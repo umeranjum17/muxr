@@ -672,7 +672,7 @@ export class DeviceV2Crypto {
         return { payload, sequence: v2EnvelopeSequence(payload) };
     }
 
-    async open(channel: 'session' | 'terminal' | 'attachment' | 'stream', streamId: string, payload: string, sequence: number, recipientId: string = '*'): Promise<string> {
+    async open(channel: 'session' | 'terminal' | 'attachment' | 'stream', streamId: string, payload: string, sequence: number): Promise<string> {
         if (this.grant.expiresAt <= Date.now()) throw new Error('hosted e2ee: device grant expired');
         if (sequence !== v2EnvelopeSequence(payload)) throw new Error('hosted e2ee: routing sequence mismatch');
         const replayKey = `${this.grant.machineId}\0${channel}\0${streamId}`;
@@ -680,7 +680,7 @@ export class DeviceV2Crypto {
         const plaintext = openV2(payload, this.inputKey, {
             machineId: this.grant.machineId,
             senderId: this.grant.machineId,
-            recipientId,
+            recipientId: '*',
             channel,
             streamId,
             keyVersion: this.grant.keyVersion,
