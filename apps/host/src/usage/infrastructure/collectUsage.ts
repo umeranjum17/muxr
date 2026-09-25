@@ -916,7 +916,12 @@ function project(raw: RawCollection, selected: string, nowMs: number, stale = fa
     const localReport = reports[provider];
     let activityFailure = raw.ccusageFailure;
     if (localReport?.rows) activityFailure = undefined;
-    if (localReport?.unavailable) activityFailure = localReport.reason ?? 'Local activity unavailable';
+    // A local report gates only the activity it is itself the source of: omp
+    // and pi are measured from their own transcripts, so an unavailable scan
+    // really means no rows. opencode's own database is only probed for recency
+    // -- its tab's activity is ccusage's, and a missing database must not
+    // blank activity ccusage measured.
+    if (localReport?.unavailable && (provider === 'omp' || provider === 'pi')) activityFailure = localReport.reason ?? 'Local activity unavailable';
     // Z.ai is measured from Pi's records, so ccusage's health says nothing about
     // this tab; only whether its models could be attributed does.
     if (provider === 'zai' && raw.zaiConnected && raw.zaiModelCount === 0) activityFailure = 'Local activity unavailable for this provider';
