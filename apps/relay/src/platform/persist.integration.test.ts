@@ -490,3 +490,34 @@ it('delivers frames sent while relay ticket authentication is pending without ro
         await rm(root, { recursive: true, force: true });
     }
 });
+
+it('keeps a throttled client throttled when many other addresses arrive through a trusted proxy', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muxr-relay-rate-limit-'));
+    const relay = await startRelay({
+        port: 0,
+        host: '127.0.0.1',
+        config: {
+            dataDir: root,
+            authMode: 'strict',
+            e2eeMode: 'off',
+            localAuthority: false,
+            developmentApi: false,
+            advertiseMdns: false,
+            trustProxy: true,
+        },
+    });
+    const status = async (ip: string): Promise<number> => {
+        const response = await fetch(`http://127.0.0.1:${relay.port}/v1/nothing`, { headers: { 'x-forwarded-for': ip } });
+        await response.arrayBuffer();
+        return response.status;
+    };
+    try {
+        for (let i = 0; i < 300; i += 1) await status('203.0.113.7');
+        expect(await status('203.0.113.7')).toBe(429);
+        for (let i = 0; i <= 10_000; i += 1) await status(`10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`);
+        expect(await status('203.0.113.7')).toBe(429);
+    } finally {
+        await relay.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);

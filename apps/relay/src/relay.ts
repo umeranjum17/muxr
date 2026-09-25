@@ -204,16 +204,21 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
         return { presented, owner, machine };
     };
     // Minimal per-IP fixed-window limiter for the self-host HTTP surface.
-    const rateBuckets = new Map<string, { windowStart: number; count: number }>();
+    // When the table is full, prune expired windows; never reset live quotas.
+    const rateBuckets = new Map<string, { resetAt: number; count: number }>();
     const rateLimited = (ip: string, limit: number, windowMs: number, now: number): boolean => {
-        if (rateBuckets.size > 10_000) rateBuckets.clear();
         const bucket = rateBuckets.get(ip);
-        if (bucket === undefined || now - bucket.windowStart >= windowMs) {
-            rateBuckets.set(ip, { windowStart: now, count: 1 });
-            return false;
+        if (bucket !== undefined && now < bucket.resetAt) {
+            bucket.count += 1;
+            return bucket.count > limit;
         }
-        bucket.count += 1;
-        return bucket.count > limit;
+        rateBuckets.delete(ip);
+        for (const [key, { resetAt }] of rateBuckets) {
+            if (now >= resetAt) rateBuckets.delete(key);
+        }
+        if (rateBuckets.size >= 10_000) return true;
+        rateBuckets.set(ip, { resetAt: now + windowMs, count: 1 });
+        return false;
     };
 
     await registry.load();
