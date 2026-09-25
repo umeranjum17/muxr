@@ -59,6 +59,22 @@ The row above the composer lists the workspace's tabs, so the agent, its tests a
   <picture><source srcset="docs/assets/readme/tabs.webp" type="image/webp"><img src="docs/assets/readme/tabs.jpg" alt="The tests tab of a workspace showing nine passing tests, next to the agent's checkout tab and a server tab" width="300" /></picture>
 </p>
 
+### Every pane in the workspace
+
+The workspace's panes as one live tree: each tab is a card with its panes under it, the tab you are in is marked Current, a shell shows its folder, and a pane that needs you pulses red. Tap a pane to open it, and add a pane or a whole tab right from the tree.
+
+<p align="center">
+  <picture><source srcset="docs/assets/readme/panes.webp" type="image/webp"><img src="docs/assets/readme/panes.jpg" alt="A workspace's panes tree: three tab cards with their panes under each, the current agent tab marked, and shells showing their folder" width="300" /></picture>
+</p>
+
+### Arrange panes like the desk
+
+The pane counter in an agent's header tells you where you are in the tab, and tapping it lays the tab out as the desk has it — the same splits your computer shows, with the open pane outlined. Tap a tile to switch panes, or split Right or Below to make room, all without leaving the phone.
+
+<p align="center">
+  <picture><source srcset="docs/assets/readme/pane-sheet.webp" type="image/webp"><img src="docs/assets/readme/pane-sheet.jpg" alt="A tab's split as tiles, one tall pane beside two stacked ones, the open pane outlined, with Right and Below split buttons" width="300" /></picture>
+</p>
+
 ### Swipe between agents
 
 Swipe sideways with one finger to move to the next working, waiting, or just-finished agent; the next terminal follows your finger. In **Settings → Gestures**, switch to a two-finger swipe or turn swiping off, choose which agents a swipe stops at, and turn pinch-to-zoom on or off. Vertical drags still scroll, and a resting finger still selects text.
