@@ -1,11 +1,10 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { processStart, reclaimScratch, scratchUnused } from './testScratchOwner.mjs';
+import { processStart, reclaimScratch, scratchBase, scratchUnused } from './testScratchOwner.mjs';
 
-const base = tmpdir();
+const base = scratchBase();
 reclaimScratch(base);
 const birth = processStart(process.pid);
 if (!birth) throw new Error('Cannot identify test scratch owner');

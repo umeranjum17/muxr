@@ -9,10 +9,10 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { processStart, scratchUnused } from './testScratchOwner.mjs';
+import { processStart, scratchBase, scratchUnused } from './testScratchOwner.mjs';
 // The herdr check drives a live herdr server through the real host. Without one
 // it burns its timeout and reports a misleading failure, so detect and skip.
 const herdrSocket = process.env.HERDR_SOCKET_PATH?.trim()
@@ -152,9 +152,9 @@ function run(name, cmd, args, timeoutMs = 150000) {
             clearTimeout(timer);
             if (timedOut && wrapped) {
                 killGroup('SIGKILL');
-                for (const entry of readdirSync(tmpdir())) {
+                for (const entry of readdirSync(scratchBase())) {
                     if (!entry.startsWith(`muxr-host-test-${child.pid}-`)) continue;
-                    const root = join(tmpdir(), entry);
+                    const root = join(scratchBase(), entry);
                     let owner;
                     try { owner = readFileSync(join(root, 'owner'), 'utf8').trim(); } catch { continue; }
                     if (owner === `${child.pid} ${childBirth}` && scratchUnused(root)) rmSync(root, { recursive: true, force: true });

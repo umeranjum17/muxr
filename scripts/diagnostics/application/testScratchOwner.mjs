@@ -1,6 +1,9 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+export const scratchBase = () => process.platform === 'darwin' ? '/tmp' : tmpdir();
 
 export function processStart(pid) {
     try {
