@@ -1409,7 +1409,11 @@ describe('the usage screen read path', () => {
         expect(request).toHaveBeenCalledTimes(0);
         TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
         await tick();
-        expect(request).toHaveBeenCalledTimes(0);
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(request).toHaveBeenLastCalledWith('usage.report', { refresh: true }, expect.any(Number));
+        TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
+        await tick();
+        expect(request).toHaveBeenCalledTimes(1);
         expect(screenText(screen)).toContain('plugins.rightNow.refreshIn');
     });
 

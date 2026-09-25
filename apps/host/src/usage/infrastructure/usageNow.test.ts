@@ -202,6 +202,15 @@ it('persists a measured default OpenCode report only when its resolved plan is a
     expect(measured.todayTokens).toBe('1.2K');
     expect(measured.windows).toHaveLength(1);
     expect(JSON.parse(readFileSync(cache, 'utf8')).output.todayTokens).toBe('1.2K');
+
+    vi.resetModules();
+    const { collectUsage: restarted } = await import('./collectUsage.js');
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 30_000).toISOString();
+    const coldReport = await restarted({ report: true }, env);
+    const coldCard = await restarted({}, env);
+    expect(coldReport.capturedAt).not.toBe(measured.capturedAt);
+    expect(coldCard.capturedAt).toBe(coldReport.capturedAt);
+    expect(coldReport.todayTokens).toBe('1.2K');
 }, 20_000);
 
 it('keeps a completed activity-only scan for card follow-ups without writing all agents to disk', async () => {

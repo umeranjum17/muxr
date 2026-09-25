@@ -430,14 +430,6 @@ function cacheName(selected: string): string {
     return `usage-v2-${selected === '' ? 'all' : selected}.json`;
 }
 
-function cachedOutput(env: NodeJS.ProcessEnv, identity: string, today: string, nowMs: number, selected: string): UsageReport | undefined {
-    const saved = readJson(join(usageStateDir(env), cacheName(selected)), 128 * 1024)?.value;
-    if (!isRecord(saved) || saved.identity !== identity || saved.date !== today || !isRecord(saved.output)
-        || !Array.isArray(saved.output.providers) || typeof saved.at !== 'number' || nowMs - saved.at < 0) return undefined;
-    const output = saved.output as unknown as UsageReport;
-    return withAge({ ...output, ...(nowMs - saved.at >= PLAN_MIN_READ_MS ? { stale: true as const } : {}) }, nowMs);
-}
-
 function saveOutput(env: NodeJS.ProcessEnv, output: UsageReport, identity: string, today: string, nowMs: number, selected: string): void {
     const body = JSON.stringify({ at: nowMs, date: today, identity, output });
     if (Buffer.byteLength(body) > 65_536) return;
@@ -706,16 +698,11 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
     const TODAY = localDate(NOW);
     const accounts = planAccounts(env);
     const identity = `${cacheIdentity(env)}:${JSON.stringify(accounts)}`;
-    // A reader that did not force reuses the day's completed collection.
     const key = `${identity}\u0000${TODAY}`;
     let collection = inFlight.get(key);
     if (input.refresh !== true && collection === undefined) {
         const cached = completed.get(key);
         if (cached !== undefined && NOW.getTime() - cached.at < PLAN_MIN_READ_MS) return project(cached, selected, NOW.getTime());
-        if (cached === undefined && input.report) {
-            const saved = cachedOutput(env, identity, TODAY, NOW.getTime(), selected);
-            if (saved !== undefined && saved.stale !== true) return saved;
-        }
     }
     if (collection === undefined) {
         collection = collectFresh(NOW, accounts, env).then((raw) => {
