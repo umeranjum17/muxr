@@ -8,7 +8,7 @@
 
 import { routingChannelForRequest, type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@muxr/contract';
 import { connectToRelay, deviceTableCanMutate, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
-import { createRequestDispatcher } from './requests/index.js';
+import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
 import { DesktopSessions } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
@@ -57,6 +57,7 @@ export interface Host {
     close: () => Promise<void>;
     /** The host's reply to one client frame, for a transport that returns replies itself (the link). */
     answer: (frame: ClientFrame, authenticatedSenderId: string) => Promise<HostFrame | undefined>;
+    canView: (frame: ClientFrame) => boolean;
     /** Every frame the relay transport broadcasts to all clients, for a second transport to broadcast too. */
     onBroadcast: (listener: (frame: HostFrame) => void) => void;
 }
@@ -256,6 +257,7 @@ export function startHost(options: HostOptions): Host {
     const unsubscribeMachine = source.subscribeMachine?.((frame) => broadcast(frame));
 
     return {
+        canView: (frame) => frame.type === 'client.hello' || viewOnlyRequestAllowed(frame as ClientRequest, source),
         answer: async (frame, authenticatedSenderId) => {
             const response = await answerFrame(frame, authenticatedSenderId);
             if (frame.type === 'client.hello') source.resendCumulativeState?.();

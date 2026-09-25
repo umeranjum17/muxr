@@ -175,6 +175,16 @@ describe('link upgrade for an already-paired phone', () => {
         expect(started).toMatchObject({ type: 'result', ok: true });
         const sessionId = started.data?.info?.id;
         expect(typeof sessionId).toBe('string');
+        const wire = (link as unknown as { conn: { send: (message: unknown) => void } }).conn;
+        const send = wire.send.bind(wire);
+        let answered: { key: string; session: string; ack: number } | undefined;
+        wire.send = (message) => {
+            const request = message as { t?: string; op?: string; key?: string; session?: string; ack?: number };
+            if (request.t === 'req' && request.op === 'client.hello' && answered === undefined) {
+                answered = { key: request.key!, session: request.session!, ack: request.ack! };
+            }
+            send(message);
+        };
         const listed = await link.request('client.hello', { type: 'client.hello', clientId: 'link-phone' }) as { type: string; sessions: { id: string }[] };
         expect(listed.type).toBe('session.list');
         expect(listed.sessions.map((session) => session.id)).toContain(sessionId);
@@ -207,6 +217,15 @@ describe('link upgrade for an already-paired phone', () => {
             };
             return state.machine.crypto.pendingRotation?.revokedDeviceId === stored.deviceId ? true : undefined;
         }, 'revocation recorded');
+        expect(answered).toBeDefined();
+        const replayWire = (link as unknown as { conn: { send: (message: unknown) => void } }).conn;
+        const replaySend = replayWire.send.bind(replayWire);
+        replayWire.send = (message) => {
+            const request = message as { t?: string; op?: string; key?: string; session?: string; ack?: number };
+            if (request.t === 'req' && request.op === 'client.hello') Object.assign(request, answered);
+            replaySend(message);
+        };
+        await expect(link.request('client.hello', { type: 'client.hello', clientId: 'link-phone' })).rejects.toThrow();
         await expect(link.request('session.list', { type: 'session.list', requestId: 'revoked', params: {} })).rejects.toThrow();
         const next = await otherLink.request('session.start', { type: 'session.start', requestId: 'other', params: { cwd: home } }) as {
             type: string; ok: boolean; data?: { info?: { id?: string } };
@@ -223,4 +242,20 @@ describe('link upgrade for an already-paired phone', () => {
         link.stop();
         otherLink.stop();
     }, 180_000);
+
+    it('keeps the existing relay available when link state is damaged', async () => {
+        await stopMachine();
+        const stateFile = join(home, 'relay', 'link-relay.json');
+        writeFileSync(stateFile, '{broken', { mode: 0o600 });
+        const restarted = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
+            MUXR_RELAY_PORT: String(port),
+            MUXR_RELAY_HOST: '127.0.0.1',
+            MUXR_RELAY_DATA_DIR: join(home, 'relay'),
+            MUXR_RELAY_MDNS: '0',
+        });
+        relay = restarted;
+        expect(await waitForRelay(restarted)).toBe(port);
+        expect((await fetch(`http://127.0.0.1:${port}/relay/v1/hosts`)).status).toBe(404);
+        expect(readFileSync(stateFile, 'utf8')).toBe('{broken');
+    }, 30_000);
 });

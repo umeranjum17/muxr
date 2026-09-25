@@ -6,7 +6,7 @@
     "type": "module",
     "main": "./dist/main.js",
     "dependencies": {
-        "@byokit/link": "0.2.1",
+        "@byokit/link": "0.3.0",
         "@byokit/relay": "0.1.1",
         "@desklink/host": "0.1.0",
         "@muxr/contract": "0.0.0",

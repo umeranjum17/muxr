@@ -721,19 +721,25 @@ async function main(): Promise<void> {
         void (async () => {
             for (let attempt = 0; !shuttingDown; attempt++) {
                 try {
+                    const currentCrypto = (): MachineCryptoState | undefined => {
+                        try { return readSelfhostAuth()?.machine.crypto; }
+                        catch { return undefined; }
+                    };
                     linkEndpoint = await LinkEndpoint.open({
                         relayUrl,
                         ownerToken,
                         machineName,
                         crypto: selfhostAuth!.machine.crypto,
-                        currentCrypto: () => {
-                            try { return readSelfhostAuth()?.machine.crypto; }
-                            catch { return undefined; }
-                        },
+                        currentCrypto,
                         answer: host.answer,
+                        canView: host.canView,
                         onStatus: (status) => process.stdout.write(`link relay: ${status}\n`),
                     });
-                    if (linkEndpoint !== undefined) host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
+                    if (linkEndpoint !== undefined) {
+                        const latest = currentCrypto();
+                        if (latest !== undefined) await linkEndpoint.sync(latest);
+                        host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
+                    }
                     return;
                 } catch (error) {
                     if (attempt === 0) process.stderr.write(`link unavailable, retrying: ${error instanceof Error ? error.message : String(error)}\n`);

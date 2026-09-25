@@ -195,7 +195,13 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     // Mint secret gates self-host ticket issuance: filesystem read access to the
     // dataDir is the same-machine boundary (a proxy makes every request loopback).
     const mintSecret = config.localAuthority ? await ensureMintSecret(config.dataDir) : undefined;
-    const linkRelay = mintSecret === undefined ? undefined : await openLinkRelay(config.dataDir, mintSecret);
+    let linkRelay: Awaited<ReturnType<typeof openLinkRelay>> | undefined;
+    if (mintSecret !== undefined) {
+        try { linkRelay = await openLinkRelay(config.dataDir, mintSecret); }
+        catch (error) {
+            process.stderr.write(`link relay unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+        }
+    }
     const resolveAuthority = async (req: Parameters<typeof extractBearerToken>[0]) => {
         const presented = extractBearerToken(req);
         const owner = presented !== undefined && mintSecret !== undefined && secureEqual(mintSecret, presented);

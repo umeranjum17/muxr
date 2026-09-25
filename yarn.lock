@@ -851,8 +851,20 @@
 
 "@byokit/link@0.2.1":
   version "0.2.1"
-  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.2.1.tgz#b1736b80f557d8e17949377389fc061a0cd20e76"
+  resolved "https://registry.npmjs.org/@byokit/link/-/link-0.2.1.tgz#b1736b80f557d8e17949377389fc061a0cd20e76"
   integrity sha512-bWZjxS4Tqc+AsnQ3VJwSWCkguzqDeYK+5dDvnQHIh4BATdwmyqH1st+yyeaNuJm1OLW3h0FP/nlWA5UmvOnmlA==
+  dependencies:
+    "@noble/ciphers" "2.4.0"
+    b4a "1.9.0"
+    noise-handshake "4.2.0"
+    sodium-javascript "0.8.0"
+    sodium-native "5.1.0"
+    sodium-universal "5.0.1"
+
+"@byokit/link@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.npmjs.org/@byokit/link/-/link-0.3.0.tgz#e2b9a3999b0a35c7f80e6504ba89fae2b3518611"
+  integrity sha512-9oxLA5LEQr0NMgTYIc5lwFBqvQSXZHVxTyFbStkTqTkvG80L6c76wZb8tNykVqdaQCl6sPik4FlBFBigM6/yKg==
   dependencies:
     "@noble/ciphers" "2.4.0"
     b4a "1.9.0"
@@ -863,7 +875,7 @@
 
 "@byokit/relay@0.1.1":
   version "0.1.1"
-  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.1.1.tgz#2598e2e63e21f53978f464da524b1ab3e41a4a3a"
+  resolved "https://registry.npmjs.org/@byokit/relay/-/relay-0.1.1.tgz#2598e2e63e21f53978f464da524b1ab3e41a4a3a"
   integrity sha512-a8VPsMCkith2mNTkqsD5Ob2lv6Ifxg51zBgkNBzHfusx54KAnlUcBd+5S2pEsM5aIp1xJOLigwyR8osUsn64PQ==
   dependencies:
     "@byokit/link" "0.2.1"

@@ -15,6 +15,7 @@ export interface LinkEndpointOptions {
     crypto: MachineCryptoState;
     currentCrypto: () => MachineCryptoState | undefined;
     answer: LinkAnswer;
+    canView: (frame: ClientFrame) => boolean;
     onStatus?: (status: string) => void;
 }
 
@@ -71,6 +72,11 @@ export class LinkEndpoint {
             // Pairing stays on the relay transport; the link only admits phones
             // enrolled from this machine's own device records.
             confirm: () => false,
+            allow: (req, grant) => {
+                if (!trusted(grant, options.currentCrypto())) return false;
+                const frame = parseClientFrame(req.args);
+                return frame.type === req.op && (grant.role === 'control' || options.canView(frame));
+            },
             handle: async (req, grant) => {
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
                 const deviceId = muxrDeviceIdOf(grant)!;
