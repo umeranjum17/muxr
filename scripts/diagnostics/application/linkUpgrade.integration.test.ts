@@ -245,6 +245,38 @@ describe('link upgrade for an already-paired phone', () => {
         otherLink.stop();
     }, 180_000);
 
+    it('keeps the host alive and retrying while its relay is down, then back online when it returns', async () => {
+        await stopMachine();
+        await startMachine();
+        const running = host!;
+        const statusLines = (): string[] => running.output().match(/^link relay: \w+/gm) ?? [];
+        await until(() => (statusLines().includes('link relay: online') ? true : undefined), 'host registers with its relay');
+        const onlineBefore = statusLines().filter((line) => line === 'link relay: online').length;
+
+        // The relay goes away under a registered host: every reconnect now
+        // dials a socket that fails while still connecting.
+        await stop(relay);
+        await until(() => {
+            if (running.exitCode !== null || running.signalCode !== null) throw new Error(`host died while its relay was down:\n${running.output().slice(-1200)}`);
+            return statusLines().at(-1) === 'link relay: offline' ? true : undefined;
+        }, 'host reports its relay offline');
+        await new Promise((resolve) => setTimeout(resolve, 6_000));
+        expect(running.exitCode, running.output().slice(-600)).toBeNull();
+        expect(running.signalCode).toBeNull();
+
+        const back = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
+            MUXR_RELAY_PORT: String(port),
+            MUXR_RELAY_HOST: '127.0.0.1',
+            MUXR_RELAY_DATA_DIR: join(home, 'relay'),
+            MUXR_RELAY_MDNS: '0',
+        });
+        relay = back;
+        expect(await waitForRelay(back)).toBe(port);
+        await until(() => (statusLines().filter((line) => line === 'link relay: online').length > onlineBefore ? true : undefined),
+            'host reconnects to its relay on its own', 45_000);
+        expect(running.exitCode).toBeNull();
+    }, 90_000);
+
     it('keeps the existing relay available when link state is damaged', async () => {
         await stopMachine();
         const stateFile = join(home, 'relay', 'link-relay.json');

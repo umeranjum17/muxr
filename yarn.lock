@@ -849,10 +849,10 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
-"@byokit/link@0.2.1":
-  version "0.2.1"
-  resolved "https://registry.npmjs.org/@byokit/link/-/link-0.2.1.tgz#b1736b80f557d8e17949377389fc061a0cd20e76"
-  integrity sha512-bWZjxS4Tqc+AsnQ3VJwSWCkguzqDeYK+5dDvnQHIh4BATdwmyqH1st+yyeaNuJm1OLW3h0FP/nlWA5UmvOnmlA==
+"@byokit/link@0.3.1":
+  version "0.3.1"
+  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.3.1.tgz#275e9f5f6e409053d6aaaadf7f74c70e82c9e31d"
+  integrity sha512-w+DQvnBaXMlribR7LY8vM8otNJ0Oqx59+pcevrjbxTzdzLgo7zDM6kJ5SroSzrdouzhMklgIdVhyofa2gNPKQw==
   dependencies:
     "@noble/ciphers" "2.4.0"
     b4a "1.9.0"
@@ -861,24 +861,12 @@
     sodium-native "5.1.0"
     sodium-universal "5.0.1"
 
-"@byokit/link@0.3.0":
-  version "0.3.0"
-  resolved "https://registry.npmjs.org/@byokit/link/-/link-0.3.0.tgz#e2b9a3999b0a35c7f80e6504ba89fae2b3518611"
-  integrity sha512-9oxLA5LEQr0NMgTYIc5lwFBqvQSXZHVxTyFbStkTqTkvG80L6c76wZb8tNykVqdaQCl6sPik4FlBFBigM6/yKg==
+"@byokit/relay@0.1.3":
+  version "0.1.3"
+  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.1.3.tgz#ad762be59999c002b17d9f5c929c9286f1c99d1a"
+  integrity sha512-o6IQszojpr6w9mu2olqelG6otrVWv1F3XuB52mQFId64WkECaN+uB54rCwe1L69yOvNVatMqHESll4Lqzp798w==
   dependencies:
-    "@noble/ciphers" "2.4.0"
-    b4a "1.9.0"
-    noise-handshake "4.2.0"
-    sodium-javascript "0.8.0"
-    sodium-native "5.1.0"
-    sodium-universal "5.0.1"
-
-"@byokit/relay@0.1.1":
-  version "0.1.1"
-  resolved "https://registry.npmjs.org/@byokit/relay/-/relay-0.1.1.tgz#2598e2e63e21f53978f464da524b1ab3e41a4a3a"
-  integrity sha512-a8VPsMCkith2mNTkqsD5Ob2lv6Ifxg51zBgkNBzHfusx54KAnlUcBd+5S2pEsM5aIp1xJOLigwyR8osUsn64PQ==
-  dependencies:
-    "@byokit/link" "0.2.1"
+    "@byokit/link" "0.3.1"
     web-push "3.6.7"
     ws "8.21.3"
 
