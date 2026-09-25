@@ -88,13 +88,18 @@ export class LinkFirstClient implements SessionClient {
             if (relay === undefined) return Promise.reject(new Error('not connected'));
             if (relay.isLive()) return relay.request(type, params, timeoutMs);
             return new Promise<RequestResult<T>>((resolve, reject) => {
-                const timer = setTimeout(() => { off(); reject(new Error('not connected')); }, timeoutMs ?? 10_000);
-                const off = relay.onStateChange(() => {
-                    if (!relay.isLive()) return;
-                    clearTimeout(timer);
-                    off();
-                    void relay.request(type, params, timeoutMs).then(resolve, reject);
-                });
+                const ready = () => type.startsWith('desktop.') ? relay.isLive() : this.online || relay.isLive();
+                const finish = () => { clearTimeout(timer); offRelay(); offState(); };
+                const check = () => {
+                    if (this.closed) { finish(); reject(new Error('not connected')); return; }
+                    if (!ready()) return;
+                    finish();
+                    void this.request(type, params, timeoutMs).then(resolve, reject);
+                };
+                const timer = setTimeout(() => { finish(); reject(new Error('not connected')); }, timeoutMs ?? 10_000);
+                const offRelay = relay.onStateChange(check);
+                const offState = this.onStateChange(check);
+                check();
             });
         }
         const link = this.link;

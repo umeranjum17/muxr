@@ -135,12 +135,21 @@ function sessionClient(stored: StoredHostedGrant): LinkFirstClient {
 describe('the phone session channel on the byokit link', () => {
     let stored: StoredHostedGrant;
     const linkDials: string[] = [];
+    const linkSockets: WebSocket[] = [];
+    const relaySockets: WebSocket[] = [];
+    let failRelay = false;
 
     beforeAll(async () => {
         class TrackedWebSocket extends WebSocket {
             constructor(url: string | URL, protocols?: string | string[]) {
                 super(url, protocols);
-                if (new URL(String(url)).pathname.startsWith('/link/v1/')) linkDials.push(String(url));
+                if (new URL(String(url)).pathname.startsWith('/link/v1/')) {
+                    linkDials.push(String(url));
+                    linkSockets.push(this);
+                } else {
+                    relaySockets.push(this);
+                    if (failRelay) queueMicrotask(() => this.terminate());
+                }
             }
         }
         vi.stubGlobal('WebSocket', TrackedWebSocket);
@@ -153,7 +162,7 @@ describe('the phone session channel on the byokit link', () => {
         await stopMachine();
     }, 90_000);
 
-    afterEach(async () => { await stopMachine(); });
+    afterEach(async () => { failRelay = false; await stopMachine(); });
     afterAll(async () => {
         vi.unstubAllGlobals();
         await Promise.all([...children].map((child) => stop(child)));
@@ -176,8 +185,26 @@ describe('the phone session channel on the byokit link', () => {
         expect(typeof sessionId).toBe('string');
         await until(() => (eventSessions.includes(sessionId!) ? true : undefined),
             'session broadcasts reach the link session');
+
+        const transitions: Array<{ state: string; transport: string }> = [];
+        overLink.onStateChange((state) => transitions.push({ state, transport: overLink.transport }));
+        linkSockets.at(-1)!.terminate();
+        await until(() => (transitions.some((entry) => entry.transport === 'relay') ? true : undefined),
+            'link hands the session to relay');
+        expect(transitions.find((entry) => entry.transport === 'relay')?.state).toBe('open');
+        expect((await overLink.request('machines.list', {})).length).toBeGreaterThan(0);
+        await until(() => (overLink.transport === 'link' ? true : undefined), 'link recovers', 30_000);
+
+        failRelay = true;
+        relaySockets.at(-1)!.terminate();
+        linkSockets.at(-1)!.terminate();
+        await until(() => (!overLink.isLive() ? true : undefined), 'both transports unavailable');
+        const waiting = overLink.request('machines.list', {}, 15_000);
+        await until(() => (overLink.transport === 'link' ? true : undefined), 'link recovers before relay', 30_000);
+        expect((await waiting).length).toBeGreaterThan(0);
+        failRelay = false;
         overLink.close();
-    }, 60_000);
+    }, 120_000);
 
     it('keeps an enrolled phone on the relay without a link enrollment flag', async () => {
         await startMachine('damaged');
