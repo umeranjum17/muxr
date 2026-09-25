@@ -34,17 +34,31 @@ try {
     const stale = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
     writeFileSync(join(stale, 'owner'), `${process.pid} ${birth}-stale`);
     const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: stale, stdio: 'ignore' });
+    writeFileSync(lsof, `#!/bin/sh
+for target do :; done
+if [ "$target" = ${JSON.stringify(stale)} ] && kill -0 ${holder.pid} 2>/dev/null; then printf 'p%s\\n' ${holder.pid}; exit 0; fi
+exit 1
+`);
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}:${originalPath}`;
     try {
+        const scan = spawnSync('lsof', ['-n', '-F', 'p', '+D', stale], { encoding: 'utf8' });
+        assert.equal(scan.status, 0, scan.stderr);
+        assert.ok(scan.stdout.split('\n').includes(`p${holder.pid}`), scan.stdout);
         reclaimScratch(base);
         assert.deepEqual(readdirSync(base).sort(), ['bin', live.split('/').at(-1), stale.split('/').at(-1)].sort());
-    } finally {
         holder.kill('SIGKILL');
         await new Promise((resolve) => holder.once('exit', resolve));
+        assert.equal(scratchUnused(stale), true);
+        reclaimScratch(base);
+        assert.deepEqual(readdirSync(base).sort(), ['bin', live.split('/').at(-1)].sort());
+    } finally {
+        if (holder.exitCode === null && holder.signalCode === null) {
+            holder.kill('SIGKILL');
+            await new Promise((resolve) => holder.once('exit', resolve));
+        }
+        process.env.PATH = originalPath;
     }
-    const unused = scratchUnused(stale);
-    reclaimScratch(base);
-    assert.equal(readdirSync(base).includes(stale.split('/').at(-1)), !unused);
-    assert.ok(readdirSync(base).includes(live.split('/').at(-1)));
 } finally {
     rmSync(base, { recursive: true, force: true });
 }
