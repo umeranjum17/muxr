@@ -18,7 +18,6 @@ config.resolver.assetExts.push('wasm', 'bin');
 // assets: those are real bundle inputs, unlike compiler scratch directories.
 config.resolver.blockList = [
   /[/\\]src-tauri[/\\]target[/\\].*/,
-  /[/\\]packages[/\\]desktop-host[/\\]engine[/\\]target(?:[/\\].*)?$/,
   /[/\\](?:\.cache|\.tmp|\.temp|\.cxx|\.gradle|__pycache__|DerivedData)(?:[/\\].*)?$/,
   /[/\\](?:android|ios|ReactAndroid)[/\\](?:.*[/\\])?(?:build|Pods)(?:[/\\].*)?$/,
 ];

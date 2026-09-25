@@ -905,6 +905,25 @@
   resolved "https://registry.yarnpkg.com/@chevrotain/types/-/types-11.1.2.tgz#e83a1a2704f0c5e49e7592b214031a0f4a34d7e5"
   integrity sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==
 
+"@desklink/host-linux-x64-gnu@0.1.0":
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.1.0.tgz#aa2eab57c8296f2205c0b387004afedb9c764e70"
+  integrity sha512-YSOWv8sjG4YiX+1zqmeft/WmpaNGQ/u4b/UF0FB0n78+GAb+Mnxod+g0WACWlrFDJ7jsfXBON8fi3MA7cW05EA==
+
+"@desklink/host@0.1.0":
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.1.0.tgz#17294d2c3c641107d55f0576caab0e96a7abd196"
+  integrity sha512-e79ydtvvp6SqfRMpgA4cFbwwXj2nUrHa4G0w67ecC0cyGpnPlH02zZGgOfODQA2dWn8Hb5+UbUqqc2ioSQ7pgQ==
+  dependencies:
+    ws "^8.18.0"
+  optionalDependencies:
+    "@desklink/host-linux-x64-gnu" "0.1.0"
+
+"@desklink/react-native@0.1.0":
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.1.0.tgz#e6431e7a462a66f468db2c8781a2792ed0675d98"
+  integrity sha512-aPkPgFaCU6vxkdTsjGOrs3S6ik5ZE0tLinrzPdoNY/DOU2jbBoYh4cB+vKGQ80HjHIL9j1GiYEk34oz/rjmJgw==
+
 "@egjs/hammerjs@^2.0.17":
   version "2.0.17"
   resolved "https://registry.yarnpkg.com/@egjs/hammerjs/-/hammerjs-2.0.17.tgz#5dc02af75a6a06e4c2db0202cae38c9263895124"

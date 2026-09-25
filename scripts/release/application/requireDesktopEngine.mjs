@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const GUIDE = 'packages/desktop-host/README.md#building-and-packing-a-release';
+const GUIDE = 'https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md#building-and-packing-a-release';
 
 function npmView(spec, field) {
     const result = spawnSync('npm', ['view', spec, field, '--json'], { encoding: 'utf8', timeout: 20000 });
@@ -18,9 +18,9 @@ export function desktopHostOfTarball(path) {
     return manifest.dependencies?.['@desklink/host'];
 }
 
-/** The desktop host version this checkout's CLI would depend on. */
+/** The desktop host version this checkout's CLI would depend on: the host app's exact pin. */
 export function desktopHostOfSource(root = process.cwd()) {
-    return JSON.parse(readFileSync(join(root, 'packages', 'desktop-host', 'package.json'), 'utf8')).version;
+    return JSON.parse(readFileSync(join(root, 'apps', 'host', 'package.json'), 'utf8')).dependencies?.['@desklink/host'];
 }
 
 /**
