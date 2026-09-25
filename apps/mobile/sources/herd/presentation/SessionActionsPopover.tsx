@@ -142,7 +142,7 @@ const stylesheet = StyleSheet.create((theme) => ({
 
 export function SessionActionsPopover({ anchor, onClose, sessionId, visible }: Omit<ActionsPopoverProps, 'actions'> & { sessionId: string }) {
     const session = useSession(sessionId);
-    const { actionItems } = useSessionQuickActions(session);
+    const { actionItems } = useSessionQuickActions(session ?? undefined);
     if (!session) return null;
     return <ActionsPopover anchor={anchor} onClose={onClose} visible={visible} actions={actionItems.map((action) => ({
         ...action,
