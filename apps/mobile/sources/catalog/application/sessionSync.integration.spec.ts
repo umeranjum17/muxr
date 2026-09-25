@@ -11,7 +11,7 @@ import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels } from '../../herd/domain/agentPresentation';
 import { terminalPaneCanSend, terminalPaneStatus } from '../../terminal/domain/promptAvailability';
 import { unseenActivityRows } from '../../herd/domain/recentActivity';
-import { loadLocalSettings } from './persistence';
+import { loadLocalSettings, loadSpacePins } from './persistence';
 
 const request = vi.fn();
 const refreshSessions = vi.fn();
@@ -75,8 +75,10 @@ const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
 vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
 vi.mock('@/herd', async () => {
     const { herdrPaneForSession } = await vi.importActual('@/herd/domain/agentPresentation');
+    const { dropVanishedSpacePins } = await vi.importActual('@/herd/domain/herdTree');
     return {
         herdrPaneForSession,
+        dropVanishedSpacePins,
         getSessionName: (session: Session, pane?: HerdrTreePane) =>
             pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
         getSessionSubtitle: (_session: Session, pane?: HerdrTreePane) => pane?.agentName ?? '',
@@ -1009,5 +1011,22 @@ describe('session sync flow', () => {
         // The installed binary is 0.1.26: 0.1.27 is neither history nor current.
         installedVersion.value = '0.1.26';
         expect(currentRelease()?.appVersion).toBe('0.1.26');
+    });
+
+    it('keeps a space pin across a remount and drops it when the workspace vanishes', () => {
+        mmkvValues.clear();
+        expect(storage.getState().pinnedSpaceIds).toEqual([]);
+
+        storage.getState().toggleSpacePin('w-pin');
+        expect(storage.getState().pinnedSpaceIds).toEqual(['w-pin']);
+        // A remount loads what the last write left on disk.
+        expect(loadSpacePins()).toEqual(['w-pin']);
+
+        // A confirmed tree without the pinned workspace prunes the pin silently.
+        storage.getState().pruneSpacePins([
+            { workspaceId: 'w-other', label: 'other', focused: false, agentStatus: 'idle', tabs: [] },
+        ]);
+        expect(storage.getState().pinnedSpaceIds).toEqual([]);
+        expect(loadSpacePins()).toEqual([]);
     });
 });

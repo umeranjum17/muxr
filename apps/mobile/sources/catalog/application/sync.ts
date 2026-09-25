@@ -563,6 +563,10 @@ class MuxrSync {
         if (request === this.herdrTreeRequest) {
             this.confirmedHomeTree = { request, workspaces: tree.workspaces };
             storage.getState().applyHerdrTree(tree.workspaces);
+            // A confirmed live tree is the only honest moment to prune: the
+            // disconnect paths apply an empty tree, and pruning there would
+            // erase every pin on the way out the door.
+            storage.getState().pruneSpacePins(tree.workspaces);
             if (storage.getState().sessionsLoaded && this.hasTransport()) {
                 this.saveConfirmedHome(tree.workspaces, Object.values(storage.getState().sessions));
             }

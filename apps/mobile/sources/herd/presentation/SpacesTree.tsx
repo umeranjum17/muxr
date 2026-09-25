@@ -3,16 +3,18 @@ import deepEqual from 'fast-deep-equal';
 import {
     NativeScrollEvent,
     NativeSyntheticEvent,
+    Platform,
     Pressable,
     SectionList,
     View,
 } from 'react-native';
+import type { AlertButton } from '@/modal';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
 import { Text } from '@/components/StyledText';
 import { Modal } from '@/modal';
-import { storage } from '@/catalog/store';
+import { storage, useSpacePins } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
@@ -26,7 +28,7 @@ import { t } from '@/text';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
-import { renameInHerdr, showNameActions, showPaneActions } from '../application/renameInHerdr';
+import { showNameActions, showPaneActions } from '../application/renameInHerdr';
 
 // Tree geometry in dp from the card's left edge. Depth 1 hangs off the card's
 // own rail; each deeper level hangs one step in, off its spawner's glyph.
@@ -700,6 +702,7 @@ const WorkspaceCard = React.memo(({
     panes,
     childSpaces,
     searchForced,
+    pinned,
     onToggle,
     onToggleChild,
     onLongPress,
@@ -719,6 +722,8 @@ const WorkspaceCard = React.memo(({
     childSpaces: HerdChildSpace[];
     /** A search holds this card open: its header states that, it does not control it. */
     searchForced: boolean;
+    /** Pinned to the top of the list by the reader (a per-device preference). */
+    pinned: boolean;
     onToggle: (workspaceId: string) => void;
     onToggleChild: (workspaceId: string) => void;
     onLongPress: (workspace: HerdrTreeWorkspace) => void;
@@ -748,6 +753,7 @@ const WorkspaceCard = React.memo(({
         `${name} workspace`,
         countLabel,
         folded ? familySummary(childSpaces).spoken : undefined,
+        pinned ? t('spacesTree.pinned') : undefined,
     ].filter((part) => part !== undefined).join(', ');
     // The header is the single disclosure control: its label speaks the verb
     // and its state carries expanded, truthfully claiming the whole subtree.
@@ -759,7 +765,9 @@ const WorkspaceCard = React.memo(({
         <View style={[styles.card, compact && styles.cardCompact]}>
             <Pressable
                 onPress={searchForced ? undefined : () => onToggle(workspace.workspaceId)}
-                onLongPress={canClose ? () => onLongPress(workspace) : undefined}
+                // The sheet is local (pin) plus host writes gated by `canClose`,
+                // so it opens on every card.
+                onLongPress={() => onLongPress(workspace)}
                 style={({ pressed }) => [
                     styles.cardHeader,
                     compact && styles.cardHeaderCompact,
@@ -785,6 +793,14 @@ const WorkspaceCard = React.memo(({
                     <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
                         {suffix === undefined ? name : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>}
                     </Text>
+                    {pinned && (
+                        <Ionicons
+                            name="pin"
+                            size={12}
+                            color={theme.colors.textSecondary}
+                            {...railHidden}
+                        />
+                    )}
                     {branch !== undefined && (
                         <View style={styles.branchPill}>
                             <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
@@ -873,22 +889,34 @@ export const SpacesTree = React.memo(({
     );
 
     const searching = searchQuery.trim() !== '';
+    const pinnedIds = useSpacePins();
+    const pinned = React.useMemo(() => new Set(pinnedIds), [pinnedIds]);
+    const pinnedRef = React.useRef(pinned);
+    pinnedRef.current = pinned;
     const previousRows = React.useRef(new Map<string, HerdSpaceRow>());
     const sections = React.useMemo(() => {
-        const rows = buildSpaceRows(workspaces, expanded, searchQuery).map((row) => {
+        const rows = buildSpaceRows(workspaces, expanded, searchQuery, pinned).map((row) => {
             const previous = previousRows.current.get(row.workspace.workspaceId);
             return previous !== undefined && deepEqual(previous, row) ? previous : row;
         });
         previousRows.current = new Map(rows.map((row) => [row.workspace.workspaceId, row]));
-        return [{ key: 'spaces', title: t('spacesTree.title'), data: rows }];
-    }, [expanded, searchQuery, workspaces]);
-    const names = React.useMemo(() => displayedWorkspaceNames(sections[0]!.data), [sections]);
+        // Pinned cards lead under their own quiet label; with nothing pinned
+        // the list is exactly what it was before pins existed.
+        const pinnedRows = rows.filter((row) => pinned.has(row.workspace.workspaceId));
+        const spaces = { key: 'spaces', title: t('spacesTree.title'), data: rows };
+        if (pinnedRows.length === 0) return [spaces];
+        return [
+            { key: 'pinned', title: t('spacesTree.pinned'), data: pinnedRows },
+            { key: 'spaces', title: t('spacesTree.title'), data: rows.filter((row) => !pinned.has(row.workspace.workspaceId)) },
+        ].filter((section) => section.data.length > 0);
+    }, [expanded, pinned, searchQuery, workspaces]);
+    const names = React.useMemo(() => displayedWorkspaceNames(sections.flatMap((section) => section.data)), [sections]);
     const namesRef = React.useRef(names);
     namesRef.current = names;
     const previousChildNames = React.useRef(new Map<string, readonly string[]>());
     const childNames = React.useMemo(() => {
         const next = new Map<string, readonly string[]>();
-        for (const row of sections[0]!.data) {
+        for (const row of sections.flatMap((section) => section.data)) {
             const values = row.children.map((child) => names.get(child.workspace.workspaceId)!);
             const previous = previousChildNames.current.get(row.workspace.workspaceId);
             next.set(row.workspace.workspaceId, previous !== undefined && deepEqual(previous, values) ? previous : values);
@@ -950,9 +978,19 @@ export const SpacesTree = React.memo(({
 
     const workspaceActions = React.useCallback((workspace: HerdrTreeWorkspace) => {
         const name = namesRef.current.get(workspace.workspaceId)!;
-        showNameActions(name, 'Workspace', () => void renameInHerdr('workspace', workspace.workspaceId, workspace.label?.trim() || name),
-            { label: 'Close workspace', onPress: () => confirmCloseWorkspace(workspace) });
-    }, [confirmCloseWorkspace]);
+        const pinnedNow = pinnedRef.current.has(workspace.workspaceId);
+        // The app's action sheet is Modal.alert, and Android Alert renders at
+        // most three buttons — so this sheet carries exactly the pin action
+        // and, where closing is allowed, the close action, plus Cancel.
+        const actions: AlertButton[] = [{
+            text: pinnedNow ? 'Unpin' : 'Pin to top',
+            onPress: () => storage.getState().toggleSpacePin(workspace.workspaceId),
+        }];
+        if (canClose) actions.push({ text: 'Close workspace', style: 'destructive', onPress: () => confirmCloseWorkspace(workspace) });
+        const cancel: AlertButton = { text: 'Cancel', style: 'cancel' };
+        // Android lays buttons out left to right and keeps the last for the main action.
+        Modal.alert(name, 'Workspace', Platform.OS === 'android' ? [cancel, ...actions.reverse()] : [...actions, cancel]);
+    }, [canClose, confirmCloseWorkspace]);
 
     const paneActions = React.useCallback((pane: HerdrTreePane) => {
         showPaneActions(pane, pane.sessionId === undefined ? undefined : () => confirmClosePane(pane));
@@ -969,6 +1007,7 @@ export const SpacesTree = React.memo(({
                 panes={item.panes}
                 childSpaces={item.children}
                 searchForced={searching && item.children.length > 0}
+                pinned={pinned.has(item.workspace.workspaceId)}
                 // Stable handlers keep an unchanged card from re-rendering
                 // every time the list around it does.
                 onToggle={toggleWorkspace}
@@ -982,7 +1021,7 @@ export const SpacesTree = React.memo(({
                 unseenDoneSessionIds={unseenDoneSessionIds}
             />
         </View>
-    ), [canClose, childNames, compact, paneActions, workspaceActions, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
+    ), [canClose, childNames, compact, paneActions, pinned, workspaceActions, names, onNavigatePane, searching, selectedSessionId, stale, toggleChildWorkspace, toggleWorkspace, unseenDoneSessionIds]);
 
     if (loading === true) {
         return (

@@ -227,6 +227,15 @@ export function defaultExpandedSpaces(workspaces: HerdrTreeWorkspace[]): string[
 }
 
 /**
+ * Pins for workspaces no longer in the tree drop silently: the pin never
+ * shows and never matches a future workspace by accident.
+ */
+export function dropVanishedSpacePins(pins: readonly string[], workspaces: readonly HerdrTreeWorkspace[]): string[] {
+    const live = new Set(workspaces.map((ws) => ws.workspaceId));
+    return pins.filter((id) => live.has(id));
+}
+
+/**
  * Flatten the workspace tree into the Herd tab's spaces section: one card per
  * top-level workspace; expanded cards list EVERY pane, shells included — a
  * shell you cannot see is a shell you cannot close. A workspace with a
@@ -235,12 +244,16 @@ export function defaultExpandedSpaces(workspaces: HerdrTreeWorkspace[]): string[
  * level; with no lineage declared anywhere the list is flat, in Herdr's
  * creation order. A non-empty `searchQuery` filters cards to workspaces with
  * matching names or panes; a matching descendant keeps the chain above it,
- * and its card opens.
+ * and its card opens. `pinnedSpaceIds` is the one user-chosen exception to
+ * that order (spaces.md: "a place does not move" — pinning moves it because
+ * the reader said so): pinned cards lead, each group keeping creation order
+ * among itself, and a card joining them jumps, never animates.
  */
 export function buildSpaceRows(
     workspaces: HerdrTreeWorkspace[],
     expanded: ReadonlySet<string>,
     searchQuery: string,
+    pinnedSpaceIds?: ReadonlySet<string>,
 ): HerdSpaceRow[] {
     const query = searchQuery.trim().toLocaleLowerCase();
     const searching = query !== '';
@@ -270,6 +283,13 @@ export function buildSpaceRows(
         if (siblings === undefined) childrenOf.set(spawner, [ws]);
         else siblings.push(ws);
     }
+    const anyPinned = pinnedSpaceIds !== undefined && topLevel.some((ws) => pinnedSpaceIds.has(ws.workspaceId));
+    const orderedTopLevel = anyPinned
+        ? [
+              ...topLevel.filter((ws) => pinnedSpaceIds!.has(ws.workspaceId)),
+              ...topLevel.filter((ws) => !pinnedSpaceIds!.has(ws.workspaceId)),
+          ]
+        : topLevel;
 
     const shown = new Map<string, boolean>();
     const subtreeShown = (ws: HerdrTreeWorkspace): boolean => {
@@ -303,7 +323,7 @@ export function buildSpaceRows(
     };
 
     const rows: HerdSpaceRow[] = [];
-    for (const ws of topLevel) {
+    for (const ws of orderedTopLevel) {
         if (!subtreeShown(ws)) continue;
         const allPanes = ws.tabs.flatMap((tab) => tab.panes);
         const children = descendants(ws.workspaceId, 1, []);

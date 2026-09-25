@@ -153,6 +153,7 @@ vi.mock('../../catalog/application/storage', () => ({
             applySessions: harness.applySessions,
             deleteSession: (sessionId: string) => { delete harness.sessions[sessionId]; },
             applyHerdrTree: vi.fn(),
+            pruneSpacePins: vi.fn(),
             applyHomeSnapshot: vi.fn(),
             restoreHome: vi.fn(),
             markSessionsLoaded: () => { harness.sessionsLoaded = true; },
