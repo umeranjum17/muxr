@@ -18,6 +18,10 @@ function replaceSpoken(draft: string, shown: string, spoken: string): string {
 // Below this a recording is a mis-tap, not speech.
 const MIN_RECORDING_MS = 400;
 
+// How long a cancelled transcription can still be taken back. The reading
+// keeps going underneath, so Undo returns the whole transcript, not a part.
+export const DICTATION_UNDO_MS = 5000;
+
 export function useDictation(getText: () => string, setText: (text: string) => void, hint?: string) {
     const [recording, setRecording] = React.useState(false);
     const [transcribing, setTranscribing] = React.useState(false);
@@ -29,6 +33,9 @@ export function useDictation(getText: () => string, setText: (text: string) => v
     const [live, setLive] = React.useState('');
     const [pending, setPending] = React.useState<string | null>(null);
     const [finished, setFinished] = React.useState<string | null>(null);
+    // A cancelled transcription waiting out its undo window.
+    const [discarded, setDiscarded] = React.useState(false);
+    const discardRef = React.useRef<{ timer: ReturnType<typeof setTimeout>; heard: string; text: string | null } | null>(null);
     const startedAtRef = React.useRef(0);
     const stoppingRef = React.useRef(false);
     const sessionRef = React.useRef<LiveTranscription | null>(null);
@@ -46,6 +53,7 @@ export function useDictation(getText: () => string, setText: (text: string) => v
     }, []);
 
     React.useEffect(() => () => {
+        if (discardRef.current !== null) clearTimeout(discardRef.current.timer);
         transcriptionRef.current?.abort();
         const session = sessionRef.current;
         sessionRef.current = null;
@@ -124,6 +132,10 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         try {
             const text = await session.finish().finally(releaseDictation);
             if (signal?.aborted) return;
+            if (discardRef.current !== null) {
+                discardRef.current.text = text;
+                return;
+            }
             showSpoken(text);
             if (text) setPending(text);
             setFinished(null);
@@ -149,9 +161,41 @@ export function useDictation(getText: () => string, setText: (text: string) => v
     }, [recording, start, stop, transcribing]);
 
     const cancel = React.useCallback(() => {
-        transcriptionRef.current?.abort();
-        if (recording) void stop();
-    }, [recording, stop]);
+        if (recording) {
+            transcriptionRef.current?.abort();
+            void stop();
+            return;
+        }
+        if (!stoppingRef.current || discardRef.current !== null) return;
+        // Take the words out of the draft now, but let the reading finish so
+        // an Undo inside the window can put all of it back.
+        const heard = shownRef.current;
+        const controller = transcriptionRef.current;
+        const timer = setTimeout(() => {
+            discardRef.current = null;
+            setDiscarded(false);
+            controller?.abort();
+        }, DICTATION_UNDO_MS);
+        discardRef.current = { timer, heard, text: null };
+        showSpoken('');
+        setDiscarded(true);
+    }, [recording, stop, showSpoken]);
+
+    const undoCancel = React.useCallback(() => {
+        const held = discardRef.current;
+        if (held === null) return;
+        clearTimeout(held.timer);
+        discardRef.current = null;
+        setDiscarded(false);
+        if (held.text === null) {
+            // Still reading: show what was heard; the final reading replaces it.
+            showSpoken(held.heard);
+            return;
+        }
+        showSpoken(held.text);
+        shownRef.current = '';
+        if (held.text) setPending(held.text);
+    }, [showSpoken]);
 
     const accept = React.useCallback(() => {
         if (pending === null) return;
@@ -178,5 +222,5 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         setFinished(null);
     }, []);
 
-    return { recording, transcribing, level, live, pending, finished, accept, discard, clearFinished, toggle, cancel };
+    return { recording, transcribing, discarded, level, live, pending, finished, accept, discard, clearFinished, toggle, cancel, undoCancel };
 }

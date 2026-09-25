@@ -500,7 +500,7 @@ export const HomeDock = React.memo(({
     // the pill reads Dictating…, then Transcribing…, and the words land in
     // the prompt. Both Home composers share this one recording.
     const dictation = useComposerDictation(composerDraft.getText, composerDraft.setText);
-    const dictationActive = dictation.recording || dictation.transcribing;
+    const dictationActive = dictation.active;
     const dictationControl = { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' } as const;
     const dictateControl = { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' } as const;
     const { selectedImages, pickImages, removeImage, clearImages } = useImagePicker();

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
-import { useDictation } from '@/utils/dictation';
+import { DICTATION_UNDO_MS, useDictation } from '@/utils/dictation';
 import { applyWordReplacements, pcm16ChunksToArrayBuffer } from '@/utils/transcription';
 import { wakeAndReport } from '@/watch/wakeAndReport';
 import { usePluginEvents } from '@/plugins/events';
@@ -258,6 +258,43 @@ describe('on-device dictation flow', () => {
         expect(appended.at(-1)).toBe('hello');
         expect(api!.recording).toBe(false);
         expect(micOwners()).toEqual([]);
+
+        // A stop that registers twice lands its second tap on cancel inside
+        // the double-tap window, mid-reading. The words leave the draft, but
+        // the reading finishes underneath and Undo puts all of it back.
+        const stopTwice = async () => {
+            await act(async () => { api!.toggle(); });
+            await vi.advanceTimersByTimeAsync(0);
+            await act(async () => { await say(3); });
+            await act(async () => { api!.toggle(); });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(api!.transcribing).toBe(true);
+            await act(async () => { await vi.advanceTimersByTimeAsync(150); api!.cancel(); });
+            expect(api!.discarded).toBe(true);
+            expect(appended.at(-1)).toBe('hello');
+            await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+            expect(api!.transcribing).toBe(false);
+            expect(appended.at(-1)).toBe('hello');
+        };
+        // A real reading takes a while; the second tap comes well inside it.
+        const quick = mocks.transcribe.getMockImplementation()!;
+        mocks.transcribe.mockImplementation((data, options) => {
+            const reading = quick(data, options);
+            return { ...reading, promise: new Promise((resolve) => setTimeout(() => resolve(reading.promise), 600)) };
+        });
+        await stopTwice();
+        await act(async () => { api!.undoCancel(); });
+        expect(api!.discarded).toBe(false);
+        expect(appended.at(-1)).toMatch(/^hello one two three 4 five six\b/);
+
+        // Left alone, the cancel stands once the window closes.
+        await stopTwice();
+        await act(async () => { await vi.advanceTimersByTimeAsync(DICTATION_UNDO_MS); });
+        expect(api!.discarded).toBe(false);
+        await act(async () => { api!.undoCancel(); });
+        expect(appended.at(-1)).toBe('hello');
+        expect(micOwners()).toEqual([]);
+        mocks.transcribe.mockImplementation(quick);
     });
 
     it('starts notification Talk on the pane last used on the phone, not a stale desk focus', async () => {

@@ -18,7 +18,7 @@ export function useComposerDictation(getText: () => string, setText: (text: stri
     const dictation = useDictation(getText, setText);
     const { pending, accept } = dictation;
     React.useEffect(() => { if (pending !== null) accept(); }, [pending, accept]);
-    return dictation;
+    return { ...dictation, active: dictation.recording || dictation.transcribing || dictation.discarded };
 }
 
 type ComposerDictation = ReturnType<typeof useComposerDictation>;
@@ -75,6 +75,10 @@ export function DictateAction({ dictation, control, iconSize = 18 }: { dictation
  * Heard words replace the label as they settle; the newest stay in view and
  * older ones slide off the start. `showLive={false}` keeps the label for a
  * composer whose field stays visible and already shows the words.
+ *
+ * Stop sits at the trailing end and cancel at the leading one: a stop tap
+ * that lands twice puts its second tap on the label, never on cancel. And a
+ * cancel is a few seconds of Undo, not a loss.
  */
 export function DictationStrip({ dictation, control, showLive = true }: { dictation: ComposerDictation; control: ViewStyle; showLive?: boolean }) {
     const { theme } = useUnistyles();
@@ -91,13 +95,21 @@ export function DictationStrip({ dictation, control, showLive = true }: { dictat
             <Ionicons name="stop" size={13} color={theme.colors.status.error} />
         </Pressable>
     </Animated.View>;
+    if (dictation.discarded) return <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' }}>
+        <Text numberOfLines={1} accessibilityLiveRegion="polite" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 15, marginLeft: 14 }}>Dictation discarded</Text>
+        <Pressable onPress={dictation.undoCancel} accessibilityRole="button" accessibilityLabel="Undo discard"
+            accessibilityHint="Puts the dictated words back in the prompt"
+            style={({ pressed }) => ({ ...control, width: undefined, paddingHorizontal: 12, opacity: pressed ? 0.6 : 1 })}>
+            <Text style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600' }}>Undo</Text>
+        </Pressable>
+    </Animated.View>;
     if (dictation.transcribing) return <Animated.View entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)} style={{ flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' }}>
-        <TranscribingDots color={theme.colors.textSecondary} />
-        <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 15, marginLeft: 10 }}>{live || 'Transcribing…'}</Text>
         <Pressable onPress={dictation.cancel} accessibilityRole="button" accessibilityLabel="Cancel dictation"
             style={({ pressed }) => ({ ...control, opacity: pressed ? 0.6 : 1 })}>
             <Ionicons name="close" size={19} color={theme.colors.textSecondary} />
         </Pressable>
+        <TranscribingDots color={theme.colors.textSecondary} />
+        <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: theme.colors.textSecondary, fontSize: 15, marginLeft: 10, marginRight: 14 }}>{live || 'Transcribing…'}</Text>
     </Animated.View>;
     return null;
 }
