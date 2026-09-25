@@ -7,14 +7,10 @@ Most points are review judgement, not CI rules.
 
 ## 1. Ownership and dependency direction
 
-- Keep the module-first topology: domain is pure, application coordinates an
-  intent, infrastructure owns I/O, and the router (`app/`) or host/relay root
-  composes.
-- Across features and modules, import only the documented public entries.
-  Contract never imports crypto. The relay holds no keys.
-- A new bidirectional feature or module edge is a failed check, not a request
-  to widen the allowlist.
-- A stable route or key authorizes. A display name never does.
+- Follow the module-first topology, public entries and authorization rules in
+  [CONTRIBUTING.md](../CONTRIBUTING.md#architecture). A new bidirectional
+  feature or module edge is a failed check, not a request to widen the
+  allowlist.
 
 ## 2. Size is a review trigger, not a quota
 
@@ -23,15 +19,15 @@ Most points are review judgement, not CI rules.
   behavior.
 - Exempt: generated translations, contract and schema tables, declarative JSX,
   and composition modules where a split would hide a lifecycle.
-- Do not apply the limits retroactively, and never split a file only to meet a
-  number. Reducing state owners and branches beats moving lines around.
+- These are review prompts, never CI failures. Do not apply them retroactively
+  or split a file only to meet a number. Reducing state owners and branches
+  beats moving lines around.
 
 ## 3. Naming and design
 
-- Use `CONTEXT.md` terms. Name use cases for their intent in camelCase; name
-  component files in PascalCase.
-- One use case per real operation. No `services/`, `BaseEntity`, DI container,
-  single-method interface, compatibility shim or speculative configuration.
+- Follow the vocabulary, file naming and use-case rules in
+  [CONTRIBUTING.md](../CONTRIBUTING.md#architecture). Avoid speculative
+  interfaces and configuration.
 - Prefer built-ins and native behavior. When you replace code, delete the old
   code.
 
@@ -61,13 +57,9 @@ Most points are review judgement, not CI rules.
 
 ## 6. Checks and tests
 
-- Ordinary PRs run `yarn run check:fast`; run the full `yarn run check` when it
-  is safe to. Plain `yarn check` is Yarn's own, different command.
-- After native dependency changes, run the native-patch check
-  (`verifyNativePatches.mjs`) and the typecheck.
-- Default to zero new tests. For a credible shipped regression, add one real
-  flow across modules, extending an existing flow where you can. Crypto and
-  security keep their adversarial coverage.
+- Follow the checks and flow-test rules in
+  [CONTRIBUTING.md](../CONTRIBUTING.md#verify-before-you-push). Extend an
+  existing flow where it covers a credible shipped regression.
 - A test must go red when the behavior it claims to cover breaks. A skipped
   live-Herdr test does not count as a passing integration.
 
@@ -76,18 +68,11 @@ Most points are review judgement, not CI rules.
 - Keep the existing architecture ratchets and strict TypeScript.
 - Before widening import checks, add a negative fixture, built on the TypeScript
   AST already installed, for one real blind spot.
-- Duplicate and dead-export scanners may be trialled for information only, with
-  explicit route, plugin and public-API exemptions and a human-reviewed
-  baseline. Promote only the rules that prove low-noise.
+- Add no static-analysis dependencies for now. Use the installed TypeScript
+  AST first; trial duplicate and dead-export checks only with existing tools,
+  for information only, with explicit route, plugin and public-API exemptions
+  and a human-reviewed baseline. Promote only rules that prove low-noise.
 - No new blanket lint or size check until it prevents a real, repeated error.
-
-## Standing decisions
-
-- **Line limits do not fail CI.** 400 / 80 are review prompts. The exceptions
-  are real, and blanket quotas breed artificial indirection.
-- **No new static-analysis dependencies for now.** Use the installed TypeScript
-  AST first. Scanners such as knip or jscpd run only as non-blocking
-  measurements, and only if someone owns their exemptions.
-- **No mass rewrite of the existing mobile feature cycles.** The 11 pairs in
-  `apps/mobile/sources/architecture.spec.ts` are a ratchet that may only
-  shrink. Remove one pair per feature PR, verified at product level.
+- Do not mass-rewrite the 11 existing mobile feature cycle pairs in
+  `apps/mobile/sources/architecture.spec.ts`. Remove one pair per feature PR,
+  verified at product level.
