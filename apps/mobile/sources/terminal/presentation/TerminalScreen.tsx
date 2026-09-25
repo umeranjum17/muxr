@@ -302,7 +302,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // Dictation lives in the composer rail itself: one pill that reads
     // Dictating… then Transcribing…, then commits into the editable draft.
     const dictation = useComposerDictation(() => draftRef.current, setDraft);
-    const dictationActive = dictation.recording || dictation.transcribing;
+    const dictationActive = dictation.active;
     // Held in a ref so the link menu, built once, always inserts through the
     // current draft rather than a captured one.
     const insertDraftRef = React.useRef<(value: string) => void>(() => {});
