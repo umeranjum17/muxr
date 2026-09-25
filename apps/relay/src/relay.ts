@@ -1032,7 +1032,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     ...notification,
                     sessionId: body.sessionId,
                     machineId: machine.slug,
-                });
+                }, (deviceId) => localPairing!.isDeviceActive(deviceId));
                 writeJson(res, 200, { ok: true, ...outcome });
                 return;
             }

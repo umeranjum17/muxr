@@ -313,7 +313,7 @@ export class PushService {
     }
 
     /** Send every configured push channel for this account, coalescing concurrent retries. */
-    async notify(accountId: string, payload: PushPayload): Promise<{ sent: number; duplicate?: true }> {
+    async notify(accountId: string, payload: PushPayload, isDeviceActive?: (deviceId: string) => Promise<boolean>): Promise<{ sent: number; duplicate?: true }> {
         const key = `${accountId}\0${payload.eventId}`;
         this.deliveredEvents = boundDeliveredEvents(this.deliveredEvents);
         if (this.deliveredEvents.some((entry) => entry.accountId === accountId && entry.eventId === payload.eventId)) {
@@ -325,22 +325,30 @@ export class PushService {
         }
         const active = this.deliveries.get(key);
         if (active !== undefined) return active;
-        const delivery = this.deliver(accountId, payload).finally(() => this.deliveries.delete(key));
+        const delivery = this.deliver(accountId, payload, isDeviceActive).finally(() => this.deliveries.delete(key));
         this.deliveries.set(key, delivery);
         return delivery;
     }
 
-    private async deliver(accountId: string, payload: PushPayload): Promise<{ sent: number }> {
+    private async deliver(accountId: string, payload: PushPayload, isDeviceActive?: (deviceId: string) => Promise<boolean>): Promise<{ sent: number }> {
+        const list = this.subs[accountId] ?? [];
+        const expo = this.expoSubs[accountId] ?? [];
+        const activeDevices = new Map<string, boolean>();
+        if (isDeviceActive !== undefined) {
+            const ids = new Set([...list, ...expo].map((entry) => entry.deviceId).filter((id): id is string => id !== undefined));
+            await Promise.all([...ids].map(async (id) => activeDevices.set(id, await isDeviceActive(id))));
+        }
+        const active = (deviceId: string | undefined): boolean => isDeviceActive === undefined
+            || deviceId !== undefined && activeDevices.get(deviceId) === true;
         const title = payload.taskTitle ?? 'Agent update';
         const suffix = payload.kind === 'failed' && START_FAILURE_REASONS.has(payload.reasonCode)
             ? ' could not start.'
             : COPY_SUFFIX[payload.kind];
         const bodyText = `${payload.agentName}${suffix}`;
-        const list = this.subs[accountId] ?? [];
         // Level-filtered like Expo subs: a device that asked for important-only
         // never wakes for done noise.
-        const eligible = list.filter((entry) =>
-            lifecycleNotificationAllowed(entry.level ?? 'important', payload.kind));
+        const eligible = list.filter((entry) => active(entry.deviceId)
+            && lifecycleNotificationAllowed(entry.level ?? 'important', payload.kind));
         const body = JSON.stringify({ ...payload, title, body: bodyText, presentationOwner: 'relay-push' });
         const results = await Promise.allSettled(eligible.map((sub) => webpush.sendNotification(sub, body, { TTL: 24 * 60 * 60, urgency: payload.kind === 'blocked' ? 'high' : 'normal' })));
         const dead = eligible.filter((sub, index) => results[index]?.status === 'rejected' && isGone((results[index] as PromiseRejectedResult).reason));
@@ -349,9 +357,8 @@ export class PushService {
             this.subs[accountId] = list.filter((sub) => !gone.has(sub));
         }
 
-        const expo = this.expoSubs[accountId] ?? [];
-        const eligibleExpo = expo.filter((entry) =>
-            lifecycleNotificationAllowed(entry.level ?? 'important', payload.kind));
+        const eligibleExpo = expo.filter((entry) => active(entry.deviceId)
+            && lifecycleNotificationAllowed(entry.level ?? 'important', payload.kind));
         let expoSent = 0;
         if (eligibleExpo.length > 0) {
             try {
