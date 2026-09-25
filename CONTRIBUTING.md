@@ -69,7 +69,10 @@ yarn workspace @muxr/mobile typecheck
 
 ## Architecture
 
-Packages are module-first, not layer-first. Read
+Packages are module-first, not layer-first.
+[docs/engineering-guidelines.md](docs/engineering-guidelines.md) is the
+one-page review standard on top of the rules below: size triggers, errors at
+boundaries, lifecycle ownership and how automation grows. Read
 [packages/README.md](packages/README.md) for ownership and invariants,
 [packages/USE_CASES.md](packages/USE_CASES.md) to navigate by intent, and
 [CONTEXT.md](CONTEXT.md) for the glossary.
