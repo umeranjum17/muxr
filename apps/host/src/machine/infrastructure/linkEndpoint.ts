@@ -127,7 +127,7 @@ export class LinkEndpoint {
             const device = deviceId === undefined ? undefined : wanted.get(deviceId);
             const sameKey = device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key;
             if (device !== undefined && sameKey && (device.authority === 'observe' ? 'view' : 'control') === grant.role) {
-                enrolled.add(deviceId);
+                enrolled.add(device.deviceId);
                 continue;
             }
             await this.host.revoke(grant.id);
