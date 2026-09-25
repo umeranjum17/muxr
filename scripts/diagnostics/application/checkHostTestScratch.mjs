@@ -1,49 +1,49 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const prefix = 'muxr-host-test-';
 const base = tmpdir();
+const started = (pid) => {
+    try { return readFileSync(`/proc/${pid}/stat`, 'utf8').match(/^.*\) .*$/)?.[0].split(' ')[19]; }
+    catch { return undefined; }
+};
 for (const name of readdirSync(base)) {
     if (!name.startsWith(prefix)) continue;
     const path = join(base, name);
-    const pid = Number(name.slice(prefix.length).split('-')[0]);
-    if (!Number.isSafeInteger(pid)) continue;
-    try { process.kill(pid, 0); continue; } catch (error) { if (error.code !== 'ESRCH') continue; }
-    let ownerPid;
-    let childPid;
-    try {
-        [ownerPid, childPid] = readFileSync(join(path, 'owner'), 'utf8').trim().split(/\s+/).map(Number);
-    } catch { /* no child was started */ }
-    if (ownerPid !== pid) continue;
-    if (Number.isSafeInteger(childPid) && childPid > 0) {
-        try { process.kill(-childPid, 'SIGTERM'); } catch { /* no surviving child group */ }
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        try { process.kill(-childPid, 'SIGKILL'); } catch { /* group exited */ }
+    let pid;
+    let birth;
+    try { [pid, birth] = readFileSync(join(path, 'owner'), 'utf8').trim().split(' '); }
+    catch { continue; }
+    if (!/^[1-9]\d*$/.test(pid) || !name.startsWith(`${prefix}${pid}-`) || !birth) continue;
+    const current = started(Number(pid));
+    if (current === birth) continue;
+    if (current === undefined) {
+        try { process.kill(Number(pid), 0); continue; } catch (error) { if (error.code !== 'ESRCH') continue; }
     }
     rmSync(path, { recursive: true, force: true });
 }
 
 const root = mkdtempSync(join(base, `${prefix}${process.pid}-`));
-writeFileSync(join(root, 'owner'), `${process.pid}\n`);
-if (process.env.MUXR_TEST_SCRATCH_INJECT === '1') mkdirSync(join(root, 'leak-check-injected'));
-const child = spawn('npx', ['vitest', ...process.argv.slice(2)], {
-    stdio: 'inherit', detached: true, env: { ...process.env, TMPDIR: root },
-});
-writeFileSync(join(root, 'owner'), `${process.pid} ${child.pid}\n`);
+writeFileSync(join(root, 'owner'), `${process.pid} ${started(process.pid) ?? 'unknown'}`);
+const args = process.argv.slice(2);
+if (args[0] === '--') args.shift();
+const vitest = args[0] === 'npx' && args[1] === 'vitest';
+const child = spawn(args[0], args.slice(1), { stdio: 'inherit', env: { ...process.env, TMPDIR: root } });
 let signalExit;
 for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
     signalExit = signal === 'SIGINT' ? 130 : 143;
-    try { process.kill(-child.pid, signal); } catch { child.kill(signal); }
+    child.kill(signal);
+});
+child.once('error', (error) => {
+    process.stderr.write(`${error}\n`);
+    rmSync(root, { recursive: true, force: true });
+    process.exit(1);
 });
 child.once('exit', (code, signal) => {
-    const leftovers = readdirSync(root).filter((name) => /^(?:muxr-|desklink-|v-|leak-check-)/.test(name)).map((name) => join(root, name));
-    if (leftovers.length) {
-        process.stderr.write(`FAIL: host test scratch leftovers:\n${leftovers.join('\n')}\n`);
-        rmSync(root, { recursive: true, force: true });
-        process.exit(1);
-    }
+    const leftovers = readdirSync(root).filter((name) => name !== 'owner').map((name) => join(root, name));
+    if (vitest && leftovers.length) process.stderr.write(`FAIL: host test scratch leftovers:\n${leftovers.join('\n')}\n`);
     rmSync(root, { recursive: true, force: true });
-    process.exit(signalExit ?? code ?? (signal ? 1 : 0));
+    process.exit(vitest && leftovers.length ? 1 : signalExit ?? code ?? (signal ? 1 : 0));
 });

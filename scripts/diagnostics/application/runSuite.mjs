@@ -8,8 +8,8 @@
  * from the one developers can run, and then nobody knows what green means.
  */
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // The herdr check drives a live herdr server through the real host. Without one
@@ -126,15 +126,34 @@ function run(name, cmd, args, timeoutMs = 150000) {
         }
         const wrappedVitest = cmd === 'npx' && args[0] === 'vitest';
         if (wrappedVitest) env.NODE_ENV = 'test';
-        const child = spawn(wrappedVitest ? process.execPath : cmd,
-            wrappedVitest ? ['scripts/diagnostics/application/checkHostTestScratch.mjs', ...args.slice(1)] : args,
-            { stdio: ['ignore', 'pipe', 'pipe'], env });
+        const wrapped = wrappedVitest || cmd === 'node';
+        const child = spawn(wrapped ? process.execPath : cmd,
+            wrapped ? ['scripts/diagnostics/application/checkHostTestScratch.mjs', '--', cmd, ...args] : args,
+            { stdio: ['ignore', 'pipe', 'pipe'], env, detached: wrapped });
         let out = '';
         child.stdout.on('data', (d) => { out += d; });
         child.stderr.on('data', (d) => { out += d; });
-        const timer = setTimeout(() => child.kill(wrappedVitest ? 'SIGTERM' : 'SIGKILL'), timeoutMs);
+        let escalation;
+        let timedOut = false;
+        const killGroup = (signal) => {
+            try { process.kill(-child.pid, signal); } catch {}
+        };
+        const timer = setTimeout(() => {
+            timedOut = true;
+            if (wrapped) {
+                killGroup('SIGTERM');
+                escalation = setTimeout(() => killGroup('SIGKILL'), 2000);
+            } else child.kill('SIGKILL');
+        }, timeoutMs);
         child.on('exit', (code) => {
             clearTimeout(timer);
+            if (timedOut && wrapped) {
+                killGroup('SIGKILL');
+                for (const entry of readdirSync(tmpdir())) {
+                    if (entry.startsWith(`muxr-host-test-${child.pid}-`)) rmSync(join(tmpdir(), entry), { recursive: true, force: true });
+                }
+            }
+            clearTimeout(escalation);
             const ms = Date.now() - started;
             results.push({ name, code: code ?? 1, ms, out });
             const mark = code === 0 ? 'PASS' : 'FAIL';

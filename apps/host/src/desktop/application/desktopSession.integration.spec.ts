@@ -341,7 +341,7 @@ describe('desktop sessions, host side', () => {
     }, 20_000);
 
     it('allows control on an X11 host that has no uinput access, configured or found on its own', async () => {
-        const directory = mkdtempSync(join(process.cwd(), 'x-'));
+        const directory = mkdtempSync(join(tmpdir(), 'x-'));
         const scriptPath = join(directory, 'engine.cjs');
         const log = join(directory, 'received.jsonl');
         const runtime = join(directory, 'run');
@@ -395,7 +395,7 @@ describe('desktop sessions, host side', () => {
     }, 20_000);
 
     it('discovers only the host account’s X socket while honoring explicit displays', async () => {
-        const directory = mkdtempSync(join(process.cwd(), 'x-'));
+        const directory = mkdtempSync(join(tmpdir(), 'x-'));
         const socket = createServer();
         const uid = process.getuid!();
         const hostUid = vi.spyOn(process, 'getuid');
@@ -444,7 +444,7 @@ describe('desktop sessions, host side', () => {
     }, 20_000);
 
     it('updates desktop permissions as a headless X display starts and stops', async () => {
-        const directory = mkdtempSync(join(process.cwd(), 'x-'));
+        const directory = mkdtempSync(join(tmpdir(), 'x-'));
         const socket = createServer();
         const script = join(directory, 'engine.cjs');
         const log = join(directory, 'received.jsonl');
