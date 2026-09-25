@@ -17,6 +17,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, sealRelease, verifyRelease } from '../../release/index.mjs';
 
 const root = process.cwd();
@@ -570,8 +571,17 @@ try {
         cwd: installDir,
         env: { ...process.env, npm_config_cache: join(scratch, 'npm-cache') },
     });
-    const installedDesklink = JSON.parse(readFileSync(join(installDir, 'node_modules', '@desklink', 'host', 'package.json'), 'utf8'));
+    const installedDesklinkRoot = join(installDir, 'node_modules', '@desklink', 'host');
+    const installedDesklink = JSON.parse(readFileSync(join(installedDesklinkRoot, 'package.json'), 'utf8'));
     assert.equal(installedDesklink.version, packageJson.dependencies['@desklink/host']);
+    if (process.platform === 'linux' && process.arch === 'x64') {
+        const { resolveEngine } = await import(pathToFileURL(join(installedDesklinkRoot, installedDesklink.main)).href);
+        const engine = resolveEngine('');
+        assert.ok(engine, 'installed @desklink/host did not resolve an engine');
+        assert.equal(engine.origin, 'prebuilt', 'installed @desklink/host did not resolve its prebuilt engine');
+        const executable = statSync(engine.command);
+        assert.ok(executable.isFile() && (executable.mode & 0o111) !== 0, 'installed desklink prebuilt is not executable');
+    }
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
     const installedPlugins = join(installedPackage, 'plugins');

@@ -17,6 +17,7 @@ import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/audit.mjs';
 import { releaseCompatibility } from './repairHost.mjs';
+import { desktopHostOfSource } from './requireDesktopEngine.mjs';
 import { distribution } from '../domain/channel.mjs';
 
 const require = createRequire(import.meta.url);
@@ -33,6 +34,10 @@ const releaseMetadata = { ...release, commit, sourceTree, sourceDirty };
 // The desktop engine is a dependency, not inlined: installing muxr installs
 // @desklink/host, whose optional platform package carries the prebuilt engine.
 const desklinkHost = require(join(root, 'node_modules', '@desklink', 'host', 'package.json'));
+const desklinkPin = desktopHostOfSource(root);
+if (desklinkHost.version !== desklinkPin) {
+    throw new Error(`@desklink/host installed version ${desklinkHost.version} differs from apps/host/package.json pin ${desklinkPin}; reinstall dependencies before packing`);
+}
 const hostPackage = require(join(root, 'apps', 'host', 'package.json'));
 // The link loads libsodium's native addon, which cannot be bundled: install it.
 const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', 'web-push': '^3.6.7', 'bonjour-service': '^1.4.4', '@desklink/host': desklinkHost.version,
