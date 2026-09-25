@@ -37,6 +37,7 @@ export type SshTunnelErrorCode = 'ssh-unreachable' | 'ssh-auth' | 'ssh-host-key'
 
 interface SshTunnelNative {
     openTunnel: (config: SshTunnelConfig) => Promise<SshTunnelHandle>;
+    verifyCredentials: (config: SshTunnelConfig) => Promise<{ hostKey: string }>;
     execCommand: (config: SshTunnelConfig, command: string) => Promise<SshCommandResult>;
     closeTunnel: () => Promise<void>;
     tunnelPort: () => number;
@@ -74,6 +75,17 @@ export async function openSshTunnel(config: SshTunnelConfig): Promise<SshTunnelH
     if (module === null) throw new SshTunnelError('ssh-unsupported', 'this build has no SSH support');
     try {
         return await module.openTunnel(config);
+    } catch (error) {
+        throw SshTunnelError.from(error);
+    }
+}
+
+/** Sign in on a throwaway connection, leaving any live tunnel untouched. */
+export async function verifySshCredentials(config: SshTunnelConfig): Promise<{ hostKey: string }> {
+    const module = nativeModule();
+    if (module === null) throw new SshTunnelError('ssh-unsupported', 'this build has no SSH support');
+    try {
+        return await module.verifyCredentials(config);
     } catch (error) {
         throw SshTunnelError.from(error);
     }

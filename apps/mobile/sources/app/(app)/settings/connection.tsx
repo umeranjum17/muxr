@@ -24,6 +24,7 @@ import {
     forgetSshCredential,
     hasSshCredential,
     saveSshCredential,
+    verifySshCredential,
     savedSshPublicKey,
     sshTunnelAvailable,
     stopSshTunnel,
@@ -357,6 +358,8 @@ export default function ConnectionSettingsScreen() {
         setSshSaving(true);
         try {
             if (Object.keys(parsed.credential).length > 0) {
+                // Sign in with what was typed before it replaces the saved credential.
+                await verifySshCredential(target, parsed.credential);
                 await saveSshCredential(initial.machineId, parsed.credential);
             }
             const next = { ...initial, ssh: target };

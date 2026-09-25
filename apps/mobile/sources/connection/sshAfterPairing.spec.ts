@@ -22,11 +22,16 @@ vi.mock('@/pairing/secrets', () => secrets);
 
 const tunnel = vi.hoisted(() => ({
     openSshTunnel: vi.fn(),
+    closeSshTunnel: vi.fn(),
+    verifySshCredentials: vi.fn(),
+    livePort: 0,
 }));
 vi.mock('../../modules/ssh-tunnel', () => ({
     isSshTunnelSupported: () => true,
     openSshTunnel: tunnel.openSshTunnel,
-    closeSshTunnel: vi.fn(),
+    closeSshTunnel: tunnel.closeSshTunnel,
+    verifySshCredentials: tunnel.verifySshCredentials,
+    sshTunnelPort: () => tunnel.livePort,
     SshTunnelError: class extends Error {
         constructor(readonly code: string, message: string) { super(message); }
         static from(error: unknown) { return error as any; }
@@ -156,6 +161,28 @@ describe('SSH tunnel established before pairing', () => {
         const result = await establishSshTunnel(FIELDS);
         expect(result.ok).toBe(false);
         expect(result.ok === false && result.message).toContain('refused these credentials');
+    });
+
+    it('re-pairing over a live tunnel still signs in with the new key, and a bad one fails without touching that tunnel', async () => {
+        // The native side reuses a live tunnel by endpoint alone, so opening it
+        // "succeeds" whatever key was typed.
+        tunnel.livePort = 8792;
+        tunnel.openSshTunnel.mockResolvedValue({ localPort: 8792, hostKey: 'SHA256:abc' });
+        tunnel.openSshTunnel.mockClear();
+        tunnel.verifySshCredentials.mockRejectedValueOnce(Object.assign(new Error('rejected'), { code: 'ssh-auth' }));
+
+        const stale = await establishSshTunnel({ ...FIELDS, password: '', privateKey: 'stale-key' });
+
+        expect(stale.ok).toBe(false);
+        expect(stale.ok === false && stale.message).toContain('refused these credentials');
+        expect(tunnel.verifySshCredentials).toHaveBeenCalledWith(expect.objectContaining({ privateKey: 'stale-key' }));
+        expect(tunnel.openSshTunnel).not.toHaveBeenCalled();
+        expect(tunnel.closeSshTunnel).not.toHaveBeenCalled();
+
+        tunnel.verifySshCredentials.mockResolvedValueOnce({ hostKey: 'SHA256:abc' });
+        expect(await establishSshTunnel(FIELDS)).toEqual({ ok: true, localPort: 8792, hostKey: 'SHA256:abc' });
+        tunnel.livePort = 0;
+        tunnel.openSshTunnel.mockReset();
     });
 
     it('rewrites the pairing URL through the tunnel and leaves other URLs untouched', () => {
