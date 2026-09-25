@@ -223,8 +223,7 @@ class VoiceOverlayModule : Module() {
       eventKey: String,
       voiceState: String,
       voiceName: String,
-      muted: Boolean,
-      agents: List<Map<String, Any?>> ->
+      notification: Map<String, Any?> ->
       val context = context() ?: return@Function false
       VoiceOverlayService.updateNotification(
         context,
@@ -234,8 +233,8 @@ class VoiceOverlayModule : Module() {
         eventKey,
         voiceState,
         voiceName,
-        muted,
-        agents,
+        notification["muted"] as? Boolean ?: false,
+        notification["agents"] as? List<Map<String, Any?>> ?: emptyList(),
       )
     }
 
