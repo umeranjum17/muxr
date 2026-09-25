@@ -4,13 +4,12 @@ import { gzipSync } from 'node:zlib';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { parseNpmSpec, readNpmArchive, installPlugin, updatePlugin, removePlugin, listPlugins } from '../../plugin/index.mjs';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-package-lifecycle-'));
-const homeParent = mkdtempSync(join(homedir(), '.muxr-package-lifecycle-'));
-const home = join(homeParent, 'home');
+const home = join(scratch, 'home');
 const bin = join(scratch, 'bin');
 const statePath = join(scratch, 'herdr.json');
 const logPath = join(scratch, 'herdr.log');
@@ -282,4 +281,4 @@ try {
     assert.equal(lstatSync(outside).isDirectory(), true, 'managed-directory checks followed an outside symlink');
 
     process.stdout.write('package lifecycle smoke passed\n');
-} finally { rmSync(scratch, { recursive: true, force: true }); rmSync(homeParent, { recursive: true, force: true }); }
+} finally { rmSync(scratch, { recursive: true, force: true }); }
