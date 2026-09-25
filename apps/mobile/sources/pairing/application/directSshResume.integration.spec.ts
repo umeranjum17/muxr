@@ -97,7 +97,7 @@ describe('an interrupted Direct SSH pairing', () => {
     it('resumes with the same code inside the window and ends with an uninterrupted pairing\'s authority', async () => {
         const relay = new SelfhostPairing(mkdtempSync(join(tmpdir(), 'muxr-resume-')));
         const code = await muxrPair(relay);
-        const drop = { claim: true };
+        const drop: Parameters<typeof tunnel>[1] = { claim: true };
         const calls = tunnel(relay, drop);
 
         await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
