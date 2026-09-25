@@ -891,7 +891,7 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
  *  projection only reshapes what the collection measured; it measures nothing
  *  of its own, so the card's compact figures and every tab's detailed ones are
  *  the same figures by construction. */
-function project(raw: RawCollection, selected: string, nowMs: number, stale = false): UsageReport {
+function project(raw: RawCollection, selected: string, nowMs: number): UsageReport {
     const { plans, providerIds, reports } = raw;
     const claudeVMs = plans.claude ?? [];
     const codex = plans.codex ?? [];
@@ -963,7 +963,6 @@ function project(raw: RawCollection, selected: string, nowMs: number, stale = fa
         // first: the Home card's strip reads this instead of re-deriving every
         // tab's state from a payload that answers for one tab.
         ...(raw.connected.length === 0 ? {} : { connected: raw.connected }),
-        ...(stale ? { stale: true as const } : {}),
     };
     return withAge(output, nowMs);
 }

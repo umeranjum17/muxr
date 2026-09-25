@@ -893,6 +893,11 @@ describe('the usage screen read path', () => {
             limits: { verdict: 'go', windows: [] }, connected: claudePlan(18), capturedAt: '2025-12-31T00:00:00Z', ageSeconds: 0,
         }) });
         expect(lastKnownPlan('claude')?.windows[0]?.used).toBe(40);
+        const retained = shownUsage('newer');
+        rememberShown('newer', { status: 'figures', at: Date.now(), figures: withReport(retained?.status === 'figures' ? retained.figures : undefined, {
+            ...report('claude', 0), connected: claudePlan(18), capturedAt: '2025-12-30T00:00:00Z',
+        }) });
+        expect(lastKnownPlan('claude')?.windows[0]?.used).toBe(40);
         noteAsked('claude', Date.now());
         rememberShown('claude', { status: 'unavailable', reason: 'rate limited' });
         const claude = renderScreen();
@@ -1186,11 +1191,16 @@ describe('the usage screen read path', () => {
 
     it('names a failed refresh at the control rather than passing it off as success', async () => {
         noteAsked('', Date.now());
-        rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: { ...withReport(undefined, report('claude', 0)), ageAt: Date.now() - 600_000 } });
+        const initial = withReport(undefined, report('claude', 0));
+        rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: {
+            ...initial, activity: { ...initial.activity!, ageAt: Date.now() - 600_000 }, ageAt: Date.now() - 600_000,
+        } });
         const held = shownUsage('');
         rememberShown('', { status: 'figures', at: Date.now(), figures: withReport(held?.status === 'figures' ? held.figures : undefined, {
-            ...report('claude', 0), capturedAt: new Date(Date.now() - 720_000).toISOString(),
+            ...report('claude', 600), capturedAt: new Date(Date.now() - 720_000).toISOString(),
         }) });
+        const mixed = shownUsage('');
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(mixed?.status === 'figures' ? mixed.figures : undefined, collected(0, 20, new Date(Date.now() + 1_000).toISOString())) });
         request.mockRejectedValue(new Error('host unreachable'));
         const screen = renderScreen();
         await tick();
