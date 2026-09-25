@@ -1191,7 +1191,9 @@ describe('the usage screen read path', () => {
 
     it('names a failed refresh at the control rather than passing it off as success', async () => {
         noteAsked('', Date.now());
-        const initial = withReport(undefined, report('claude', 0));
+        const initial = withReport(undefined, { ...report('claude', 72_000), capturedAt: new Date().toISOString() });
+        expect(initial.ageSeconds).toBe(72_000);
+        expect(initial.activity?.ageSeconds).toBe(0);
         rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: {
             ...initial, activity: { ...initial.activity!, ageAt: Date.now() - 600_000 }, ageAt: Date.now() - 600_000,
         } });
@@ -1214,7 +1216,7 @@ describe('the usage screen read path', () => {
         // looking exactly like a refresh that worked.
         expect(screenText(screen)).toContain('OpenCode');
         expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
-        expect(screenText(screen)).toContain('time.minutesAgo(10)');
+        expect(screenText(screen)).toContain('time.minutesAgo(12)');
         expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
     });
 

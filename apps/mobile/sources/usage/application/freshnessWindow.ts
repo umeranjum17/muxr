@@ -144,6 +144,8 @@ export function withNow(previous: UsageFigures | undefined, value: UsageNow): Us
 /** The figures a usage.report read answers for: the whole window list, the tab
  *  list and the activity. It cannot speak for the machine facts. */
 export function withReport(previous: UsageFigures | undefined, value: UsageReport): UsageFigures {
+    const now = Date.now();
+    const activityCapturedAt = Date.parse(value.capturedAt);
     return mergeFigures(previous, {
         limits: value.limits,
         windows: value.limits.windows,
@@ -159,13 +161,13 @@ export function withReport(previous: UsageFigures | undefined, value: UsageRepor
             weekTokens: value.weekTokens,
             weekCost: value.weekCost,
             weekSeries: value.weekSeries,
-            ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds, ageAt: Date.now() }),
+            ...(Number.isFinite(activityCapturedAt) ? { ageSeconds: Math.max(0, (now - activityCapturedAt) / 1_000), ageAt: now } : {}),
             ...(value.activityNotice === undefined ? {} : { activityNotice: value.activityNotice }),
             ...(value.noProvidersTitle === undefined ? {} : { noProvidersTitle: value.noProvidersTitle }),
             ...(value.noProviders === undefined ? {} : { noProviders: value.noProviders }),
         },
         connected: value.connected,
-        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds, ageAt: Date.now() }),
+        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds, ageAt: now }),
         ...(value.capturedAt === undefined ? {} : { capturedAt: value.capturedAt }),
     });
 }
