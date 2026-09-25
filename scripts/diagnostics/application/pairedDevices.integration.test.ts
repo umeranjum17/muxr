@@ -28,7 +28,7 @@ const scratch: string[] = [];
 
 // A live deployment exports these; inherited, they aim the lab at real services.
 const labEnv = (home: string): NodeJS.ProcessEnv => {
-    const env = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1' };
+    const env: NodeJS.ProcessEnv = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1' };
     for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'RELAY_PORT', 'MODE', 'DATA_DIR']) delete env[`MUXR_${key}`];
     return env;
 };
