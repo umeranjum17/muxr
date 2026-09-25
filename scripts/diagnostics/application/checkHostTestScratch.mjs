@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { processStart, reclaimScratch } from './testScratchOwner.mjs';
+import { processStart, reclaimScratch, scratchUnused } from './testScratchOwner.mjs';
 
 const base = tmpdir();
 reclaimScratch(base);
@@ -22,12 +22,17 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
 });
 child.once('error', (error) => {
     process.stderr.write(`${error}\n`);
-    rmSync(root, { recursive: true, force: true });
+    if (scratchUnused(root)) rmSync(root, { recursive: true, force: true });
     process.exit(1);
 });
 child.once('exit', (code, signal) => {
-    const leftovers = readdirSync(root).filter((name) => name !== 'owner').map((name) => join(root, name));
-    if (vitest && leftovers.length) process.stderr.write(`FAIL: host test scratch leftovers:\n${leftovers.join('\n')}\n`);
-    rmSync(root, { recursive: true, force: true });
-    process.exit(vitest && leftovers.length ? 1 : signalExit ?? code ?? (signal ? 1 : 0));
+    const finish = () => {
+        const unused = scratchUnused(root);
+        const leftovers = readdirSync(root).filter((name) => name !== 'owner').map((name) => join(root, name));
+        if (vitest && unused && leftovers.length) process.stderr.write(`FAIL: host test scratch leftovers:\n${leftovers.join('\n')}\n`);
+        if (unused) rmSync(root, { recursive: true, force: true });
+        process.exit(vitest && unused && leftovers.length ? 1 : signalExit ?? code ?? (signal ? 1 : 0));
+    };
+    if (signalExit === 143) setTimeout(finish, 2500);
+    else finish();
 });

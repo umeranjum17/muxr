@@ -11,6 +11,9 @@ try {
     const npx = join(bin, 'npx');
     writeFileSync(npx, '#!/usr/bin/env node\nimport { mkdirSync } from "node:fs";\nimport { join } from "node:path";\nmkdirSync(join(process.env.TMPDIR, "leak-check-injected"));\n');
     chmodSync(npx, 0o755);
+    const lsof = join(bin, 'lsof');
+    writeFileSync(lsof, '#!/bin/sh\nexit 1\n');
+    chmodSync(lsof, 0o755);
     const env = { ...process.env, TMPDIR: base, PATH: `${bin}:${process.env.PATH}` };
     const wrapper = 'scripts/diagnostics/application/checkHostTestScratch.mjs';
     const failure = spawnSync(process.execPath, [wrapper, '--', 'npx', 'vitest', 'run'], { env, encoding: 'utf8' });

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync, readdirSync, readlinkSync, realpathSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 export function processStart(pid) {
@@ -11,21 +11,8 @@ export function processStart(pid) {
 }
 
 export function scratchUnused(root) {
-    if (process.platform === 'darwin') {
-        const result = spawnSync('lsof', ['-n', '+D', root], { encoding: 'utf8' });
-        return result.status === 1 && !result.stderr;
-    }
-    if (process.platform !== 'linux') return false;
-    try {
-        const path = realpathSync(root);
-        for (const pid of readdirSync('/proc').filter((entry) => /^\d+$/.test(entry))) {
-            for (const entry of ['cwd', ...readdirSync(`/proc/${pid}/fd`).map((fd) => `fd/${fd}`)]) {
-                const target = readlinkSync(`/proc/${pid}/${entry}`);
-                if (target === path || target.startsWith(`${path}/`)) return false;
-            }
-        }
-        return true;
-    } catch { return false; }
+    const result = spawnSync('lsof', ['-n', '+D', root], { encoding: 'utf8' });
+    return result.status === 1 && !result.stderr;
 }
 
 export function reclaimScratch(base) {
