@@ -213,9 +213,9 @@ export function pinSshHostKey(previous: SshTarget | undefined, next: SshTarget):
  * old tunnel and looks fine until that tunnel drops. The live tunnel is never
  * touched, so a failure here leaves a working route as it was.
  */
-export async function verifySshCredential(target: SshTarget, credential: SshCredential): Promise<void> {
+export async function verifySshCredential(target: SshTarget, credential: SshCredential): Promise<string> {
     try {
-        await verifySshCredentials({
+        const { hostKey } = await verifySshCredentials({
             host: target.host,
             port: target.port,
             username: target.username,
@@ -226,6 +226,7 @@ export async function verifySshCredential(target: SshTarget, credential: SshCred
             remoteHost: '127.0.0.1',
             remotePort: target.relayPort,
         });
+        return hostKey;
     } catch (error) {
         throw describe(error instanceof SshTunnelError ? error : SshTunnelError.from(error), target);
     }
@@ -244,7 +245,7 @@ export async function establishSshTunnel(input: SshFieldInput): Promise<{ ok: tr
     const parsed = parseSshFields(input);
     if ('error' in parsed) return { ok: false, message: parsed.error };
     try {
-        if (sshTunnelPort() > 0) await verifySshCredential(parsed.target, parsed.credential);
+        const verifiedHostKey = await verifySshCredential(parsed.target, parsed.credential);
         const handle = await openSshTunnel({
             host: parsed.target.host,
             port: parsed.target.port,
@@ -257,6 +258,7 @@ export async function establishSshTunnel(input: SshFieldInput): Promise<{ ok: tr
             remotePort: parsed.target.relayPort,
             localPort: parsed.target.relayPort,
         });
+        if (handle.hostKey !== verifiedHostKey) throw describe(new SshTunnelError('ssh-host-key', 'the SSH host key changed'), parsed.target);
         return { ok: true, localPort: handle.localPort, hostKey: handle.hostKey };
     } catch (error) {
         if (error instanceof SshConnectionError) return { ok: false, message: error.message };

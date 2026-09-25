@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /*
  * Flow test for the SSH route's payoff: once the pairing grant lands, the
@@ -61,6 +61,12 @@ function pairAs(selfhost: boolean | undefined, machineId: string) {
         ...(selfhost === undefined ? {} : { selfhost }),
     });
 }
+
+beforeEach(() => {
+    tunnel.livePort = 0;
+    tunnel.verifySshCredentials.mockReset();
+    tunnel.verifySshCredentials.mockResolvedValue({ hostKey: 'SHA256:abc' });
+});
 
 const FIELDS = {
     host: 'box.lan',
@@ -147,6 +153,7 @@ describe('SSH tunnel established before pairing', () => {
         const result = await establishSshTunnel(FIELDS);
 
         expect(result).toEqual({ ok: true, localPort: 8792, hostKey: 'SHA256:abc' });
+        expect(tunnel.verifySshCredentials).toHaveBeenCalledWith(expect.objectContaining({ host: 'box.lan', password: 'hunter2' }));
         expect(tunnel.openSshTunnel).toHaveBeenCalledWith(expect.objectContaining({
             host: 'box.lan',
             port: 22,
@@ -163,12 +170,10 @@ describe('SSH tunnel established before pairing', () => {
         expect(result.ok === false && result.message).toContain('refused these credentials');
     });
 
-    it('re-pairing over a live tunnel still signs in with the new key, and a bad one fails without touching that tunnel', async () => {
-        // The native side reuses a live tunnel by endpoint alone, so opening it
-        // "succeeds" whatever key was typed.
-        tunnel.livePort = 8792;
+    it('re-pairing verifies the new key even if a tunnel opens concurrently, without disturbing a live route on failure', async () => {
         tunnel.openSshTunnel.mockResolvedValue({ localPort: 8792, hostKey: 'SHA256:abc' });
         tunnel.openSshTunnel.mockClear();
+        tunnel.closeSshTunnel.mockClear();
         tunnel.verifySshCredentials.mockRejectedValueOnce(Object.assign(new Error('rejected'), { code: 'ssh-auth' }));
 
         const stale = await establishSshTunnel({ ...FIELDS, password: '', privateKey: 'stale-key' });
@@ -179,9 +184,14 @@ describe('SSH tunnel established before pairing', () => {
         expect(tunnel.openSshTunnel).not.toHaveBeenCalled();
         expect(tunnel.closeSshTunnel).not.toHaveBeenCalled();
 
-        tunnel.verifySshCredentials.mockResolvedValueOnce({ hostKey: 'SHA256:abc' });
+        tunnel.livePort = 8792;
+        tunnel.verifySshCredentials.mockResolvedValueOnce({ hostKey: 'SHA256:new' });
+        const changedHost = await establishSshTunnel(FIELDS);
+        expect(changedHost.ok).toBe(false);
+        expect(changedHost.ok === false && changedHost.message).toContain('SSH host key');
+        expect(tunnel.closeSshTunnel).not.toHaveBeenCalled();
+
         expect(await establishSshTunnel(FIELDS)).toEqual({ ok: true, localPort: 8792, hostKey: 'SHA256:abc' });
-        tunnel.livePort = 0;
         tunnel.openSshTunnel.mockReset();
     });
 
