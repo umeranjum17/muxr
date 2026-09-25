@@ -13,6 +13,7 @@ export interface LinkEndpointOptions {
     ownerToken: string;
     machineName: string;
     crypto: MachineCryptoState;
+    currentCrypto: () => MachineCryptoState | undefined;
     answer: LinkAnswer;
     onStatus?: (status: string) => void;
 }
@@ -30,7 +31,16 @@ const muxrDeviceIdOf = (grant: Grant): string | undefined => {
  * clock yet, so they stay on the relay transport, which does.
  */
 function linkDevices(crypto: MachineCryptoState, now: number): MachineDeviceRecord[] {
-    return crypto.devices.filter((device) => device.kind === undefined && Date.parse(device.expiresAt) > now);
+    return crypto.devices.filter((device) => device.kind === undefined && device.deviceId !== crypto.pendingRotation?.revokedDeviceId
+        && Date.parse(device.expiresAt) > now);
+}
+
+function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean {
+    if (crypto === undefined) return false;
+    const deviceId = muxrDeviceIdOf(grant);
+    const device = linkDevices(crypto, Date.now()).find((entry) => entry.deviceId === deviceId);
+    return device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key
+        && (device.authority === 'observe' ? 'view' : 'control') === grant.role;
 }
 
 /**
@@ -45,7 +55,8 @@ function linkDevices(crypto: MachineCryptoState, now: number): MachineDeviceReco
 export class LinkEndpoint {
     private synced: Promise<void> = Promise.resolve();
 
-    private constructor(private readonly host: Host, private readonly client: RelayClient) {}
+    private constructor(private readonly host: Host, private readonly client: RelayClient,
+        private readonly currentCrypto: () => MachineCryptoState | undefined) {}
 
     static async open(options: LinkEndpointOptions): Promise<LinkEndpoint | undefined> {
         const keys = keyPairFrom(Buffer.from(options.crypto.boxSecretKey, 'base64'));
@@ -61,11 +72,13 @@ export class LinkEndpoint {
             // enrolled from this machine's own device records.
             confirm: () => false,
             handle: async (req, grant) => {
-                const deviceId = muxrDeviceIdOf(grant);
-                if (deviceId === undefined) throw new Error('link: grant without a muxr device');
+                if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
+                const deviceId = muxrDeviceIdOf(grant)!;
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) throw new Error('link: request op does not match its frame');
-                return options.answer(frame, deviceId);
+                const response = await options.answer(frame, deviceId);
+                if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
+                return response;
             },
         });
         const client = new RelayClient(host, {
@@ -74,7 +87,7 @@ export class LinkEndpoint {
             ...(enrol === undefined ? {} : { enrol }),
             ...(options.onStatus === undefined ? {} : { onStatus: options.onStatus }),
         });
-        const endpoint = new LinkEndpoint(host, client);
+        const endpoint = new LinkEndpoint(host, client, options.currentCrypto);
         await endpoint.sync(options.crypto);
         return endpoint;
     }
@@ -88,7 +101,8 @@ export class LinkEndpoint {
     }
 
     broadcast(frame: HostFrame): void {
-        this.host.broadcast(frame);
+        const crypto = this.currentCrypto();
+        this.host.broadcast(frame, (grant) => trusted(grant, crypto));
     }
 
     close(): void {
@@ -103,7 +117,7 @@ export class LinkEndpoint {
             const deviceId = muxrDeviceIdOf(grant);
             const device = deviceId === undefined ? undefined : wanted.get(deviceId);
             const sameKey = device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key;
-            if (deviceId !== undefined && sameKey) {
+            if (device !== undefined && sameKey && (device.authority === 'observe' ? 'view' : 'control') === grant.role) {
                 enrolled.add(deviceId);
                 continue;
             }

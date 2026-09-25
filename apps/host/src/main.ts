@@ -726,6 +726,10 @@ async function main(): Promise<void> {
                         ownerToken,
                         machineName,
                         crypto: selfhostAuth!.machine.crypto,
+                        currentCrypto: () => {
+                            try { return readSelfhostAuth()?.machine.crypto; }
+                            catch { return undefined; }
+                        },
                         answer: host.answer,
                         onStatus: (status) => process.stdout.write(`link relay: ${status}\n`),
                     });

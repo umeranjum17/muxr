@@ -81,13 +81,6 @@ async function until<T>(produce: () => T | undefined | Promise<T | undefined>, w
     }
 }
 
-async function cli(args: string[]): Promise<string> {
-    const child = launch([join(repoRoot, 'scripts/cli.mjs'), ...args]);
-    const code = await new Promise((resolve) => child.once('exit', resolve));
-    if (code !== 0) throw new Error(`muxr ${args.join(' ')} exited ${code}: ${child.output().slice(-400)}`);
-    return child.output();
-}
-
 let port = 0;
 let relay: ChildProcess | undefined;
 let host: (ChildProcess & { output: () => string }) | undefined;
@@ -153,6 +146,14 @@ describe('link upgrade for an already-paired phone', () => {
         const stored = await claimHostedPairing(text);
         await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'muxr pair finishes');
         expect(pair.exitCode, pair.output()).toBe(0);
+        phone.secure.clear();
+        vi.resetModules();
+        const { claimHostedPairing: claimOther } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+        const secondPair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
+        const secondText = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(secondPair.output())?.[1], 'second pair string');
+        const other = await claimOther(secondText);
+        await until(() => (secondPair.exitCode === null ? undefined : secondPair.exitCode), 'second pair finishes');
+        expect(secondPair.exitCode, secondPair.output()).toBe(0);
 
         // The upgrade: same machine, same keys, a relay with no link state.
         await stopMachine();
@@ -192,12 +193,34 @@ describe('link upgrade for an already-paired phone', () => {
         await until(() => (client.state === 'open' ? true : undefined), 'relay transport still opens');
         expect((await client.request('session.list', {})).map((session) => session.id)).toContain(sessionId);
 
-        // Revoked once, gone from both.
-        await cli(['devices', 'revoke', 'Android phone']);
+        const otherEvents: unknown[] = [];
+        const otherLink = new DeviceLink(linkGrantFrom(other), {
+            WebSocket: WebSocket as never,
+            onEvent: (event) => otherEvents.push(event),
+        });
+        await until(() => (otherLink.status === 'online' ? true : undefined), 'other phone comes online');
+
+        const revoking = launch([join(repoRoot, 'scripts/cli.mjs'), 'devices', 'revoke', '1']);
+        await until(() => {
+            const state = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+                machine: { crypto: { pendingRotation?: { revokedDeviceId: string } } };
+            };
+            return state.machine.crypto.pendingRotation?.revokedDeviceId === stored.deviceId ? true : undefined;
+        }, 'revocation recorded');
+        await expect(link.request('session.list', { type: 'session.list', requestId: 'revoked', params: {} })).rejects.toThrow();
+        const next = await otherLink.request('session.start', { type: 'session.start', requestId: 'other', params: { cwd: home } }) as {
+            type: string; ok: boolean; data?: { info?: { id?: string } };
+        };
+        expect(next).toMatchObject({ type: 'result', ok: true });
+        const nextId = next.data?.info?.id;
+        await until(() => otherEvents.some((event) => (event as { sessionId?: string }).sessionId === nextId) ? true : undefined, 'next broadcast reaches trusted phone');
+        expect(events.some((event) => (event as { sessionId?: string }).sessionId === nextId)).toBe(false);
+        expect(await until(() => revoking.exitCode === null ? undefined : revoking.exitCode, 'revocation completes'), revoking.output()).toBe(0);
         await until(() => (link.status === 'removed' ? true : undefined), 'revoked phone is removed from the link', 30_000);
         await until(() => (client.state === 'stale' ? true : undefined), 'revoked phone loses the relay transport', 60_000);
         expect(statuses).not.toContain('refused');
         client.close();
         link.stop();
+        otherLink.stop();
     }, 180_000);
 });
