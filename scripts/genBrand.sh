@@ -17,6 +17,8 @@ CREAM='#f0efe7'
 mkdir -p "$OUT"
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 if [ -z "${FONT:-}" ]; then
     echo "fetching Departure Mono (OFL-1.1)..."

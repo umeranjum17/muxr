@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const root = process.cwd();
-const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root }).toString().split('\0').filter(Boolean);
+const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root, maxBuffer: 8 * 1024 * 1024 }).toString().split('\0').filter(Boolean);
 const generatedRoots = ['dist-npm', 'apps/mobile/dist'];
 const generated = [];
 for (const directory of generatedRoots) {

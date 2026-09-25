@@ -1,0 +1,68 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+
+export const scratchBase = () => process.platform === 'darwin' ? '/tmp' : tmpdir();
+
+export function processStart(pid) {
+    try {
+        if (process.platform === 'darwin') return execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], { encoding: 'utf8' }).trim() || undefined;
+        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+        return stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/)[19];
+    } catch { return undefined; }
+}
+
+export function processGroup(pid) {
+    try {
+        const group = execFileSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' }).trim();
+        return /^[1-9]\d*$/.test(group) ? Number(group) : undefined;
+    } catch { return undefined; }
+}
+
+export function scratchUnused(root, finishing = false) {
+    const match = /^muxr-host-test-([1-9]\d*)-.+$/.exec(basename(root));
+    if (!match) return false;
+    let owner;
+    try { owner = readFileSync(join(root, 'owner'), 'utf8').trim().split('\n'); }
+    catch { return false; }
+    const [pid, ...parts] = owner[0].split(' ');
+    if (pid !== match[1] || !parts.join(' ')) return false;
+    // ponytail: interruption between spawn and group recording leaves one root; retain it rather than delete a live child's scratch.
+    if (owner.length !== 2 || !/^[1-9]\d*$/.test(owner[1])) return false;
+    if (!finishing) {
+        const current = processStart(Number(pid));
+        if (current === parts.join(' ')) return false;
+        if (current === undefined) {
+            try { process.kill(Number(pid), 0); return false; }
+            catch (error) { if (error.code !== 'ESRCH') return false; }
+        }
+    }
+    // ponytail: a descendant calling setsid() escapes this group; record new groups if test hosts ever do that.
+    try { process.kill(-Number(owner[1]), 0); return false; }
+    catch (error) { return error.code === 'ESRCH'; }
+}
+
+export function scratchEntries(root) {
+    try { return readdirSync(root); }
+    catch (error) {
+        if (error.code === 'ENOENT') return [];
+        throw error;
+    }
+}
+
+export function cleanTestScratch(root) {
+    for (const name of scratchEntries(root)) {
+        if (/^(?:muxr-|desklink-|v-|x-|attention-|node-compile-cache$)/.test(name)) {
+            rmSync(join(root, name), { recursive: true, force: true });
+        }
+    }
+}
+
+export function testScratchOwner(base) {
+    for (const name of readdirSync(base)) {
+        if (!/^muxr-host-test-[1-9]\d*-.+$/.test(name)) continue;
+        const path = join(base, name);
+        if (scratchUnused(path)) rmSync(path, { recursive: true, force: true });
+    }
+}

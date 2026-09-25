@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { scratchBase, testScratchOwner } from './testScratchOwner.mjs';
 // The herdr check drives a live herdr server through the real host. Without one
 // it burns its timeout and reports a misleading failure, so detect and skip.
 const herdrSocket = process.env.HERDR_SOCKET_PATH?.trim()
@@ -124,14 +125,35 @@ function run(name, cmd, args, timeoutMs = 150000) {
         for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'RELAY_PORT']) {
             delete env[`MUXR_${key}`];
         }
-        if (cmd === 'npx' && args[0] === 'vitest') env.NODE_ENV = 'test';
-        const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
+        const wrappedVitest = cmd === 'npx' && args[0] === 'vitest';
+        if (wrappedVitest) env.NODE_ENV = 'test';
+        const wrapped = wrappedVitest || cmd === 'node';
+        const child = spawn(wrapped ? process.execPath : cmd,
+            wrapped ? ['scripts/diagnostics/application/checkHostTestScratch.mjs', '--', cmd, ...args] : args,
+            { stdio: ['ignore', 'pipe', 'pipe'], env, detached: wrapped });
         let out = '';
         child.stdout.on('data', (d) => { out += d; });
         child.stderr.on('data', (d) => { out += d; });
-        const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs);
+        let escalation;
+        let timedOut = false;
+        const killGroup = (signal) => {
+            if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+            try { process.kill(-child.pid, signal); } catch {}
+        };
+        const timer = setTimeout(() => {
+            timedOut = true;
+            if (wrapped) {
+                killGroup('SIGTERM');
+                escalation = setTimeout(() => killGroup('SIGKILL'), 2000);
+            } else child.kill('SIGKILL');
+        }, timeoutMs);
         child.on('exit', (code) => {
             clearTimeout(timer);
+            if (timedOut && wrapped) {
+                killGroup('SIGKILL');
+                testScratchOwner(scratchBase());
+            }
+            clearTimeout(escalation);
             const ms = Date.now() - started;
             results.push({ name, code: code ?? 1, ms, out });
             const mark = code === 0 ? 'PASS' : 'FAIL';

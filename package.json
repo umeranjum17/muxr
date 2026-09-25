@@ -28,7 +28,7 @@
         "web:export": "cd apps/mobile && env -u MUXR_PUBLIC_BASE_URL -u EXPO_PUBLIC_MUXR_TOKEN -u EXPO_PUBLIC_MUXR_MACHINE_ID -u EXPO_PUBLIC_MUXR_MODE APP_ENV=production MUXR_DISTRIBUTION=self-host sh -c 'npm run setup-canvaskit && npm run setup-pdfjs && npm run setup-mermaid && npx expo export --platform web --clear && node ../../scripts/release/application/finalizeWebExport.mjs'",
         "web:export:selfhost": "npm run web:export",
         "pack": "yarn build && yarn web:export && node scripts/release/application/pack.mjs",
-        "pack:smoke": "yarn build && yarn web:export && node scripts/diagnostics/application/checkPackageSmoke.mjs && node scripts/diagnostics/application/packageLifecycleSmoke.mjs"
+        "pack:smoke": "yarn build && yarn web:export && node scripts/diagnostics/application/checkHostTestScratch.mjs -- node scripts/diagnostics/application/checkPackageSmoke.mjs"
     },
     "devDependencies": {
         "herdr-files": "umeranjum17/herdr-files#e9612cabfa5b722020148b579dbe1a12b5f5f00f",
