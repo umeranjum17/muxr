@@ -251,6 +251,26 @@ export function tabListAskOwed(provider: string, recordAt: number): boolean {
     return asked === undefined || asked < recordAt;
 }
 
+/** The last limits this machine holds for one provider, from the connected
+ *  strip of any record that carries it: what a tab whose own read has never
+ *  answered can still show instead of a blank. Another provider's refused
+ *  read must not take a figure the reader already saw away. */
+export function lastKnownPlan(provider: string): { plan: string; windows: UsageLimitsPayload['windows']; ageSeconds?: number } | undefined {
+    const machine = getCachedConnectionSettings().machineId;
+    for (const [key, display] of displays) {
+        if (!key.startsWith(`${machine}\u0000`) || display.status !== 'figures') continue;
+        const plan = (display.figures.connected ?? []).find((candidate) => candidate.id === provider);
+        if (plan !== undefined && plan.windows.length > 0) {
+            return {
+                plan: plan.plan ?? plan.label,
+                windows: plan.windows,
+                ...(display.figures.ageSeconds === undefined ? {} : { ageSeconds: display.figures.ageSeconds }),
+            };
+        }
+    }
+    return undefined;
+}
+
 /** What this machine's tab shows, if anything has been asked for it yet. */
 export function shownUsage(provider: string): UsageDisplay | undefined {
     return displays.get(machineKey(provider));

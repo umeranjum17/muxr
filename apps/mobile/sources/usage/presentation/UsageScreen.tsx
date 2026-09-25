@@ -17,10 +17,11 @@ import { ScreenChart, ScreenLimits } from '@/plugins/ui';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
-import { FRESH_MS, clearReportFailure, collectionDue, knownProviders, lastForcedRead, noteAsked, noteForcedRead, noteReportFailure, noteTabListAsked, releaseAsked, rememberShown, reportFailure, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
+import { FRESH_MS, clearReportFailure, collectionDue, knownProviders, lastForcedRead, lastKnownPlan, noteAsked, noteForcedRead, noteReportFailure, noteTabListAsked, releaseAsked, rememberShown, reportFailure, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
 const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
+const LAST_KNOWN_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits' };
 const MODEL_CHART_NODE: PluginScreenChartNode = { type: 'chart', variant: 'bar', path: 'modelSeries', emptyText: 'No measured activity today' };
 const WEEK_CHART_NODE: PluginScreenChartNode = { type: 'chart', variant: 'column', path: 'weekSeries', emptyText: 'No measured activity this week' };
 
@@ -235,6 +236,11 @@ export function UsageScreen() {
     const activityUnread = display.status === 'figures' && display.figures.activity === undefined;
     const failureText = failure === undefined ? undefined
         : `${t('plugins.rightNow.refreshFailed')}: ${failure.reason} · ${new Date(failure.at).toLocaleTimeString()} · Retry available now`;
+    // A tab whose own read has never answered still speaks for the limits the
+    // reader already saw -- the card's connected strip carries them -- instead
+    // of a refusal that reads as nothing.
+    const lastKnown = display.status === 'unavailable' ? lastKnownPlan(provider) : undefined;
+    const lastKnownAge = lastKnown === undefined || lastKnown.ageSeconds === undefined ? undefined : ageWord(lastKnown.ageSeconds);
     return (
         <>
             <Header
@@ -264,10 +270,14 @@ export function UsageScreen() {
                     tab is only waiting or unavailable: a reader is never left
                     with no way back to the figures another tab holds. */}
                 {tabs.length > 0 && <ProviderTabs tabs={tabs} active={report?.provider ?? provider} onSelect={selectTab} />}
-                {display.status === 'unavailable' && <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${error ?? t('plugins.rightNow.unavailable')}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
+                {display.status === 'unavailable' && <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${failureText ?? error ?? t('plugins.rightNow.unavailable')}. ${t('plugins.retry')}`} style={{ marginBottom: 8, paddingVertical: 10 }}>
                     <Notice tone="danger" text={failureText ?? error ?? t('plugins.rightNow.unavailable')} style={{ marginBottom: 0 }} />
                     <Text style={{ color: theme.colors.textLink, fontSize: 13, marginTop: 4, marginLeft: 14 }}>{t('plugins.retry')}</Text>
                 </Pressable>}
+                {display.status === 'unavailable' && lastKnown !== undefined && <View style={{ marginBottom: 8 }}>
+                    <ScreenLimits node={LAST_KNOWN_NODE} data={{ limits: { verdict: 'unknown' as const, plan: lastKnown.plan, windows: lastKnown.windows } }} />
+                    {lastKnownAge !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: -4 }}>{lastKnownAge}</Text>}
+                </View>}
                 {display.status === 'waiting' && <WaitingSkeleton />}
                 {display.status === 'figures' && (empty
                     ? <View style={{ paddingVertical: 24, alignItems: 'center' }}>
@@ -279,7 +289,7 @@ export function UsageScreen() {
                             ? <View style={{ opacity: busy ? 0.55 : 1 }}>
                                 <ScreenLimits node={LIMITS_NODE} data={report} />
                                 {failed
-                                    ? <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${t('plugins.rightNow.refreshFailed')}. ${t('plugins.rightNow.refreshNow')}`} style={{ marginTop: 10, paddingVertical: 10 }}>
+                                    ? <Pressable onPress={refreshNow} accessibilityRole="button" accessibilityLabel={`${failureText ?? t('plugins.rightNow.refreshFailed')}. ${t('plugins.rightNow.refreshNow')}`} style={{ marginTop: 10, paddingVertical: 10 }}>
                                         <Notice tone="danger" text={failureText ?? t('plugins.rightNow.refreshFailed')} style={{ marginBottom: 0 }} />
                                     </Pressable>
                                     : <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 12 }}>{t('plugins.rightNow.collecting')}</Text>}
@@ -426,6 +436,16 @@ function ProviderTabs({ tabs, active, onSelect }: { tabs: UsageReport['providers
             })}
         </ScrollView>
     );
+}
+
+/** The age of the last-known figures, in the words every other surface uses. */
+function ageWord(ageSeconds: number): string | undefined {
+    const minutes = Math.round(ageSeconds / 60);
+    if (minutes < 1) return undefined;
+    if (minutes < 60) return t('time.minutesAgo', { count: minutes });
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return t('time.hoursAgo', { count: hours });
+    return t('time.daysAgo', { count: Math.round(hours / 24) });
 }
 
 /** Caption + one big mono figure; a missing figure is information, not a
