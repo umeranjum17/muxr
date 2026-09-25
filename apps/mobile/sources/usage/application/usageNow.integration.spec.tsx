@@ -854,7 +854,9 @@ describe('the usage screen read path', () => {
         // The card collected limits; the screen's own report read is refused.
         // What the tab must not do is paint the card's silence about activity
         // as "No measured activity" -- a confident statement nobody earned.
-        rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: withNow(undefined, collected(0, 20)) });
+        rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: { ...withNow(undefined, collected(0, 20, '2026-01-02T00:00:00Z')), ageAt: Date.now() - 600_000 } });
+        const cardFigures = shownUsage('');
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(cardFigures?.status === 'figures' ? cardFigures.figures : undefined, collected(0, 18, '2026-01-01T00:00:00Z')) });
         request.mockRejectedValue(new Error('rate limited'));
         const screen = renderScreen();
         await tick();
@@ -883,8 +885,13 @@ describe('the usage screen read path', () => {
             limits: { verdict: 'go', windows: [] }, connected: claudePlan(18), capturedAt: '2026-01-01T00:00:00Z',
         } });
         rememberShown('newer', { status: 'figures', at: Date.now() - 600_000, figures: {
-            limits: { verdict: 'go', windows: [] }, connected: claudePlan(40), capturedAt: '2026-01-01T00:01:00Z', ageSeconds: 0,
+            limits: { verdict: 'go', windows: [] }, connected: claudePlan(40), capturedAt: '2026-01-01T00:01:00Z', ageSeconds: 0, ageAt: Date.now() - 600_000,
         } });
+        expect(lastKnownPlan('claude')?.windows[0]?.used).toBe(40);
+        const newerFigures = shownUsage('newer');
+        rememberShown('newer', { status: 'figures', at: Date.now(), figures: withNow(newerFigures?.status === 'figures' ? newerFigures.figures : undefined, {
+            limits: { verdict: 'go', windows: [] }, connected: claudePlan(18), capturedAt: '2025-12-31T00:00:00Z', ageSeconds: 0,
+        }) });
         expect(lastKnownPlan('claude')?.windows[0]?.used).toBe(40);
         noteAsked('claude', Date.now());
         rememberShown('claude', { status: 'unavailable', reason: 'rate limited' });
@@ -1179,7 +1186,11 @@ describe('the usage screen read path', () => {
 
     it('names a failed refresh at the control rather than passing it off as success', async () => {
         noteAsked('', Date.now());
-        rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: withReport(undefined, report('claude', 0)) });
+        rememberShown('', { status: 'figures', at: Date.now() - 600_000, figures: { ...withReport(undefined, report('claude', 0)), ageAt: Date.now() - 600_000 } });
+        const held = shownUsage('');
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withReport(held?.status === 'figures' ? held.figures : undefined, {
+            ...report('claude', 0), capturedAt: new Date(Date.now() - 720_000).toISOString(),
+        }) });
         request.mockRejectedValue(new Error('host unreachable'));
         const screen = renderScreen();
         await tick();

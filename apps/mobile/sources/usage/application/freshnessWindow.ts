@@ -90,6 +90,7 @@ export interface UsageFigures {
     vitals?: UsageVitals;
     activity?: UsageActivity;
     ageSeconds?: number;
+    ageAt?: number;
     capturedAt?: string;
 }
 
@@ -118,7 +119,7 @@ export function capturedBefore(a: string | undefined, b: string | undefined): bo
  *  to it: only what it alone speaks for (activity, tabs, vitals) lands. */
 function mergeFigures(held: UsageFigures | undefined, spoken: Pick<UsageFigures, 'limits'> & Partial<UsageFigures>): UsageFigures {
     if (held === undefined || !capturedBefore(spoken.capturedAt, held.capturedAt)) return { ...held, ...spoken };
-    const { limits: _limits, windows: _windows, cardWindow: _cardWindow, connected: _connected, ageSeconds: _age, capturedAt: _at, ...rest } = spoken;
+    const { limits: _limits, windows: _windows, cardWindow: _cardWindow, connected: _connected, ageSeconds: _age, ageAt: _ageAt, capturedAt: _at, ...rest } = spoken;
     return { ...held, ...rest };
 }
 
@@ -133,7 +134,7 @@ export function withNow(previous: UsageFigures | undefined, value: UsageNow): Us
         ...(value.limits.windows.length === 0 ? { windows: [] } : {}),
         connected: value.connected,
         ...(value.vitals === undefined ? {} : { vitals: value.vitals }),
-        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds }),
+        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds, ageAt: Date.now() }),
         ...(value.capturedAt === undefined ? {} : { capturedAt: value.capturedAt }),
     });
 }
@@ -161,7 +162,7 @@ export function withReport(previous: UsageFigures | undefined, value: UsageRepor
             ...(value.noProviders === undefined ? {} : { noProviders: value.noProviders }),
         },
         connected: value.connected,
-        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds }),
+        ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds, ageAt: Date.now() }),
         ...(value.capturedAt === undefined ? {} : { capturedAt: value.capturedAt }),
     });
 }
@@ -266,7 +267,7 @@ export function lastKnownPlan(provider: string): { plan: string; windows: UsageL
             at: Number.isFinite(at) ? at : -Infinity,
             plan: plan.plan ?? plan.label,
             windows: plan.windows,
-            shownAt: display.at,
+            shownAt: display.figures.ageAt ?? display.at,
             ...(display.figures.ageSeconds === undefined ? {} : { ageSeconds: display.figures.ageSeconds }),
         };
     }

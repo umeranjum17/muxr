@@ -230,7 +230,7 @@ export function UsageScreen() {
     // as current. The failure line says when the attempt failed, not when the
     // figures were last true.
     const figuresAge = display.status === 'figures' && display.figures.ageSeconds !== undefined
-        ? ageWord(display.figures.ageSeconds, display.at)
+        ? ageWord(display.figures.ageSeconds, display.figures.ageAt ?? display.at)
         : undefined;
     const failureText = failure === undefined ? undefined
         : `${t('plugins.rightNow.refreshFailed')}: ${failure.reason} · ${new Date(failure.at).toLocaleTimeString()} · Retry available now`;
