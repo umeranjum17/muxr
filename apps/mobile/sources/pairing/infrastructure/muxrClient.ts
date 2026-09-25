@@ -114,6 +114,7 @@ const RECONNECT_CEILING_MS = 4000;
 
 export class MuxrClient {
     private socket: WebSocket | undefined;
+    private dialRelayUrl: string | undefined;
     private readonly pending = new Map<string, Pending>();
     private readonly eventListeners = new Set<EventListener>();
     private readonly stateListeners = new Set<StateListener>();
@@ -147,6 +148,10 @@ export class MuxrClient {
         return this.state === 'open'
             && this.socket !== undefined
             && this.socket.readyState === (WebSocket.OPEN ?? 1);
+    }
+
+    get activeRelayUrl(): string | undefined {
+        return this.isLive() ? this.dialRelayUrl : undefined;
     }
 
     connect(): void {
@@ -250,6 +255,7 @@ export class MuxrClient {
             return;
         }
         this.socket = socket;
+        this.dialRelayUrl = dialRelayUrl;
         let opened = false;
         let sawHostFrame = false;
         let livenessRecorded = false;

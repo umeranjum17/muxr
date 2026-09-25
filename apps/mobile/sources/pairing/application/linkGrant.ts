@@ -12,12 +12,12 @@ const toBase64Url = (value: string): string => value.replace(/\+/g, '-').replace
  * already holds). `undefined` when this machine has no link to offer —
  * hosted relays and legacy grants stay on the relay transport.
  */
-export function deriveLinkGrant(grant: StoredHostedGrant | undefined): DeviceGrant | undefined {
+export function deriveLinkGrant(grant: StoredHostedGrant | undefined, relayUrl?: string): DeviceGrant | undefined {
     if (grant?.source !== 'selfhost') return undefined;
     if (typeof grant.deviceKey?.secretKey !== 'string' || typeof grant.machineBoxPublicKey !== 'string') return undefined;
     try {
         const hostKey = unb64url(toBase64Url(grant.machineBoxPublicKey));
-        const relay = new URL(grant.relayUrl);
+        const relay = new URL(relayUrl ?? grant.relayUrl);
         // The relay mounts the link route at its origin, like byokit's own
         // short-code lookup; a subpath in the relay URL belongs to the old transport.
         const url = `${relay.protocol === 'wss:' ? 'wss' : 'ws'}://${relay.host}/link/v1/${hostId(hostKey)}`;

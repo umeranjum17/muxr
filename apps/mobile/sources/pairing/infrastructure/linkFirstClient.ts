@@ -209,7 +209,9 @@ export class LinkFirstClient implements SessionClient {
         const stored = this.options.hostedGrant;
         if (this.closed || this.link !== undefined || stored?.source !== 'selfhost'
             || stored.deviceKey.publicKey !== key) return;
-        const grant = deriveLinkGrant(stored);
+        const route = this.options.ssh === undefined ? undefined : this.inner?.activeRelayUrl;
+        if (this.options.ssh !== undefined && route === undefined) return;
+        const grant = deriveLinkGrant(stored, route);
         if (grant === undefined) return;
         this.link = new DeviceLink(grant, {
             timeoutMs: 5_000,

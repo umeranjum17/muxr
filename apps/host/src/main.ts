@@ -524,6 +524,7 @@ async function main(): Promise<void> {
         },
     };
     let linkEndpoint: LinkEndpoint | undefined;
+    let linkOnline = false;
     if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined) {
         // Pairing is a separate CLI process. Reload its appended per-device
         // ingress key without making an already-running host restart.
@@ -543,7 +544,7 @@ async function main(): Promise<void> {
                     replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(keys, crypto);
-                void linkEndpoint?.sync(crypto).then(() => host.refreshLinkEnrolment());
+                void linkEndpoint?.sync(crypto).then(() => { if (linkOnline) host.refreshLinkEnrolment(); });
             } catch {
                 // Keep serving with the last fully validated key set.
             }
@@ -569,7 +570,7 @@ async function main(): Promise<void> {
                     replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(hostedE2ee, next);
-                void linkEndpoint?.sync(next).then(() => host.refreshLinkEnrolment());
+                void linkEndpoint?.sync(next).then(() => { if (linkOnline) host.refreshLinkEnrolment(); });
             },
         };
         try {
@@ -701,7 +702,7 @@ async function main(): Promise<void> {
         ...(peerRuntime === undefined ? {} : { peerRuntime }),
         ...(diagnostics === undefined ? {} : { diagnostics }),
         hostVersion,
-        linkEnrolledKey: (id) => linkEndpoint?.enrolledKey(id),
+        linkEnrolledKey: (id) => linkOnline ? linkEndpoint?.enrolledKey(id) : undefined,
         ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
         onStateChange: (state) => {
             process.stdout.write(`relay link: ${state}\n`);
@@ -734,13 +735,17 @@ async function main(): Promise<void> {
                         currentCrypto,
                         answer: host.answer,
                         canView: host.canView,
-                        onStatus: (status) => process.stdout.write(`link relay: ${status}\n`),
+                        onStatus: (status) => {
+                            linkOnline = status === 'online';
+                            process.stdout.write(`link relay: ${status}\n`);
+                            if (linkOnline) host.refreshLinkEnrolment();
+                        },
                     });
                     if (linkEndpoint !== undefined) {
                         const latest = currentCrypto();
                         if (latest !== undefined) await linkEndpoint.sync(latest);
                         host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
-                        host.refreshLinkEnrolment();
+                        if (linkOnline) host.refreshLinkEnrolment();
                     }
                     return;
                 } catch (error) {
@@ -753,6 +758,7 @@ async function main(): Promise<void> {
     const shutdown = (): void => {
         if (shuttingDown) return;
         shuttingDown = true;
+        linkOnline = false;
         linkEndpoint?.close();
         terminals.closeAll();
         peerRuntime?.close();
