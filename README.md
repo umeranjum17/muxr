@@ -24,7 +24,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo/muxr-herd-loop.webp" alt="A hand-drawn lamb stops at a gate marked npm test and needs you; on the phone, tapping Yes on the agent's prompt opens the gate" width="960" />
+  <img src="docs/demo/muxr-herd-loop.webp" alt="A hand-drawn lamb stops at a gate marked npm test and needs you; on the phone, tapping Yes on the agent's prompt opens the gate" width="960" /><br/>
+  <a href="docs/demo/muxr-the-gate-16x9.mp4">The launch film (42 s, MP4)</a>
 </p>
 
 ## Why muxr exists
