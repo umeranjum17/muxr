@@ -128,6 +128,7 @@ function linkGrantFrom(stored: StoredHostedGrant): DeviceGrant {
         hostName: stored.machineName ?? 'Computer',
         urls: [`ws://127.0.0.1:${port}/link/v1/${hostId(machineKey)}`],
         device: { id: 'pending', name: 'Android phone', role: 'control' },
+        pendingUntil: Number.MAX_SAFE_INTEGER,
     };
 }
 
@@ -266,11 +267,11 @@ describe('link upgrade for an already-paired phone', () => {
         phone.secure.clear();
         vi.resetModules();
         const { claimHostedPairing: claimFresh } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
-        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
+        const release = join(home, 'release-pair');
+        const pause = `const { existsSync } = await import('node:fs'); const fetch = globalThis.fetch; globalThis.fetch = async (...args) => { const response = await fetch(...args); if (String(args[0]).endsWith('/grant') && response.ok) while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 20)); return response; };`;
+        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(pause)}` });
         const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'pair string');
         const stored = await claimFresh(text);
-        await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'pair finishes');
-        expect(pair.exitCode, pair.output()).toBe(0);
 
         // The race: the first dial starts the moment pairing lands. The host
         // must have enrolled the device from its own records by then, and the
@@ -278,8 +279,12 @@ describe('link upgrade for an already-paired phone', () => {
         // removed on your computer." - for a pre-admission moment.
         const statuses: LinkStatus[] = [];
         const link = new DeviceLink(linkGrantFrom(stored), { WebSocket: WebSocket as never, onStatus: (status) => statuses.push(status) });
-        await until(() => (link.status === 'online' ? true : undefined), 'first link dial comes online right after pairing', 30_000);
+        await until(() => (link.status === 'offline' || link.status === 'removed' ? true : undefined), 'first link dial settles while grant publication is pending', 30_000);
         expect(statuses).not.toContain('removed');
+        writeFileSync(release, 'go');
+        await until(() => (link.status === 'online' ? true : undefined), 'first link dial comes online right after pairing', 30_000);
+        await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'pair finishes');
+        expect(pair.exitCode, pair.output()).toBe(0);
         const started = await link.request('session.start', { type: 'session.start', requestId: 'fresh', params: { cwd: home } }) as {
             type: string; ok?: boolean;
         };
