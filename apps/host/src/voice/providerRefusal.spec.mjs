@@ -12,8 +12,8 @@ import { HostDiagnosticsJournal } from '../diagnostics/infrastructure/journal.ts
 import { parseRealtimeHostFrame } from '../../../../packages/contract/src/realtime/domain/realtimeStream.ts';
 import { chunkAudio as chunkGeminiAudio, providerTools as geminiTools } from './providers/gemini.mjs';
 import { providerTools as openaiTools } from './providers/openai.mjs';
-import { providerError, providerRefusal, providerTools as xaiTools } from './providers/xai.mjs';
-import { cleanProviderProse } from './coordinatorPolicy.mjs';
+import { providerError, providerTools as xaiTools } from './providers/xai.mjs';
+import { cleanProviderProse, providerRefusal } from './coordinatorPolicy.mjs';
 import { approvedSignalingUrl, providerTools as codexTools } from './providers/codex.mjs';
 import { createVoiceTools } from './toolRuntime.mjs';
 
@@ -79,17 +79,57 @@ describe('providerRefusal', () => {
     });
 
     it('redacts provider credentials and paths before they become visible', () => {
-        const message = providerRefusal(502, 'XAI_API_KEY=provider-private failed at /home/user/private/config.json');
-        expect(message).toContain('[credential redacted]');
-        expect(message).toContain('[path hidden]');
-        expect(message).not.toContain('provider-private');
-        expect(message).not.toContain('/home/user');
         const folded = providerRefusal(502, 'ＸＡＩ＿ＡＰＩ＿ＫＥＹ＝fullwidth-private');
         expect(folded).toContain('[credential redacted]');
         expect(folded).not.toContain('fullwidth-private');
         expect(cleanProviderProse('wAG:p9S w1AK:p1 w1BS:t6', '', 200))
             .toBe('[internal reference] [internal reference] [internal reference]');
     });
+
+    it('closes every key-based provider with the same redacted refusal', async () => {
+        const body = JSON.stringify({ error: { message: 'XAI_API_KEY=provider-private failed at /home/user/private/config.json' } });
+        const server = createServer();
+        server.on('upgrade', (_request, socket) => {
+            socket.end(`HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+        });
+        await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+        const url = `ws://127.0.0.1:${server.address().port}`;
+        try {
+            for (const provider of ['openai', 'gemini', 'xai']) {
+                const muxrHome = await mkdtemp(join(tmpdir(), `muxr-${provider}-refusal-`));
+                try {
+                    await writeFile(join(muxrHome, `${provider}.key`), 'test-only-key\n', { mode: 0o600 });
+                    await selectProvider(muxrHome, provider);
+                    const child = spawn(process.execPath, [streamEntry], {
+                        cwd: fileURLToPath(new URL('../../..', import.meta.url)),
+                        env: {
+                            ...process.env,
+                            NODE_ENV: 'test',
+                            MUXR_HOME: muxrHome,
+                            MUXR_TEST_OPENAI_REALTIME_URL: url,
+                            MUXR_TEST_GEMINI_REALTIME_URL: url,
+                            MUXR_TEST_XAI_REALTIME_URL: url,
+                        },
+                        stdio: ['pipe', 'pipe', 'pipe'],
+                    });
+                    const frames = [];
+                    createInterface({ input: child.stdout }).on('line', (line) => frames.push(JSON.parse(line)));
+                    child.stdin.write(`${JSON.stringify({ type: 'realtime.open' })}\n`);
+                    const closed = await waitFor(() => frames.find((frame) => frame.type === 'realtime.closed'), `${provider} did not close on refusal`);
+                    if (child.exitCode === null) child.kill('SIGKILL');
+                    expect(closed.reason, provider).toMatch(/^Voice provider refused the connection \(HTTP 403\): /);
+                    expect(closed.reason, provider).toContain('[credential redacted]');
+                    expect(closed.reason, provider).toContain('[path hidden]');
+                    expect(closed.reason, provider).not.toContain('provider-private');
+                    expect(closed.reason, provider).not.toContain('/home/user');
+                } finally {
+                    await rm(muxrHome, { recursive: true, force: true });
+                }
+            }
+        } finally {
+            await new Promise((resolve) => server.close(resolve));
+        }
+    }, 15_000);
 
     it('does not retry a provider billing event after the socket opens', () => {
         expect(providerError({ message: 'You have no credits remaining. Add credits to continue.' })).toEqual({
