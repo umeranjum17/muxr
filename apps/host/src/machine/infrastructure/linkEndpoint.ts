@@ -132,11 +132,15 @@ export class LinkEndpoint {
             const deviceId = muxrDeviceIdOf(grant);
             const device = deviceId === undefined ? undefined : wanted.get(deviceId);
             const sameKey = device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key;
-            if (device !== undefined && sameKey && (device.authority === 'observe' ? 'view' : 'control') === grant.role) {
-                enrolled.add(device.deviceId);
-                continue;
-            }
-            await this.host.revoke(grant.id);
+            const roleMatches = device !== undefined && (device.authority === 'observe' ? 'view' : 'control') === grant.role;
+            // A grant whose device or key is gone is a real removal: the phone
+            // is told `removed`, and that is then true. A grant whose only lag
+            // is its role stays for the enrol below, which replaces grants by
+            // key through a change that does not notify removal, so a live
+            // session is moved to the new role instead of being ended as
+            // removed and wiping the phone's stored pairing.
+            if (device === undefined || !sameKey) await this.host.revoke(grant.id);
+            else if (roleMatches) enrolled.add(device.deviceId);
         }
         for (const device of wanted.values()) {
             if (enrolled.has(device.deviceId)) continue;

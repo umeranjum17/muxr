@@ -131,6 +131,16 @@ function linkGrantFrom(stored: StoredHostedGrant): DeviceGrant {
     };
 }
 
+/** The machine's own record of the device is what the link endpoint enrols from. */
+function setAuthority(deviceId: string, authority: 'observe' | 'control'): void {
+    const path = join(home, 'selfhost.json');
+    const state = JSON.parse(readFileSync(path, 'utf8')) as {
+        machine: { crypto: { devices: { deviceId: string; authority?: 'observe' | 'control' }[] } };
+    };
+    for (const device of state.machine.crypto.devices) if (device.deviceId === deviceId) device.authority = authority;
+    writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+}
+
 describe('link upgrade for an already-paired phone', () => {
     afterAll(async () => {
         vi.unstubAllGlobals();
@@ -220,13 +230,17 @@ describe('link upgrade for an already-paired phone', () => {
             return state.machine.crypto.pendingRotation?.revokedDeviceId === stored.deviceId ? true : undefined;
         }, 'revocation recorded');
         expect(answered).toBeDefined();
-        const replayWire = (link as unknown as { conn: { send: (message: unknown) => void } }).conn;
-        const replaySend = replayWire.send.bind(replayWire);
-        replayWire.send = (message) => {
-            const request = message as { t?: string; op?: string; key?: string; session?: string; ack?: number };
-            if (request.t === 'req' && request.op === 'client.hello') Object.assign(request, answered);
-            replaySend(message);
-        };
+        // With the state watch event-driven, the revocation can already have
+        // ended this link by now; the replay injection then has no live socket
+        // to ride, and the two refusals below are the revoked phone's lot.
+        const replayWire = (link as unknown as { conn: { send: (message: unknown) => void } | null }).conn;
+        if (replayWire !== null) {
+            replayWire.send = (message) => {
+                const request = message as { t?: string; op?: string; key?: string; session?: string; ack?: number };
+                if (request.t === 'req' && request.op === 'client.hello') Object.assign(request, answered);
+                send(message);
+            };
+        }
         await expect(link.request('client.hello', { type: 'client.hello', clientId: 'link-phone' })).rejects.toThrow();
         await expect(link.request('session.list', { type: 'session.list', requestId: 'revoked', params: {} })).rejects.toThrow();
         const next = await otherLink.request('session.start', { type: 'session.start', requestId: 'other', params: { cwd: home } }) as {
@@ -244,6 +258,63 @@ describe('link upgrade for an already-paired phone', () => {
         link.stop();
         otherLink.stop();
     }, 180_000);
+
+    it('admits the first link dial right after pairing and moves a live session to a new role without removing it', async () => {
+        vi.stubGlobal('WebSocket', WebSocket);
+        await stopMachine();
+        await startMachine();
+        phone.secure.clear();
+        vi.resetModules();
+        const { claimHostedPairing: claimFresh } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
+        const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'pair string');
+        const stored = await claimFresh(text);
+        await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'pair finishes');
+        expect(pair.exitCode, pair.output()).toBe(0);
+
+        // The race: the first dial starts the moment pairing lands. The host
+        // must have enrolled the device from its own records by then, and the
+        // phone must never see `removed` - whose words are "This device was
+        // removed on your computer." - for a pre-admission moment.
+        const statuses: LinkStatus[] = [];
+        const link = new DeviceLink(linkGrantFrom(stored), { WebSocket: WebSocket as never, onStatus: (status) => statuses.push(status) });
+        await until(() => (link.status === 'online' ? true : undefined), 'first link dial comes online right after pairing', 30_000);
+        expect(statuses).not.toContain('removed');
+        const started = await link.request('session.start', { type: 'session.start', requestId: 'fresh', params: { cwd: home } }) as {
+            type: string; ok?: boolean;
+        };
+        expect(started).toMatchObject({ ok: true });
+
+        // A role change moves the live session to the new role instead of
+        // ending it: the same stored pairing stays online, reads keep working,
+        // and a write is refused in the device's own words. It must never be
+        // told it was removed.
+        setAuthority(stored.deviceId, 'observe');
+        await until(async () => {
+            try {
+                await link.request('session.start', { type: 'session.start', requestId: 'as-view', params: { cwd: home } });
+                return undefined; // still admitted as control; the grant has not moved yet
+            } catch (error) {
+                return error instanceof Error && error.message === 'This device can watch but not make changes.' ? error.message : undefined;
+            }
+        }, 'a write is refused as view-only, in exactly those words', 30_000);
+        expect(await link.request('client.hello', { type: 'client.hello', clientId: 'link-phone' })).toMatchObject({ type: 'session.list' });
+        expect(link.status).toBe('online');
+        expect(statuses).not.toContain('removed');
+
+        // Moving the role back takes the same live session with it, no
+        // re-pairing, still never removed.
+        setAuthority(stored.deviceId, 'control');
+        await until(async () => {
+            try {
+                const again = await link.request('session.start', { type: 'session.start', requestId: 'as-control', params: { cwd: home } }) as { ok?: boolean };
+                return again.ok === true ? true : undefined;
+            } catch { return undefined; }
+        }, 'the same session writes again as control', 30_000);
+        expect(link.status).toBe('online');
+        expect(statuses).not.toContain('removed');
+        link.stop();
+    }, 120_000);
 
     it('keeps the host alive and retrying while its relay is down, then back online when it returns', async () => {
         await stopMachine();
