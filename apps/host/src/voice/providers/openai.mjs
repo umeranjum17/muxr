@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import {
     cleanProviderProse,
+    providerRefusal,
     appControlInstructions,
     workspaceContext,
     isExplicitHangup,
@@ -23,6 +24,9 @@ import {
 
 const MODEL = 'gpt-realtime-2.1';
 const RATE = 24_000;
+const PROVIDER_URL = process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_OPENAI_REALTIME_URL
+    ? process.env.MUXR_TEST_OPENAI_REALTIME_URL
+    : `wss://api.openai.com/v1/realtime?model=${MODEL}`;
 const root = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
 const keyFile = join(root, 'openai.key');
 let endAfterResponse = false;
@@ -207,31 +211,10 @@ function handleClientFrame(frame) {
     // mute/unmute are enforced on the phone's capture side; nothing to forward.
 }
 
-/**
- * The provider explains a refusal in the HTTP body; the close code does not.
- * An out-of-credits 403 is otherwise indistinguishable from a dropped network,
- * and reporting only the code costs a debugging session to rediscover.
- */
-export function providerRefusal(status, body) {
-    let detail = '';
-    try {
-        const parsed = JSON.parse(body);
-        if (typeof parsed?.error === 'string') detail = parsed.error;
-        else if (typeof parsed?.error?.message === 'string') detail = parsed.error.message;
-        else if (typeof parsed?.error?.status === 'string') detail = parsed.error.status;
-        else if (typeof parsed?.code === 'string') detail = parsed.code;
-    } catch { /* not JSON: fall back to the raw body */ }
-    if (detail === '') detail = body.trim();
-    const safe = cleanProviderProse(detail, '', 300);
-    return safe === ''
-        ? `Voice provider refused the connection (HTTP ${status}).`
-        : `Voice provider refused the connection (HTTP ${status}): ${safe}`;
-}
-
 function connectProvider(key) {
     if (stopped) return;
     state('connecting');
-    const current = new WebSocket(`wss://api.openai.com/v1/realtime?model=${MODEL}`, {
+    const current = new WebSocket(PROVIDER_URL, {
         headers: { Authorization: `Bearer ${key}` },
         maxPayload: 4 * 1024 * 1024,
     });

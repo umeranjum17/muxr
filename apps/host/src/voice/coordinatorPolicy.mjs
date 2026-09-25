@@ -382,6 +382,27 @@ export const cleanProviderProse = (value, fallback, max) => {
     return clean || fallback;
 };
 
+/**
+ * The provider explains a refusal in the HTTP body; the close code does not.
+ * An out-of-credits 403 is otherwise indistinguishable from a dropped network,
+ * and reporting only the code costs a debugging session to rediscover.
+ */
+export function providerRefusal(status, body) {
+    let detail = '';
+    try {
+        const parsed = JSON.parse(body);
+        if (typeof parsed?.error === 'string') detail = parsed.error;
+        else if (typeof parsed?.error?.message === 'string') detail = parsed.error.message;
+        else if (typeof parsed?.error?.status === 'string') detail = parsed.error.status;
+        else if (typeof parsed?.code === 'string') detail = parsed.code;
+    } catch { /* not JSON: fall back to the raw body */ }
+    if (detail === '') detail = body.trim();
+    const safe = cleanProviderProse(detail, '', 300);
+    return safe === ''
+        ? `Voice provider refused the connection (HTTP ${status}).`
+        : `Voice provider refused the connection (HTTP ${status}): ${safe}`;
+}
+
 const safeTail = (value) => redactCredentials(value)
     .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
     .replace(/-----BEGIN [^-]{1,40}-----[\s\S]*?-----END [^-]{1,40}-----/g, '[credential redacted]')
