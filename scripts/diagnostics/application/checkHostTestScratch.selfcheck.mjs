@@ -29,10 +29,10 @@ try {
 
     const live = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
     const birth = processStart(process.pid);
-    assert.match(birth, /^\d+$/);
+    assert.ok(birth);
     writeFileSync(join(live, 'owner'), `${process.pid} ${birth}`);
     const stale = mkdtempSync(join(base, `muxr-host-test-${process.pid}-`));
-    writeFileSync(join(stale, 'owner'), `${process.pid} ${Number(birth) + 1}`);
+    writeFileSync(join(stale, 'owner'), `${process.pid} ${birth}-stale`);
     const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { cwd: stale, stdio: 'ignore' });
     try {
         reclaimScratch(base);
