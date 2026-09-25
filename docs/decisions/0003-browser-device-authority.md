@@ -47,4 +47,4 @@ The existing Expo web target stored credentials in `localStorage` and bypassed n
 
 ## Reopen trigger
 
-Reopen if browser platform support cannot provide the required wrapping primitive, if real users need durable offline browser grants, if a CSP-compatible terminal/markdown implementation cannot be achieved, or if browser takeover evidence changes the one-controller authority model in decision 0002.
+Reopen if browser platform support cannot provide the required wrapping primitive, if real users need durable offline browser grants, if a CSP-compatible terminal/markdown implementation cannot be achieved, or if terminal control evidence changes the one-controller authority model in decision 0002.

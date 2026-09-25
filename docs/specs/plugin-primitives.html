@@ -15,7 +15,7 @@
   <h1>Plugins on primitives</h1>
   <span class="badge">tested</span>
   <p class="meta">plugin-primitives.md · created 2026-08-15 · updated 2026-09-17 · umer</p>
-  <p class="lead">Primitives, slots, actions, capabilities, and runtime contracts are the public platform. Voice, Changes, Attachments, and future product features are plugins composed entirely from it; browser takeover transport remains kernel-owned.</p>
+  <p class="lead">Primitives, slots, actions, capabilities, and runtime contracts are the public platform. Voice, Changes, Attachments, and future product features are plugins composed entirely from it.</p>
   <div class="card"><h2>Decision</h2><p>Enabled Herdr plugins remain trusted and default-on. Enabling or linking is the user's trust decision. Explicit disable and revoke remain authoritative. This rework strengthens the platform without adding per-device hash reapproval.</p></div>
   <div class="card"><h2>Five platform layers</h2><ol>
     <li><strong>Kernel:</strong> pairing, E2EE, relay, terminal, secure storage, OS bridges, file handoff, realtime transports, and unconditional Android foreground-service ownership.</li>
@@ -27,7 +27,7 @@
   <div class="card"><h2>Execution</h2><ol>
     <li>Validate primitive slots, required context, and bounded per-primitive parameters.</li>
     <li>Dispatch only closed, bounded actions from generic rows, buttons, settings, and RPC item lists.</li>
-    <li>Keep foreground keepalive and preview transport in the kernel. Voice, Inbox, Workspace, and Dictation own generic controls/content and closed actions; browser takeover uses the kernel tunnel.</li>
+    <li>Keep foreground keepalive and remote-desktop preview transport in the kernel. Voice, Inbox, Workspace, and Dictation own generic controls/content and closed actions.</li>
     <li>Hard-kill stuck RPCs, isolate concurrency, and stop repeated full catalog reparsing.</li>
     <li>Publish schemas and prove bundled plus adversarial third-party plugins on Android.</li>
   </ol></div>
