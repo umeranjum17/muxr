@@ -35,8 +35,10 @@ interface VoiceNative {
         eventKey: string,
         voiceState: VoiceState,
         voiceName: string,
-        muted: boolean,
-        agents: Array<{ id: string; name: string; status: string; focused: boolean }>,
+        notification: {
+            muted: boolean;
+            agents: Array<{ id: string; name: string; status: string; focused: boolean }>;
+        },
     ) => boolean;
     supportsPromotedNotifications: () => boolean;
     canPostPromotedNotifications: () => boolean;
@@ -169,8 +171,7 @@ export function updateVoiceNotification(
         herd.eventKey,
         voiceState,
         voiceName,
-        muted,
-        agents,
+        { muted, agents },
     ) ?? false;
 }
 

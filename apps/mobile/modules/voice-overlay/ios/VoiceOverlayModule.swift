@@ -81,7 +81,8 @@ public final class VoiceOverlayModule: Module {
       DispatchQueue.main.async { HerdLiveActivityController.shared.setVoiceGeneration(token) }
     }
     Function("updateNotification") {
-      (mode: String, count: Int, names: String, _: String, voiceState: String, voiceName: String, muted: Bool) -> Bool in
+      (mode: String, count: Int, names: String, _: String, voiceState: String, voiceName: String, notification: [String: Any]) -> Bool in
+      let muted = notification["muted"] as? Bool ?? false
       DispatchQueue.main.async {
         HerdLiveActivityController.shared.update(mode: mode, count: count, names: names,
           voiceState: voiceState, voiceName: voiceName, muted: muted)
