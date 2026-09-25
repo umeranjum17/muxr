@@ -127,7 +127,7 @@ export class LinkFirstClient implements SessionClient {
         if (status === 'online') {
             this.clearFallbackTimer();
             this.online = true;
-            this.setState('open');
+            this.setState('open', true);
             return;
         }
         // 'removed' covers a revoked device and a host that has not admitted
@@ -139,7 +139,7 @@ export class LinkFirstClient implements SessionClient {
         }
         if (this.online) {
             this.online = false;
-            this.setState('connecting');
+            this.setState(this.inner?.state ?? 'connecting', true);
             this.armFallback(LINK_GRACE_MS);
         }
     }
@@ -225,9 +225,10 @@ export class LinkFirstClient implements SessionClient {
     private stopLink(): void {
         const link = this.link;
         this.link = undefined;
+        const wasOnline = this.online;
         this.online = false;
         link?.stop();
-        if (!this.closed) this.setState(this.inner?.state ?? 'connecting');
+        if (!this.closed) this.setState(this.inner?.state ?? 'connecting', wasOnline);
     }
 
     private armFallback(ms: number): void {
@@ -244,8 +245,8 @@ export class LinkFirstClient implements SessionClient {
         this.fallbackTimer = undefined;
     }
 
-    private setState(state: ConnectionState): void {
-        if (state === this.stateField) return;
+    private setState(state: ConnectionState, transportChanged = false): void {
+        if (state === this.stateField && !transportChanged) return;
         this.stateField = state;
         for (const listener of this.stateListeners) listener(state);
     }
