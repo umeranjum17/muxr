@@ -613,7 +613,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
                 const codeHash = typeof body?.code_hash === 'string' ? body.code_hash : '';
                 if (!/^[A-Za-z0-9_-]{43}$/.test(codeHash)) { writeJsonError(res, 400, 'invalid_pairing_code'); return; }
-                const result = await localPairing.resolveCode(codeHash);
+                const result = await localPairing.resolveCode(codeHash, Date.now(), readResumeKey(body));
                 if (result.state !== 'resolved') {
                     const codeError = pairingCodeError(result.state);
                     writeJsonError(res, codeError.status, codeError.error);
@@ -694,8 +694,9 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     }
                     // Credential lifetime is decided inside claim() from the
                     // owner-created session (personal marker or 8h default).
+                    const resumeKey = readResumeKey(body);
                     const result = await localPairing.claim(claimMatch[1], {
-                        claim, devicePublicKey, deviceName, deviceKind, mailbox,
+                        claim, devicePublicKey, deviceName, deviceKind, mailbox, ...(resumeKey === undefined ? {} : { resumeKey }),
                     });
                     if (result.state === 'issued') {
                         writeJson(res, 201, { device_id: result.deviceId, device_credential: result.credential });
@@ -1507,6 +1508,12 @@ function enrollmentClaimStatus(state: string): number {
     if (state === 'expired') return 400;
     if (state === 'already_claimed') return 409;
     return 403;
+}
+
+/** The phone's key for asking a lost pairing answer again; see `SelfhostPairing.mayResume`. Older phones send none. */
+function readResumeKey(body: Record<string, unknown> | undefined): string | undefined {
+    const key = body?.resume_key;
+    return typeof key === 'string' && /^[A-Za-z0-9_-]{43}$/.test(key) ? key : undefined;
 }
 
 function pairingCodeError(state: string): { status: number; error: string } {
