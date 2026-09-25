@@ -706,7 +706,15 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
     }
     if (collection === undefined) {
         collection = collectFresh(NOW, accounts, env).then((raw) => {
-            if (raw.storedFresh) completed.set(key, raw);
+            if (raw.storedFresh) {
+                let newer = false;
+                for (const storedKey of completed.keys()) {
+                    const date = storedKey.slice(-10);
+                    if (date < TODAY) completed.delete(storedKey);
+                    else if (date > TODAY) newer = true;
+                }
+                if (!newer) completed.set(key, raw);
+            }
             return raw;
         }).finally(() => { inFlight.delete(key); });
         inFlight.set(key, collection);

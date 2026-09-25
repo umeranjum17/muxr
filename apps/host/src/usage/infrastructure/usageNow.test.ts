@@ -222,10 +222,21 @@ it('keeps a completed activity-only scan for card follow-ups without writing all
     writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${today}","agents":[{"agent":"opencode","totalTokens":1234}]}],"session":[]}'\n`, { mode: 0o755 });
     env.MUXR_CCUSAGE_BIN = activity;
     const { collectUsage } = await import('./collectUsage.js');
+    const firstDay = new Date();
     const first = await collectUsage({ refresh: true }, env);
     writeFileSync(activity, '#!/bin/sh\nexit 1\n');
     const next = await collectUsage({}, env);
     expect(next.capturedAt).toBe(first.capturedAt);
     expect(next.providers.map(({ id }) => id)).toContain('opencode');
     expect(existsSync(join(env.MUXR_HOME!, 'usage', 'usage-v2-all.json'))).toBe(false);
+
+    const followingDay = new Date(firstDay);
+    followingDay.setDate(followingDay.getDate() + 1);
+    env.MUXR_USAGE_NOW = followingDay.toISOString();
+    writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${today}","agents":[{"agent":"opencode","totalTokens":1234}]}],"session":[]}'\n`, { mode: 0o755 });
+    await collectUsage({ refresh: true }, env);
+    env.MUXR_USAGE_NOW = firstDay.toISOString();
+    writeFileSync(activity, '#!/bin/sh\nexit 1\n');
+    const revisited = await collectUsage({}, env);
+    expect(revisited.capturedAt).not.toBe(first.capturedAt);
 }, 20_000);
