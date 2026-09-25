@@ -726,9 +726,8 @@ export interface RequestMap extends PeerRequestMap {
      *  default tab. `refresh` re-collects past a still-valid cache. */
     'usage.report': { params: { provider?: string; refresh?: boolean }; result: UsageReport };
     /** The Home "Right now" card payload: the binding limit window plus vitals. */
-    /** `refresh` re-collects past a still-valid cache. The usage cache serves
-     *  any same-day payload, so without it a reader has no way to make figures
-     *  it can already see are old become current. */
+    /** A normal read joins or reuses a recent shared collection; `refresh`
+     *  explicitly re-collects past it. */
     'usage.now': { params: { refresh?: boolean }; result: UsageNow };
 
     // --- realtime voice -------------------------------------------------------

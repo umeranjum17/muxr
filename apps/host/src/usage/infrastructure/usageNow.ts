@@ -25,9 +25,8 @@ function capturedMs(reading: { capturedAt?: string } | undefined): number {
 
 export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh = false }: { refresh?: boolean } = {}): Promise<UsageNow> {
     let output: Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'> | undefined;
-    // A forced read re-collects past a still-valid cache: the cache serves any
-    // same-day payload, so a reader looking at figures it can see are old has
-    // no other way to make them current.
+    // A forced read bypasses the recent shared collection; a normal read
+    // joins one in flight or starts one when the last collection is stale.
     const collection = collectUsage({ ...(refresh ? { refresh: true } : {}) }, env).catch(() => undefined);
     let known: ReturnType<typeof lastKnownPlans>;
     try { known = lastKnownPlans(env); } catch { known = undefined; }

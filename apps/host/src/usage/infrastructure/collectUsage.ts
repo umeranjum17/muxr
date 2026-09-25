@@ -997,5 +997,3 @@ function activityCost(cost: number | undefined, measured: boolean, available: bo
     if (!measured) return '$0.00';
     return money(cost ?? Number.NaN) ?? '—';
 }
-
-
