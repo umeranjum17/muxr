@@ -462,32 +462,45 @@ export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | 
  * is verified against the same device key and machine key as a first attempt.
  * The lookup cache is memory-only; a claim acknowledged by the phone separately
  * persists its pending credential so grant retrieval can resume.
+ *
+ * A reply lost after the relay committed (the lookup or the claim) is asked for
+ * again with `resumeKey`: a random key sent with the first lookup and claim, so
+ * only this device can have the committed answer repeated. The relay bounds
+ * that (see `SelfhostPairing.mayResume`); a relay that predates it ignores the
+ * key and refuses the repeat as a spent code, as it always did.
  */
-const resumablePairings = new Map<string, { url: string; expiresAt: number }>();
+const resumablePairings = new Map<string, { resumeKey: string; url?: string; expiresAt?: number }>();
 /** The window an older relay answers without `expires_in`: its pair-session TTL. */
 const PAIR_SESSION_WINDOW_S = 120;
 
-async function resolvePairingCode(value: string, resumable: boolean): Promise<{ url: string; held?: string }> {
+async function resolvePairingCode(value: string, hold?: (codeHash: string) => void): Promise<{ url: string; resumeKey?: string }> {
     const locator = new URL(value);
     const code = locator.searchParams.get('pair');
     if ((locator.protocol !== 'ws:' && locator.protocol !== 'wss:') || code === null) return { url: value };
     const codeHash = pairingCodeHash(code);
-    const held = resumable ? resumablePairings.get(codeHash) : undefined;
-    if (held !== undefined && held.expiresAt > Date.now()) return { url: held.url, held: codeHash };
-    if (held !== undefined) {
+    let held = hold === undefined ? undefined : resumablePairings.get(codeHash);
+    if (hold !== undefined) {
+        // 256 random bits, as the 43-character base64url form the relay expects.
+        held ??= { resumeKey: generateKeyPair().secretKey.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') };
+        resumablePairings.set(codeHash, held);
+        hold(codeHash);
+    }
+    if (held?.url !== undefined && held.expiresAt! > Date.now()) return { url: held.url, resumeKey: held.resumeKey };
+    if (held?.url !== undefined) {
         resumablePairings.delete(codeHash);
         throw new Error(friendlyRelayError('pairing_code_expired'));
     }
     const result = await json(relayControlUrl(value), '/v1/selfhost/pair-code', {
         method: 'POST',
-        body: JSON.stringify({ code_hash: codeHash }),
+        body: JSON.stringify({ code_hash: codeHash, ...(held === undefined ? {} : { resume_key: held.resumeKey }) }),
     });
     if (typeof result.payload !== 'string') throw new Error('pairing code payload is unavailable');
     const url = `muxr://pair?payload=${openPairingCodePayload(result.payload, code)}`;
-    if (!resumable) return { url };
+    if (held === undefined) return { url };
     const expiresIn = typeof result.expires_in === 'number' ? result.expires_in : PAIR_SESSION_WINDOW_S;
-    resumablePairings.set(codeHash, { url, expiresAt: Date.now() + expiresIn * 1000 });
-    return { url, held: codeHash };
+    held.url = url;
+    held.expiresAt = Date.now() + expiresIn * 1000;
+    return { url, resumeKey: held.resumeKey };
 }
 
 /**
@@ -525,6 +538,7 @@ async function claimResolvedPairing(url: string, resumable: boolean, hold: (code
     // SSH it is the tunnel, and the relay the payload advertises may not be
     // reachable from the phone at all, so the claim goes back the same way.
     let answeringRelay: string | undefined;
+    let resumeKey: string | undefined;
     if (expectedAuthority !== null && expectedAuthority !== 'control' && expectedAuthority !== 'observe') {
         throw new Error('pairing link has an invalid browser role');
     }
@@ -532,11 +546,11 @@ async function claimResolvedPairing(url: string, resumable: boolean, hold: (code
         const locator = new URL(initial.origin);
         locator.protocol = initial.protocol === 'https:' ? 'wss:' : 'ws:';
         locator.searchParams.set('pair', initial.searchParams.get('pair')!);
-        url = prepareHostedPairingInput((await resolvePairingCode(locator.toString(), false)).url);
+        url = prepareHostedPairingInput((await resolvePairingCode(locator.toString())).url);
     } else if (/^wss?:\/\//i.test(url)) {
         answeringRelay = url;
-        const resolved = await resolvePairingCode(url, resumable);
-        if (resolved.held !== undefined) hold(resolved.held);
+        const resolved = await resolvePairingCode(url, resumable ? hold : undefined);
+        resumeKey = resolved.resumeKey;
         url = prepareHostedPairingInput(resolved.url);
     }
     const isSelfhostLink = url.startsWith('muxr://pair?') || url.startsWith('muxr://pair#');
@@ -611,6 +625,7 @@ async function claimResolvedPairing(url: string, resumable: boolean, hold: (code
             device_name: deviceName,
             device_kind: selfhostRelay !== null && Platform.OS === 'web' ? 'browser' : Platform.OS,
             mailbox,
+            ...(resumeKey === undefined ? {} : { resume_key: resumeKey }),
         }),
     });
     const deviceCredential = selfhostRelay !== null ? issued.device_credential : issued.access_token;

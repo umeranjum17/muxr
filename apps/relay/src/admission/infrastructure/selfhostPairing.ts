@@ -11,6 +11,8 @@ import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js'
 
 const PAIR_TTL_MS = 2 * 60_000;
 const MAX_SESSIONS = 100;
+/** How many times one pairing may answer a lookup or claim it already answered. */
+const MAX_RESUMES = 3;
 /** Shared temporary browser grant. Only an explicit owner-authorized personal intent extends it. */
 export const BROWSER_GRANT_TTL_MS = 8 * 60 * 60_000;
 export const BROWSER_PERSONAL_GRANT_TTL_MS = 30 * 24 * 60 * 60_000;
@@ -53,6 +55,14 @@ export interface SelfhostPairSession {
     codeHash?: string;
     codePayload?: string;
     codeExpiresAt?: number;
+    /** When a lookup that sent a resume key was answered; its payload stays only for a resume. */
+    codeResolvedAt?: number;
+    /**
+     * Hash of the resume key the phone sent with its first lookup or claim. A
+     * repeat carrying the same key gets the committed answer again; see `resolveCode`.
+     */
+    resumeHash?: string;
+    resumes?: number;
 }
 
 export interface SelfhostDevice {
@@ -183,22 +193,56 @@ export class SelfhostPairing {
         });
     }
 
-    /** Phone side: consume the encrypted lookup before claiming the underlying session. */
-    resolveCode(codeHash: string, now = Date.now()): Promise<{ state: 'resolved'; payload: string; expiresAt: number } | { state: 'invalid' | 'expired' }> {
+    /**
+     * A lost answer, asked for again. The relay commits a lookup or claim before
+     * its reply travels, so a reply lost on the way leaves the phone with nothing
+     * while the code is already spent. A phone that sent a resume key with its
+     * first request may ask again with that key and get the same answer:
+     * - who: only the holder of that key (its hash is all the relay keeps), and
+     *   for a claim also the claim secret and the same device key;
+     * - how long: only inside the pairing window `muxr pair` opened, and never
+     *   once the grant was fetched;
+     * - how often: `MAX_RESUMES` per pairing, lookups and claims together.
+     * Anything else is refused exactly as a spent code was before.
+     */
+    private mayResume(session: SelfhostPairSession, resumeKey: string | undefined, now: number): boolean {
+        if (resumeKey === undefined || session.resumeHash === undefined || session.resumeHash !== hash(resumeKey)) return false;
+        if (session.expiresAt <= now || session.grantFetchedAt !== undefined || (session.resumes ?? 0) >= MAX_RESUMES) return false;
+        session.resumes = (session.resumes ?? 0) + 1;
+        return true;
+    }
+
+    /**
+     * Phone side: consume the encrypted lookup before claiming the underlying
+     * session. A consumed lookup answers again only under `mayResume`.
+     */
+    resolveCode(codeHash: string, now = Date.now(), resumeKey?: string): Promise<{ state: 'resolved'; payload: string; expiresAt: number } | { state: 'invalid' | 'expired' }> {
         return this.serialized(async () => {
             await this.load();
             const session = this.state.sessions.find((entry) => entry.codeHash === codeHash);
             if (session === undefined || session.codePayload === undefined) return { state: 'invalid' };
-            if ((session.codeExpiresAt ?? session.expiresAt) <= now) {
+            const expiresAt = session.codeExpiresAt ?? session.expiresAt;
+            if (session.codeResolvedAt !== undefined) {
+                // A claim deletes the code, so a claimed pairing never gets here.
+                if (!this.mayResume(session, resumeKey, now)) return { state: 'invalid' };
+                await this.persist();
+                return { state: 'resolved', payload: session.codePayload, expiresAt };
+            }
+            if (expiresAt <= now) {
                 this.state.sessions = this.state.sessions.filter((entry) => entry !== session);
                 await this.persist();
                 return { state: 'expired' };
             }
             const payload = session.codePayload;
-            const expiresAt = session.codeExpiresAt ?? session.expiresAt;
-            delete session.codeHash;
-            delete session.codePayload;
-            delete session.codeExpiresAt;
+            if (resumeKey === undefined) {
+                delete session.codeHash;
+                delete session.codePayload;
+                delete session.codeExpiresAt;
+            } else {
+                // Kept, still sealed by the code, only until the claim or the window's sweep.
+                session.codeResolvedAt = now;
+                session.resumeHash = hash(resumeKey);
+            }
             await this.persist();
             return { state: 'resolved', payload, expiresAt };
         });
@@ -214,7 +258,7 @@ export class SelfhostPairing {
     /** Phone side: single-use claim. Returns the device credential on success. */
     claim(
         pairId: string,
-        input: { claim: string; devicePublicKey: string; deviceName: string; deviceKind: Exclude<DeviceKind, 'peer'>; mailbox: string; expiresAt?: number },
+        input: { claim: string; devicePublicKey: string; deviceName: string; deviceKind: Exclude<DeviceKind, 'peer'>; mailbox: string; expiresAt?: number; resumeKey?: string },
         now = Date.now(),
     ): Promise<{ state: 'issued'; deviceId: string; credential: string } | { state: 'already_claimed' | 'expired' | 'invalid_claim' | 'wrong_device_kind' }> {
         return this.serialized(async () => {
@@ -227,8 +271,24 @@ export class SelfhostPairing {
                 return { state: 'expired' };
             }
             if ((session.deviceKind ?? 'native') !== input.deviceKind) return { state: 'wrong_device_kind' };
-            if (session.usedAt !== undefined) return { state: 'already_claimed' };
+            if (session.usedAt !== undefined) {
+                // The credential is stored only as a hash, so a resumed claim
+                // gets a fresh one for the same device; the lost one stops working.
+                const device = this.state.devices.find((entry) => entry.deviceId === session.deviceId && entry.revokedAt === undefined);
+                if (device === undefined || session.devicePublicKey !== input.devicePublicKey || !this.mayResume(session, input.resumeKey, now)) {
+                    return { state: 'already_claimed' };
+                }
+                const credential = opaque('muxr_dc');
+                device.credentialHash = hash(credential);
+                device.credentialVersion = (device.credentialVersion ?? 1) + 1;
+                await this.persist();
+                return { state: 'issued', deviceId: device.deviceId, credential };
+            }
             session.usedAt = now;
+            if (input.resumeKey !== undefined) session.resumeHash = hash(input.resumeKey);
+            delete session.codeHash;
+            delete session.codePayload;
+            delete session.codeExpiresAt;
             session.devicePublicKey = input.devicePublicKey;
             session.deviceName = input.deviceName;
             session.mailbox = input.mailbox;

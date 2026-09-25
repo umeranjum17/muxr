@@ -1,16 +1,16 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDeviceGrant, generateKeyPair, generateSigningKeyPair, pairingCodeHash, sealPairingCodePayload } from '@muxr/crypto';
-import { SelfhostPairing } from '../../../../relay/src/admission/infrastructure/selfhostPairing';
+import { startRelay, type RelayHandle } from '../../../../relay/src/relay';
 
 /*
  * Flow test for resuming an interrupted Direct SSH pairing. The phone side is
- * the real claim path; the relay side is the relay's real pairing store, so the
- * one-shot code lookup, single-use claim and two-minute window are the ones a
- * user meets. Only the byte route (fetch through the tunnel) is doubled, so a
- * test can drop it the way a dying SSH forward does.
+ * the real claim path, the relay is the real relay over HTTP, and `muxr pair`
+ * speaks to it the way the CLI does. Only the byte route (the SSH forward) is
+ * doubled, so a test can drop a request before it arrives or lose its reply
+ * after the relay committed it.
  */
 
 const secrets = vi.hoisted(() => new Map<string, string>());
@@ -28,131 +28,233 @@ vi.mock('@/connection', () => ({}));
 
 import { claimHostedPairing } from './hostedE2ee';
 
-const MACHINE_ID = 'machine_resume_flow_000000';
+const MACHINE_ID = 'machine-resume-flow-desk';
+const CLAIM = 'claim_'.padEnd(43, 'c');
 const machineSigning = generateSigningKeyPair();
 const machineBox = generateKeyPair();
+const realFetch = globalThis.fetch;
+const relays: RelayHandle[] = [];
 
-/** `muxr pair` on the computer: open a session and publish its short code. */
-async function muxrPair(relay: SelfhostPairing): Promise<string> {
-    const claim = 'claim_'.padEnd(43, 'c');
-    const { pairId } = await relay.createSession({ claim, machineSlug: MACHINE_ID, deviceKind: 'native' });
-    const payload = Buffer.from(JSON.stringify({
-        v: '2', generation: '1', id: pairId, claim, pair: 'pair_'.padEnd(43, 'p'),
-        machine: MACHINE_ID, name: 'desk', machinePk: machineSigning.publicKey, r: 'wss://desk.lan:8792', authority: 'control',
-    })).toString('base64url');
-    const code = 'ABCDE23456';
-    await relay.publishCode(pairId, MACHINE_ID, { codeHash: pairingCodeHash(code), payload: sealPairingCodePayload(payload, code) });
-    return code;
-}
-
-/** The SSH forward: the phone's fetches reach the relay store until the tunnel drops. */
-function tunnel(relay: SelfhostPairing, drop: { claim?: boolean; claimAbort?: boolean; claimResponse?: boolean; lookupResponse?: boolean; grant?: boolean; grantAbort?: boolean }) {
-    const calls: string[] = [];
-    vi.stubGlobal('fetch', async (input: string, init: RequestInit = {}) => {
-        const path = new URL(input).pathname;
-        const body = init.body === undefined ? {} : JSON.parse(String(init.body));
-        const reply = (status: number, value: unknown) => new Response(JSON.stringify(value), { status });
-        calls.push(path.split('/').pop()!);
-        if (path === '/v1/selfhost/pair-code') {
-            const result = await relay.resolveCode(body.code_hash);
-            if (result.state === 'resolved') {
-                if (drop.lookupResponse) throw new TypeError('Network request failed');
-                return reply(200, { payload: result.payload, expires_in: Math.floor((result.expiresAt - Date.now()) / 1000) });
-            }
-            return reply(result.state === 'expired' ? 410 : 404, { error: result.state === 'expired' ? 'pairing_code_expired' : 'invalid_pairing_code' });
-        }
-        const pairId = decodeURIComponent(path.split('/')[4]!);
-        if (path.endsWith('/claim')) {
-            if (drop.claimAbort) throw new DOMException('The request was aborted', 'AbortError');
-            if (drop.claim === true) throw new TypeError('Network request failed');
-            const result = await relay.claim(pairId, {
-                claim: body.claim, devicePublicKey: body.device_public_key, deviceName: body.device_name, deviceKind: body.device_kind === 'browser' ? 'browser' : 'native', mailbox: body.mailbox,
-            });
-            if (result.state !== 'issued') return reply(result.state === 'already_claimed' ? 409 : 400, { error: result.state });
-            // The computer answers the claim with the grant it signs for this device.
-            const polled = await relay.poll(pairId, MACHINE_ID);
-            await relay.uploadGrant(pairId, MACHINE_ID, JSON.stringify(createDeviceGrant({
-                machineId: MACHINE_ID, machineSigningSecretKey: machineSigning.secretKey, machineKey: machineBox,
-                deviceId: polled.deviceId!, devicePublicKey: polled.devicePublicKey!,
-                dataKey: new Uint8Array(32).fill(1), ingressKey: new Uint8Array(32).fill(2),
-                keyVersion: 1, expiresAt: Date.now() + 3_600_000, authority: polled.authority,
-            })));
-            if (drop.claimResponse) throw new TypeError('Network request failed');
-            return reply(200, { device_id: result.deviceId, device_credential: result.credential });
-        }
-        if (drop.grantAbort) throw new DOMException('The request was aborted', 'AbortError');
-        if (drop.grant) throw new TypeError('Network request failed');
-        const grant = await relay.fetchGrant(pairId, (await relay.poll(pairId, MACHINE_ID)).deviceId ?? '');
-        return grant === undefined ? reply(404, { error: 'grant_not_available' }) : reply(200, { grant });
-    });
-    return calls;
-}
-
-const sshPairingString = (code: string) => `ws://127.0.0.1:41234?pair=${code}`;
+const reused = 'This pairing code cannot be reused. Create a fresh one on the machine (run `muxr pair`).';
 const sshDropMessage = 'The SSH connection dropped. Check the connection, then try again with the same code.';
 
+type Step = 'pair-code' | 'claim' | 'grant';
+/** Per step: `request` never reaches the relay; `reply` is committed there, then lost. */
+type Faults = Partial<Record<Step, 'request' | 'reply' | 'abort'>>;
+
+async function desk() {
+    const dataDir = mkdtempSync(join(tmpdir(), 'muxr-resume-'));
+    const relay = await startRelay({
+        port: 0,
+        host: '127.0.0.1',
+        config: { dataDir, localAuthority: true, authMode: 'strict', e2eeMode: 'off', developmentApi: false, advertiseMdns: false },
+    });
+    relays.push(relay);
+    const base = `http://127.0.0.1:${relay.port}`;
+    const owner = { authorization: `Bearer ${JSON.parse(readFileSync(join(dataDir, 'mint-secret'), 'utf8'))}`, 'content-type': 'application/json' };
+    const call = async (path: string, init: RequestInit = {}) => {
+        const response = await realFetch(`${base}${path}`, { ...init, headers: { 'content-type': 'application/json', ...init.headers } });
+        return { status: response.status, body: await response.json() as Record<string, any> };
+    };
+    /** `muxr pair` on the computer: open a session and publish its short code. */
+    const muxrPair = async (code = 'ABCDE23456') => {
+        const { body } = await call('/v1/selfhost/pair-sessions', { method: 'POST', headers: owner, body: JSON.stringify({ claim: CLAIM, machineSlug: MACHINE_ID, deviceKind: 'native' }) });
+        const pairId = body.pair_id as string;
+        const payload = Buffer.from(JSON.stringify({
+            v: '2', generation: '1', id: pairId, claim: CLAIM, pair: 'pair_'.padEnd(43, 'p'),
+            machine: MACHINE_ID, name: 'desk', machinePk: machineSigning.publicKey, r: 'wss://desk.lan:8792', authority: 'control',
+        })).toString('base64url');
+        await call(`/v1/selfhost/pair-sessions/${pairId}/code`, { method: 'POST', headers: owner, body: JSON.stringify({ code_hash: pairingCodeHash(code), payload: sealPairingCodePayload(payload, code) }) });
+        return { code, pairId };
+    };
+    /** The computer answers a claim with the grant it signs for the claiming device. */
+    const answerClaim = async (pairId: string) => {
+        const { body: polled } = await call(`/v1/selfhost/pair-sessions/${pairId}`, { headers: owner });
+        const grant = createDeviceGrant({
+            machineId: MACHINE_ID, machineSigningSecretKey: machineSigning.secretKey, machineKey: machineBox,
+            deviceId: polled.deviceId, devicePublicKey: polled.devicePublicKey,
+            dataKey: new Uint8Array(32).fill(1), ingressKey: new Uint8Array(32).fill(2),
+            keyVersion: 1, expiresAt: Date.now() + 3_600_000, authority: polled.authority,
+        });
+        await call(`/v1/selfhost/pair-sessions/${pairId}/grant`, { method: 'POST', headers: owner, body: JSON.stringify({ grant: JSON.stringify(grant) }) });
+    };
+    return { port: relay.port, dataDir, call, muxrPair, answerClaim };
+}
+
+/** The SSH forward from the phone to the desk's relay. */
+function tunnel(relay: Awaited<ReturnType<typeof desk>>, faults: Faults, options: { oldRelay?: boolean } = {}) {
+    const calls: Step[] = [];
+    const lostCredentials: string[] = [];
+    vi.stubGlobal('fetch', async (input: string, init: RequestInit = {}) => {
+        const url = new URL(input);
+        const step = url.pathname.split('/').pop() as Step;
+        calls.push(step);
+        const fault = faults[step];
+        if (fault === 'abort') throw new DOMException('The request was aborted', 'AbortError');
+        if (fault === 'request') throw new TypeError('Network request failed');
+        let body = init.body;
+        // A relay that predates resuming ignores the field; model it as never receiving it.
+        if (options.oldRelay && typeof body === 'string') {
+            const { resume_key: _dropped, ...rest } = JSON.parse(body);
+            body = JSON.stringify(rest);
+        }
+        const response = await realFetch(`http://127.0.0.1:${relay.port}${url.pathname}`, { ...init, body });
+        if (step === 'claim' && response.ok) {
+            const issued = await response.clone().json() as { device_credential: string };
+            await relay.answerClaim(url.pathname.split('/')[4]!);
+            if (fault === 'reply') lostCredentials.push(issued.device_credential);
+        }
+        if (fault === 'reply') throw new TypeError('Network request failed');
+        return response;
+    });
+    return { calls, lostCredentials };
+}
+
+const ssh = (port: number, code: string) => `ws://127.0.0.1:${port}?pair=${code}`;
+const pair = (port: number, code: string) => claimHostedPairing(ssh(port, code), { resumable: true });
+
 describe('an interrupted Direct SSH pairing', () => {
-    afterEach(() => { secrets.delete('muxr.hosted-e2ee.pending-pair.v1'); vi.useRealTimers(); vi.unstubAllGlobals(); });
+    afterEach(async () => {
+        secrets.delete('muxr.hosted-e2ee.pending-pair.v1');
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+        await Promise.all(relays.splice(0).map((relay) => relay.close()));
+    });
 
-    it('resumes with the same code inside the window and ends with an uninterrupted pairing\'s authority', async () => {
-        const relay = new SelfhostPairing(mkdtempSync(join(tmpdir(), 'muxr-resume-')));
-        const code = await muxrPair(relay);
-        const drop: Parameters<typeof tunnel>[1] = { claim: true };
-        const calls = tunnel(relay, drop);
+    it('pairs on the first try exactly as before, with one lookup and one claim', async () => {
+        const relay = await desk();
+        const { code } = await relay.muxrPair();
+        const { calls } = tunnel(relay, {});
 
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
-        drop.claim = false;
-        drop.grantAbort = true;
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
-        drop.grantAbort = false;
-        drop.grant = true;
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
-        drop.grant = false;
-        const grant = await claimHostedPairing(sshPairingString(code), { resumable: true });
+        const grant = await pair(relay.port, code);
+
+        expect(grant).toMatchObject({ machineId: MACHINE_ID, authority: 'control', source: 'selfhost', relayUrl: 'wss://desk.lan:8792' });
+        expect(calls).toEqual(['pair-code', 'claim', 'grant']);
+    });
+
+    it('resumes a drop before the relay committed, and a finished code stays spent', async () => {
+        const relay = await desk();
+        const { code } = await relay.muxrPair();
+        const faults: Faults = { claim: 'request' };
+        const { calls } = tunnel(relay, faults);
+
+        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        faults.claim = undefined;
+        faults.grant = 'abort';
+        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        faults.grant = 'request';
+        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        faults.grant = undefined;
+        const grant = await pair(relay.port, code);
 
         expect(calls.filter((call) => call === 'pair-code')).toHaveLength(1);
-        expect(grant).toMatchObject({ machineId: MACHINE_ID, authority: 'control', source: 'selfhost', relayUrl: 'wss://desk.lan:8792' });
-        // Consumed: a later retry of the finished code gets no second grant.
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow('This pairing code cannot be reused. Create a fresh one on the machine (run `muxr pair`).');
+        expect(grant).toMatchObject({ machineId: MACHINE_ID, authority: 'control' });
+        await expect(pair(relay.port, code)).rejects.toThrow(reused);
     });
 
-    it('refuses to resume once the code has expired, and says to get a fresh one', async () => {
+    it('recovers a lookup and a claim whose replies were lost after the relay committed them', async () => {
+        const relay = await desk();
+        const { code, pairId } = await relay.muxrPair();
+        const faults: Faults = { 'pair-code': 'reply' };
+        const { calls, lostCredentials } = tunnel(relay, faults);
+
+        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        faults['pair-code'] = undefined;
+        faults.claim = 'reply';
+        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        // The sealed lookup kept for a repeat leaves the relay's disk once the claim commits.
+        expect(readFileSync(join(relay.dataDir, 'selfhost-pairing.json'), 'utf8')).not.toContain(pairingCodeHash(code));
+        faults.claim = undefined;
+        const grant = await pair(relay.port, code);
+
+        expect(calls.filter((call) => call === 'pair-code')).toHaveLength(2);
+        expect(grant).toMatchObject({ machineId: MACHINE_ID, authority: 'control', source: 'selfhost' });
+        // The credential the lost reply carried is dead; the device holds the one it resumed with.
+        const lost = await relay.call(`/v1/selfhost/pair-sessions/${pairId}/grant`, { headers: { authorization: `Bearer ${lostCredentials[0]}` } });
+        expect(lost).toEqual({ status: 403, body: { error: 'grant download requires a paired device credential' } });
+        expect(grant.credential).not.toBe(lostCredentials[0]);
+        await expect(pair(relay.port, code)).rejects.toThrow(reused);
+    });
+
+    it('refuses to repeat a committed answer to anyone but the device that asked, past its window, or too often', async () => {
+        const relay = await desk();
+        const { code, pairId } = await relay.muxrPair();
+        const faults: Faults = { 'pair-code': 'reply' };
+        tunnel(relay, faults);
+        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+
+        // Someone else with the code, without this device's resume key.
+        const lookup = (resumeKey?: string) => relay.call('/v1/selfhost/pair-code', { method: 'POST', body: JSON.stringify({ code_hash: pairingCodeHash(code), ...(resumeKey === undefined ? {} : { resume_key: resumeKey }) }) });
+        expect(await lookup()).toEqual({ status: 404, body: { error: 'invalid_pairing_code' } });
+        expect(await lookup('k'.repeat(43))).toEqual({ status: 404, body: { error: 'invalid_pairing_code' } });
+
+        // Someone holding the claim secret, with another device key, after the phone's claim reply was lost.
+        faults['pair-code'] = undefined;
+        faults.claim = 'reply';
+        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        const stranger = (resumeKey: string) => relay.call(`/v1/selfhost/pair-sessions/${pairId}/claim`, {
+            method: 'POST',
+            body: JSON.stringify({ claim: CLAIM, device_public_key: generateKeyPair().publicKey, device_name: 'other', device_kind: 'android', mailbox: 'm', resume_key: resumeKey }),
+        });
+        expect(await stranger('k'.repeat(43))).toEqual({ status: 409, body: { error: 'already_claimed' } });
+
+        // The device itself: lookup and claim repeats count together, three in all
+        // (the lookup was the first).
+        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        faults.claim = undefined;
+        await expect(pair(relay.port, code)).rejects.toThrow(reused);
+        await expect(pair(relay.port, code)).rejects.toThrow(reused);
+
+        // A fresh code still pairs normally afterwards.
+        const fresh = await relay.muxrPair('FGHJK78923');
+        await expect(pair(relay.port, fresh.code)).resolves.toMatchObject({ machineId: MACHINE_ID });
+    });
+
+    it('refuses a repeat after the pairing window, at the relay as well as on the phone', async () => {
         vi.useFakeTimers({ toFake: ['Date'] });
-        const relay = new SelfhostPairing(mkdtempSync(join(tmpdir(), 'muxr-resume-')));
-        const code = await muxrPair(relay);
-        const drop = { claimAbort: true };
-        tunnel(relay, drop);
+        const relay = await desk();
+        const { code } = await relay.muxrPair();
+        const faults: Faults = { claim: 'abort' };
+        tunnel(relay, faults);
 
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
-        drop.claimAbort = false;
+        await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+        faults.claim = undefined;
         vi.setSystemTime(Date.now() + 2 * 60_000 + 1);
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow('This pairing code expired. Create a fresh one on the machine.');
+        await expect(pair(relay.port, code)).rejects.toThrow('This pairing code expired. Create a fresh one on the machine.');
+
+        const late = await relay.muxrPair('FGHJK78923');
+        const key = 'k'.repeat(43);
+        const lookup = () => relay.call('/v1/selfhost/pair-code', { method: 'POST', body: JSON.stringify({ code_hash: pairingCodeHash(late.code), resume_key: key }) });
+        expect((await lookup()).status).toBe(200);
+        vi.setSystemTime(Date.now() + 2 * 60_000 + 1);
+        expect(await lookup()).toEqual({ status: 404, body: { error: 'invalid_pairing_code' } });
     });
 
-    it('explains when a consumed lookup or claim lost its response', async () => {
-        for (const lost of ['lookupResponse', 'claimResponse'] as const) {
-            const relay = new SelfhostPairing(mkdtempSync(join(tmpdir(), 'muxr-resume-')));
-            const code = await muxrPair(relay);
-            const drop = { [lost]: true };
-            tunnel(relay, drop);
-            await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
-            drop[lost] = false;
-            await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow('This pairing code cannot be reused. Create a fresh one on the machine (run `muxr pair`).');
+    it('keeps the old answers across versions: a new phone on an old relay, an old phone on a new relay', async () => {
+        // New phone, old relay: the repeat is refused as a spent code, as before.
+        for (const lost of ['pair-code', 'claim'] as const) {
+            const relay = await desk();
+            const { code } = await relay.muxrPair();
+            const faults: Faults = { [lost]: 'reply' };
+            tunnel(relay, faults, { oldRelay: true });
+            await expect(pair(relay.port, code)).rejects.toThrow(sshDropMessage);
+            faults[lost] = undefined;
+            await expect(pair(relay.port, code)).rejects.toThrow(reused);
+            // ...and an ordinary pairing still works on it.
+            const fresh = await relay.muxrPair('FGHJK78923');
+            await expect(pair(relay.port, fresh.code)).resolves.toMatchObject({ machineId: MACHINE_ID });
         }
-    });
 
-    it('refuses to resume a code another device consumed', async () => {
-        const relay = new SelfhostPairing(mkdtempSync(join(tmpdir(), 'muxr-resume-')));
-        const code = await muxrPair(relay);
-        const drop = { claim: true };
-        tunnel(relay, drop);
-
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow(sshDropMessage);
-        // Someone holding the opened pairing claims it before the retry.
-        const [session] = (relay as unknown as { state: { sessions: { pairId: string }[] } }).state.sessions;
-        await relay.claim(session!.pairId, { claim: 'claim_'.padEnd(43, 'c'), devicePublicKey: generateKeyPair().publicKey, deviceName: 'other', deviceKind: 'native', mailbox: 'm' });
-        drop.claim = false;
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow('This pairing code cannot be reused. Create a fresh one on the machine (run `muxr pair`).');
-        await expect(claimHostedPairing(sshPairingString(code), { resumable: true })).rejects.toThrow('This pairing code cannot be reused. Create a fresh one on the machine (run `muxr pair`).');
+        // Old phone, new relay: requests without a resume key pair normally and get no repeats.
+        const relay = await desk();
+        const { code } = await relay.muxrPair();
+        const faults: Faults = { 'pair-code': 'reply' };
+        tunnel(relay, faults);
+        await expect(claimHostedPairing(ssh(relay.port, code))).rejects.toThrow('Network request failed');
+        faults['pair-code'] = undefined;
+        await expect(claimHostedPairing(ssh(relay.port, code))).rejects.toThrow('This pairing code is invalid or was already used. Create a fresh one on the machine.');
+        const fresh = await relay.muxrPair('FGHJK78923');
+        await expect(claimHostedPairing(ssh(relay.port, fresh.code))).resolves.toMatchObject({ machineId: MACHINE_ID });
     });
 });
