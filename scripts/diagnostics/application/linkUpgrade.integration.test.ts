@@ -17,6 +17,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import { DeviceLink, hostId, type DeviceGrant, type LinkStatus } from '@byokit/link';
 import { afterAll, describe, expect, it, vi } from 'vitest';
@@ -86,7 +87,7 @@ let port = 0;
 let relay: ChildProcess | undefined;
 let host: (ChildProcess & { output: () => string }) | undefined;
 
-async function startMachine(dataDir?: string): Promise<void> {
+async function startMachine(dataDir?: string, hostEnv: NodeJS.ProcessEnv = {}): Promise<void> {
     const started = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
         MUXR_RELAY_PORT: String(port),
         MUXR_RELAY_HOST: '127.0.0.1',
@@ -109,7 +110,7 @@ async function startMachine(dataDir?: string): Promise<void> {
             mintSecret: JSON.parse(readFileSync(join(home, 'relay', 'mint-secret'), 'utf8')),
         }, null, 2)}\n`, { mode: 0o600 });
     }
-    host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { MUXR_MODE: 'selfhost', ...(dataDir === undefined ? {} : { MUXR_DATA_DIR: dataDir }) });
+    host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { MUXR_MODE: 'selfhost', ...(dataDir === undefined ? {} : { MUXR_DATA_DIR: dataDir }), ...hostEnv });
     const running = host;
     await until(() => (running.output().includes('host -> ') ? true : undefined), 'host start');
 }
@@ -169,7 +170,13 @@ describe('link upgrade for an already-paired phone', () => {
         // The upgrade: same machine, same keys, a relay with no link state.
         await stopMachine();
         rmSync(join(home, 'relay', 'link-relay.json'), { force: true });
-        await startMachine();
+        const enteredEnrol = join(home, 'entered-enrol');
+        const releaseEnrol = join(home, 'release-enrol');
+        const hostModule = pathToFileURL(join(repoRoot, 'node_modules/@byokit/link/dist/host.js')).href;
+        const holdEnrol = `const { Host } = await import(${JSON.stringify(hostModule)}); const { existsSync, writeFileSync } = await import('node:fs'); const enrol = Host.prototype.enrol; Host.prototype.enrol = async function(...args) { writeFileSync(${JSON.stringify(enteredEnrol)}, 'entered'); while (!existsSync(${JSON.stringify(releaseEnrol)})) await new Promise(resolve => setTimeout(resolve, 20)); return enrol.apply(this, args); };`;
+        await startMachine(undefined, { NODE_OPTIONS: `--import=data:text/javascript,${encodeURIComponent(holdEnrol)}` });
+        await until(() => existsSync(enteredEnrol) ? true : undefined, 'host begins initial link enrolment');
+        await new Promise((resolve) => setTimeout(resolve, 1500));
 
         const statuses: LinkStatus[] = [];
         const events: unknown[] = [];
@@ -178,6 +185,9 @@ describe('link upgrade for an already-paired phone', () => {
             onStatus: (status) => statuses.push(status),
             onEvent: (event) => events.push(event),
         });
+        await until(() => (link.status === 'offline' || link.status === 'removed' ? true : undefined), 'first restart dial settles while enrolment is pending', 30_000);
+        expect(statuses).not.toContain('removed');
+        writeFileSync(releaseEnrol, 'go');
         await until(() => (link.status === 'online' ? true : undefined), 'already-paired phone comes online over the link', 30_000);
         expect(link.grant.device.id).not.toBe('pending');
         const started = await link.request('session.start', { type: 'session.start', requestId: 'r1', params: { cwd: home } }) as {

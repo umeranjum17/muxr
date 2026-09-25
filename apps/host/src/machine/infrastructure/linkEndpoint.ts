@@ -56,8 +56,11 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
 export class LinkEndpoint {
     private synced: Promise<boolean> = Promise.resolve(true);
 
-    private constructor(private readonly host: Host, private readonly client: RelayClient,
-        private readonly currentCrypto: () => MachineCryptoState | undefined) {}
+    private client?: RelayClient;
+
+    private constructor(private readonly host: Host,
+        private readonly currentCrypto: () => MachineCryptoState | undefined,
+        private readonly connectRelay: () => RelayClient) {}
 
     static async open(options: LinkEndpointOptions): Promise<LinkEndpoint | undefined> {
         const keys = keyPairFrom(Buffer.from(options.crypto.boxSecretKey, 'base64'));
@@ -90,15 +93,18 @@ export class LinkEndpoint {
                 return response;
             },
         });
-        const client = new RelayClient(host, {
+        const endpoint = new LinkEndpoint(host, options.currentCrypto, () => new RelayClient(host, {
             url: new URL('/relay/v1/host', relayControlUrl(options.relayUrl)).toString().replace(/^http/, 'ws'),
             name: options.machineName,
             ...(enrol === undefined ? {} : { enrol }),
             ...(options.onStatus === undefined ? {} : { onStatus: options.onStatus }),
-        });
-        const endpoint = new LinkEndpoint(host, client, options.currentCrypto);
-        await endpoint.sync(options.crypto);
+        }));
+        if (!await endpoint.sync(options.crypto)) throw new Error('link: initial device sync failed');
         return endpoint;
+    }
+
+    start(): void {
+        this.client = this.connectRelay();
     }
 
     /** Enrol the phones this machine now trusts and revoke the ones it no longer does. */
@@ -125,7 +131,7 @@ export class LinkEndpoint {
     }
 
     close(): void {
-        this.client.stop();
+        this.client?.stop();
         this.host.close();
     }
 

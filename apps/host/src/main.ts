@@ -752,7 +752,11 @@ async function main(): Promise<void> {
                     });
                     if (linkEndpoint !== undefined) {
                         const latest = currentCrypto();
-                        if (latest !== undefined && await linkEndpoint.sync(latest)) recordLinkAdmission(latest);
+                        if (latest !== undefined) {
+                            if (!await linkEndpoint.sync(latest)) throw new Error('link: initial device sync failed');
+                            recordLinkAdmission(latest);
+                        }
+                        linkEndpoint.start();
                         host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
                         if (linkOnline) host.refreshLinkEnrolment();
                     }
