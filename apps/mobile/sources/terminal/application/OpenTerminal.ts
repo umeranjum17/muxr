@@ -535,6 +535,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             const timer = setTimeout(() => settle({ ok: false, code: 'socket-timeout', streamLost: true }), 15_000);
         });
         let firstFrameOfStream = false;
+        let firstFrameTimer: ReturnType<typeof setTimeout> | undefined;
         let received = Promise.resolve();
         transport.onLine((line) => {
             received = received.then(async () => {
@@ -555,8 +556,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 const type = (frame as { type?: unknown }).type;
                 if (type === 'result') {
                     const result = frame as { requestId?: unknown; ok?: unknown; error?: unknown; code?: unknown };
-                    if (result.requestId !== requestId || typeof result.ok !== 'boolean') return;
+                    if (result.requestId !== requestId || typeof result.ok !== 'boolean' || linkAck === undefined) return;
                     if (result.ok) {
+                        firstFrameTimer = setTimeout(() => {
+                            if (linkWire === transport && !firstFrameOfStream) transport.close();
+                        }, 15_000);
                         finalizeCounts();
                         frameCounts = beginTerminalFrameCounts();
                         for (const queued of outbox.splice(0)) void transport.write(queued).catch(() => undefined);
@@ -575,6 +579,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     hostAnswered();
                     if (!firstFrameOfStream) {
                         firstFrameOfStream = true;
+                        if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
                         painted = true;
                         if (retryTimer !== undefined) {
                             clearTimeout(retryTimer);
@@ -588,12 +593,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 } else if (type === 'terminal.scroll-state') {
                     applyScrollStateFrame(frame);
                 } else if (type === 'terminal.closed') {
+                    if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
                     applyClosedFrame(frame);
                 }
             });
         });
         transport.onEnd(() => {
             void received.then(() => {
+                if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
                 if (linkWire !== transport) return;
                 linkWire = undefined;
                 if (linkAck !== undefined) {

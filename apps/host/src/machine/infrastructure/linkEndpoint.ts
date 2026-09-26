@@ -30,7 +30,7 @@ const muxrDeviceIdOf = (grant: Grant): string | undefined => {
 };
 
 /** Full attach call for the port: the validated stream args plus who is asking. */
-type LinkTerminalAttach = LinkTerminalAttachParams & { deviceId: string; socket: TerminalPipe };
+type LinkTerminalAttach = LinkTerminalAttachParams & { deviceId: string; socket: TerminalPipe; assertAuthorized: () => void };
 
 const CHANNEL_PATTERN = /^tm_[A-Za-z0-9]+_[A-Za-z0-9]+$/;
 
@@ -109,7 +109,8 @@ class LinkTerminalSocket implements TerminalPipe {
     }
 
     onEnd(listener: () => void): () => void {
-        this.ends.add(listener);
+        if (this.ended) listener();
+        else this.ends.add(listener);
         return () => { this.ends.delete(listener); };
     }
 
@@ -296,10 +297,13 @@ async function streamTerminal(stream: LinkStream, req: LinkRequest, grant: Grant
     const mode = grant.role === 'view' ? 'observe' : params.mode;
     const socket: TerminalPipe = new LinkTerminalSocket(stream, mode === 'observe');
     const reply = (result: { ok: true; data: { paneId: string } } | { ok: false; error: string; code?: string }): void => {
-        socket.send(JSON.stringify({ type: 'result', requestId: params.requestId, ...result }));
+        options.terminals!.sendResult(socket, params.channel, { type: 'result', requestId: params.requestId, ...result });
     };
     try {
-        const attach: LinkTerminalAttach = { ...params, deviceId, socket, ...(mode === undefined ? {} : { mode }) };
+        const assertAuthorized = (): void => {
+            if (!trusted(grant, options.currentCrypto())) throw Object.assign(new Error('terminal: device is no longer trusted'), { code: 'device-revoked' });
+        };
+        const attach: LinkTerminalAttach = { ...params, deviceId, socket, assertAuthorized, ...(mode === undefined ? {} : { mode }) };
         const { paneId } = await options.terminals!.attach(attach);
         process.stderr.write(`link: terminal stream attached (pane ${paneId}, device ${deviceId}${mode === 'observe' ? ', observe' : ''})\n`);
         reply({ ok: true, data: { paneId } });

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { deriveV2Key, newV2SenderState, sealV2, v2EnvelopeSequence } from '@muxr/crypto';
+import { deriveV2Key, newV2ReplayTracker, newV2SenderState, openV2, sealV2, v2EnvelopeSequence } from '@muxr/crypto';
 import type { Envelope } from '@muxr/contract';
 
 interface FakeInput extends EventEmitter {
@@ -95,6 +95,61 @@ describe('TerminalManager stream exit', () => {
         fakes.sockets.length = 0;
         fakes.failSpawn = false;
         vi.restoreAllMocks();
+    });
+
+    it('rejects an ended or revoked pending link and seals the surviving attach result', async () => {
+        const root = Buffer.alloc(32).toString('base64');
+        const pending: Array<(pane: string) => void> = [];
+        let authorized = true;
+        const manager = new TerminalManager({
+            relayUrl: 'ws://relay.test', machineId: 'machine',
+            resolvePane: () => new Promise((resolve) => pending.push(resolve)),
+            focusSession: vi.fn(async () => undefined),
+            hostedE2ee: { machineId: 'machine', keyVersion: 2, dataKey: root, ingressKeys: { phone: root } },
+        });
+        const pipe = () => {
+            let open = true;
+            const sent: string[] = [];
+            return {
+                get isOpen() { return open; }, sent,
+                send: (line: string) => { sent.push(line); },
+                onLine: () => () => undefined,
+                onEnd: () => () => undefined,
+                close: () => { open = false; },
+            };
+        };
+        const ended = pipe();
+        const first = manager.attach({ sessionId: 'session', channel: 'ended', cols: 80, rows: 24,
+            deviceId: 'phone', socket: ended, assertAuthorized: () => undefined });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        ended.close();
+        pending.shift()!('pane');
+        await expect(first).rejects.toThrow(/stream ended/);
+        expect(fakes.children).toHaveLength(0);
+
+        const revoked = pipe();
+        const second = manager.attach({ sessionId: 'session', channel: 'revoked', cols: 80, rows: 24,
+            deviceId: 'phone', socket: revoked, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        authorized = false;
+        pending.shift()!('pane');
+        await expect(second).rejects.toThrow(/revoked/);
+        expect(fakes.children).toHaveLength(0);
+
+        authorized = true;
+        const live = pipe();
+        const third = manager.attach({ sessionId: 'session', channel: 'live', cols: 80, rows: 24,
+            deviceId: 'phone', socket: live, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        pending.shift()!('pane');
+        expect(await third).toEqual({ paneId: 'pane' });
+        manager.sendResult(live, 'live', { type: 'result', requestId: 'lt-1', ok: true });
+        const envelope = JSON.parse(live.sent[0]!) as Envelope;
+        expect(openV2(envelope.payload, deriveV2Key(root, 'host->client'), {
+            machineId: 'machine', senderId: 'machine', recipientId: '*', channel: 'terminal',
+            streamId: 'live', keyVersion: 2,
+        }, newV2ReplayTracker())).toBe(JSON.stringify({ type: 'result', requestId: 'lt-1', ok: true }));
+        manager.closeAll();
     });
 
     it('moves same-pane control to the newest device without dropping observers or stealing back', async () => {

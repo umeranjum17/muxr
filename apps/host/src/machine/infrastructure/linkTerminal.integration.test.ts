@@ -138,7 +138,7 @@ describe('terminal over the byokit link (real relay + real host)', () => {
             currentCrypto: () => crypto,
             answer,
             canView: () => false,
-            terminals: { attach: (params) => terminals.attach(params) },
+            terminals,
         });
         expect(endpoint).toBeDefined();
         cleanups.push(() => endpoint!.close());
