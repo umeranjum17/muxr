@@ -119,7 +119,10 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             const admission = join(stateDir(), 'link-enrolled.json');
             const deadline = Date.now() + 30_000;
             while (true) {
-                const enrolled = existsSync(admission) ? JSON.parse(readFileSync(admission, 'utf8')) : [];
+                let enrolled = [];
+                try {
+                    enrolled = JSON.parse(readFileSync(admission, 'utf8'));
+                } catch {}
                 if (enrolled.some((device) => device.deviceId === pending.device.deviceId && device.devicePublicKey === pending.device.devicePublicKey)) break;
                 if (Date.now() >= deadline) throw new Error('the host has not enrolled this device on the link; start muxr and rerun `muxr pair`');
                 await new Promise((resolve) => setTimeout(resolve, 100));
