@@ -142,6 +142,7 @@ describe('terminal over the byokit link (real relay + real host)', () => {
         });
         expect(endpoint).toBeDefined();
         cleanups.push(() => endpoint!.close());
+        endpoint!.start();
 
         // The host serves the relay transport too, like main.ts wires it: a
         // machine peer whose client frames go through `answer`.
