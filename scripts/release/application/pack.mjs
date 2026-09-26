@@ -41,7 +41,8 @@ if (desklinkHost.version !== desklinkPin) {
 const hostPackage = require(join(root, 'apps', 'host', 'package.json'));
 // The link loads libsodium's native addon, which cannot be bundled: install it.
 const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', '@desklink/host': desklinkHost.version,
-    '@byokit/link': hostPackage.dependencies['@byokit/link'], '@byokit/relay': hostPackage.dependencies['@byokit/relay'] };
+    '@byokit/link': hostPackage.dependencies['@byokit/link'], '@byokit/relay': hostPackage.dependencies['@byokit/relay'],
+    '@byokit/reach': rootPackage.dependencies['@byokit/reach'] };
 const external = Object.keys(runtimeDependencies);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -49,6 +50,9 @@ mkdirSync(out, { recursive: true });
 const result = await build({
     entryPoints: ['apps/host/dist/main.js'],
     outfile: join(out, 'host.js'),
+    preserveSymlinks: true,
+    define: { 'process.env.MUXR_PACKAGED': '"1"' },
+    minifySyntax: true,
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -62,6 +66,7 @@ const result = await build({
 await build({
     entryPoints: ['packages/crypto/dist/index.js'],
     outfile: join(out, 'crypto.js'),
+    preserveSymlinks: true,
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -75,6 +80,7 @@ await build({
 await build({
     entryPoints: ['apps/relay/dist/main.js'],
     outfile: join(out, 'relay.js'),
+    preserveSymlinks: true,
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -88,7 +94,7 @@ await build({
 const bundledPackagePaths = new Set(
     Object.keys(result.metafile.inputs)
         .map((input) => packagePathFromInput(root, input))
-        .filter((path) => path !== undefined),
+        .filter((path) => path !== undefined && !path.includes('node_modules/@muxr/')),
 );
 const bundledDependencies = [...bundledPackagePaths]
     .sort()
@@ -159,6 +165,7 @@ writeFileSync(
 const contractResult = await build({
     entryPoints: ['packages/contract/dist/index.js'],
     outfile: join(out, 'contract.mjs'),
+    preserveSymlinks: true,
     bundle: true,
     platform: 'node',
     format: 'esm',

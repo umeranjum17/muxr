@@ -1184,9 +1184,9 @@ else if(a[0]==='view') {
     browserPair.stdout.on('data', (chunk) => { browserPairOutput += chunk; });
     browserPair.stderr.on('data', (chunk) => { browserPairOutput += chunk; });
     await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`browser pairing did not print a short link\n${browserPairOutput}`)), 10_000);
+        const timer = setTimeout(() => reject(new Error(`browser pairing did not print a link offer\n${browserPairOutput}`)), 10_000);
         const poll = setInterval(() => {
-            if (!/https:\/\/browser\.example\.test\/pair\?pair=[^\s&]+&role=control/.test(browserPairOutput)) return;
+            if (!/https:\/\/browser\.example\.test\/pair#byokit-link:1:[A-Za-z0-9_-]+/.test(browserPairOutput)) return;
             clearTimeout(timer); clearInterval(poll); resolve();
         }, 50);
     });

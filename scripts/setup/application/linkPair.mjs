@@ -80,8 +80,11 @@ export async function linkPair(state, { approve, pairMs = PAIR_WINDOW_MS, signal
     if (state.relayLocation === 'remote') throw new Error('start muxr on this computer before pairing on a shared relay');
     const machine = state.machine;
     const confirm = approve ?? showApproval;
+    // An owned relay is reachable on loopback even when its advertised HTTPS
+    // address requires an external proxy or cannot hairpin from this machine.
+    const dialRelayUrl = `ws://127.0.0.1:${state.relayPort}`;
     const keys = keyPair();
-    const enrol = await relayEnrolment(state.relayUrl, selfhostCredential(state), hostId(keys.publicKey), `${machine.name ?? 'muxr'} pairing`);
+    const enrol = await relayEnrolment(dialRelayUrl, selfhostCredential(state), hostId(keys.publicKey), `${machine.name ?? 'muxr'} pairing`);
     if (enrol === false) throw new Error('this relay does not serve link pairing; update muxr on this machine');
     // Device keys with an open claim, for rollback when the proof never comes.
     const claims = new Map();
@@ -108,7 +111,7 @@ export async function linkPair(state, { approve, pairMs = PAIR_WINDOW_MS, signal
         handle: (req, device) => servePairing(state, req, device, claims, done, intent),
     });
     const client = new RelayClient(host, {
-        url: new URL('/relay/v1/host', new URL(state.relayUrl.replace(/^ws/i, 'http'))).toString().replace(/^http/, 'ws'),
+        url: new URL('/relay/v1/host', new URL(dialRelayUrl.replace(/^ws/i, 'http'))).toString().replace(/^http/, 'ws'),
         name: `${machine.name ?? 'muxr'} pairing`,
         ...(enrol === undefined ? {} : { enrol }),
     });

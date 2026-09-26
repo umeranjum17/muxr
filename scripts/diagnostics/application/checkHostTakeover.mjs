@@ -1,72 +1,68 @@
-/**
- * A second host for the same machineId retires the first.
- *
- * Two live hosts both answer every request, and the one that did not create a
- * session replies "unknown session" — which is what the client surfaces.
- */
+/** A second link host under the same machine key retires the first. */
 import { spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { hostId } from '@byokit/link';
 import { waitForRelay } from './waitForRelay.mjs';
+import { machineIdentity } from '../../setup/index.mjs';
 
-// A live deployment exports these. Inherited, they point the throwaway relay
-// and the hosts spawned here at real credentials, and the relay refuses them.
-const env = { ...process.env };
-for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_URL', 'MUXR_MACHINE_ID', 'MUXR_RELAY_AUTH']) {
-    delete env[key];
-}
-
-const dataDir = mkdtempSync(join(tmpdir(), 'muxr-takeover-'));
+const root = mkdtempSync(join(tmpdir(), 'muxr-link-takeover-'));
+const home = join(root, 'muxr');
 const children = [];
-const done = (code, msg) => {
-    process.stdout.write(msg);
-    for (const child of children) child.kill('SIGKILL');
-    process.exit(code);
-};
+const env = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1' };
+for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_URL', 'MUXR_MACHINE_ID', 'MUXR_RELAY_AUTH']) delete env[key];
 
-const relay = spawn('node', ['apps/relay/dist/main.js'], {
-    env: { ...env, MUXR_RELAY_DEVELOPMENT_API: '1',
-    MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: dataDir },
-    stdio: ['ignore', 'pipe', 'pipe'],
-});
-relay.stderr.on('data', (d) => process.stderr.write(`[relay] ${d}`));
-children.push(relay);
-const PORT = await waitForRelay(relay).catch((error) => done(1, `\nFAIL: ${error.message}\n`));
+async function until(check, what, timeout = 20_000) {
+    const deadline = Date.now() + timeout;
+    for (;;) {
+        if (await check()) return;
+        if (Date.now() > deadline) throw new Error(`timed out: ${what}`);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+}
 
-const startHost = () => {
-    const host = spawn('node', ['apps/host/dist/main.js', '--fake'], {
-        env: {
-            ...env,
-            MUXR_MODE: 'local',
-            MUXR_RELAY_URL: `ws://127.0.0.1:${PORT}`,
-            MUXR_MACHINE_ID: 'takeover-machine',
-            MUXR_DATA_DIR: join(dataDir, `host-${children.length}`),
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
+function launch(args, extra = {}) {
+    const child = spawn(process.execPath, args, { env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let output = '';
+    child.stdout.on('data', (part) => { output += part; });
+    child.stderr.on('data', (part) => { output += part; });
+    child.output = () => output;
+    children.push(child);
+    return child;
+}
+
+try {
+    const relay = launch(['apps/relay/dist/main.js'], {
+        MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: join(root, 'relay'), MUXR_RELAY_MDNS: '0',
     });
-    host.exitCode = null;
-    host.on('exit', (code) => { host.observedExit = code; });
-    children.push(host);
-    return host;
-};
-
-const first = startHost();
-await delay(1500);
-const second = startHost();
-await delay(1500);
-
-if (first.observedExit !== 0) {
-    done(1, `FAIL: the retired host should exit cleanly, got ${first.observedExit}\n`);
+    const port = await waitForRelay(relay);
+    const machine = { ...machineIdentity(undefined), name: 'Takeover machine' };
+    mkdirSync(home, { recursive: true });
+    const owner = JSON.parse(readFileSync(join(root, 'relay', 'mint-secret'), 'utf8'));
+    writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, machine, relayPort: port,
+        relayUrl: `ws://127.0.0.1:${port}`, relayLocation: 'local', relayRole: 'single-machine',
+        connectionMode: 'lan', webEnabled: false, mintSecret: owner })}\n`, { mode: 0o600 });
+    const start = (name) => launch(['apps/host/dist/main.js', '--fake'], {
+        MUXR_MODE: 'selfhost', MUXR_DATA_DIR: join(root, name),
+    });
+    const first = start('first');
+    await until(() => first.output().includes('link relay: online'), 'first link host online');
+    const second = start('second');
+    await until(() => second.output().includes('link relay: online'), 'second link host online');
+    await until(() => first.exitCode !== null, 'retired link host exit');
+    if (first.exitCode !== 0) throw new Error(`retired host exited ${first.exitCode}: ${first.output()}`);
+    if (second.exitCode !== null) throw new Error(`newer host exited ${second.exitCode}: ${second.output()}`);
+    const hosts = await fetch(`http://127.0.0.1:${port}/relay/v1/hosts`, { headers: { authorization: `Bearer ${owner}` } }).then((response) => response.json());
+    const id = hostId(Buffer.from(machine.crypto.boxPublicKey, 'base64'));
+    if (hosts.hosts?.filter((host) => host.id === id && host.online).length !== 1) throw new Error('relay has no single online link host');
+    process.stdout.write('PASS: second link host retires the first\n');
+} finally {
+    await Promise.all(children.map(async (child) => {
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        const exited = new Promise((resolve) => child.once('exit', resolve));
+        child.kill('SIGTERM');
+        await exited;
+    }));
+    rmSync(root, { recursive: true, force: true });
 }
-if (second.observedExit !== undefined) {
-    done(1, `FAIL: the newer host must keep running, exited ${second.observedExit}\n`);
-}
-
-const metrics = await (await fetch(`http://127.0.0.1:${PORT}/metrics`)).json();
-if (metrics.connectedMachines !== 1) {
-    done(1, `FAIL: connectedMachines=${metrics.connectedMachines}, expected 1\n`);
-}
-
-done(0, 'PASS: second host retires the first (single host per machineId)\n');
