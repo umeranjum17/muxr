@@ -735,6 +735,7 @@ async function main(): Promise<void> {
 
     // A dead host must never leave --takeover streams holding the desk's panes.
     let shuttingDown = false;
+    let pairingServer: { close(): Promise<void> } | undefined;
     // The link sits beside the relay transport on a self-host relay this
     // machine owns. The relay may still be starting, so keep trying.
     const ownerToken = mode === 'selfhost' ? selfhostAuth?.mintSecret : undefined;
@@ -810,11 +811,15 @@ async function main(): Promise<void> {
                             recordLinkAdmission(latest);
                         }
                         linkEndpoint.start();
+                        const { startHostPairingServer } = await import('../../../scripts/setup/application/linkPair.mjs');
+                        pairingServer = await startHostPairingServer(linkEndpoint, join(dataDir, 'pair.sock'), relayUrl);
                         host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
                         if (linkOnline) host.refreshLinkEnrolment();
                     }
                     return;
                 } catch (error) {
+                    await pairingServer?.close();
+                    pairingServer = undefined;
                     linkEndpoint?.close();
                     linkEndpoint = undefined;
                     if (attempt === 0) process.stderr.write(`link unavailable, retrying: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -827,6 +832,7 @@ async function main(): Promise<void> {
         if (shuttingDown) return;
         shuttingDown = true;
         linkOnline = false;
+        void pairingServer?.close();
         linkEndpoint?.close();
         terminals.closeAll();
         peerRuntime?.close();

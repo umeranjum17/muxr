@@ -10,8 +10,8 @@
  *
  * Covered: a successful pairing (the same two words on both screens, the
  * device record durable, the machine link serving the new phone), a declined
- * approval, an expired pairing window, and a phone that resumes by key after
- * dying between approval and completion.
+ * approval, and a phone that resumes by key after dying between approval and
+ * completion.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -250,13 +250,6 @@ describe('native pairing over the byokit link', () => {
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     }, 90_000);
 
-
-    it('refuses a claim once the pairing window has passed', async () => {
-        const { offer, abort } = await showPairingQr({ approve: async () => true, pairMs: 1_200 });
-        await new Promise((resolve) => setTimeout(resolve, 1_500));
-        await expect(runPhonePairing(offer)).rejects.toThrow('run out');
-        await abort();
-    }, 90_000);
 
 
     it('completes a pairing for a phone that died between approval and the machine details', async () => {

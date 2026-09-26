@@ -2,22 +2,21 @@
  * A machine that does not own its relay joins the byokit link through the
  * owner's enrolment (step 5).
  *
- * One flow against the real relay, host and `muxr pair`: the relay's owner
- * mints the legacy and link enrolments (what `muxr enroll` does on the relay
- * server), the machine claims both through one enrollment string and runs its
- * host with no owner secret — the host registers by proving its machine key, a
- * paired phone dials the link route on the shared relay, and after a restart
- * the used enrolment token is ignored because the key is enough.
+ * One flow against the real relay and host: the relay owner mints both
+ * enrolments; the machine runs without the owner secret, and `muxr pair` asks
+ * that running machine to offer the QR over its owner-only local socket.
+ * The paired phone dials the link; after a restart the spent enrolment token
+ * is ignored because the host key is enough.
  */
 import { createHash } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hostId, unb64url } from '@byokit/link';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { waitForRelay } from './waitForRelay.mjs';
-import { machineIdentity } from '../../setup/index.mjs';
+import { linkPair, machineIdentity, readSelfhostState } from '../../setup/index.mjs';
 import nacl from 'tweetnacl';
 
 const phone = { secure: new Map<string, string>(), local: new Map<string, string>() };
@@ -40,11 +39,12 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     },
 }));
 
-import { claimHostedPairing, type StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
+import { pairOverLink, type StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
 import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
 
 const repoRoot = join(import.meta.dirname, '../../..');
 const home = mkdtempSync(join(tmpdir(), 'muxr-link-shared-relay-'));
+process.env.MUXR_HOME = home;
 const children = new Set<ChildProcess>();
 
 function launch(args: string[], extra: NodeJS.ProcessEnv = {}): ChildProcess & { output: () => string } {
@@ -169,12 +169,13 @@ await until(() => (host!.output().includes('link relay: online') ? true : undefi
             : Array.isArray(hosts.body.hosts) ? hosts.body.hosts as Array<{ id?: string }> : [];
         expect(listed.some((entry) => entry.id === hostAddress), JSON.stringify({ body: hosts.body, hostAddress })).toBe(true);
 
-        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
-        const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1],
-            `muxr pair string; pair said: ${JSON.stringify(pair.output().slice(-400))}`);
-        const stored = await claimHostedPairing(text) as StoredHostedGrant;
-        await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'muxr pair finishes');
-        expect(pair.exitCode, pair.output()).toBe(0);
+        await until(() => (existsSync(join(home, 'host', 'pair.sock')) ? true : undefined), 'machine pairing socket');
+        let output = '';
+        const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { output += String(chunk); return true; });
+        const pairing = linkPair(readSelfhostState(), { approve: () => true }).finally(() => spy.mockRestore());
+        const text = await until(() => /byokit-link:1:[A-Za-z0-9_-]+/.exec(output)?.[0], 'machine link offer');
+        const stored = await pairOverLink(text) as StoredHostedGrant;
+        await pairing;
 
         stored.relayUrl = relayUrl();
         const client = new LinkFirstClient({
@@ -194,6 +195,7 @@ await until(() => (host!.output().includes('link relay: online') ? true : undefi
         // A restart re-registers with the spent token; the key alone is enough.
         await stop(host);
         host = undefined;
+        await expect(linkPair(readSelfhostState())).rejects.toThrow('start muxr on this computer');
         startMachine();
         await until(() => (host!.output().includes('link relay: online') ? true : undefined), 'restarted host re-registers on the spent token');
         client.close();
