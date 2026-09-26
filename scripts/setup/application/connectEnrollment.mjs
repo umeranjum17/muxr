@@ -105,7 +105,7 @@ export async function connectEnrollment(args = []) {
         if (existing !== undefined) {
             writeFileSync(join(stateDir(), 'selfhost.previous.json'), `${JSON.stringify(existing, null, 2)}\n`, { mode: 0o600 });
             try {
-                if (existing.relayLocation !== 'remote') cleanupManagedIngress(existing);
+                if (existing.relayLocation !== 'remote') await cleanupManagedIngress(existing);
                 if (daemonIsRunning() && (await runDaemon(['stop'])) !== 0) throw new Error('could not stop the existing muxr service');
                 await stopOwnedSelfhostRelay();
             } catch (cause) {
