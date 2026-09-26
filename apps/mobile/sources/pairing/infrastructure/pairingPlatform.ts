@@ -17,7 +17,7 @@ export function assertSupportedOffer(scanned: string): void {
 
 export function deviceAuthority(machineId: string, grant: StoredHostedGrant | undefined): 'control' | 'observe' {
     if (Platform.OS !== 'web') return 'control';
-    return grant?.machineId === machineId ? grant.authority : 'observe';
+    return grant?.machineId === machineId ? grant.authority ?? 'observe' : 'observe';
 }
 
 export function initialDeviceAuthority(machineId: string): { authority: 'control' | 'observe'; loading: boolean } {
