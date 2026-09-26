@@ -1,4 +1,4 @@
-import type { PeerCapability } from '@muxr/contract';
+import type { LifecycleNotificationLevel, PeerCapability } from '@muxr/contract';
 
 export interface MachineDeviceRecord {
     deviceId: string;
@@ -15,6 +15,8 @@ export interface MachineDeviceRecord {
      * Only this marker lifts the host refresh clamp from 8h to 30d.
      */
     personal?: boolean;
+    /** Push policy persists with the trusted device, not the relay registration. */
+    pushLevel?: LifecycleNotificationLevel;
     capabilities?: PeerCapability[];
     allowedCwds?: string[];
 }

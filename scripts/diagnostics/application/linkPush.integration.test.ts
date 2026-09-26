@@ -9,7 +9,7 @@
  * device chose decides who is woken; a revoked device stops being woken.
  */
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DeviceLink, hostId, keyPairFrom, type DeviceGrant } from '@byokit/link';
@@ -65,17 +65,38 @@ describe('push rides the byokit link relay', () => {
                     expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
                 }],
             };
-            let currentCrypto = crypto;
-            const endpoint = await LinkEndpoint.open({
+            type PushCrypto = typeof crypto & { devices: Array<(typeof crypto.devices)[number] & { pushLevel?: 'all' | 'important' | 'off' }> };
+            const statePath = join(dataDir, 'host-devices.json');
+            const readState = (): PushCrypto => JSON.parse(readFileSync(statePath, 'utf8')) as PushCrypto;
+            writeFileSync(statePath, JSON.stringify(crypto));
+            const savePushLevel = (deviceId: string, level: 'all' | 'important' | 'off' | undefined) => {
+                const next = readState();
+                const device = next.devices.find((entry) => entry.deviceId === deviceId);
+                if (device === undefined) throw new Error('device missing');
+                device.pushLevel = level;
+                writeFileSync(statePath, JSON.stringify(next));
+            };
+            let currentCrypto = readState();
+            const endpointStatuses: string[] = [];
+            const grantsPath = join(dataDir, 'host-grants.json');
+            writeFileSync(grantsPath, '[]');
+            const openEndpoint = () => LinkEndpoint.open({
+                savePushLevel,
+                grants: {
+                    load: () => JSON.parse(readFileSync(grantsPath, 'utf8')) as never,
+                    save: (grants) => writeFileSync(grantsPath, JSON.stringify(grants)),
+                },
+                onStatus: (status) => endpointStatuses.push(status),
                 relayUrl: `ws://127.0.0.1:${relay.port}`,
                 ownerToken: mint,
                 machineId: 'machine-push-test',
                 machineName: 'Desk',
                 crypto: crypto as never,
-                currentCrypto: () => currentCrypto as never,
+                currentCrypto: () => readState() as never,
                 answer: async () => undefined,
                 canView: () => false,
             });
+            let endpoint = (await openEndpoint())!;
             expect(endpoint).toBeDefined();
             // The relay socket dials only on start() (the host main wiring does the same).
             endpoint.start();
@@ -133,15 +154,45 @@ describe('push rides the byokit link relay', () => {
             });
             await until(() => (expoSends.length >= 2 ? true : undefined), 'blocked notification delivered again');
             expect(expoSends[1].to).toBe('ExponentPushToken[muxr-test-token]');
+            expect(readState().devices[0].pushLevel).toBe('important');
             link.stop();
+            endpoint.close();
+            endpoint = (await openEndpoint())!;
+            endpoint.start();
+            await until(() => (endpointStatuses.at(-1) === 'online' ? true : undefined), `restarted relay online: ${endpointStatuses.join(',')}`);
+            expect(endpoint.enrolledKey('dev_push_1')).toBeDefined();
+            expect(readState().devices[0].pushLevel).toBe('important');
+            endpoint.notifyAttention({
+                sessionId: 's1', eventId: 'evt-restart', kind: 'blocked', machineId: 'machine-push-test',
+                reasonCode: 'agent-blocked', agentName: 'Maria', taskTitle: 'Ship it',
+            });
+            await until(() => (expoSends.length >= 3 ? true : undefined), 'delivery after host restart');
+            expect(expoSends[2].to).toBe('ExponentPushToken[muxr-test-token]');
+
+            // Authority is read for each send, not cached when the address registered.
+            const beforeExpiry = readState();
+            const expired = structuredClone(beforeExpiry);
+            expired.devices[0].expiresAt = new Date(Date.now() - 1_000).toISOString();
+            writeFileSync(statePath, JSON.stringify(expired));
+            endpoint.notifyAttention({ sessionId: 's1', eventId: 'evt-expired', kind: 'blocked', machineId: 'machine-push-test', agentName: 'Maria' });
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            expect(expoSends).toHaveLength(3);
+            writeFileSync(statePath, JSON.stringify(beforeExpiry));
+            const revoking = { ...beforeExpiry, pendingRotation: { revokedDeviceId: 'dev_push_1' } };
+            writeFileSync(statePath, JSON.stringify(revoking));
+            endpoint.notifyAttention({ sessionId: 's1', eventId: 'evt-revoking', kind: 'blocked', machineId: 'machine-push-test', agentName: 'Maria' });
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            expect(expoSends).toHaveLength(3);
+            writeFileSync(statePath, JSON.stringify(beforeExpiry));
 
             // A second device registers for everything; revoking it removes its
             // registration with its grant, so it is never woken again.
             const revokedSecret = randomBytes(32);
             const revokedKeys = keyPairFrom(revokedSecret);
+            currentCrypto = readState();
             const revokedCrypto = {
-                ...crypto,
-                devices: [...crypto.devices, {
+                ...currentCrypto,
+                devices: [...currentCrypto.devices, {
                     deviceId: 'dev_push_2',
                     devicePublicKey: Buffer.from(revokedKeys.publicKey).toString('base64'),
                     authority: 'control',
@@ -149,6 +200,7 @@ describe('push rides the byokit link relay', () => {
                 }],
             };
             currentCrypto = revokedCrypto;
+            writeFileSync(statePath, JSON.stringify(currentCrypto));
             await endpoint.sync(revokedCrypto as never);
             const revokedStatuses: string[] = [];
             const revokedLink = new DeviceLink({
@@ -166,8 +218,9 @@ describe('push rides the byokit link relay', () => {
             const afterSecond = expoSends.length;
             await until(() => (expoSends.length >= afterSecond ? true : undefined), 'second registration recorded');
             // The host drops the device; its grant and its push registration go.
-            currentCrypto = crypto;
-            await endpoint.sync(crypto as never);
+            currentCrypto = { ...currentCrypto, devices: currentCrypto.devices.filter((entry) => entry.deviceId !== 'dev_push_2') };
+            writeFileSync(statePath, JSON.stringify(currentCrypto));
+            await endpoint.sync(currentCrypto as never);
             endpoint.notifyAttention({
                 sessionId: 's1', eventId: 'evt-4', kind: 'blocked', machineId: 'machine-push-test',
                 reasonCode: 'agent-blocked', agentName: 'Maria', taskTitle: 'Ship it',

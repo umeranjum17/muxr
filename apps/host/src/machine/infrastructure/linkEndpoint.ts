@@ -1,4 +1,4 @@
-import { Host, PublicLinkError, hostId, keyPairFrom, type Grant } from '@byokit/link';
+import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore } from '@byokit/link';
 import { isExpoToken, RelayClient } from '@byokit/relay';
 import {
     lifecycleNotificationAllowed,
@@ -27,6 +27,8 @@ export interface LinkEndpointOptions {
     machineName: string;
     crypto: MachineCryptoState;
     currentCrypto: () => MachineCryptoState | undefined;
+    savePushLevel: (deviceId: string, level: LifecycleNotificationLevel | undefined) => void;
+    grants: GrantStore;
     answer: LinkAnswer;
     canView: (frame: ClientFrame) => boolean;
     onStatus?: (status: string) => void;
@@ -78,11 +80,9 @@ export class LinkEndpoint {
 
     private client?: RelayClient;
 
-    /** Lifecycle level each link device asked for when it registered its push address. */
-    private readonly pushLevels = new Map<string, LifecycleNotificationLevel>();
-
     private constructor(private readonly host: Host,
         private readonly currentCrypto: () => MachineCryptoState | undefined,
+        private readonly savePushLevel: LinkEndpointOptions['savePushLevel'],
         private readonly connectRelay: () => RelayClient,
         private readonly machineId?: string) {}
 
@@ -97,10 +97,11 @@ export class LinkEndpoint {
         if (enrol === false) return undefined;
         // Device connections start only after the client dials, which is after
         // this assignment; the push handler needs the finished endpoint.
-        let subscribePush: LinkEndpoint['subscribePush'] | undefined;
+        let endpoint: LinkEndpoint;
         const host = await Host.open({
             keys,
             name: options.machineName,
+            grants: options.grants,
             // Pairing stays on the relay transport; the link only admits phones
             // enrolled from this machine's own device records.
             confirm: () => false,
@@ -109,7 +110,7 @@ export class LinkEndpoint {
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) return false;
                 // A device's own push address is device-local, never machine data.
-                return frame.type === 'push.subscribe' || frame.type.startsWith('desktop.')
+                return frame.type.startsWith('push.') || frame.type.startsWith('desktop.')
                     || grant.role === 'control' || options.canView(frame);
             },
             handle: async (req, grant) => {
@@ -117,7 +118,7 @@ export class LinkEndpoint {
                 const deviceId = muxrDeviceIdOf(grant)!;
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) throw new Error('link: request op does not match its frame');
-                if (frame.type === 'push.subscribe') return subscribePush!(frame, grant, deviceId);
+                if (frame.type.startsWith('push.')) return endpoint.pushRequest(frame, grant, deviceId);
                 if (frame.type.startsWith('desktop.')) {
                     throw new PublicLinkError('Remote desktop is not available over this link yet; use the existing relay connection.');
                 }
@@ -126,13 +127,12 @@ export class LinkEndpoint {
                 return response;
             },
         });
-        const endpoint = new LinkEndpoint(host, options.currentCrypto, () => new RelayClient(host, {
+        endpoint = new LinkEndpoint(host, options.currentCrypto, options.savePushLevel, () => new RelayClient(host, {
             url: new URL('/relay/v1/host', relayControlUrl(options.relayUrl)).toString().replace(/^http/, 'ws'),
             name: options.machineName,
             ...(enrol === undefined ? {} : { enrol }),
             ...(options.onStatus === undefined ? {} : { onStatus: options.onStatus }),
         }), options.machineId);
-        subscribePush = (frame, grant, deviceId) => endpoint.subscribePush(frame, grant, deviceId);
         if (!await endpoint.sync(options.crypto)) {
             endpoint.close();
             throw new Error('link: initial device sync failed');
@@ -177,9 +177,12 @@ export class LinkEndpoint {
         taskTitle?: string;
     }): void {
         if (input.agentName === undefined || this.client === undefined) return;
-        const to = [...this.pushLevels]
-            .filter(([, level]) => lifecycleNotificationAllowed(level, input.kind))
-            .map(([grantId]) => grantId);
+        const crypto = this.currentCrypto();
+        const to = this.host.devices().filter((grant) => {
+            if (!trusted(grant, crypto)) return false;
+            const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
+            return device?.pushLevel !== undefined && lifecycleNotificationAllowed(device.pushLevel, input.kind);
+        }).map((grant) => grant.id);
         if (to.length === 0) return;
         const title = input.taskTitle ?? 'Agent update';
         const suffix = input.kind === 'failed' && COPY_SUFFIX.failed !== undefined && input.reasonCode !== undefined
@@ -207,19 +210,28 @@ export class LinkEndpoint {
         });
     }
 
-    /**
-     * Store one device's Expo push address on the relay and remember the level
-     * it asked for. `deviceId` is currently only informational (the grant id is
-     * the relay-side key); keeping it in the signature documents the mapping.
-     */
-    private async subscribePush(frame: ClientFrame, grant: Grant, deviceId: string): Promise<HostFrame> {
-        if (frame.type !== 'push.subscribe') throw new Error('link: not a push registration');
-        if (!isExpoToken(frame.params.token)) throw new PublicLinkError('push.subscribe needs an Expo push token');
-        const level = frame.params.level === undefined ? undefined : parseLifecycleNotificationLevel(frame.params.level);
-        if (frame.params.level !== undefined && level === undefined) throw new PublicLinkError('push.subscribe level is invalid');
-        if (this.client === undefined) throw new PublicLinkError('push.subscribe needs the relay connection; retry when it is online');
-        await this.client.subscribe(grant.id, { expo: frame.params.token });
-        this.pushLevels.set(grant.id, level ?? 'important');
+    private async pushRequest(frame: ClientFrame, grant: Grant, deviceId: string): Promise<HostFrame> {
+        if (!frame.type.startsWith('push.')) throw new Error('link: not a push request');
+        if (this.client === undefined) throw new PublicLinkError('push needs the relay connection; retry when it is online');
+        if (frame.type === 'push.vapid') {
+            const publicKey = this.client.vapidKey;
+            if (publicKey === undefined) throw new PublicLinkError('push key unavailable; retry when the relay is online');
+            return { type: 'result', requestId: frame.requestId, ok: true, data: { publicKey } };
+        }
+        if (frame.type === 'push.unsubscribe') {
+            await this.client.unsubscribe(grant.id);
+            this.savePushLevel(deviceId, undefined);
+            return { type: 'result', requestId: frame.requestId, ok: true, data: null };
+        }
+        if (frame.type !== 'push.subscribe') throw new PublicLinkError('unknown push request');
+        const { token, subscription } = frame.params;
+        if (token !== undefined && !isExpoToken(token) || (token === undefined) === (subscription === undefined)) {
+            throw new PublicLinkError('push.subscribe needs one push address');
+        }
+        const level = frame.params.level === undefined ? 'important' : parseLifecycleNotificationLevel(frame.params.level);
+        if (level === undefined) throw new PublicLinkError('push.subscribe level is invalid');
+        await this.client.subscribe(grant.id, token !== undefined ? { expo: token } : { web: subscription! });
+        this.savePushLevel(deviceId, level);
         return { type: 'result', requestId: frame.requestId, ok: true, data: null };
     }
 
@@ -245,13 +257,10 @@ export class LinkEndpoint {
             // the new grant without being told it was removed.
             if (device === undefined || !sameKey) {
                 await this.client?.revoke(grant.id);
-                this.pushLevels.delete(grant.id);
             } else if (roleMatches) {
                 enrolled.add(device.deviceId);
             } else {
-                // The device re-enrols under the new role below and its push
-                // level resets; it re-registers the address when it reconnects.
-                this.pushLevels.delete(grant.id);
+                // The device re-enrols under the new role below.
             }
         }
         for (const device of wanted.values()) {

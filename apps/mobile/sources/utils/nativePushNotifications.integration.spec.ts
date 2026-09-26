@@ -1,24 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const persistence = vi.hoisted(() => ({
     token: 'ExpoPushToken[device]' as string | null,
     clear: vi.fn(),
+    client: { registerPush: vi.fn(), unregisterPush: vi.fn() },
 }));
 
 vi.mock('expo-constants', () => ({ default: {} }));
 vi.mock('expo-notifications', () => ({}));
 vi.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
-vi.mock('@/account', () => ({
-    TokenStorage: { getCredentials: async () => ({ token: 'device-credential' }) },
-}));
-vi.mock('@/connection', () => ({
-    getCachedConnectionSettings: () => ({ relayUrl: 'wss://relay.test' }),
-}));
+vi.mock('@/connection/sessionClientRef', () => ({ activeSessionClient: () => persistence.client }));
 vi.mock('@/catalog/application/persistence', () => ({
-    clearRegisteredPushToken: () => {
-        persistence.token = null;
-        persistence.clear();
-    },
+    clearRegisteredPushToken: () => { persistence.token = null; persistence.clear(); },
     loadRegisteredPushToken: () => persistence.token,
     saveRegisteredPushToken: (token: string) => { persistence.token = token; },
 }));
@@ -29,57 +22,40 @@ vi.mock('@/catalog/store', () => ({
 
 import { unregisterNativePushNotifications, updateNativePushNotificationLevel } from './nativePushNotifications';
 
-const originalFetch = globalThis.fetch;
-
-describe('native lifecycle notification registration flow', () => {
+describe('native lifecycle push registration over the session', () => {
     beforeEach(() => {
         persistence.token = 'ExpoPushToken[device]';
         persistence.clear.mockClear();
+        persistence.client.registerPush.mockReset();
+        persistence.client.unregisterPush.mockReset().mockResolvedValue(true);
     });
-    afterEach(() => vi.stubGlobal('fetch', originalFetch));
 
-    it('keeps the latest level and makes logout the final relay mutation', async () => {
-        const mutations: Array<{ method: string; level?: string }> = [];
-        let deferNextPost = true;
-        let releasePost!: (response: Response) => void;
-        vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-            const method = init?.method ?? 'GET';
-            const body = JSON.parse(String(init?.body)) as { level?: string };
-            mutations.push({ method, ...(body.level === undefined ? {} : { level: body.level }) });
-            if (method === 'POST' && deferNextPost) {
-                deferNextPost = false;
-                return await new Promise<Response>((resolve) => { releasePost = resolve; });
-            }
-            return new Response(null, { status: 200 });
-        }));
+    it('serializes level changes and removes the link registration on logout', async () => {
+        const mutations: string[] = [];
+        let release!: (value: boolean) => void;
+        persistence.client.registerPush.mockImplementationOnce((_token: string, level: string) => {
+            mutations.push(level);
+            return new Promise<boolean>((resolve) => { release = resolve; });
+        }).mockImplementation(async (_token: string, level: string) => { mutations.push(level); return true; });
+        persistence.client.unregisterPush.mockImplementation(async () => { mutations.push('logout'); return true; });
 
         const off = updateNativePushNotificationLevel('off');
-        await vi.waitFor(() => expect(mutations).toEqual([{ method: 'POST', level: 'off' }]));
+        await vi.waitFor(() => expect(mutations).toEqual(['off']));
         const important = updateNativePushNotificationLevel('important');
         const all = updateNativePushNotificationLevel('all');
-        releasePost(new Response(null, { status: 200 }));
+        release(true);
         await expect(Promise.all([off, important, all])).resolves.toEqual([true, true, true]);
-        expect(mutations).toEqual([
-            { method: 'POST', level: 'off' },
-            { method: 'POST', level: 'all' },
-        ]);
+        expect(mutations).toEqual(['off', 'all']);
 
         mutations.length = 0;
-        deferNextPost = true;
         const post = updateNativePushNotificationLevel('important');
-        await vi.waitFor(() => expect(mutations).toEqual([{ method: 'POST', level: 'important' }]));
+        await vi.waitFor(() => expect(mutations).toEqual(['important']));
         const logout = unregisterNativePushNotifications({ token: 'device-credential' } as never);
         const lateUpdate = updateNativePushNotificationLevel('all');
-        expect(mutations).toEqual([{ method: 'POST', level: 'important' }]);
-
-        releasePost(new Response(null, { status: 200 }));
         await expect(post).resolves.toBe(true);
         await logout;
         await expect(lateUpdate).resolves.toBe(false);
-        expect(mutations).toEqual([
-            { method: 'POST', level: 'important' },
-            { method: 'DELETE' },
-        ]);
+        expect(mutations).toEqual(['important', 'logout']);
         expect(persistence.clear).toHaveBeenCalledOnce();
     });
 });
