@@ -692,8 +692,6 @@ async function main(): Promise<void> {
         return { agent, ...(sharing > 1 ? { ambiguous: true } : {}) };
     });
     const terminals = new TerminalManager({
-        relayUrl,
-        machineId,
         resolvePane: async (sessionId) => {
             const snapshot = await source.open({ sessionId, acknowledgeAttention: false });
             if (snapshot.info.paneId === undefined) {
@@ -703,9 +701,7 @@ async function main(): Promise<void> {
         },
         focusSession: (sessionId, assertActive) => source.paneFocus(sessionId, assertActive),
         readPaneScroll: (paneId) => source.paneScroll(paneId),
-        ...(token === undefined ? {} : { token }),
         ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
-        ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
     });
 
     const host = startHost({

@@ -108,8 +108,6 @@ describe('terminal over the byokit link (real relay + real host)', () => {
         };
 
         const terminals = new TerminalManager({
-            relayUrl,
-            machineId: 'machine-test',
             resolvePane: async (sessionId) => `pane-${sessionId}`,
             focusSession: async () => undefined,
             readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
