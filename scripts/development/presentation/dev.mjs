@@ -82,8 +82,7 @@ let exiting = false;
 // Inherited MUXR_*/EXPO_PUBLIC_MUXR* config (tokens, auth modes, data dirs,
 // authority flags) is dropped wholesale so a stray shell can never point the
 // dev harness at a real service or leak dev state into the installed
-// host/relay. up.mjs re-adds the loopback development defaults it owns; we
-// pin the rest explicitly.
+// host/relay. up.mjs re-adds the isolated self-host defaults it owns.
 const devEnvBase = {};
 for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && !/^MUXR_/.test(name) && !/^EXPO_PUBLIC_MUXR/.test(name)) devEnvBase[name] = value;
@@ -106,7 +105,6 @@ const upEnv = {
     // the default empty allowlist serves neither. Production relays are
     // untouched.
     MUXR_ALLOWED_ORIGINS: `http://localhost:${metroPort},http://127.0.0.1:${metroPort},http://127.0.0.1:${relayPort}`,
-    MUXR_MACHINE_ID: 'devbox',
     // The one inherited MUXR_* variable that survives the strip above: an
     // opt-in diagnostic output path, carrying no authority, endpoint or data
     // dir, so it cannot point the harness at a real service.
@@ -118,9 +116,6 @@ const metroEnv = {
     EXPO_NO_DOTENV: '1',
     EXPO_NO_CLIENT_ENV_VARS: '0',
     APP_ENV: 'development',
-    EXPO_PUBLIC_MUXR_MODE: 'local',
-    EXPO_PUBLIC_MUXR_RELAY_URL: `ws://127.0.0.1:${relayPort}`,
-    EXPO_PUBLIC_MUXR_MACHINE_ID: 'devbox',
     EXPO_NO_TELEMETRY: '1',
 };
 
@@ -316,12 +311,6 @@ for (const [label, script] of [['setup-canvaskit', 'setup-canvaskit'], ['setup-p
     }
 }
 
-// Reuse the relay's private local owner credential for normal websocket
-// tickets. This is sent only to the loopback dev bundle, never printed.
-const { ensureMintSecret } = await import(new URL('../../../apps/relay/dist/relay.js', import.meta.url).href);
-metroEnv.EXPO_PUBLIC_MUXR_TOKEN = await ensureMintSecret(upEnv.MUXR_RELAY_DATA_DIR);
-upEnv.MUXR_RELAY_TOKEN = metroEnv.EXPO_PUBLIC_MUXR_TOKEN;
-
 // Capture upstream from the original environment, never from the adapter override.
 sourcePluginsStarting = startSourcePlugins({
     root,
@@ -381,7 +370,8 @@ muxr dev supervisor
   Web preview:         http://localhost:${metroPort} in a browser (same isolated fixture; relay already allows this origin)
   Relay:               ws://127.0.0.1:${relayPort}      (loopback only)
   Artifact downloads:  http://127.0.0.1:${hostHttpPort}
-  Host machine:        devbox   (MUXR_HOME=.cache/muxr-dev)
+  Host:                isolated self-host (MUXR_HOME=.cache/muxr-dev)
+  Pair:                MUXR_HOME=.cache/muxr-dev muxr pair (scan in dev app/browser)
   Checkout plugins:    local checkout projections/scripts; native registrations stay installed
                        existing enablement, catalog hashes, and approvals remain authoritative
   Native rebuild:      NOT automatic — run \`yarn dev:android\` after Gradle/

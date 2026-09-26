@@ -3,59 +3,38 @@
  * Replaces the manual three-terminal path for day-to-day dev.
  */
 import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { connect } from 'node:net';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { waitForRelay } from '../../diagnostics/index.mjs';
 import { hostEntry, namingEntry, relayEntry } from '../infrastructure/paths.mjs';
+import { machineIdentity } from '../infrastructure/runtime.mjs';
 
 function env(name) {
     return process.env[name]?.trim() || undefined;
 }
 
 const port = Number(env('MUXR_RELAY_PORT') ?? 8792);
-const machineId = env('MUXR_MACHINE_ID') || 'devbox';
-// The source harness stays loopback-only because it exposes synthetic account
-// APIs and permits cleartext. Use `muxr setup` for a real phone.
+const root = fileURLToPath(new URL('../../../', import.meta.url));
+const home = env('MUXR_HOME') ?? join(root, '.cache', 'muxr-up');
+// Development state is private to this checkout, never the owner's installed host.
 const relayHost = env('MUXR_RELAY_HOST') ?? '127.0.0.1';
-const loopbackOnly = relayHost === '127.0.0.1' || relayHost === '::1' || relayHost === 'localhost';
 
 const relayEnv = {
     ...process.env,
     MUXR_RELAY_HOST: relayHost,
     MUXR_RELAY_PORT: String(port),
-    // The one-command loopback harness intentionally exposes the legacy
-    // account fixture; production/user-operated relays never do.
-    MUXR_RELAY_DEVELOPMENT_API: '1',
+    MUXR_RELAY_DATA_DIR: env('MUXR_RELAY_DATA_DIR') ?? join(home, 'relay'),
 };
 
 const hostEnv = {
     ...process.env,
-    MUXR_MODE: 'local',
-    MUXR_MACHINE_ID: machineId,
-    MUXR_RELAY_URL: env('MUXR_RELAY_URL') ?? `ws://127.0.0.1:${port}`,
-    ...(env('MUXR_RELAY_TOKEN') ? { MUXR_RELAY_TOKEN: env('MUXR_RELAY_TOKEN') } : {}),
+    MUXR_MODE: 'selfhost',
+    MUXR_HOME: home,
+    MUXR_DATA_DIR: env('MUXR_DATA_DIR') ?? join(home, 'host'),
 };
-
-/**
- * Mint an account token (for the app) and a machine token (for the host).
- * Reuses the relay endpoints proven by scripts/diagnostics/application/checkStrictAuth.mjs.
- */
-async function provisionTokens() {
-    const base = `http://127.0.0.1:${port}`;
-    const post = async (path, body, token) => {
-        const res = await fetch(`${base}${path}`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(15_000),
-        });
-        if (res.status !== 201) throw new Error(`${path} returned ${res.status}`);
-        return res.json();
-    };
-    const account = await post('/v1/accounts', {});
-    const machine = await post('/v1/machines', { machineId }, account.token);
-    return { accountToken: account.token, machineToken: machine.token };
-}
 
 function lanIpv4Addresses() {
     const out = [];
@@ -146,7 +125,7 @@ process.on('SIGTERM', () => finish(0));
 // Running `up` twice, or having a relay already going, is the most likely
 // first-run failure. Node's raw EADDRINUSE stack trace is a terrible thing to
 // hand someone whose first command this is.
-if (await portInUse(port)) {
+if (port !== 0 && await portInUse(port)) {
     process.stderr.write(
         `Port ${port} is already in use — a relay is probably already running.\n`
         + `Stop it, or pick another port with MUXR_RELAY_PORT=<port> npm run up\n`,
@@ -162,29 +141,29 @@ children.push(relay);
 prefixOutput(relay, 'relay', process.stdout);
 relay.on('exit', (code, signal) => onChildExit('relay', code, signal));
 
+let boundPort;
+let state;
 try {
     // Waits on the relay we just spawned, not on the port: a relay that dies at
     // startup says so here instead of burning the timeout, and a stranger
     // already on the port can never be mistaken for ours.
-    await waitForRelay(relay);
+    boundPort = await waitForRelay(relay);
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    const statePath = join(home, 'selfhost.json');
+    state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : {
+        version: 1, machine: machineIdentity(undefined), relayRole: 'single-machine', connectionMode: 'lan',
+    };
+    if (!state.machine?.id || !state.machine?.crypto) throw new Error('development self-host state is invalid; refusing to replace its pairing identity');
+    const lanIp = lanIpv4Addresses()[0];
+    const advertised = env('MUXR_RELAY_URL') ?? `ws://${relayHost === '127.0.0.1' ? '127.0.0.1' : lanIp ?? relayHost}:${boundPort}`;
+    Object.assign(state, { relayPort: boundPort, relayUrl: advertised,
+        relayLocation: 'local', mintSecret: JSON.parse(readFileSync(join(relayEnv.MUXR_RELAY_DATA_DIR, 'mint-secret'), 'utf8')) });
+    writeFileSync(statePath, `${JSON.stringify(state)}\n`, { mode: 0o600 });
 } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);
     finish(1);
-}
-
-// Off loopback the relay is strict, so both sides need tokens before they can
-// connect at all.
-let accountToken;
-if (!loopbackOnly && !hostEnv.MUXR_RELAY_TOKEN) {
-    try {
-        const tokens = await provisionTokens();
-        accountToken = tokens.accountToken;
-        hostEnv.MUXR_RELAY_TOKEN = tokens.machineToken;
-    } catch (error) {
-        process.stderr.write(`could not provision relay tokens: ${error instanceof Error ? error.message : String(error)}\n`);
-        finish(1);
-    }
+    await new Promise(() => {});
 }
 
 const host = spawn('node', [hostEntry()], {
@@ -208,31 +187,20 @@ naming.on('exit', (code, signal) => {
     if (!shuttingDown) process.stderr.write(`[naming] exited (code ${code ?? ''}${signal ? ` ${signal}` : ''}); self-naming unavailable until restart\n`);
 });
 
-const lanIps = lanIpv4Addresses();
-const phoneRelay = lanIps.length > 0 ? `ws://${lanIps[0]}:${port}` : `ws://<lan-ip>:${port}`;
-const localRelay = `ws://127.0.0.1:${port}`;
+const phoneRelay = state.relayUrl;
+const localRelay = `ws://127.0.0.1:${boundPort}`;
 
 if (!process.argv.includes('--quiet')) process.stdout.write(`
 === muxr ===
 
 Relay:       ${phoneRelay}
-Machine ID:  ${machineId}
-${accountToken === undefined ? '' : `Token:       ${accountToken}\n`}${accountToken === undefined
-    ? 'Auth:        permissive (loopback only)\n'
-    : 'Auth:        strict. Token is minted fresh each run \u2014 anyone holding it can\n'
-      + '             drive this machine.\n'}
-Start the app \u2014 copy this whole block:
+Machine ID:  ${state.machine.id}
+Pair:        MUXR_HOME=${home} muxr pair
 
-  cd apps/mobile && \\
-    EXPO_PUBLIC_MUXR_MODE=local \\
-    EXPO_PUBLIC_MUXR_RELAY_URL=${phoneRelay} \\
-    EXPO_PUBLIC_MUXR_MACHINE_ID=${machineId} \\
-${accountToken === undefined ? '' : `    EXPO_PUBLIC_MUXR_TOKEN=${accountToken} \\\n`}    npm start
-
-Or enter the same values in the app under Settings > Connection, which saves
-them on the device and reconnects without restarting the bundler. A phone must
-use the LAN address above, not 127.0.0.1. For the simulator or web on this
-machine use ${localRelay}.
+Scan the fresh link QR in the app. For a LAN phone, set MUXR_RELAY_HOST=0.0.0.0
+before starting up; the default is loopback only. For web on this machine use
+${localRelay}. Pairing stores the connection securely in the browser;
+build-time EXPO_PUBLIC_MUXR_* values do not configure web.
 
 Stop all:    Ctrl-C (kills relay and host)
 
