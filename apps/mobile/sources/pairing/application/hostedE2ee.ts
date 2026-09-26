@@ -1,24 +1,16 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import deepEqual from 'fast-deep-equal';
 import { Platform } from 'react-native';
 import {
     deriveV2Key,
     generateKeyPair,
-    newV2ReplayTracker,
     newV2SenderState,
     openPairingCodePayload,
-    openV2,
     pairingCodeHash,
     sealV2,
-    v2EnvelopeSequence,
-    v2ReplayFromSnapshot,
     verifyDeviceGrant,
     type DeviceGrant,
     type KeyPair,
     type SealedDeviceGrant,
-    type V2ReplaySnapshot,
-    type V2ReplayTracker,
-    type V2SenderState,
 } from '@muxr/crypto';
 import { relayControlUrl } from '@muxr/contract';
 import {
@@ -47,11 +39,8 @@ import { restoreConnection } from './restoreConnection';
 export { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, looksLikeLinkOffer, prepareHostedPairingInput } from '../domain/pairingString';
 
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
-const REPLAY_KEY = 'muxr.hosted-e2ee.replay.v2';
 const PENDING_PAIR_KEY = 'muxr.hosted-e2ee.pending-pair.v1';
 const PENDING_LINK_PAIR_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
-/** Trailing delay for the replay write; one write covers every frame inside it. */
-const REPLAY_FLUSH_MS = 1000;
 
 export interface StoredHostedGrant extends DeviceGrant {
     deviceKey: KeyPair;
@@ -67,10 +56,6 @@ export interface StoredHostedGrant extends DeviceGrant {
 let deviceCache: KeyPair | undefined;
 let devicePending: Promise<KeyPair> | undefined;
 let grantsCache: Record<string, StoredHostedGrant> | undefined;
-let replayCache: Record<string, V2ReplaySnapshot> | undefined;
-let replayWrite = Promise.resolve();
-let replayDirty = false;
-let replayTimer: ReturnType<typeof setTimeout> | undefined;
 
 const secretGet = (key: string): Promise<string | null> => Platform.OS === 'web' ? getWebSecret(key) : getNativeSecret(key);
 const secretSet = (key: string, value: string): Promise<void> => Platform.OS === 'web' ? setWebSecret(key, value) : setNativeSecret(key, value);
@@ -134,48 +119,7 @@ async function grants(): Promise<Record<string, StoredHostedGrant>> {
     return grantsCache;
 }
 
-async function replaySnapshots(): Promise<Record<string, V2ReplaySnapshot>> {
-    if (replayCache !== undefined) return replayCache;
-    const stored = await AsyncStorage.getItem(REPLAY_KEY);
-    replayCache = stored === null ? {} : JSON.parse(stored) as Record<string, V2ReplaySnapshot>;
-    return replayCache;
-}
-
-/**
- * Record the accepted sequence in memory now, write it to disk soon.
- *
- * Every decrypted frame lands here, and a herd of a hundred sessions is a
- * hundred streams and hundreds of frames a second. Serializing the whole cache
- * and awaiting a store write per frame put a disk round-trip in the decrypt
- * path and queued a copy of the cache per pending write, which is JS time and
- * heap the phone does not have. One trailing write covers any number of frames;
- * the replay window it can lose on a crash is the second before it, which is
- * what stream channels already accept above.
- */
-function persistReplay(key: string, snapshot: V2ReplaySnapshot): void {
-    replayCache ??= {};
-    replayCache[key] = snapshot;
-    replayDirty = true;
-    if (replayTimer !== undefined) return;
-    replayTimer = setTimeout(() => {
-        replayTimer = undefined;
-        void flushReplay();
-    }, REPLAY_FLUSH_MS);
-}
-
-/** Write the pending replay state out; safe to call at any time. */
-export async function flushReplay(): Promise<void> {
-    if (!replayDirty || replayCache === undefined) return;
-    replayDirty = false;
-    const serialized = JSON.stringify(replayCache);
-    replayWrite = replayWrite
-        .then(() => AsyncStorage.setItem(REPLAY_KEY, serialized))
-        .catch(() => undefined);
-    await replayWrite;
-}
-
 export async function loadHostedGrant(machineId: string): Promise<StoredHostedGrant | undefined> {
-    await replaySnapshots();
     return (await grants())[machineId];
 }
 
@@ -207,11 +151,6 @@ export async function removeHostedGrant(machineId: string): Promise<StoredHosted
         secretDelete(grantKey(machineId)),
         secretSet(GRANTS_INDEX, JSON.stringify(Object.keys(all))),
     ]);
-    const snapshots = await replaySnapshots();
-    for (const key of Object.keys(snapshots)) {
-        if (key.startsWith(`${machineId}\0`)) delete snapshots[key];
-    }
-    await AsyncStorage.setItem(REPLAY_KEY, JSON.stringify(snapshots));
     return Object.values(all);
 }
 
@@ -345,19 +284,6 @@ function hostedDeviceName(): string {
     if (Platform.OS === 'ios') return 'iPhone';
     if (Platform.OS === 'android') return 'Android phone';
     return 'Browser';
-}
-
-function replayTrackerFor(
-    replays: Map<string, V2ReplayTracker>,
-    replayKey: string,
-    channel: 'session' | 'terminal' | 'attachment' | 'stream',
-): V2ReplayTracker {
-    const existing = replays.get(replayKey);
-    if (existing !== undefined) return existing;
-    const snapshot = channel === 'stream' ? undefined : replayCache?.[replayKey];
-    const replay = snapshot === undefined ? newV2ReplayTracker() : v2ReplayFromSnapshot(snapshot);
-    replays.set(replayKey, replay);
-    return replay;
 }
 
 interface PendingHostedPair {
@@ -766,77 +692,18 @@ async function claimResolvedPairing(url: string, resumable: boolean, hold: (code
     return completed;
 }
 
-export class DeviceV2Crypto {
-    private readonly senders = new Map<string, V2SenderState>();
-    private readonly replays = new Map<string, V2ReplayTracker>();
-    private readonly inputKey: string;
-    private readonly outputKey: string;
-
-    constructor(readonly grant: StoredHostedGrant) {
-        this.inputKey = deriveV2Key(grant.dataKey, 'host->client');
-        this.outputKey = deriveV2Key(grant.ingressKey, 'client->host');
-    }
-
-    seal(channel: 'session' | 'terminal' | 'attachment' | 'stream', streamId: string, plaintext: string): { payload: string; sequence: number } {
-        const stateKey = channel;
-        const state = this.senders.get(stateKey) ?? newV2SenderState();
-        this.senders.set(stateKey, state);
-        const payload = sealV2(plaintext, this.outputKey, {
-            machineId: this.grant.machineId,
-            senderId: this.grant.deviceId,
-            recipientId: this.grant.machineId,
-            channel,
-            streamId,
-            keyVersion: this.grant.keyVersion,
-        }, state);
-        return { payload, sequence: v2EnvelopeSequence(payload) };
-    }
-
-    async open(channel: 'session' | 'terminal' | 'attachment' | 'stream', streamId: string, payload: string, sequence: number): Promise<string> {
-        if (this.grant.expiresAt <= Date.now()) throw new Error('hosted e2ee: device grant expired');
-        if (sequence !== v2EnvelopeSequence(payload)) throw new Error('hosted e2ee: routing sequence mismatch');
-        const replayKey = `${this.grant.machineId}\0${channel}\0${streamId}`;
-        const replay = replayTrackerFor(this.replays, replayKey, channel);
-        const plaintext = openV2(payload, this.inputKey, {
-            machineId: this.grant.machineId,
-            senderId: this.grant.machineId,
-            recipientId: '*',
-            channel,
-            streamId,
-            keyVersion: this.grant.keyVersion,
-        }, replay);
-        // Stream channels are ephemeral (one random channel per call) and carry
-        // realtime audio: persisting them grows the cache with dead channels.
-        // In-memory replay tracking still protects the live session; the AAD's
-        // streamId makes cross-channel replay fail regardless.
-        if (channel !== 'stream') persistReplay(replayKey, replay.toSnapshot());
-        return plaintext;
-    }
-
-    /** Ephemeral stream replay state is retained only while that socket is live. */
-    release(channel: 'stream', streamId: string): void {
-        this.replays.delete(`${this.grant.machineId}\0${channel}\0${streamId}`);
-    }
-}
-
 export async function clearHostedE2ee(): Promise<void> {
     const { clearArtifactDownloads } = await import('@/utils/artifactTransfer');
     await clearArtifactDownloads();
     (await import('@/catalog')).clearHomeSnapshot();
-    // A queued trailing write must not resurrect the cache we are deleting.
-    if (replayTimer !== undefined) clearTimeout(replayTimer);
-    replayTimer = undefined;
-    replayDirty = false;
     const all = await grants();
     await Promise.all([
         secretDelete(DEVICE_KEY),
         secretDelete(GRANTS_INDEX),
         secretDelete(PENDING_PAIR_KEY),
         ...Object.keys(all).map((id) => secretDelete(grantKey(id))),
-        AsyncStorage.removeItem(REPLAY_KEY),
     ]);
     deviceCache = undefined;
     devicePending = undefined;
     grantsCache = undefined;
-    replayCache = undefined;
 }
