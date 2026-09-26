@@ -55,6 +55,10 @@ function linkRequestFailure(type: RequestType, error: string, code?: string): Mu
 /** One byokit link, including its terminal, desktop, voice and push streams. */
 export class LinkFirstClient implements SessionClient {
     private link: DeviceLink | undefined;
+    /** The byokit link is the only transport for this client (one-shot migration). */
+    get linkCapable(): boolean {
+        return deriveLinkGrant(this.options.hostedGrant) !== undefined;
+    }
     private online = false;
     private closed = false;
     private retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -124,7 +128,7 @@ export class LinkFirstClient implements SessionClient {
         );
     }
 
-    /** Opens one binary link stream; undefined means the relay serves the session. */
+    /** Opens a terminal or voice stream over the link. */
     private async openByteStream(name: 'terminal' | 'voice', args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
         if (!this.online || this.link === undefined || this.closed) return undefined;
         const stream = await this.link.stream(name, args);
