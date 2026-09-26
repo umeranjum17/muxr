@@ -544,7 +544,9 @@ export interface RequestMap extends PeerRequestMap {
     // --- push ---------------------------------------------------------------
     /** Register this device's Expo push address over the link; the host stores it on
      *  the relay for this device (`level` filters which lifecycle states may wake it). */
-    'push.subscribe': { params: { token: string; level?: LifecycleNotificationLevel }; result: null };
+    'push.subscribe': { params: { token?: string; subscription?: { endpoint: string; keys: { p256dh: string; auth: string } }; level?: LifecycleNotificationLevel }; result: null };
+    'push.unsubscribe': { params: Record<string, never>; result: null };
+    'push.vapid': { params: Record<string, never>; result: { publicKey: string } };
 
     // --- shell + slash commands --------------------------------------------
     'session.shell': {

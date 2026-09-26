@@ -3,7 +3,6 @@ import {
     isPluginsInvalidatedFrame,
     nextRequestId,
     normalizeRequestFailure,
-    relayControlUrl,
     type ClientRequest,
     type HostFrame,
     type LifecycleNotificationLevel,
@@ -28,6 +27,7 @@ export type SessionClient = {
     /** Register this device's Expo push address; the transport that is serving
      *  the session decides where it lands (the link, or the relay HTTP API). */
     registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
+    unregisterPush(): Promise<boolean>;
 };
 
 /**
@@ -137,24 +137,16 @@ export class LinkFirstClient implements SessionClient {
 
     async registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {
         this.lastPush = { token, level };
-        if (this.link !== undefined && this.online) {
-            await this.link.request('push.subscribe', { type: 'push.subscribe', requestId: nextRequestId('rn'), params: { token, level } }, { timeoutMs: 5_000 });
-            // A registration left in the relay's own push store from before this
-            // device joined the link would deliver every push twice.
-            if (this.options.token !== undefined) {
-                await fetch(`${relayControlUrl(this.options.relayUrl)}/v1/push/expo-subscribe`, {
-                    method: 'DELETE',
-                    headers: {
-                        'content-type': 'application/json',
-                        authorization: `Bearer ${this.options.token}`,
-                    },
-                    body: JSON.stringify({ token }),
-                }).catch(() => undefined);
-            }
-            return true;
-        }
-        // The link is not serving the session; the relay transport registers.
-        return this.inner?.registerPush(token, level) ?? false;
+        if (this.link === undefined || !this.online) return false;
+        await this.request('push.subscribe', { token, level }, 5_000);
+        return true;
+    }
+
+    async unregisterPush(): Promise<boolean> {
+        this.lastPush = undefined;
+        if (this.link === undefined || !this.online) return false;
+        await this.request('push.unsubscribe', {}, 5_000);
+        return true;
     }
 
     private onLinkStatus(status: LinkStatus): void {

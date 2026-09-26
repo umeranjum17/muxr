@@ -380,9 +380,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         // A device registers its push address over the link only; the relay
         // transport has no device identity a push store could trust.
-        'push.subscribe': async () => {
-            throw new Error('push registration needs the link transport');
-        },
+        'push.subscribe': async () => { throw new Error('push registration needs the link transport'); },
+        'push.unsubscribe': async () => { throw new Error('push registration needs the link transport'); },
+        'push.vapid': async () => { throw new Error('push registration needs the link transport'); },
     };
 
     async function dispatchCore(request: ClientRequest, authenticatedSenderId?: string, connectionId?: string): Promise<RequestResponse> {

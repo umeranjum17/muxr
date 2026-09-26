@@ -1,7 +1,8 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync, type StatWatcher } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { createDeviceGrant } from '@muxr/crypto';
-import { isPeerCapabilities, relayControlUrl } from '@muxr/contract';
+import type { Grant } from '@byokit/link';
+import { isPeerCapabilities, parseLifecycleNotificationLevel, relayControlUrl } from '@muxr/contract';
 import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,6 +102,7 @@ function validDevice(value: unknown): boolean {
             && device.allowedCwds.every((cwd) => typeof cwd === 'string' && cwd !== '');
     }
     if (device.dataKey !== undefined || device.capabilities !== undefined || device.allowedCwds !== undefined) return false;
+    if (device.pushLevel !== undefined && parseLifecycleNotificationLevel(device.pushLevel) === undefined) return false;
     return device.authority === undefined || device.authority === 'control' || device.authority === 'observe';
 }
 
@@ -754,6 +756,28 @@ async function main(): Promise<void> {
                         machineName,
                         crypto: selfhostAuth!.machine.crypto,
                         currentCrypto,
+                        savePushLevel: (deviceId, level) => {
+                            const state = readSelfhostAuth();
+                            const device = state?.machine.crypto.devices.find((entry) => entry.deviceId === deviceId);
+                            if (state === undefined || device === undefined) throw new Error('link: device no longer trusted');
+                            if (level === undefined) delete device.pushLevel;
+                            else device.pushLevel = level;
+                            writeSelfhostAuth(state);
+                        },
+                        grants: {
+                            load: () => {
+                                const path = join(dataDir, 'link-grants.json');
+                                if (!existsSync(path)) return [];
+                                const info = lstatSync(path);
+                                if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) throw new Error('link grants must be an owner-only regular file');
+                                const grants = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+                                if (!Array.isArray(grants) || !grants.every((g) => typeof g?.id === 'string' && typeof g.key === 'string' && typeof g.role === 'string')) {
+                                    throw new Error('link grants are malformed; refusing to replace device identities');
+                                }
+                                return grants as Grant[];
+                            },
+                            save: (grants) => atomicWriteJson(join(dataDir, 'link-grants.json'), grants),
+                        },
                         answer: host.answer,
                         canView: host.canView,
                         onStatus: (status) => {

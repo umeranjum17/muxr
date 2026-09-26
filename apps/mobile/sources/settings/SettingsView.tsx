@@ -163,12 +163,7 @@ export const SettingsView = React.memo(function SettingsView({
         if (!confirmed) return;
         if (voiceActive) stopRealtimeSession();
         const wasCurrent = machineId === getCachedConnectionSettings().machineId;
-        // Capture the web-push credential while the grant is still cached:
-        // the server-side endpoint can only be deleted with it, and the
-        // grant is gone after forgetPairedMachine runs.
-        const preSettings = getCachedConnectionSettings();
-        const preGrant = preSettings.mode === 'hosted' ? getCachedHostedGrant(preSettings.machineId) : undefined;
-        const preCredential = preGrant?.credential ?? preSettings.token;
+        if (Platform.OS === 'web' && wasCurrent) await unsubscribeWebPush();
         const forgotten = await forgetPairedMachine({ machineId }, { removeGrant: removeHostedGrant });
         if (!forgotten.ok) return;
         const remaining = forgotten.remaining;
@@ -181,9 +176,6 @@ export const SettingsView = React.memo(function SettingsView({
         const pushAction = Platform.OS === 'web' && wasCurrent
             ? resolveForgetPushAction(true, remaining.length)
             : 'none';
-        if (pushAction === 'delete-endpoint') {
-            await unsubscribeWebPush({ credential: preCredential });
-        }
         if (machineId !== getCachedConnectionSettings().machineId) return;
         const next = remaining[0];
         if (next === undefined) {

@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
-import { relayControlUrl, type LifecycleNotificationLevel } from '@muxr/contract';
+import type { LifecycleNotificationLevel } from '@muxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
-import { getCachedHostedGrant } from '@/pairing/e2ee';
+import { activeSessionClient } from '@/connection/sessionClientRef';
 import { storage } from '@/catalog/store';
 
 export type PushState = 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed' | 'unregistered' | 'unknown';
@@ -87,14 +87,12 @@ export async function refreshPushState(): Promise<PushState> {
 }
 
 /**
- * Full subscribe flow: permission → register sw.js → fetch the VAPID public
- * key from the relay → subscribe the push manager → POST the subscription.
+ * Full subscribe flow: permission → register sw.js → request the VAPID public
+ * key on the link → subscribe the push manager → register on the link.
  * Notification taps deep-link into the session, where approval runs under
  * the real grant; the worker never holds a credential.
  *
- * The credential is the paired device credential from the stored hosted
- * grant — the same one transport uses. settings.token is permanently empty
- * on web and must not gate this flow.
+ * The active session's link grant authorizes both the key and registration.
  */
 export async function requestPermissionAndSubscribe(): Promise<boolean> {
     if (!isWebPushSupported()) return false;
@@ -108,19 +106,13 @@ export async function requestPermissionAndSubscribe(): Promise<boolean> {
         }
 
         const settings = getCachedConnectionSettings();
-        const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
-        const credential = grant?.credential ?? settings.token;
-        if (credential === '') return false;
-        const base = relayControlUrl(settings.relayUrl);
+        const client = activeSessionClient();
+        if (client === undefined || !client.isLive()) return false;
 
         const reg = await navigator.serviceWorker.register(SW_PATH);
         await navigator.serviceWorker.ready;
 
-        const vapidRes = await fetch(`${base}/v1/push/vapid-public`, {
-            headers: { Authorization: `Bearer ${credential}` },
-        });
-        if (!vapidRes.ok) return false;
-        const { publicKey } = await vapidRes.json() as { publicKey: string };
+        const { publicKey } = await client.request('push.vapid', {});
 
         subscription = await reg.pushManager.getSubscription();
         if (!subscription) {
@@ -132,15 +124,10 @@ export async function requestPermissionAndSubscribe(): Promise<boolean> {
         }
 
         const level = storage.getState().localSettings.lifecycleNotificationLevel;
-        const subRes = await fetch(`${base}/v1/push/subscribe`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${credential}`,
-            },
-            body: JSON.stringify({ subscription: subscription.toJSON(), level }),
-        });
-        if (!subRes.ok || !await storeWebPushNotificationLevel(level) || !recordConfirmation(settings.machineId, subscription.endpoint)) {
+        const web = subscription.toJSON();
+        if (!web.endpoint || !web.keys?.p256dh || !web.keys.auth) return false;
+        await client.request('push.subscribe', { subscription: { endpoint: web.endpoint, keys: { p256dh: web.keys.p256dh, auth: web.keys.auth } }, level });
+        if (!await storeWebPushNotificationLevel(level) || !recordConfirmation(settings.machineId, subscription.endpoint)) {
             if (created) await subscription.unsubscribe().catch(() => undefined);
             lastKnownEndpoint = null;
             return false;
@@ -162,21 +149,13 @@ async function postWebPushNotificationLevel(level: LifecycleNotificationLevel): 
     if (!isWebPushSupported()) return false;
     try {
         const settings = getCachedConnectionSettings();
-        const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
-        const credential = grant?.credential ?? settings.token;
-        if (credential === '') return false;
+        const client = activeSessionClient();
         const reg = await navigator.serviceWorker.getRegistration(SW_PATH);
         const subscription = reg ? await reg.pushManager.getSubscription() : null;
-        if (!subscription) return false;
-        const res = await fetch(`${relayControlUrl(settings.relayUrl)}/v1/push/subscribe`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${credential}`,
-            },
-            body: JSON.stringify({ subscription: subscription.toJSON(), level }),
-        });
-        return res.ok && recordConfirmation(settings.machineId, subscription.endpoint);
+        const web = subscription?.toJSON();
+        if (client === undefined || !client.isLive() || !subscription || !web?.endpoint || !web.keys?.p256dh || !web.keys.auth) return false;
+        await client.request('push.subscribe', { subscription: { endpoint: web.endpoint, keys: { p256dh: web.keys.p256dh, auth: web.keys.auth } }, level });
+        return recordConfirmation(settings.machineId, subscription.endpoint);
     } catch {
         return false;
     }
@@ -210,31 +189,16 @@ export function updateWebPushNotificationLevel(level: LifecycleNotificationLevel
     return drainWebPushNotificationLevel();
 }
 
-/** Remove this browser's push subscription (logout, revoke, re-pair). Pass a
- * credential captured before its grant was removed when the caller already
- * forgot the pairing: without it the server-side DELETE is skipped and the
- * relay keeps a dead endpoint. */
-export async function unsubscribeWebPush(opts: { credential?: string } = {}): Promise<void> {
+/** Remove this browser's relay registration before forgetting its link grant. */
+export async function unsubscribeWebPush(): Promise<void> {
     if (!isWebPushSupported()) return;
     if (syncingLevel !== null) await syncingLevel;
     pendingLevel = null;
     try {
-        const settings = getCachedConnectionSettings();
-        const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
-        const credential = opts.credential ?? grant?.credential ?? settings.token;
+        const client = activeSessionClient();
+        if (client?.isLive()) await client.request('push.unsubscribe', {});
         const reg = await navigator.serviceWorker.getRegistration(SW_PATH);
-        const subscription = reg ? await reg.pushManager.getSubscription() : null;
-        if (credential !== '' && subscription) {
-            await fetch(`${relayControlUrl(settings.relayUrl)}/v1/push/subscribe`, {
-                method: 'DELETE',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${credential}`,
-                },
-                body: JSON.stringify({ endpoint: subscription.endpoint }),
-            }).catch(() => undefined);
-        }
-        await subscription?.unsubscribe().catch(() => undefined);
+        await (reg ? await reg.pushManager.getSubscription() : null)?.unsubscribe().catch(() => undefined);
     } catch {
         // best-effort: revocation already closed the sockets server-side
     } finally {

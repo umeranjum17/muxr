@@ -1,10 +1,9 @@
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { relayControlUrl, type LifecycleNotificationLevel } from '@muxr/contract';
-import { TokenStorage, type AuthCredentials } from '@/account';
+import type { LifecycleNotificationLevel } from '@muxr/contract';
+import type { AuthCredentials } from '@/account';
 import { activeSessionClient } from '@/connection/sessionClientRef';
-import { getCachedConnectionSettings } from '@/connection';
 import { clearRegisteredPushToken, loadRegisteredPushToken, saveRegisteredPushToken } from '@/catalog/application/persistence';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { storage } from '@/catalog/store';
@@ -19,10 +18,8 @@ let unregistering: Promise<void> | null = null;
 export function acknowledgeLifecyclePush(data: unknown): boolean {
     if (typeof data !== 'object' || data === null || Array.isArray(data)) return false;
     const payload = data as Record<string, unknown>;
-    // byokit relay push nests the host's fields under `data`; the pre-link
-    // relay pushed them at the top level. Accept both while both live.
     const nested = payload.data;
-    const fields = (typeof nested === 'object' && nested !== null && !Array.isArray(nested) ? nested : payload) as Record<string, unknown>;
+    const fields = (typeof nested === 'object' && nested !== null && !Array.isArray(nested) ? nested : {}) as Record<string, unknown>;
     const eventId = fields.eventId;
     const machineId = fields.machineId;
     if (fields.presentationOwner !== 'relay-push') return false;
@@ -33,25 +30,8 @@ export function acknowledgeLifecyclePush(data: unknown): boolean {
     return true;
 }
 
-async function subscribeNativePush(
-    token: string,
-    credentials: AuthCredentials,
-    level: LifecycleNotificationLevel,
-): Promise<boolean> {
-    // The session transport owns where a push address is registered (the link
-    // when it serves the session, the relay HTTP API otherwise).
-    const client = activeSessionClient();
-    if (client?.registerPush !== undefined) return client.registerPush(token, level).catch(() => false);
-    // No machine session exists yet; the relay HTTP API is the only path.
-    const response = await fetch(`${relayControlUrl(getCachedConnectionSettings().relayUrl)}/v1/push/expo-subscribe`, {
-        method: 'POST',
-        headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${credentials.token}`,
-        },
-        body: JSON.stringify({ token, level }),
-    });
-    return response.ok;
+async function subscribeNativePush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {
+    return activeSessionClient()?.registerPush(token, level).catch(() => false) ?? false;
 }
 
 function drainNotificationLevel(): Promise<boolean> {
@@ -67,13 +47,12 @@ function drainNotificationLevel(): Promise<boolean> {
             const level = pendingNotificationLevel;
             pendingNotificationLevel = null;
             const token = loadRegisteredPushToken();
-            const credentials = await TokenStorage.getCredentials();
-            if (token === null || credentials === null) {
+            if (token === null) {
                 synced = false;
                 continue;
             }
             try {
-                synced = await subscribeNativePush(token, credentials, level);
+                synced = await subscribeNativePush(token, level);
             } catch {
                 synced = false;
             }
@@ -106,28 +85,14 @@ export function registerNativePushNotifications(): Promise<boolean> {
     registering = (async () => {
         const generation = notificationRegistrationGeneration;
         if (!(await requestNotificationPermission(false))) return false;
-        const credentials = await TokenStorage.getCredentials();
-        if (credentials === null) return false;
         const projectId = Constants.easConfig?.projectId
             ?? (Constants.expoConfig?.extra?.eas as { projectId?: string } | undefined)?.projectId;
         if (projectId === undefined) return false;
         const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
         if (notificationRegistrationGeneration !== generation) return false;
-        const relay = relayControlUrl(getCachedConnectionSettings().relayUrl);
-        const previous = loadRegisteredPushToken();
-        if (previous !== null && previous !== token) {
-            await fetch(`${relay}/v1/push/expo-subscribe`, {
-                method: 'DELETE',
-                headers: {
-                    'content-type': 'application/json',
-                    authorization: `Bearer ${credentials.token}`,
-                },
-                body: JSON.stringify({ token: previous }),
-            }).catch(() => undefined);
-        }
         if (syncingNotificationLevel !== null) await syncingNotificationLevel;
         const level = storage.getState().localSettings.lifecycleNotificationLevel;
-        if (!(await subscribeNativePush(token, credentials, level))) return false;
+        if (!(await subscribeNativePush(token, level))) return false;
         saveRegisteredPushToken(token);
         return await drainNotificationLevel();
     })().catch((error) => {
@@ -138,7 +103,7 @@ export function registerNativePushNotifications(): Promise<boolean> {
 }
 
 /** Remove this device before its credential is cleared or revoked. */
-export function unregisterNativePushNotifications(credentials: AuthCredentials): Promise<void> {
+export function unregisterNativePushNotifications(_credentials: AuthCredentials): Promise<void> {
     if (Platform.OS !== 'ios') return Promise.resolve();
     if (unregistering !== null) return unregistering;
     notificationRegistrationGeneration += 1;
@@ -148,22 +113,8 @@ export function unregisterNativePushNotifications(credentials: AuthCredentials):
         pendingNotificationLevel = null;
         if (syncingNotificationLevel !== null) await syncingNotificationLevel;
         pendingNotificationLevel = null;
-        const token = loadRegisteredPushToken();
-        if (token === null) return;
-        const relay = relayControlUrl(getCachedConnectionSettings().relayUrl);
-        try {
-            const response = await fetch(`${relay}/v1/push/expo-subscribe`, {
-                method: 'DELETE',
-                headers: {
-                    'content-type': 'application/json',
-                    authorization: `Bearer ${credentials.token}`,
-                },
-                body: JSON.stringify({ token }),
-            });
-            if (response.ok || response.status === 401 || response.status === 403 || response.status === 404) {
-                clearRegisteredPushToken();
-            }
-        } catch {}
+        if (loadRegisteredPushToken() === null) return;
+        if (await activeSessionClient()?.unregisterPush().catch(() => false)) clearRegisteredPushToken();
     })().finally(() => { unregistering = null; });
     return unregistering;
 }
