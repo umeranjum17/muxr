@@ -66,7 +66,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 const { linkPair: runComputerPairing, pairingIntent, readSelfhostState } = await import('../../setup/index.mjs');
-const { pairOverLink: runPhonePairing, resumePendingHostedPairing } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+const { pairOverLink: runPhonePairing, resumePendingHostedPairing, loadHostedGrant } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
 
 const repoRoot = join(import.meta.dirname, '../../..');
 const PENDING_LINK_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
@@ -301,11 +301,29 @@ describe('native pairing over the byokit link', () => {
         expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
     });
 
+    it('keeps the phone grant if the verified reply is lost after the computer commits', async () => {
+        const machineId = readSelfhostState().machine.id;
+        const previous = await loadHostedGrant(machineId);
+        const { pairing, offer } = await showPairingQr({ approve: () => true });
+        const original = DeviceLink.prototype.request;
+        const lost = vi.spyOn(DeviceLink.prototype, 'request').mockImplementation(async function (...args) {
+            const answer = await original.apply(this, args);
+            if (args[0] === 'pair.verified') throw new Error('lost verification reply');
+            return answer;
+        });
+        try { await expect(runPhonePairing(offer)).rejects.toThrow('lost verification reply'); }
+        finally { lost.mockRestore(); }
+        await pairing;
+        const persisted = await loadHostedGrant(machineId);
+        expect(persisted?.deviceId).not.toBe(previous?.deviceId);
+        expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === persisted?.deviceId)).toBe(true);
+    }, 90_000);
+
     it('pairs nothing when the person at the computer declines', async () => {
         const { pairing, offer, abort } = await showPairingQr({ approve: async () => false });
         await expect(runPhonePairing(offer)).rejects.toThrow('Your computer said no to this device.');
         const state = readSelfhostState();
-        expect(state.machine.crypto.devices).toHaveLength(3); // successful phone, browser, and forwarded pairings
+        expect(state.machine.crypto.devices).toHaveLength(4); // phone, browser, forwarded, and lost-reply pairings
         await abort();
         await expect(pairing).rejects.toThrow('cancelled');
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
@@ -337,7 +355,7 @@ describe('native pairing over the byokit link', () => {
     it('lists and revokes a link-paired phone with relay fallback', async () => {
         const state = readSelfhostState();
         const paired = state.machine.crypto.devices;
-        expect(paired).toHaveLength(4);
+        expect(paired).toHaveLength(5);
         const target = paired[0]!;
         const listing = launch([join(repoRoot, 'scripts/cli.mjs'), 'devices', 'list']);
         await until(() => (listing.exitCode === null ? undefined : listing.exitCode), 'devices list finishes');

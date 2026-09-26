@@ -82,7 +82,7 @@ function openLink(grant: LinkDeviceGrant, timeoutMs: number, route?: (url: strin
  * machine's real link. The proof only settles once the machine's link served
  * this key, so the caller learns the pairing truly reached the computer.
  */
-export async function claimLinkPairing(pending: LinkPairPending, options: { mode: 'claim' | 'resume'; onWords?: (words: string) => void; tunnelPort?: number }): Promise<LinkPairAnswer & { key: ReturnType<typeof keyPairFrom> }> {
+export async function claimLinkPairing(pending: LinkPairPending, options: { mode: 'claim' | 'resume'; onWords?: (words: string) => void; tunnelPort?: number; onProven?: (answer: LinkPairAnswer, key: ReturnType<typeof keyPairFrom>) => Promise<void> }): Promise<LinkPairAnswer & { key: ReturnType<typeof keyPairFrom> }> {
     const resolve = options.tunnelPort === undefined ? undefined : (url: string) => {
         const target = new URL(url);
         target.protocol = 'ws:';
@@ -124,7 +124,9 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
             throw new Error('the computer sent an incomplete pairing answer');
         }
         await verifyMachineLink(answer, key, pending.name, resolve);
-        // Tell the pairing CLI the proof landed, over the pairing link.
+        // Persist before acknowledging: if the reply is lost after the computer
+        // commits, both sides still hold the same device rather than an orphan.
+        await options.onProven?.(answer, key);
         await pairing.request('pair.verified', {}, { timeoutMs: 10_000 });
         return { ...answer, key };
     } finally {
