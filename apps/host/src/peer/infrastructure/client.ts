@@ -1,34 +1,7 @@
-import { randomBytes } from 'node:crypto';
 import WebSocket from 'ws';
-import {
-    decodePayload,
-    encodePayload,
-    issueWsTicket,
-    nextRequestId,
-    relayControlUrl,
-    ticketSocketUrl,
-    type ClientFrame,
-    type ClientRequest,
-    type Envelope,
-    type HostFrame,
-    type RequestParams,
-    type RequestResult,
-    type RequestType,
-} from '@muxr/contract';
-import {
-    deriveV2Key,
-    newV2ReplayTracker,
-    newV2SenderState,
-    openV2,
-    sealV2,
-    v2EnvelopeSequence,
-    verifyDeviceGrant,
-    type DeviceGrant,
-    type KeyPair,
-    type SealedDeviceGrant,
-    type V2ReplayTracker,
-    type V2SenderState,
-} from '@muxr/crypto';
+import { DeviceLink, LinkError, hostId, type DeviceGrant as LinkGrant, type LinkStatus } from '@byokit/link';
+import { nextRequestId, type HostFrame, type RequestParams, type RequestResult } from '@muxr/contract';
+import { verifyDeviceGrant, type KeyPair, type SealedDeviceGrant } from '@muxr/crypto';
 
 export type PeerClientRequestType = 'machines.list' | 'session.list' | 'herdr.tree' | 'herdr.agentKinds'
     | 'pane.read' | 'session.status' | 'agent.watch' | 'session.prompt' | 'session.start';
@@ -39,7 +12,7 @@ export interface PeerClientTransport {
     close(): void;
 }
 
-export type PeerConnectionPhase = 'grant-refresh' | 'ticket-issue' | 'socket-open' | 'liveness-proof';
+export type PeerConnectionPhase = 'link-connect' | 'liveness-proof';
 export interface PeerConnectionDiagnostic {
     phase: PeerConnectionPhase;
     outcome: 'ok' | 'timeout' | 'unavailable';
@@ -50,338 +23,162 @@ export interface PeerConnectionDiagnostic {
 export interface NodePeerClientOptions {
     relayUrl: string;
     machineId: string;
-    credential: string;
     peerDeviceId: string;
     peerKey: KeyPair;
     pinnedMachineSigningPublicKey: string;
     sealedGrant: SealedDeviceGrant;
-    grantPath?: string;
     requestTimeoutMs?: number;
-    fetch?: typeof fetch;
     onConnectionDiagnostic?: (event: PeerConnectionDiagnostic) => void;
 }
 
-interface Pending {
-    resolve(value: unknown): void;
-    reject(error: Error): void;
-    timer: ReturnType<typeof setTimeout>;
-    removeAbort?: () => void;
-}
+const aborted = (): Error => Object.assign(new Error('peer request cancelled'), { name: 'AbortError' });
 
-/** Headless role=client transport. It never exposes arbitrary request types. */
+/** Headless peer device on the same authenticated link as a phone. */
 export class NodePeerClient implements PeerClientTransport {
-    private socket: WebSocket | undefined;
-    private grant: DeviceGrant;
-    private readonly pending = new Map<string, Pending>();
-    private readonly senders = new Map<string, V2SenderState>();
-    private readonly replays = new Map<string, V2ReplayTracker>();
-    private authenticated = false;
-    private connectPromise: Promise<void> | undefined;
-    private resolveConnect: (() => void) | undefined;
-    private rejectConnect: ((error: Error) => void) | undefined;
-    private connectTimer?: ReturnType<typeof setTimeout>;
-    private livenessRequestId: string | undefined;
-    private connectionPhase: { phase: PeerConnectionPhase; startedAt: number } | undefined;
+    private readonly link: DeviceLink;
+    private readonly waiters = new Set<() => void>();
+    private connecting: Promise<void> | undefined;
+    private online = false;
     private closed = false;
 
     constructor(private readonly options: NodePeerClientOptions) {
-        this.grant = this.verify(options.sealedGrant);
+        const grant = verifyDeviceGrant(options.sealedGrant, {
+            pinnedMachineSigningPublicKey: options.pinnedMachineSigningPublicKey,
+            deviceKey: options.peerKey,
+            deviceId: options.peerDeviceId,
+        });
+        if (grant.deviceKind !== 'peer') throw new Error('peer grant has the wrong device kind');
+        if (grant.machineId !== options.machineId) throw new Error('peer grant has the wrong target machine');
+        const hostKey = Buffer.from(options.sealedGrant.sender, 'base64');
+        const relay = new URL(options.relayUrl.replace(/^ws/i, 'http'));
+        const scheme = relay.protocol === 'https:' ? 'wss' : 'ws';
+        const linkGrant: LinkGrant = {
+            v: 1,
+            secretKey: Buffer.from(options.peerKey.secretKey, 'base64').toString('base64url'),
+            host: hostKey.toString('base64url'),
+            hostName: options.machineId,
+            urls: [`${scheme}://${relay.host}/link/v1/${hostId(hostKey)}`],
+            device: { id: options.peerDeviceId, name: 'Peer computer', role: 'control' },
+        };
+        this.link = new DeviceLink(linkGrant, {
+            WebSocket: WebSocket as never,
+            onStatus: (status: LinkStatus) => {
+                if (status !== 'online') this.online = false;
+                for (const notify of this.waiters) notify();
+            },
+        });
     }
 
     connect(): Promise<void> {
-        if (this.closed) {
-            return Promise.reject(Object.assign(new Error('peer client is closed'), { name: 'AbortError' }));
-        }
-        if (this.authenticated) return Promise.resolve();
-        if (this.connectPromise !== undefined) return this.connectPromise;
-        const connecting = new Promise<void>((resolve, reject) => {
-            this.resolveConnect = resolve;
-            this.rejectConnect = reject;
-        });
-        this.connectPromise = connecting;
-        void this.openConnection().catch((error) => {
-            const phase = this.connectionPhase?.phase;
-            this.finishConnectionPhase('unavailable', connectionFailureCode(phase));
-            this.fail(error instanceof Error ? error : new Error(String(error)));
-        });
-        return connecting;
+        if (this.closed) return Promise.reject(aborted());
+        if (this.online && this.link.status === 'online') return Promise.resolve();
+        if (this.link.status === 'refused') this.link.retry();
+        this.connecting ??= this.connectOnce().finally(() => { this.connecting = undefined; });
+        return this.connecting;
     }
 
-    private async openConnection(): Promise<void> {
-        this.beginConnectionPhase('grant-refresh');
-        await this.refreshGrant();
-        if (this.closed) throw new Error('peer client is closed');
-        this.finishConnectionPhase('ok');
-        this.beginConnectionPhase('ticket-issue');
-        const ticket = await issueWsTicket({
-            relayUrl: this.options.relayUrl,
-            credential: this.options.credential,
-            machineId: this.options.machineId,
-            role: 'client',
-            transport: 'relay',
-        });
-        if (this.closed) throw new Error('peer client is closed');
-        this.finishConnectionPhase('ok');
-        this.beginConnectionPhase('socket-open');
-        const socket = new WebSocket(ticketSocketUrl(this.options.relayUrl, ticket, 'relay'));
-        this.socket = socket;
-        this.connectTimer = setTimeout(() => {
-            if (this.socket !== socket) return;
-            const liveness = this.connectionPhase?.phase === 'liveness-proof';
-            this.finishConnectionPhase('timeout', liveness ? 'liveness-timeout' : 'socket-timeout');
-            this.socket = undefined;
-            this.fail(new Error(liveness ? 'peer target did not prove it was live' : 'peer socket did not open'));
-            socket.close();
-        }, this.options.requestTimeoutMs ?? 20_000);
-        socket.on('open', () => {
-            if (this.socket !== socket) {
-                socket.close();
-                return;
-            }
-            this.finishConnectionPhase('ok');
-            this.beginConnectionPhase('liveness-proof');
-            this.livenessRequestId = `peer-live_${randomBytes(24).toString('base64url')}`;
-            this.send({ type: 'client.hello', clientId: nextRequestId('peer') });
-            this.send({ type: 'machines.list', requestId: this.livenessRequestId, params: {} });
-        });
-        socket.on('message', (raw) => {
-            if (this.socket === socket) this.onMessage(String(raw));
-        });
-        socket.on('error', () => {
-            if (this.socket !== socket) return;
-            this.finishConnectionPhase('unavailable', 'socket-error');
-            socket.close();
-        });
-        socket.on('close', () => {
-            if (this.socket !== socket) return;
-            const liveness = this.connectionPhase?.phase === 'liveness-proof';
-            this.finishConnectionPhase('unavailable', liveness ? 'liveness-closed' : 'socket-closed');
-            this.socket = undefined;
-            this.fail(new Error('peer connection closed'));
+    private async connectOnce(): Promise<void> {
+        const timeoutMs = this.options.requestTimeoutMs ?? 20_000;
+        const started = Date.now();
+        try {
+            await this.waitForOnline(timeoutMs);
+            this.report('link-connect', 'ok', started);
+        } catch (error) {
+            this.report('link-connect', error instanceof Error && error.message.includes('timed out') ? 'timeout' : 'unavailable', started);
+            throw error;
+        }
+        const livenessAt = Date.now();
+        try {
+            const requestId = nextRequestId('peer');
+            const answer = await this.link.request('machines.list', { type: 'machines.list', requestId, params: {} }, { timeoutMs }) as HostFrame;
+            if (answer.type !== 'result' || answer.requestId !== requestId || answer.ok !== true) throw new Error('peer target did not prove it was live');
+            if (this.closed) throw aborted();
+            this.online = true;
+            this.report('liveness-proof', 'ok', livenessAt);
+        } catch (error) {
+            this.report('liveness-proof', error instanceof LinkError && error.code === 'timeout' ? 'timeout' : 'unavailable', livenessAt,
+                error instanceof LinkError && error.code === 'timeout' ? 'liveness-timeout' : undefined);
+            throw error;
+        }
+    }
+
+    private waitForOnline(ms: number): Promise<void> {
+        if (this.link.status === 'online') return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => finish(new Error('peer link timed out')), ms);
+            const check = (): void => {
+                if (this.closed) finish(aborted());
+                else if (this.link.status === 'online') finish();
+                else if (this.link.status === 'removed' || this.link.status === 'refused') finish(new Error(`peer link ${this.link.status}`));
+            };
+            const finish = (error?: Error): void => {
+                clearTimeout(timeout);
+                this.waiters.delete(check);
+                if (error) reject(error); else resolve();
+            };
+            this.waiters.add(check);
+            check();
         });
     }
 
     async request<T extends PeerClientRequestType>(type: T, params: RequestParams<T>, signal?: AbortSignal): Promise<RequestResult<T>> {
         const mutation = typeof params === 'object' && params !== null && 'peerMutation' in params
             ? (params as { peerMutation?: { notValidAfter: number } }).peerMutation : undefined;
-        let retryMs = 100;
+        let delay = 100;
         for (;;) {
-            if (signal?.aborted) throw Object.assign(new Error('peer request cancelled'), { name: 'AbortError' });
-            try { return await this.requestOnce(type, params, signal); }
-            catch (error) {
-                if (signal?.aborted || (error as { name?: unknown }).name === 'AbortError') throw error;
+            if (signal?.aborted || this.closed) throw aborted();
+            try {
+                await this.connect();
+                if (signal?.aborted || this.closed) throw aborted();
+                const requestId = nextRequestId('peer');
+                const timeoutMs = peerClientTimeoutMs(type, params, this.options.requestTimeoutMs ?? 20_000);
+                let onAbort: (() => void) | undefined;
+                const cancelled = new Promise<never>((_, reject) => { onAbort = () => reject(aborted()); signal?.addEventListener('abort', onAbort, { once: true }); });
+                let answer: HostFrame;
+                try {
+                    answer = await Promise.race([
+                        this.link.request(type, { type, requestId, params }, { timeoutMs,
+                            ...(mutation === undefined ? {} : { notValidAfter: mutation.notValidAfter }) }),
+                        ...(signal === undefined ? [] : [cancelled]),
+                    ]) as HostFrame;
+                } finally { if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort); }
+                if (answer.type !== 'result' || answer.requestId !== requestId) throw new Error('peer returned a malformed response');
+                if (!answer.ok) throw Object.assign(new Error(answer.error ?? 'peer request failed'), { code: answer.code, fromHost: true });
+                return answer.data as RequestResult<T>;
+            } catch (error) {
+                if (signal?.aborted || this.closed || (error as { name?: unknown }).name === 'AbortError') throw error;
                 const fromHost = (error as { fromHost?: unknown }).fromHost === true;
                 const uncertain = (error as { code?: unknown }).code === 'peer-operation-uncertain';
-                if (mutation === undefined || fromHost && !uncertain || Date.now() >= mutation.notValidAfter) {
-                    if (mutation !== undefined && (!fromHost || uncertain) && Date.now() >= mutation.notValidAfter) {
-                        throw Object.assign(new Error('peer mutation outcome is unresolved after its validity window; do not retry with a new operation id'), { code: 'peer-mutation-unresolved' });
-                    }
-                    throw error;
+                if (mutation === undefined || fromHost && !uncertain || error instanceof LinkError && (error.code === 'removed' || error.code === 'not-paired')) throw error;
+                if (Date.now() >= mutation.notValidAfter) {
+                    throw Object.assign(new Error('peer mutation outcome is unresolved after its validity window; do not retry with a new operation id'), { code: 'peer-mutation-unresolved' });
                 }
-                await this.wait(Math.min(retryMs, Math.max(1, mutation.notValidAfter - Date.now())), signal);
-                retryMs = Math.min(retryMs * 2, 2_000);
+                await new Promise<void>((resolve, reject) => {
+                    const finish = (error?: Error): void => {
+                        clearTimeout(timer);
+                        signal?.removeEventListener('abort', onAbort);
+                        if (error) reject(error); else resolve();
+                    };
+                    const onAbort = () => finish(aborted());
+                    const timer = setTimeout(() => finish(), Math.min(delay, mutation.notValidAfter - Date.now()));
+                    signal?.addEventListener('abort', onAbort, { once: true });
+                });
+                delay = Math.min(delay * 2, 2_000);
             }
         }
-    }
-
-    private async requestOnce<T extends PeerClientRequestType>(type: T, params: RequestParams<T>, signal?: AbortSignal): Promise<RequestResult<T>> {
-        await this.connect();
-        if (signal?.aborted) throw Object.assign(new Error('peer request cancelled'), { name: 'AbortError', dispatched: false });
-        if (!this.authenticated || this.socket?.readyState !== WebSocket.OPEN) throw new Error('peer is not connected');
-        return new Promise<RequestResult<T>>((resolve, reject) => {
-            const requestId = nextRequestId('peer');
-            let dispatched = false;
-            const timeoutMs = peerClientTimeoutMs(type, params, this.options.requestTimeoutMs ?? 20_000);
-            const finish = (error?: Error, value?: unknown): void => {
-                const pending = this.pending.get(requestId);
-                if (pending === undefined) return;
-                clearTimeout(pending.timer);
-                pending.removeAbort?.();
-                this.pending.delete(requestId);
-                if (error !== undefined) reject(error);
-                else resolve(value as RequestResult<T>);
-            };
-            const timer = setTimeout(() => finish(Object.assign(new Error(`peer request timed out: ${type}`), { dispatched })), timeoutMs);
-            const onAbort = (): void => finish(Object.assign(new Error('peer request cancelled'), { name: 'AbortError', dispatched }));
-            signal?.addEventListener('abort', onAbort, { once: true });
-            this.pending.set(requestId, {
-                resolve: (value) => finish(undefined, value),
-                reject: (error) => finish(Object.assign(error, { dispatched })),
-                timer,
-                ...(signal === undefined ? {} : { removeAbort: () => signal.removeEventListener('abort', onAbort) }),
-            });
-            const sessionId = typeof params === 'object' && params !== null && 'sessionId' in params
-                ? String((params as { sessionId: unknown }).sessionId) : undefined;
-            dispatched = this.send({ type, requestId, params } as ClientRequest, sessionId);
-        });
     }
 
     close(): void {
         this.closed = true;
-        const socket = this.socket;
-        this.socket = undefined;
-        this.fail(Object.assign(new Error('peer client closed'), { name: 'AbortError' }));
-        socket?.close();
+        this.online = false;
+        this.link.stop();
+        for (const notify of this.waiters) notify();
     }
 
-    private verify(grant: SealedDeviceGrant): DeviceGrant {
-        const opened = verifyDeviceGrant(grant, {
-            pinnedMachineSigningPublicKey: this.options.pinnedMachineSigningPublicKey,
-            deviceKey: this.options.peerKey,
-            deviceId: this.options.peerDeviceId,
-        });
-        if (opened.deviceKind !== 'peer') throw new Error('peer grant has the wrong device kind');
-        if (opened.machineId !== this.options.machineId) throw new Error('peer grant has the wrong target machine');
-        return opened;
+    private report(phase: PeerConnectionPhase, outcome: PeerConnectionDiagnostic['outcome'], at: number, code?: string): void {
+        this.options.onConnectionDiagnostic?.({ phase, outcome, durationMs: Date.now() - at,
+            ...(code === undefined ? {} : { code }) });
     }
-
-    private async refreshGrant(): Promise<void> {
-        const response = await (this.options.fetch ?? fetch)(relayControlUrl(
-            this.options.relayUrl,
-            this.options.grantPath ?? `/v1/machines/${encodeURIComponent(this.options.machineId)}/grant`,
-        ), {
-            headers: { authorization: `Bearer ${this.options.credential}` },
-            signal: AbortSignal.timeout(15_000),
-        });
-        if (!response.ok) throw new Error(`peer grant refresh failed (${response.status})`);
-        const body = await response.json() as { grant?: unknown };
-        if (typeof body.grant !== 'string') throw new Error('peer grant refresh returned invalid data');
-        let sealed: SealedDeviceGrant;
-        try { sealed = JSON.parse(body.grant) as SealedDeviceGrant; }
-        catch { throw new Error('peer grant refresh returned malformed data'); }
-        const refreshed = this.verify(sealed);
-        if (refreshed.keyVersion < this.grant.keyVersion) throw new Error('peer grant refresh attempted a key rollback');
-        const changed = refreshed.keyVersion !== this.grant.keyVersion
-            || refreshed.dataKey !== this.grant.dataKey || refreshed.ingressKey !== this.grant.ingressKey;
-        this.grant = refreshed;
-        if (changed) {
-            this.senders.clear();
-            this.replays.clear();
-        }
-    }
-
-    private send(frame: ClientFrame, sessionId?: string): boolean {
-        if (this.socket?.readyState !== WebSocket.OPEN) return false;
-        const channel = 'session';
-        const streamId = sessionId ?? 'machine';
-        const state = this.senders.get(channel) ?? newV2SenderState();
-        this.senders.set(channel, state);
-        const payload = sealV2(encodePayload(frame), deriveV2Key(this.grant.ingressKey, 'client->host'), {
-            machineId: this.grant.machineId,
-            senderId: this.grant.deviceId,
-            recipientId: this.grant.machineId,
-            channel,
-            streamId,
-            keyVersion: this.grant.keyVersion,
-        }, state);
-        const envelope: Envelope = {
-            header: {
-                machineId: this.grant.machineId,
-                ...(sessionId === undefined ? {} : { sessionId }),
-                senderId: this.grant.deviceId,
-                recipientId: this.grant.machineId,
-                channel,
-                streamId,
-                keyVersion: this.grant.keyVersion,
-                seq: v2EnvelopeSequence(payload),
-                at: Date.now(),
-            },
-            payload,
-        };
-        this.socket.send(JSON.stringify(envelope));
-        return true;
-    }
-
-    private onMessage(raw: string): void {
-        try {
-            const envelope = JSON.parse(raw) as Envelope;
-            if (envelope.header.machineId !== this.grant.machineId || envelope.header.senderId !== this.grant.machineId
-                || envelope.header.recipientId !== this.grant.deviceId || envelope.header.channel !== 'session'
-                || envelope.header.keyVersion !== this.grant.keyVersion || envelope.header.streamId === undefined
-                || envelope.header.seq !== v2EnvelopeSequence(envelope.payload)) throw new Error('peer response routing mismatch');
-            const replayKey = envelope.header.streamId;
-            const replay = this.replays.get(replayKey) ?? newV2ReplayTracker();
-            this.replays.set(replayKey, replay);
-            const plaintext = openV2(envelope.payload, deriveV2Key(this.grant.dataKey, 'host->client'), {
-                machineId: this.grant.machineId,
-                senderId: this.grant.machineId,
-                recipientId: this.grant.deviceId,
-                channel: 'session',
-                streamId: envelope.header.streamId,
-                keyVersion: this.grant.keyVersion,
-            }, replay);
-            const decoded = decodePayload<HostFrame>(plaintext) as unknown;
-            if (typeof decoded !== 'object' || decoded === null) return;
-            const frame = decoded as HostFrame;
-            if (!this.authenticated) {
-                if (frame.type !== 'result' || frame.requestId !== this.livenessRequestId || frame.ok !== true) return;
-                this.finishConnectionPhase('ok');
-                this.authenticated = true;
-                this.livenessRequestId = undefined;
-                if (this.connectTimer !== undefined) clearTimeout(this.connectTimer);
-                this.resolveConnect?.();
-            }
-            if (frame.type !== 'result' || typeof frame.requestId !== 'string' || typeof frame.ok !== 'boolean') return;
-            const pending = this.pending.get(frame.requestId);
-            if (pending === undefined) return;
-            if (frame.ok) pending.resolve(frame.data);
-            else if (typeof frame.error === 'string') pending.reject(Object.assign(new Error(frame.error), { code: frame.code, fromHost: true }));
-            else pending.reject(Object.assign(new Error('peer returned a malformed error response'), { fromHost: true }));
-        } catch {
-            // Undecryptable or misrouted peer data is ignored; the request timer remains authoritative.
-        }
-    }
-
-    private beginConnectionPhase(phase: PeerConnectionPhase): void {
-        this.connectionPhase = { phase, startedAt: Date.now() };
-    }
-
-    private finishConnectionPhase(outcome: PeerConnectionDiagnostic['outcome'], code?: string): void {
-        const active = this.connectionPhase;
-        if (active === undefined) return;
-        this.connectionPhase = undefined;
-        this.options.onConnectionDiagnostic?.({
-            phase: active.phase,
-            outcome,
-            durationMs: Date.now() - active.startedAt,
-            ...(code === undefined ? {} : { code }),
-        });
-    }
-
-    private wait(ms: number, signal?: AbortSignal): Promise<void> {
-        return new Promise((resolve, reject) => {
-            const timer = setTimeout(done, ms);
-            const onAbort = (): void => done(Object.assign(new Error('peer request cancelled'), { name: 'AbortError' }));
-            function done(error?: Error): void {
-                clearTimeout(timer);
-                signal?.removeEventListener('abort', onAbort);
-                if (error === undefined) resolve(); else reject(error);
-            }
-            signal?.addEventListener('abort', onAbort, { once: true });
-        });
-    }
-
-    private fail(error: Error): void {
-        if (this.connectTimer !== undefined) clearTimeout(this.connectTimer);
-        if (!this.authenticated) this.rejectConnect?.(error);
-        this.connectPromise = undefined;
-        this.livenessRequestId = undefined;
-        this.connectionPhase = undefined;
-        this.resolveConnect = undefined;
-        this.rejectConnect = undefined;
-        for (const pending of this.pending.values()) {
-            clearTimeout(pending.timer);
-            pending.reject(error);
-        }
-        this.pending.clear();
-        this.authenticated = false;
-    }
-}
-
-function connectionFailureCode(phase: PeerConnectionPhase | undefined): string | undefined {
-    if (phase === 'grant-refresh') return 'grant-refresh-failed';
-    if (phase === 'ticket-issue') return 'ticket-issue-failed';
-    return undefined;
 }
 
 function peerClientTimeoutMs(type: PeerClientRequestType, params: unknown, defaultMs: number): number {

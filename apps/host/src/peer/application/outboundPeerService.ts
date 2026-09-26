@@ -309,7 +309,7 @@ export class OutboundPeerService {
         const relationship = this.options.store.relationship(id);
         if (this.closed || this.disabledRelationships.has(id)
             || relationship === undefined || relationship.direction !== 'outbound' || relationship.state !== 'connected'
-            || relationship.credential === undefined || relationship.peerKey === undefined || relationship.sealedGrant === undefined
+            || relationship.peerKey === undefined || relationship.sealedGrant === undefined
             || relationship.relayUrl === undefined || relationship.targetMachineSigningPublicKey === undefined) {
             throw operationError('peer relationship is not connected', 'peer-not-connected');
         }
@@ -325,12 +325,10 @@ export class OutboundPeerService {
         const created = this.options.clientFactory?.(relationship) ?? new NodePeerClient({
             relayUrl: relationship.relayUrl!,
             machineId: relationship.machineId,
-            credential: relationship.credential!,
             peerDeviceId: relationship.peerDeviceId!,
             peerKey: relationship.peerKey!,
             pinnedMachineSigningPublicKey: relationship.targetMachineSigningPublicKey!,
             sealedGrant: relationship.sealedGrant!,
-            ...(relationship.grantPath === undefined ? {} : { grantPath: relationship.grantPath }),
             ...(this.options.onConnectionDiagnostic === undefined ? {} : { onConnectionDiagnostic: this.options.onConnectionDiagnostic }),
         });
         this.clients.set(relationship.relationshipId, created);
