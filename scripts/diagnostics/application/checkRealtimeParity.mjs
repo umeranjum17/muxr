@@ -44,7 +44,6 @@ const record = (event, detail) => writeFileSync(join(evidenceDir, `${event}.json
 const lab = (args, options = {}) => execFileSync(helper, ['run', labSession, ...args], { encoding: 'utf8', timeout: 60_000, ...options });
 const labJson = (args, options) => JSON.parse(lab(args, options));
 
-const machineId = `realtime-parity-${process.pid}`;
 const dataDir = mkdtempSync(join(tmpdir(), 'muxr-parity-host-'));
 const pluginRoot = join(root, 'scripts', 'diagnostics', 'fixtures', 'realtime-parity-plugin');
 const pluginId = `local.realtime-parity-${process.pid}`;
