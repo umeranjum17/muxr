@@ -39,6 +39,8 @@ jobs:
           APP_VERSION: ${{ inputs.version }}
           ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
         run: |
+          [[ "$GITHUB_REF" =~ ^refs/heads/release/([0-9]+\.[0-9]+\.[0-9]+)$ ]]
+          test "$APP_VERSION" = "${BASH_REMATCH[1]}"
           [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           [[ "$INTERNAL_RUN_ID" =~ ^[1-9][0-9]*$ ]]
           [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -57,10 +59,10 @@ jobs:
           ANDROID_VERSION_CODE: ${{ inputs.android_version_code }}
         run: |
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$INTERNAL_RUN_ID" > "$RUNNER_TEMP/internal-run.json"
-          jq -e --arg sha "$SOURCE_COMMIT" '
+          jq -e --arg sha "$SOURCE_COMMIT" --arg branch "$GITHUB_REF_NAME" '
             .event == "workflow_dispatch"
             and .name == "mobile Android internal"
-            and .head_branch == "main"
+            and .head_branch == $branch
             and .status == "completed"
             and .conclusion == "success"
           ' "$RUNNER_TEMP/internal-run.json"

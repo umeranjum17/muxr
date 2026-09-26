@@ -66,13 +66,14 @@ jobs:
       - name: Validate release request
         run: |
           if [ -n "$CANDIDATE_RUN_ID" ]; then test "$SUBMIT_TO_PLAY" = true; fi
-          test "$GITHUB_REF" = refs/heads/main
+          [[ "$GITHUB_REF" =~ ^refs/heads/release/([0-9]+\.[0-9]+\.[0-9]+)$ ]]
+          test "$APP_VERSION" = "${BASH_REMATCH[1]}"
           [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$ANDROID_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ -n "$CONFIRMATION" ]; then test "$CONFIRMATION" = "release-$APP_VERSION-$ANDROID_VERSION_CODE"; fi
 
   build:
-    if: github.ref == 'refs/heads/main' && !inputs.candidate_run_id
+    if: startsWith(github.ref, 'refs/heads/release/') && !inputs.candidate_run_id
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -320,7 +321,7 @@ jobs:
           if-no-files-found: error
 
   import-candidate:
-    if: github.ref == 'refs/heads/main' && inputs.candidate_run_id && inputs.submit_to_play
+    if: startsWith(github.ref, 'refs/heads/release/') && inputs.candidate_run_id && inputs.submit_to_play
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -348,8 +349,8 @@ jobs:
           # same signed artifact, and a build-only run is the only way to get one
           # without publishing it. A run of this workflow called by the candidate
           # reports the caller's path, so the two sources stay distinct.
-          jq -e '
-            .head_branch == "main" and .status == "completed" and .conclusion == "success" and (
+          jq -e --arg branch "$GITHUB_REF_NAME" '
+            .head_branch == $branch and .status == "completed" and .conclusion == "success" and (
               .path == ".github/workflows/release-candidate.yml"
               or (.path == ".github/workflows/mobile-android-internal.yml" and .event == "workflow_dispatch")
             )' "$RUNNER_TEMP/candidate.json"
