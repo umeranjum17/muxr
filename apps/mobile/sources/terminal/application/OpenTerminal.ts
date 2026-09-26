@@ -78,9 +78,10 @@ const MAX_ATTEMPTS = 15;
 
 export async function openTerminal(command: OpenTerminalCommand): Promise<TerminalChannel> {
     let closedByUser = false;
+    let closedByHost = false;
     let attachSent = false;
     const assertOpen = (): void => {
-        if (closedByUser || command.signal?.aborted) throw new Error('terminal: open cancelled');
+        if (closedByUser && !closedByHost || command.signal?.aborted) throw new Error('terminal: open cancelled');
     };
     assertOpen();
     const sessionId = command.agentRoute;
@@ -188,6 +189,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let socket: WebSocket | undefined;
     let frameCounts: TerminalFrameCountToken | undefined;
     let closedByTakeover = false;
+    let lastCloseReason: string | undefined;
 
     const finalizeCounts = (): void => {
         if (frameCounts === undefined) return;
@@ -275,6 +277,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         // Automatic foreground/reconnect must not steal control back.
         // Only the user's visible retry action may reverse a takeover.
         closedByTakeover = reason === 'control moved to another device';
+        closedByHost = true;
+        lastCloseReason = reason;
         closedByUser = true;
         finalizeCounts();
         recordTerminalChannel('disconnected', {
@@ -350,7 +354,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         if (closedByUser) {
             if (!explicitTakeover || !closedByTakeover) return;
             closedByUser = false;
+            closedByHost = false;
             closedByTakeover = false;
+            lastCloseReason = undefined;
             retaking = true;
         }
         watchHost();
@@ -536,6 +542,35 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         });
         let firstFrameOfStream = false;
         let firstFrameTimer: ReturnType<typeof setTimeout> | undefined;
+        const beforeAck: object[] = [];
+        let beforeAckSize = 0;
+        const deliverLinkFrame = (frame: object): void => {
+            const type = (frame as { type?: unknown }).type;
+            const record = frame as { bytes?: unknown };
+            if (type === 'terminal.frame' && typeof record.bytes === 'string') {
+                const bytes = record.bytes;
+                if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
+                hostAnswered();
+                if (!firstFrameOfStream) {
+                    firstFrameOfStream = true;
+                    if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
+                    painted = true;
+                    if (retryTimer !== undefined) {
+                        clearTimeout(retryTimer);
+                        retryTimer = undefined;
+                    }
+                    attempts = 0;
+                    emitState('live');
+                    recordTerminalFirstFrame(Date.now() - started);
+                }
+                deliverFrameBytes(bytes);
+            } else if (type === 'terminal.scroll-state') {
+                applyScrollStateFrame(frame);
+            } else if (type === 'terminal.closed') {
+                if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
+                applyClosedFrame(frame);
+            }
+        };
         let received = Promise.resolve();
         transport.onLine((line) => {
             received = received.then(async () => {
@@ -565,37 +600,27 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                         frameCounts = beginTerminalFrameCounts();
                         for (const queued of outbox.splice(0)) void transport.write(queued).catch(() => undefined);
                         linkAck?.({ ok: true });
+                        for (const queued of beforeAck.splice(0)) {
+                            if (closedByUser) break;
+                            deliverLinkFrame(queued);
+                        }
                     } else {
+                        beforeAck.length = 0;
                         linkAck?.({ ok: false, error: typeof result.error === 'string' ? result.error : undefined,
                             code: typeof result.code === 'string' ? result.code : undefined });
                     }
                     return;
                 }
-                if (linkAck !== undefined) return;
-                const record = frame as { bytes?: unknown };
-                if (type === 'terminal.frame' && typeof record.bytes === 'string') {
-                    const bytes = record.bytes;
-                    if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
-                    hostAnswered();
-                    if (!firstFrameOfStream) {
-                        firstFrameOfStream = true;
-                        if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
-                        painted = true;
-                        if (retryTimer !== undefined) {
-                            clearTimeout(retryTimer);
-                            retryTimer = undefined;
-                        }
-                        attempts = 0;
-                        emitState('live');
-                        recordTerminalFirstFrame(Date.now() - started);
-                    }
-                    deliverFrameBytes(bytes);
-                } else if (type === 'terminal.scroll-state') {
-                    applyScrollStateFrame(frame);
-                } else if (type === 'terminal.closed') {
-                    if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
-                    applyClosedFrame(frame);
+                if (linkAck !== undefined) {
+                    beforeAckSize += line.length;
+                    if (beforeAckSize > 1_048_576) {
+                        beforeAck.length = 0;
+                        linkAck({ ok: false, code: 'socket-error', streamLost: true });
+                        retireLink(transport);
+                    } else beforeAck.push(frame);
+                    return;
                 }
+                deliverLinkFrame(frame);
             });
         });
         transport.onEnd(() => {
@@ -614,6 +639,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         });
         const ack = await ackPromise;
         if (!ack.ok) {
+            beforeAck.length = 0;
             recordTerminalChannel('attach', { ok: false, error: ack.error ?? ack.code ?? 'link attach failed' });
             retireLink(transport);
             if (ack.streamLost) return false;
@@ -745,6 +771,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         },
         onClose: (listener) => {
             closeListeners.add(listener);
+            if (closedByHost) listener(lastCloseReason);
             return () => closeListeners.delete(listener);
         },
         onScrollState: (listener) => {
