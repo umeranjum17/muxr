@@ -1241,8 +1241,9 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             if (!Number.isInteger(advertisedPort) || advertisedPort < 1 || advertisedPort > 65535) {
                 throw new Error('LAN discovery needs a valid advertised port');
             }
-            const { advertise } = await import('@byokit/reach');
-            const published = await advertise({
+            const reach = await import('@byokit/reach');
+            if (!('advertise' in reach) || typeof reach.advertise !== 'function') throw new Error('Node reach advertise is unavailable');
+            const published = await reach.advertise({
                 type: 'muxr',
                 port: advertisedPort,
                 name: config.mdnsName ?? `muxr-${hostname()}`,

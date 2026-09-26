@@ -1,12 +1,11 @@
 import * as React from 'react';
+import type { BrowseHandle, BrowseService } from '@byokit/reach';
 import { Item } from '@/components/Item';
+import { retryRelayDiscovery } from '@/pairing';
 
 /**
- * LAN scan for SSH servers, offered where the host is typed. Reuses the
- * already-installed zeroconf discovery from Nearby reconnection, pointed at
- * the standard `_ssh._tcp` service instead of the muxr relay. A machine only
- * appears if it advertises SSH over Bonjour; typing an address by hand stays
- * the fallback.
+ * LAN scan for SSH servers, offered where the host is typed. Uses reach's
+ * shared mDNS browser on `_ssh._tcp`; typing an address remains the fallback.
  */
 
 interface SshScanResult {
@@ -29,59 +28,47 @@ export function SshHostScan({ onPick, disabled }: {
 }) {
     const [phase, setPhase] = React.useState<'idle' | 'scanning' | 'done' | 'failed'>('idle');
     const [results, setResults] = React.useState<SshScanResult[]>([]);
-    const activeRef = React.useRef<{ zeroconf: any; timer: ReturnType<typeof setTimeout> } | undefined>(undefined);
+    const activeRef = React.useRef<{ handle: BrowseHandle; timer: ReturnType<typeof setTimeout> } | undefined>(undefined);
 
     React.useEffect(() => () => {
         const active = activeRef.current;
         if (active === undefined) return;
         clearTimeout(active.timer);
-        try { active.zeroconf.stop(); } catch { /* leaving mid-scan */ }
-        active.zeroconf?.removeDeviceListeners?.();
+        active.handle.stop();
+        retryRelayDiscovery();
     }, []);
 
     const startScan = React.useCallback(() => {
-        let zeroconf: any;
         try {
-            const mod = require('react-native-zeroconf');
-            zeroconf = new (mod.default ?? mod)();
+            const { browse } = require('@byokit/reach') as typeof import('@byokit/reach');
+            const handle = browse({ type: 'ssh' });
+            setPhase('scanning');
+            setResults([]);
+            const finish = (phase: 'done' | 'failed', resumeNearby = true) => {
+                if (activeRef.current?.handle !== handle) return;
+                clearTimeout(activeRef.current.timer);
+                activeRef.current = undefined;
+                handle.stop();
+                setPhase(phase);
+                if (resumeNearby) retryRelayDiscovery();
+            };
+            const timer = setTimeout(() => finish('done'), 8_000);
+            activeRef.current = { handle, timer };
+            const onResolved = ({ name, addresses, port }: BrowseService) => {
+                const host = pickLanAddress(addresses);
+                if (host === undefined) return;
+                const resolvedPort = port || 22;
+                setResults((current) => current.some((r) => r.host === host && r.port === resolvedPort)
+                    ? current
+                    : [...current, { name, host, port: resolvedPort }]);
+            };
+            handle.on('found', onResolved);
+            handle.on('updated', onResolved);
+            handle.on('error', () => finish('failed'));
+            handle.on('stopped', () => finish('failed', false));
         } catch {
             setPhase('failed');
-            return;
-        }
-        setPhase('scanning');
-        setResults([]);
-        const timer = setTimeout(() => {
-            try { zeroconf.stop(); } catch { /* results so far are fine */ }
-            activeRef.current = undefined;
-            setPhase((current) => current === 'scanning' ? 'done' : current);
-            cleanup();
-        }, 8_000);
-        activeRef.current = { zeroconf, timer };
-        const onResolved = (service: { name?: string; addresses?: string[]; port?: number }) => {
-            const { name, addresses, port } = service;
-            const host = pickLanAddress(addresses);
-            if (name === undefined || host === undefined) return;
-            const resolvedPort = typeof port === 'number' ? port : 22;
-            setResults((current) => current.some((r) => r.host === host && r.port === resolvedPort)
-                ? current
-                : [...current, { name, host, port: resolvedPort }]);
-        };
-        const onError = () => setPhase('failed');
-        function cleanup() {
-            clearTimeout(timer);
-            if (activeRef.current?.timer === timer) activeRef.current = undefined;
-            zeroconf?.removeListener('resolved', onResolved);
-            zeroconf?.removeListener('error', onError);
-            zeroconf?.removeDeviceListeners();
-        }
-        zeroconf.on('resolved', onResolved);
-        zeroconf.on('error', onError);
-        try {
-            zeroconf.scan('ssh', 'tcp', 'local.');
-        } catch {
-            clearTimeout(timer);
-            setPhase('failed');
-            cleanup();
+            retryRelayDiscovery();
         }
     }, []);
 
