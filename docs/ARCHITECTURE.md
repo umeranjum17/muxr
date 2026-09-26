@@ -290,8 +290,13 @@ preview streams, and remote desktop still use the existing relay transport.
 The link checks the live device table for requests (including cached replies)
 and broadcasts, so revocation and role changes do not wait for grant sync.
 If link relay state cannot load, the existing relay continues without those
-routes. Pairing and the phone's production connection remain on the existing
-transport; this does not switch a paired phone to the link.
+routes. Pairing stays on the existing transport. For a self-host machine, a
+paired phone moves its session channel onto the link without re-pairing: the
+host enrols it from its device records and appends the enrolled link key to
+its `herdr.tree` replies (re-announced whenever the link relay comes online),
+and the phone then dials `/link/v1/<host id>` with the keys it already holds,
+keeping the relay transport open as a fallback. Hosted relays keep phones on
+the relay transport.
 
 The relay reads bounded `envelope.header` routing context and treats `payload` as
 opaque `e2ee:v2` ciphertext. Terminal frames stay off replay on the separate

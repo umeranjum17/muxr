@@ -176,6 +176,12 @@ describe('the phone session channel on the byokit link', () => {
         const overLink = sessionClient(stored);
         overLink.onEvent((sessionId) => eventSessions.push(sessionId));
         overLink.connect();
+        await until(() => (overLink.state === 'open' ? true : undefined), 'relay session opens', 30_000);
+        // The real phone refreshes the tree as soon as its session opens
+        // (sync.refreshHerdTree), and the enrolment flag rides that reply when
+        // the host's link is already online; the reverse ordering arrives as a
+        // later machine.hello, which re-trees through the client itself.
+        await overLink.request('herdr.tree', {});
         await until(() => (overLink.state === 'open' && overLink.transport === 'link' ? true : undefined),
             'session comes online over the link', 30_000);
         expect(linkDials.length).toBeGreaterThan(0);
