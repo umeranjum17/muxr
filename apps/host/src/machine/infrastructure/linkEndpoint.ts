@@ -99,7 +99,10 @@ export class LinkEndpoint {
             ...(enrol === undefined ? {} : { enrol }),
             ...(options.onStatus === undefined ? {} : { onStatus: options.onStatus }),
         }));
-        if (!await endpoint.sync(options.crypto)) throw new Error('link: initial device sync failed');
+        if (!await endpoint.sync(options.crypto)) {
+            endpoint.close();
+            throw new Error('link: initial device sync failed');
+        }
         return endpoint;
     }
 

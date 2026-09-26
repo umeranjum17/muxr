@@ -292,7 +292,7 @@ describe('link upgrade for an already-paired phone', () => {
         vi.resetModules();
         const { claimHostedPairing: claimFresh } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
         const release = join(home, 'release-pair');
-        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], childHookEnv({ hook: 'holdResponse', suffix: '/release', release }));
+        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], childHookEnv({ hook: 'holdRequest', suffix: '/release', release }));
         const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'pair string');
         const claiming = claimFresh(text);
         const stored = await Promise.race([

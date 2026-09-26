@@ -767,6 +767,8 @@ async function main(): Promise<void> {
                     }
                     return;
                 } catch (error) {
+                    linkEndpoint?.close();
+                    linkEndpoint = undefined;
                     if (attempt === 0) process.stderr.write(`link unavailable, retrying: ${error instanceof Error ? error.message : String(error)}\n`);
                     await new Promise((resolve) => setTimeout(resolve, 5000));
                 }

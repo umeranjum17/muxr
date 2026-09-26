@@ -30,17 +30,6 @@ if (cfg.hook === 'holdEnrol') {
     };
 }
 
-if (cfg.hook === 'holdResponse') {
-    const fetch = globalThis.fetch;
-    globalThis.fetch = async (...args) => {
-        const response = await fetch(...args);
-        if (String(args[0]).endsWith(cfg.suffix) && response.ok) {
-            while (!existsSync(cfg.release)) await new Promise((resolve) => setTimeout(resolve, 20));
-        }
-        return response;
-    };
-}
-
 if (cfg.hook === 'holdRequest') {
     const fetch = globalThis.fetch;
     globalThis.fetch = async (...args) => {
