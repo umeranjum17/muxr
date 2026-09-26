@@ -21,7 +21,7 @@ vi.mock('@/connection', () => ({
 }));
 
 vi.mock('@/catalog/sync', () => ({
-    sync: { request: mocks.request, currentMachineId: () => mocks.settings.machineId },
+    sync: { request: mocks.request, currentMachineId: () => mocks.settings.machineId, openTerminalLink: () => undefined },
 }));
 
 vi.mock('@/pairing/e2ee', () => ({

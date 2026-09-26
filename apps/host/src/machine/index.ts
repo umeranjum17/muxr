@@ -27,3 +27,4 @@ export { reconnectMachine } from './application/reconnectMachine.js';
 export { listMachines } from './application/listMachines.js';
 export { hostPlatformLabel } from './infrastructure/hostPlatform.js';
 export { LinkEndpoint, type LinkAnswer } from './infrastructure/linkEndpoint.js';
+export { attachFailureCode, type LinkTerminalPort, type TerminalPipe } from './domain/terminal.js';
