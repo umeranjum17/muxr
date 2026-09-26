@@ -137,6 +137,8 @@ process.stdin.on('data', (chunk) => {
             machineName: 'test machine',
             crypto,
             currentCrypto: () => crypto,
+            savePushLevel: () => undefined,
+            grants: { load: () => [], save: () => undefined },
             answer: async () => undefined,
             canView: () => false,
             terminals: {
@@ -238,9 +240,20 @@ process.stdin.on('data', (chunk) => {
             ended = true;
             for (const waiter of pending.splice(0)) waiter.reject(new Error(`stream ended before its frame (error: ${error ?? 'clean'})`));
         };
-        const attachAck = await once(nextFrame(), 10_000, 'link attach ack');
-        const linkAttachMs = Date.now() - linkAttachStarted;
+        let attachAck: HostFrame | undefined;
+        let initialPaint: string | undefined;
+        let linkAttachMs = 0;
+        while (attachAck === undefined || initialPaint === undefined) {
+            const frame = await once(nextFrame(), 10_000, 'link attach and initial paint');
+            if (frame.type === 'result') {
+                attachAck = frame;
+                linkAttachMs = Date.now() - linkAttachStarted;
+            } else if (frame.type === 'terminal.frame' && frame.full === true) {
+                initialPaint = Buffer.from(frame.bytes, 'base64').toString('utf8');
+            }
+        }
         expect(attachAck).toMatchObject({ type: 'result', ok: true, data: { paneId: 'pane-s1' } });
+        expect(initialPaint).toBe('SCREEN pane-s1 20x5');
 
         // Frame bytes the pane painted, skipping anything else (scroll-state).
         const nextFrameBytes = async (what: string): Promise<string> => {
@@ -255,10 +268,6 @@ process.stdin.on('data', (chunk) => {
             })(), 5_000, what);
             return done;
         };
-
-        // The pane's initial full repaint rides the same stream (herdr paints
-        // the whole screen on attach), followed by its scroll state.
-        expect(await nextFrameBytes('initial paint')).toBe('SCREEN pane-s1 20x5');
 
         // Typing.
         const typed = 'hello over the link';
