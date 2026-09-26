@@ -461,7 +461,12 @@ export async function resumePendingHostedPairing(includeLegacy = true): Promise<
     if (!includeLegacy) return undefined;
     const raw = await secretGet(PENDING_PAIR_KEY);
     if (raw === null) return undefined;
-    return completePendingHostedPair(JSON.parse(raw) as PendingHostedPair, false);
+    const pending = JSON.parse(raw) as PendingHostedPair;
+    if (pending.source === 'selfhost') {
+        await secretDelete(PENDING_PAIR_KEY);
+        return undefined;
+    }
+    return completePendingHostedPair(pending, false);
 }
 
 interface PendingLinkPair {
@@ -604,6 +609,9 @@ async function resolvePairingCode(value: string, hold?: (codeHash: string) => vo
  * `resumable` (Direct SSH) lets a retry of an interrupted code resume; see `resumablePairings`.
  */
 export async function claimHostedPairing(url: string, options: { resumable?: boolean } = {}): Promise<StoredHostedGrant> {
+    if (/^wss?:\/\//i.test(url) || /\/pair\?pair=/.test(url)) {
+        throw new Error('This pairing code is from an older muxr. Run `muxr pair` again for a link offer.');
+    }
     let held: string | undefined;
     try {
         const grant = await claimResolvedPairing(url, options.resumable === true, (codeHash) => { held = codeHash; });
@@ -675,6 +683,7 @@ async function claimResolvedPairing(url: string, resumable: boolean, hold: (code
     const machineId = fragment.get('machine');
     const machineSigningPublicKey = fragment.get('machinePk');
     const selfhostRelayParam = fragment.get('r');
+    if (selfhostRelayParam !== null) throw new Error('This pairing code is from an older muxr. Run `muxr pair` again for a link offer.');
     if (![pairId, claim, pairSecret, machineId, machineSigningPublicKey].every((value) => typeof value === 'string' && value.length > 20)) {
         throw new Error('pairing link is incomplete');
     }
