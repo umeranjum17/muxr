@@ -100,6 +100,8 @@ export const en = {
             paceBurning: 'Burning fast',
             percentLeft: ({ percent }: { percent: number }) => `${percent}% left`,
             percentUsed: ({ percent }: { percent: number }) => `${percent}% used`,
+            runsOutIn: ({ time }: { time: string }) => `out in ${time}`,
+            asOf: ({ time }: { time: string }) => `Limits as of ${time}`,
         },
         rightNow: {
             title: 'Right now',

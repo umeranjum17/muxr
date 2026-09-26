@@ -113,6 +113,8 @@ export const pl: TranslationStructure = {
             paceBurning: 'Szybkie zużycie',
             percentLeft: ({ percent }: { percent: number }) => `pozostało ${percent}%`,
             percentUsed: ({ percent }: { percent: number }) => `wykorzystano ${percent}%`,
+            runsOutIn: ({ time }: { time: string }) => `skończy się za ${time}`,
+            asOf: ({ time }: { time: string }) => `Limity na ${time}`,
         },
         rightNow: {
             title: 'Teraz',

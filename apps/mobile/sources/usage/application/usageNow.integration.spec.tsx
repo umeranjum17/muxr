@@ -860,8 +860,10 @@ describe('the usage screen read path', () => {
         request.mockRejectedValue(new Error('rate limited'));
         const screen = renderScreen();
         await tick();
-        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
-        expect(screenText(screen)).toContain('time.minutesAgo(10)');
+        // The failure is named on the inline line, never as header prose.
+        expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
+        // The age is the card's own stamp now, not a floating line.
+        expect(screen.root.findAllByType('ScreenLimits')[0].props.asOf).toContain('plugins.limits.asOf(');
         expect(screenText(screen)).not.toContain('No measured activity');
         // The limits the card did collect stay on screen, and the failure
         // offers the way back it always does.
@@ -903,7 +905,11 @@ describe('the usage screen read path', () => {
         const claude = renderScreen();
         press(claude, 'Claude');
         await tick();
-        expect(screenText(claude)).toContain('time.minutesAgo(10)');
+        expect(claude.root.findAllByType('ScreenLimits')[0].props.asOf).toContain('plugins.limits.asOf(');
+        // Retained figures are dimmed and stamped on their own card, never a
+        // bare age word floating under them.
+        expect(claude.root.findAllByType('ScreenLimits')[0].parent.props.style.opacity).toBe(0.55);
+        expect(screenText(claude)).not.toContain('time.justNow');
     });
 
     it('shows what the other surface learns without a remount', async () => {
@@ -1215,8 +1221,8 @@ describe('the usage screen read path', () => {
         // The figures stay, and the press is named as a failure rather than
         // looking exactly like a refresh that worked.
         expect(screenText(screen)).toContain('OpenCode');
-        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
-        expect(screenText(screen)).toContain('time.minutesAgo(12)');
+        expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
+        expect(screen.root.findAllByType('ScreenLimits')[0].props.asOf).toContain('plugins.limits.asOf(');
         expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
     });
 
@@ -1340,7 +1346,7 @@ describe('the usage screen read path', () => {
         await tick();
         press(screen, 'Claude');
         await tick();
-        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
 
         // Switching to a tab that never failed does not carry the word over.
         press(screen, 'OpenCode');
@@ -1359,7 +1365,7 @@ describe('the usage screen read path', () => {
         await tick(11_000);
         TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
         await tick();
-        expect(screenText(screen)).toContain('plugins.rightNow.refreshFailed');
+        expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
 
         // ...and the retry is not throttled: the rejected read spent no quota.
         const before = request.mock.calls.length;
@@ -1592,5 +1598,182 @@ describe('the usage screen read path', () => {
 
         await TestRenderer.act(async () => { release(report('claude', 0)); });
         expect(pull().refreshing).toBe(false);
+    });
+
+    it('colours each limit figure by when it runs out, and its bar still agrees with its label', async () => {
+        // Three windows against the same reset: one whose pace carries it
+        // through (calm, the host's word stands), one that will not outlast
+        // its reset (warm, the moment named), and one that runs out soon
+        // (strong). The projection is the phone's, from the published used,
+        // elapsed and reset -- no new field, no new palette.
+        const { ScreenLimits } = await import('@/plugins/presentation/screenLimits');
+        let renderer: any;
+        TestRenderer.act(() => {
+            renderer = TestRenderer.create(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
+                limits: {
+                    verdict: 'go',
+                    windows: [
+                        { label: 'Session', window: '5h', used: 60, elapsed: 0.7, pace: 'on pace', resetsIn: '2h' },
+                        { label: 'Weekly', window: '7d', used: 92, elapsed: 0.58, pace: 'ahead', resetsIn: '2d 23h' },
+                        { label: 'Rolling', window: '5h', used: 90, elapsed: 0.5, pace: 'ahead', resetsIn: '2h' },
+                    ],
+                },
+            }} />);
+        });
+        mounted.push(renderer!);
+
+        // Figures in tree order: the headline (the tightest window), then each
+        // row -- calm neutral, warm, strong.
+        const figures = renderer.root.findAllByType('Text')
+            .map((node: any) => [node.props.children, node.props.style?.color] as const)
+            .filter(([text]: any) => typeof text === 'string' && String(text).endsWith('plugins.limits.percentLeft'));
+        expect(figures).toEqual([
+            // The headline speaks the presented verdict: a window running out
+            // in minutes steps it to strong, so dot, word and number agree.
+            ['8% plugins.limits.percentLeft', '#f55'],
+            ['40% plugins.limits.percentLeft', '#fff'],
+            ['8% plugins.limits.percentLeft', '#fa0'],
+            ['10% plugins.limits.percentLeft', '#f55'],
+        ]);
+
+        // And every bar drains with the share left, under a tick at the time
+        // left -- the figure and the fill cannot disagree.
+        const bars = renderer.root.findAllByType('Meter').map((node: any) => [node.props.ratio, node.props.marker]);
+        expect(bars[0][0]).toBeCloseTo(0.4);
+        expect(bars[0][1]).toBeCloseTo(0.3);
+        expect(bars[1][0]).toBeCloseTo(0.08);
+        expect(bars[1][1]).toBeCloseTo(0.42);
+        expect(bars[2][0]).toBeCloseTo(0.1);
+        expect(bars[2][1]).toBeCloseTo(0.5);
+
+        // The run-out note replaces the pace adjective exactly where a
+        // projection exists; a calm window keeps the host's word.
+        const words = renderer.root.findAllByType('Text').map((node: any) => node.props.children);
+        expect(words).toContain('plugins.limits.runsOutIn(8h)');
+        expect(words).toContain('plugins.limits.runsOutIn(13m)');
+        expect(words).toContain('plugins.limits.paceOnTrack');
+        expect(words).not.toContain('plugins.limits.paceAhead');
+
+        // Spoken the same way. A window that runs out in minutes forbids the
+        // calm verdict: the presentation steps up to the strong level, so the
+        // word, its dot and the headline all agree with the figures.
+        const summary: string = renderer.root.findAll((node: any) => node.props?.accessibilityRole === 'summary')[0].props.accessibilityLabel;
+        expect(summary).toContain('plugins.limits.runsOutIn(8h)');
+        expect(summary).toContain('plugins.limits.low');
+        expect(summary).not.toContain('plugins.limits.go');
+        expect(words).toContain('plugins.limits.low');
+        expect(words).not.toContain('plugins.limits.go');
+
+        // Warm alone steps a green host verdict up only to the warm level: the
+        // verdict cannot stay "Go ahead" while a figure says it runs out first.
+        TestRenderer.act(() => {
+            renderer.update(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
+                limits: {
+                    verdict: 'go',
+                    windows: [
+                        { label: 'Session', window: '5h', used: 60, elapsed: 0.7, pace: 'on pace', resetsIn: '2h' },
+                        { label: 'Weekly', window: '7d', used: 46, elapsed: 0.4, pace: 'on pace', resetsIn: '4d 2h' },
+                    ],
+                },
+            }} />);
+        });
+        const warmWords = renderer.root.findAllByType('Text').map((node: any) => node.props.children);
+        expect(warmWords).toContain('plugins.limits.watch');
+        expect(warmWords).toContain('plugins.limits.runsOutIn(3d)');
+        expect(warmWords).not.toContain('plugins.limits.go');
+        const warmFigures = renderer.root.findAllByType('Text')
+            .map((node: any) => [node.props.children, node.props.style?.color] as const)
+            .filter(([text]: any) => typeof text === 'string' && String(text).endsWith('plugins.limits.percentLeft'));
+        // The headline keeps naming the tightest window, but in the warm
+        // verdict's colour now: dot, word and big number all agree.
+        expect(warmFigures[0]).toEqual(['40% plugins.limits.percentLeft', '#fa0']);
+
+        // A declarative plugin payload keeps `elapsed` with no pace at all: its
+        // projection still speaks, because a coloured figure with no note is
+        // just a mystery. And a window the host itself capped keeps the host's
+        // own word -- the projection must not talk over a decision already made.
+        TestRenderer.act(() => {
+            renderer.update(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
+                limits: {
+                    verdict: 'unknown',
+                    windows: [
+                        { label: 'Session', window: '5h', used: 90, elapsed: 0.5, resetsIn: '2h' },
+                        { label: 'Capped', window: '5h', used: 50, elapsed: 0.5, pace: 'limited', resetsIn: '2h' },
+                    ],
+                },
+            }} />);
+        });
+        const pacelessWords = renderer.root.findAllByType('Text').map((node: any) => node.props.children);
+        expect(pacelessWords).toContain('plugins.limits.runsOutIn(13m)');
+        expect(pacelessWords).toContain('plugins.limits.limited');
+        const pacelessFigures = renderer.root.findAllByType('Text')
+            .map((node: any) => [node.props.children, node.props.style?.color] as const)
+            .filter(([text]: any) => typeof text === 'string' && String(text).endsWith('plugins.limits.percentLeft'));
+        // The headline (verdict unknown, so neutral) leads, then the two rows:
+        // the paceless projection colours its figure danger, the capped row
+        // keeps the host's own danger word in danger's colour.
+        expect(pacelessFigures).toEqual([
+            ['10% plugins.limits.percentLeft', '#fff'],
+            ['10% plugins.limits.percentLeft', '#f55'],
+            ['50% plugins.limits.percentLeft', '#f55'],
+        ]);
+
+    });
+
+    it('keeps a failed read\'s figures in place, dimmed and stamped, vouching nothing for them', async () => {
+        // The report read is refused behind figures it holds from two hours
+        // ago. They stay -- old, not wrong -- but nothing may vouch for them:
+        // no green verdict word, no live look, and the age belongs on the card
+        // it describes, as the moment they were true, not as a bare word
+        // floating between the failure line and Today.
+        const captured = new Date(Date.now() - 7_200_000).toISOString();
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withReport(undefined, {
+            ...report('claude', 0),
+            limits: { verdict: 'go', windows: [{ label: 'Rolling', window: '5h', used: 40, elapsed: 0.5, pace: 'ahead', resetsIn: '5h' }] },
+            capturedAt: captured,
+        }) });
+        request.mockRejectedValueOnce(new Error('rate limited'));
+        const screen = renderScreen();
+        await tick();
+        expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
+
+        const card = () => screen.root.findAllByType('ScreenLimits')[0];
+        expect(card().props.data.limits.verdict).toBe('unknown');
+        expect(card().props.asOf).toContain('plugins.limits.asOf(');
+        expect(card().parent.props.style.opacity).toBe(0.55);
+        expect(screenText(screen)).not.toContain('time.justNow');
+        expect(screenText(screen)).not.toContain('time.hoursAgo');
+
+        // The failure keeps its words on the inline line, not in the header:
+        // the control names the failure to the ear alone, so the title cannot
+        // be crushed by a sentence at narrow widths.
+        expect(refreshControls(screen)[0].findAllByType('Text').map((node: any) => node.props.children).join(' '))
+            .not.toContain('plugins.rightNow.refreshFailed');
+        expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
+
+        // Another surface's cadence merges a capture newer than the failure
+        // into the same record: those figures were refreshed by a read that
+        // worked, so they keep their own verdict -- no unknown forcing, and no
+        // stamp over numbers newer than the failure. The look stays failed
+        // until this screen's own retry answers.
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withReport(undefined, {
+            ...report('claude', 0),
+            limits: { verdict: 'go', windows: [{ label: 'Rolling', window: '5h', used: 40, elapsed: 0.5, pace: 'ahead', resetsIn: '5h' }] },
+            capturedAt: new Date().toISOString(),
+        }) });
+        await tick();
+        expect(card().props.data.limits.verdict).toBe('go');
+        expect(card().props.asOf).toBeUndefined();
+        expect(card().parent.props.style.opacity).toBe(0.55);
+
+        // A read that answers restores the live card: the verdict returns and
+        // the stamp goes.
+        request.mockResolvedValue(report('claude', 0));
+        await tick(11_000);
+        TestRenderer.act(() => { refreshControls(screen)[0].props.onPress(); });
+        await tick();
+        expect(card().props.data.limits.verdict).toBe('go');
+        expect(card().props.asOf).toBeUndefined();
+        expect(card().parent.props.style.opacity).toBe(1);
     });
 });

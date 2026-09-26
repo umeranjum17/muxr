@@ -104,6 +104,8 @@ export const zhHans: TranslationStructure = {
             paceBurning: '消耗过快',
             percentLeft: ({ percent }: { percent: number }) => `剩余 ${percent}%`,
             percentUsed: ({ percent }: { percent: number }) => `已使用 ${percent}%`,
+            runsOutIn: ({ time }: { time: string }) => `${time}后用尽`,
+            asOf: ({ time }: { time: string }) => `${time} 时的上限`,
         },
         rightNow: {
             title: '当前状态',
