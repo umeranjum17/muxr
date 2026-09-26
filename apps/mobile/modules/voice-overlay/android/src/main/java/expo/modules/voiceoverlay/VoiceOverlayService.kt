@@ -51,6 +51,7 @@ class VoiceOverlayService : Service() {
     private var herdName = ""
     private var herdNames = ""
     private var herdEventKey = ""
+    private var attentionRoute: String? = null
     private var lastAttentionKeys = emptySet<String>()
     private var lastFocusedRoute: String? = null
     private var lastFinishedKey = ""
@@ -139,6 +140,8 @@ class VoiceOverlayService : Service() {
           else -> "working"
         }
         herdCount = if (suppressFocused) shown.size else count.coerceAtLeast(0)
+        attentionRoute = if (herdMode == "attention" && herdCount == 1)
+          blocked.singleOrNull()?.get("id") as? String else null
         herdNames = (if (suppressFocused) shown.joinToString(", ") { it["name"] as? String ?: "" } else names)
           .trim().replace(Regex("\\s+"), " ").take(160)
         herdName = (if (suppressFocused) shown.firstOrNull()?.get("name") as? String else herdNames.substringBefore(','))
@@ -281,12 +284,17 @@ class VoiceOverlayService : Service() {
       }
     }
 
-    private fun openApp(context: Context): PendingIntent = PendingIntent.getActivity(
-      context,
-      0,
-      requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName)),
-      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-    )
+    private fun openApp(context: Context, agentRoute: String? = null): PendingIntent {
+      val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
+      if (agentRoute != null) {
+        val scheme = context.getString(context.resources.getIdentifier("muxr_link_scheme", "string", context.packageName))
+        intent.action = Intent.ACTION_VIEW
+        intent.data = Uri.Builder().scheme(scheme).authority("session").appendPath(agentRoute).build()
+      }
+      return PendingIntent.getActivity(
+        context, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+      )
+    }
 
     private fun startVoice(context: Context): PendingIntent {
       val intent = requireNotNull(context.packageManager.getLaunchIntentForPackage(context.packageName))
@@ -394,11 +402,12 @@ class VoiceOverlayService : Service() {
       val title = if (activeVoice && voiceName.isNotBlank()) "Voice with $voiceName"
         else if (activeVoice) "muxr Voice" else herdTitle()
       val body = if (activeVoice) voiceStatus() else herdBody()
+      val route = if (activeVoice) null else attentionRoute
       val builder = NotificationCompat.Builder(context, if (activeVoice) STATUS_CHANNEL_ID else ATTENTION_CHANNEL_ID)
         .setContentTitle(title)
         .setContentText(body)
         .setSmallIcon(smallIcon(context))
-        .setContentIntent(openApp(context))
+        .setContentIntent(openApp(context, route))
         .setGroup(HERD_GROUP_KEY)
         .setOnlyAlertOnce(!event)
         .setSilent(!event)
@@ -417,7 +426,7 @@ class VoiceOverlayService : Service() {
           .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
       } else if (herdMode == "attention") {
         builder
-          .addAction(0, "Open", openApp(context))
+          .addAction(0, "Open", openApp(context, route))
           .addAction(0, "Talk", startVoice(context))
       } else {
         builder.addAction(0, "Talk", startVoice(context))
