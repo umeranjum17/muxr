@@ -1,5 +1,5 @@
 import { hostId, unb64url, type DeviceGrant } from '@byokit/link';
-import type { StoredHostedGrant } from './hostedE2ee';
+import type { StoredHostedGrant } from '../application/hostedE2ee';
 
 /** byokit keys are base64url; the stored grant keeps the same bytes as plain base64. */
 const toBase64Url = (value: string): string => value.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

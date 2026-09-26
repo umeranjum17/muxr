@@ -11,7 +11,7 @@ import {
     type RequestType,
     type SessionEvent,
 } from '@muxr/contract';
-import { deriveLinkGrant } from '../application/linkGrant';
+import { deriveLinkGrant } from './linkGrant';
 import { MuxrRequestError, type ConnectionState, type MuxrClientOptions } from './muxrClient';
 
 /** The link session port consumed by catalog sync. */
