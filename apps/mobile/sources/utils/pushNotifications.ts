@@ -189,7 +189,7 @@ export function updateWebPushNotificationLevel(level: LifecycleNotificationLevel
     return drainWebPushNotificationLevel();
 }
 
-/** Remove this browser's relay registration before forgetting its link grant. */
+/** Remove this browser's link registration before forgetting its grant. */
 export async function unsubscribeWebPush(): Promise<void> {
     if (!isWebPushSupported()) return;
     if (syncingLevel !== null) await syncingLevel;

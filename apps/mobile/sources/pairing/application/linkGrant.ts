@@ -5,12 +5,8 @@ import type { StoredHostedGrant } from './hostedE2ee';
 const toBase64Url = (value: string): string => value.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 /**
- * The byokit link grant this phone can dial with no pairing step: its stored
- * device key is a link key, the machine's box key pins the host, and the
- * self-host relay serves the link route beside the existing transport
- * (decision D2: enrolment is host-side, so the phone derives everything it
- * already holds). `undefined` when this machine has no link to offer —
- * hosted relays and legacy grants stay on the relay transport.
+ * The paired device's link grant: its stored key pins the host's box key.
+ * No muxr relay transport is available when a link grant is missing.
  */
 export function deriveLinkGrant(grant: StoredHostedGrant | undefined, relayUrl?: string): DeviceGrant | undefined {
     if (grant?.source !== 'selfhost') return undefined;
@@ -19,7 +15,7 @@ export function deriveLinkGrant(grant: StoredHostedGrant | undefined, relayUrl?:
         const hostKey = unb64url(toBase64Url(grant.machineBoxPublicKey));
         const relay = new URL(relayUrl ?? grant.relayUrl);
         // The relay mounts the link route at its origin, like byokit's own
-        // short-code lookup; a subpath in the relay URL belongs to the old transport.
+        // short-code lookup; a subpath in the relay URL is not part of this route.
         const url = `${relay.protocol === 'wss:' ? 'wss' : 'ws'}://${relay.host}/link/v1/${hostId(hostKey)}`;
         return {
             v: 1,
