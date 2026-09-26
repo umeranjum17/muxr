@@ -40,6 +40,7 @@ import {
     DIALOG_GUARD_ACTION,
     DIALOG_GUARD_MESSAGE,
     DIALOG_GUARD_TITLE,
+    terminalComposerText,
     terminalInputDisposition,
     terminalPaneCanSend,
     terminalPaneStatus,
@@ -921,7 +922,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         // A booting agent is not a refusal: the host holds the prompt until it
         // can accept it, so let the composer stay live and let the host answer.
         if (attaching || selectedImages.length > 0 || dictationActive) return;
-        const text = [draftRef.current.trim(), ...attachedPaths].filter((part) => part !== '').join(' ');
+        const text = terminalComposerText(draftRef.current, attachedPaths, typing !== undefined);
         if (text === '') return;
         if (typing !== undefined) {
             draftRef.current = '';
@@ -1197,6 +1198,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 blurOnSubmit
                 submitBehavior="blurAndSubmit"
                 multiline
+                autoCapitalize={currentPane?.agentKind === undefined ? 'none' : undefined}
+                autoCorrect={currentPane?.agentKind === undefined ? false : undefined}
+                spellCheck={currentPane?.agentKind === undefined ? false : undefined}
+                smartInsertDelete={currentPane?.agentKind === undefined ? false : undefined}
                 // Web renders multiline as a textarea and defaults it to two
                 // rows: the rail stood 12dp taller than its own minimum and the
                 // placeholder sat a line above the controls beside it. Native
