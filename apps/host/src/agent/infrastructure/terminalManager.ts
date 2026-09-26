@@ -51,6 +51,7 @@ interface Attachment {
     paneId: string;
     mode: 'control' | 'observe';
     deviceId?: string;
+    assertAuthorized?: () => void;
     process: ChildProcess;
     socket: TerminalPipe;
     cols: number;
@@ -276,6 +277,7 @@ export class TerminalManager {
             paneId,
             mode,
             ...(params.deviceId === undefined ? {} : { deviceId: params.deviceId }),
+            ...(params.assertAuthorized === undefined ? {} : { assertAuthorized: params.assertAuthorized }),
             process: child,
             socket,
             cols: params.cols,
@@ -344,6 +346,7 @@ export class TerminalManager {
         };
         const onInput = (text: string): void => {
             if (finished || this.attachments.get(params.channel) !== attachment || child.exitCode !== null) return;
+            if (!this.authorized(attachment)) return;
             const input = child.stdin;
             if (input === null || input.destroyed || !input.writable) return;
             if (text.trim().length === 0) return;
@@ -460,7 +463,7 @@ export class TerminalManager {
 
     private async publishScrollState(attachment: Attachment): Promise<void> {
         const read = this.options.readPaneScroll;
-        if (read === undefined || attachment.scrollStateReading) return;
+        if (read === undefined || attachment.scrollStateReading || !this.authorized(attachment)) return;
         attachment.scrollStateReading = true;
         attachment.scrollStateDirty = false;
         try {
@@ -480,8 +483,18 @@ export class TerminalManager {
         }
     }
 
+    private authorized(attachment: Attachment): boolean {
+        try {
+            attachment.assertAuthorized?.();
+            return true;
+        } catch {
+            attachment.close();
+            return false;
+        }
+    }
+
     private sendToPhone(attachment: Attachment, plaintext: string): void {
-        this.sendLine(attachment.socket, attachment.channel, plaintext);
+        if (this.authorized(attachment)) this.sendLine(attachment.socket, attachment.channel, plaintext);
     }
 
     sendResult(socket: TerminalPipe, channel: string, result: object): void {
