@@ -11,7 +11,7 @@
  * relay credential at all.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -114,7 +114,7 @@ class Machine {
         }
         const host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { ...labEnv(this.home), MUXR_MODE: 'selfhost' });
         this.host = host;
-        await until(() => (host.output().includes('host -> ') ? true : undefined), `${this.name} host start`);
+        await until(() => (existsSync(join(this.home, 'host', 'pair.sock')) ? true : undefined), `${this.name} pairing socket (${host.output()})`);
     }
 
     async stop(): Promise<void> {
