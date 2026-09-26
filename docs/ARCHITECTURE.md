@@ -46,11 +46,12 @@ agent process → PTY (kernel pipe, herdr holds it)
                   │
                   ├─→ herdr's emulator ──→ herdr desktop UI
                   └─→ host runs `herdr terminal session control <pane>`
-                      (base64 ANSI frames) → /terminal via the relay → phone
+                      (base64 ANSI frames) → byokit link stream on enrolled native phones
+                                           or /terminal via the relay → phone
                       → xterm.js parses the same bytes, draws its own copy
 ```
 
-Keystrokes travel the reverse path: phone → relay → host → herdr → PTY → the
+Keystrokes travel the reverse path: phone → link or relay → host → herdr → PTY → the
 agent reads them as if typed locally. This app owns no terminal state — it
 carries bytes and renders them. And this is why scroll gestures are forwarded to
 herdr instead of scrolling locally: the history is herdr's, and the phone only
@@ -139,7 +140,7 @@ removed grants, and web secure-store reset clear it.
 | Close worktree group | final explicit scope of `session.stop`, after its own confirmation | revalidate the parent workspace, then call Herdr `workspace.close`; Herdr has no separate group-close method |
 | status | `idle · working · blocked · done · unknown` | `pane.agent_status_changed` |
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
-| live view | terminal frames over the `/terminal` channel | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |
+| live view | terminal frames over a link stream or relay `/terminal` channel | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |
 
 Sessions started at the desk show up on the phone once Herdr publishes their
 agent session (often after the first turn). Detection alone is not a session:
@@ -166,7 +167,8 @@ per-pane status watch is acknowledged, even if an older snapshot was in flight.
   Control is single-owner, so attaching takes over input from the desk; preview
   cards use `observe` exactly so the desk is never disturbed.
 - **herdr repaints the whole screen in its first frames.** The relay buffers those
-  until the client connects, or the terminal opens blank.
+  until the client connects; the link path queues frames arriving before the
+  attach result and replays them to the phone after attach succeeds.
 - **Pane ids change on cross-workspace moves** and agent names are user-renameable, so
   the host mints its own session ids and keeps a map, updated on `pane.moved`.
 - **`done` means "idle and you haven't looked yet."** herdr clears it when the tab is
@@ -285,8 +287,8 @@ muxr WebSockets consume only those tickets. On a self-host relay,
 `@byokit/relay` also serves optional
 `/relay/v1/*` and `/link/v1/<host id>` routes beside the existing muxr routes.
 The host uses its existing machine box key and enrolls native phones from its
-`selfhost.json` device records through `@byokit/link`; browsers, terminal and
-preview streams, and remote desktop still use the existing relay transport.
+`selfhost.json` device records through `@byokit/link`; browsers, preview
+streams, and remote desktop still use the existing relay transport.
 The link checks the live device table for requests (including cached replies)
 and broadcasts, so revocation and role changes do not wait for grant sync.
 On startup, the host enrolls its existing devices before opening its link relay
@@ -300,16 +302,19 @@ push eligibility. If the CLI exits between release and host-record durability,
 the relay credential remains but the host does not trust the device; re-pairing
 recovers. If link relay state cannot load, the existing relay continues without
 those routes. Pairing stays on the existing transport. For a self-host machine,
-a paired phone moves its session channel onto the link without re-pairing: the
-host enrols it from its device records and appends the enrolled link key to
-its `herdr.tree` replies (re-announced whenever the link relay comes online),
-and the phone then dials `/link/v1/<host id>` with the keys it already holds,
-keeping the relay transport open as a fallback. Hosted relays keep phones on
-the relay transport.
+a paired phone moves its session channel and terminal panes onto the link without
+re-pairing: the host enrols it from its device records and appends the enrolled
+link key to its `herdr.tree` replies (re-announced whenever the link relay comes
+online), and the phone then dials `/link/v1/<host id>` with the keys it already
+holds. A terminal opens a link stream while the link serves the session; if the
+link cannot carry it or drops, the pane reattaches through the relay (or a new
+link stream) without losing the pane. The relay stays available as fallback.
+Hosted relays and browsers keep their terminal panes on the relay transport.
 
 The relay reads bounded `envelope.header` routing context and treats `payload` as
-opaque `e2ee:v2` ciphertext. Terminal frames stay off replay on the separate
-`/terminal` pipe, but use the same strict context/ciphertext contract.
+opaque `e2ee:v2` ciphertext. Relay terminal frames stay off replay on the
+separate `/terminal` pipe; link terminal streams are likewise not replayed.
+Hosted terminal frames retain their sealed envelope on either path.
 
 ## Not built
 
