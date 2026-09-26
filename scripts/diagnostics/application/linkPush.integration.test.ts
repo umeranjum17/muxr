@@ -77,6 +77,8 @@ describe('push rides the byokit link relay', () => {
                 canView: () => false,
             });
             expect(endpoint).toBeDefined();
+            // The relay socket dials only on start() (the host main wiring does the same).
+            endpoint.start();
 
             const grant: DeviceGrant = {
                 v: 1,
