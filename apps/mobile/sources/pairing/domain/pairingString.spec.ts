@@ -39,6 +39,18 @@ describe('a scanned pairing QR reaches pairing', () => {
             expect(new URL(parsed.pairing.url).searchParams.get('pair')).toBe('ABCD1234EF');
         }
 
+        // Self-host pair codes resolve into a muxr:// link carrying the
+        // signed payload, and the phone meets that shape again as a scanned
+        // QR or a deep link. The camera gate drops anything it rejects,
+        // without a word to the user.
+        const selfhost = 'muxr://pair?payload=eyJ2IjoiMiIsImF1dGhvcml0eSI6ImNvbnRyb2wiLCJuYW1lIjoib2ZmaWNlIn0';
+        expect(looksLikePairingLink(selfhost)).toBe(true);
+        const selfhostParsed = parsePairingString(selfhost);
+        expect(selfhostParsed.ok).toBe(true);
+        if (!selfhostParsed.ok) return;
+        expect(selfhostParsed.pairing.authority).toBe('control');
+        expect(selfhostParsed.pairing.displayName).toBe('office');
+
         // Browser links are opened, not scanned, so the camera gate does not
         // see them -- but the authority the CLI asked for has to survive, or
         // the browser consent prompt lies about what it is granting.
