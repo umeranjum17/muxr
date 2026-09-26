@@ -38,10 +38,10 @@ jobs:
           RUN_ID: ${{ inputs.run_id }}
           CONFIRMATION: ${{ inputs.confirmation }}
         run: |
-          test "$GITHUB_REF" = refs/heads/main
+          [[ "$GITHUB_REF" =~ ^refs/heads/release/([0-9]+\.[0-9]+\.[0-9]+)$ ]]
           [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/build.json"
-          jq -e '.path == ".github/workflows/release-candidate.yml" and .head_branch == "main" and .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/build.json"
+          jq -e --arg branch "$GITHUB_REF_NAME" '.path == ".github/workflows/release-candidate.yml" and .head_branch == $branch and .status == "completed" and .conclusion == "success"' "$RUNNER_TEMP/build.json"
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name npm-candidate --dir "$RUNNER_TEMP/package"
           node --input-type=module <<'JS'
           import { readFileSync, appendFileSync } from 'node:fs';
