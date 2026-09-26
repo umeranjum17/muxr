@@ -21,12 +21,12 @@
  * Run: node scripts/diagnostics/application/checkRealtimeParity.mjs
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import WebSocket from 'ws';
-import { decodePayload, encodePayload, nextRequestId, realtimeSocketUrl } from '@muxr/contract';
+import { machineIdentity } from '../../setup/index.mjs';
 import { waitForRelay } from './waitForRelay.mjs';
+import { linkLabClient, requestLab } from './linkLabClient.mjs';
 
 const root = process.cwd();
 const helper = process.env.HERDR_LAB_HELPER;
@@ -56,6 +56,9 @@ const channel = `rs_${`parity${process.pid}`.padEnd(8, '0')}`;
 const children = [];
 const failures = [];
 let cleanups = [];
+let control;
+let stream;
+let productStream;
 
 function fail(message) { failures.push(message); }
 function spawnChild(name, args, env) {
@@ -66,6 +69,9 @@ function spawnChild(name, args, env) {
     return child;
 }
 function finish(code, message) {
+    stream?.end();
+    productStream?.end();
+    control?.stop();
     for (const child of children) child.kill();
     try { cpSync(stateDir, join(evidenceDir, 'child-state'), { recursive: true }); } catch { /* no child state */ }
     for (const undo of cleanups) { try { undo(); } catch { /* best effort */ } }
@@ -129,129 +135,93 @@ record('ground-truth', truth);
 if (truth.markerInDirectRead !== true) finish(1, `FAIL: direct Herdr read does not contain ${marker}\n`);
 console.log(`ok: direct Herdr ground truth name=${truth.name} status=${truth.status} pane=${truth.paneId}`);
 
-// --- real relay + real host ------------------------------------------------
+// --- real relay + real host, admitted through byokit ------------------------
 const env = { ...process.env };
 for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH', 'HERDR_SESSION']) delete env[key];
 Object.assign(env, {
-    MUXR_MODE: 'local',
-    MUXR_RELAY_DEVELOPMENT_API: '1',
+    MUXR_MODE: 'selfhost',
     MUXR_RELAY_PORT: '0',
     MUXR_RELAY_MDNS: '0',
-    MUXR_MACHINE_ID: machineId,
     MUXR_DATA_DIR: dataDir,
     MUXR_RELAY_DATA_DIR: join(dataDir, 'relay'),
     MUXR_HOME: join(dataDir, 'home'),
+    MUXR_NO_SERVICE_COMMANDS: '1',
     HERDR_SOCKET_PATH: sessionSocket,
     HERDR_BIN: shim,
+    HERDR_BIN_PATH: shim,
 });
 const relayPort = await waitForRelay(spawnChild('relay', [join(root, 'apps', 'relay', 'dist', 'main.js')], env))
     .catch((error) => finish(1, `FAIL: relay did not start: ${error.message}\n`));
 const relayUrl = `ws://127.0.0.1:${relayPort}`;
-env.MUXR_RELAY_URL = relayUrl;
+const machine = machineIdentity(undefined);
+const owner = JSON.parse(readFileSync(join(dataDir, 'relay', 'mint-secret'), 'utf8'));
+writeFileSync(join(env.MUXR_HOME, 'selfhost.json'), `${JSON.stringify({ version: 1, machine,
+    relayPort, relayUrl, relayLocation: 'local', relayRole: 'single-machine', connectionMode: 'lan',
+    webEnabled: false, mintSecret: owner })}\n`, { mode: 0o600 });
 spawnChild('host', [join(root, 'apps', 'host', 'dist', 'main.js')], env);
-await new Promise((resolve) => setTimeout(resolve, 2000));
+const pairSocket = join(dataDir, 'pair.sock');
+const pairDeadline = Date.now() + 25_000;
+while (!existsSync(pairSocket)) {
+    if (Date.now() > pairDeadline) finish(1, 'FAIL: real link host did not start\n');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+}
+control = await linkLabClient(pairSocket);
 
-// --- real host request channel --------------------------------------------
-let wireSeq = 0;
-const pending = new Map();
-const control = new WebSocket(`${relayUrl}?role=client&machineId=${machineId}`);
-const send = (socket, frame) => {
-    wireSeq += 1;
-    socket.send(JSON.stringify({
-        header: { machineId, ...(frame.sessionId === undefined ? {} : { sessionId: frame.sessionId }), seq: wireSeq, at: Date.now() },
-        payload: encodePayload(frame),
-    }));
-};
-const request = (socket, type, params) => new Promise((resolve, reject) => {
-    const requestId = nextRequestId();
-    pending.set(requestId, { resolve, reject });
-    send(socket, { type, requestId, params });
-});
-control.on('message', (raw) => {
-    let frame;
-    try { frame = decodePayload(JSON.parse(String(raw)).payload); } catch { return; }
-    if (frame?.type !== 'result') return;
-    const entry = pending.get(frame.requestId);
-    if (entry === undefined) return;
-    pending.delete(frame.requestId);
-    frame.ok ? entry.resolve(frame.data) : entry.reject(new Error(frame.error ?? 'request failed'));
-});
-const opened = new Promise((resolve, reject) => {
-    control.once('open', resolve);
-    control.once('error', reject);
-});
-await opened;
+function collectFrames(linkStream, frames, label) {
+    const decoder = new TextDecoder();
+    let partial = '';
+    linkStream.onData = (chunk) => {
+        partial += decoder.decode(chunk, { stream: true });
+        const lines = partial.split('\n');
+        partial = lines.pop() ?? '';
+        for (const line of lines) {
+            try {
+                const frame = JSON.parse(line);
+                frames.push(frame);
+                console.log(`      [${label}] ${JSON.stringify(frame).slice(0, 300)}`);
+            } catch { /* a partial or non-frame line */ }
+        }
+    };
+}
 
-// --- real plugin stream ----------------------------------------------------
 const streamFrames = [];
-const stream = new WebSocket(realtimeSocketUrl(relayUrl, { machineId, channel, role: 'client' }));
-stream.on('message', (raw) => {
-    let text = String(raw);
-    try { text = decodePayload(JSON.parse(text).payload); } catch { /* plain frame */ }
-    try {
-        const frame = JSON.parse(text);
-        streamFrames.push(frame);
-        console.log(`      [stream] ${JSON.stringify(frame).slice(0, 300)}`);
-    } catch { /* not a frame */ }
-});
-await new Promise((resolve, reject) => {
-    stream.once('open', resolve);
-    stream.once('error', reject);
-});
-
 try {
-    send(control, { type: 'client.hello', clientId: 'realtime-parity' });
-    const plugins = await request(control, 'plugin.list', {});
+    const plugins = await requestLab(control, 'plugin.list');
     const voice = plugins.find((entry) => entry.pluginId === pluginId);
     if (voice === undefined) fail(`the real host did not discover the parity plugin (${plugins.map((entry) => entry.pluginId).join(', ')})`);
     if (voice?.manifestHash === undefined) fail('the parity plugin has no manifest hash to approve');
     else {
-        await request(control, 'plugin.approve', { pluginId, manifestHash: voice.manifestHash, approved: true });
-        await request(control, 'plugin.stream', { pluginId, manifestHash: voice.manifestHash, contributionId: 'session', channel });
-        console.log('ok: real host attached the real Realtime stream and issued a real coordinator capability');
-        // The relay binds the client socket to the machine channel only once
-        // the host has attached, so the first frame can arrive before the
-        // binding exists. Repeat until the probe acknowledges; it ignores
-        // every repeat after the first.
+        await requestLab(control, 'plugin.approve', { pluginId, manifestHash: voice.manifestHash, approved: true });
+        stream = await control.stream('plugin', { pluginId, manifestHash: voice.manifestHash,
+            contributionId: 'session', channel });
+        collectFrames(stream, streamFrames, 'plugin');
+        console.log('ok: real link host attached the Realtime plugin stream and coordinator capability');
         const armDeadline = Date.now() + 30_000;
         while (Date.now() < armDeadline && !streamFrames.some((frame) => frame.type === 'realtime.transcript' && String(frame.text).startsWith('list_agents'))) {
-            stream.send(JSON.stringify({ type: 'realtime.say', text: 'PARITY_RUN' }));
+            await stream.write(`${JSON.stringify({ type: 'realtime.say', text: 'PARITY_RUN' })}\n`);
             await new Promise((resolve) => setTimeout(resolve, 500));
         }
-
         const deadline = Date.now() + 300_000;
         while (Date.now() < deadline && !streamFrames.some((frame) => frame.type === 'realtime.transcript' && frame.text === 'PARITY_DONE')) {
             await new Promise((resolve) => setTimeout(resolve, 1000));
         }
     }
 
-    // Realtime voice is product code now: the same host must attach muxr's own
-    // adapter runtime over the product request, with no catalog entry and no
-    // plugin approval in the path.
+    // Product voice is not a plugin: the same device opens its own link stream.
     const productChannel = `rs_${`voice${process.pid}`.padEnd(8, '0')}`;
     const productFrames = [];
-    const productStream = new WebSocket(realtimeSocketUrl(relayUrl, { machineId, channel: productChannel, role: 'client' }));
-    productStream.on('message', (raw) => {
-        let text = String(raw);
-        try { text = decodePayload(JSON.parse(text).payload); } catch { /* plain frame */ }
-        try { productFrames.push(JSON.parse(text)); } catch { /* not a frame */ }
-    });
-    await new Promise((resolve, reject) => {
-        productStream.once('open', resolve);
-        productStream.once('error', reject);
-    });
-    await request(control, 'voice.stream', { channel: productChannel });
+    productStream = await control.stream('voice', { channel: productChannel });
+    collectFrames(productStream, productFrames, 'voice');
     const productDeadline = Date.now() + 30_000;
     while (Date.now() < productDeadline && productFrames.length === 0) {
         await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    productStream.close();
+    productStream.end();
+    productStream = undefined;
     record('product-voice-stream', { frames: productFrames.length, first: productFrames[0] });
     if (productFrames.length === 0) fail('the product voice stream attached but its runtime emitted no frame');
-    else {
-        const serialized = JSON.stringify(productFrames);
-        // Whatever the provider says, a frame never carries a local path or a secret.
-        if (/\/home\/|\/tmp\/|sk-|\.pem|Bearer /.test(serialized)) fail('a product voice frame leaked a path or a credential');
+    else if (/\/home\/|\/tmp\/|sk-|\.pem|Bearer /.test(JSON.stringify(productFrames))) {
+        fail('a product voice frame leaked a path or a credential');
     }
 } catch (error) {
     fail(`real Realtime request path failed: ${error.message}`);

@@ -14,7 +14,7 @@
  * completion.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -32,6 +32,7 @@ import { waitForRelay } from './waitForRelay.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
 import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
 import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
+import { SESSION_EVENT_TYPES, type SessionEvent } from '@muxr/contract';
 import { parsePairingString } from '../../../apps/mobile/sources/pairing/domain/pairingString.js';
 
 const home = mkdtempSync(join(tmpdir(), 'muxr-link-pairing-'));
@@ -197,7 +198,7 @@ describe('native pairing over the byokit link', () => {
         }
     });
 
-    it('pairs with the words on both screens and serves the new phone over the machine link', async () => {
+    it('pairs with matching words and carries the full event vocabulary and RPC over the machine link', async () => {
         let computerWords = '';
         let computerSawName = '';
         const { pairing, offer } = await showPairingQr({
@@ -242,6 +243,19 @@ describe('native pairing over the byokit link', () => {
             await until(() => client.isLive() ? true : undefined, 'new phone session connects');
             const sessions = await client.request('session.list', {});
             expect(Array.isArray(sessions)).toBe(true);
+            const cwd = join(home, 'probe-cwd');
+            mkdirSync(cwd, { recursive: true });
+            const events: SessionEvent[] = [];
+            const unsubscribe = client.onEvent((_id, event) => events.push(event));
+            const started = await client.request('session.start', { cwd }) as { info: { id: string } };
+            await client.request('session.prompt', { sessionId: started.info.id, text: 'widen the event projection' });
+            await until(() => SESSION_EVENT_TYPES.every((type) => events.some((event) => event.type === type)) ? true : undefined,
+                'all event types over the link');
+            const ordered = events.filter((event) => event.sessionId === started.info.id);
+            expect(ordered.every((event, index) => index === 0 || event.seq > ordered[index - 1]!.seq)).toBe(true);
+            const listed = await client.request('session.list', {}) as Array<{ id: string }>;
+            expect(listed.some((session) => session.id === started.info.id)).toBe(true);
+            unsubscribe();
         } finally {
             client.close();
         }

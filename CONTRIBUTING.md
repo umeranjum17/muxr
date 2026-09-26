@@ -37,9 +37,9 @@ lists; CI's `fast` and `suite` jobs run these on every pull request.
 
 Two e2e checks in the suite — the live herdr backend loop and the worktree
 session — skip automatically when no herdr socket is present, so on a GitHub
-runner they never execute. Run them locally with `herdr server` up before
-pushing changes that touch the live backend or worktree session paths; CI will
-not catch regressions there.
+runner they never execute. Run them locally with a guarded Herdr lab helper
+before pushing changes that touch the live backend or worktree session paths;
+CI will not catch regressions there.
 
 After native dependency changes also run
 `node scripts/diagnostics/application/verifyNativePatches.mjs`. If you changed

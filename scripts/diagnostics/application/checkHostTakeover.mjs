@@ -1,10 +1,11 @@
 /** A second link host under the same machine key retires the first. */
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hostId } from '@byokit/link';
 import { waitForRelay } from './waitForRelay.mjs';
+import { linkLabClient, requestLab } from './linkLabClient.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'muxr-link-takeover-'));
@@ -56,7 +57,14 @@ try {
     const hosts = await fetch(`http://127.0.0.1:${port}/relay/v1/hosts`, { headers: { authorization: `Bearer ${owner}` } }).then((response) => response.json());
     const id = hostId(Buffer.from(machine.crypto.boxPublicKey, 'base64'));
     if (hosts.hosts?.filter((host) => host.id === id && host.online).length !== 1) throw new Error('relay has no single online link host');
-    process.stdout.write('PASS: second link host retires the first\n');
+    const socketPath = join(root, 'second', 'pair.sock');
+    await until(() => existsSync(socketPath), 'new host pairing socket');
+    const device = await linkLabClient(socketPath);
+    try {
+        const machines = await requestLab(device, 'machines.list');
+        if (!Array.isArray(machines) || machines.length !== 1) throw new Error('new link host did not serve the paired client');
+    } finally { device.stop(); }
+    process.stdout.write('PASS: second link host retires the first and serves a paired client\n');
 } finally {
     await Promise.all(children.map(async (child) => {
         if (child.exitCode !== null || child.signalCode !== null) return;
