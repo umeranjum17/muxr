@@ -100,6 +100,7 @@ describe('terminal over the byokit link (real relay + real host)', () => {
             keyVersion: 1,
             devices: [{
                 deviceId: 'dev-phone',
+                kind: 'browser',
                 devicePublicKey: phone.publicKey,
                 ingressKey: 'ingress',
                 expiresAt: new Date(Date.now() + 3_600_000).toISOString(),

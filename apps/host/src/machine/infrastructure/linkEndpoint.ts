@@ -167,14 +167,10 @@ class LinkTerminalSocket implements TerminalPipe {
     }
 }
 
-/**
- * Only native devices are enrolled here. Browser grants expire after 8 hours
- * or 30 days, so browsers stay on the existing relay transport. The live
- * device-table check below also enforces native device expiry.
- */
+/** Admit native and browser grants only while the durable device record trusts them. */
 function linkDevices(crypto: MachineCryptoState, now: number): MachineDeviceRecord[] {
-    return crypto.devices.filter((device) => device.kind === undefined && device.deviceId !== crypto.pendingRotation?.revokedDeviceId
-        && Date.parse(device.expiresAt) > now);
+    return crypto.devices.filter((device) => (device.kind === undefined || device.kind === 'browser')
+        && device.deviceId !== crypto.pendingRotation?.revokedDeviceId && Date.parse(device.expiresAt) > now);
 }
 
 function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean {
