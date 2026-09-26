@@ -47,7 +47,7 @@ describe('browser session over byokit', () => {
             relayUrl, credential: '', authority: 'observe', expiresAt: Date.now() + 60_000,
         } as StoredHostedGrant;
         const notices: string[] = [];
-        const old = new LinkFirstClient({ mode: 'hosted', machineId: 'machine', relayUrl,
+        const old = new LinkFirstClient({
             hostedGrant: { ...stored, credential: 'old-relay-ticket' }, onPermanentError: (message) => notices.push(message) });
         old.connect();
         old.connect();
@@ -55,7 +55,7 @@ describe('browser session over byokit', () => {
         expect(notices).toEqual([expect.stringContaining('pair again')]);
         old.close();
 
-        const client = new LinkFirstClient({ mode: 'hosted', machineId: 'machine', relayUrl, hostedGrant: stored });
+        const client = new LinkFirstClient({ hostedGrant: stored });
         cleanups.push(() => client.close());
         client.connect();
         await until(() => client.state === 'connecting', 'first dial');
