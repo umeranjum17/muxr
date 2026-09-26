@@ -206,7 +206,8 @@ describe('terminal over the byokit link (real relay + real host)', () => {
         });
         let buffer = '';
         let ended = false;
-        const pending: Array<{ resolve: (f: HostFrame) => void; reject: (e: Error) => void }> = [];
+        type LinkFrame = HostFrame | { type: 'terminal.frame'; full?: boolean; bytes: string } | { type: 'terminal.scroll-state' };
+        const pending: Array<{ resolve: (f: LinkFrame) => void; reject: (e: Error) => void }> = [];
         const pump = (): void => {
             // Lines wait in the buffer until someone awaits them; nothing is dropped.
             while (pending.length > 0) {
@@ -215,10 +216,10 @@ describe('terminal over the byokit link (real relay + real host)', () => {
                 const line = buffer.slice(0, nl);
                 buffer = buffer.slice(nl + 1);
                 if (!line.trim()) continue;
-                pending.shift()!.resolve(JSON.parse(line) as HostFrame);
+                pending.shift()!.resolve(JSON.parse(line) as LinkFrame);
             }
         };
-        const nextFrame = (): Promise<HostFrame> => new Promise((resolve, reject) => {
+        const nextFrame = (): Promise<LinkFrame> => new Promise((resolve, reject) => {
             pending.push({ resolve, reject });
             pump(); // may resolve immediately from an already-buffered line
             if (ended) reject(new Error('stream already ended'));
@@ -231,11 +232,22 @@ describe('terminal over the byokit link (real relay + real host)', () => {
             ended = true;
             for (const waiter of pending.splice(0)) waiter.reject(new Error(`stream ended before its frame (error: ${error ?? 'clean'})`));
         };
-        const attachAck = await once(nextFrame(), 10_000, 'link attach ack');
-        const linkAttachMs = Date.now() - linkAttachStarted;        expect(attachAck).toMatchObject({ type: 'result', ok: true, data: { paneId: 'pane-s1' } });
+        let attachAck: HostFrame | undefined;
+        let initialPaint: string | undefined;
+        let linkAttachMs = 0;
+        while (attachAck === undefined || initialPaint === undefined) {
+            const frame = await once(nextFrame(), 10_000, 'link attach and initial paint');
+            if (frame.type === 'result') {
+                attachAck = frame;
+                linkAttachMs = Date.now() - linkAttachStarted;
+            } else if (frame.type === 'terminal.frame' && frame.full === true) {
+                initialPaint = Buffer.from(frame.bytes, 'base64').toString('utf8');
+            }
+        }
+        expect(attachAck).toMatchObject({ type: 'result', ok: true, data: { paneId: 'pane-s1' } });
+        expect(initialPaint).toBe('SCREEN pane-s1 20x5');
 
-        // Frame bytes the pane painted, skipping anything else (scroll-state,
-        // the initial screen still in the buffer).
+        // Subsequent terminal frames carry input and resize output.
         const nextFrameBytes = async (what: string): Promise<string> => {
             const done = once((async () => {
                 for (;;) {
@@ -248,10 +260,6 @@ describe('terminal over the byokit link (real relay + real host)', () => {
             })(), 5_000, what);
             return done;
         };
-
-        // The pane's initial full repaint rides the same stream (herdr paints
-        // the whole screen on attach), followed by its scroll state.
-        expect(await nextFrameBytes('initial paint')).toBe('SCREEN pane-s1 20x5');
 
         // Typing.
         const typed = 'hello over the link';

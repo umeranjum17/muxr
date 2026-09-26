@@ -187,6 +187,30 @@ describe('openTerminal hosted transport', () => {
         expect(earlyCloses).toEqual(['pane ended early']);
         expect(FakeWebSocket.instances).toHaveLength(0);
         earlyChannel.close();
+
+        const taken = openTerminal({ agentRoute: 'session-1', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(transport.onLine).toHaveBeenCalledTimes(3));
+        const takeover = mocks.openTerminalLink.mock.calls[2]![0] as { requestId: string; channel: string };
+        line(JSON.stringify({ header: { machineId: 'machine', senderId: 'machine', recipientId: '*',
+            channel: 'terminal', streamId: takeover.channel, keyVersion: 2, seq: 11 },
+        payload: `sealed:${JSON.stringify({ type: 'result', requestId: takeover.requestId, ok: true })}` }));
+        const takenChannel = await taken;
+        const takenCloses: (string | undefined)[] = [];
+        takenChannel.onClose((reason) => takenCloses.push(reason));
+        line(JSON.stringify({ header: { machineId: 'machine', senderId: 'machine', recipientId: '*',
+            channel: 'terminal', streamId: takeover.channel, keyVersion: 2, seq: 12 },
+        payload: `sealed:${JSON.stringify({ type: 'terminal.closed', reason: 'control moved to another device' })}` }));
+        await vi.waitFor(() => expect(takenCloses).toEqual(['control moved to another device']));
+        takenChannel.reconnect(true);
+        expect(transport.close).toHaveBeenCalledTimes(2);
+        await vi.waitFor(() => expect(transport.onLine).toHaveBeenCalledTimes(4));
+        const retry = mocks.openTerminalLink.mock.calls[3]![0] as { requestId: string; channel: string; takeover: boolean };
+        expect(retry.takeover).toBe(true);
+        line(JSON.stringify({ header: { machineId: 'machine', senderId: 'machine', recipientId: '*',
+            channel: 'terminal', streamId: retry.channel, keyVersion: 2, seq: 13 },
+        payload: `sealed:${JSON.stringify({ type: 'result', requestId: retry.requestId, ok: true })}` }));
+        await vi.waitFor(() => expect(mocks.open).toHaveBeenCalledTimes(10));
+        takenChannel.close();
     });
 
     it('joins the channel by ticket under the grant credential, then flows sealed frames', async () => {

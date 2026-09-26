@@ -371,6 +371,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             socket = undefined;
             stale.close();
         }
+        if (retaking && linkWire !== undefined) retireLink(linkWire);
         if (attachInFlight !== undefined) {
             if (explicitTakeover) requestAttach(true);
             return;
