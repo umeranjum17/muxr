@@ -99,7 +99,8 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl) {
                     } else if (typeof answer.yes === 'boolean') {
                         approve?.(answer.yes);
                         approve = undefined;
-                    } else throw new Error('invalid pairing answer');
+                    } else if (answer.cancel === true) controller.abort();
+                    else throw new Error('invalid pairing answer');
                 } catch { socket.destroy(); }
             }
         });
@@ -152,6 +153,7 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl) {
                     }
                 }
                 busy = false;
+                if (controller.signal.aborted) failure = 'pairing cancelled';
                 if (failure !== undefined) send({ error: failure });
                 if (completed !== undefined) send({ result: completed });
                 socket.end();
@@ -174,7 +176,7 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     const socket = createConnection(socketPath);
     socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind: intent.kind, authority: intent.authority, personal: intent.personal } })}\n`));
     let input = '';
-    const cancel = () => socket.destroy(new Error('pairing cancelled'));
+    const cancel = () => socket.write('{"cancel":true}\n');
     signal?.addEventListener('abort', cancel, { once: true });
     try {
         return await new Promise((resolve, reject) => {

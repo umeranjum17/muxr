@@ -5,6 +5,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      byokit:
+        patterns:
+          - '@byokit/*'
+      desklink:
+        patterns:
+          - '@desklink/*'
   - package-ecosystem: github-actions
     directory: /
     schedule:
