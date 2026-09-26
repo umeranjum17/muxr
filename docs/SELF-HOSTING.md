@@ -131,7 +131,7 @@ keep their quotas rather than having them reset.
   use the same short value, for example `wss://relay.example?pair=7KDM4-QXP7N`.
   The relay stores only a code hash and code-encrypted payload, deletes the
   lookup on first resolution, and never receives the code or pair secret.
-- The phone proves itself once and receives a durable device credential. It remains paired until explicit revocation; normal calendar time never forces another QR.
+- The phone proves itself once and receives a device credential that becomes durable when pairing completes. It remains paired until explicit revocation; normal calendar time never forces another QR.
 - Never edit relay state by hand. List and revoke phones with:
 
   ```bash
