@@ -177,8 +177,9 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
     if (crypto === undefined) return false;
     const deviceId = muxrDeviceIdOf(grant);
     const device = linkDevices(crypto, Date.now()).find((entry) => entry.deviceId === deviceId);
-    return device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key
+    const result = device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key
         && (device.authority === 'observe' ? 'view' : 'control') === grant.role;
+    return result;
 }
 
 /**
@@ -244,6 +245,9 @@ export class LinkEndpoint {
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) throw new Error('link: request op does not match its frame');
                 if (frame.type.startsWith('push.')) return endpoint.pushRequest(frame, grant, deviceId);
+                if (frame.type.startsWith('desktop.')) {
+                    throw new PublicLinkError('Remote desktop is not available over this link yet.');
+                }
                 const response = await options.answer(frame, deviceId);
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
                 return response;
@@ -401,7 +405,7 @@ export class LinkEndpoint {
             if (enrolled.has(device.deviceId)) continue;
             await this.host.enrol({
                 key: Buffer.from(device.devicePublicKey, 'base64'),
-                name: 'Paired phone',
+                name: device.name ?? 'Paired phone',
                 role: device.authority === 'observe' ? 'view' : 'control',
                 meta: { muxrDeviceId: device.deviceId } satisfies DeviceMeta,
             });

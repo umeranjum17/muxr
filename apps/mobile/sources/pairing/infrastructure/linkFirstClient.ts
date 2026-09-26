@@ -11,7 +11,7 @@ import {
     type RequestType,
     type SessionEvent,
 } from '@muxr/contract';
-import { deriveLinkGrant } from '../application/linkGrant';
+import { deriveLinkGrant } from './linkGrant';
 import { MuxrRequestError, type ConnectionState, type MuxrClientOptions } from './muxrClient';
 
 /** The link session port consumed by catalog sync. */
@@ -24,6 +24,8 @@ export type SessionClient = {
     onStateChange(listener: (state: ConnectionState) => void): () => void;
     onEvent(listener: (sessionId: string, event: SessionEvent) => void): () => void;
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
+    /** True when this client can carry streams and push over the byokit link. */
+    readonly linkCapable?: boolean;
     closeDesktopSignaling?(): void;
     registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
     unregisterPush(): Promise<boolean>;
@@ -53,6 +55,10 @@ function linkRequestFailure(type: RequestType, error: string, code?: string): Mu
 /** One byokit link, including its terminal, desktop, voice and push streams. */
 export class LinkFirstClient implements SessionClient {
     private link: DeviceLink | undefined;
+    /** The byokit link is the only transport for this client (one-shot migration). */
+    get linkCapable(): boolean {
+        return deriveLinkGrant(this.options.hostedGrant) !== undefined;
+    }
     private online = false;
     private closed = false;
     private retryTimer: ReturnType<typeof setTimeout> | undefined;

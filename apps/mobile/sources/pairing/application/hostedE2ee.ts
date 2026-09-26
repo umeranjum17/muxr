@@ -21,6 +21,17 @@ import {
     type V2SenderState,
 } from '@muxr/crypto';
 import { relayControlUrl } from '@muxr/contract';
+import {
+    b64url,
+    claimLinkPairing,
+    LinkError,
+    LINK_WORDS,
+    linkKeyPair,
+    linkOfferName,
+    unb64url,
+    type LinkPairAnswer,
+    type LinkPairPending,
+} from '../infrastructure/linkPairClient';
 import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from '../infrastructure/webSecureStore';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '../infrastructure/nativeSecretStore';
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
@@ -33,11 +44,12 @@ import {
 import { acceptVerifiedGrant, grantRejectsDowngrade, type DeviceAuthority } from '../domain/hostedGrant';
 import { restoreConnection } from './restoreConnection';
 
-export { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '../domain/pairingString';
+export { hostedPairingAuthority, hostedPairingDisplayName, looksLikeLinkOffer, prepareHostedPairingInput } from '../domain/pairingString';
 
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
 const REPLAY_KEY = 'muxr.hosted-e2ee.replay.v2';
 const PENDING_PAIR_KEY = 'muxr.hosted-e2ee.pending-pair.v1';
+const PENDING_LINK_PAIR_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
 /** Trailing delay for the replay write; one write covers every frame inside it. */
 const REPLAY_FLUSH_MS = 1000;
 
@@ -443,10 +455,105 @@ async function completePendingHostedPair(pending: PendingHostedPair, wait: boole
 }
 
 /** Resume a claim that survived an app/process restart. */
-export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | undefined> {
+export async function resumePendingHostedPairing(includeLegacy = true): Promise<StoredHostedGrant | undefined> {
+    const linkPending = await secretGet(PENDING_LINK_PAIR_KEY);
+    if (linkPending !== null) return resumePendingLinkPairing();
+    if (!includeLegacy) return undefined;
     const raw = await secretGet(PENDING_PAIR_KEY);
     if (raw === null) return undefined;
     return completePendingHostedPair(JSON.parse(raw) as PendingHostedPair, false);
+}
+
+interface PendingLinkPair {
+    scanned: string;
+    name: string;
+    /** base64url; persisted before the first connection so a death mid-pairing resumes instead of re-pairing. */
+    secretKey: string;
+    startedAt: number;
+}
+
+/**
+ * Native pairing over the byokit link (migration step 4): scan the computer's
+ * link QR, show the two confirmation words while the person at the computer
+ * approves, then trade `pair.complete` for the machine details and prove this
+ * phone holds its key over the machine's real link before anything is stored.
+ * The pending pairing is persisted before the first connection, so a process
+ * death resumes it rather than leaving the computer holding an unused grant.
+ */
+export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void } = {}): Promise<StoredHostedGrant> {
+    if (Platform.OS === 'web') throw new Error('Native pairing codes are for phones. Use `muxr pair --browser` on the computer.');
+    const secretKey = b64url(linkKeyPair().secretKey);
+    const pending: PendingLinkPair = { scanned, name: hostedDeviceName(), secretKey, startedAt: Date.now() };
+    await secretSet(PENDING_LINK_PAIR_KEY, JSON.stringify(pending));
+    return completeLinkPairing(pending, { ...options, mode: 'claim' });
+}
+
+/** The pairing machine display name for consent, parsed for display only; the pairing itself re-validates. */
+export async function linkPairMachineName(scanned: string): Promise<string | undefined> {
+    return linkOfferName(scanned, hostedDeviceName());
+}
+
+async function resumePendingLinkPairing(): Promise<StoredHostedGrant | undefined> {
+    const raw = await secretGet(PENDING_LINK_PAIR_KEY);
+    if (raw === null) return undefined;
+    const pending = JSON.parse(raw) as PendingLinkPair;
+    if (Date.now() - pending.startedAt > 4 * 60_000) {
+        await secretDelete(PENDING_LINK_PAIR_KEY);
+        return undefined;
+    }
+    try {
+        return await completeLinkPairing(pending, { mode: 'resume' });
+    } catch {
+        return undefined;
+    }
+}
+
+async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?: (words: string) => void; mode: 'claim' | 'resume' }): Promise<StoredHostedGrant> {
+    let answer: LinkPairAnswer;
+    let key: { publicKey: Uint8Array; secretKey: Uint8Array };
+    try {
+        const result = await claimLinkPairing(pending, options);
+        answer = result;
+        key = result.key;
+    } catch (cause) {
+        const message = cause instanceof LinkError && cause.code in LINK_WORDS
+            ? LINK_WORDS[cause.code] : cause instanceof Error ? cause.message : String(cause);
+        if (Date.now() - pending.startedAt > 4 * 60_000
+            || message === 'Your computer said no to this device.' || message.includes('run out')) {
+            await secretDelete(PENDING_LINK_PAIR_KEY);
+        }
+        throw new Error(message);
+    }
+    const deviceKey = {
+        publicKey: Buffer.from(key.publicKey).toString('base64'),
+        secretKey: Buffer.from(key.secretKey).toString('base64'),
+    };
+    // The durable expiry a native grant carries (scripts/setup DURABLE_GRANT_EXPIRES_AT).
+    const durableExpiry = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+    const stored: StoredHostedGrant = {
+        machineId: answer.machineId,
+        // The link pins the machine by its box key; the old transport's
+        // signing key never crosses a link pairing.
+        machineSigningPublicKey: '',
+        deviceId: answer.deviceId,
+        devicePublicKey: deviceKey.publicKey,
+        keyVersion: 1,
+        expiresAt: durableExpiry,
+        authority: 'control',
+        deviceKey,
+        // The byokit link is the only transport: link-paired phones hold no
+        // relay credential (desktop moves onto the link with the cutover).
+        machineBoxPublicKey: Buffer.from(unb64url(answer.machineBoxPublicKey)).toString('base64'),
+        credential: '',
+        dataKey: '',
+        ingressKey: '',
+        relayUrl: answer.relayUrl,
+        machineName: answer.machineName,
+        source: 'selfhost',
+    };
+    await saveHostedGrant(stored);
+    await secretDelete(PENDING_LINK_PAIR_KEY);
+    return stored;
 }
 
 /**

@@ -8,8 +8,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/pairing/e2ee';
-import { pairMachine, usePairQrScanner } from '@/pairing';
+import { hostedPairingAuthority, hostedPairingDisplayName, linkPairMachineName, looksLikeLinkOffer, prepareHostedPairingInput } from '@/pairing/e2ee';
+import { pairLinkOffer, pairMachine, usePairQrScanner } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, tunnelPairingUrl, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
@@ -52,8 +52,8 @@ const BROWSER_PAIRING_STEPS = [
 ] as const;
 
 type PairState =
-    | { phase: 'confirm'; url: string; machineName: string }
-    | { phase: 'working'; url: string; machineName: string }
+    | { phase: 'confirm'; url: string; machineName: string; linkOffer?: boolean }
+    | { phase: 'working'; url: string; machineName: string; linkOffer?: boolean }
     | { phase: 'error'; message: string; url?: string; machineName?: string };
 
 const SSH_PAIRING_STEPS = [
@@ -120,13 +120,25 @@ export default function PairScreen() {
     const openedFromSettings = routeParams.source === 'settings';
     const sshRoute = !browser && routeParams.route === 'ssh' && Platform.OS === 'android' && sshTunnelAvailable();
     const reviewPairing = React.useCallback((raw: string) => {
+        if (looksLikeLinkOffer(raw.trim())) {
+            if (browser) {
+                setState({ phase: 'error', message: 'Native pairing codes are for phones. Use `muxr pair --browser` on the computer.' });
+                return;
+            }
+            const offer = raw.trim();
+            setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
+            void linkPairMachineName(offer).then((name) => {
+                if (name !== undefined) setState((current) => current?.url === offer ? { ...current, machineName: name } : current);
+            }).catch(() => undefined);
+            return;
+        }
         try {
             const url = prepareHostedPairingInput(raw);
             setState({ phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
         } catch (cause) {
             setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
         }
-    }, []);
+    }, [browser]);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const browserAuthority = browser && state?.url ? hostedPairingAuthority(state.url) : 'observe';
     const grants = browser
@@ -184,6 +196,13 @@ export default function PairScreen() {
     }, [routePairUrl, browser, sshRoute]);
 
     const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
+        // A byokit link offer pairs over the link (migration step 4); the SSH
+        // route follows in its own step and does not accept offers yet.
+        if (looksLikeLinkOffer(url.trim())) {
+            await pairLinkOffer(url.trim(), auth);
+            router.replace('/');
+            return;
+        }
         // The SSH route pairs through its own tunnel: establish it first, claim
         // over the loopback it opens, and only report success with the tunnel
         // proven. The tunnel stays open; the next sync dial reuses or rebuilds it.

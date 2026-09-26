@@ -1,22 +1,26 @@
 /**
  * What a paired phone lives through, end to end, on the phone's own code.
  *
- * The other pairing checks claim with the shared crypto module, and the phone's
- * client specs run against a fake socket. Nothing drove the phone's real claim,
- * grant store and encrypted client against the real `muxr pair`, relay and
- * self-host host together, so a change under the link could keep every check
- * green while paired phones stopped connecting. This flow is that lock: pair
- * two phones and a second machine, restart everything from disk, then revoke
- * one phone. Nothing here may need a re-pair except the revoked phone.
+ * Step 4 of the byokit migration moved native pairing onto the link, so this
+ * flow pairs every phone the way `muxr pair` now does: the computer runs the
+ * real `linkPair` (its own pairing host, approval on the computer), and the
+ * phone runs the real `pairOverLink` against the real relay and self-host
+ * host. Pair two phones and a second machine, restart everything from disk,
+ * then revoke one phone. Nothing here may need a re-pair except the revoked
+ * phone, and every phone drives sessions over the machine's link with no
+ * relay credential at all.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
+import { DeviceLink, hostId, keyPair as linkKeyPair, pairWithOffer, type DeviceGrant } from '@byokit/link';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { waitForRelay } from './waitForRelay.mjs';
+import { linkPair, machineLinkUrl, readSelfhostState } from '../../setup/index.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
+import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
 
 interface Phone { os: 'android' | 'ios'; secure: Map<string, string>; local: Map<string, string> }
 
@@ -25,6 +29,7 @@ vi.mock('expo-device', () => ({ isDevice: true }));
 const repoRoot = join(import.meta.dirname, '../../..');
 const children = new Set<ChildProcess>();
 const scratch: string[] = [];
+const PENDING_LINK_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
 
 // A live deployment exports these; inherited, they aim the lab at real services.
 const labEnv = (home: string): NodeJS.ProcessEnv => {
@@ -128,11 +133,28 @@ class Machine {
         return child.output();
     }
 
-    /** `muxr pair`, and the string it prints for a camera or a keyboard. */
-    async pairingString(): Promise<{ text: string; pair: ChildProcess & { output: () => string } }> {
-        const pair = this.cli(['pair']);
-        const printed = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'muxr pair string');
-        return { text: printed, pair };
+    /**
+     * `muxr pair` for a native phone: the real `linkPair` runs in this
+     * process against this machine's state, with the approval answered here
+     * the way the terminal prompt answers it. Resolves with the offer once
+     * the QR is on screen; `done` settles when the phone's proof lands.
+     */
+    async pairNative(approve?: (req: { name: string; words: string }) => boolean): Promise<{ offer: string; done: Promise<Record<string, unknown>>; abort: () => void }> {
+        let out = '';
+        const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { out += String(chunk); return true; });
+        const previousHome = process.env.MUXR_HOME;
+        process.env.MUXR_HOME = this.home;
+        const controller = new AbortController();
+        const done = linkPair(readSelfhostState(), {
+            approve: async (req) => approve?.(req) ?? true,
+            signal: controller.signal,
+        }).finally(() => {
+            spy.mockRestore();
+            if (previousHome === undefined) delete process.env.MUXR_HOME;
+            else process.env.MUXR_HOME = previousHome;
+        });
+        const offer = await until(() => /byokit-link:1:[A-Za-z0-9_-]+/.exec(out)?.[0], 'link offer on screen');
+        return { offer, done, abort: () => controller.abort() };
     }
 }
 
@@ -146,6 +168,7 @@ async function launchApp(phone: Phone) {
         Platform: { OS: phone.os },
         AppState: { currentState: 'active', addEventListener: () => ({ remove: () => undefined }) },
     }));
+    vi.doMock('expo-device', () => ({ isDevice: true }));
     vi.doMock('expo-secure-store', () => ({
         getItemAsync: async (key: string) => phone.secure.get(key) ?? null,
         setItemAsync: async (key: string, value: string) => { phone.secure.set(key, value); },
@@ -159,64 +182,75 @@ async function launchApp(phone: Phone) {
         },
     }));
     const hosted = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
-    const { MuxrClient } = await import('../../../apps/mobile/sources/pairing/infrastructure/muxrClient.js');
     return {
         ...hosted,
-        /** Open the machine the way the app does: stored grant, its relay, its credential. */
-        async open(machine: Machine) {
-            const machineId = machine.id;
-            const grant = await hosted.loadHostedGrant(machineId);
-            if (grant === undefined) throw new Error(`phone has no grant for ${machineId}`);
-            const permanentErrors: string[] = [];
-            const client = new MuxrClient({
-                mode: 'hosted',
-                relayUrl: grant.relayUrl,
-                machineId,
-                token: grant.credential,
-                hostedGrant: grant,
-                requestTimeoutMs: 5_000,
-                onPermanentError: (message) => permanentErrors.push(message),
-            });
-            client.connect();
-            await until(() => (client.state === 'open' ? true : undefined), `phone reaches ${machineId}`);
-            return { client, permanentErrors };
+        /** The machine link the way the session layer dials it: derived from the stored grant. */
+        async open(machine: Machine): Promise<{ link: DeviceLink }> {
+            const grant = await hosted.loadHostedGrant(machine.id);
+            if (grant === undefined) throw new Error(`phone has no grant for ${machine.id}`);
+            const link = new DeviceLink({
+                v: 1,
+                secretKey: Buffer.from(grant.deviceKey.secretKey, 'base64').toString('base64url'),
+                host: Buffer.from(grant.machineBoxPublicKey, 'base64').toString('base64url'),
+                hostName: grant.machineName ?? machine.name,
+                urls: [machineLinkUrl(`ws://127.0.0.1:${machine.port}`, grant.machineBoxPublicKey)],
+                device: { id: 'pending', name: 'Phone', role: 'control' },
+            }, { WebSocket: WebSocket as never });
+            link.connect();
+            await until(() => (link.status === 'online' ? true : undefined), `phone reaches ${machine.id} over the link`, 30_000);
+            return { link };
         },
     };
 }
 
-async function pairPhone(phone: Phone, machine: Machine, typed = false) {
-    const { text, pair } = await machine.pairingString();
+async function pairPhone(phone: Phone, machine: Machine) {
+    const { offer, done } = await machine.pairNative();
     const app = await launchApp(phone);
-    // Typed: the same string, with the whitespace a person pastes around it.
-    const grant = await app.claimHostedPairing(typed ? `  ${text}\n` : text);
-    await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'muxr pair finishes after the claim');
-    expect(pair.exitCode, pair.output()).toBe(0);
-    expect(pair.output()).toContain('paired and verified');
+    const grant = await app.pairOverLink(offer);
+    expect(await done).toMatchObject({ deviceId: grant.deviceId, devicePublicKey: grant.devicePublicKey });
     return grant;
 }
 
 /**
- * The app dies the moment its one-shot claim is accepted, before it holds a
- * grant. What it had written by then is all the relaunched app gets, and that
- * must finish the pairing rather than strand a device the machine now lists.
+ * The app dies the moment the computer approves the pairing, before it holds
+ * the machine details. What it had written by then — its key and the scanned
+ * offer — is all the relaunched app gets, and that must finish the pairing
+ * rather than strand a device the machine now lists.
  */
 async function pairThroughAppDeath(phone: Phone, machine: Machine): Promise<Phone> {
-    const { text, pair } = await machine.pairingString();
+    const { offer, done } = await machine.pairNative();
     const app = await launchApp(phone);
-    const claiming = app.claimHostedPairing(text);
-    const onDiskAtDeath = await until(() => (phone.secure.has('muxr.hosted-e2ee.pending-pair.v1')
+    // Seed exactly what `pairOverLink` persists before it first connects,
+    // then claim the offer as the phone does — approved, and then dead.
+    const kp = linkKeyPair();
+    phone.secure.set(PENDING_LINK_KEY, JSON.stringify({
+        scanned: offer,
+        name: 'Android phone',
+        secretKey: Buffer.from(kp.secretKey).toString('base64url'),
+    }));
+    await pairWithOffer(offer, { name: 'Android phone', key: kp, onWords: () => undefined });
+    const onDiskAtDeath = await until(() => (phone.secure.has(PENDING_LINK_KEY)
         ? { os: phone.os, secure: new Map(phone.secure), local: new Map(phone.local) }
-        : undefined), 'claim persisted before the grant wait', 20_000);
+        : undefined), 'pending pairing persisted', 20_000);
     expect([...onDiskAtDeath.secure.keys()].some((key) => key.startsWith('muxr.grant.'))).toBe(false);
-    // The dead process is gone; let its orphaned wait settle before relaunching.
-    await claiming;
-    await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'muxr pair finishes after the claim');
-    expect(pair.exitCode, pair.output()).toBe(0);
     const relaunched = await launchApp(onDiskAtDeath);
     const resumed = await relaunched.resumePendingHostedPairing();
     expect(resumed).toMatchObject({ machineId: machine.id, authority: 'control', source: 'selfhost' });
-    expect(onDiskAtDeath.secure.has('muxr.hosted-e2ee.pending-pair.v1')).toBe(false);
+    expect(onDiskAtDeath.secure.has(PENDING_LINK_KEY)).toBe(false);
+    expect(await done).toMatchObject({ deviceId: resumed!.deviceId });
     return onDiskAtDeath;
+}
+
+/** The machine link the stored grant drives, derived the way the session layer does. */
+function linkFor(grant: StoredHostedGrant, machine: Machine): DeviceLink {
+    return new DeviceLink({
+        v: 1,
+        secretKey: Buffer.from(grant.deviceKey.secretKey, 'base64').toString('base64url'),
+        host: Buffer.from(grant.machineBoxPublicKey, 'base64').toString('base64url'),
+        hostName: grant.machineName ?? machine.name,
+        urls: [machineLinkUrl(`ws://127.0.0.1:${machine.port}`, grant.machineBoxPublicKey)],
+        device: { id: 'pending', name: 'Phone', role: 'control' },
+    } satisfies DeviceGrant, { WebSocket: WebSocket as never });
 }
 
 describe('paired devices across pairing, restarts and revoke', () => {
@@ -233,39 +267,38 @@ describe('paired devices across pairing, restarts and revoke', () => {
         await Promise.all([desk.start(), laptop.start()]);
         const iphone: Phone = { os: 'ios', secure: new Map(), local: new Map() };
 
-        // Scanned QR on one phone (whose app dies mid-claim), typed string on
-        // the other; the iPhone also pairs a second machine. Each grant is
-        // control access to the scanned machine, pinned to the machine key the
-        // string carried.
+        // The Android phone's app dies mid-pairing and resumes; the iPhone
+        // pairs the desk, then pairs the laptop from the same phone. Each
+        // grant is control access, pinned to the machine key the offer carried.
         const android = await pairThroughAppDeath({ os: 'android', secure: new Map(), local: new Map() }, desk);
         const androidDesk = await (await launchApp(android)).loadHostedGrant(desk.id);
         expect(androidDesk).toMatchObject({ machineId: desk.id, authority: 'control', source: 'selfhost', machineName: 'Desk' });
         expect(androidDesk?.relayUrl).toBe(`ws://127.0.0.1:${desk.port}`);
-        const iphoneDesk = await pairPhone(iphone, desk, true);
+        const iphoneDesk = await pairPhone(iphone, desk);
         expect(iphoneDesk).toMatchObject({ machineId: desk.id, authority: 'control' });
         await pairPhone(iphone, laptop);
         const listed = await desk.run(['devices', 'list']);
         expect(listed).toContain('Android phone');
         expect(listed).toContain('iPhone');
 
-        // Both phones drive the desk, and the iPhone drives both machines.
+        // Both phones drive the desk over its link, and the iPhone drives
+        // both machines.
         let app = await launchApp(android);
         let androidLink = await app.open(desk);
-        const started = await androidLink.client.request('session.start', { cwd: desk.home });
-        if (!('info' in started)) throw new Error(`session.start failed: ${JSON.stringify(started)}`);
-        expect((await androidLink.client.request('session.list', {})).map((session) => session.id)).toContain(started.info.id);
-        const androidApp = app;
+        const started = await androidLink.link.request('session.start', { type: 'session.start', requestId: 'r1', params: { cwd: desk.home } }) as {
+            type: string; ok: boolean; data?: { info?: { id?: string } };
+        };
+        expect(started).toMatchObject({ type: 'result', ok: true });
+        const sessionId = started.data?.info?.id;
+        expect(typeof sessionId).toBe('string');
+        expect((await androidLink.link.request('client.hello', { type: 'client.hello', clientId: 'android' }) as { type: string; sessions: { id: string }[] }).sessions.map((session) => session.id)).toContain(sessionId);
+        androidLink.link.stop();
         app = await launchApp(iphone);
-        await androidLink.client.request('session.list', {});
-        await androidApp.flushReplay();
-        expect(android.local.has('muxr.hosted-e2ee.replay.v2')).toBe(true);
-        expect(iphone.local.has('muxr.hosted-e2ee.replay.v2')).toBe(false);
-        androidLink.client.close();
         expect((await app.listPairedGrants()).map((grant) => grant.machineId).sort()).toEqual([desk.id, laptop.id].sort());
         for (const machine of [desk, laptop]) {
             const link = await app.open(machine);
-            await link.client.request('session.list', {});
-            link.client.close();
+            await link.link.request('client.hello', { type: 'client.hello', clientId: 'iphone' });
+            link.link.stop();
         }
 
         // Restart both computers from disk and relaunch the apps: the stored
@@ -274,30 +307,29 @@ describe('paired devices across pairing, restarts and revoke', () => {
         await Promise.all([desk.start(), laptop.start()]);
         app = await launchApp(android);
         androidLink = await app.open(desk);
-        await androidLink.client.request('session.list', {});
+        await androidLink.link.request('client.hello', { type: 'client.hello', clientId: 'android' });
         app = await launchApp(iphone);
         const iphoneLink = await app.open(desk);
-        await iphoneLink.client.request('session.list', {});
+        await iphoneLink.link.request('client.hello', { type: 'client.hello', clientId: 'iphone' });
         const laptopLink = await app.open(laptop);
-        await laptopLink.client.request('session.list', {});
-        laptopLink.client.close();
+        await laptopLink.link.request('client.hello', { type: 'client.hello', clientId: 'iphone' });
+        laptopLink.link.stop();
 
-        // Revoking the Android phone drops its live link and stops it for good,
-        // with a message that says why. The iPhone on the same machine is not
-        // asked to pair again and keeps answering.
+        // Revoking the Android phone drops its live link and stops it for
+        // good. The iPhone on the same machine is not asked to pair again and
+        // keeps answering.
         await desk.run(['devices', 'revoke', 'Android phone']);
         expect(await desk.run(['devices', 'list'])).not.toContain('Android phone');
-        await until(() => (androidLink.client.state === 'stale' ? true : undefined), 'revoked phone goes stale', 60_000);
-        expect(androidLink.permanentErrors.join(' ')).toMatch(/revoked/);
+        await until(() => (androidLink.link.status === 'removed' ? true : undefined), 'revoked phone is removed from the link', 60_000);
         await until(async () => {
             try {
-                await iphoneLink.client.request('session.list', {});
+                await iphoneLink.link.request('client.hello', { type: 'client.hello', clientId: 'iphone' });
                 return true;
             } catch {
                 return undefined;
             }
         }, 'surviving phone keeps answering after the revoke', 30_000);
-        androidLink.client.close();
-        iphoneLink.client.close();
+        androidLink.link.stop();
+        iphoneLink.link.stop();
     }, 180_000);
 });
