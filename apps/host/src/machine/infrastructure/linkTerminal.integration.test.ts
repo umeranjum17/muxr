@@ -1,27 +1,30 @@
 /**
- * Terminal and realtime voice over the byokit link, against a real relay and
- * host-side stream machinery. The fake herdr bin plays the pane; everything
- * between the phone-shaped DeviceLink and the pane is the real code.
+ * Terminal over the byokit link, against a real relay and a real host-side
+ * pane machinery: the stream open IS the attach, herdr's NDJSON flows both
+ * ways, and the pane's only transport is the link. The fake herdr bin plays
+ * the pane; everything between the phone-shaped DeviceLink and the pane is
+ * the real code.
+ *
+ * One-shot rule: there is no relay fallback in this flow. A dropped link
+ * ends the stream; the pane reattaches when the link is back.
  *
  * Owns the relay it starts: in-process, port 0, real port from the handle.
  */
 
-import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DeviceLink, hostId, keyPairFrom, type DeviceGrant, type LinkStatus } from '@byokit/link';
-import type { HostFrame } from '@muxr/contract';
-import { generateKeyPair } from '@muxr/crypto';
-import { startRelay, type RelayHandle } from '@muxr/relay';
-import { PluginStreamManager, TerminalManager, type VoiceStreamTransport } from '../../agent/index.js';
-import { LinkEndpoint } from './linkEndpoint.js';
+import { terminalSocketUrl, type Envelope, type HostFrame } from '@muxr/contract';
+import { generateKeyPair, generateSigningKeyPair } from '@muxr/crypto';
+import { startRelay } from '@muxr/relay';
+import { TerminalManager, closeTerminal } from '../../agent/index.js';
+import { LinkEndpoint, type LinkAnswer } from './linkEndpoint.js';
 import type { MachineCryptoState } from '../domain/crypto.js';
 
-/** @muxr/crypto keys are base64 strings; byokit wants base64url bytes. */
 const b64 = (value: Uint8Array | string): string => Buffer.from(value).toString('base64');
+/** @muxr/crypto keys are base64 strings; byokit wants base64url bytes. */
 const toB64url = (valueBase64: string): string => Buffer.from(valueBase64, 'base64').toString('base64url');
 
 /** The pane: paints a full screen, echoes input, repaints on resize. */
@@ -68,14 +71,14 @@ function once<T>(target: Promise<T>, ms: number, what: string): Promise<T> {
     ]);
 }
 
-describe('byokit link streams (real relay + real host)', () => {
+describe('terminal over the byokit link (real relay + real host)', () => {
     const cleanups: Array<() => void> = [];
 
     afterEach(() => {
         while (cleanups.length > 0) cleanups.pop()!();
     });
 
-    it('carries terminal and voice streams over the byokit link', { timeout: 60_000 }, async () => {
+    it('attaches, types and resizes over a link stream; the link is the pane\u2019s only transport', { timeout: 60_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-terminal-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
         const herdrBin = writeFakeHerdr(dir);
@@ -86,10 +89,11 @@ describe('byokit link streams (real relay + real host)', () => {
         const ownerToken = JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string;
 
         const machine = generateKeyPair();
+        const machineSigning = generateSigningKeyPair();
         const phone = generateKeyPair();
         const crypto: MachineCryptoState = {
-            signingPublicKey: b64(new Uint8Array(32)),
-            signingSecretKey: b64(new Uint8Array(64)),
+            signingPublicKey: machineSigning.publicKey,
+            signingSecretKey: machineSigning.secretKey,
             boxPublicKey: machine.publicKey,
             boxSecretKey: machine.secretKey,
             dataKey: b64(new Uint8Array(32)),
@@ -103,13 +107,6 @@ describe('byokit link streams (real relay + real host)', () => {
             }],
         };
 
-        const voiceRoot = join(dir, 'voice-plugin');
-        const voiceEntry = join(voiceRoot, 'stream.mjs');
-        mkdirSync(voiceRoot, { recursive: true });
-        writeFileSync(voiceEntry, `import readline from 'node:readline';\nconst input = readline.createInterface({ input: process.stdin });\ninput.on('line', (line) => { const frame = JSON.parse(line); if (frame.type === 'realtime.audio') process.stdout.write(JSON.stringify({ type: 'realtime.transcript', role: 'user', text: 'voice frame received' }) + '\\n'); });\n`);
-        const voiceRuntime = new PluginStreamManager({ relayUrl, machineId: 'machine-test' });
-        cleanups.push(() => voiceRuntime.closeAll());
-
         const terminals = new TerminalManager({
             relayUrl,
             machineId: 'machine-test',
@@ -120,6 +117,14 @@ describe('byokit link streams (real relay + real host)', () => {
         });
         cleanups.push(() => terminals.closeAll());
 
+        // Detach rides the session requests, as the phone's close() sends it.
+        const answer: LinkAnswer = async (frame, deviceId) => {
+            if (frame.type === 'terminal.detach') {
+                await closeTerminal(terminals, { channel: frame.params.channel, deviceId });
+                return { type: 'result', requestId: frame.requestId, ok: true, data: null };
+            }
+            return undefined;
+        };
         const endpoint = await LinkEndpoint.open({
             relayUrl,
             ownerToken,
@@ -128,39 +133,19 @@ describe('byokit link streams (real relay + real host)', () => {
             currentCrypto: () => crypto,
             savePushLevel: () => undefined,
             grants: { load: () => [], save: () => undefined },
-            answer: async () => undefined,
+            answer,
             canView: () => false,
-            terminals: { attach: (params) => terminals.attach(params) },
-            voiceStreams: {
-                attach: ({ deviceId, channel, sessionId, stream }) => voiceRuntime.attach({
-                    target: { pluginId: 'voice-test', pluginRoot: voiceRoot, entry: 'stream.mjs' },
-                    channel,
-                    stateDir: join(dir, 'voice-state'),
-                    ...(sessionId === undefined ? {} : { sessionId }),
-                    deviceId,
-                    transport: {
-                        set onData(listener: VoiceStreamTransport['onData']) { stream.onData = listener; },
-                        set onEnd(listener: VoiceStreamTransport['onEnd']) { stream.onEnd = listener; },
-                        write: (chunk) => stream.write(chunk),
-                        end: (error) => stream.end(error),
-                    },
-                    signal: new AbortController().signal,
-                    onClosed: () => undefined,
-                }),
+            terminals: {
+                attach: (params) => {
+                    params.assertAuthorized();
+                    return terminals.attach(params);
+                },
+                sendResult: (socket, channel, result) => socket.send(JSON.stringify({ ...result, channel })),
             },
         });
         expect(endpoint).toBeDefined();
+        endpoint!.start(); // dials the relay on the byokit link route
         cleanups.push(() => endpoint!.close());
-        endpoint!.start();
-
-        // Keep the real muxr host session connected while the byokit endpoint
-        // owns the data streams; this socket is not a stream fallback.
-        const machineFrames = new WebSocket(`${relayUrl}?role=machine&machineId=machine-test`);
-        cleanups.push(() => machineFrames.close());
-        await once(new Promise<void>((resolve, reject) => {
-            machineFrames.once('open', resolve);
-            machineFrames.once('error', reject);
-        }), 5_000, 'machine session');
 
         const machineKeys = keyPairFrom(Buffer.from(machine.secretKey, 'base64'));
         const phoneGrant: DeviceGrant = {
@@ -224,8 +209,7 @@ describe('byokit link streams (real relay + real host)', () => {
         const linkAttachMs = Date.now() - linkAttachStarted;
         expect(attachAck).toMatchObject({ type: 'result', ok: true, data: { paneId: 'pane-s1' } });
 
-        // Frame bytes the pane painted, skipping anything else (scroll-state,
-        // the initial screen still in the buffer).
+        // Frame bytes the pane painted, skipping anything else (scroll-state).
         const nextFrameBytes = async (what: string): Promise<string> => {
             const done = once((async () => {
                 for (;;) {
@@ -252,25 +236,17 @@ describe('byokit link streams (real relay + real host)', () => {
         await stream.write(`${JSON.stringify({ type: 'terminal.resize', cols: 40, rows: 12 })}\n`);
         expect(await nextFrameBytes('resize repaint')).toBe('SCREEN pane-s1 40x12');
 
-        // Voice frames traverse the host stream adapter over the byokit link.
-        const voice = await link.stream('voice', { channel: 'rs_linkvoice1234', sessionId: 's1' });
-        const voiceReply = new Promise<string>((resolve, reject) => {
-            let received = '';
-            voice.onData = (chunk) => {
-                received += Buffer.from(chunk).toString('utf8');
-                if (received.includes('\n')) resolve(received.trim());
-            };
-            voice.onEnd = (error) => reject(new Error(`voice link ended: ${error ?? 'clean'}`));
-        });
-        const voiceStarted = Date.now();
-        const voiceFrame = JSON.stringify({ type: 'realtime.audio', data: 'AQI=' });
-        await voice.write(`${voiceFrame}\n`);
-        expect(await once(voiceReply, 5_000, 'voice link round trip')).toBe(JSON.stringify({ type: 'realtime.transcript', role: 'user', text: 'voice frame received' }));
-        const voiceLinkRttMs = Date.now() - voiceStarted;
-        process.stdout.write(`voice link round trip: ${voiceLinkRttMs}ms\n`);
-        expect(voiceLinkRttMs).toBeLessThan(5_000);
+        // ---- Detach rides the session requests, as the phone's close() sends
+        // it: the host retires the pane and ends the stream. ----
+        await link.request('terminal.detach', { type: 'terminal.detach', requestId: 'r-detach', params: { sessionId: 's1', channel } });
+        await once(new Promise<void>((resolve) => {
+            const check = setInterval(() => { if (ended) { clearInterval(check); resolve(); } }, 25);
+        }), 5_000, 'detach stream end');
 
+        // The connect-time budget: the attach includes the herdr spawn.
+        process.stdout.write(`terminal attach: link=${linkAttachMs}ms\n`);
         expect(linkAttachMs).toBeLessThan(5_000);
+
         link.stop();
     });
 });

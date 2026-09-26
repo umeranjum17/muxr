@@ -32,7 +32,8 @@ export type LinkTerminalAttachParams = {
 
 /** The slice of the terminal manager a link stream needs: attach with a pipe already open. */
 export type LinkTerminalPort = {
-    attach(params: LinkTerminalAttachParams & { deviceId: string; socket: TerminalPipe }): Promise<{ paneId: string }>;
+    attach(params: LinkTerminalAttachParams & { deviceId: string; socket: TerminalPipe; assertAuthorized: () => void }): Promise<{ paneId: string }>;
+    sendResult(socket: TerminalPipe, channel: string, result: object): void;
 };
 
 const ATTACH_FAILURE_CODES: Record<string, true> = {

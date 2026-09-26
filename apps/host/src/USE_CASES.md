@@ -15,7 +15,7 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | List Agents | `agent/application/listAgents.ts` | Agent | `session.list`, `client.hello` |
 | Report a Lifecycle Event | `agent/application/reportAgentOutcome.ts` | Lifecycle rollup | Herdr session source |
 | Run a plugin action | `agent/application/runPluginAction.ts` | Device Grant (view-only reads) | `plugin.*` |
-| Open / close a terminal | `agent/application/openTerminal.ts` | Device Grant observe/control | `terminal.attach`, `terminal.detach` |
+| Open / close a terminal | `agent/application/openTerminal.ts` | Device Grant observe/control | Relay `terminal.attach` / `terminal.detach`; link stream through `machine/infrastructure/linkEndpoint.ts` |
 | Reconnect this Machine | `machine/application/reconnectMachine.ts` | Loopback vs ticket admission | `relayLink` |
 | List this Machine | `machine/application/listMachines.ts` | Machine | `machines.list` |
 | Serve paired phones over the link | `machine/infrastructure/linkEndpoint.ts` (`@byokit/link` + `@byokit/relay`) | Device records in `selfhost.json`; link grants are rebuilt from them | `/link/v1/<host id>` through the self-host relay |

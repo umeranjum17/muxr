@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { deriveV2Key, newV2SenderState, sealV2, v2EnvelopeSequence } from '@muxr/crypto';
+import { deriveV2Key, newV2ReplayTracker, newV2SenderState, openV2, sealV2, v2EnvelopeSequence } from '@muxr/crypto';
 import type { Envelope } from '@muxr/contract';
 
 interface FakeInput extends EventEmitter {
@@ -95,6 +95,113 @@ describe('TerminalManager stream exit', () => {
         fakes.sockets.length = 0;
         fakes.failSpawn = false;
         vi.restoreAllMocks();
+    });
+
+    it('rejects an ended or revoked pending link and seals the surviving attach result', async () => {
+        const root = Buffer.alloc(32).toString('base64');
+        const pending: Array<(pane: string) => void> = [];
+        let authorized = true;
+        let blockFocus = false;
+        let releaseFocus: (() => void) | undefined;
+        const focused = vi.fn();
+        const manager = new TerminalManager({
+            relayUrl: 'ws://relay.test', machineId: 'machine',
+            resolvePane: () => new Promise((resolve) => pending.push(resolve)),
+            focusSession: async (_session, assertActive) => {
+                if (blockFocus) await new Promise<void>((resolve) => { releaseFocus = resolve; });
+                assertActive?.();
+                focused();
+            },
+            hostedE2ee: { machineId: 'machine', keyVersion: 2, dataKey: root, ingressKeys: { phone: root } },
+        });
+        const pipe = () => {
+            let open = true;
+            let receiveLine: (line: string) => void = () => undefined;
+            const sent: string[] = [];
+            return {
+                get isOpen() { return open; }, sent,
+                send: (line: string) => { sent.push(line); },
+                receive: (line: string) => receiveLine(line),
+                onLine: (listener: (line: string) => void) => { receiveLine = listener; return () => { receiveLine = () => undefined; }; },
+                onEnd: () => () => undefined,
+                close: () => { open = false; },
+            };
+        };
+        const ended = pipe();
+        const first = manager.attach({ sessionId: 'session', channel: 'ended', cols: 80, rows: 24,
+            deviceId: 'phone', socket: ended, assertAuthorized: () => undefined });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        ended.close();
+        pending.shift()!('pane');
+        await expect(first).rejects.toThrow(/stream ended/);
+        expect(fakes.children).toHaveLength(0);
+
+        const revoked = pipe();
+        const second = manager.attach({ sessionId: 'session', channel: 'revoked', cols: 80, rows: 24,
+            deviceId: 'phone', socket: revoked, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        authorized = false;
+        pending.shift()!('pane');
+        await expect(second).rejects.toThrow(/revoked/);
+        expect(fakes.children).toHaveLength(0);
+
+        authorized = true;
+        blockFocus = true;
+        const pendingFocus = pipe();
+        const focusAttach = manager.attach({ sessionId: 'session', channel: 'pending-focus', cols: 80, rows: 24,
+            deviceId: 'phone', socket: pendingFocus, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        pending.shift()!('pane');
+        await vi.waitFor(() => expect(releaseFocus).toBeDefined());
+        authorized = false;
+        releaseFocus!();
+        await expect(focusAttach).rejects.toThrow(/revoked/);
+        expect(focused).not.toHaveBeenCalled();
+        expect(fakes.children).toHaveLength(0);
+
+        authorized = true;
+        blockFocus = false;
+        const live = pipe();
+        const third = manager.attach({ sessionId: 'session', channel: 'live', cols: 80, rows: 24,
+            deviceId: 'phone', socket: live, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        pending.shift()!('pane');
+        expect(await third).toEqual({ paneId: 'pane' });
+        manager.sendResult(live, 'live', { type: 'result', requestId: 'lt-1', ok: true });
+        const envelope = JSON.parse(live.sent[0]!) as Envelope;
+        expect(openV2(envelope.payload, deriveV2Key(root, 'host->client'), {
+            machineId: 'machine', senderId: 'machine', recipientId: '*', channel: 'terminal',
+            streamId: 'live', keyVersion: 2,
+        }, newV2ReplayTracker())).toBe(JSON.stringify({ type: 'result', requestId: 'lt-1', ok: true }));
+        authorized = false;
+        live.receive(JSON.stringify({ type: 'terminal.input', text: 'revoked input' }));
+        expect(live.isOpen).toBe(false);
+        expect(fakes.children[0]!.stdin.write).not.toHaveBeenCalledWith(expect.stringContaining('revoked input'));
+
+        authorized = true;
+        const output = pipe();
+        const fourth = manager.attach({ sessionId: 'session', channel: 'output', cols: 80, rows: 24,
+            deviceId: 'phone', socket: output, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        pending.shift()!('pane');
+        await fourth;
+        authorized = false;
+        fakes.children[1]!.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'terminal.frame', full: true, bytes: 'eA==' }) + '\n'));
+        expect(output.sent).toHaveLength(0);
+        expect(output.isOpen).toBe(false);
+
+        authorized = true;
+        const final = pipe();
+        const fifth = manager.attach({ sessionId: 'session', channel: 'final', cols: 80, rows: 24,
+            deviceId: 'phone', socket: final, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        pending.shift()!('pane');
+        await fifth;
+        authorized = false;
+        fakes.children[2]!.emit('error', new Error('stream exited'));
+        expect(final.sent).toHaveLength(0);
+        expect(final.isOpen).toBe(false);
+        manager.closeAll();
     });
 
     it('moves same-pane control to the newest device without dropping observers or stealing back', async () => {

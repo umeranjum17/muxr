@@ -38,6 +38,8 @@ export type ByteStreamTransport = {
     close(): void;
 };
 
+export type TerminalLinkTransport = ByteStreamTransport;
+
 type DesktopLinkTransport = {
     request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>>;
     close(): void;

@@ -1,17 +1,18 @@
 # Architecture
 
-Three processes. Herdr owns agents and backend plugins, the host translates, the
-relay moves bytes, and the app draws the terminal. The app is a native extension
-shell: host-installed packages contribute approved native surfaces without downloaded code.
+Herdr owns agents and backend plugins, the host translates, the relay routes
+bytes, and the app draws the terminal. The app is a native extension shell:
+host-installed packages contribute approved native surfaces without downloaded code.
 
 ```
   PHONE / WEB               RELAY                   YOUR MACHINE
   apps/mobile               apps/relay              apps/host          herdr server
   ─────────────             ─────────               ──────────         ────────────
-  xterm.js + herd UI   ◄──► routes envelopes   ◄──► translates    ◄──► owns the PTYs
+  terminal + herd UI  ◄──► routes envelopes   ◄──► translates    ◄──► owns the PTYs
   owns no truth             reads headers only      contract ⇄          detects agents
                             /terminal + /preview    herdr socket        resumes them
                             are separate channels
+  enrolled native terminal ─────── byokit link stream via relay ───► host
 ```
 
 ## Why herdr
@@ -29,9 +30,9 @@ press at the desk.
 
 First, the mental model: **there is no "the terminal".** An agent never draws a
 screen — it writes ANSI escape bytes into a PTY (a kernel pipe). A terminal is
-just any program that parses those bytes into pixels: Ghostty on the desk,
-herdr's built-in emulator, xterm.js on the phone. Same bytes in, same picture
-out — that is why every client looks identical.
+just any program that parses those bytes into pixels: Ghostty on the phone,
+herdr's built-in emulator, xterm.js on web. The clients draw from the same
+stream, but each uses its own renderer.
 
 **herdr owns the pipe and the canonical state.** Agents run as ordinary OS
 processes on the host machine, each inside a real PTY that herdr holds. Herdr's
@@ -46,11 +47,12 @@ agent process → PTY (kernel pipe, herdr holds it)
                   │
                   ├─→ herdr's emulator ──→ herdr desktop UI
                   └─→ host runs `herdr terminal session control <pane>`
-                      (base64 ANSI frames) → /terminal via the relay → phone
-                      → xterm.js parses the same bytes, draws its own copy
+                      (base64 ANSI frames) → byokit link stream on enrolled native phones
+                                           or /terminal via the relay → phone
+                      → Ghostty (native) or xterm.js (web) draws its own copy
 ```
 
-Keystrokes travel the reverse path: phone → relay → host → herdr → PTY → the
+Keystrokes travel the reverse path: phone → link or relay → host → herdr → PTY → the
 agent reads them as if typed locally. This app owns no terminal state — it
 carries bytes and renders them. And this is why scroll gestures are forwarded to
 herdr instead of scrolling locally: the history is herdr's, and the phone only
@@ -112,9 +114,11 @@ file-backed user-operated pairing/revocation when enabled, replay/offline
 buffering, and terminal/preview pipes. Its public API is capability-based:
 `localAuthority`, `developmentApi`, `advertiseMdns`, and `publicEdge`; deployment
 brands do not exist in core. An embedding process may add its own authority and
-edge policy without changing relay routing. Non-development
-session/RPC and terminal channels require strict v2 ciphertext; the relay checks
-bounded routing context and never parses plaintext.
+edge policy without changing relay routing. Non-development relay session/RPC
+and terminal channels require strict v2 ciphertext; the relay checks bounded
+routing context and never parses plaintext.
+Enrolled native terminals may instead use the end-to-end encrypted byokit link
+stream (hosted terminal envelopes remain sealed inside it).
 
 **The app owns**: rendering and local persistence only. No truth lives on the
 phone. A machine-scoped, display-only Home snapshot in local MMKV holds the last
@@ -139,7 +143,7 @@ removed grants, and web secure-store reset clear it.
 | Close worktree group | final explicit scope of `session.stop`, after its own confirmation | revalidate the parent workspace, then call Herdr `workspace.close`; Herdr has no separate group-close method |
 | status | `idle · working · blocked · done · unknown` | `pane.agent_status_changed` |
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
-| live view | terminal frames over the `/terminal` channel | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |
+| live view | terminal frames over a link stream or relay `/terminal` channel | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |
 
 Sessions started at the desk show up on the phone once Herdr publishes their
 agent session (often after the first turn). Detection alone is not a session:
@@ -166,7 +170,8 @@ per-pane status watch is acknowledged, even if an older snapshot was in flight.
   Control is single-owner, so attaching takes over input from the desk; preview
   cards use `observe` exactly so the desk is never disturbed.
 - **herdr repaints the whole screen in its first frames.** The relay buffers those
-  until the client connects, or the terminal opens blank.
+  until the client connects; the link path queues frames arriving before the
+  attach result and replays them to the phone after attach succeeds.
 - **Pane ids change on cross-workspace moves** and agent names are user-renameable, so
   the host mints its own session ids and keeps a map, updated on `pane.moved`.
 - **`done` means "idle and you haven't looked yet."** herdr clears it when the tab is
@@ -285,8 +290,8 @@ muxr WebSockets consume only those tickets. On a self-host relay,
 `@byokit/relay` also serves optional
 `/relay/v1/*` and `/link/v1/<host id>` routes beside the existing muxr routes.
 The host uses its existing machine box key and enrolls native phones from its
-`selfhost.json` device records through `@byokit/link`; browsers, terminal and
-preview streams, and remote desktop still use the existing relay transport.
+`selfhost.json` device records through `@byokit/link`; browsers, preview
+streams, and remote desktop still use the existing relay transport.
 The link checks the live device table for requests (including cached replies)
 and broadcasts, so revocation and role changes do not wait for grant sync.
 On startup, the host enrolls its existing devices before opening its link relay
@@ -300,16 +305,20 @@ push eligibility. If the CLI exits between release and host-record durability,
 the relay credential remains but the host does not trust the device; re-pairing
 recovers. If link relay state cannot load, the existing relay continues without
 those routes. Pairing stays on the existing transport. For a self-host machine,
-a paired phone moves its session channel onto the link without re-pairing: the
-host enrols it from its device records and appends the enrolled link key to
-its `herdr.tree` replies (re-announced whenever the link relay comes online),
-and the phone then dials `/link/v1/<host id>` with the keys it already holds,
-keeping the relay transport open as a fallback. Hosted relays keep phones on
-the relay transport.
+a paired phone moves its session channel and terminal panes onto the link without
+re-pairing: the host enrols it from its device records and appends the enrolled
+link key to its `herdr.tree` replies (re-announced whenever the link relay comes
+online), and the phone then dials `/link/v1/<host id>` with the keys it already
+holds. A terminal opens a link stream while the link serves the session; if the
+link cannot carry it or drops, the pane reattaches through the relay (or a new
+link stream) without losing the pane. The relay stays available as fallback.
+Hosted relays and browsers keep their terminal panes on the relay transport.
 
-The relay reads bounded `envelope.header` routing context and treats `payload` as
-opaque `e2ee:v2` ciphertext. Terminal frames stay off replay on the separate
-`/terminal` pipe, but use the same strict context/ciphertext contract.
+On the legacy transport, the relay reads bounded `envelope.header` routing
+context and treats `payload` as opaque `e2ee:v2` ciphertext. Relay terminal
+frames stay off replay on the separate `/terminal` pipe; byokit link terminal
+streams are likewise not replayed and are encrypted by the link. Hosted terminal
+frames retain their sealed envelope on either path.
 
 ## Not built
 
