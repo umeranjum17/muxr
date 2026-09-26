@@ -138,11 +138,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             }
         }
     };
-    const attachOnce = (takeover: boolean): Promise<unknown> => (async () => {
+    const attachOnce = (takeover: boolean): Promise<'link' | 'relay'> => (async () => {
         // When the link serves the session, the pane's stream open IS the
         // attach; the relay request + channel socket below run only when the
         // link cannot carry the pane.
-        if (await attachViaLink(takeover)) return;
+        if (await attachViaLink(takeover)) return 'link';
         if (grant !== undefined) {
             const latest = await refreshHostedGrant(settings.machineId, grant!.credential, grant!.relayUrl, await channelRelayUrl(grant!.relayUrl, settings.machineId));
             if (latest !== undefined && latest.keyVersion >= grant!.keyVersion) {
@@ -151,9 +151,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 hosted = new DeviceV2Crypto(latest);
             }
         }
-        return sendAttachRequest(takeover);
+        await sendAttachRequest(takeover);
+        return 'relay';
     })();
-    const attach = async (takeover: boolean): Promise<unknown> => {
+    const attach = async (takeover: boolean): Promise<'link' | 'relay'> => {
         try {
             const result = await attachOnce(takeover);
             recordTerminalChannel('attach', { ok: true });
@@ -334,13 +335,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         const pending = (async () => {
             // A resize that lands while attach is waiting must replace that
             // not-yet-paired stream before any client socket is opened.
+            let relayAttached = false;
             while (attachRequested && !closedByUser) {
                 attachRequested = false;
                 const takeover = takeoverRequested;
                 takeoverRequested = false;
-                await attach(takeover);
+                relayAttached = await attach(takeover) === 'relay';
             }
-            if (!closedByUser && linkWire === undefined) await connectSocket();
+            if (!closedByUser && relayAttached) await connectSocket();
         })();
         attachInFlight = pending;
         void pending
@@ -410,7 +412,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         // A repaint/retry may have claimed the attach owner while the ticket
         // request was in flight. Do not let that old ticket open a second
         // channel after the replacement has begun.
-        if (closedByUser || socket !== undefined || attachRequested) return;
+        if (closedByUser || socket !== undefined || linkWire !== undefined || attachRequested) return;
         const next = new WebSocket(url);
         socket = next;
         let firstFrame = false;
@@ -678,9 +680,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     command.signal?.addEventListener('abort', close, { once: true });
     try {
         assertOpen();
-        await attach(true);
+        const path = await attach(true);
         assertOpen();
-        if (linkWire === undefined) await connectSocket();
+        if (path === 'relay') await connectSocket();
         assertOpen();
     } catch (error) {
         close();

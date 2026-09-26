@@ -210,7 +210,23 @@ describe('openTerminal hosted transport', () => {
             channel: 'terminal', streamId: retry.channel, keyVersion: 2, seq: 13 },
         payload: `sealed:${JSON.stringify({ type: 'result', requestId: retry.requestId, ok: true })}` }));
         await vi.waitFor(() => expect(mocks.open).toHaveBeenCalledTimes(10));
+        end();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(FakeWebSocket.instances).toHaveLength(0);
         takenChannel.close();
+
+        const dropped = openTerminal({ agentRoute: 'session-1', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(transport.onLine).toHaveBeenCalledTimes(5));
+        const last = mocks.openTerminalLink.mock.calls[4]![0] as { requestId: string; channel: string };
+        line(JSON.stringify({ header: { machineId: 'machine', senderId: 'machine', recipientId: '*',
+            channel: 'terminal', streamId: last.channel, keyVersion: 2, seq: 14 },
+        payload: `sealed:${JSON.stringify({ type: 'result', requestId: last.requestId, ok: true })}` }));
+        end();
+        const droppedChannel = await dropped;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(FakeWebSocket.instances).toHaveLength(0);
+        expect(mocks.request.mock.calls.filter(([method]) => method === 'terminal.attach')).toHaveLength(0);
+        droppedChannel.close();
     });
 
     it('joins the channel by ticket under the grant credential, then flows sealed frames', async () => {
