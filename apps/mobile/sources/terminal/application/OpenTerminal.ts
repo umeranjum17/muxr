@@ -503,8 +503,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
 
     /** Returns true when the link took the pane; false falls through to the relay for this attempt. */
     async function attachViaLink(takeover: boolean): Promise<boolean> {
+        const requestId = nextRequestId('lt');
         const offer = sync.openTerminalLink({
-            requestId: nextRequestId('lt'),
+            requestId,
             sessionId,
             channel,
             cols: current.cols,
@@ -524,43 +525,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         if (linkWire !== undefined && linkWire !== transport) retireLink(linkWire);
         linkWire = transport;
 
-        transport.onEnd(() => {
-            if (linkWire !== transport) return;
-            linkWire = undefined;
-            if (linkAck !== undefined) {
-                // No host verdict before the drop: transport loss, not an answer.
-                const settle = linkAck;
-                linkAck = undefined;
-                settle({ ok: false, code: 'socket-error', streamLost: true });
-                return;
-            }
-            // A live pane lost its link. The reconnect loop reattaches it over
-            // the relay (or a new stream once the link is back).
-            finalizeCounts();
-            emitState('reconnecting');
-            scheduleRetry();
-        });
 
-        const pendingLines: string[] = [];
-        let attachAccepted = false;
-        let processAttachedLine = (_line: string): void => undefined;
-        const settleAttachReply = async (line: string): Promise<void> => {
-            try {
-                const frame = JSON.parse(await unwrapHosted(line)) as { type?: unknown; ok?: unknown; error?: unknown; code?: unknown };
-                if (frame.type !== 'result' || linkAck === undefined) return;
-                const settle = linkAck;
-                linkAck = undefined;
-                settle(frame.ok === true
-                    ? { ok: true }
-                    : {
-                        ok: false,
-                        ...(typeof frame.error === 'string' ? { error: frame.error } : {}),
-                        ...(typeof frame.code === 'string' ? { code: frame.code } : {}),
-                    });
-            } catch {
-                // The normal frame handler retires malformed wire data.
-            }
-        };
         const ackPromise = new Promise<LinkAttachAck>((resolve) => {
             const settle = (value: LinkAttachAck): void => {
                 clearTimeout(timer);
@@ -568,48 +533,43 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 resolve(value);
             };
             linkAck = settle;
-            // An unanswered attach is a dead transport, like the relay openTimer.
             const timer = setTimeout(() => settle({ ok: false, code: 'socket-timeout', streamLost: true }), 15_000);
         });
-        transport.onLine((line) => {
-            if (attachAccepted) processAttachedLine(line);
-            else {
-                pendingLines.push(line);
-                void settleAttachReply(line);
-            }
-        });
-        const ack = await ackPromise;
-        if (!ack.ok) {
-            recordTerminalChannel('attach', { ok: false, error: ack.error ?? ack.code ?? 'link attach failed' });
-            retireLink(transport);
-            if (ack.streamLost) return false; // the relay can take the pane right now
-            // The host answered: an authoritative failure (e.g. takeover).
-            throw new Error(ack.error ?? 'terminal: link attach failed');
-        }
-        recordTerminalChannel('attach', { ok: true });
-        finalizeCounts();
-        frameCounts = beginTerminalFrameCounts();
-        for (const line of outbox.splice(0)) void transport.write(line).catch(() => undefined);
-
         let firstFrameOfStream = false;
-        processAttachedLine = (line) => {
-            if (linkWire !== transport || closedByUser) return;
-            void (async () => {
+        let received = Promise.resolve();
+        transport.onLine((line) => {
+            received = received.then(async () => {
+                if (linkWire !== transport || closedByUser) return;
                 let frame: unknown;
                 try {
                     frame = JSON.parse(await unwrapHosted(line));
                 } catch {
-                    // A framing/key mismatch recovers only through a fresh attach.
-                    linkWire = undefined;
-                    transport.close();
-                    scheduleRetry();
+                    if (linkWire !== transport) return;
+                    const attaching = linkAck !== undefined;
+                    if (attaching) linkAck?.({ ok: false, code: 'socket-error', streamLost: true });
+                    retireLink(transport);
+                    if (!attaching) scheduleRetry();
                     return;
                 }
                 if (linkWire !== transport || closedByUser) return;
                 if (typeof frame !== 'object' || frame === null || !('type' in frame)) return;
                 const type = (frame as { type?: unknown }).type;
-                if (type === 'result') return;
-                const record = frame as unknown as { bytes?: unknown };
+                if (type === 'result') {
+                    const result = frame as { requestId?: unknown; ok?: unknown; error?: unknown; code?: unknown };
+                    if (result.requestId !== requestId || typeof result.ok !== 'boolean') return;
+                    if (result.ok) {
+                        finalizeCounts();
+                        frameCounts = beginTerminalFrameCounts();
+                        for (const queued of outbox.splice(0)) void transport.write(queued).catch(() => undefined);
+                        linkAck?.({ ok: true });
+                    } else {
+                        linkAck?.({ ok: false, error: typeof result.error === 'string' ? result.error : undefined,
+                            code: typeof result.code === 'string' ? result.code : undefined });
+                    }
+                    return;
+                }
+                if (linkAck !== undefined) return;
+                const record = frame as { bytes?: unknown };
                 if (type === 'terminal.frame' && typeof record.bytes === 'string') {
                     const bytes = record.bytes;
                     if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
@@ -631,10 +591,29 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 } else if (type === 'terminal.closed') {
                     applyClosedFrame(frame);
                 }
-            })();
-        };
-        attachAccepted = true;
-        for (const line of pendingLines.splice(0)) processAttachedLine(line);
+            });
+        });
+        transport.onEnd(() => {
+            void received.then(() => {
+                if (linkWire !== transport) return;
+                linkWire = undefined;
+                if (linkAck !== undefined) {
+                    linkAck({ ok: false, code: 'socket-error', streamLost: true });
+                    return;
+                }
+                finalizeCounts();
+                emitState('reconnecting');
+                scheduleRetry();
+            });
+        });
+        const ack = await ackPromise;
+        if (!ack.ok) {
+            recordTerminalChannel('attach', { ok: false, error: ack.error ?? ack.code ?? 'link attach failed' });
+            retireLink(transport);
+            if (ack.streamLost) return false;
+            throw new Error(ack.error ?? 'terminal: link attach failed');
+        }
+        recordTerminalChannel('attach', { ok: true });
         return true;
     }
 
@@ -665,7 +644,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         assertOpen();
         await attach(true);
         assertOpen();
-        await connectSocket();
+        if (linkWire === undefined) await connectSocket();
         assertOpen();
     } catch (error) {
         close();

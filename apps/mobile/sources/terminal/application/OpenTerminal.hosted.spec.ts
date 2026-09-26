@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
     open: vi.fn(async (channel: string, streamId: string, payload: string) => payload.slice('sealed:'.length)),
     fetch: vi.fn(),
     refresh: vi.fn(),
+    openTerminalLink: vi.fn(),
 }));
 
 vi.mock('@/connection', () => ({
@@ -41,7 +42,7 @@ vi.mock('@/connection', () => ({
 }));
 
 vi.mock('@/catalog/sync', () => ({
-    sync: { request: mocks.request, openTerminalLink: () => undefined },
+    sync: { request: mocks.request, openTerminalLink: mocks.openTerminalLink },
 }));
 
 vi.mock('@/catalog/store', async () => {
@@ -96,6 +97,8 @@ describe('openTerminal hosted transport', () => {
     beforeEach(() => {
         mocks.request.mockReset();
         mocks.request.mockResolvedValue({});
+        mocks.openTerminalLink.mockReset();
+        mocks.openTerminalLink.mockReturnValue(undefined);
         mocks.seal.mockClear();
         mocks.open.mockClear();
         mocks.fetch.mockReset();
@@ -111,6 +114,41 @@ describe('openTerminal hosted transport', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it('attaches on the link without a relay socket and consumes a final sealed close before stream end', async () => {
+        let line!: (value: string) => void;
+        let end!: () => void;
+        const transport = {
+            write: vi.fn(async () => undefined),
+            close: vi.fn(),
+            onLine: vi.fn((listener: (value: string) => void) => { line = listener; return () => undefined; }),
+            onEnd: vi.fn((listener: () => void) => { end = listener; return () => undefined; }),
+        };
+        mocks.openTerminalLink.mockReturnValue(Promise.resolve(transport));
+        const opening = openTerminal({ agentRoute: 'session-1', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(transport.onLine).toHaveBeenCalled());
+        const requestId = mocks.openTerminalLink.mock.calls[0]![0].requestId as string;
+        line(JSON.stringify({ header: {
+            machineId: 'machine', senderId: 'machine', recipientId: '*', channel: 'terminal',
+            streamId: mocks.openTerminalLink.mock.calls[0]![0].channel, keyVersion: 2, seq: 7,
+        }, payload: `sealed:${JSON.stringify({ type: 'result', requestId, ok: true, data: { paneId: 'pane' } })}` }));
+        const channel = await opening;
+        expect(FakeWebSocket.instances).toHaveLength(0);
+        const closes: (string | undefined)[] = [];
+        channel.onClose((reason) => closes.push(reason));
+        let decrypt!: (value: string) => void;
+        mocks.open.mockImplementationOnce(() => new Promise<string>((resolve) => { decrypt = resolve; }));
+        line(JSON.stringify({ header: {
+            machineId: 'machine', senderId: 'machine', recipientId: '*', channel: 'terminal',
+            streamId: mocks.openTerminalLink.mock.calls[0]![0].channel, keyVersion: 2, seq: 8,
+        }, payload: 'delayed' }));
+        await vi.waitFor(() => expect(mocks.open).toHaveBeenCalledTimes(2));
+        end();
+        decrypt(JSON.stringify({ type: 'terminal.closed', reason: 'herdr stream exited' }));
+        await vi.waitFor(() => expect(closes).toEqual(['herdr stream exited']));
+        expect(FakeWebSocket.instances).toHaveLength(0);
+        channel.close();
     });
 
     it('joins the channel by ticket under the grant credential, then flows sealed frames', async () => {
