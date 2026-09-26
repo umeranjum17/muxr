@@ -22,7 +22,7 @@ const MAX_CURRENT = 500;
 const MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 const STATES = new Set<AgentLifecycle>(['starting', 'idle', 'working', 'blocked', 'done', 'failed', 'unknown']);
 
-function safeTaskTitle(value: string | undefined): string | undefined {
+export function safeTaskTitle(value: string | undefined): string | undefined {
     if (value === undefined || value === '' || value.length > 120 || /[\0-\x1F\x7F]/.test(value)) return undefined;
     const privacyProbe = value.normalize('NFKC').trimStart();
     if (/^(?:\/|[A-Za-z]:\\)|\b(?:token|password|secret|credential)\s*=/i.test(privacyProbe)) return undefined;

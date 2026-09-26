@@ -12,6 +12,7 @@ import {
 } from '@muxr/contract';
 import { attachFailureCode, type LinkTerminalAttachParams, type LinkTerminalPort, type TerminalPipe } from '../domain/terminal.js';
 import type { MachineCryptoState, MachineDeviceRecord } from '../domain/crypto.js';
+import { safeTaskTitle } from '../../agent/infrastructure/lifecycleStore.js';
 
 /** How the host answers one device's frame: the same answer the relay transport sends back. */
 export type LinkAnswer = (frame: ClientFrame, deviceId: string, connectionId?: string) => Promise<HostFrame | undefined>;
@@ -315,7 +316,8 @@ export class LinkEndpoint {
             return device?.pushLevel !== undefined && lifecycleNotificationAllowed(device.pushLevel, input.kind);
         }).map((grant) => grant.id);
         if (to.length === 0) return;
-        const title = input.taskTitle ?? 'Agent update';
+        const taskTitle = safeTaskTitle(input.taskTitle);
+        const title = taskTitle ?? 'Agent update';
         const suffix = input.kind === 'failed' && COPY_SUFFIX.failed !== undefined && input.reasonCode !== undefined
             && ['start-launch-failed', 'start-timeout', 'squad-rolled-back', 'agent-unavailable'].includes(input.reasonCode)
             ? ' could not start.'
@@ -329,7 +331,7 @@ export class LinkEndpoint {
                 kind: input.kind,
                 reasonCode: input.reasonCode,
                 agentName: input.agentName,
-                ...(input.taskTitle === undefined ? {} : { taskTitle: input.taskTitle }),
+                ...(taskTitle === undefined ? {} : { taskTitle }),
                 sessionId: input.sessionId,
                 machineId: input.machineId,
                 presentationOwner: 'relay-push',

@@ -229,6 +229,18 @@ describe('push rides the byokit link relay', () => {
             await new Promise((resolve) => setTimeout(resolve, 200));
             expect(expoSends.length).toBe(afterSecond + 1);
             expect(expoSends.at(-1)!.to).toBe('ExponentPushToken[muxr-test-token]');
+
+            for (const [index, unsafeTitle] of ['token=secret-value', '/home/private/task'].entries()) {
+                const count = expoSends.length;
+                endpoint.notifyAttention({
+                    sessionId: 's1', eventId: `evt-private-${index}`, kind: 'blocked', machineId: 'machine-push-test',
+                    reasonCode: 'agent-blocked', agentName: 'Maria', taskTitle: unsafeTitle,
+                });
+                const delivery = await until(() => expoSends.length > count ? expoSends.at(-1) : undefined, 'private title notification');
+                expect(delivery.title).toBe('Agent update');
+                expect((delivery.data as { data: Record<string, unknown> }).data).not.toHaveProperty('taskTitle');
+                expect(JSON.stringify(delivery)).not.toContain(unsafeTitle);
+            }
             revokedLink.stop();
         } finally {
             await relay.close();
