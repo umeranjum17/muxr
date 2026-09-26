@@ -403,4 +403,18 @@ describe('native pairing over the byokit link', () => {
             await abort();
         }
     }, 90_000);
+
+    it('names a pairing-link drop after the confirmation words', async () => {
+        const { pairing, offer, abort } = await showPairingQr({ approve: async () => {
+            await stop(relay);
+            return true;
+        } });
+        try {
+            await expect(runPhonePairing(offer, { onWords: () => undefined }))
+                .rejects.toThrow('The pairing link closed after the two words');
+        } finally {
+            await abort();
+            await pairing.catch(() => undefined);
+        }
+    }, 90_000);
 });
