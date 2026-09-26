@@ -386,6 +386,8 @@ export class LinkEndpoint {
     stopPairing(): void {
         this.pairing = undefined;
         this.host.stopPairing();
+        const crypto = this.currentCrypto();
+        if (crypto !== undefined) void this.sync(crypto);
     }
 
     async admitPairedDevice(grantId: string, deviceId: string): Promise<void> {
@@ -416,6 +418,10 @@ export class LinkEndpoint {
         const enrolled = new Set<string>();
         for (const grant of this.host.devices()) {
             const deviceId = muxrDeviceIdOf(grant);
+            // Approval creates a provisional link grant before pair.complete
+            // writes its durable device record. A slow remote reconnect must
+            // not be revoked by the host's two-second record reconciliation.
+            if (deviceId === undefined && this.pairing !== undefined) continue;
             const device = deviceId === undefined ? undefined : wanted.get(deviceId);
             const sameKey = device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key;
             const roleMatches = device !== undefined && (device.authority === 'observe' ? 'view' : 'control') === grant.role;
