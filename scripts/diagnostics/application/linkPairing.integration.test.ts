@@ -32,6 +32,7 @@ import { waitForRelay } from './waitForRelay.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
 import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
 import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
+import { claimLinkPairing } from '../../../apps/mobile/sources/pairing/infrastructure/linkPairClient.js';
 import { SESSION_EVENT_TYPES, type SessionEvent } from '@muxr/contract';
 import { parsePairingString } from '../../../apps/mobile/sources/pairing/domain/pairingString.js';
 
@@ -395,10 +396,9 @@ describe('native pairing over the byokit link', () => {
             // reconciliation to reconnect after approval. Its grant is provisional
             // until pair.complete writes the durable record.
             await new Promise((resolve) => setTimeout(resolve, 3_000));
-            phone.secure.set(PENDING_LINK_KEY, JSON.stringify({ scanned: offer, name: 'Android phone', secretKey: b64url(key.secretKey), startedAt: Date.now() }));
-            const stored = await resumePendingHostedPairing();
-            expect(stored?.relayUrl).toBe(`ws://${advertisedAddress}:${port}`);
-            expect(await pairing).toMatchObject({ deviceId: stored?.deviceId });
+            const answer = await claimLinkPairing({ scanned: offer, name: 'Android phone', secretKey: b64url(key.secretKey) }, { mode: 'resume' });
+            expect(answer.relayUrl).toBe(`ws://${advertisedAddress}:${port}`);
+            expect(await pairing).toMatchObject({ deviceId: answer.deviceId });
         } finally {
             await abort();
         }
