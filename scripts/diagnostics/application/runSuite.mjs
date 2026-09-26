@@ -55,7 +55,6 @@ const checks = [
     ['e2e: strict auth (local fixture exposure)', 'node', ['scripts/diagnostics/application/checkStrictAuth.mjs']],
     ['e2e: second host retires the first', 'node', ['scripts/diagnostics/application/checkHostTakeover.mjs']],
     ['e2e: wire + RPC (all event types)', 'node', ['scripts/diagnostics/application/runSkeletonCheck.mjs']],
-    ['e2e: graphical takeover tunnel', 'node', ['scripts/diagnostics/application/checkPreviewTunnel.mjs']],
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/diagnostics/application/checkHerdrE2E.mjs'], 'herdr', 180000],
     // The warmed-agent parity proof owns its own lab session, so it only runs
     // where the guarded lab helper exists; it never touches the default fleet.

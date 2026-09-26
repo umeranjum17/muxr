@@ -68,7 +68,6 @@ export function startHost(options: HostOptions): Host {
     if (options.hostedE2ee !== undefined) {
         const hosted = options.hostedE2ee;
         hostedDispatcherOptions = {
-            requirePreviewEncryption: true,
             canMutateDevice: (deviceId: string) => deviceTableCanMutate(hosted.deviceAuthorities, deviceId),
             getDeviceContext: (deviceId: string) => {
                 const kind = hosted.deviceKinds?.[deviceId];
@@ -104,7 +103,6 @@ export function startHost(options: HostOptions): Host {
             .filter(([id, kind]) => kind !== 'peer' && (options.hostedE2ee!.deviceExpiresAt?.[id] ?? 0) > Date.now()).length }),
         relayUrl: options.relayUrl,
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
-        ...(options.token === undefined ? {} : { token: options.token }),
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
         desktop,
         isDesktopConnectionActive: (id: string) => activeDesktopConnections.has(id),
