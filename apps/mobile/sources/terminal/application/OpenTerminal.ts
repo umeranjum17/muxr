@@ -265,10 +265,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     };
     const applyScrollStateFrame = (frame: object): void => {
         const state = frame as { offsetFromBottom?: unknown; maxOffsetFromBottom?: unknown };
+        if (typeof state.offsetFromBottom !== 'number' || !Number.isFinite(state.offsetFromBottom)
+            || typeof state.maxOffsetFromBottom !== 'number' || !Number.isFinite(state.maxOffsetFromBottom)) return;
         hostAnswered();
         lastScrollState = {
-            offsetFromBottom: Math.max(0, Math.trunc(Number(state.offsetFromBottom))),
-            maxOffsetFromBottom: Math.max(0, Math.trunc(Number(state.maxOffsetFromBottom))),
+            offsetFromBottom: Math.max(0, Math.trunc(state.offsetFromBottom)),
+            maxOffsetFromBottom: Math.max(0, Math.trunc(state.maxOffsetFromBottom)),
         };
         for (const listener of scrollStateListeners) listener(lastScrollState);
     };
@@ -632,6 +634,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     linkAck({ ok: false, code: 'socket-error', streamLost: true });
                     return;
                 }
+                if (closedByUser) return;
                 finalizeCounts();
                 emitState('reconnecting');
                 scheduleRetry();

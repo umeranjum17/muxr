@@ -142,18 +142,31 @@ describe('openTerminal hosted transport', () => {
         channel.onData((bytes) => data.push(bytes));
         expect(data).toEqual(['aGk=']);
         expect(FakeWebSocket.instances).toHaveLength(0);
+        const scroll: Array<{ offsetFromBottom: number; maxOffsetFromBottom: number }> = [];
+        channel.onScrollState((state) => scroll.push(state));
+        const states: string[] = [];
+        channel.onState((state) => states.push(state));
+        const streamId = mocks.openTerminalLink.mock.calls[0]![0].channel;
+        line(JSON.stringify({ header: { machineId: 'machine', senderId: 'machine', recipientId: '*',
+            channel: 'terminal', streamId, keyVersion: 2, seq: 8 },
+        payload: `sealed:${JSON.stringify({ type: 'terminal.scroll-state', offsetFromBottom: 'bad', maxOffsetFromBottom: 12 })}` }));
+        line(JSON.stringify({ header: { machineId: 'machine', senderId: 'machine', recipientId: '*',
+            channel: 'terminal', streamId, keyVersion: 2, seq: 9 },
+        payload: `sealed:${JSON.stringify({ type: 'terminal.scroll-state', offsetFromBottom: 2, maxOffsetFromBottom: 12 })}` }));
+        await vi.waitFor(() => expect(scroll).toEqual([{ offsetFromBottom: 2, maxOffsetFromBottom: 12 }]));
         const closes: (string | undefined)[] = [];
         channel.onClose((reason) => closes.push(reason));
         let decrypt!: (value: string) => void;
         mocks.open.mockImplementationOnce(() => new Promise<string>((resolve) => { decrypt = resolve; }));
         line(JSON.stringify({ header: {
             machineId: 'machine', senderId: 'machine', recipientId: '*', channel: 'terminal',
-            streamId: mocks.openTerminalLink.mock.calls[0]![0].channel, keyVersion: 2, seq: 8,
+            streamId: mocks.openTerminalLink.mock.calls[0]![0].channel, keyVersion: 2, seq: 10,
         }, payload: 'delayed' }));
-        await vi.waitFor(() => expect(mocks.open).toHaveBeenCalledTimes(3));
+        await vi.waitFor(() => expect(mocks.open).toHaveBeenCalledTimes(5));
         end();
         decrypt(JSON.stringify({ type: 'terminal.closed', reason: 'herdr stream exited' }));
         await vi.waitFor(() => expect(closes).toEqual(['herdr stream exited']));
+        expect(states.at(-1)).toBe('live');
         expect(FakeWebSocket.instances).toHaveLength(0);
         channel.close();
 

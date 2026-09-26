@@ -29,9 +29,6 @@ const muxrDeviceIdOf = (grant: Grant): string | undefined => {
     return typeof meta?.muxrDeviceId === 'string' ? meta.muxrDeviceId : undefined;
 };
 
-/** Full attach call for the port: the validated stream args plus who is asking. */
-type LinkTerminalAttach = LinkTerminalAttachParams & { deviceId: string; socket: TerminalPipe; assertAuthorized: () => void };
-
 const CHANNEL_PATTERN = /^tm_[A-Za-z0-9]+_[A-Za-z0-9]+$/;
 
 /** Everything on a link stream is network input; validate before the pane machinery sees it. */
@@ -303,8 +300,8 @@ async function streamTerminal(stream: LinkStream, req: LinkRequest, grant: Grant
         const assertAuthorized = (): void => {
             if (!trusted(grant, options.currentCrypto())) throw Object.assign(new Error('terminal: device is no longer trusted'), { code: 'device-revoked' });
         };
-        const attach: LinkTerminalAttach = { ...params, deviceId, socket, assertAuthorized, ...(mode === undefined ? {} : { mode }) };
-        const { paneId } = await options.terminals!.attach(attach);
+        const { paneId } = await options.terminals!.attach({ ...params, deviceId, socket, assertAuthorized,
+            ...(mode === undefined ? {} : { mode }) });
         assertAuthorized();
         process.stderr.write(`link: terminal stream attached (pane ${paneId}, device ${deviceId}${mode === 'observe' ? ', observe' : ''})\n`);
         reply({ ok: true, data: { paneId } });
