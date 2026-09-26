@@ -1,0 +1,44 @@
+desklink host engine
+Copyright the desklink authors. Licensed under the Apache License, Version 2.0.
+
+This distribution links or calls the following third-party components. None of
+them is copyleft; the notices below are the conditions of their permissive
+licences.
+
+  libvpx                        BSD-3-Clause
+    VP9 encoding. A source build links the host system's libvpx; the prebuilt
+    engine (@desklink/host-linux-x64-gnu) links libvpx v1.16.0 statically and
+    carries its licence and patent grant in THIRD_PARTY_LICENSES.txt.
+    https://chromium.googlesource.com/webm/libvpx/+/refs/heads/main/LICENSE
+
+  inputtino                     MIT
+    Virtual pointer and keyboard over uinput/libevdev. Vendored unmodified
+    under engine/vendor/inputtino at commit
+    f4ce2b0df536ef309e9ff318f75b460f7097d7c1; its LICENSE file is retained
+    alongside its source.
+
+  libevdev                      MIT (with a Linux-header GPL notice retained
+                                upstream; no GPL code is linked from it)
+    Used by inputtino to open and manage uinput devices.
+
+  xdg-desktop-portal            LGPL-2.1-or-later (NOT linked)
+  xdg-desktop-portal-hyprland   MIT (NOT linked)
+    Called over D-Bus, in a separate process, as any other desktop client does.
+    No portal implementation is bundled, linked or modified by this package.
+
+  PipeWire                      MIT (NOT bundled)
+    The client library the engine uses to read the portal's stream.
+
+  wayland / wayland-protocols   MIT
+  xkbcommon                     MIT
+    Keyboard layout lookup.
+
+  webrtc (webrtc-rs)            MIT / Apache-2.0
+  rustls, ring and their transitive dependencies: see their own notices. The
+    prebuilt engine reproduces every linked crate's licence text in
+    THIRD_PARTY_LICENSES.txt, and its build refuses any crate whose licence is
+    not permissive.
+
+No code from Sunshine, Moonlight, Apollo, RustDesk, GNOME Remote Desktop, KRdp,
+WayVNC, Guacamole or MeshCentral is copied, linked or derived from here. Those
+projects were read as architecture references only.
