@@ -4,7 +4,6 @@ import {
     DIALOG_GUARD_MESSAGE,
     DIALOG_GUARD_TITLE,
     pendingChoices,
-    straightenSmartPunctuation,
     terminalComposerText,
     terminalInputDisposition,
 } from './promptAvailability';
@@ -18,11 +17,9 @@ describe('terminal prompt guard', () => {
         expect(terminalComposerText('echo iosqa\\ ', ['/tmp/photo'], true)).toBe('echo iosqa\\  /tmp/photo');
     });
 
-    it('straightens iOS smart punctuation in shell drafts but leaves agent prose alone', () => {
-        const typed = 'git commit -m “fix it” —no-verify # don\u2019t skip';
-        expect(straightenSmartPunctuation(typed)).toBe('git commit -m "fix it" --no-verify # don\'t skip');
-        expect(terminalComposerText(typed, [], true)).toBe('git commit -m "fix it" --no-verify # don\'t skip');
-        expect(terminalComposerText(typed, [], false)).toBe(typed);
+    it('preserves literal punctuation in shell commands', () => {
+        const typed = 'rm \'Proposal—final.pdf\' && printf “done” don\u2019t';
+        expect(terminalComposerText(typed, [], true)).toBe(typed);
     });
 
     it('blocks unrelated input and exposes the one-line jump action', () => {

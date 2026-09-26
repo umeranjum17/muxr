@@ -105,21 +105,7 @@ export function terminalPaneCanSend(pane: HerdrTreePane | undefined, hasContent:
     return pane.agentKind !== undefined || canType;
 }
 
-/**
- * iOS smart punctuation rewrites what was typed even with autocorrect off
- * (RN 0.83 exposes no smartQuotesType/smartDashesType props), so a shell
- * command arrives as `git commit -m “done”` or `a—b`. Undo the rewrites a
- * command could have suffered: curly double quotes, curly single
- * quotes/apostrophes, and the smart-dash em dash back to its typed `--`.
- */
-export function straightenSmartPunctuation(text: string): string {
-    return text
-        .replace(/[\u201C\u201D]/g, '"')
-        .replace(/[\u2018\u2019]/g, "'")
-        .replace(/\u2014/g, '--');
-}
-
 export function terminalComposerText(draft: string, attachedPaths: string[], isShell: boolean): string {
-    const content = isShell && draft.trim() !== '' ? straightenSmartPunctuation(draft) : draft.trim();
+    const content = isShell && draft.trim() !== '' ? draft : draft.trim();
     return [content, ...attachedPaths].filter((part) => part !== '').join(' ');
 }
