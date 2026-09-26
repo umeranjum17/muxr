@@ -1,9 +1,3 @@
-export function stripTrailingSlashes(value: string): string {
-    let end = value.length;
-    while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
-    return value.slice(0, end);
-}
-
 export function isWebSocketRelayUrl(value: string): boolean {
     try {
         const protocol = new URL(value).protocol;
@@ -11,25 +5,6 @@ export function isWebSocketRelayUrl(value: string): boolean {
     } catch {
         return false;
     }
-}
-
-export function relayChannelSocketUrl(
-    relayUrl: string,
-    channelPath: 'terminal' | 'preview' | 'stream',
-    options: { machineId: string; channel: string; role: 'machine' | 'client'; token?: string; extraQuery?: readonly string[] },
-): string {
-    // Hand-built rather than URLSearchParams: this runs on React Native too,
-    // where that polyfill is partial.
-    const parts = [
-        `role=${options.role}`,
-        `machineId=${encodeURIComponent(options.machineId)}`,
-        `channel=${encodeURIComponent(options.channel)}`,
-    ];
-    if (options.token !== undefined && options.token !== '') {
-        parts.push(`token=${encodeURIComponent(options.token)}`);
-    }
-    if (options.extraQuery !== undefined) parts.push(...options.extraQuery);
-    return `${stripTrailingSlashes(relayUrl)}/${channelPath}?${parts.join('&')}`;
 }
 
 export function relayControlUrl(relayUrl: string, path = ''): string {

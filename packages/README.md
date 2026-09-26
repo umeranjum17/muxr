@@ -43,7 +43,7 @@ packages/
     e2ee/{index.ts,domain/,application/,infrastructure/}
 ```
 
-No presentation layer in `contract` and `crypto`: no React or controllers. Application exists only for named operations the package owns. There is no `services/` folder. `issueWsTicket` stays infrastructure because it uses HTTP.
+No presentation layer in `contract` and `crypto`: no React or controllers. Application exists only for named operations the package owns. There is no `services/` folder. Account and enrollment HTTP helpers stay infrastructure; product streams use byokit links.
 
 Dependency direction: domain is pure TypeScript; application may import same-module domain and infrastructure; infrastructure may import same-module domain; a module may import another module only through its `index.ts`. Contract never imports crypto. `packages/checkArchitecture.mjs` rejects the reverse, nested ternaries, fake DDD types, and new import cycles between modules.
 

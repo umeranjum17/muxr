@@ -21,7 +21,7 @@ A package module exists only when the packages own the behavior. Product operati
 | Seal or open a v2 envelope | [`envelope`](./crypto/src/e2ee/application/envelope.ts) | Routing Channel, Device Grant | host/mobile `hostedE2ee`, `openV2` / `sealV2` |
 | Seal preview bytes | [`previewChannel`](./crypto/src/e2ee/application/previewChannel.ts) | Preview channel keys | `apps/host/src/requests/infrastructure/preview.ts` (older phone builds) |
 
-`issueWsTicket` stays control-plane infrastructure: it talks HTTP. Do not wrap it in a fake port.
+Account and enrollment control-plane URLs remain HTTP infrastructure; product streams use byokit links rather than relay tickets.
 
 ## App-owned (call package domain; do not stub here)
 

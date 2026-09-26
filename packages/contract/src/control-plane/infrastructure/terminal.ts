@@ -1,4 +1,3 @@
-import { relayChannelSocketUrl } from './controlPlaneUrl.js';
 
 /**
  * Live terminal channel: the wire format for driving a herdr pane from a client.
@@ -81,18 +80,7 @@ export interface TerminalScrollFrame {
 export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame;
 export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame | TerminalScrollStateFrame;
 
-/** Random channel id. The relay pairs the two sockets quoting the same one. */
+/** Random channel id for a link terminal stream. */
 export function newTerminalChannel(): string {
     return `tm_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-/**
- * Both ends build the terminal socket URL from the same relay URL they already
- * use, so a terminal reaches exactly as far as the session link does.
- */
-export function terminalSocketUrl(
-    relayUrl: string,
-    options: { machineId: string; channel: string; role: 'machine' | 'client'; token?: string },
-): string {
-    return relayChannelSocketUrl(relayUrl, 'terminal', options);
 }

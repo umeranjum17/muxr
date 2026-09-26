@@ -44,19 +44,9 @@ export {
 export { admitClientFrame, parseClientFrame, tryParseClientFrame } from './application/admitClientFrame.js';
 
 export type { PreviewFrame } from './infrastructure/preview.js';
-export {
-    decodePreviewFrame,
-    encodePreviewFrame,
-    newPreviewChannel,
-    previewSocketUrl,
-    PREVIEW_CLOSE,
-    PREVIEW_DATA,
-    PREVIEW_HEADER_BYTES,
-} from './infrastructure/preview.js';
+export { decodePreviewFrame, encodePreviewFrame, PREVIEW_CLOSE, PREVIEW_DATA, PREVIEW_HEADER_BYTES } from './infrastructure/preview.js';
 
 export type { TerminalClientFrame, TerminalHostFrame, TerminalScrollStateFrame } from './infrastructure/terminal.js';
-export { newTerminalChannel, terminalSocketUrl } from './infrastructure/terminal.js';
+export { newTerminalChannel } from './infrastructure/terminal.js';
 
-export { relayControlUrl, isWebSocketRelayUrl, relayChannelSocketUrl } from './infrastructure/controlPlaneUrl.js';
-export type { WsTransport } from './infrastructure/wsTickets.js';
-export { issueWsTicket, ticketSocketUrl, WsTicketError } from './infrastructure/wsTickets.js';
+export { relayControlUrl, isWebSocketRelayUrl } from './infrastructure/controlPlaneUrl.js';

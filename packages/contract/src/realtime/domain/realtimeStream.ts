@@ -1,4 +1,3 @@
-import { relayChannelSocketUrl } from '../../control-plane/index.js';
 import type { AgentInfo } from '../../herd/index.js';
 
 /**
@@ -258,15 +257,7 @@ export function encodeRealtimeFrame(frame: RealtimeClientFrame | RealtimeHostFra
     return JSON.stringify(frame);
 }
 
-/** Random channel id. The relay pairs the two sockets quoting the same one. */
+/** Random channel id for a link voice stream. */
 export function newRealtimeChannel(): string {
     return `rs_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-/** Same reachability rule as terminal: derive the channel socket from the session relay URL. */
-export function realtimeSocketUrl(
-    relayUrl: string,
-    options: { machineId: string; channel: string; role: 'machine' | 'client'; token?: string },
-): string {
-    return relayChannelSocketUrl(relayUrl, 'stream', options);
 }
