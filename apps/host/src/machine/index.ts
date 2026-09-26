@@ -20,7 +20,6 @@ export {
     type HostedDeviceTables,
 } from './domain/deviceGrant.js';
 export { HostV2Crypto, type HostedDeviceKeys, type HostedMachineKeys } from './infrastructure/hostedE2ee.js';
-export { ticketWsCredential, usesLoopbackWsAuth } from './domain/admission.js';
 export { listMachines } from './application/listMachines.js';
 export { hostPlatformLabel } from './infrastructure/hostPlatform.js';
 export { LinkEndpoint, type LinkAnswer } from './infrastructure/linkEndpoint.js';
