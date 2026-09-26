@@ -59,7 +59,7 @@ describe('LAN discovery through byokit reach', () => {
         }
     });
 
-    it('the phone dials the advertised LAN URL instead of a resolved address', () => {
+    it('the phone dials the advertised LAN URL only', () => {
         const service = {
             name: 'Desk',
             addresses: ['172.17.0.1'],
@@ -67,11 +67,9 @@ describe('LAN discovery through byokit reach', () => {
             txt: { machine: 'machine-lan-test', relay: 'ws://192.168.1.10:8792', mode: 'lan' },
         };
         expect(discoveredRelay(service)?.relayUrl).toBe('ws://192.168.1.10:8792');
-        // A relay that published no LAN URL still resolves an address.
-        expect(discoveredRelay({ ...service, txt: { machine: 'machine-lan-test', mode: 'lan' } })?.relayUrl)
-            .toBe('ws://172.17.0.1:8792');
-        // A public advertised URL is not a LAN locator; the resolved address wins.
-        expect(discoveredRelay({ ...service, txt: { machine: 'machine-lan-test', relay: 'wss://desk.ts.net', mode: 'lan' } })?.relayUrl)
-            .toBe('ws://172.17.0.1:8792');
+        // No advertised URL, no locator: resolved addresses never authorise a dial.
+        expect(discoveredRelay({ ...service, txt: { machine: 'machine-lan-test', mode: 'lan' } })).toBeUndefined();
+        // A public advertised URL is not a LAN locator.
+        expect(discoveredRelay({ ...service, txt: { machine: 'machine-lan-test', relay: 'wss://desk.ts.net', mode: 'lan' } })).toBeUndefined();
     });
 });
