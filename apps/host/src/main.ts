@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
 import { startHost } from './host.js';
 import { createPersistQueue } from './platform/persistedJson.js';
-import { HttpPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
+import { LinkPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
 import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, hostPlatformLabel, LinkEndpoint } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -583,7 +583,7 @@ async function main(): Promise<void> {
     }
     let peerRuntime: PeerRuntime | undefined;
     let peerBroker: PeerBroker | undefined;
-    if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined && token !== undefined) {
+    if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined) {
         const cryptoAdapter = {
             get: (): MachineCryptoState => (mode === 'hosted' ? hostedAuth!.machine.crypto! : selfhostAuth!.machine.crypto),
             commit: async (next: MachineCryptoState): Promise<void> => {
@@ -612,12 +612,7 @@ async function main(): Promise<void> {
                 platform: hostPlatformLabel(),
                 relayUrl: peerRelayUrl,
                 crypto: cryptoAdapter,
-                authority: new HttpPeerAuthority({
-                    kind: mode,
-                    controlUrl: mode === 'hosted' ? hostedAuth!.controlUrl : relayControlUrl(relayUrl),
-                    machineId,
-                    credential: token,
-                }),
+                authority: new LinkPeerAuthority(mode, machineId),
                 ...(diagnostics === undefined ? {} : {
                     onConnectionDiagnostic: (event) => diagnostics.peerConnection(event.phase, event.outcome, event.durationMs, event.code),
                 }),
