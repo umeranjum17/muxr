@@ -362,9 +362,6 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'voice.key.clear': async (params) => { await voiceKeyClear(params.provider); return null; },
         // The spoken sentence is derived from the outcome here, never by the caller.
         'voice.report': async (params) => voiceReport(params),
-        // Voice is product code: a paired control device is the only gate, and
-        // there is no plugin approval to check.
-        'voice.stream': (params, context) => source.voiceStream({ deviceId: context.deviceId, channel: params.channel, ...(params.sessionId === undefined ? {} : { sessionId: params.sessionId }) }),
         'worktree.land': (params) => landWorktree(params.worktreePath, params.message, params.stash),
         'preview.attach': async (params) => useCaseData(await attachPreviewTunnel({
             ...(options.relayUrl === undefined ? {} : { relayUrl: options.relayUrl }),

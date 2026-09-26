@@ -2743,7 +2743,7 @@ export async function createHerdrSessionSource(
                     // refresh must not present a cached tree as live.
                     publicContext: realtimePluginPublicContext(agentCatalog.freshness === 'fresh' ? agentCatalog.agents : []),
                     deviceId,
-                    ...(transport === undefined ? {} : { transport }),
+                    transport,
                     signal: abort.signal,
                     onClosed: () => { voiceStreamAborts.delete(channel); },
                 });

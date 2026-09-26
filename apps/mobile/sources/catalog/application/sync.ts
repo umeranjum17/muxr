@@ -24,7 +24,7 @@ import { createArtifactWire, type ArtifactChunk, type ArtifactListing } from '..
 import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../infrastructure/connectionDiagnostics';
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
-import { LinkFirstClient, type ByteStreamTransport, type SessionClient, type TerminalLinkTransport } from '@/pairing/client';
+import { LinkFirstClient, type ByteStreamTransport, type SessionClient } from '@/pairing/client';
 import { setActiveSessionClient } from '@/connection/sessionClientRef';
 import { AppState, Platform } from 'react-native';
 import {
@@ -808,7 +808,7 @@ class MuxrSync {
 
     /** A link stream for one terminal pane while the link serves the session;
      *  undefined when the relay does (or no transport exists yet). */
-    openTerminalLink(args: Record<string, unknown>): Promise<TerminalLinkTransport | undefined> | undefined {
+    openTerminalLink(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> | undefined {
         return this.client?.terminalStream?.(args);
     }
 

@@ -148,7 +148,7 @@ export async function openRealtimeStream(
         sessionId?: string;
         machineId?: string;
         snapshot?: RealtimeStreamSnapshot;
-        attach: (params: { channel: string; sessionId?: string }) => Promise<unknown>;
+        attach?: (params: { channel: string; sessionId?: string }) => Promise<unknown>;
         openStream?: (params: { channel: string; sessionId?: string }) => Promise<RealtimeStreamTransport | undefined>;
     },
 ): Promise<PluginStream> {
@@ -161,30 +161,35 @@ export async function openRealtimeStream(
     const hosted = grant === undefined ? undefined : new DeviceV2Crypto(grant);
     const channel = newRealtimeChannel();
     if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
-    // Reuse the main relay client: a second socket receives the same encrypted broadcasts
-    // and can lose the shared replay race before its plugin.stream result arrives.
     const attachParams = { channel, ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }) };
     let streamTransport: RealtimeStreamTransport | undefined;
-    try { streamTransport = await options.openStream?.(attachParams); }
-    catch { /* An unavailable duplex stream falls back to the relay. */ }
-    if (streamTransport === undefined) await options.attach(attachParams);
+    if (options.openStream !== undefined) {
+        streamTransport = await options.openStream(attachParams);
+        if (streamTransport === undefined) throw new Error('stream: required duplex transport unavailable');
+    } else if (options.attach !== undefined) {
+        // Reuse the main relay client: a second socket can lose the shared
+        // replay race before its plugin.stream result arrives.
+        await options.attach(attachParams);
+    } else {
+        throw new Error('stream: no transport adapter available');
+    }
     if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
 
-    const relayUrl = await channelRelayUrl(snapshot.relayUrl, snapshot.machineId);
+    const relayUrl = streamTransport === undefined ? await channelRelayUrl(snapshot.relayUrl, snapshot.machineId) : undefined;
     const ticketInput = grant !== undefined
         ? { credential: grant.credential }
         : snapshot.token !== '' && !snapshot.token.startsWith('acctok_')
             ? { credential: snapshot.token }
             : undefined;
-    if (ticketInput === undefined && streamTransport === undefined) throw new Error('stream: relay ticket required');
-    const url = streamTransport === undefined ? ticketSocketUrl(relayUrl, await issueWsTicket({
+    if (relayUrl !== undefined && ticketInput === undefined) throw new Error('stream: relay ticket required');
+    const url = relayUrl === undefined ? undefined : ticketSocketUrl(relayUrl, await issueWsTicket({
         relayUrl,
         credential: ticketInput!.credential,
         machineId: snapshot.machineId,
         role: 'client',
         transport: 'stream',
         channel,
-    }), 'stream') : undefined;
+    }), 'stream');
 
     const frameListeners = new Set<(frame: RealtimeHostFrame) => void>();
     const closeListeners = new Set<(reason?: string) => void>();

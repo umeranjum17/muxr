@@ -759,8 +759,6 @@ export interface RequestMap extends PeerRequestMap {
         params: { displayName: string; taskTitle: string; status: string; outcome: string; tail?: string };
         result: VoiceReport;
     };
-    /** Attach one realtime voice stream to a relay channel. */
-    'voice.stream': { params: { channel: string; sessionId?: string }; result: null };
 }
 
 export type RequestType = keyof RequestMap;
