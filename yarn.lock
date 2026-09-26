@@ -4944,10 +4944,10 @@ expo-libghostty@^0.8.1:
   resolved "https://registry.yarnpkg.com/expo-libghostty/-/expo-libghostty-0.8.1.tgz#ab60e61cba3efd6cdbcc006ae9c65de9ba1cc4f4"
   integrity sha512-LcWO2ydkXM0RWy0sFhp7Xc2OpeqAyy5s9IGAd1u6y1luoli7MFHXE4RCafuA6YwkUYWekb22Sd4SsfOBFaLfbw==
 
-expo-linear-gradient@55.0.9, expo-linear-gradient@~55.0.0:
-  version "55.0.9"
-  resolved "https://registry.yarnpkg.com/expo-linear-gradient/-/expo-linear-gradient-55.0.9.tgz#87d40fe1b8d9e8bb3ab65e4f6940921710fa745d"
-  integrity sha512-S82iF+CVoSBVHdwusLQGh6Th/kcWLHU47jZhBPwyTrYWnsHZtb0oCqU96YvhDYvhbTdsuOaKEi+Xu+r/I2R8ow==
+expo-linear-gradient@57.0.2, expo-linear-gradient@~57.0.2:
+  version "57.0.2"
+  resolved "https://registry.yarnpkg.com/expo-linear-gradient/-/expo-linear-gradient-57.0.2.tgz#a9d85700cd822678556a6166640b0240d31fe011"
+  integrity sha512-eGNSfcbdXYvw0B/TQ3nmXKQgj0jLUi3EgsXGlvI79rlXg5RR5dQTkY2yqkf7BQDM3PMd3tqBMZdsLhvBqSUaMg==
 
 expo-linking@55.0.8, expo-linking@~55.0.0:
   version "55.0.8"

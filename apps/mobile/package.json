@@ -67,7 +67,7 @@
     "expo-image-picker": "~55.0.0",
     "expo-keep-awake": "~55.0.4",
     "expo-libghostty": "^0.8.1",
-    "expo-linear-gradient": "~55.0.0",
+    "expo-linear-gradient": "~57.0.2",
     "expo-linking": "~55.0.0",
     "expo-localization": "~55.0.0",
     "expo-mail-composer": "~55.0.0",
