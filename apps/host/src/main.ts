@@ -572,7 +572,7 @@ async function main(): Promise<void> {
                         }
                         linkEndpoint.start();
                         const { startHostPairingServer } = await import('../../../scripts/setup/application/linkPair.mjs');
-                        pairingServer = await startHostPairingServer(linkEndpoint, join(dataDir, 'pair.sock'), relayUrl);
+                        pairingServer = await startHostPairingServer(linkEndpoint, join(dataDir, 'pair.sock'), selfhostAuth?.relayUrl ?? relayUrl);
                         host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
                         if (linkOnline) host.refreshLinkEnrolment();
                     }
