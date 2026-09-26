@@ -415,7 +415,7 @@ try {
 
     run(process.execPath, ['scripts/release/application/pack.mjs'], {
         cwd: snapshot,
-        env: { ...process.env, MUXR_PACKAGE_CONTROL_URL: 'https://package-smoke.invalid' },
+        env: process.env,
     });
     // The lifecycle flow resolves only one thing from its working directory:
     // the packed plugin runtime. Run this repository's script against the
@@ -427,7 +427,7 @@ try {
     const tarball = join(tarDir, packedInfo.filename);
     const listing = run('tar', ['-tf', tarball]).stdout.split('\n');
     assert.ok(listing.includes('package/host.js'));
-    assert.ok(listing.includes('package/crypto.js'), 'strict hosted crypto runtime missing');
+    assert.ok(listing.includes('package/crypto.js'), 'crypto runtime missing');
     assert.ok(listing.includes('package/THIRD_PARTY_LICENSES.json'));
     assert.ok(!listing.includes('package/esbuild-metafile.json'));
     assert.ok(listing.includes('package/relay.js'), 'self-host relay bundle missing from npm artifact');
@@ -455,7 +455,7 @@ try {
     assert.ok(listing.includes('package/skills/muxr/references/desktop-browser.md'), 'desktop browser handoff reference missing from npm artifact');
     assert.ok(!listing.includes('package/skills/muxr/references/browser-takeover.md'), 'deprecated browser takeover reference shipped in npm artifact');
     assert.ok(listing.includes('package/web/index.html'), 'secure browser client missing from npm artifact');
-    assert.ok(listing.includes('package/web/install.sh'), 'hosted npm installer wrapper missing from web artifact');
+    assert.ok(listing.includes('package/web/install.sh'), 'npm installer wrapper missing from web artifact');
     assert.ok(!listing.some((file) => /apps\/relay|commerce|stripe|website|betaCodeAdmin|controlPlane|controlRepository/i.test(file)), 'private control-plane source shipped in npm artifact');
     run(process.execPath, ['scripts/diagnostics/application/checkNoSecrets.mjs'], { cwd: snapshot });
     const hostBundle = run('tar', ['-xOf', tarball, 'package/host.js']).stdout;
@@ -1014,34 +1014,6 @@ try {
     const stoppedDoctor = run(cli, ['doctor'], { cwd: installDir, env, allowFailure: true });
     assert.notEqual(stoppedDoctor.status, 0, 'doctor accepted a configured relay that was not running');
     assert.match(`${stoppedDoctor.stdout}${stoppedDoctor.stderr}`, /not reachable/);
-
-    const hostedAuthPath = join(home, '.muxr', 'auth.json');
-    const key32 = Buffer.alloc(32).toString('base64');
-    const key64 = Buffer.alloc(64).toString('base64');
-    writeFileSync(hostedAuthPath, `${JSON.stringify({
-        version: 1,
-        controlUrl: 'https://control.test',
-        relayUrl: 'wss://relay.test',
-        credential: 'machine-credential',
-        credentialExpiresAt: '9999-12-31T23:59:59.999Z',
-        machine: { id: 'machine', crypto: {
-            signingPublicKey: key32, signingSecretKey: key64, boxPublicKey: key32, boxSecretKey: key32, dataKey: key32,
-            keyVersion: 1, devices: [],
-            pendingRotation: { keyVersion: 2, dataKey: key32, devices: [], grants: [{ device_public_key: key32, grant: '' }] },
-        } },
-    })}\n`, { mode: 0o600 });
-    const authDoctor = run(cli, ['doctor'], { cwd: installDir, env, allowFailure: true });
-    assert.notEqual(authDoctor.status, 0, 'doctor accepted incomplete hosted auth');
-    assert.match(`${authDoctor.stdout}${authDoctor.stderr}`, /hosted auth.*incomplete/s);
-    const corruptHost = run(cli, ['up'], { cwd: installDir, env: { ...env, MUXR_MODE: 'hosted' }, allowFailure: true });
-    assert.equal(corruptHost.status, 0, 'deterministic hosted auth corruption would restart-loop');
-    assert.match(`${corruptHost.stdout}${corruptHost.stderr}`, /unsupported or incomplete schema/);
-    chmodSync(hostedAuthPath, 0o000);
-    const unreadableHost = run(cli, ['up'], { cwd: installDir, env: { ...env, MUXR_MODE: 'hosted' }, allowFailure: true });
-    assert.equal(unreadableHost.status, 0, 'unreadable hosted auth would restart-loop');
-    assert.match(`${unreadableHost.stdout}${unreadableHost.stderr}`, /cannot be read|EACCES|EPERM/);
-    chmodSync(hostedAuthPath, 0o600);
-    rmSync(hostedAuthPath, { force: true });
 
     const localSelfhostPath = join(home, '.muxr', 'selfhost.json');
     const upgradedLocalState = JSON.parse(readFileSync(localSelfhostPath, 'utf8'));

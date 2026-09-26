@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from 'node:crypto';
 import {
     existsSync,
     lstatSync,
@@ -13,35 +12,21 @@ import {
     MIN_HERDR,
     api,
     askVisible,
-    atomicWrite,
-    authPath,
-    base64,
-    createDeviceGrant,
-    deriveV2Key,
     env,
     error,
-    ensurePrivateDir,
-    executable,
     hash,
     home,
     loadManifest,
-    machineIdentity,
     manifestPath,
-    nacl,
-    newV2ReplayTracker,
-    openV2,
     platform,
     print,
-    printTerminalQr,
     publicRelayUrl,
     run,
     stateDir,
     validMachineCrypto,
 } from '../infrastructure/runtime.mjs';
-import { parseHostedAuth, pairingIntentFromHostedFlags } from '../domain/dist/index.js';
 import {
     detectedLifecycleTargets,
-    retireBundledPlugins,
     ensureHerdr,
     ensureHerdrServer,
     herdrBin,
@@ -59,7 +44,6 @@ import {
     daemonMode,
     runDaemon,
     serviceCommand,
-    startMuxrDaemon,
 } from '../infrastructure/daemon.mjs';
 import {
     advertisedRelayHealthy,
@@ -76,8 +60,6 @@ import {
     remoteHostOnline,
     relayDiscovery,
 } from '../infrastructure/selfhostRelay.mjs';
-
-const PACKAGED_CONTROL_URL = '__MUXR_PACKAGED_CONTROL_URL__';
 
 const FULL_UNINSTALL_ENTRIES = [
     'auth.json',
@@ -184,12 +166,6 @@ export async function uninstallMuxr(args = []) {
     return 0;
 }
 
-export function controlUrl() {
-    return env('MUXR_CONTROL_URL')
-        || env('MUXR_PUBLIC_BASE_URL')
-        || (PACKAGED_CONTROL_URL.startsWith('https://') ? PACKAGED_CONTROL_URL : undefined);
-}
-
 export function cliVersion() {
     for (const path of [join(dirname(realpathSync(process.argv[1])), 'package.json'), join(process.cwd(), 'package.json')]) {
         try {
@@ -216,297 +192,6 @@ export function hostServiceVersion() {
         }
     } catch {}
     return undefined;
-}
-
-export function loadAuthState() {
-    try {
-        const info = lstatSync(authPath());
-        if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-            throw new Error(`${authPath()} must be a regular owner-only file`);
-        }
-        const parsed = JSON.parse(readFileSync(authPath(), 'utf8'));
-        if (parsed.version !== 1) throw new Error(`${authPath()} has an unsupported schema`);
-        return parsed;
-    } catch (cause) {
-        if (cause?.code === 'ENOENT') return undefined;
-        throw cause;
-    }
-}
-
-export function maybeOpenVerification(url, headless) {
-    if (headless || process.env.SSH_CONNECTION || process.env.TERMUX_VERSION || !process.stdout.isTTY) return;
-    const opener = platform() === 'darwin' ? 'open' : 'xdg-open';
-    if (!executable(opener)) return;
-    const result = run(opener, [url]);
-    if (!result.ok) print('  warn: could not open the browser; use the URL below');
-}
-
-export async function hostedLogin(args = []) {
-    if (process.env.MUXR_SKIP_HOSTED_AUTH === '1') {
-        print('  Hosted login skipped by explicit test/development override.');
-        return 0;
-    }
-    const base = controlUrl();
-    if (!base) throw new Error('MUXR_CONTROL_URL (or MUXR_PUBLIC_BASE_URL) is required for hosted login');
-    if (!/^https:\/\//.test(base) && !/^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/.test(base)) {
-        throw new Error('hosted control URL must use HTTPS (HTTP is allowed only on loopback)');
-    }
-    const current = loadAuthState();
-    const machine = machineIdentity(current);
-    let pending = current?.machine?.id === machine.id ? current?.pending : undefined;
-    if (!pending || pending.controlUrl !== base || Date.parse(pending.expiresAt) <= Date.now()) {
-        const started = await api(base, '/v1/device-authorizations', {
-            method: 'POST',
-            body: JSON.stringify({
-                machine_slug: machine.id,
-                machine_name: machine.name,
-                machine_public_key: machine.publicKey,
-                platform: `${platform()}-${process.arch}`,
-                cli_version: cliVersion(),
-            }),
-        });
-        if (!started.response.ok || typeof started.body.device_code !== 'string') {
-            throw new Error(started.body.error || `device authorization failed (${started.response.status})`);
-        }
-        pending = {
-            controlUrl: base,
-            deviceCode: started.body.device_code,
-            userCode: started.body.user_code,
-            verificationUri: started.body.verification_uri,
-            interval: started.body.interval,
-            expiresAt: new Date(Date.now() + started.body.expires_in * 1000).toISOString(),
-        };
-        ensurePrivateDir(stateDir());
-        atomicWrite(authPath(), `${JSON.stringify({ version: 1, machine, pending }, null, 2)}\n`);
-    }
-    print(`  Open: ${pending.verificationUri}`);
-    print(`  Code: ${pending.userCode}`);
-    print('  Confirm the same code and machine details before approving.');
-    maybeOpenVerification(pending.verificationUri, args.includes('--headless'));
-
-    let interval = Number(pending.interval) || 5;
-    let entitlementNoticeShown = false;
-    while (Date.parse(pending.expiresAt) > Date.now()) {
-        await new Promise((resolve) => setTimeout(resolve, interval * 1000));
-        const polled = await api(base, '/v1/device-authorizations/token', {
-            method: 'POST',
-            body: JSON.stringify({ device_code: pending.deviceCode }),
-        });
-        if (polled.response.ok && typeof polled.body.access_token === 'string') {
-            const auth = {
-                version: 1,
-                controlUrl: base,
-                relayUrl: polled.body.relay_url,
-                credential: polled.body.access_token,
-                credentialExpiresAt: new Date(Date.now() + polled.body.expires_in * 1000).toISOString(),
-                account: polled.body.account,
-                machine,
-            };
-            atomicWrite(authPath(), `${JSON.stringify(auth, null, 2)}\n`);
-            print(`  ✓ signed in as ${auth.account.email}`);
-            return 0;
-        }
-        if (polled.body.error === 'authorization_pending') continue;
-        if (polled.body.error === 'entitlement_pending') {
-            if (!entitlementNoticeShown) {
-                entitlementNoticeShown = true;
-                print('  Payment received — activating…');
-                print(`  Billing and activation: ${base}/account`);
-                maybeOpenVerification(`${base}/account`, args.includes('--headless'));
-            }
-            continue;
-        }
-        if (polled.body.error === 'slow_down') {
-            interval = Number(polled.body.interval) || interval + 5;
-            continue;
-        }
-        if (polled.body.error === 'access_denied') {
-            atomicWrite(authPath(), `${JSON.stringify({ version: 1, machine }, null, 2)}\n`);
-            throw new Error('device authorization was denied');
-        }
-        if (polled.body.error === 'expired_token' || polled.body.error === 'invalid_grant') {
-            atomicWrite(authPath(), `${JSON.stringify({ version: 1, machine }, null, 2)}\n`);
-            break;
-        }
-        throw new Error(polled.body.error || `device authorization poll failed (${polled.response.status})`);
-    }
-    throw new Error('device authorization expired; rerun the command to start a new session');
-}
-
-export async function applyHostedSetup(args = []) {
-    const dryRun = args.includes('--dry-run');
-    print(`muxr setup${dryRun ? ' (dry run)' : ''}:`);
-    try {
-        const binary = await ensureHerdr({
-            dryRun,
-            noInstall: args.includes('--no-install-herdr'),
-            installRequested: args.includes('--install-herdr'),
-        });
-        if (binary) {
-            await ensureHerdrServer(binary, dryRun);
-            await retireBundledPlugins(binary, dryRun);
-            const integrationArgs = ['sync', ...(dryRun ? ['--dry-run'] : []), ...(args.includes('--force') ? ['--force'] : [])];
-            if (args.includes('--all')) integrationArgs.push('--all');
-            if ((await runIntegrations(integrationArgs)) !== 0) throw new Error('integration sync failed');
-        }
-        if (dryRun) print('  would start/resume hosted device authorization and single-use QR pairing');
-        else if ((await hostedLogin(args)) !== 0) throw new Error('hosted login failed');
-        // Bring the host online before showing a device QR. The old order let
-        // the phone claim a grant and begin connecting to a host that did not
-        // exist yet on a clean machine.
-        await startMuxrDaemon('hosted', args);
-        if (!dryRun && process.env.MUXR_SKIP_HOSTED_AUTH !== '1' && (await runAccount('pair')) !== 0) {
-            throw new Error('secure device pairing failed');
-        }
-        print('  Live Voice is optional; configure it from Voice & dictation in the app.');
-        print('Ready — open muxr.');
-        return 0;
-    } catch (cause) {
-        error(cause instanceof Error ? cause.message : String(cause));
-        return 1;
-    }
-}
-
-export async function runAccount(command, args = []) {
-    try {
-        if (command === 'login') {
-            const code = await hostedLogin(args);
-            if (code === 0) {
-                const definition = daemonDefinition();
-                if (existsSync(definition.path)) {
-                    const restarted = serviceCommand('restart');
-                    if (!restarted.ok) print(`  warn: login succeeded, but the daemon must be restarted manually (${restarted.stderr || restarted.stdout})`);
-                }
-            }
-            return code;
-        }
-        const auth = loadAuthState();
-        if (!auth?.credential || !auth?.controlUrl) {
-            if (command === 'logout') {
-                print('Already signed out.');
-                return 0;
-            }
-            error('Not signed in — run `muxr login`.');
-            return 1;
-        }
-        if (command === 'whoami') {
-            const result = await api(auth.controlUrl, '/v1/session', {
-                headers: { authorization: `Bearer ${auth.credential}` },
-            });
-            if (!result.response.ok) throw new Error(result.body.error || 'hosted session is no longer valid');
-            print(`${result.body.account.email} — ${result.body.credential.kind}`);
-            return 0;
-        }
-        if (command === 'logout') {
-            await api(auth.controlUrl, '/v1/session', {
-                method: 'DELETE',
-                headers: { authorization: `Bearer ${auth.credential}` },
-            });
-            atomicWrite(authPath(), `${JSON.stringify({ version: 1, machine: auth.machine }, null, 2)}\n`);
-            print('Signed out. Local machine keys were retained for an explicit re-login or reset.');
-            return 0;
-        }
-        if (command === 'pair') {
-            const pair = pairingIntentFromHostedFlags(args);
-            if (!auth.machine?.crypto) throw new Error('machine keys are missing; run `muxr login` to register a new machine identity');
-            const controlClaim = randomBytes(32).toString('base64url');
-            const controlClaimHash = createHash('sha256').update(controlClaim).digest('base64url');
-            const pairSecret = randomBytes(32).toString('base64url');
-            const result = await api(auth.controlUrl, '/v1/pair-sessions', {
-                method: 'POST',
-                headers: { authorization: `Bearer ${auth.credential}` },
-                body: JSON.stringify({ control_claim_hash: controlClaimHash }),
-            });
-            if (!result.response.ok || typeof result.body.pair_id !== 'string') {
-                throw new Error(result.body.error || `pair request failed (${result.response.status})`);
-            }
-            const fragment = new URLSearchParams({
-                v: '2',
-                id: result.body.pair_id,
-                claim: controlClaim,
-                pair: pairSecret,
-                machine: auth.machine.id,
-                name: auth.machine.name,
-                machinePk: auth.machine.crypto.signingPublicKey,
-                generation: String(auth.machine.crypto.keyVersion),
-                authority: pair.authority,
-            });
-            const pairUrl = `${result.body.verification_uri}#${fragment}`;
-            print(`Open: ${pairUrl}`);
-            if (process.stdout.isTTY) await printTerminalQr(pairUrl);
-            print('Waiting for the device to claim this single-use pairing session…');
-            const expiresAt = Date.now() + Number(result.body.expires_in ?? 300) * 1000;
-            while (Date.now() < expiresAt) {
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-                const polled = await api(auth.controlUrl, `/v1/pair-sessions/${encodeURIComponent(result.body.pair_id)}`, {
-                    headers: { authorization: `Bearer ${auth.credential}` },
-                });
-                if (!polled.response.ok) throw new Error(polled.body.error || 'pair polling failed');
-                if (polled.body.state === 'pending') continue;
-                if (polled.body.state === 'expired') throw new Error('pairing session expired');
-                const device = polled.body.device;
-                if (polled.body.state !== 'claimed' || typeof device?.id !== 'string' || typeof device.public_key !== 'string') {
-                    throw new Error('pairing session returned invalid device metadata');
-                }
-                const mailbox = polled.body.mailbox;
-                if (typeof mailbox !== 'string') throw new Error('pairing mailbox is unavailable');
-                const plaintext = openV2(mailbox, deriveV2Key(pairSecret, 'client->host'), {
-                    machineId: auth.machine.id,
-                    senderId: device.public_key,
-                    recipientId: auth.machine.id,
-                    channel: 'pairing',
-                    streamId: result.body.pair_id,
-                    keyVersion: auth.machine.crypto.keyVersion,
-                }, newV2ReplayTracker());
-                const request = JSON.parse(plaintext);
-                if (request.devicePublicKey !== device.public_key || request.machineSigningPublicKey !== auth.machine.crypto.signingPublicKey) {
-                    throw new Error('pairing mailbox substitution rejected');
-                }
-                const ingressKey = base64(nacl.randomBytes(32));
-                const expires = pair.grantExpiresAt();
-                const grant = createDeviceGrant({
-                    machineId: auth.machine.id,
-                    machineSigningSecretKey: auth.machine.crypto.signingSecretKey,
-                    machineKey: { publicKey: auth.machine.crypto.boxPublicKey, secretKey: auth.machine.crypto.boxSecretKey },
-                    deviceId: device.id,
-                    devicePublicKey: device.public_key,
-                    dataKey: auth.machine.crypto.dataKey,
-                    ingressKey,
-                    keyVersion: auth.machine.crypto.keyVersion,
-                    expiresAt: expires,
-                    authority: pair.authority,
-                });
-                const uploaded = await api(auth.controlUrl, `/v1/pair-sessions/${encodeURIComponent(result.body.pair_id)}/grant`, {
-                    method: 'POST',
-                    headers: { authorization: `Bearer ${auth.credential}` },
-                    body: JSON.stringify({ grant: JSON.stringify(grant) }),
-                });
-                if (!uploaded.response.ok) throw new Error(uploaded.body.error || 'grant upload failed');
-                auth.machine.crypto.devices = [
-                    ...auth.machine.crypto.devices.filter((entry) => entry.deviceId !== device.id),
-                    ...pair.deviceRecord({
-                        deviceId: device.id,
-                        devicePublicKey: device.public_key,
-                        ingressKey,
-                        expiresAt: expires,
-                    }),
-                ];
-                atomicWrite(authPath(), `${JSON.stringify(auth, null, 2)}\n`);
-                const definition = daemonDefinition();
-                if (existsSync(definition.path)) {
-                    const restarted = serviceCommand('restart');
-                    if (!restarted.ok) print(`  warn: paired, but restart the daemon manually (${restarted.stderr || restarted.stdout})`);
-                }
-                print(`  ✓ paired ${device.name || 'device'}`);
-                return 0;
-            }
-            throw new Error('pairing session expired');
-        }
-        throw new Error(`unknown account command: ${command}`);
-    } catch (cause) {
-        error(cause instanceof Error ? cause.message : String(cause));
-        return 1;
-    }
 }
 
 export function entryStatus(path, entry) {
@@ -556,19 +241,6 @@ export async function inspectSetup() {
     add(runtime ? 'ok' : 'fail', kind, runtime
         ? `${kind} runtime present`
         : `missing ${kind} runtime; rebuild or reinstall muxr`);
-    if (existsSync(authPath()) || managedMode === 'hosted') {
-        try {
-            const parsed = parseHostedAuth(loadAuthState());
-            if (!parsed.ok) {
-                add('fail', 'hosted auth', '~/.muxr/auth.json is incomplete — back it up before moving it aside, then run `muxr login`');
-            } else {
-                const report = parsed.value.report();
-                add(report.level, 'hosted auth', report.detail);
-            }
-        } catch (cause) {
-            add('fail', 'hosted auth', `${cause instanceof Error ? cause.message : String(cause)} — back up ~/.muxr/auth.json before moving it aside, then run \`muxr login\``);
-        }
-    }
     let binary;
     let binaryIssue;
     try { binary = managedMode === 'relay' ? undefined : herdrBin(); }
@@ -761,7 +433,7 @@ export async function inspectSetup() {
             ? `${publicRelayUrl(selfhost.relayUrl)?.replace(/^ws/, 'http') ?? 'configured'} · control and view-only browser grants expire after eight hours`
             : 'configured but unreachable until the tunnel is restored');
     }
-    if (managedMode !== 'relay' && (selfhost !== undefined || existsSync(authPath()))) {
+    if (managedMode !== 'relay' && selfhost !== undefined) {
         const ready = peerAgentAccessReady();
         add(ready ? 'ok' : 'fail', 'peer agent access', ready
             ? 'ready for `muxr peers`'

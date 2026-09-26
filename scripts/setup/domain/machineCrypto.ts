@@ -1,7 +1,7 @@
 import { pairingIntentFromDevice } from './pairing.js';
 import { accepted, rejected, type Result } from './result.js';
 
-export type AuthorityKind = 'hosted' | 'selfhost';
+export type AuthorityKind = 'selfhost';
 
 const CAPABILITIES = new Set(['list', 'read', 'status', 'watch', 'prompt', 'start']);
 
@@ -168,7 +168,7 @@ export function parseMachineCrypto(value: unknown, expected: AuthorityKind): Res
     const peer = kind === 'peer-revoke-v1';
     const selfhost = kind === 'selfhost-revoke-v1';
     if (kind !== undefined && !peer && !selfhost) return rejected('unknown pending rotation kind');
-    if (kind === undefined && expected !== 'hosted') return rejected('hosted rotation kind is required');
+    if (kind === undefined) return rejected('rotation kind is required');
     if (selfhost && expected !== 'selfhost') return rejected('self-host rotation kind is required');
     if (peer && rotation.authorityKind !== expected) return rejected('peer rotation authority kind mismatch');
     if (!pendingVersionIsValid(rotation, machine.keyVersion as number, typeof kind === 'string' ? kind : undefined)) {

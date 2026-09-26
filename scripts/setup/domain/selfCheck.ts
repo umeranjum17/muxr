@@ -53,7 +53,7 @@ function runSelfCheck(): void {
     assert(!enrollment.ok, 'malformed enrollment is rejected');
 
     assert(!validMachineCrypto(null, 'selfhost'), 'missing crypto is rejected');
-    assert(!parseMachineCrypto({ signingPublicKey: 'nope' }, 'hosted').ok, 'truncated keys are rejected');
+    assert(!parseMachineCrypto({ signingPublicKey: 'nope' }, 'selfhost').ok, 'truncated keys are rejected');
     const futureDevice = parseDevice({
         deviceId: 'device-future',
         devicePublicKey: Buffer.alloc(32).toString('base64'),
