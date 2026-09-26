@@ -5,6 +5,8 @@ export type Enrollment = {
     id: string;
     claim: string;
     relay: string;
+    /** The shared relay's one-use link enrolment token, claimed by the machine's host registration. */
+    link?: string;
 };
 
 export function parseEnrollment(link: unknown): Result<Enrollment> {
@@ -22,10 +24,18 @@ export function parseEnrollment(link: unknown): Result<Enrollment> {
             return rejected('enrollment must be the muxr://enroll string created on the relay server');
         }
         if (!relay.startsWith('wss://')) return rejected('enrollment must be the muxr://enroll string created on the relay server');
+        if (payload.link !== undefined && typeof payload.link !== 'string') {
+            return rejected('enrollment must be the muxr://enroll string created on the relay server');
+        }
         if (typeof payload.expires === 'number' && payload.expires <= Date.now()) {
             return rejected('enrollment must be the muxr://enroll string created on the relay server');
         }
-        return accepted({ id: payload.id, claim: payload.claim, relay });
+        return accepted({
+            id: payload.id,
+            claim: payload.claim,
+            relay,
+            ...(typeof payload.link === 'string' && payload.link !== '' ? { link: payload.link } : {}),
+        });
     } catch {
         return rejected('enrollment must be the muxr://enroll string created on the relay server');
     }

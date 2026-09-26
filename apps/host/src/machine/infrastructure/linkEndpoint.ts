@@ -9,8 +9,11 @@ export type LinkAnswer = (frame: ClientFrame, deviceId: string) => Promise<HostF
 export interface LinkEndpointOptions {
     /** The machine's relay socket URL, e.g. ws://127.0.0.1:8792/relay. */
     relayUrl: string;
-    /** The relay owner's secret; a host without it (a shared relay) has no link endpoint. */
-    ownerToken: string;
+    /** The relay owner's secret; with it the host mints its own link enrolment. */
+    ownerToken?: string;
+    /** A one-use enrolment minted by the owner of a shared relay; after the
+     *  first registration this host's key is enough, and the token is ignored. */
+    enrol?: string;
     machineName: string;
     crypto: MachineCryptoState;
     currentCrypto: () => MachineCryptoState | undefined;
@@ -67,7 +70,9 @@ export class LinkEndpoint {
         if (Buffer.from(keys.publicKey).toString('base64') !== options.crypto.boxPublicKey) {
             throw new Error('link: the machine box key pair does not match');
         }
-        const enrol = await relayEnrolment(options.relayUrl, options.ownerToken, hostId(keys.publicKey), options.machineName);
+        const enrol = options.enrol !== undefined ? options.enrol
+            : options.ownerToken === undefined ? false
+            : await relayEnrolment(options.relayUrl, options.ownerToken, hostId(keys.publicKey), options.machineName);
         if (enrol === false) return undefined;
         const host = await Host.open({
             keys,

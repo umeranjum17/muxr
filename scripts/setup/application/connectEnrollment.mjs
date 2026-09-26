@@ -97,6 +97,7 @@ export async function connectEnrollment(args = []) {
             credentialExpiresAt: claimed.body.credential_expires_at,
             webEnabled: typeof claimed.body.web_url === 'string',
             webOrigin: typeof claimed.body.web_url === 'string' ? claimed.body.web_url : undefined,
+            ...(enrollment.link === undefined ? {} : { linkEnrolToken: enrollment.link }),
             machine: identity,
         };
         const pendingPath = join(stateDir(), 'selfhost.pending.json');
