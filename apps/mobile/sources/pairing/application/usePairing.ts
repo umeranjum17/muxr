@@ -76,7 +76,7 @@ export function useHostedPairing() {
  * too, and pairing completes only when that approval and the phone's proof
  * over the machine's own link both land.
  */
-async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>): Promise<void> {
+export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>): Promise<void> {
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
     const approved = await Modal.confirm(
         `Pair with ${machineName}?`,
