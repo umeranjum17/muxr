@@ -217,7 +217,7 @@ describe('link upgrade for an already-paired phone', () => {
             send(message);
         };
         await expect(link.request('desktop.open', { type: 'desktop.open', requestId: 'desktop-link', params: { permissions: ['view'] } }))
-            .rejects.toThrow('Remote desktop is not available over this link yet; use the existing relay connection.');
+            .rejects.toThrow('Desktop signaling must use a link stream.');
         const listed = await link.request('client.hello', { type: 'client.hello', clientId: 'link-phone' }) as { type: string; sessions: { id: string }[] };
         expect(listed.type).toBe('session.list');
         expect(listed.sessions.map((session) => session.id)).toContain(sessionId);

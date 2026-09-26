@@ -1,10 +1,10 @@
-import { Host, PublicLinkError, hostId, keyPairFrom, type Grant } from '@byokit/link';
+import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type LinkRequest, type LinkStream } from '@byokit/link';
 import { RelayClient } from '@byokit/relay';
 import { parseClientFrame, relayControlUrl, type ClientFrame, type HostFrame } from '@muxr/contract';
 import type { MachineCryptoState, MachineDeviceRecord } from '../domain/crypto.js';
 
 /** How the host answers one device's frame: the same answer the relay transport sends back. */
-export type LinkAnswer = (frame: ClientFrame, deviceId: string) => Promise<HostFrame | undefined>;
+export type LinkAnswer = (frame: ClientFrame, deviceId: string, connectionId?: string) => Promise<HostFrame | undefined>;
 
 export interface LinkEndpointOptions {
     /** The machine's relay socket URL, e.g. ws://127.0.0.1:8792/relay. */
@@ -17,6 +17,7 @@ export interface LinkEndpointOptions {
     answer: LinkAnswer;
     canView: (frame: ClientFrame) => boolean;
     onStatus?: (status: string) => void;
+    onDesktopConnection?: (connectionId: string, active: boolean) => void;
 }
 
 interface DeviceMeta { muxrDeviceId: string }
@@ -70,6 +71,7 @@ export class LinkEndpoint {
         const enrol = await relayEnrolment(options.relayUrl, options.ownerToken, hostId(keys.publicKey), options.machineName);
         if (enrol === false) return undefined;
         const host = await Host.open({
+            stream: (stream, req, grant) => streamDesktop(stream, req, grant, options),
             keys,
             name: options.machineName,
             // Pairing stays on the relay transport; the link only admits phones
@@ -77,6 +79,7 @@ export class LinkEndpoint {
             confirm: () => false,
             allow: (req, grant) => {
                 if (!trusted(grant, options.currentCrypto())) return false;
+                if (req.op === 'desktop') return true;
                 const frame = parseClientFrame(req.args);
                 return frame.type === req.op && (frame.type.startsWith('desktop.') || grant.role === 'control' || options.canView(frame));
             },
@@ -86,7 +89,7 @@ export class LinkEndpoint {
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) throw new Error('link: request op does not match its frame');
                 if (frame.type.startsWith('desktop.')) {
-                    throw new PublicLinkError('Remote desktop is not available over this link yet; use the existing relay connection.');
+                    throw new PublicLinkError('Desktop signaling must use a link stream.');
                 }
                 const response = await options.answer(frame, deviceId);
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
@@ -161,6 +164,67 @@ export class LinkEndpoint {
             });
         }
     }
+}
+
+/** One stream carries desktop signaling RPC frames; the WebRTC media path is unchanged. */
+async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
+    if (req.op !== 'desktop' || !trusted(grant, options.currentCrypto())) {
+        throw new PublicLinkError('desktop: device is no longer trusted');
+    }
+    const deviceId = muxrDeviceIdOf(grant)!;
+    const connectionId = `link:${deviceId}`;
+    let buffer = '';
+    const decoder = new TextDecoder();
+    let work = Promise.resolve();
+    let finish!: () => void;
+    const ended = new Promise<void>((resolve) => { finish = resolve; });
+    options.onDesktopConnection?.(connectionId, true);
+    stream.onEnd = () => finish();
+    stream.onData = (chunk) => {
+        buffer += decoder.decode(chunk, { stream: true });
+        if (buffer.length > 1_000_000) { stream.end('desktop signaling request too large'); return; }
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+            work = work.then(async () => {
+                let frame: ClientFrame;
+                try { frame = parseClientFrame(JSON.parse(line)); }
+                catch { stream.end('malformed desktop signaling request'); return; }
+                if (!('requestId' in frame)) { stream.end('invalid desktop signaling request'); return; }
+                if (!frame.type.startsWith('desktop.')) {
+                    await stream.write(JSON.stringify({ type: 'result', requestId: frame.requestId, ok: false, error: 'only desktop signaling is allowed on this stream' }) + '\n');
+                    return;
+                }
+                if (!trusted(grant, options.currentCrypto())) {
+                    stream.end('desktop device is no longer trusted');
+                    return;
+                }
+                if (frame.type === 'desktop.open' && grant.role === 'view'
+                    && frame.params.permissions.some((permission) => permission !== 'view')) {
+                    await stream.write(JSON.stringify({ type: 'result', requestId: frame.requestId, ok: false, error: 'this device may only view the desktop', code: 'permission-denied' }) + '\n');
+                    return;
+                }
+                try {
+                    const response = await options.answer(frame, deviceId, connectionId);
+                    if (!trusted(grant, options.currentCrypto())) {
+                        stream.end('desktop device is no longer trusted');
+                        return;
+                    }
+                    if (response !== undefined) await stream.write(JSON.stringify(response) + '\n');
+                } catch (error) {
+                    const value = error as { code?: unknown };
+                    await stream.write(JSON.stringify({
+                        type: 'result', requestId: frame.requestId, ok: false,
+                        error: error instanceof Error ? error.message : String(error),
+                        ...(typeof value.code === 'string' ? { code: value.code } : {}),
+                    }) + '\n');
+                }
+            });
+        }
+        return work;
+    };
+    try { await ended; }
+    finally { options.onDesktopConnection?.(connectionId, false); }
 }
 
 /**

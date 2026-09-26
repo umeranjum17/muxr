@@ -57,7 +57,8 @@ export interface HostOptions {
 export interface Host {
     close: () => Promise<void>;
     /** The host's reply to one client frame, for a transport that returns replies itself (the link). */
-    answer: (frame: ClientFrame, authenticatedSenderId: string) => Promise<HostFrame | undefined>;
+    answer: (frame: ClientFrame, authenticatedSenderId: string, connectionId?: string) => Promise<HostFrame | undefined>;
+    setLinkDesktopConnection: (connectionId: string, active: boolean) => void;
     canView: (frame: ClientFrame) => boolean;
     /** Every frame the relay transport broadcasts to all clients, for a second transport to broadcast too. */
     onBroadcast: (listener: (frame: HostFrame) => void) => void;
@@ -264,10 +265,14 @@ export function startHost(options: HostOptions): Host {
 
     return {
         canView: (frame) => frame.type === 'client.hello' || viewOnlyRequestAllowed(frame as ClientRequest, source),
-        answer: async (frame, authenticatedSenderId) => {
-            const response = await answerFrame(frame, authenticatedSenderId);
+        answer: async (frame, authenticatedSenderId, connectionId) => {
+            const response = await answerFrame(frame, authenticatedSenderId, connectionId);
             if (frame.type === 'client.hello') source.resendCumulativeState?.();
             return response;
+        },
+        setLinkDesktopConnection: (connectionId, active) => {
+            if (active) activeDesktopConnections.add(connectionId);
+            else activeDesktopConnections.delete(connectionId);
         },
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
         refreshLinkEnrolment,
