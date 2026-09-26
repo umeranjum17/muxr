@@ -3,10 +3,8 @@ import { Platform } from 'react-native';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
-import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from './hostedE2ee';
 import { linkPairMachineName, pairOverLink } from './hostedE2ee';
 import { looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
-import { getCachedConnectionSettings } from '@/connection';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
 import { deliverScannedPairingLink } from './deliverScannedPairing';
@@ -27,41 +25,7 @@ export function useHostedPairing() {
                 await pairLinkOffer(url.trim(), auth);
                 return;
             }
-            const prepared = prepareHostedPairingInput(url);
-            const switching = getCachedConnectionSettings().machineId !== '';
-            const browserAuthority = hostedPairingAuthority(prepared);
-            const approved = await Modal.confirm(
-                `Pair with ${hostedPairingDisplayName(prepared)}?`,
-                (Platform.OS === 'web'
-                    ? `This browser receives ${browserAuthority === 'control' ? 'full terminal and agent control' : 'view-only access'} for eight hours (30 days for a personal browser). Machine keys stay end-to-end encrypted with WebCrypto in this browser.\n\nOnly continue if you just ran ${browserAuthority === 'control' ? '`muxr pair --browser` or `muxr pair --browser-personal`' : '`muxr pair --browser-view`'} there.`
-                    : 'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran `muxr setup` or `muxr pair` there.')
-                + (switching
-                    ? '\n\nThis device is already paired to another machine — pairing switches the active connection to this one. The previous pairing stays saved and you can switch back from Settings.'
-                    : ''),
-                { confirmText: 'Pair' },
-            );
-            if (!approved) return;
-            const paired = await pairMachine({ url: prepared });
-            if (!paired.ok && paired.reason === 'voice-pinned') {
-                const switchApproved = await Modal.confirm(
-                    'End voice and switch?',
-                    'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
-                    { confirmText: 'End voice and switch', destructive: true },
-                );
-                if (!switchApproved) return;
-                const retried = await pairMachine({ grant: paired.grant, endVoiceIfPinned: true });
-                if (!retried.ok) {
-                    Modal.alert('Pairing failed', retried.reason === 'failed' ? retried.message ?? 'Pairing failed' : 'Pairing failed');
-                    return;
-                }
-                await auth.login(retried.credential, retried.secretKey);
-                return;
-            }
-            if (!paired.ok) {
-                Modal.alert('Pairing failed', paired.message ?? 'Pairing failed');
-                return;
-            }
-            await auth.login(paired.credential, paired.secretKey);
+            Modal.alert('Pairing code expired', 'This pairing code is from an older muxr. Update muxr on both devices, run `muxr pair` on the computer, then scan its new link code.');
         } catch (error) {
             Modal.alert('Pairing failed', error instanceof Error ? error.message : String(error));
         } finally {

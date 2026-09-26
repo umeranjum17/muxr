@@ -37,7 +37,7 @@ function NotAuthenticated() {
     React.useEffect(() => {
         if (pairing.current) return;
         pairing.current = true;
-        void resumePendingHostedPairing(hosted).then(async (grant) => {
+        void resumePendingHostedPairing().then(async (grant) => {
             if (grant === undefined) return;
             await saveConnectionSettings({
                 ...getCachedConnectionSettings(),
@@ -51,7 +51,7 @@ function NotAuthenticated() {
         }).catch((error) => {
             Modal.alert('Pairing paused', error instanceof Error ? error.message : String(error));
         }).finally(() => { pairing.current = false; });
-    }, [auth, hosted]);
+    }, [auth]);
 
     // One mark, in a soft halo. The hero previously stacked glyph.png (upscaled
     // from a small source, hence the blur) above the wordmark saying the same

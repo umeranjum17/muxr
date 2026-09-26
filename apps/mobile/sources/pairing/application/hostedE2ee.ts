@@ -1,18 +1,11 @@
-import deepEqual from 'fast-deep-equal';
 import { Platform } from 'react-native';
+import { DeviceLink } from '@byokit/link';
+import { deriveLinkGrant } from '../infrastructure/linkGrant';
 import {
-    deriveV2Key,
     generateKeyPair,
-    newV2SenderState,
-    openPairingCodePayload,
-    pairingCodeHash,
-    sealV2,
-    verifyDeviceGrant,
     type DeviceGrant,
     type KeyPair,
-    type SealedDeviceGrant,
 } from '@muxr/crypto';
-import { relayControlUrl } from '@muxr/contract';
 import {
     b64url,
     claimLinkPairing,
@@ -27,13 +20,7 @@ import {
 import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from '../infrastructure/webSecureStore';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '../infrastructure/nativeSecretStore';
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
-import {
-    expandCompactPairingPayload,
-    hostedPairingDisplayName,
-    pairingSearchParams,
-    prepareHostedPairingInput,
-} from '../domain/pairingString';
-import { acceptVerifiedGrant, grantRejectsDowngrade, type DeviceAuthority } from '../domain/hostedGrant';
+import { grantRejectsDowngrade } from '../domain/hostedGrant';
 import { restoreConnection } from './restoreConnection';
 
 export { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, looksLikeLinkOffer, prepareHostedPairingInput } from '../domain/pairingString';
@@ -157,60 +144,10 @@ export async function removeHostedGrant(machineId: string): Promise<StoredHosted
 async function saveHostedGrant(grant: StoredHostedGrant): Promise<void> {
     const all = await grants();
     const existing = all[grant.machineId];
-    if (existing !== undefined && grantRejectsDowngrade(existing.keyVersion, grant.keyVersion)) throw new Error('pairing grant downgrade rejected');
+    if (existing !== undefined && existing.credential === '' && grantRejectsDowngrade(existing.keyVersion, grant.keyVersion)) throw new Error('pairing grant downgrade rejected');
     all[grant.machineId] = grant;
     await secretSet(grantKey(grant.machineId), JSON.stringify(grant));
     await secretSet(GRANTS_INDEX, JSON.stringify(Object.keys(all)));
-}
-
-export async function refreshHostedGrant(
-    machineId: string,
-    credential = '',
-    relayUrl = '',
-    controlRelayUrlOverride = '',
-): Promise<StoredHostedGrant | undefined> {
-    const current = await loadHostedGrant(machineId);
-    if (current === undefined) return undefined;
-    const activeCredential = credential.trim() || current.credential;
-    const candidateRelay = relayUrl.trim() || current.relayUrl;
-    try {
-        const result = await json(
-            relayControlUrl(controlRelayUrlOverride.trim() || candidateRelay),
-            `/v1/machines/${encodeURIComponent(machineId)}/grant`,
-            {
-                headers: { authorization: `Bearer ${activeCredential}` },
-            },
-        );
-        const sealed = JSON.parse(String(result.grant)) as SealedDeviceGrant;
-        const verified = verifyDeviceGrant(sealed, {
-            pinnedMachineSigningPublicKey: current.machineSigningPublicKey,
-            deviceKey: current.deviceKey,
-            deviceId: current.deviceId,
-        });
-        if (verified.machineId !== machineId || grantRejectsDowngrade(current.keyVersion, verified.keyVersion)) throw new Error('machine grant downgrade rejected');
-        const next: StoredHostedGrant = {
-            ...verified,
-            deviceKey: current.deviceKey,
-            machineBoxPublicKey: sealed.sender,
-            credential: activeCredential,
-            // A discovered endpoint becomes durable only after it returns a
-            // grant verified by the machine key already pinned on this device.
-            relayUrl: candidateRelay,
-            ...(current.machineName === undefined ? {} : { machineName: current.machineName }),
-            ...(current.source === undefined ? {} : { source: current.source }),
-        };
-        // Every dial refreshes; an unchanged grant costs no secure-store writes.
-        if (!deepEqual(next, current)) await saveHostedGrant(next);
-        return next;
-    } catch {
-        // Offline startup may use the last valid grant. Keep the freshly
-        // authenticated device credential so a later key refresh can recover.
-        const fallback = activeCredential === current.credential
-            ? current
-            : { ...current, credential: activeCredential };
-        if (fallback !== current) await saveHostedGrant(fallback);
-        return fallback;
-    }
 }
 
 /** Restore an active pairing from secure storage; the grant, not discovery or AsyncStorage, owns authority. */
@@ -230,54 +167,30 @@ export async function restoreHostedConnection(): Promise<StoredHostedGrant | und
     return result.grant;
 }
 
-/** Verify a discovered locator with the stored grant before switching the active transport. */
+/** A discovered locator becomes durable only after the pinned link key accepts it. */
 export async function reconnectViaDiscoveredRelay(machineId: string, relayUrl: string): Promise<boolean> {
     const settings = getCachedConnectionSettings();
     if (settings.mode !== 'hosted' || settings.machineId !== machineId || settings.relayUrl === relayUrl) return false;
-    const verified = await refreshHostedGrant(machineId, '', relayUrl);
-    if (verified?.relayUrl !== relayUrl) return false;
-    await saveConnectionSettings({
-        ...settings,
-        relayUrl,
-        selfhost: verified.source === 'selfhost' ? true : undefined,
-    });
-    return true;
-}
-
-async function json(base: string, path: string, options: RequestInit = {}): Promise<Record<string, any>> {
-    const controller = options.signal === undefined ? new AbortController() : undefined;
-    const timeout = controller === undefined ? undefined : setTimeout(() => controller.abort(), 10_000);
+    const current = await loadHostedGrant(machineId);
+    if (current === undefined) return false;
+    const grant = deriveLinkGrant(current, relayUrl);
+    if (grant === undefined) return false;
+    let complete: (connected: boolean) => void = () => undefined;
+    const online = new Promise<boolean>((resolve) => { complete = resolve; });
+    const link = new DeviceLink(grant, { WebSocket: WebSocket as never, onStatus: (status) => {
+        if (status === 'online') complete(true);
+        if (status === 'removed' || status === 'refused') complete(false);
+    } });
+    const timeout = setTimeout(() => complete(false), 5000);
     try {
-        const response = await fetch(`${base}${path}`, {
-            ...options,
-            signal: options.signal ?? controller?.signal,
-            headers: { 'content-type': 'application/json', ...options.headers },
-        });
-        const body = await response.json() as Record<string, any>;
-        if (response.ok) return body;
-        const message = String(body.error ?? `request failed (${response.status})`);
-        throw new Error(friendlyRelayError(message));
-    } catch (cause) {
-        if (cause instanceof Error && cause.name === 'AbortError') throw new PairingInterrupted(RELAY_TIMEOUT_MESSAGE);
-        throw cause;
+        if (!await online) return false;
+        await saveHostedGrant({ ...current, relayUrl });
+        await saveConnectionSettings({ ...settings, relayUrl });
+        return true;
     } finally {
-        if (timeout !== undefined) clearTimeout(timeout);
+        clearTimeout(timeout);
+        link.stop();
     }
-}
-
-/** A timed-out request or unfinished grant, distinct from a relay refusal. */
-class PairingInterrupted extends Error {}
-const RELAY_TIMEOUT_MESSAGE = 'The relay did not respond. Check the network, then run `muxr doctor` on the machine.';
-const SSH_DROP_MESSAGE = 'The SSH connection dropped. Check the connection, then try again with the same code.';
-
-function friendlyRelayError(message: string): string {
-    if (message === 'invalid_claim') return 'This pairing string is invalid. Create a fresh one on the machine.';
-    if (message === 'invalid_pairing_code') return 'This pairing code is invalid or was already used. Create a fresh one on the machine.';
-    if (message === 'pairing_code_expired') return 'This pairing code expired. Create a fresh one on the machine.';
-    if (message === 'already_claimed') return 'This pairing string was already used. Create a fresh one on the machine.';
-    if (message === 'expired') return 'This pairing string expired. Create a fresh one on the machine.';
-    if (message === 'wrong_device_kind') return 'This pairing link is for a different client type. Generate a fresh link from the muxr menu.';
-    return message;
 }
 
 function hostedDeviceName(): string {
@@ -286,113 +199,10 @@ function hostedDeviceName(): string {
     return 'Browser';
 }
 
-interface PendingHostedPair {
-    pairId?: string;
-    controlBase: string;
-    grantPath: string;
-    completePath?: string;
-    deviceCredential: string;
-    deviceId: string;
-    machineId: string;
-    machineSigningPublicKey: string;
-    relayUrl: string;
-    machineName: string;
-    expectedAuthority?: 'control' | 'observe';
-    source?: 'selfhost';
-}
-
-async function completePendingHostedPair(pending: PendingHostedPair, wait: boolean, resumable = false): Promise<StoredHostedGrant | undefined> {
-    const keys = await getOrCreateHostedDeviceKey();
-    let sealed: SealedDeviceGrant | undefined;
-    const deadline = wait ? Date.now() + 5 * 60_000 : Date.now();
-    do {
-        for (const path of [pending.grantPath, `/v1/machines/${encodeURIComponent(pending.machineId)}/grant`]) {
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 3000);
-            try {
-                const result = await json(pending.controlBase, path, {
-                    headers: { authorization: `Bearer ${pending.deviceCredential}` },
-                    signal: controller.signal,
-                });
-                sealed = JSON.parse(String(result.grant)) as SealedDeviceGrant;
-                break;
-            } catch (error) {
-                if (error instanceof Error && (error.name === 'AbortError' || error instanceof TypeError)) {
-                    if (!wait) return undefined;
-                    if (resumable) throw new PairingInterrupted(SSH_DROP_MESSAGE);
-                    continue;
-                }
-                if (!(error instanceof Error) || (error.message !== 'grant_not_available' && error.message !== 'not_found')) throw error;
-            } finally {
-                clearTimeout(timeout);
-            }
-        }
-        if (sealed !== undefined || !wait) break;
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-    } while (Date.now() < deadline);
-    if (sealed === undefined) {
-        if (!wait) return undefined;
-        throw new PairingInterrupted('the machine did not finish the secure grant; pairing will resume when muxr opens again');
-    }
-    const verified = verifyDeviceGrant(sealed, {
-        pinnedMachineSigningPublicKey: pending.machineSigningPublicKey,
-        deviceKey: keys,
-        deviceId: pending.deviceId,
-    });
-    const accepted = acceptVerifiedGrant({
-        verifiedMachineId: verified.machineId,
-        pendingMachineId: pending.machineId,
-        verifiedAuthority: verified.authority as DeviceAuthority | undefined,
-        expectedAuthority: pending.expectedAuthority,
-        platform: Platform.OS,
-    });
-    if (!accepted.ok && accepted.error === 'machine-substitution') throw new Error('pairing machine substitution rejected');
-    if (!accepted.ok) throw new Error('pairing authority substitution rejected');
-    const authority = accepted.authority;
-    const stored: StoredHostedGrant = {
-        ...verified,
-        authority,
-        deviceKey: keys,
-        machineBoxPublicKey: sealed.sender,
-        credential: pending.deviceCredential,
-        relayUrl: pending.relayUrl,
-        machineName: pending.machineName,
-        ...(pending.source === undefined ? {} : { source: pending.source }),
-    };
-    await saveHostedGrant(stored);
-    const [persisted, persistedIndex] = await Promise.all([
-        secretGet(grantKey(stored.machineId)),
-        secretGet(GRANTS_INDEX),
-    ]);
-    let indexed = false;
-    try { indexed = persistedIndex !== null && (JSON.parse(persistedIndex) as unknown[]).includes(stored.machineId); }
-    catch { indexed = false; }
-    if (persisted === null || (JSON.parse(persisted) as StoredHostedGrant).deviceId !== stored.deviceId || !indexed) {
-        throw new Error('browser pairing could not be verified in durable storage; reload to recover or pair again');
-    }
-    if (pending.completePath !== undefined) {
-        await json(pending.controlBase, pending.completePath, {
-            method: 'POST',
-            headers: { authorization: `Bearer ${pending.deviceCredential}` },
-        });
-    }
-    await secretDelete(PENDING_PAIR_KEY);
-    return stored;
-}
-
-/** Resume a claim that survived an app/process restart. */
-export async function resumePendingHostedPairing(includeLegacy = true): Promise<StoredHostedGrant | undefined> {
-    const linkPending = await secretGet(PENDING_LINK_PAIR_KEY);
-    if (linkPending !== null) return resumePendingLinkPairing();
-    if (!includeLegacy) return undefined;
-    const raw = await secretGet(PENDING_PAIR_KEY);
-    if (raw === null) return undefined;
-    const pending = JSON.parse(raw) as PendingHostedPair;
-    if (pending.source === 'selfhost') {
-        await secretDelete(PENDING_PAIR_KEY);
-        return undefined;
-    }
-    return completePendingHostedPair(pending, false);
+/** Only an in-flight link offer can resume; old relay claims cannot. */
+export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | undefined> {
+    const pending = await secretGet(PENDING_LINK_PAIR_KEY);
+    return pending === null ? undefined : resumePendingLinkPairing();
 }
 
 interface PendingLinkPair {
@@ -489,207 +299,6 @@ async function storeProvenLinkGrant(answer: LinkPairAnswer, key: { publicKey: Ui
     };
     await saveHostedGrant(stored);
     return stored;
-}
-
-/**
- * Direct SSH retry state, by code hash. Keep the resume key before lookup so
- * a lost committed lookup reply can be requested again. Cache the opened
- * payload only in memory; a claim acknowledged by the phone separately persists
- * its pending credential for grant retrieval. The relay permits a lost claim
- * reply to be retried with this key and the same device key, issuing a fresh
- * credential. Its pairing window and fetched-grant cutoff govern both repeats;
- * an older relay instead refuses a spent code.
- */
-const resumablePairings = new Map<string, { resumeKey: string; url?: string; expiresAt?: number }>();
-/** The window an older relay answers without `expires_in`: its pair-session TTL. */
-const PAIR_SESSION_WINDOW_S = 120;
-
-async function resolvePairingCode(value: string, hold?: (codeHash: string) => void): Promise<{ url: string; resumeKey?: string }> {
-    const locator = new URL(value);
-    const code = locator.searchParams.get('pair');
-    if ((locator.protocol !== 'ws:' && locator.protocol !== 'wss:') || code === null) return { url: value };
-    const codeHash = pairingCodeHash(code);
-    let held = hold === undefined ? undefined : resumablePairings.get(codeHash);
-    if (hold !== undefined) {
-        // 256 random bits, as the 43-character base64url form the relay expects.
-        held ??= { resumeKey: generateKeyPair().secretKey.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') };
-        resumablePairings.set(codeHash, held);
-        hold(codeHash);
-    }
-    if (held?.url !== undefined && held.expiresAt! > Date.now()) return { url: held.url, resumeKey: held.resumeKey };
-    if (held?.url !== undefined) {
-        resumablePairings.delete(codeHash);
-        throw new Error(friendlyRelayError('pairing_code_expired'));
-    }
-    const result = await json(relayControlUrl(value), '/v1/selfhost/pair-code', {
-        method: 'POST',
-        body: JSON.stringify({ code_hash: codeHash, ...(held === undefined ? {} : { resume_key: held.resumeKey }) }),
-    });
-    if (typeof result.payload !== 'string') throw new Error('pairing code payload is unavailable');
-    const url = `muxr://pair?payload=${openPairingCodePayload(result.payload, code)}`;
-    if (held === undefined) return { url };
-    const expiresIn = typeof result.expires_in === 'number' ? result.expires_in : PAIR_SESSION_WINDOW_S;
-    held.url = url;
-    held.expiresAt = Date.now() + expiresIn * 1000;
-    return { url, resumeKey: held.resumeKey };
-}
-
-/**
- * Consume a QR/code claim and store the verified machine grant in the platform secret store.
- * `resumable` (Direct SSH) lets a retry of an interrupted code resume; see `resumablePairings`.
- */
-export async function claimHostedPairing(url: string, options: { resumable?: boolean } = {}): Promise<StoredHostedGrant> {
-    if (/^wss?:\/\//i.test(url) || /\/pair\?pair=/.test(url)) {
-        throw new Error('This pairing code is from an older muxr. Run `muxr pair` again for a link offer.');
-    }
-    let held: string | undefined;
-    try {
-        const grant = await claimResolvedPairing(url, options.resumable === true, (codeHash) => { held = codeHash; });
-        if (held !== undefined) resumablePairings.delete(held);
-        return grant;
-    } catch (cause) {
-        // Keep the pairing only when the route dropped; a relay refusal or a
-        // failed verification ends it.
-        const interrupted = cause instanceof PairingInterrupted || cause instanceof TypeError;
-        if (held !== undefined && !interrupted) resumablePairings.delete(held);
-        if (options.resumable === true && cause instanceof Error) {
-            if (cause.message === friendlyRelayError('invalid_pairing_code') || cause.message === friendlyRelayError('already_claimed')) {
-                throw new Error('This pairing code cannot be reused. Create a fresh one on the machine (run `muxr pair`).');
-            }
-            if (cause instanceof TypeError || (cause instanceof PairingInterrupted && cause.message === RELAY_TIMEOUT_MESSAGE)) {
-                throw new PairingInterrupted(SSH_DROP_MESSAGE);
-            }
-        }
-        throw cause;
-    }
-}
-
-async function claimResolvedPairing(url: string, resumable: boolean, hold: (codeHash: string) => void): Promise<StoredHostedGrant> {
-    url = prepareHostedPairingInput(url);
-    const initial = new URL(url);
-    let expectedAuthority = initial.searchParams.get('role');
-    // The relay that answered the code holds the pair session too. Over Direct
-    // SSH it is the tunnel, and the relay the payload advertises may not be
-    // reachable from the phone at all, so the claim goes back the same way.
-    let answeringRelay: string | undefined;
-    let resumeKey: string | undefined;
-    if (expectedAuthority !== null && expectedAuthority !== 'control' && expectedAuthority !== 'observe') {
-        throw new Error('pairing link has an invalid browser role');
-    }
-    if ((initial.protocol === 'https:' || initial.protocol === 'http:') && initial.pathname === '/pair' && initial.searchParams.has('pair')) {
-        const locator = new URL(initial.origin);
-        locator.protocol = initial.protocol === 'https:' ? 'wss:' : 'ws:';
-        locator.searchParams.set('pair', initial.searchParams.get('pair')!);
-        url = prepareHostedPairingInput((await resolvePairingCode(locator.toString())).url);
-    } else if (/^wss?:\/\//i.test(url)) {
-        answeringRelay = url;
-        const resolved = await resolvePairingCode(url, resumable ? hold : undefined);
-        resumeKey = resolved.resumeKey;
-        url = prepareHostedPairingInput(resolved.url);
-    }
-    const isSelfhostLink = url.startsWith('muxr://pair?') || url.startsWith('muxr://pair#');
-    const parsed = new URL(url);
-    const developmentLoopback = typeof __DEV__ !== 'undefined' && __DEV__
-        && parsed.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(parsed.hostname);
-    const allowsPlainHttp = isSelfhostLink || developmentLoopback;
-    if (parsed.protocol !== 'https:' && !allowsPlainHttp) {
-        throw new Error('pairing link must use HTTPS');
-    }
-    // Extract by hand: RN's URL polyfill mishandles non-special schemes, and
-    // deep-link routers may drop #-fragments — self-host links use ? instead.
-    const fragment = pairingSearchParams(url);
-    expandCompactPairingPayload(fragment);
-    const payloadAuthority = fragment.get('authority');
-    if (expectedAuthority === null && (payloadAuthority === 'control' || payloadAuthority === 'observe')) {
-        expectedAuthority = payloadAuthority;
-    }
-    if (fragment.get('v') !== '2') throw new Error('unknown pairing link version');
-    const rawGeneration = fragment.get('generation');
-    const generation = rawGeneration === null ? 1 : Number(rawGeneration);
-    if (!Number.isInteger(generation) || generation < 1) throw new Error('pairing link uses an invalid encryption generation');
-    const pairId = fragment.get('id');
-    const claim = fragment.get('claim');
-    const pairSecret = fragment.get('pair');
-    const machineId = fragment.get('machine');
-    const machineSigningPublicKey = fragment.get('machinePk');
-    const selfhostRelayParam = fragment.get('r');
-    if (selfhostRelayParam !== null) throw new Error('This pairing code is from an older muxr. Run `muxr pair` again for a link offer.');
-    if (![pairId, claim, pairSecret, machineId, machineSigningPublicKey].every((value) => typeof value === 'string' && value.length > 20)) {
-        throw new Error('pairing link is incomplete');
-    }
-    if (selfhostRelayParam !== null) {
-        try { relayControlUrl(selfhostRelayParam); }
-        catch (cause) { throw new Error(cause instanceof Error ? cause.message : 'pairing link has an invalid relay URL'); }
-    }
-    const selfhostRelay = selfhostRelayParam;
-    // Direct links derive the control base from `r`; resolved codes claim through their answering relay.
-    const controlBase = answeringRelay !== undefined ? relayControlUrl(answeringRelay)
-        : selfhostRelay !== null ? relayControlUrl(selfhostRelay) : parsed.origin;
-    if (resumable) {
-        // This device already claimed the pairing before the route dropped:
-        // finish it through the route in use now, not the tunnel that died.
-        const raw = await secretGet(PENDING_PAIR_KEY);
-        const pending = raw === null ? undefined : JSON.parse(raw) as PendingHostedPair;
-        if (pending?.pairId === pairId) {
-            const completed = await completePendingHostedPair({ ...pending, controlBase }, true, true);
-            if (completed !== undefined) return completed;
-        }
-    }
-    const keys = await getOrCreateHostedDeviceKey();
-    const deviceName = hostedDeviceName();
-    const mailbox = sealV2(JSON.stringify({
-        devicePublicKey: keys.publicKey,
-        machineSigningPublicKey,
-        deviceName,
-    }), deriveV2Key(pairSecret!, 'client->host'), {
-        machineId: machineId!,
-        senderId: keys.publicKey,
-        recipientId: machineId!,
-        channel: 'pairing',
-        streamId: pairId!,
-        keyVersion: generation,
-    }, newV2SenderState());
-    const claimPath = selfhostRelay !== null
-        ? `/v1/selfhost/pair-sessions/${encodeURIComponent(pairId!)}/claim`
-        : `/v1/pair-sessions/${encodeURIComponent(pairId!)}/claim`;
-    const issued = await json(controlBase, claimPath, {
-        method: 'POST',
-        body: JSON.stringify({
-            ...(selfhostRelay !== null ? { claim } : { control_claim: claim }),
-            device_public_key: keys.publicKey,
-            device_name: deviceName,
-            device_kind: selfhostRelay !== null && Platform.OS === 'web' ? 'browser' : Platform.OS,
-            mailbox,
-            ...(resumeKey === undefined ? {} : { resume_key: resumeKey }),
-        }),
-    });
-    const deviceCredential = selfhostRelay !== null ? issued.device_credential : issued.access_token;
-    const deviceId = selfhostRelay !== null ? issued.device_id : issued.device?.id;
-    if (typeof deviceCredential !== 'string' || typeof deviceId !== 'string') {
-        throw new Error('pairing claim was already consumed; create a fresh QR on the machine');
-    }
-    const pending: PendingHostedPair = {
-        pairId: pairId!,
-        controlBase,
-        grantPath: selfhostRelay !== null
-            ? `/v1/selfhost/pair-sessions/${encodeURIComponent(pairId!)}/grant`
-            : `/v1/pair-sessions/${encodeURIComponent(pairId!)}/grant`,
-        ...(selfhostRelay !== null && Platform.OS === 'web' ? { completePath: `/v1/selfhost/pair-sessions/${encodeURIComponent(pairId!)}/complete` } : {}),
-        deviceCredential,
-        deviceId,
-        machineId: machineId!,
-        machineSigningPublicKey: machineSigningPublicKey!,
-        relayUrl: selfhostRelay ?? parsed.origin.replace(/^http/i, 'ws'),
-        machineName: hostedPairingDisplayName(url),
-        ...((expectedAuthority === 'control' || expectedAuthority === 'observe') ? { expectedAuthority } : {}),
-        ...(selfhostRelay !== null ? { source: 'selfhost' as const } : {}),
-    };
-    // Persist the issued credential and binding before waiting so a process
-    // death resumes grant retrieval rather than repeating the claim.
-    await secretSet(PENDING_PAIR_KEY, JSON.stringify(pending));
-    const completed = await completePendingHostedPair(pending, true, resumable);
-    if (completed === undefined) throw new Error('the machine did not finish the secure grant');
-    return completed;
 }
 
 export async function clearHostedE2ee(): Promise<void> {

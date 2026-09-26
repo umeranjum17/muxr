@@ -66,7 +66,8 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 const { linkPair: runComputerPairing, pairingIntent, readSelfhostState } = await import('../../setup/index.mjs');
-const { pairOverLink: runPhonePairing, resumePendingHostedPairing, loadHostedGrant } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+const { pairOverLink: runPhonePairing, resumePendingHostedPairing, loadHostedGrant, reconnectViaDiscoveredRelay } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+const { getCachedConnectionSettings, saveConnectionSettings } = await import('../../../apps/mobile/sources/connection/connectionSettings.js');
 
 const repoRoot = join(import.meta.dirname, '../../..');
 const PENDING_LINK_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
@@ -198,7 +199,11 @@ describe('native pairing over the byokit link', () => {
         }
     });
 
-    it('pairs with matching words and carries the full event vocabulary and RPC over the machine link', async () => {
+    it('re-pairs an older phone with matching words and carries all events and RPC over the link', async () => {
+        const machineId = readSelfhostState().machine.id;
+        phone.secure.set('muxr.grants.index', JSON.stringify([machineId]));
+        phone.secure.set(`muxr.grant.${machineId}`, JSON.stringify({ machineId, keyVersion: 5,
+            credential: 'old-relay-credential', deviceId: 'old-device' }));
         let computerWords = '';
         let computerSawName = '';
         const { pairing, offer } = await showPairingQr({
@@ -234,6 +239,17 @@ describe('native pairing over the byokit link', () => {
         const listed = await link.request('client.hello', { type: 'client.hello', clientId: 'link-paired-phone' }) as { type: string };
         expect(listed.type).toBe('session.list');
         link.stop();
+
+        // A discovered locator is accepted only after the pinned host key connects there.
+        const settings = getCachedConnectionSettings();
+        await saveConnectionSettings({ ...settings, mode: 'hosted', machineId: stored.machineId, relayUrl: 'ws://127.0.0.1:1' });
+        try {
+            expect(await reconnectViaDiscoveredRelay(stored.machineId, 'ws://127.0.0.1:2')).toBe(false);
+            expect(await reconnectViaDiscoveredRelay(stored.machineId, `ws://127.0.0.1:${port}`)).toBe(true);
+            expect(getCachedConnectionSettings().relayUrl).toBe(`ws://127.0.0.1:${port}`);
+        } finally {
+            await saveConnectionSettings(settings);
+        }
 
         const client = new LinkFirstClient({
             hostedGrant: stored, requestTimeoutMs: 5_000,
