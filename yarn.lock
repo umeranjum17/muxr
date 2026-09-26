@@ -861,6 +861,13 @@
     sodium-native "5.1.0"
     sodium-universal "5.0.1"
 
+"@byokit/reach@0.1.0":
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.1.0.tgz#01f56f491ef6809171fc33510fb062d2f133f763"
+  integrity sha512-XP3VnKBYMSWHmjTLvXNUD/WUfk+XASFQ05vyYXa1ggznsygQ9M9HCf+AWk/tVxKEKmqSIbYs2koTIM8xqJdREA==
+  dependencies:
+    bonjour-service "^1.4.4"
+
 "@byokit/relay@0.1.3":
   version "0.1.3"
   resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.1.3.tgz#ad762be59999c002b17d9f5c929c9286f1c99d1a"
