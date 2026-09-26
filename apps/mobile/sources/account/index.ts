@@ -1,2 +1,2 @@
 export type { AuthCredentials } from './domain/accountSession';
-export { TokenStorage } from './application/tokenStorage';
+export { TokenStorage } from './infrastructure/tokenStorage';

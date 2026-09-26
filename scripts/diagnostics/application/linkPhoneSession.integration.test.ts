@@ -10,7 +10,7 @@ import { generateKeyPair, generateSigningKeyPair } from '@muxr/crypto';
 import { startRelay } from '@muxr/relay';
 import { LinkEndpoint } from '../../../apps/host/src/machine/infrastructure/linkEndpoint.js';
 import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
-import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
+import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/linkPairing.js';
 import type { MachineCryptoState } from '../../../apps/host/src/machine/domain/crypto.js';
 
 const cleanups: Array<() => void | Promise<void>> = [];

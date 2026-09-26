@@ -1,3 +1,5 @@
+import { encodeBase64 } from '@/encryption/base64';
+import type { StoredHostedGrant } from '../application/linkPairing';
 import {
     DeviceLink,
     LinkError,
@@ -37,7 +39,43 @@ export interface LinkPairAnswer {
 }
 
 export type { LinkDeviceGrant };
-export { LinkError, LINK_WORDS, b64url, keyPairFrom, linkKeyPair, unb64url };
+export function newPairingSecretKey(): string {
+    return b64url(linkKeyPair().secretKey);
+}
+
+export function pairingFailure(cause: unknown): { message: string; discard: boolean } {
+    const message = cause instanceof LinkError && cause.code in LINK_WORDS
+        ? LINK_WORDS[cause.code] : cause instanceof Error ? cause.message : String(cause);
+    return { message, discard: message === 'Your computer said no to this device.' || message.includes('run out') };
+}
+
+export function provenLinkGrant(answer: LinkPairAnswer, key: { publicKey: Uint8Array; secretKey: Uint8Array }): StoredHostedGrant {
+    const deviceKey = {
+        publicKey: encodeBase64(key.publicKey),
+        secretKey: encodeBase64(key.secretKey),
+    };
+    return {
+        machineId: answer.machineId,
+        machineSigningPublicKey: '',
+        deviceId: answer.deviceId,
+        devicePublicKey: deviceKey.publicKey,
+        keyVersion: 1,
+        expiresAt: answer.expiresAt,
+        authority: answer.authority,
+        deviceKey,
+        machineBoxPublicKey: encodeBase64(unb64url(answer.machineBoxPublicKey)),
+        credential: '',
+        dataKey: '',
+        ingressKey: '',
+        relayUrl: answer.relayUrl,
+        machineName: answer.machineName,
+        source: 'selfhost',
+    };
+}
+
+export function isBrowserLinkOffer(scanned: string): boolean {
+    return /^https:\/\/[^#]+\/pair#byokit-link:1:/.test(scanned);
+}
 
 /** The machine display name for consent, parsed for display only; the pairing itself re-validates. */
 export function linkOfferName(scanned: string, deviceName: string): string | undefined {

@@ -35,7 +35,7 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 | Watch Agent lifecycle on this machine | `watch/watchAgentLifecycle.ts` | Agent Watch | `catalog/application/sync.ts` bootstrap |
 | Report an Agent outcome | `watch/reportAgentOutcome.ts` | Voice Report | `watch/wakeAndReport.ts`, product agent-stop trigger in `plugins/application/usePluginEvents.ts` |
 | Bind this device to a machine | `pairing/application/PairMachine.ts` | Pairing String, Hosted Grant, PairedMachine | `usePairing.ts`, `app/(app)/pair.tsx` |
-| Restore a paired connection | `pairing/application/restoreConnection.ts` | Hosted Grant, Connection | `hostedE2ee.ts` (`restoreHostedConnection`) |
+| Restore a paired connection | `pairing/application/restoreConnection.ts` | Hosted Grant, Connection | `linkPairing.ts` (`restoreHostedConnection`) |
 | Forget a pairing on this device | `pairing/application/forgetMachine.ts` | Hosted Grant | `SettingsView.tsx` |
 | Focus the Agent for voice | `conversation/application/focusAgent.ts` | Desk Focus, Agent | `realtimeSessionState.ts` (`resolveRealtimeTarget`), `startRealtimeCapability.ts` |
 | Start a realtime conversation | `conversation/application/startRealtimeConversation.ts` | Mic Ownership | `realtimeSessionState.ts` (`startRealtimeSession`), `realtimeActions.ts`, product shortcut `voice.start` |

@@ -20,7 +20,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import { waitForRelay } from './waitForRelay.mjs';
 import { linkPair, machineLinkUrl, readSelfhostState } from '../../setup/index.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
-import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
+import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/linkPairing.js';
 
 interface Phone { os: 'android' | 'ios'; secure: Map<string, string>; local: Map<string, string> }
 
@@ -181,7 +181,7 @@ async function launchApp(phone: Phone) {
             removeItem: async (key: string) => { phone.local.delete(key); },
         },
     }));
-    const hosted = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+    const hosted = await import('../../../apps/mobile/sources/pairing/application/linkPairing.js');
     return {
         ...hosted,
         /** The machine link the way the session layer dials it: derived from the stored grant. */

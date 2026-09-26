@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from 'react';
 import { Platform } from 'react-native';
 import * as Updates from 'expo-updates';
-import { TokenStorage, type AuthCredentials } from '../application/tokenStorage';
+import { TokenStorage, type AuthCredentials } from '../infrastructure/tokenStorage';
 import { sync, syncCreate } from '@/catalog/sync';
 import { clearPersistence } from '@/catalog';
 import { clearHostedE2ee } from '@/pairing/e2ee';

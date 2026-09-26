@@ -87,7 +87,7 @@ vi.mock('@/pairing/infrastructure/linkGrant', () => ({
             secretKey: grant.machineId,
             host: 'bWFjaGluZUJveEtleQ',
             hostName: 'Desk',
-            urls: [`${grant.relayUrl.replace(/^ws/, 'ws')}/link/v1/cloud`],
+            urls: [`${grant.relayUrl}/link/v1/cloud`],
             device: { id: '', name: 'Phone', role: 'control' as const },
         };
     },

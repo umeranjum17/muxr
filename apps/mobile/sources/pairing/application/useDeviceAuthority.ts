@@ -1,33 +1,25 @@
 import * as React from 'react';
-import { Platform } from 'react-native';
+import { deviceAuthority, initialDeviceAuthority, loadDeviceAuthorityGrants } from '../infrastructure/pairingPlatform';
 import { useSocketStatus } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
-import { currentDeviceAuthority, listPairedGrants } from './hostedE2ee';
 
 export type DeviceAuthority = 'control' | 'observe';
 
 export function useDeviceAuthority(): { authority: DeviceAuthority; loading: boolean } {
     const { status: socketStatus } = useSocketStatus();
     const connection = getCachedConnectionSettings();
-    const [state, setState] = React.useState<{ authority: DeviceAuthority; loading: boolean }>(() => ({
-        authority: currentDeviceAuthority(),
-        loading: Platform.OS === 'web',
-    }));
+    const [state, setState] = React.useState<{ authority: DeviceAuthority; loading: boolean }>(() => initialDeviceAuthority(connection.machineId));
 
     React.useEffect(() => {
-        if (Platform.OS !== 'web') {
-            setState({ authority: 'control', loading: false });
-            return;
-        }
         let cancelled = false;
-        void listPairedGrants().then((grants) => {
+        void loadDeviceAuthorityGrants().then((grants) => {
             if (cancelled) return;
             setState({
-                authority: grants.find((grant) => grant.machineId === connection.machineId)?.authority ?? 'observe',
+                authority: deviceAuthority(connection.machineId, grants.find((grant) => grant.machineId === connection.machineId)),
                 loading: false,
             });
         }).catch(() => {
-            if (!cancelled) setState({ authority: 'observe', loading: false });
+            if (!cancelled) setState({ authority: deviceAuthority(connection.machineId, undefined), loading: false });
         });
         return () => { cancelled = true; };
     }, [connection.machineId, socketStatus]);

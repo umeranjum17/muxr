@@ -1,5 +1,5 @@
-import { hostId, unb64url, type DeviceGrant } from '@byokit/link';
-import type { StoredHostedGrant } from '../application/hostedE2ee';
+import { DeviceLink, hostId, unb64url, type DeviceGrant } from '@byokit/link';
+import type { StoredHostedGrant } from '../application/linkPairing';
 
 /** byokit keys are base64url; the stored grant keeps the same bytes as plain base64. */
 const toBase64Url = (value: string): string => value.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -31,5 +31,23 @@ export function deriveLinkGrant(grant: StoredHostedGrant | undefined, relayUrl?:
         };
     } catch {
         return undefined;
+    }
+}
+
+/** Probe a discovered address with the pinned host key before persisting it. */
+export async function probeDiscoveredRelay(stored: StoredHostedGrant, relayUrl: string): Promise<boolean> {
+    const grant = deriveLinkGrant(stored, relayUrl);
+    if (grant === undefined) return false;
+    let complete: (connected: boolean) => void = () => undefined;
+    const online = new Promise<boolean>((resolve) => { complete = resolve; });
+    const link = new DeviceLink(grant, { WebSocket: WebSocket as never, onStatus: (status) => {
+        if (status === 'online') complete(true);
+        if (status === 'removed' || status === 'refused') complete(false);
+    } });
+    const timeout = setTimeout(() => complete(false), 5000);
+    try { return await online; }
+    finally {
+        clearTimeout(timeout);
+        link.stop();
     }
 }

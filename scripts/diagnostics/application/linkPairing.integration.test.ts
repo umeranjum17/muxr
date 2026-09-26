@@ -4,7 +4,7 @@
  * The `muxr pair` side runs in this process through the real `linkPair`:
  * the running machine's owner-only pairing socket, with approval answered
  * here the way the terminal prompt answers it. The phone
- * side runs through the real `pairOverLink` (hostedE2ee) against the same
+ * side runs through the real `pairOverLink` (linkPairing) against the same
  * relay, with its secure store mocked. The machine is the real self-host host
  * process, which enrols the phone from the device record the CLI wrote.
  *
@@ -30,7 +30,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { waitForRelay } from './waitForRelay.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
-import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
+import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/linkPairing.js';
 import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
 import { claimLinkPairing } from '../../../apps/mobile/sources/pairing/infrastructure/linkPairClient.js';
 import { SESSION_EVENT_TYPES, type SessionEvent } from '@muxr/contract';
@@ -67,7 +67,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 const { linkPair: runComputerPairing, pairingIntent, readSelfhostState } = await import('../../setup/index.mjs');
-const { pairOverLink: runPhonePairing, resumePendingHostedPairing, loadHostedGrant, reconnectViaDiscoveredRelay } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+const { pairOverLink: runPhonePairing, resumePendingHostedPairing, loadHostedGrant, reconnectViaDiscoveredRelay } = await import('../../../apps/mobile/sources/pairing/application/linkPairing.js');
 const { getCachedConnectionSettings, saveConnectionSettings } = await import('../../../apps/mobile/sources/connection/connectionSettings.js');
 
 const repoRoot = join(import.meta.dirname, '../../..');

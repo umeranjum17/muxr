@@ -5,7 +5,7 @@ import type {
     PeerRequestResult,
     SessionInfo,
 } from '@muxr/contract';
-import { NodePeerClient, type PeerClientTransport, type PeerConnectionDiagnostic } from '../infrastructure/client.js';
+import { createPeerClient, type PeerClientTransport, type PeerConnectionDiagnostic } from '../infrastructure/client.js';
 import { PeerStore, type StoredPeerRelationship, type StoredSemanticMutation } from '../infrastructure/store.js';
 
 type RemotePeerRequest = Extract<PeerClientRequest, { type: `peer.remote.${string}` }>;
@@ -322,15 +322,8 @@ export class OutboundPeerService {
         }
         const existing = this.clients.get(relationship.relationshipId);
         if (existing !== undefined) return existing;
-        const created = this.options.clientFactory?.(relationship) ?? new NodePeerClient({
-            relayUrl: relationship.relayUrl!,
-            machineId: relationship.machineId,
-            peerDeviceId: relationship.peerDeviceId!,
-            peerKey: relationship.peerKey!,
-            pinnedMachineSigningPublicKey: relationship.targetMachineSigningPublicKey!,
-            sealedGrant: relationship.sealedGrant!,
-            ...(this.options.onConnectionDiagnostic === undefined ? {} : { onConnectionDiagnostic: this.options.onConnectionDiagnostic }),
-        });
+        const created = this.options.clientFactory?.(relationship)
+            ?? createPeerClient(relationship, this.options.onConnectionDiagnostic);
         this.clients.set(relationship.relationshipId, created);
         return created;
     }
