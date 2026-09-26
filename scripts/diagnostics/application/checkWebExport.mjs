@@ -131,11 +131,14 @@ if (!existsSync(distIndex)) {
     // 168-byte trip over the old ceiling was the same noise the headroom
     // exists for), so the ceiling re-ratchets with the same ~0.5% headroom.
     // Spaces grouping and localized names measured 3,250,098 B in CI; keep
-    // the same ~0.5% headroom for this required initial-screen change.
+    // the same ~0.5% headroom for this required initial-screen change. The
+    // byokit step-2 phone link migration then measured 3,323,941 B in CI: the
+    // required @byokit/link package pulls its Noise/sodium crypto
+    // (sodium-javascript) into the entry chunk alongside the relay client.
     // The real 2.0 MiB usable-screen target is not reachable until the markdown
     // lazy-split (mermaidBundle) lands and the eager __common chunk stops
     // carrying the diff/mermaid subtrees.
-    const USABLE_GZIP_CEILING = 3267000;
+    const USABLE_GZIP_CEILING = 3341000;
     check(`dist usable gzip ratchet (target 2.0 MiB once lazy-split lands)`, initialGzip <= USABLE_GZIP_CEILING, `${initialGzip} bytes`);
     // The eager common chunk must stay a stub: anything shared between two
     // lazy chunks lands here and loads before the first paint.

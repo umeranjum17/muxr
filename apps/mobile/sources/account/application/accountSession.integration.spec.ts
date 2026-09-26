@@ -73,8 +73,14 @@ vi.mock('@/pairing/e2ee', () => ({
 }));
 vi.mock('@/pairing/infrastructure/muxrClient', () => ({
     MuxrClient: class {
-        state = 'closed';
+        // Every state write notifies listeners, like the real client's setState.
         private listeners: Array<(state: string) => void> = [];
+        private internalState = 'closed';
+        get state(): string { return this.internalState; }
+        set state(value: string) {
+            this.internalState = value;
+            for (const listener of this.listeners) listener(value);
+        }
         private readonly index: number;
         constructor(options: { token?: string; onTicketRejected?: () => void }) {
             this.index = harness.clients.length;
@@ -84,10 +90,7 @@ vi.mock('@/pairing/infrastructure/muxrClient', () => ({
         connect() {
             harness.clientConnects += 1;
             this.state = 'connecting';
-            queueMicrotask(() => {
-                this.state = 'open';
-                for (const listener of this.listeners) listener('open');
-            });
+            queueMicrotask(() => { this.state = 'open'; });
         }
         close() { harness.clientCloses += 1; this.state = 'closed'; }
         isLive() { return this.state === 'open'; }
@@ -96,6 +99,7 @@ vi.mock('@/pairing/infrastructure/muxrClient', () => ({
             harness.eventListeners.push(listener);
             return () => undefined;
         }
+        onPluginsInvalidated() { return () => undefined; }
         async request(type: string) {
             if (type === 'machines.list') {
                 if (harness.blockNextMachines) {
