@@ -32,12 +32,13 @@ import { waitForRelay } from './waitForRelay.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
 import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
 import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
+import { parsePairingString } from '../../../apps/mobile/sources/pairing/domain/pairingString.js';
 
 const home = mkdtempSync(join(tmpdir(), 'muxr-link-pairing-'));
 process.env.MUXR_HOME = home;
 const children = new Set<ChildProcess>();
 
-const phone = vi.hoisted(() => ({ secure: new Map<string, string>(), local: new Map<string, string>(), platform: 'android' as 'android' | 'web' }));
+const phone = vi.hoisted(() => ({ secure: new Map<string, string>(), web: new Map<string, string>(), local: new Map<string, string>(), platform: 'android' as 'android' | 'web' }));
 
 vi.mock('react-native', () => ({
     Platform: { get OS() { return phone.platform; } },
@@ -49,6 +50,12 @@ vi.mock('expo-secure-store', () => ({
     setItemAsync: async (key: string, value: string) => { phone.secure.set(key, value); },
     deleteItemAsync: async (key: string) => { phone.secure.delete(key); },
 }));
+vi.mock('../../../apps/mobile/sources/pairing/infrastructure/webSecureStore.js', () => ({
+    getWebSecret: async (key: string) => phone.web.get(key) ?? null,
+    setWebSecret: async (key: string, value: string) => { phone.web.set(key, value); },
+    deleteWebSecret: async (key: string) => { phone.web.delete(key); },
+    listWebSecretNames: async () => [...phone.web.keys()],
+}));
 vi.mock('@react-native-async-storage/async-storage', () => ({
     default: {
         getItem: async (key: string) => phone.local.get(key) ?? null,
@@ -57,7 +64,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     },
 }));
 
-const { linkPair: runComputerPairing, readSelfhostState } = await import('../../setup/index.mjs');
+const { linkPair: runComputerPairing, pairingIntent, readSelfhostState } = await import('../../setup/index.mjs');
 const { pairOverLink: runPhonePairing, resumePendingHostedPairing } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
 
 const repoRoot = join(import.meta.dirname, '../../..');
@@ -112,6 +119,7 @@ async function startMachine(): Promise<void> {
             machine: { ...machineIdentity(undefined), name: 'Desk' },
             relayPort: port,
             relayUrl: `ws://127.0.0.1:${port}`,
+            webOrigin: `https://127.0.0.1:${port}`,
             relayLocation: 'local',
             relayRole: 'single-machine',
             connectionMode: 'lan',
@@ -130,6 +138,7 @@ interface ComputerPairingOptions {
     signal?: AbortSignal;
     /** Shortened pairing window for the expiry scenario. */
     pairMs?: number;
+    intent?: ReturnType<typeof pairingIntent>;
 }
 
 /** Starts a computer pairing and resolves once its QR is on screen. */
@@ -143,7 +152,7 @@ async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>): P
     options = { ...options, signal: controller.signal };
     const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { out += String(chunk); return true; });
     const pairing = runComputerPairing(readSelfhostState(), options).finally(() => spy.mockRestore());
-    const offer = await until(() => /byokit-link:1:[A-Za-z0-9_-]+/.exec(out)?.[0], 'pairing offer on screen');
+    const offer = await until(() => /(?:https?:\/\/[^\s]+\/pair#)?byokit-link:1:[A-Za-z0-9_-]+/.exec(out)?.[0], 'pairing offer on screen');
     return {
         pairing,
         offer,
@@ -239,11 +248,39 @@ describe('native pairing over the byokit link', () => {
     }, 90_000);
 
 
+    it('pairs a view-only browser over the link and limits its lifetime', async () => {
+        phone.platform = 'web';
+        try {
+            let computerWords = '';
+            let browserWords = '';
+            const { pairing, offer } = await showPairingQr({
+                intent: pairingIntent({ kind: 'browser', authority: 'observe' }),
+                approve: (request) => { computerWords = request.words; return true; },
+            });
+            expect(offer).toMatch(/^https:\/\/[^#]+\/pair#byokit-link:1:/);
+            expect(parsePairingString(offer)).toMatchObject({ ok: true, pairing: { authority: 'observe', displayName: 'Desk' } });
+            const stored = await runPhonePairing(offer, { onWords: (words) => { browserWords = words; } });
+            await pairing;
+            expect(browserWords).toBe(computerWords);
+            expect(stored.authority).toBe('observe');
+            expect(stored.expiresAt).toBeGreaterThan(Date.now() + 7 * 60 * 60_000);
+            expect(stored.expiresAt).toBeLessThan(Date.now() + 9 * 60 * 60_000);
+            const record = readSelfhostState().machine.crypto.devices.find((entry) => entry.deviceId === stored.deviceId);
+            expect(record).toMatchObject({ kind: 'browser', authority: 'observe' });
+            expect(phone.web.has(`muxr.grant.${stored.machineId}`)).toBe(true);
+            const client = new LinkFirstClient({ hostedGrant: stored });
+            client.connect();
+            await until(() => client.isLive() ? true : undefined, 'browser machine link');
+            await expect(client.request('machines.list', {})).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Desk' })]));
+            client.close();
+        } finally { phone.platform = 'android'; }
+    });
+
     it('pairs nothing when the person at the computer declines', async () => {
         const { pairing, offer, abort } = await showPairingQr({ approve: async () => false });
         await expect(runPhonePairing(offer)).rejects.toThrow('Your computer said no to this device.');
         const state = readSelfhostState();
-        expect(state.machine.crypto.devices).toHaveLength(1); // only the first pairing's record
+        expect(state.machine.crypto.devices).toHaveLength(2); // only the successful phone and browser pairings
         await abort();
         await expect(pairing).rejects.toThrow('cancelled');
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
@@ -275,7 +312,7 @@ describe('native pairing over the byokit link', () => {
     it('lists and revokes a link-paired phone with relay fallback', async () => {
         const state = readSelfhostState();
         const paired = state.machine.crypto.devices;
-        expect(paired).toHaveLength(2);
+        expect(paired).toHaveLength(3);
         const target = paired[0]!;
         const listing = launch([join(repoRoot, 'scripts/cli.mjs'), 'devices', 'list']);
         await until(() => (listing.exitCode === null ? undefined : listing.exitCode), 'devices list finishes');

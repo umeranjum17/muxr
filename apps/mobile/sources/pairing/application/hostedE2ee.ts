@@ -44,7 +44,7 @@ import {
 import { acceptVerifiedGrant, grantRejectsDowngrade, type DeviceAuthority } from '../domain/hostedGrant';
 import { restoreConnection } from './restoreConnection';
 
-export { hostedPairingAuthority, hostedPairingDisplayName, looksLikeLinkOffer, prepareHostedPairingInput } from '../domain/pairingString';
+export { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, looksLikeLinkOffer, prepareHostedPairingInput } from '../domain/pairingString';
 
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
 const REPLAY_KEY = 'muxr.hosted-e2ee.replay.v2';
@@ -481,7 +481,9 @@ interface PendingLinkPair {
  * death resumes it rather than leaving the computer holding an unused grant.
  */
 export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void } = {}): Promise<StoredHostedGrant> {
-    if (Platform.OS === 'web') throw new Error('Native pairing codes are for phones. Use `muxr pair --browser` on the computer.');
+    if (Platform.OS === 'web' && !/^https:\/\/[^#]+\/pair#byokit-link:1:/.test(scanned)) {
+        throw new Error('Native pairing codes are for phones. Use a fresh browser link from `muxr pair --browser` on the computer.');
+    }
     const secretKey = b64url(linkKeyPair().secretKey);
     const pending: PendingLinkPair = { scanned, name: hostedDeviceName(), secretKey, startedAt: Date.now() };
     await secretSet(PENDING_LINK_PAIR_KEY, JSON.stringify(pending));
@@ -528,8 +530,6 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
         publicKey: Buffer.from(key.publicKey).toString('base64'),
         secretKey: Buffer.from(key.secretKey).toString('base64'),
     };
-    // The durable expiry a native grant carries (scripts/setup DURABLE_GRANT_EXPIRES_AT).
-    const durableExpiry = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
     const stored: StoredHostedGrant = {
         machineId: answer.machineId,
         // The link pins the machine by its box key; the old transport's
@@ -538,8 +538,8 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
         deviceId: answer.deviceId,
         devicePublicKey: deviceKey.publicKey,
         keyVersion: 1,
-        expiresAt: durableExpiry,
-        authority: 'control',
+        expiresAt: answer.expiresAt,
+        authority: answer.authority,
         deviceKey,
         // The byokit link is the only transport: link-paired phones hold no
         // relay credential (desktop moves onto the link with the cutover).
