@@ -24,6 +24,8 @@ export type SessionClient = {
     onStateChange(listener: (state: ConnectionState) => void): () => void;
     onEvent(listener: (sessionId: string, event: SessionEvent) => void): () => void;
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
+    /** True when this client can carry streams and push over the byokit link. */
+    readonly linkCapable?: boolean;
     closeDesktopSignaling?(): void;
     registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
     unregisterPush(): Promise<boolean>;
@@ -51,8 +53,11 @@ function linkRequestFailure(type: RequestType, error: string, code?: string): Mu
 }
 
 export class LinkFirstClient implements SessionClient {
-    private inner: MuxrClient | undefined;
     private link: DeviceLink | undefined;
+    /** The byokit link is the only transport for this client (one-shot migration). */
+    get linkCapable(): boolean {
+        return deriveLinkGrant(this.options.hostedGrant) !== undefined;
+    }
     private online = false;
     private closed = false;
     private lastPush: { token: string; level: LifecycleNotificationLevel } | undefined;
@@ -62,6 +67,8 @@ export class LinkFirstClient implements SessionClient {
     private desktopTransport: DesktopLinkTransport | undefined;
     private desktopOpening: Promise<DesktopLinkTransport | undefined> | undefined;
 
+    /** The byokit link is this client's only transport (one-shot migration). */
+
     constructor(private readonly options: MuxrClientOptions) {}
 
     get state(): ConnectionState {
@@ -69,10 +76,22 @@ export class LinkFirstClient implements SessionClient {
     }
     private stateField: ConnectionState = 'closed';
 
+    private startLink(): void {
+        const grant = deriveLinkGrant(this.options.hostedGrant);
+        process.stderr.write(`DBG startLink: closed=${this.closed} grantOk=${grant !== undefined}\n`);
+        if (this.closed || this.link !== undefined || grant === undefined) return;
+        this.link = new DeviceLink(grant, {
+            timeoutMs: 5_000,
+            onStatus: (status) => this.onLinkStatus(status),
+            onEvent: (event) => this.onLinkEvent(event),
+            onError: () => undefined,
+        });
+        this.setState('connecting');
+    }
+
     connect(): void {
         if (this.closed) return;
-        if (this.inner === undefined) this.startRelay();
-        else this.inner.connect();
+        if (this.link === undefined) this.startLink();
     }
 
     close(): void {
@@ -80,54 +99,29 @@ export class LinkFirstClient implements SessionClient {
         this.desktopTransport?.close();
         this.desktopTransport = undefined;
         this.stopLink();
-        this.inner?.close();
-        this.inner = undefined;
         this.setState('closed');
     }
 
     isLive(): boolean {
-        return this.online || this.inner?.isLive() === true;
+        return this.online;
     }
 
     /** Which transport is serving the session; diagnostics and tests read this. */
-    get transport(): 'link' | 'relay' | 'closed' {
-        if (this.online) return 'link';
-        return this.inner !== undefined ? 'relay' : 'closed';
+    get transport(): 'link' | 'closed' {
+        return this.online ? 'link' : 'closed';
     }
 
     request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
         if (this.closed) return Promise.reject(new Error('not connected'));
         if (type.startsWith('desktop.')) return this.requestViaLink(type, params, timeoutMs);
-        if (!this.online) return this.requestViaRelay(type, params, timeoutMs);
         const link = this.link;
-        if (link === undefined) return this.requestViaRelay(type, params, timeoutMs);
+        if (link === undefined) return Promise.reject(new Error('not connected'));
         const frame = { type, requestId: nextRequestId('rn'), params } as ClientRequest;
         const timeout = timeoutMs ?? this.options.requestTimeoutMs ?? 20_000;
         return link.request(type, frame, { timeoutMs: timeout }).then(
             (value) => this.unwrap(type, value),
             (cause: unknown) => Promise.reject(this.mapLinkFailure(type, cause)),
         );
-    }
-
-    private requestViaRelay<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
-        if (this.closed) return Promise.reject(new Error('not connected'));
-        const relay = this.inner;
-        if (relay === undefined) return Promise.reject(new Error('not connected'));
-        if (relay.isLive()) return relay.request(type, params, timeoutMs);
-        return new Promise<RequestResult<T>>((resolve, reject) => {
-            const finish = () => { clearTimeout(timer); offRelay(); offState(); };
-            const check = () => {
-                if (this.closed) { finish(); reject(new Error('not connected')); return; }
-                if (!this.online && !relay.isLive()) return;
-                finish();
-                const request = this.online ? this.request(type, params, timeoutMs) : relay.request(type, params, timeoutMs);
-                void request.then(resolve, reject);
-            };
-            const timer = setTimeout(() => { finish(); reject(new Error('not connected')); }, timeoutMs ?? 10_000);
-            const offRelay = relay.onStateChange(check);
-            const offState = this.onStateChange(check);
-            check();
-        });
     }
 
     private requestViaLink<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
@@ -336,16 +330,17 @@ export class LinkFirstClient implements SessionClient {
             return;
         }
         // 'removed' covers a revoked device and a host that has not admitted
-        // this device yet; the relay transport, not this client, tells the user
-        // which one it was. 'refused' means nothing answered as our host.
+        // this device yet: terminal with no other transport to fall back to,
+        // so the session layer tears the client down and offers pairing.
         if (status === 'removed' || status === 'refused') {
             this.stopLink();
+            this.setState('stale', true);
             return;
         }
         if (this.online) {
             this.online = false;
-            this.setState(this.inner?.state ?? 'connecting', true);
-            this.armFallback(LINK_GRACE_MS);
+            this.setState('connecting', true);
+            // The link's own backoff keeps dialing; no other path exists.
         }
     }
 
@@ -386,45 +381,6 @@ export class LinkFirstClient implements SessionClient {
         return cause instanceof Error ? cause : new Error(String(cause));
     }
 
-    private startRelay(): void {
-        if (this.closed || this.inner !== undefined) return;
-        const relay = new MuxrClient({
-            ...this.options,
-            onLinkEnrolled: (key) => this.onLinkEnrolled(key),
-            onHostHello: () => {
-                if (this.link === undefined && this.options.hostedGrant?.source === 'selfhost') {
-                    void this.inner?.request('herdr.tree', {}).catch(() => undefined);
-                }
-            },
-        });
-        relay.onStateChange((state) => { if (!this.online) this.setState(state); });
-        relay.onEvent((sessionId, event) => {
-            if (!this.online) for (const listener of this.eventListeners) listener(sessionId, event);
-        });
-        relay.onPluginsInvalidated((frame) => {
-            if (!this.online) for (const listener of this.pluginListeners) listener(frame);
-        });
-        this.inner = relay;
-        this.setState('connecting');
-        relay.connect();
-    }
-
-    private onLinkEnrolled(key: string): void {
-        const stored = this.options.hostedGrant;
-        if (this.closed || this.link !== undefined || stored?.source !== 'selfhost'
-            || stored.deviceKey.publicKey !== key) return;
-        const route = this.options.ssh === undefined ? undefined : this.inner?.activeRelayUrl;
-        if (this.options.ssh !== undefined && route === undefined) return;
-        const grant = deriveLinkGrant(stored, route);
-        if (grant === undefined) return;
-        this.link = new DeviceLink(grant, {
-            timeoutMs: 5_000,
-            onStatus: (status) => this.onLinkStatus(status),
-            onEvent: (event) => this.onLinkEvent(event),
-            onError: () => undefined,
-        });
-    }
-
     private stopLink(): void {
         const link = this.link;
         this.link = undefined;
@@ -433,7 +389,7 @@ export class LinkFirstClient implements SessionClient {
         const wasOnline = this.online;
         this.online = false;
         link?.stop();
-        if (!this.closed) this.setState(this.inner?.state ?? 'connecting', wasOnline);
+        if (!this.closed) this.setState('connecting', wasOnline);
     }
 
     private setState(state: ConnectionState, transportChanged = false): void {

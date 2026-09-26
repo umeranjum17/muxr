@@ -365,7 +365,6 @@ export class SelfhostPairing {
         });
     }
 
-<<<<<<< HEAD
     completeGrant(pairId: string, machineSlug: string | undefined, now = Date.now()): Promise<boolean> {
         return this.serialized(async () => {
             await this.load();
@@ -382,7 +381,9 @@ export class SelfhostPairing {
             session.completedAt = now;
             await this.persist();
             return true;
-=======
+        });
+    }
+
     /** Target-machine authority issues a constrained peer credential without opening phone/browser pairing. */
     issuePeer(input: {
         machineSlug: string;

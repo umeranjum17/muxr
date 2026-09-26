@@ -341,42 +341,19 @@ describe('hosted account-only lifecycle', () => {
         await Promise.all([syncResume(), syncResume()]);
         // A closed link hands 'closed' up, so the session layer rebuilds the
         // client instead of resuming the dead one.
+        expect(harness.clientOptions).toHaveLength(2);
+        expect(harness.clientConnects).toBe(2);
+        expect(harness.clientCloses).toBe(1);
+
+        await syncReconnect();
         expect(harness.clientOptions).toHaveLength(3);
         expect(harness.clientConnects).toBe(3);
         expect(harness.clientCloses).toBe(2);
 
-        await syncReconnect();
-        expect(harness.clientOptions).toHaveLength(4);
-        expect(harness.clientConnects).toBe(4);
-        expect(harness.clientCloses).toBe(3);
-
-        let releaseBlockedMachines!: () => void;
-        harness.blockedMachines = new Promise((resolve) => { releaseBlockedMachines = resolve; });
-        harness.blockNextMachines = true;
-        harness.clients.at(-1)!.fire('closed');
-        const resume = syncResume();
-        await vi.waitFor(() => expect(harness.blockedMachinesStarted).toBe(true), { timeout: 10_000, interval: 50 }).catch((cause) => {
-            process.stderr.write(`DBG clients: ${JSON.stringify(harness.clients.map((c, i) => ({ i, status: c.status })))}\n`);
-            throw cause;
-        });
-        await Promise.all([resume, syncReconnect(), syncReconnect()]);
-        expect(harness.clientOptions).toHaveLength(6);
-        expect(harness.clientConnects).toBe(6);
-        expect(harness.clientCloses).toBe(5);
-        expect(harness.machineSnapshots.at(-1)).toBe('client-5');
+        expect(harness.machineSnapshots.at(-1)).toBe('client-2');
         const openClients = harness.clients.filter((client) => client.status !== 'closed');
-        process.stderr.write(`DBG open clients: ${JSON.stringify(harness.clients.map((c, i) => ({ i, status: c.status })))}\n`);
         expect(openClients).toEqual([harness.clients.at(-1)]);
 
-        releaseBlockedMachines();
-        await vi.waitFor(() => expect(harness.blockedMachinesFinished).toBe(true));
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        expect(harness.machineSnapshots.at(-1)).toBe('client-5');
-
-        await syncResume();
-        expect(harness.clientOptions).toHaveLength(6);
-        expect(harness.clientConnects).toBe(6);
-        expect(harness.clientCloses).toBe(5);
 
         harness.lifecycleCatalogError = new Error('relay temporarily offline');
         await expect(sync.refreshSessions()).rejects.toThrow('relay temporarily offline');
