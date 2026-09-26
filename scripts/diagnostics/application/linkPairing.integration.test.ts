@@ -276,11 +276,22 @@ describe('native pairing over the byokit link', () => {
         } finally { phone.platform = 'android'; }
     });
 
+    it('pairs over a forwarded link when the advertised relay is unreachable', async () => {
+        const { pairing, offer } = await showPairingQr({ approve: () => true });
+        const payload = JSON.parse(Buffer.from(offer.slice('byokit-link:1:'.length), 'base64url').toString('utf8')) as { urls: string[] };
+        payload.urls = payload.urls.map((url) => url.replace(`127.0.0.1:${port}`, '127.0.0.1:1'));
+        const forwarded = `byokit-link:1:${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
+        const stored = await runPhonePairing(forwarded, { tunnelPort: port });
+        await pairing;
+        expect(stored.credential).toBe('');
+        expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
+    });
+
     it('pairs nothing when the person at the computer declines', async () => {
         const { pairing, offer, abort } = await showPairingQr({ approve: async () => false });
         await expect(runPhonePairing(offer)).rejects.toThrow('Your computer said no to this device.');
         const state = readSelfhostState();
-        expect(state.machine.crypto.devices).toHaveLength(2); // only the successful phone and browser pairings
+        expect(state.machine.crypto.devices).toHaveLength(3); // successful phone, browser, and forwarded pairings
         await abort();
         await expect(pairing).rejects.toThrow('cancelled');
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
@@ -312,7 +323,7 @@ describe('native pairing over the byokit link', () => {
     it('lists and revokes a link-paired phone with relay fallback', async () => {
         const state = readSelfhostState();
         const paired = state.machine.crypto.devices;
-        expect(paired).toHaveLength(3);
+        expect(paired).toHaveLength(4);
         const target = paired[0]!;
         const listing = launch([join(repoRoot, 'scripts/cli.mjs'), 'devices', 'list']);
         await until(() => (listing.exitCode === null ? undefined : listing.exitCode), 'devices list finishes');

@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, linkPairMachineName, looksLikeLinkOffer, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairLinkOffer, pairMachine, usePairQrScanner } from '@/pairing';
-import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, tunnelPairingUrl, type SshFieldInput } from '@/connection';
+import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, tunnelPairingUrl, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
@@ -57,9 +57,9 @@ type PairState =
     | { phase: 'error'; message: string; url?: string; machineName?: string };
 
 const SSH_PAIRING_STEPS = [
-    'On the computer, run `muxr pair` — it prints a one-time pairing string.',
+    'On the computer, run `muxr pair` — it prints a one-time link offer.',
     'Fill in the SSH details; muxr opens the tunnel to that machine.',
-    'Paste the pairing string below — pairing runs through the tunnel.',
+    'Paste the offer below — pairing runs through the tunnel.',
 ] as const;
 
 function SshField(props: {
@@ -195,7 +195,17 @@ export default function PairScreen() {
     const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
         // Link offers pair over the running machine; Direct SSH uses its own route.
         if (looksLikeLinkOffer(url.trim())) {
-            await pairLinkOffer(url.trim(), auth);
+            const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput);
+            if (tunnel !== undefined && !tunnel.ok) throw new Error(tunnel.message);
+            const paired = await pairLinkOffer(url.trim(), auth, tunnel === undefined ? {} : { tunnelPort: tunnel.localPort });
+            if (!paired) {
+                if (tunnel !== undefined) await stopSshTunnel();
+                return;
+            }
+            if (sshInput !== undefined && tunnel?.ok) {
+                const applied = await applySshAfterPairing(sshInput, { hostKey: tunnel.hostKey });
+                if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
+            }
             router.replace('/');
             return;
         }

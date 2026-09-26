@@ -480,7 +480,7 @@ interface PendingLinkPair {
  * The pending pairing is persisted before the first connection, so a process
  * death resumes it rather than leaving the computer holding an unused grant.
  */
-export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void } = {}): Promise<StoredHostedGrant> {
+export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void; tunnelPort?: number } = {}): Promise<StoredHostedGrant> {
     if (Platform.OS === 'web' && !/^https:\/\/[^#]+\/pair#byokit-link:1:/.test(scanned)) {
         throw new Error('Native pairing codes are for phones. Use a fresh browser link from `muxr pair --browser` on the computer.');
     }
@@ -510,7 +510,7 @@ async function resumePendingLinkPairing(): Promise<StoredHostedGrant | undefined
     }
 }
 
-async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?: (words: string) => void; mode: 'claim' | 'resume' }): Promise<StoredHostedGrant> {
+async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?: (words: string) => void; tunnelPort?: number; mode: 'claim' | 'resume' }): Promise<StoredHostedGrant> {
     let answer: LinkPairAnswer;
     let key: { publicKey: Uint8Array; secretKey: Uint8Array };
     try {

@@ -76,7 +76,7 @@ export function useHostedPairing() {
  * too, and pairing completes only when that approval and the phone's proof
  * over the machine's own link both land.
  */
-export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>): Promise<void> {
+export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>, options: { tunnelPort?: number } = {}): Promise<boolean> {
     const browser = Platform.OS === 'web';
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
     const approved = await Modal.confirm(
@@ -86,8 +86,9 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
             : 'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran `muxr pair` there.',
         { confirmText: 'Pair' },
     );
-    if (!approved) return;
+    if (!approved) return false;
     const grant = await pairOverLink(scanned, {
+        ...options,
         onWords: (words) => {
             void Modal.alert(
                 'Compare the two words',
@@ -104,20 +105,21 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
             'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
             { confirmText: 'End voice and switch', destructive: true },
         );
-        if (!switchApproved) return;
+        if (!switchApproved) return false;
         const retried = await pairMachine({ grant, endVoiceIfPinned: true });
         if (!retried.ok) {
             Modal.alert('Pairing failed', 'Pairing failed');
-            return;
+            return false;
         }
         await auth.login(retried.credential, retried.secretKey);
-        return;
+        return true;
     }
     if (!paired.ok) {
         Modal.alert('Pairing failed', paired.message ?? 'Pairing failed');
-        return;
+        return false;
     }
     await auth.login(paired.credential, paired.secretKey);
+    return true;
 }
 
 /*
