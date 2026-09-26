@@ -1,0 +1,34 @@
+diff --git a/node_modules/react-native/Libraries/Text/TextInput/Singleline/RCTUITextField.mm b/node_modules/react-native/Libraries/Text/TextInput/Singleline/RCTUITextField.mm
+--- a/node_modules/react-native/Libraries/Text/TextInput/Singleline/RCTUITextField.mm
++++ b/node_modules/react-native/Libraries/Text/TextInput/Singleline/RCTUITextField.mm
+@@ -59,6 +59,13 @@
+ 
+ #pragma mark - Properties
+ 
++- (void)setAutocorrectionType:(UITextAutocorrectionType)autocorrectionType
++{
++  [super setAutocorrectionType:autocorrectionType];
++  self.smartQuotesType = autocorrectionType == UITextAutocorrectionTypeNo ? UITextSmartQuotesTypeNo : UITextSmartQuotesTypeDefault;
++  self.smartDashesType = autocorrectionType == UITextAutocorrectionTypeNo ? UITextSmartDashesTypeNo : UITextSmartDashesTypeDefault;
++}
++
+ - (void)setAcceptDragAndDropTypes:(NSArray<NSString *> *)acceptDragAndDropTypes
+ {
+   _acceptDragAndDropTypes = acceptDragAndDropTypes;
+diff --git a/node_modules/react-native/Libraries/Text/TextInput/Multiline/RCTUITextView.mm b/node_modules/react-native/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
+--- a/node_modules/react-native/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
++++ b/node_modules/react-native/Libraries/Text/TextInput/Multiline/RCTUITextView.mm
+@@ -101,6 +101,13 @@
+ 
+ #pragma mark - Properties
+ 
++- (void)setAutocorrectionType:(UITextAutocorrectionType)autocorrectionType
++{
++  [super setAutocorrectionType:autocorrectionType];
++  self.smartQuotesType = autocorrectionType == UITextAutocorrectionTypeNo ? UITextSmartQuotesTypeNo : UITextSmartQuotesTypeDefault;
++  self.smartDashesType = autocorrectionType == UITextAutocorrectionTypeNo ? UITextSmartDashesTypeNo : UITextSmartDashesTypeDefault;
++}
++
+ - (void)setAcceptDragAndDropTypes:(NSArray<NSString *> *)acceptDragAndDropTypes
+ {
+   _acceptDragAndDropTypes = acceptDragAndDropTypes;
