@@ -114,9 +114,11 @@ file-backed user-operated pairing/revocation when enabled, replay/offline
 buffering, and terminal/preview pipes. Its public API is capability-based:
 `localAuthority`, `developmentApi`, `advertiseMdns`, and `publicEdge`; deployment
 brands do not exist in core. An embedding process may add its own authority and
-edge policy without changing relay routing. Non-development
-session/RPC and terminal channels require strict v2 ciphertext; the relay checks
-bounded routing context and never parses plaintext.
+edge policy without changing relay routing. Non-development relay session/RPC
+and terminal channels require strict v2 ciphertext; the relay checks bounded
+routing context and never parses plaintext.
+Enrolled native terminals may instead use the end-to-end encrypted byokit link
+stream (hosted terminal envelopes remain sealed inside it).
 
 **The app owns**: rendering and local persistence only. No truth lives on the
 phone. A machine-scoped, display-only Home snapshot in local MMKV holds the last
@@ -312,10 +314,11 @@ link cannot carry it or drops, the pane reattaches through the relay (or a new
 link stream) without losing the pane. The relay stays available as fallback.
 Hosted relays and browsers keep their terminal panes on the relay transport.
 
-The relay reads bounded `envelope.header` routing context and treats `payload` as
-opaque `e2ee:v2` ciphertext. Relay terminal frames stay off replay on the
-separate `/terminal` pipe; link terminal streams are likewise not replayed.
-Hosted terminal frames retain their sealed envelope on either path.
+On the legacy transport, the relay reads bounded `envelope.header` routing
+context and treats `payload` as opaque `e2ee:v2` ciphertext. Relay terminal
+frames stay off replay on the separate `/terminal` pipe; byokit link terminal
+streams are likewise not replayed and are encrypted by the link. Hosted terminal
+frames retain their sealed envelope on either path.
 
 ## Not built
 

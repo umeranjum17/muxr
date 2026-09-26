@@ -79,9 +79,10 @@ Direct SSH is an Android-native alternative to Tailscale, not a replacement for 
 Either way, enter the machine's SSH host, SSH username and port, and the relay port as seen from the machine's loopback (normally `8792`). Choose either a password or an OpenSSH private key; credentials stay in the device secure store and are never written to muxr settings, logs, or the repository. A newly entered credential is checked with a separate SSH sign-in before pairing or replacing a saved credential, even when a tunnel to that host is already open. A rejected credential leaves the live tunnel alone. Use an RSA or ECDSA host key and login key: Ed25519 is not supported by this build yet, and muxr says so explicitly instead of failing to connect.
 
 Once the SSH route is saved, muxr opens a device-local SSH forward to `127.0.0.1:<relay-port>`.
-The paired machine's terminal, preview, and plugin-stream connections use that forward alongside sync,
-even if its advertised relay URL is unreachable from the phone. The relay ticket, pairing grant,
-and E2EE protections stay the same; see [the SSH transport decision](decisions/0006-ssh-loopback-transport.md)
+The paired machine's session and stream traffic uses that forward even if its advertised
+relay URL is unreachable from the phone. An enrolled native terminal can use a byokit link
+stream through the forwarded relay; otherwise it uses the relay terminal channel.
+Pairing and end-to-end encryption remain in force; see [the SSH transport decision](decisions/0006-ssh-loopback-transport.md)
 for the routing contract. The desktop can use this route too; see [remote desktop on a cloud server](#remote-desktop-on-a-cloud-server).
 
 Connection & updates also exports and installs the login key. The private key's public half — pasted on that screen or saved on this device — can be copied, shared, or saved as a `.pub` file for any algorithm, including Ed25519. For RSA and ECDSA keys, **Install public key** shows its exact shell command first and runs it only after you confirm: it appends the key to `~/.ssh/authorized_keys` on the paired computer's confirmed SSH account, preserves existing entries and permissions, skips a key that is already present, and records a guarded undo that refuses to roll back if `authorized_keys` changed after the install. Ed25519 stays export-only because the native SSH path cannot use it as a login key. Installation is native-Android only; the browser keeps pairing and relay access and says so instead.
@@ -124,9 +125,10 @@ keep their quotas rather than having them reset.
 
 ## Pairing, security model
 
-- The relay enforces end-to-end encryption (v2 machine keys). Terminal output,
-  keystrokes, prompts, and files are sealed on your machines; the relay routes
-  ciphertext it cannot read.
+- The relay cannot read session or terminal content: existing relay channels
+  use v2 machine-key encryption, while enrolled native terminal link streams
+  use byokit's end-to-end encrypted connection. Hosted terminal envelopes stay
+  sealed inside the link too. See [the transport architecture](ARCHITECTURE.md#what-the-relay-does).
 - Native pairing is single-use and expires in two minutes. QR and manual entry
   use the same short value, for example `wss://relay.example?pair=7KDM4-QXP7N`.
   The relay stores only a code hash and code-encrypted payload, deletes the
