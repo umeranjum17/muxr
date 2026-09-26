@@ -26,17 +26,15 @@ import { daemonIsRunning } from './daemon.mjs';
 import {
     advertisedRelayHealthy,
     cloudflaredAlive,
-    inspectTailscaleServeRoot,
+    reachTailscaleOptions,
     readSelfhostState,
-    runTailscale,
     selfhostControlBase,
     selfhostCredential,
     selfhostRelayHealthy,
-    SERVE_OWNED_ERROR,
     stopOwnedSelfhostRelay,
-    tailscaleServeFailure,
     writeSelfhostState,
 } from './selfhost.mjs';
+import { serve, tailscaleStatus } from '@byokit/reach';
 
 export function enrollmentPayload(link) {
     const parsed = parseEnrollment(link);
@@ -137,27 +135,23 @@ export async function resolveAdvertise(args, port, tailscale) {
         };
     }
     if (tailscale) {
-        const ownership = inspectTailscaleServeRoot(port, tailscale.dnsName);
-        if (ownership.status === 'disabled' || ownership.status === 'inconclusive') throw new Error(ownership.reason);
-        if (ownership.status === 'occupied') throw new Error(SERVE_OWNED_ERROR);
-        const expected = `http://127.0.0.1:${port}`;
-        const serve = ownership.status === 'ours'
-            ? { status: 0, stdout: '', stderr: '' }
-            : runTailscale(['serve', '--yes', '--bg', '--https=443', expected], { encoding: 'utf8' });
-        if (serve.status !== 0 || serve.error) throw new Error(tailscaleServeFailure(serve));
+        // Serve setup and its ownership rules live in byokit reach (decision 0004):
+        // never Funnel, refuse a foreign root, reuse only the recorded mapping.
+        const served = await serve(port, reachTailscaleOptions(), readSelfhostState()?.ingress);
+        if (served === undefined) throw new Error('Tailscale stopped answering; sign in or choose direct Tailscale or LAN');
         return {
-            url: `wss://${tailscale.dnsName}`,
+            url: served.url,
             note: 'Tailscale Serve (private tailnet HTTPS)',
-            ingress: { kind: 'tailscale-serve', port, dnsName: tailscale.dnsName, proxy: expected },
+            ingress: served.ingress,
+            ...(served.pendingCleanup === undefined ? {} : { pendingCleanup: served.pendingCleanup }),
         };
     }
-    const status = runTailscale(['status', '--json'], { encoding: 'utf8' });
-    if (status.error?.code === 'ETIMEDOUT') throw new Error('Tailscale status timed out after 15 seconds; restart tailscaled or choose LAN');
-    if (status.status === 0) {
-        try {
-            const ip = JSON.parse(status.stdout)?.Self?.TailscaleIPs?.find((value) => /^100\./.test(value));
-            if (ip) return { url: `ws://${ip}:${port}`, note: 'direct Tailscale address' };
-        } catch {}
+    if (args.includes('--tailscale-direct')) {
+        const status = await tailscaleStatus(reachTailscaleOptions());
+        if (status === undefined) throw new Error('Tailscale is not installed; choose LAN or another advertise mode');
+        const ip = status.ips.find((value) => /^100\./.test(value));
+        if (ip === undefined) throw new Error('Tailscale reported no tailnet address; sign in to Tailscale, then rerun `muxr setup`');
+        return { url: `ws://${ip}:${port}`, note: 'direct Tailscale address' };
     }
     const lan = lanAddress();
     if (lan !== undefined) return { url: `ws://${lan}:${port}`, note: 'LAN only — phone must be on this network; pair only on a network you trust' };

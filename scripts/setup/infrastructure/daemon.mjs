@@ -262,7 +262,7 @@ export async function runDaemon(args = []) {
                 if (!unloaded.ok && !alreadyAbsent) throw new Error(unloaded.stderr || unloaded.stdout || 'could not stop and unload the muxr service');
                 const state = readSelfhostState();
                 await stopOwnedSelfhostRelay();
-                cleanupManagedIngress(state);
+                await cleanupManagedIngress(state);
             }
             for (const [path, entry] of entries) removeManaged(path, entry, manifest, { dryRun, force });
             saveManifest(manifest, dryRun);
