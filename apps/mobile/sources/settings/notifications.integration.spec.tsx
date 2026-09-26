@@ -37,6 +37,7 @@ vi.mock('@/components/Switch', () => ({ Switch: (props: Record<string, unknown>)
 
 import NotificationSettingsScreen from '../app/(app)/settings/notifications';
 import { refreshPushState, updateWebPushNotificationLevel } from '@/utils/pushNotifications';
+import { setActiveSessionClient } from '@/connection/sessionClientRef';
 
 let rendered: ReturnType<typeof TestRenderer.create> | undefined;
 
@@ -44,6 +45,7 @@ afterEach(() => {
     if (rendered) TestRenderer.act(() => rendered?.unmount());
     rendered = undefined;
     vi.unstubAllGlobals();
+    setActiveSessionClient(undefined);
     state.listeners.clear();
 });
 
@@ -89,21 +91,23 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
     vi.stubGlobal('atob', () => '\u0001');
 
     const posts: string[] = [];
-    let release!: (response: Response) => void;
+    let release!: (ok: boolean) => void;
     let defer = true;
     let failRegistration = false;
-    vi.stubGlobal('fetch', vi.fn(async (_url: unknown, init?: RequestInit) => {
-        if (!init?.method) return new Response(JSON.stringify({ publicKey: 'AQ' }), { status: 200 });
-        if (init.method === 'DELETE') return new Response(null, { status: 200 });
-        const level = (JSON.parse(String(init.body)) as { level: string }).level;
-        posts.push(level);
-        if (failRegistration) return new Response(null, { status: 503 });
-        if (defer) {
-            defer = false;
-            return await new Promise<Response>((resolve) => { release = resolve; });
-        }
-        return new Response(null, { status: 200 });
-    }));
+    setActiveSessionClient({
+        isLive: () => true,
+        request: async (type: string, params: { level?: string }) => {
+            if (type === 'push.vapid') return { publicKey: 'AQ' };
+            if (type !== 'push.subscribe') return null;
+            posts.push(params.level!);
+            if (failRegistration) throw new Error('registration failed');
+            if (defer) {
+                defer = false;
+                if (!await new Promise<boolean>((resolve) => { release = resolve; })) throw new Error('registration failed');
+            }
+            return null;
+        },
+    } as never);
 
     await TestRenderer.act(async () => { rendered = TestRenderer.create(React.createElement(NotificationSettingsScreen)); });
     const rows = (type: string) => (rendered!.root as { findAllByType(type: string): { props: any }[] }).findAllByType(type);
@@ -150,7 +154,7 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
     await receive('blocked');
     expect(shown).toHaveBeenCalledTimes(4);
 
-    release(new Response(null, { status: 503 }));
+    release(false);
     await TestRenderer.act(async () => { await off; });
     expect(state.level).toBe('all');
     expect(switchFor('An agent needs you').props.value).toBe(true);
@@ -162,7 +166,7 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
     const superseded = updateWebPushNotificationLevel('off');
     const latest = updateWebPushNotificationLevel('all');
     expect(posts).toEqual(['off', 'important']);
-    release(new Response(null, { status: 200 }));
+    release(true);
     await Promise.all([first, superseded, latest]);
     expect(posts).toEqual(['off', 'important', 'all']);
 
