@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream } from '@byokit/link';
+import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/link';
 import { isExpoToken, RelayClient } from '@byokit/relay';
 import {
     lifecycleNotificationAllowed, parseClientFrame, parseLifecycleNotificationLevel, relayControlUrl,
@@ -194,6 +194,7 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
  */
 export class LinkEndpoint {
     private synced: Promise<boolean> = Promise.resolve(true);
+    private pairing: { confirm: (request: PairRequest) => boolean | Promise<boolean>; handle: (request: LinkRequest, grant: Grant) => Promise<unknown> } | undefined;
 
     private client?: RelayClient;
     private connectionTimer?: ReturnType<typeof setInterval>;
@@ -229,11 +230,11 @@ export class LinkEndpoint {
             },
             keys,
             name: options.machineName,
+            pairMs: 120_000,
             grants: options.grants,
-            // Pairing stays on the relay transport; the link only admits phones
-            // enrolled from this machine's own device records.
-            confirm: () => false,
+            confirm: (request) => endpoint?.pairing?.confirm(request) ?? false,
             allow: (req, grant) => {
+                if (req.op === 'pair.complete' || req.op === 'pair.verified') return endpoint?.pairing !== undefined && grant.kind === 'native';
                 if (!trusted(grant, options.currentCrypto())) return false;
                 if (req.op === 'terminal' || req.op === 'desktop') return true;
                 if (req.op === 'voice') return grant.role === 'control' && options.voiceStreams !== undefined;
@@ -243,6 +244,10 @@ export class LinkEndpoint {
                 return frame.type.startsWith('push.') || grant.role === 'control' || options.canView(frame);
             },
             handle: async (req, grant) => {
+                if (req.op === 'pair.complete' || req.op === 'pair.verified') {
+                    if (endpoint.pairing === undefined || grant.kind !== 'native') throw new Error('link: pairing is closed');
+                    return endpoint.pairing.handle(req, grant);
+                }
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
                 const deviceId = muxrDeviceIdOf(grant)!;
                 const frame = parseClientFrame(req.args);
@@ -366,6 +371,28 @@ export class LinkEndpoint {
         await this.client.subscribe(grant.id, token !== undefined ? { expo: token } : { web: subscription! });
         this.savePushLevel(deviceId, level);
         return { type: 'result', requestId: frame.requestId, ok: true, data: null };
+    }
+
+    /** Open the one-time offer on this machine's already-registered host. */
+    offerPairing(pairing: NonNullable<LinkEndpoint['pairing']>, relayUrl: string): { text: string; expires: number } {
+        if (this.pairing !== undefined && this.pairing !== pairing) throw new Error('another pairing is in progress');
+        this.pairing = pairing;
+        const relay = new URL(relayUrl.replace(/^ws/i, 'http'));
+        const scheme = relay.protocol === 'https:' ? 'wss' : 'ws';
+        return this.host.offer({ urls: [`${scheme}://${relay.host}/link/v1/${this.host.id}`], role: 'control', kind: 'native' });
+    }
+
+    stopPairing(): void {
+        this.pairing = undefined;
+        this.host.stopPairing();
+    }
+
+    async admitPairedDevice(grantId: string, deviceId: string): Promise<void> {
+        await this.host.setMeta(grantId, { muxrDeviceId: deviceId } satisfies DeviceMeta);
+    }
+
+    async rejectPairedDevice(grantId: string): Promise<void> {
+        await this.host.revoke(grantId);
     }
 
     broadcast(frame: HostFrame): void {

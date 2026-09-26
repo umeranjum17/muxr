@@ -1,4 +1,8 @@
 import { randomBytes } from 'node:crypto';
+import { createConnection, createServer } from 'node:net';
+import { chmodSync, existsSync, lstatSync, unlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { Host, hostId, keyPair } from '@byokit/link';
 import { RelayClient } from '@byokit/relay';
 import { askVisible, base64, print, printTerminalQr } from '../infrastructure/runtime.mjs';
@@ -9,13 +13,12 @@ import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
 /**
  * Native pairing over the byokit link (migration step 4, decision D1).
  *
- * `muxr pair` owns a short-lived pairing host under its own fresh key, so it
- * never replaces the machine's registered link endpoint (a second host under
- * the machine key would stop the running one for good). The person approves
- * the device on this computer by comparing the two words byokit shows on both
- * screens. On approval the CLI writes the device record into selfhost.json —
- * the machine's own authority — and the running host enrols the phone from
- * that record, the same path every already-paired phone takes.
+ * `muxr pair` uses the running machine's link host through its owner-only
+ * local socket. If no host is running on a relay this machine owns, it opens
+ * a short-lived pairing host under a fresh key instead. On a shared relay,
+ * the enrolled machine must already be running. The person compares byokit's
+ * two words and approves on this computer; selfhost.json remains the device
+ * authority.
  *
  * The record is written before the phone proves itself, and pairing only
  * completes once the phone calls `pair.verified` over the machine's real link.
@@ -70,6 +73,11 @@ export function machineLinkUrl(relayUrl, machineBoxPublicKeyBase64) {
  */
 export async function linkPair(state, { approve, pairMs = PAIR_WINDOW_MS, signal } = {}) {
     if (typeof selfhostCredential(state) !== 'string') throw new Error('muxr is not set up yet; run `muxr setup` first');
+    let running;
+    try { running = await pairOnRunningHost(join(process.env.MUXR_HOME ?? join(homedir(), '.muxr'), 'host', 'pair.sock'), approve ?? showApproval, signal); }
+    catch (error) { if (error?.code !== 'ECONNREFUSED' && error?.code !== 'ENOENT') throw error; }
+    if (running !== undefined) return running;
+    if (state.relayLocation === 'remote') throw new Error('start muxr on this computer before pairing on a shared relay');
     const machine = state.machine;
     const confirm = approve ?? showApproval;
     const keys = keyPair();
@@ -93,7 +101,7 @@ export async function linkPair(state, { approve, pairMs = PAIR_WINDOW_MS, signal
         name: machine.name ?? 'muxr',
         pairMs,
         confirm: confirmOne,
-        // The pairing host serves exactly two requests: the phone asking for
+        // The temporary pairing host serves exactly two requests: the phone asking for
         // its machine details, and the same phone proving it reached the
         // machine's real link. Everything else is the machine link's business.
         allow: (req) => req.op === 'pair.complete' || req.op === 'pair.verified',
@@ -143,6 +151,129 @@ export async function linkPair(state, { approve, pairMs = PAIR_WINDOW_MS, signal
     }
 }
 
+// The running machine owns its relay registration. A local, owner-only socket
+// lets the CLI display its offer and answer consent without a second host key.
+export async function startHostPairingServer(endpoint, socketPath, relayUrl) {
+    if (existsSync(socketPath)) {
+        const info = lstatSync(socketPath);
+        if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid()) throw new Error('unsafe pairing socket path');
+        unlinkSync(socketPath);
+    }
+    const sockets = new Set();
+    let busy = false;
+    const server = createServer((socket) => {
+        sockets.add(socket);
+        socket.on('close', () => sockets.delete(socket));
+        if (busy) { socket.end(`${JSON.stringify({ error: 'another pairing is in progress' })}\n`); return; }
+        busy = true;
+        const controller = new AbortController();
+        let approve;
+        let burned = false;
+        let input = '';
+        socket.on('data', (chunk) => {
+            input += chunk.toString('utf8');
+            if (input.length > 4096) { socket.destroy(); return; }
+            const lines = input.split('\n');
+            input = lines.pop() ?? '';
+            for (const line of lines) {
+                try {
+                    const answer = JSON.parse(line);
+                    if (typeof answer.yes !== 'boolean') throw new Error('invalid pairing answer');
+                    approve?.(answer.yes);
+                    approve = undefined;
+                } catch { socket.destroy(); }
+            }
+        });
+        socket.on('close', () => controller.abort());
+        const send = (value) => { if (!socket.destroyed) socket.write(`${JSON.stringify(value)}\n`); };
+        const state = readSelfhostState();
+        const claims = new Map();
+        const done = {};
+        done.promise = new Promise((resolve, reject) => { done.resolve = resolve; done.reject = reject; });
+        const confirm = async (request) => {
+            const yes = await new Promise((resolve) => {
+                approve = resolve;
+                send({ approval: { name: request.name, words: request.words } });
+                controller.signal.addEventListener('abort', () => resolve(false), { once: true });
+            });
+            burned = true;
+            return yes;
+        };
+        const session = { confirm, handle: (req, grant) => servePairing(state, req, grant, claims, done,
+            (grantId, deviceId) => endpoint.admitPairedDevice(grantId, deviceId)) };
+        void (async () => {
+            let completed;
+            let failure;
+            try {
+                let offer = endpoint.offerPairing(session, relayUrl);
+                send({ offer });
+                for (;;) {
+                    const outcome = await Promise.race([done.promise, aborted(controller.signal), sleep(Math.min(1000, Math.max(offer.expires - Date.now(), 0)))]);
+                    if (outcome !== undefined) { completed = outcome; await sleep(250); return; }
+                    if (controller.signal.aborted) return;
+                    if (offer.expires <= Date.now() || burned) {
+                        burned = false;
+                        offer = endpoint.offerPairing(session, relayUrl);
+                        send({ offer });
+                    }
+                }
+            } catch (error) { failure = error instanceof Error ? error.message : String(error); }
+            finally {
+                endpoint.stopPairing();
+                for (const claim of claims.values()) {
+                    clearTimeout(claim.timer);
+                    if (claim.answered && !claim.verified) {
+                        await claim.rollback();
+                        await endpoint.rejectPairedDevice(claim.grantId);
+                    }
+                }
+                busy = false;
+                if (failure !== undefined) send({ error: failure });
+                if (completed !== undefined) send({ result: completed });
+                socket.end();
+            }
+        })();
+    });
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socketPath, () => { server.off('error', reject); chmodSync(socketPath, 0o600); resolve(); }); });
+    return { close: async () => {
+        for (const socket of sockets) socket.destroy();
+        await new Promise((resolve) => server.close(resolve));
+        if (existsSync(socketPath) && lstatSync(socketPath).isSocket()) unlinkSync(socketPath);
+    } };
+}
+
+export async function pairOnRunningHost(socketPath, approve = showApproval, signal) {
+    if (!existsSync(socketPath)) return undefined;
+    const info = lstatSync(socketPath);
+    if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0) throw new Error('unsafe pairing socket');
+    if (signal?.aborted) throw new Error('pairing cancelled');
+    const socket = createConnection(socketPath);
+    let input = '';
+    const cancel = () => socket.destroy(new Error('pairing cancelled'));
+    signal?.addEventListener('abort', cancel, { once: true });
+    try {
+        return await new Promise((resolve, reject) => {
+            socket.on('error', reject);
+            socket.on('close', () => reject(new Error('running host stopped during pairing')));
+            socket.on('data', (chunk) => {
+                input += chunk.toString('utf8');
+                if (input.length > 4096) { socket.destroy(); return; }
+                const lines = input.split('\n');
+                input = lines.pop() ?? '';
+                for (const line of lines) {
+                    try {
+                        const event = JSON.parse(line);
+                        if (event.offer) showOffer(event.offer);
+                        else if (event.approval) void Promise.resolve(approve(event.approval)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), reject);
+                        else if (event.error) reject(new Error(event.error));
+                        else if (event.result) resolve(event.result);
+                    } catch (error) { reject(error); }
+                }
+            });
+        });
+    } finally { signal?.removeEventListener('abort', cancel); socket.destroy(); }
+}
+
 function freshOffer(host, relayUrl, hostIdOnRelay) {
     const relay = new URL(relayUrl.replace(/^ws/i, 'http'));
     const scheme = relay.protocol === 'https:' ? 'wss' : 'ws';
@@ -155,7 +286,7 @@ function freshOffer(host, relayUrl, hostIdOnRelay) {
  * only settles once that proof arrives; a claim that never proves itself rolls
  * its record back when the deadline passes.
  */
-async function servePairing(state, req, device, claims, done) {
+async function servePairing(state, req, device, claims, done, admit) {
     const key = device.key;
     if (req.op === 'pair.verified') {
         const claim = claims.get(key);
@@ -186,8 +317,9 @@ async function servePairing(state, req, device, claims, done) {
                 name,
             };
             current.machine.crypto.devices = [...current.machine.crypto.devices, record];
-            writeSelfhostState(current);
         }
+        if (admit !== undefined) await admit(device.id, record.deviceId);
+        if (created) writeSelfhostState(current);
         return { record, created };
     });
     let claim = claims.get(key);
@@ -197,6 +329,7 @@ async function servePairing(state, req, device, claims, done) {
     }
     claim.answered = true;
     claim.deviceId = record.deviceId;
+    claim.grantId = device.id;
     clearTimeout(claim.timer);
     claim.rollback ??= () => {
         if (!created) return;
