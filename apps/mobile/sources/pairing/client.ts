@@ -1,2 +1,2 @@
 export { MuxrClient } from './infrastructure/muxrClient';
-export { LinkFirstClient, type SessionClient } from './infrastructure/linkFirstClient';
+export { LinkFirstClient, type ByteStreamTransport, type SessionClient } from './infrastructure/linkFirstClient';

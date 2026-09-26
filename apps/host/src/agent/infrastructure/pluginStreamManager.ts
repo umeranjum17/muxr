@@ -11,6 +11,7 @@ import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'n
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import WebSocket from 'ws';
+import { EventEmitter } from 'node:events';
 import {
     encodeRealtimeFrame,
     MAX_REALTIME_CLOSE_REASON_BYTES,
@@ -29,6 +30,7 @@ import { v2EnvelopeSequence } from '@muxr/crypto';
 import { HostV2Crypto, type HostedMachineKeys, ticketWsCredential } from '../../machine/index.js';
 import type { PeerBroker } from '../../peer/index.js';
 import type { RealtimeCodingCoordinator, RealtimeCoordinatorAccess } from './realtimeCoordinator.js';
+import type { VoiceStreamTransport } from '../application/sessionSource.js';
 
 const ATTACH_TIMEOUT_MS = 10_000;
 const STREAM_IDLE_TIMEOUT_MS = 10 * 60_000;
@@ -76,6 +78,58 @@ interface StreamOptions {
     codingCoordinator?: RealtimeCodingCoordinator;
 }
 
+class LinkStreamSocket extends EventEmitter {
+    readyState: number = WebSocket.OPEN;
+    bufferedAmount = 0;
+    private readonly decoder = new TextDecoder();
+    private buffer = '';
+    private paused = false;
+    private resumeWaiter: (() => void) | undefined;
+
+    constructor(private readonly stream: VoiceStreamTransport) {
+        super();
+        stream.onData = async (chunk) => {
+            this.buffer += this.decoder.decode(chunk, { stream: true });
+            const lines = this.buffer.split('\n');
+            this.buffer = lines.pop() ?? '';
+            for (const line of lines) {
+                this.emit('message', Buffer.from(line));
+                if (this.paused) await new Promise<void>((resolve) => { this.resumeWaiter = resolve; });
+            }
+        };
+        stream.onEnd = () => {
+            this.resume();
+            this.readyState = WebSocket.CLOSED;
+            this.emit('close');
+        };
+    }
+
+    send(data: string, callback?: (error?: Error) => void): void {
+        const bytes = Buffer.byteLength(data) + 1;
+        this.bufferedAmount += bytes;
+        void this.stream.write(`${data}\n`).then(
+            () => { this.bufferedAmount = Math.max(0, this.bufferedAmount - bytes); callback?.(); },
+            (error: unknown) => {
+                this.bufferedAmount = Math.max(0, this.bufferedAmount - bytes);
+                callback?.(error instanceof Error ? error : new Error(String(error)));
+            },
+        );
+    }
+
+    close(): void {
+        if (this.readyState !== WebSocket.OPEN) return;
+        this.readyState = WebSocket.CLOSING;
+        this.stream.end();
+    }
+
+    pause(): void { this.paused = true; }
+    resume(): void {
+        this.paused = false;
+        this.resumeWaiter?.();
+        this.resumeWaiter = undefined;
+    }
+}
+
 interface Attachment {
     channel: string;
     sessionId?: string;
@@ -107,6 +161,7 @@ export class PluginStreamManager {
         deviceId?: string;
         signal: AbortSignal;
         onClosed: () => void;
+        transport?: VoiceStreamTransport;
     }): Promise<void> {
         if (this.hosted !== undefined && (params.deviceId === undefined || this.options.hostedE2ee?.ingressKeys[params.deviceId] === undefined)) {
             throw new Error('plugin stream: hosted attach requires an active device grant');
@@ -120,27 +175,32 @@ export class PluginStreamManager {
         try {
         mkdirSync(params.stateDir, { recursive: true, mode: 0o700 });
 
-        const credential = ticketWsCredential(this.options.token);
-        let socketUrl: string;
-        if (credential === undefined) {
-            socketUrl = realtimeSocketUrl(this.options.relayUrl, {
-                machineId: this.options.machineId,
-                channel: params.channel,
-                role: 'machine',
-                ...(this.options.token === undefined ? {} : { token: this.options.token }),
-            });
+        let socket: WebSocket;
+        if (params.transport !== undefined) {
+            socket = new LinkStreamSocket(params.transport) as unknown as WebSocket;
         } else {
-            socketUrl = ticketSocketUrl(this.options.relayUrl, await issueWsTicket({
-                relayUrl: this.options.relayUrl,
-                credential,
-                machineId: this.options.machineId,
-                role: 'machine',
-                transport: 'stream',
-                channel: params.channel,
-            }), 'stream');
+            const credential = ticketWsCredential(this.options.token);
+            let socketUrl: string;
+            if (credential === undefined) {
+                socketUrl = realtimeSocketUrl(this.options.relayUrl, {
+                    machineId: this.options.machineId,
+                    channel: params.channel,
+                    role: 'machine',
+                    ...(this.options.token === undefined ? {} : { token: this.options.token }),
+                });
+            } else {
+                socketUrl = ticketSocketUrl(this.options.relayUrl, await issueWsTicket({
+                    relayUrl: this.options.relayUrl,
+                    credential,
+                    machineId: this.options.machineId,
+                    role: 'machine',
+                    transport: 'stream',
+                    channel: params.channel,
+                }), 'stream');
+            }
+            socket = new WebSocket(socketUrl);
         }
-        const socket = new WebSocket(socketUrl);
-        await new Promise<void>((resolve, reject) => {
+        if (params.transport === undefined) await new Promise<void>((resolve, reject) => {
             const timer = setTimeout(() => {
                 socket.close();
                 reject(new Error('plugin stream: relay did not accept the channel'));

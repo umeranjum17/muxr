@@ -1,14 +1,10 @@
-import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore } from '@byokit/link';
+import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream } from '@byokit/link';
 import { isExpoToken, RelayClient } from '@byokit/relay';
 import {
-    lifecycleNotificationAllowed,
-    parseClientFrame,
-    parseLifecycleNotificationLevel,
-    relayControlUrl,
-    type ClientFrame,
-    type HostFrame,
-    type LifecycleNotificationLevel,
+    lifecycleNotificationAllowed, parseClientFrame, parseLifecycleNotificationLevel, relayControlUrl,
+    type ClientFrame, type HostFrame, type LifecycleNotificationLevel,
 } from '@muxr/contract';
+import { attachFailureCode, type LinkTerminalAttachParams, type LinkTerminalPort, type TerminalPipe } from '../domain/terminal.js';
 import type { MachineCryptoState, MachineDeviceRecord } from '../domain/crypto.js';
 
 /** How the host answers one device's frame: the same answer the relay transport sends back. */
@@ -31,6 +27,9 @@ export interface LinkEndpointOptions {
     grants: GrantStore;
     answer: LinkAnswer;
     canView: (frame: ClientFrame) => boolean;
+    /** Given, a control or observing device may carry a terminal pane over a link stream. */
+    terminals?: LinkTerminalPort;
+    voiceStreams?: { attach(params: { deviceId: string; channel: string; sessionId?: string; stream: LinkStream }): Promise<void> };
     onStatus?: (status: string) => void;
 }
 
@@ -47,6 +46,112 @@ const muxrDeviceIdOf = (grant: Grant): string | undefined => {
     const meta = grant.meta as Partial<DeviceMeta> | undefined;
     return typeof meta?.muxrDeviceId === 'string' ? meta.muxrDeviceId : undefined;
 };
+
+/** Full attach call for the port: the validated stream args plus who is asking. */
+type LinkTerminalAttach = LinkTerminalAttachParams & { deviceId: string; socket: TerminalPipe };
+
+/** Link stream args for a terminal pane, as the device opens the stream with them. */
+type LinkTerminalWireAttach = {
+    requestId: string;
+    sessionId: string;
+    channel: string;
+    cols: number;
+    rows: number;
+    mode?: 'control' | 'observe';
+    takeover?: boolean;
+};
+
+const CHANNEL_PATTERN = /^tm_[A-Za-z0-9]+_[A-Za-z0-9]+$/;
+
+/** Everything on a link stream is network input; validate before the pane machinery sees it. */
+function parseLinkTerminalAttach(args: unknown): LinkTerminalWireAttach | undefined {
+    if (typeof args !== 'object' || args === null) return undefined;
+    const a = args as Record<string, unknown>;
+    if (typeof a.requestId !== 'string' || a.requestId.length === 0 || a.requestId.length > 80) return undefined;
+    if (typeof a.sessionId !== 'string' || a.sessionId.length === 0 || a.sessionId.length > 200) return undefined;
+    if (typeof a.channel !== 'string' || !CHANNEL_PATTERN.test(a.channel)) return undefined;
+    if (!Number.isInteger(a.cols) || (a.cols as number) < 1 || (a.cols as number) > 500) return undefined;
+    if (!Number.isInteger(a.rows) || (a.rows as number) < 1 || (a.rows as number) > 500) return undefined;
+    if (a.mode !== undefined && a.mode !== 'control' && a.mode !== 'observe') return undefined;
+    if (a.takeover !== undefined && typeof a.takeover !== 'boolean') return undefined;
+    return {
+        requestId: a.requestId,
+        sessionId: a.sessionId,
+        channel: a.channel,
+        cols: a.cols as number,
+        rows: a.rows as number,
+        ...(a.mode === undefined ? {} : { mode: a.mode }),
+        ...(a.takeover === undefined ? {} : { takeover: a.takeover }),
+    };
+}
+
+/**
+ * A byokit link stream as a terminal socket: NDJSON lines each way, whole
+ * lines out of `onLine`. Frames are exactly what the relay channel carries --
+ * the Noise channel is the encryption there, and a hosted machine's sealed
+ * envelopes pass through untouched so the terminal manager sees no difference.
+ */
+class LinkTerminalSocket implements TerminalPipe {
+    private readonly lines = new Set<(line: string) => void>();
+    private readonly ends = new Set<() => void>();
+    private readonly decoder = new TextDecoder();
+    /** Input lines that arrived before the pane machinery listened, flushed on the first onLine. */
+    private readonly early: string[] = [];
+    private buffer = '';
+    private ended = false;
+
+    constructor(private readonly stream: LinkStream) {
+        stream.onData = (chunk) => {
+            this.buffer += this.decoder.decode(chunk, { stream: true });
+            const lines = this.buffer.split('\n');
+            this.buffer = lines.pop() ?? '';
+            for (const line of lines) this.deliver(line);
+        };
+        stream.onEnd = () => this.finish();
+    }
+
+    get isOpen(): boolean {
+        return !this.ended;
+    }
+
+    send(line: string): void {
+        // The link is a byte stream, not messages: every line carries its own newline.
+        this.stream.write(`${line}\n`).then(() => undefined, () => this.finish());
+    }
+
+    onLine(listener: (line: string) => void): () => void {
+        this.lines.add(listener);
+        if (this.early.length > 0) {
+            for (const line of this.early.splice(0)) listener(line);
+        }
+        return () => { this.lines.delete(listener); };
+    }
+
+    onEnd(listener: () => void): () => void {
+        this.ends.add(listener);
+        return () => { this.ends.delete(listener); };
+    }
+
+    /** Ends the stream both ways, after the lines already written. */
+    close(): void {
+        this.stream.end();
+        this.finish();
+    }
+
+    private deliver(line: string): void {
+        if (this.lines.size === 0) {
+            this.early.push(line);
+            return;
+        }
+        for (const listener of [...this.lines]) listener(line);
+    }
+
+    private finish(): void {
+        if (this.ended) return;
+        this.ended = true;
+        for (const listener of [...this.ends]) listener();
+    }
+}
 
 /**
  * Only native devices are enrolled here. Browser grants expire after 8 hours
@@ -99,6 +204,13 @@ export class LinkEndpoint {
         // this assignment; the push handler needs the finished endpoint.
         let endpoint: LinkEndpoint;
         const host = await Host.open({
+            ...(options.terminals === undefined && options.voiceStreams === undefined ? {} : {
+                stream: (stream: LinkStream, req: LinkRequest, grant: Grant) => {
+                    if (req.op === 'voice') return streamVoice(stream, req, grant, options);
+                    if (req.op === 'terminal') return streamTerminal(stream, req, grant, options);
+                    throw new PublicLinkError('unsupported link stream');
+                },
+            }),
             keys,
             name: options.machineName,
             grants: options.grants,
@@ -107,6 +219,11 @@ export class LinkEndpoint {
             confirm: () => false,
             allow: (req, grant) => {
                 if (!trusted(grant, options.currentCrypto())) return false;
+                // A terminal stream is admitted for control devices; observing
+                // devices are forced to observe mode in the handler below, the
+                // same way the relay dispatcher forces it on terminal.attach.
+                if (req.op === 'terminal') return true;
+                if (req.op === 'voice') return grant.role === 'control' && options.voiceStreams !== undefined;
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) return false;
                 // A device's own push address is device-local, never machine data.
@@ -272,6 +389,51 @@ export class LinkEndpoint {
                 meta: { muxrDeviceId: device.deviceId } satisfies DeviceMeta,
             });
         }
+    }
+}
+
+/**
+ * The device's terminal pane over a link stream: the stream open IS the attach.
+ * The first line back is the same `result` shape a terminal.attach request gets
+ * (ok with the pane, or the attach error with its code, e.g. `takeover`), then
+ * herdr's NDJSON flows both ways until the stream ends.
+ */
+async function streamVoice(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
+    const args = req.args as { channel?: unknown; sessionId?: unknown } | null;
+    if (!trusted(grant, options.currentCrypto())) throw new PublicLinkError('voice: device is no longer trusted');
+    if (grant.role !== 'control' || options.voiceStreams === undefined || args === null || typeof args !== 'object'
+        || typeof args.channel !== 'string' || !/^rs_[A-Za-z0-9_-]{8,80}$/.test(args.channel)
+        || (args.sessionId !== undefined && (typeof args.sessionId !== 'string' || args.sessionId.length === 0 || args.sessionId.length > 200))) {
+        throw new PublicLinkError('voice: malformed or unauthorized stream');
+    }
+    await options.voiceStreams.attach({
+        deviceId: muxrDeviceIdOf(grant)!,
+        channel: args.channel,
+        ...(typeof args.sessionId === 'string' ? { sessionId: args.sessionId } : {}),
+        stream,
+    });
+}
+
+async function streamTerminal(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
+    const params = parseLinkTerminalAttach(req.args);
+    if (params === undefined) throw new PublicLinkError('terminal: malformed attach');
+    if (!trusted(grant, options.currentCrypto())) throw new PublicLinkError('terminal: device is no longer trusted');
+    const deviceId = muxrDeviceIdOf(grant)!;
+    // An observing device renders the pane without touching it, the same way
+    // the relay dispatcher rewrites its terminal.attach.
+    const mode = grant.role === 'view' ? 'observe' : params.mode;
+    const socket: TerminalPipe = new LinkTerminalSocket(stream);
+    const reply = (result: { ok: true; data: { paneId: string } } | { ok: false; error: string; code?: string }): void => {
+        socket.send(JSON.stringify({ type: 'result', requestId: params.requestId, ...result }));
+    };
+    try {
+        const attach: LinkTerminalAttach = { ...params, deviceId, socket, ...(mode === undefined ? {} : { mode }) };
+        const { paneId } = await options.terminals!.attach(attach);
+        process.stderr.write(`link: terminal stream attached (pane ${paneId}, device ${deviceId}${mode === 'observe' ? ', observe' : ''})\n`);
+        reply({ ok: true, data: { paneId } });
+    } catch (error) {
+        reply({ ok: false, error: error instanceof Error ? error.message : String(error), code: attachFailureCode(error) });
+        socket.close();
     }
 }
 

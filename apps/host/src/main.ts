@@ -6,7 +6,7 @@ import { isPeerCapabilities, parseLifecycleNotificationLevel, relayControlUrl } 
 import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores } from './agent/index.js';
+import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
 import { startHost } from './host.js';
 import { createPersistQueue } from './platform/persistedJson.js';
 import { HttpPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
@@ -780,6 +780,18 @@ async function main(): Promise<void> {
                         },
                         answer: host.answer,
                         canView: host.canView,
+                        terminals,
+                        voiceStreams: {
+                            attach: async ({ deviceId, channel, sessionId, stream }) => {
+                                const transport: VoiceStreamTransport = {
+                                    set onData(listener: VoiceStreamTransport['onData']) { stream.onData = listener; },
+                                    set onEnd(listener: VoiceStreamTransport['onEnd']) { stream.onEnd = listener; },
+                                    write: (chunk) => stream.write(chunk),
+                                    end: (error) => stream.end(error),
+                                };
+                                await source.voiceStream({ deviceId, channel, ...(sessionId === undefined ? {} : { sessionId }), transport });
+                            },
+                        },
                         onStatus: (status) => {
                             linkOnline = status === 'online';
                             process.stdout.write(`link relay: ${status}\n`);

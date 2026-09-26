@@ -24,10 +24,18 @@ export type SessionClient = {
     onStateChange(listener: (state: ConnectionState) => void): () => void;
     onEvent(listener: (sessionId: string, event: SessionEvent) => void): () => void;
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
-    /** Register this device's Expo push address; the transport that is serving
-     *  the session decides where it lands (the link, or the relay HTTP API). */
     registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
     unregisterPush(): Promise<boolean>;
+    terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
+    voiceStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
+};
+
+/** Line-framed duplex stream used by terminal and realtime adapters. */
+export type ByteStreamTransport = {
+    write(line: string): Promise<void>;
+    onLine(listener: (line: string) => void): () => void;
+    onEnd(listener: (error?: string) => void): () => void;
+    close(): void;
 };
 
 /**
@@ -118,6 +126,58 @@ export class LinkFirstClient implements SessionClient {
             (value) => this.unwrap(type, value),
             (cause: unknown) => Promise.reject(this.mapLinkFailure(type, cause)),
         );
+    }
+
+    /** Opens one binary link stream; undefined means the relay serves the session. */
+    private async openByteStream(name: 'terminal' | 'voice', args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+        if (!this.online || this.link === undefined || this.closed) return undefined;
+        const stream = await this.link.stream(name, args);
+        let ended = false;
+        const lines = new Set<(line: string) => void>();
+        const ends = new Set<(error?: string) => void>();
+        const pendingLines: string[] = [];
+        const decoder = new TextDecoder();
+        let buffer = '';
+        stream.onData = (chunk) => {
+            buffer += decoder.decode(chunk, { stream: true });
+            const parts = buffer.split('\n');
+            buffer = parts.pop() ?? '';
+            for (const line of parts) {
+                if (lines.size === 0) pendingLines.push(line);
+                else for (const listener of [...lines]) listener(line);
+            }
+        };
+        stream.onEnd = (error) => {
+            if (ended) return;
+            ended = true;
+            for (const listener of [...ends]) listener(error);
+        };
+        return {
+            // The link is a byte stream, not messages: every line carries its own newline.
+            write: (line) => stream.write(`${line}\n`),
+            onLine: (listener) => {
+                lines.add(listener);
+                for (const line of pendingLines.splice(0)) listener(line);
+                return () => { lines.delete(listener); };
+            },
+            onEnd: (listener) => {
+                ends.add(listener);
+                return () => { ends.delete(listener); };
+            },
+            close: () => {
+                stream.end();
+            },
+        };
+    }
+
+    /** Opens the realtime voice stream while the link serves the session. */
+    voiceStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+        return this.openByteStream('voice', args);
+    }
+
+    /** Opens the pane's stream while the link serves the session. */
+    terminalStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+        return this.openByteStream('terminal', args);
     }
 
     onStateChange(listener: (state: ConnectionState) => void): () => void {

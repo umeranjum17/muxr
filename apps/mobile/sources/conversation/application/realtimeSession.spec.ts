@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
             pending: [] as string[], ready: Promise.resolve(), release: vi.fn(),
         })),
     },
-    controlRequest: vi.fn(async () => undefined),
     pcm: {
         startRealtimePcm: vi.fn(() => true),
         playRealtimePcm: vi.fn((_data: string) => true),
@@ -49,7 +48,7 @@ vi.mock('@/plugins/openPluginStream', () => ({
 vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/../modules/voice-overlay', () => mocks.pcm);
 vi.mock('./vadStandby', () => mocks.vad);
-vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.controlRequest } }));
+vi.mock('@/catalog/sync', () => ({ sync: { openVoiceStream: vi.fn(async () => undefined) } }));
 vi.mock('../infrastructure/realtimeWebRtc', () => ({ startRealtimeWebRtc: mocks.webRtc.start }));
 
 import { startRealtimeSession } from './realtimeSession';
@@ -178,14 +177,11 @@ describe('generic realtime stream session', () => {
         await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledWith('voice.session', {
             sessionId: 's1',
             snapshot: expect.objectContaining({ machineId: 'machine-a', relayUrl: 'wss://relay-a' }),
-            attach: expect.any(Function),
+            openStream: expect.any(Function),
         }));
         expect(stream.start).toHaveBeenCalledOnce();
         expect(stream.frames).toHaveLength(1);
         expect(stream.closes).toHaveLength(1);
-        const attach = mocks.openStream.mock.calls[0]?.[1].attach as (params: Record<string, unknown>) => Promise<unknown>;
-        await attach({ channel: 'rs_voice', sessionId: 's1' });
-        expect(mocks.controlRequest).toHaveBeenCalledWith('voice.stream', { channel: 'rs_voice', sessionId: 's1' });
 
         await vi.waitFor(() => expect(mocks.liveAudio.start).toHaveBeenCalled());
         expect(mocks.liveAudio.init).toHaveBeenCalledOnce();

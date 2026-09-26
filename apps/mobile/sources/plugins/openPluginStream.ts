@@ -28,6 +28,13 @@ export interface PluginStream {
     close: (reason?: string) => void;
 }
 
+type RealtimeStreamTransport = {
+    write(line: string): Promise<void>;
+    onLine(listener: (line: string) => void): () => void;
+    onEnd(listener: (error?: string) => void): () => void;
+    close(): void;
+};
+
 const MAX_PREACTIVATION_FRAMES = 512;
 const MAX_PREACTIVATION_BYTES = 16 * 1024 * 1024;
 const MAX_PENDING_WIRE_FRAMES = 1024;
@@ -132,9 +139,8 @@ export async function openPluginStream(
 }
 
 /**
- * Attach one realtime stream over the relay. The caller owns how the host is
- * asked to attach it, so a plugin stream and a product voice stream share the
- * exact framing, e2ee and backpressure behaviour.
+ * Attach one realtime stream. This adapter tries its duplex stream port, then
+ * falls back to the relay while keeping framing, E2EE and backpressure shared.
  */
 export async function openRealtimeStream(
     capability: string,
@@ -142,7 +148,8 @@ export async function openRealtimeStream(
         sessionId?: string;
         machineId?: string;
         snapshot?: RealtimeStreamSnapshot;
-        attach: (params: { channel: string; sessionId?: string }) => Promise<unknown>;
+        attach?: (params: { channel: string; sessionId?: string }) => Promise<unknown>;
+        openStream?: (params: { channel: string; sessionId?: string }) => Promise<RealtimeStreamTransport | undefined>;
     },
 ): Promise<PluginStream> {
     const snapshot = options.snapshot ?? await captureStreamTransport(
@@ -154,24 +161,30 @@ export async function openRealtimeStream(
     const hosted = grant === undefined ? undefined : new DeviceV2Crypto(grant);
     const channel = newRealtimeChannel();
     if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
-    // Reuse the main relay client: a second socket receives the same encrypted broadcasts
-    // and can lose the shared replay race before its plugin.stream result arrives.
-    await options.attach({
-        channel,
-        ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
-    });
+    const attachParams = { channel, ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }) };
+    let streamTransport: RealtimeStreamTransport | undefined;
+    if (options.openStream !== undefined) {
+        streamTransport = await options.openStream(attachParams);
+        if (streamTransport === undefined) throw new Error('stream: required duplex transport unavailable');
+    } else if (options.attach !== undefined) {
+        // Reuse the main relay client: a second socket can lose the shared
+        // replay race before its plugin.stream result arrives.
+        await options.attach(attachParams);
+    } else {
+        throw new Error('stream: no transport adapter available');
+    }
     if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
 
-    const relayUrl = await channelRelayUrl(snapshot.relayUrl, snapshot.machineId);
+    const relayUrl = streamTransport === undefined ? await channelRelayUrl(snapshot.relayUrl, snapshot.machineId) : undefined;
     const ticketInput = grant !== undefined
         ? { credential: grant.credential }
         : snapshot.token !== '' && !snapshot.token.startsWith('acctok_')
             ? { credential: snapshot.token }
             : undefined;
-    if (ticketInput === undefined) throw new Error('stream: relay ticket required');
-    const url = ticketSocketUrl(relayUrl, await issueWsTicket({
+    if (relayUrl !== undefined && ticketInput === undefined) throw new Error('stream: relay ticket required');
+    const url = relayUrl === undefined ? undefined : ticketSocketUrl(relayUrl, await issueWsTicket({
         relayUrl,
-        credential: ticketInput.credential,
+        credential: ticketInput!.credential,
         machineId: snapshot.machineId,
         role: 'client',
         transport: 'stream',
@@ -191,6 +204,7 @@ export async function openRealtimeStream(
     let processing = Promise.resolve();
     let pendingWireFrames = 0;
     let pendingWireBytes = 0;
+    let streamPendingBytes = 0;
     let replayReleased = false;
 
     const notifyTerminal = (): void => {
@@ -220,6 +234,7 @@ export async function openRealtimeStream(
             current.onclose = null;
             current.close();
         }
+        streamTransport?.close();
         notifyTerminal();
     };
     const endTransport = (): void => {
@@ -271,12 +286,29 @@ export async function openRealtimeStream(
         }
     };
 
-    await new Promise<void>((resolve, reject) => {
+    if (streamTransport !== undefined) {
+        opened = true;
+        streamTransport.onLine((raw) => {
+            if (terminal !== undefined) return;
+            const wireBytes = new TextEncoder().encode(raw).length;
+            if (pendingWireFrames >= MAX_PENDING_WIRE_FRAMES || pendingWireBytes + wireBytes > MAX_PENDING_WIRE_BYTES) {
+                finish('stream receive buffer exceeded');
+                return;
+            }
+            pendingWireFrames += 1;
+            pendingWireBytes += wireBytes;
+            processing = processing.then(async () => {
+                try { await processMessage(raw); }
+                finally { pendingWireFrames -= 1; pendingWireBytes -= wireBytes; }
+            });
+        });
+        streamTransport.onEnd(endTransport);
+    } else await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
             finish('stream connection timed out', false);
             reject(new Error('stream connection timed out'));
         }, 15_000);
-        const next = new WebSocket(url);
+        const next = new WebSocket(url!);
         socket = next;
         next.onopen = () => {
             clearTimeout(timer);
@@ -345,13 +377,13 @@ export async function openRealtimeStream(
             notifyTerminal();
         },
         send: (frame) => {
-            if (terminal !== undefined || socket === undefined || socket.readyState !== WebSocket.OPEN) return false;
-            if (frame.type === 'realtime.audio' && socket.bufferedAmount > MAX_SEND_BUFFER_BYTES) return false;
+            if (terminal !== undefined || (streamTransport === undefined && (socket === undefined || socket.readyState !== WebSocket.OPEN))) return false;
+            if (frame.type === 'realtime.audio' && (socket?.bufferedAmount ?? streamPendingBytes) > MAX_SEND_BUFFER_BYTES) return false;
             const clean = parseRealtimeClientFrame(frame);
             const plaintext = JSON.stringify(clean);
             const sealed = hosted?.seal('stream', channel, plaintext);
             try {
-                socket.send(sealed === undefined ? plaintext : JSON.stringify({
+                const wire = sealed === undefined ? plaintext : JSON.stringify({
                     header: {
                         machineId: snapshot.machineId,
                         senderId: grant!.deviceId,
@@ -363,7 +395,15 @@ export async function openRealtimeStream(
                         at: Date.now(),
                     },
                     payload: sealed.payload,
-                } satisfies Envelope));
+                } satisfies Envelope);
+                if (streamTransport !== undefined) {
+                    const bytes = new TextEncoder().encode(wire).byteLength + 1;
+                    streamPendingBytes += bytes;
+                    void streamTransport.write(wire).then(
+                        () => { streamPendingBytes = Math.max(0, streamPendingBytes - bytes); },
+                        () => finish('stream disconnected'),
+                    );
+                } else socket!.send(wire);
                 return true;
             } catch {
                 finish('stream disconnected');
