@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { waitForRelay } from './waitForRelay.mjs';
+import { relayPairSession } from './relayPairSession.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
 
 const phone = { secure: new Map<string, string>(), local: new Map<string, string>() };
@@ -154,11 +155,10 @@ describe('the phone session channel on the byokit link', () => {
         }
         vi.stubGlobal('WebSocket', TrackedWebSocket);
         await startMachine('fresh');
-        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
-        const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'muxr pair string');
-        stored = await claimHostedPairing(text);
-        await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'muxr pair finishes');
-        expect(pair.exitCode, pair.output()).toBe(0);
+        // A phone paired before step 4: its grant and relay credential come
+        // from the old relay pair-session flow, and the link upgrade rides on
+        // the keys that flow left behind.
+        stored = await relayPairSession({ home, port, claim: claimHostedPairing });
         await stopMachine();
     }, 90_000);
 
