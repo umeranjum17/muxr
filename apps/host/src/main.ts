@@ -171,6 +171,8 @@ interface SelfhostState {
     credentialExpiresAt?: string;
     relayLocation?: 'local' | 'remote';
     connectionMode?: string;
+    /** The shared relay's one-use link enrolment, claimed by this host's first registration. */
+    linkEnrolToken?: string;
     ingress?: { kind?: string; dnsName?: string };
     machine: { id: string; name?: string; crypto: MachineCryptoState };
 }
@@ -733,7 +735,9 @@ async function main(): Promise<void> {
     // The link sits beside the relay transport on a self-host relay this
     // machine owns. The relay may still be starting, so keep trying.
     const ownerToken = mode === 'selfhost' ? selfhostAuth?.mintSecret : undefined;
-    if (ownerToken !== undefined && hostedE2ee !== undefined) {
+    const linkEnrolToken = mode === 'selfhost' && selfhostAuth?.relayLocation === 'remote'
+        && typeof selfhostAuth.linkEnrolToken === 'string' ? selfhostAuth.linkEnrolToken : undefined;
+    if ((ownerToken !== undefined || linkEnrolToken !== undefined) && hostedE2ee !== undefined) {
         void (async () => {
             for (let attempt = 0; !shuttingDown; attempt++) {
                 try {
@@ -743,7 +747,8 @@ async function main(): Promise<void> {
                     };
                     linkEndpoint = await LinkEndpoint.open({
                         relayUrl,
-                        ownerToken,
+                        ...(ownerToken === undefined ? {} : { ownerToken }),
+                        ...(linkEnrolToken === undefined ? {} : { enrol: linkEnrolToken }),
                         machineName,
                         crypto: selfhostAuth!.machine.crypto,
                         currentCrypto,

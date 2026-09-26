@@ -1,0 +1,18 @@
+desklink React Native client
+Copyright the desklink authors. Licensed under the Apache License, Version 2.0.
+
+  react-native-webrtc           MIT
+    The WebRTC binding the consuming application already ships. This package
+    compiles against its `org.webrtc` classes and never mutates its global
+    decoder factory, so a single native library serves both.
+
+  WebRTC (libwebrtc)            BSD-3-Clause
+    Reached through the application's existing binding; not redistributed by
+    this package.
+
+  expo / expo-modules-core      MIT
+    The native module and view plumbing.
+
+The client package contains no code from Sunshine, Moonlight, Apollo or
+RustDesk. Its decoder selection, session lifecycle and gesture model were written
+from the documented WebRTC and platform APIs.
