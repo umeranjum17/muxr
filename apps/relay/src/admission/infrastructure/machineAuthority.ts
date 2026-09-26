@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
+import { hostId } from '@byokit/link';
 import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js';
 
 const ENROLLMENT_TTL_MS = 5 * 60_000;
@@ -13,6 +14,7 @@ interface Machine {
     credentialHash: string;
     slug: string;
     signingPublicKey: string;
+    linkHostId: string;
     name: string;
     createdAt: number;
     expiresAt: number;
@@ -24,8 +26,8 @@ export function enrolledMachineSlug(signingPublicKey: string): string {
     return `machine-${createHash('sha256').update('muxr-machine-v1\0').update(Buffer.from(signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;
 }
 
-export function enrollmentProofMessage(id: string, relayUrl: string, signingPublicKey: string): Buffer {
-    return Buffer.from(`muxr-enroll-v1\n${id}\n${relayUrl}\n${signingPublicKey}`, 'utf8');
+export function enrollmentProofMessage(id: string, relayUrl: string, signingPublicKey: string, boxPublicKey: string): Buffer {
+    return Buffer.from(`muxr-enroll-v2\n${id}\n${relayUrl}\n${signingPublicKey}\n${boxPublicKey}`, 'utf8');
 }
 
 export class MachineAuthority {
@@ -63,7 +65,7 @@ export class MachineAuthority {
         });
     }
 
-    claimEnrollment(id: string, input: { claim: string; relayUrl: string; signingPublicKey: string; name: string }, now = Date.now()): Promise<
+    claimEnrollment(id: string, input: { claim: string; relayUrl: string; signingPublicKey: string; boxPublicKey: string; name: string }, now = Date.now()): Promise<
         | { state: 'issued'; credential: string; credentialId: string; slug: string; expiresAt: number; relayUrl: string; webUrl?: string }
         | { state: 'invalid_claim' | 'expired' | 'already_claimed' }
     > {
@@ -81,21 +83,21 @@ export class MachineAuthority {
             const existing = this.state.machines.find((machine) => machine.slug === slug && machine.revokedAt === undefined);
             if (existing !== undefined) existing.revokedAt = now;
             this.state.machines.push({ credentialId, credentialHash: hash(credential), slug, signingPublicKey: input.signingPublicKey,
-                name: input.name.slice(0, 120), createdAt: now, expiresAt });
+                linkHostId: hostId(Buffer.from(input.boxPublicKey, 'base64')), name: input.name.slice(0, 120), createdAt: now, expiresAt });
             await this.persist();
             return { state: 'issued', credential, credentialId, slug, expiresAt, relayUrl: enrollment.relayUrl,
                 ...(enrollment.webUrl === undefined ? {} : { webUrl: enrollment.webUrl }) };
         });
     }
 
-    resolveCredential(credential: string, now = Date.now()): Promise<{ credentialId: string; slug: string; expiresAt: number } | undefined> {
+    resolveCredential(credential: string, now = Date.now()): Promise<{ credentialId: string; slug: string; linkHostId: string; expiresAt: number } | undefined> {
         if (!credential.startsWith('muxr_mc_')) return Promise.resolve(undefined);
         return this.serialized(async () => {
             await this.load();
             const credentialHash = hash(credential);
             const machine = this.state.machines.find((entry) => entry.credentialHash === credentialHash
                 && entry.revokedAt === undefined && entry.expiresAt > now);
-            return machine === undefined ? undefined : { credentialId: machine.credentialId, slug: machine.slug, expiresAt: machine.expiresAt };
+            return machine === undefined ? undefined : { credentialId: machine.credentialId, slug: machine.slug, linkHostId: machine.linkHostId, expiresAt: machine.expiresAt };
         });
     }
 
@@ -115,18 +117,18 @@ export class MachineAuthority {
         });
     }
 
-    listMachines(): Promise<Array<{ slug: string; name: string; createdAt: number; expiresAt: number; expired: boolean; revoked: boolean }>> {
+    listMachines(): Promise<Array<{ slug: string; name: string; linkHostId: string; createdAt: number; expiresAt: number; expired: boolean; revoked: boolean }>> {
         return this.serialized(async () => {
             await this.load();
             const latest = new Map<string, Machine>();
             for (const machine of this.state.machines) latest.set(machine.slug, machine);
-            return [...latest.values()].map(({ slug, name, createdAt, expiresAt, revokedAt }) => ({
-                slug, name, createdAt, expiresAt, expired: expiresAt <= Date.now(), revoked: revokedAt !== undefined,
+            return [...latest.values()].map(({ slug, name, linkHostId, createdAt, expiresAt, revokedAt }) => ({
+                slug, name, linkHostId, createdAt, expiresAt, expired: expiresAt <= Date.now(), revoked: revokedAt !== undefined,
             }));
         });
     }
 
-    revokeMachine(slug: string, now = Date.now()): Promise<{ credentialId: string } | undefined> {
+    revokeMachine(slug: string, now = Date.now()): Promise<{ credentialId: string; linkHostId: string } | undefined> {
         return this.serialized(async () => {
             await this.load();
             const records = this.state.machines.filter((entry) => entry.slug === slug);
@@ -136,7 +138,7 @@ export class MachineAuthority {
                 machine.revokedAt = now;
                 await this.persist();
             }
-            return { credentialId: (machine ?? records.at(-1)!).credentialId };
+            return { credentialId: (machine ?? records.at(-1)!).credentialId, linkHostId: (machine ?? records.at(-1)!).linkHostId };
         });
     }
 }

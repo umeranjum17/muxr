@@ -46,7 +46,7 @@ describe('push rides the byokit link relay', () => {
             port: 0,
             host: '127.0.0.1',
             linkPush: { fetch: capturedFetch },
-            config: { dataDir, advertiseMdns: false, e2eeMode: 'off', localAuthority: true, developmentApi: false },
+            config: { dataDir, advertiseMdns: false },
         });
         try {
             const mint = JSON.parse(readFileSync(join(dataDir, 'mint-secret'), 'utf8')) as string;

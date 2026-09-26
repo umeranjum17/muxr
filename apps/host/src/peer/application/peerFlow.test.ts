@@ -880,7 +880,7 @@ describe('host peer collaboration flow', () => {
 
     it('carries a peer mutation over a real link through a host restart', async () => {
         const root = mkdtempSync(join(tmpdir(), 'muxr-peer-link-'));
-        const relay = await startRelay({ port: 0, config: { dataDir: join(root, 'relay'), developmentApi: true } });
+        const relay = await startRelay({ port: 0, config: { dataDir: join(root, 'relay') } });
         const sourceKeys = machineCrypto();
         const targetKeys = machineCrypto();
         const source = new PeerRuntime({ dataDir: join(root, 'source-peer'), machineId: 'source-live',

@@ -93,7 +93,7 @@ process.stdin.on('data', (chunk) => {
     }
 });
 `);
-        const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay'), developmentApi: true } });
+        const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
         cleanups.push(() => void relay.close());
         const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
         const ownerToken = JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string;

@@ -126,14 +126,14 @@ describe('a shared-relay machine joins the link through the owner enrolment', ()
         const token = linkEnrolment.body.token;
         if (typeof token !== 'string') throw new Error('relay returned no link enrolment token');
 
-        // The machine claims the legacy enrolment (what `muxr connect` does).
+        // The machine claims the control-plane enrolment (what `muxr connect` does).
         identity = machineIdentity(undefined);
-        const message = Buffer.from(`muxr-enroll-v1\n${String(opened.body.enrollment_id)}\n${enrollRelay}\n${identity.crypto.signingPublicKey}`, 'utf8');
+        const message = Buffer.from(`muxr-enroll-v2\n${String(opened.body.enrollment_id)}\n${enrollRelay}\n${identity.crypto.signingPublicKey}\n${identity.crypto.boxPublicKey}`, 'utf8');
         const proof = Buffer.from(nacl.sign.detached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
         const claimed = await json(base, `/v1/selfhost/enrollments/${encodeURIComponent(String(opened.body.enrollment_id))}/claim`, {
             method: 'POST',
             body: JSON.stringify({ claim: opened.body.claim, relay_url: enrollRelay,
-                signing_public_key: identity.crypto.signingPublicKey, proof, name: 'Laptop' }),
+                signing_public_key: identity.crypto.signingPublicKey, box_public_key: identity.crypto.boxPublicKey, proof, name: 'Laptop' }),
         });
         expect(claimed.response.status).toBe(201);
 
@@ -203,6 +203,19 @@ await until(() => (host!.output().includes('link relay: online') ? true : undefi
         await until(() => (again.state === 'open' ? true : undefined), 'relay session reopens after the restart');
         await again.request('herdr.tree', {});
         await until(() => (again.state === 'open' && again.transport === 'link' ? true : undefined), 'session returns over the link after the restart', 40_000);
+        const credential = readSelfhostState()?.machineCredential;
+        const status = await json(base, '/v1/selfhost/machine-status', { headers: { authorization: `Bearer ${credential}` } });
+        expect(status.body.online).toBe(true);
+        const revoked = await json(base, '/v1/selfhost/machine-status', {
+            method: 'DELETE', headers: { authorization: `Bearer ${credential}` },
+        });
+        expect(revoked.response.status).toBe(200);
+        await until(async () => {
+            const hosts = await json(base, '/relay/v1/hosts', { headers: { authorization: `Bearer ${mint}` } });
+            const listed = Array.isArray(hosts.body) ? hosts.body as Array<{ id?: string }>
+                : Array.isArray(hosts.body.hosts) ? hosts.body.hosts as Array<{ id?: string }> : [];
+            return listed.some((entry) => entry.id === hostAddress) ? undefined : true;
+        }, 'revoked host disappears from the link');
         again.close();
         client.close();
     }, 120_000);

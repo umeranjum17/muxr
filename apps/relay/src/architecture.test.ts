@@ -5,8 +5,8 @@ import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-const MODULES = ['admission', 'routing', 'push'] as const;
-const COMPOSITION = new Set(['main.ts', 'relay.ts', 'httpHandlers.ts', 'config.ts', 'index.ts', 'selfCheck.ts', 'architecture.test.ts']);
+const MODULES = ['admission', 'routing'] as const;
+const COMPOSITION = new Set(['main.ts', 'relay.ts', 'httpJson.ts', 'config.ts', 'index.ts', 'architecture.test.ts']);
 
 // Bidirectional module dependency pairs measured at the 2026 structure
 // investigation: none. The ratchet may only shrink (it starts empty), and any
@@ -84,13 +84,13 @@ describe('relay runtime architecture', () => {
                 }
             }
             for (const spec of importsOf(source)) {
-                const cross = spec.match(/^(\.\.\/)+(admission|routing|push)\/(domain|application|infrastructure)\//);
+                const cross = spec.match(/^(\.\.\/)+(admission|routing)\/(domain|application|infrastructure)\//);
                 if (cross && cross[2] !== module) offenders.push(`${rel} -> ${spec}`);
             }
             if (COMPOSITION.has(rel)) {
                 for (const spec of importsOf(source)) {
                     if (!spec.startsWith('.')) continue;
-                    const internal = spec.match(/^\.\/(admission|routing|push)\/(domain|application|infrastructure)\//);
+                    const internal = spec.match(/^\.\/(admission|routing)\/(domain|application|infrastructure)\//);
                     if (internal) offenders.push(`${rel} composition -> ${spec}`);
                 }
             }
