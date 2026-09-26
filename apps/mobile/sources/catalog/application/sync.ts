@@ -821,9 +821,6 @@ class MuxrSync {
         return this.client?.voiceStream?.(args);
     }
 
-    hasTerminalLink(): boolean {
-        return this.client?.linkCapable === true;
-    }
 
     async request<T extends import('@muxr/contract').RequestType>(
         type: T,
