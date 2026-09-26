@@ -861,12 +861,13 @@
     sodium-native "5.1.0"
     sodium-universal "5.0.1"
 
-"@byokit/reach@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.1.0.tgz#01f56f491ef6809171fc33510fb062d2f133f763"
-  integrity sha512-XP3VnKBYMSWHmjTLvXNUD/WUfk+XASFQ05vyYXa1ggznsygQ9M9HCf+AWk/tVxKEKmqSIbYs2koTIM8xqJdREA==
+"@byokit/reach@0.2.0":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.2.0.tgz#8f129494f7ce460fef37d8cf790cbf4203127aaf"
+  integrity sha512-yWbxHg7g9nAhlOUanpgmgLqTCgEVnzUnRlzyvUc2Kems0uUMS+bv/bSJpvdxkHcMKK3t0zKlR2kWIXdXAXq9Ow==
   dependencies:
     bonjour-service "^1.4.4"
+    react-native-zeroconf "0.14.0"
 
 "@byokit/relay@0.1.3":
   version "0.1.3"
@@ -7573,7 +7574,7 @@ react-native-worklets@0.7.2, react-native-worklets@^0.7.4:
     convert-source-map "2.0.0"
     semver "7.7.3"
 
-react-native-zeroconf@^0.14.0:
+react-native-zeroconf@0.14.0:
   version "0.14.0"
   resolved "https://registry.yarnpkg.com/react-native-zeroconf/-/react-native-zeroconf-0.14.0.tgz#7d2b8b446ebf1fa4073b539ef01f88e5bef61cb9"
   integrity sha512-TqjORroaVZrBYLzk3YtviQy8lUl/iiMacknxixRYlmGaqgsv4LJXIYafpnvPa3y2SC4/qu2mvF8D1/VTTxylgQ==

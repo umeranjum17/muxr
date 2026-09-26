@@ -31,8 +31,7 @@ import {
     v2EnvelopeSequence,
     verifyDeviceGrant,
 } from '@muxr/crypto';
-import { HostV2Crypto, connectToRelay, type MachineCryptoAdapter, type MachineCryptoState, type MachineRotationGrant } from '../../machine/index.js';
-import { LinkEndpoint } from '../../machine/infrastructure/linkEndpoint.js';
+import { HostV2Crypto, LinkEndpoint, connectToRelay, type MachineCryptoAdapter, type MachineCryptoState, type MachineRotationGrant } from '../../machine/index.js';
 import { startRelay } from '@muxr/relay';
 import { createRequestDispatcher } from '../../requests/index.js';
 import { HostDiagnosticsJournal } from '../../diagnostics/index.js';
