@@ -92,6 +92,14 @@ Home puts the agents waiting on you first, then the ones that finished while you
   <picture><source srcset="docs/assets/readme/inbox.webp" type="image/webp"><img src="docs/assets/readme/inbox.jpg" alt="Home sorting agents that need you from agents that finished and you haven't seen" width="300" /></picture>
 </p>
 
+### Know your limits
+
+Home and Usage share one provider reading. See what remains in each window, when it resets, and the projected pace to run out; colour marks that outlook, and a retained reading shows when it was captured.
+
+<p align="center">
+  <picture><source srcset="docs/assets/readme/usage.webp" type="image/webp"><img src="docs/assets/readme/usage.jpg" alt="Usage limits showing remaining session and weekly amounts, reset times, and projected run-out" width="300" /></picture>
+</p>
+
 ### Review before it ships
 
 Open the real diff and read every changed line in the working tree, the index, or the whole branch before you tell the agent to ship it, without waiting to get back to your desk.
@@ -123,7 +131,7 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 Tap the mic in the composer and speak. In the app, speech is transcribed on your phone as you talk, and the words land in the prompt for you to check before sending. Tap Stop to finish; during transcription, Cancel is on the opposite side so a second stop tap cannot discard your words. If you cancel, tap Undo within five seconds to restore them.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/dictation.webp" type="image/webp"><img src="docs/assets/readme/dictation.jpg" alt="A prompt dictated into an agent's composer: add a test for the free shipping threshold, then open a pull request when the cart tests pass" width="300" /></picture>
+  <picture><source srcset="docs/assets/readme/dictation.webp" type="image/webp"><img src="docs/assets/readme/dictation.jpg" alt="New-agent composer with a neutral draft and on-device dictation live; Stop dictation is available" width="300" /></picture>
 </p>
 
 **Also on your phone:**
@@ -131,7 +139,6 @@ Tap the mic in the composer and speak. In the app, speech is transcribed on your
 - **New agents and worktrees** — open the home composer to choose the machine, repository, worktree, and one of 20+ agent CLIs. The resting dock hides Send until there's a draft or a submission in progress. On a short phone, scroll the open composer to reach its options and Start when the keyboard is visible. On a later launch, Home can show the last confirmed agents and spaces while reconnecting; they appear dimmed until the host responds, and closing a remembered space is unavailable.
 - **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone; download an agent's Shared Artifacts with progress and resume after a lost connection. On web, a download finished in the background offers **Save** when you return.
 - **Settings** — under Appearance, choose a theme and terminal text size; the browser terminal also offers System or IBM Plex Mono. Gestures lists terminal actions and the swipe and zoom choices. Under Notifications, choose alerts for agents needing you or finishing; enable browser notifications in the web app or manage permission and sound in your phone's system settings.
-- **Usage** — see each plan window's percent left, reset time, and pace when known; Home shows every connected plan's limits at a glance, each plan's mark over what is left of its windows, alongside machine health.
 - **Desktop control (Linux)** — see **Peek at your computer** above. Remote desktop needs a Linux x64 host today (macOS later; Arm servers build the engine from source), and a cloud server needs the virtual-display packages once. Android and web have desktop clients; on iPhone, open Computer in the web app (native iOS support is not yet available). [Remote desktop setup and limits](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server) · [Host engine](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md)
 - **[Extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
