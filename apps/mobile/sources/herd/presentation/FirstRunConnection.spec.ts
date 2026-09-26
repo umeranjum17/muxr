@@ -60,6 +60,7 @@ vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => true) }));
 vi.mock('@/catalog', () => ({ loadAppConfig: () => ({}) }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 
+import { Modal } from '@/modal';
 import { FirstRunConnection } from './FirstRunConnection';
 
 function texts(root: any): string[] {
@@ -131,6 +132,9 @@ describe('guided first-connection chooser', () => {
         expect(scan.some((text) => text.includes('Point this phone at the QR'))).toBe(true);
         press(renderer.root, 'Open the scanner');
         expect(scanQr).toHaveBeenCalledTimes(1);
+        press(renderer.root, 'Paste a pairing string instead');
+        expect(Modal.prompt).toHaveBeenCalledWith('Enter pairing string', expect.stringContaining('`muxr pair`'), expect.anything());
+        expect(Modal.prompt).not.toHaveBeenCalledWith('Enter pairing string', expect.stringContaining('`muxr pair --browser`'), expect.anything());
 
         // "Different route" from the scan step returns toward the run step.
         press(renderer.root, '← Different route');

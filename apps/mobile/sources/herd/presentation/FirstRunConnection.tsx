@@ -119,8 +119,10 @@ export function FirstRunConnection() {
     const promptForPairingString = React.useCallback(async () => {
         const pasted = await Modal.prompt(
             'Enter pairing string',
-            'Paste the short link shown by `muxr pair --browser` for eight hours of control, `muxr pair --browser-personal` for 30 days of control on a browser only you use, or `muxr pair --browser-view` for view-only access.',
-            { placeholder: browser ? 'https://your-relay/pair?pair=…' : 'wss://your-relay?pair=7KDM4-QXP7N' },
+            browser
+                ? 'Paste the link shown by `muxr pair --browser` for eight hours of control, `muxr pair --browser-personal` for 30 days on a browser only you use, or `muxr pair --browser-view` for view-only access.'
+                : 'Paste the pairing string shown by `muxr pair` on the computer.',
+            { placeholder: browser ? 'https://your-relay/pair#byokit-link:1:…' : 'byokit-link:1:…' },
         );
         if (!pasted?.trim()) return;
         await processPairLink(pasted.trim());
