@@ -23,7 +23,7 @@ const labHelper = process.env.HERDR_LAB_HELPER?.trim();
 const checks = [
     ['typecheck: workspace (strict)', 'npx', ['tsc', '--build', '--force']],
     ['typecheck: mobile (expo/RN)', 'npx', ['tsc', '--noEmit', '--project', 'apps/mobile/tsconfig.json']],
-    ['unit: crypto (strict v2/replay/grants/adversarial)', 'node', ['packages/crypto/dist/selfCheck.js']],
+    ['unit: crypto (pairing and grant proofs)', 'node', ['packages/crypto/dist/selfCheck.js']],
     ['unit: host domain (unread/attention/restart)', 'node', ['apps/host/dist/agent/infrastructure/watchStores.selfCheck.js']],
     ['unit: contract vocabulary round-trip', 'node', ['packages/contract/dist/selfCheck.js']],
     ['unit: naming boundary (auth/target/failure/restart)', 'node', ['scripts/naming/naming.selfcheck.mjs']],
@@ -80,7 +80,7 @@ const checks = [
 const FAST = new Set([
     'typecheck: workspace (strict)',
     'typecheck: mobile (expo/RN)',
-    'unit: crypto (strict v2/replay/grants/adversarial)',
+    'unit: crypto (pairing and grant proofs)',
     'unit: host domain (unread/attention/restart)',
     'unit: contract vocabulary round-trip',
     'unit: naming boundary (auth/target/failure/restart)',
