@@ -82,7 +82,7 @@ export async function startSelfHost(args = []) {
         const connection = parseConnection(state);
         const sameConfiguration = connection.ok && connection.value.sameAs({ port, connectionMode, web, explicitAdvertise });
         if (!sameConfiguration && reconfigure) {
-            cleanupManagedIngress(state);
+            await cleanupManagedIngress(state);
             if (hostWasRunning && (await runDaemon(['stop'])) !== 0) throw new Error('could not stop the managed muxr service before reconfiguration');
             await stopOwnedSelfhostRelay();
             delete state.ingress;
@@ -92,12 +92,17 @@ export async function startSelfHost(args = []) {
         // Missing Tailscale is fine. Broken/unsafe Tailscale status must fail
         // closed; another transport is chosen explicitly, never as a guess.
         print('  … checking network connection and ingress');
-        const tailscale = tailscaleIngress(args);
+        const tailscale = await tailscaleIngress(args);
         const advertise = sameConfiguration && connectionMode === 'cloudflare' && typeof state.relayUrl === 'string' && cloudflaredAlive(state.ingress)
             ? { url: state.relayUrl, note: 'existing Cloudflare quick tunnel', ingress: state.ingress }
             : await resolveAdvertise(args, port, tailscale);
         pendingIngress = advertise.ingress?.kind === 'cloudflare-quick' ? advertise.ingress : undefined;
         if (advertise.ingress?.kind === 'tailscale-serve') state = persistOwnedServeIngress(state, advertise.ingress);
+        if (advertise.pendingCleanup !== undefined) {
+            // A previous mapping could not be verified removed; retry unserve later.
+            state = { ...state, pendingCleanup: advertise.pendingCleanup };
+            writeSelfhostState(state);
+        }
         if (web && !advertise.url.startsWith('wss://')) throw new Error('--web requires HTTPS (Tailscale Serve, a named HTTPS tunnel, or --advertise wss://...)');
         const bindHost = tailscale || args.includes('--tunnel') || web || explicitAdvertise?.startsWith('wss://') ? '127.0.0.1' : '0.0.0.0';
         const webOrigin = web ? advertise.url.replace(/^wss/, 'https') : undefined;
