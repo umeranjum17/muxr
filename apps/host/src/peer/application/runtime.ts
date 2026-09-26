@@ -288,24 +288,8 @@ export class PeerRuntime {
                 capabilities: [...pending.capabilities],
                 credentialExpiresAt: PEER_CREDENTIAL_EXPIRES_AT,
                 refreshAfter: PEER_CREDENTIAL_EXPIRES_AT,
-            }, {
-                ...(pending.authorityRecovery === undefined ? {} : { recovery: pending.authorityRecovery }),
-                checkpoint: async (authorityRecovery) => {
-                    pending = { ...pending, authorityRecovery };
-                    await this.store.putPendingAuthorization(pending);
-                },
             });
-            pending = {
-                ...pending,
-                ...(issued.recovery === undefined ? {} : { authorityRecovery: issued.recovery }),
-                issued: {
-                    peerDeviceId: issued.peerDeviceId,
-                    credential: issued.credential,
-                    authority: issued.authority,
-                    ...(issued.recovery === undefined ? {} : { recovery: issued.recovery }),
-                    ...(issued.grantPath === undefined ? {} : { grantPath: issued.grantPath }),
-                },
-            };
+            pending = { ...pending, issued: { peerDeviceId: issued.peerDeviceId, authority: issued.authority } };
             await this.store.putPendingAuthorization(pending);
         }
         if (pending.ingressKey === undefined || pending.peerDataKey === undefined) {
@@ -331,7 +315,7 @@ export class PeerRuntime {
             capabilities: pending.capabilities,
             ...(pending.allowedCwds === undefined ? {} : { allowedCwds: pending.allowedCwds }),
         });
-        await this.options.authority.uploadGrant(issued.peerDeviceId, JSON.stringify(grant), crypto.keyVersion, issued.recovery);
+        await this.options.authority.uploadGrant(issued.peerDeviceId, JSON.stringify(grant), crypto.keyVersion);
         if (pending.sealedBundle === undefined) {
             const payload: PeerInstallBundlePayload = {
                 v: 1,
@@ -342,8 +326,6 @@ export class PeerRuntime {
                 targetMachineSigningPublicKey: crypto.signingPublicKey,
                 relayUrl: pending.relayUrl ?? this.options.relayUrl,
                 peerDeviceId: issued.peerDeviceId,
-                credential: issued.credential,
-                ...(issued.grantPath === undefined ? {} : { grantPath: issued.grantPath }),
                 grant,
                 capabilities: [...pending.capabilities],
                 issuedAt: this.now(),
@@ -462,9 +444,7 @@ export class PeerRuntime {
             targetMachineSigningPublicKey: preparation.targetMachineSigningPublicKey,
             peerKey: preparation.key,
             relayUrl: opened.relayUrl,
-            credential: opened.credential,
             sealedGrant: opened.grant,
-            ...(opened.grantPath === undefined ? {} : { grantPath: opened.grantPath }),
             ...(grant.allowedCwds === undefined ? {} : { allowedCwds: grant.allowedCwds }),
         };
         await this.store.putRelationship(relationship);
@@ -496,23 +476,8 @@ export class PeerRuntime {
                 capabilities: [...pending.capabilities],
                 credentialExpiresAt: PEER_CREDENTIAL_EXPIRES_AT,
                 refreshAfter: PEER_CREDENTIAL_EXPIRES_AT,
-            }, {
-                ...(pending.authorityRecovery === undefined ? {} : { recovery: pending.authorityRecovery }),
-                checkpoint: async (authorityRecovery) => {
-                    pending = { ...pending, authorityRecovery };
-                    await this.store.putPendingAuthorization(pending);
-                },
             });
-            pending = {
-                ...pending,
-                issued: {
-                    peerDeviceId: issued.peerDeviceId,
-                    credential: issued.credential,
-                    authority: issued.authority,
-                    ...(issued.recovery === undefined ? {} : { recovery: issued.recovery }),
-                    ...(issued.grantPath === undefined ? {} : { grantPath: issued.grantPath }),
-                },
-            };
+            pending = { ...pending, issued: { peerDeviceId: issued.peerDeviceId, authority: issued.authority } };
             await this.store.putPendingAuthorization(pending);
         }
         const issued = pending.issued!;

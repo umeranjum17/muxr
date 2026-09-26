@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path';
 import { isPeerCapabilities, type PeerAuthorityMetadata, type PeerCapability, type PeerClientRequest, type PeerRelationship, type SignedPeerDescriptor } from '@muxr/contract';
 import type { KeyPair, SealedDeviceGrant } from '@muxr/crypto';
 import { atomicWriteJson } from '../../platform/atomicWriteJson.js';
-import type { PeerAuthorityIssueRecovery } from './authority.js';
 
 export interface StoredPreparation {
     preparationId: string;
@@ -43,13 +42,9 @@ export interface StoredPendingAuthorization {
     /** Target endpoint verified by the phone pairing and pinned into the install bundle. */
     relayUrl?: string;
     createdAt: number;
-    authorityRecovery?: PeerAuthorityIssueRecovery;
     issued?: {
         peerDeviceId: string;
-        credential: string;
         authority: PeerAuthorityMetadata;
-        recovery?: PeerAuthorityIssueRecovery;
-        grantPath?: string;
     };
     ingressKey?: string;
     peerDataKey?: string;
