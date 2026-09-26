@@ -42,6 +42,11 @@ import {
 
 export async function mintDeviceGrant(state, requestedKind = 'native', requestedAuthority = 'control', requestedPersonal = false) {
     const intent = pairingIntent({ kind: requestedKind, authority: requestedAuthority, personal: requestedPersonal });
+    if (intent.kind === 'native') {
+        const record = await linkPair(state);
+        print(`  ✓ paired and verified ${record.name || 'device'}`);
+        return 0;
+    }
     const base = selfhostControlBase(state);
     const authHeaders = { authorization: `Bearer ${selfhostCredential(state)}` };
     let pending = state.machine.crypto.pendingPair;
@@ -64,14 +69,6 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
         pending = undefined;
-    }
-    if (intent.kind === 'native') {
-        // Native pairing runs over the byokit link with approval on this
-        // computer (migration step 4, decision D1); only browsers still use
-        // the relay pair session.
-        const record = await linkPair(state);
-        print(`  ✓ paired and verified ${record.name || 'device'}`);
-        return 0;
     }
     if (pending === undefined) {
         const claim = randomBytes(32).toString('base64url');
@@ -299,7 +296,9 @@ export async function pairDevice(args = []) {
             healthy = await selfhostRelayHealthy(state);
         }
         if (!healthy) throw new Error('the relay could not restart; run `muxr doctor` for the exact failing check');
-        const paired = await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority, pair.personal));
+        const paired = pair.kind === 'native'
+            ? await mintDeviceGrant(state, pair.kind, pair.authority, pair.personal)
+            : await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority, pair.personal));
         // The person pairing is at this computer, which is the only place the
         // desktop's screen-sharing prompt can be answered.
         if (paired === 0) await approveScreenSharing();

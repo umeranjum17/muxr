@@ -299,7 +299,7 @@ export async function selfhostDevices(state) {
     const relayDevices = await selfhostRelayDevices(state);
     const known = new Set(relayDevices.map((device) => device.deviceId));
     const localOnly = (state.machine.crypto?.devices ?? [])
-        .filter((device) => device.kind === undefined && !known.has(device.deviceId))
+        .filter((device) => device.kind === undefined && Date.parse(device.expiresAt) > Date.now() && !known.has(device.deviceId))
         .map((device) => ({ deviceId: device.deviceId, name: device.name || 'phone' }));
     return [...relayDevices, ...localOnly];
 }

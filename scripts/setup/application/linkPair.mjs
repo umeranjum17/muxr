@@ -3,7 +3,8 @@ import { Host, hostId, keyPair } from '@byokit/link';
 import { RelayClient } from '@byokit/relay';
 import { askVisible, base64, print, printTerminalQr } from '../infrastructure/runtime.mjs';
 import { pairingIntent } from '../domain/dist/index.js';
-import { selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
+import { readSelfhostState, selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
+import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
 
 /**
  * Native pairing over the byokit link (migration step 4, decision D1).
@@ -140,7 +141,7 @@ export async function linkPair(state, { approve, pairMs = PAIR_WINDOW_MS, signal
             // An answered claim whose proof never arrived keeps no access; a
             // claim still waiting on approval wrote nothing. A verified claim
             // is a completed pairing and keeps its record.
-            if (claim.answered === true && claim.verified !== true) claim.rollback();
+            if (claim.answered === true && claim.verified !== true) await claim.rollback();
         }
     }
 }
@@ -162,27 +163,35 @@ async function servePairing(state, req, device, claims, done) {
     if (req.op === 'pair.verified') {
         const claim = claims.get(key);
         if (claim === undefined || claim.answered !== true) throw new Error('pairing: no open claim for this device');
+        const record = readSelfhostState()?.machine.crypto.devices.find((entry) => entry.deviceId === claim.deviceId);
+        if (record === undefined) throw new Error('pairing: device is no longer admitted');
         claim.verified = true;
         clearTimeout(claim.timer);
-        done.resolve(state.machine.crypto.devices.find((entry) => entry.deviceId === claim.deviceId));
+        done.resolve(record);
         return { ok: true };
     }
     if (req.op !== 'pair.complete') throw new Error('pairing: unknown request');
     const devicePublicKey = base64(Buffer.from(key, 'base64url'));
-    let record = state.machine.crypto.devices.find((entry) => entry.devicePublicKey === devicePublicKey && entry.kind === undefined);
-    if (record === undefined) {
-        const name = typeof req.args?.deviceName === 'string' && req.args.deviceName.trim() !== '' ? req.args.deviceName.trim() : device.name;
-        record = {
-            deviceId: `dev_${randomBytes(18).toString('base64url')}`,
-            devicePublicKey,
-            ingressKey: base64(randomBytes(32)),
-            expiresAt: new Date(pairingIntent({ kind: 'native' }).grantExpiresAt()).toISOString(),
-            authority: 'control',
-            name,
-        };
-        state.machine.crypto.devices = [...state.machine.crypto.devices, record];
-        writeSelfhostState(state);
-    }
+    const { record, created, keyVersion } = await withSelfhostRotationLock(() => {
+        const current = readSelfhostState();
+        if (current?.machine?.id !== state.machine.id || current.machine.crypto.pendingRotation) throw new Error('pairing: machine authority is changing');
+        let record = current.machine.crypto.devices.find((entry) => entry.devicePublicKey === devicePublicKey && entry.kind === undefined);
+        const created = record === undefined;
+        if (created) {
+            const name = typeof req.args?.deviceName === 'string' && req.args.deviceName.trim() !== '' ? req.args.deviceName.trim() : device.name;
+            record = {
+                deviceId: `dev_${randomBytes(18).toString('base64url')}`,
+                devicePublicKey,
+                ingressKey: base64(randomBytes(32)),
+                expiresAt: new Date(pairingIntent({ kind: 'native' }).grantExpiresAt()).toISOString(),
+                authority: 'control',
+                name,
+            };
+            current.machine.crypto.devices = [...current.machine.crypto.devices, record];
+            writeSelfhostState(current);
+        }
+        return { record, created, keyVersion: current.machine.crypto.keyVersion };
+    });
     let claim = claims.get(key);
     if (claim === undefined) {
         claim = {};
@@ -191,13 +200,18 @@ async function servePairing(state, req, device, claims, done) {
     claim.answered = true;
     claim.deviceId = record.deviceId;
     clearTimeout(claim.timer);
-    claim.rollback = () => {
-        const current = state.machine.crypto.devices.filter((entry) => entry.deviceId !== record.deviceId
-            || entry.devicePublicKey !== devicePublicKey);
-        if (current.length !== state.machine.crypto.devices.length) {
-            state.machine.crypto.devices = current;
-            writeSelfhostState(state);
-        }
+    claim.rollback ??= async () => {
+        if (!created) return;
+        await withSelfhostRotationLock(() => {
+            const current = readSelfhostState();
+            if (current?.machine?.id !== state.machine.id) return;
+            const devices = current.machine.crypto.devices.filter((entry) => entry.deviceId !== record.deviceId
+                || entry.devicePublicKey !== devicePublicKey);
+            if (devices.length !== current.machine.crypto.devices.length) {
+                current.machine.crypto.devices = devices;
+                writeSelfhostState(current);
+            }
+        });
     };
     claim.timer = setTimeout(() => {
         done.reject(new Error('pairing did not complete: the phone never reached this machine over the link. Start muxr here, then run `muxr pair` again.'));
@@ -209,6 +223,7 @@ async function servePairing(state, req, device, claims, done) {
         machineBoxPublicKey: Buffer.from(state.machine.crypto.boxPublicKey, 'base64').toString('base64url'),
         relayUrl: state.relayUrl,
         deviceId: record.deviceId,
+        keyVersion,
         authority: 'control',
         linkUrl: machineLinkUrl(state.relayUrl, state.machine.crypto.boxPublicKey),
     };
