@@ -20,7 +20,7 @@
         "dev:android": "node scripts/development/presentation/android.mjs",
         "relay": "node apps/relay/dist/main.js",
         "host": "node apps/host/dist/main.js --fake",
-        "probe": "node apps/probe/dist/main.js",
+        "probe": "node scripts/diagnostics/application/runSkeletonCheck.mjs",
         "skeleton": "node scripts/diagnostics/application/runSkeletonCheck.mjs",
         "doctor": "node scripts/diagnostics/presentation/doctor.mjs",
         "worktrees:clean": "node scripts/diagnostics/application/cleanWorktrees.mjs",

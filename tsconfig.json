@@ -14,9 +14,6 @@
             "path": "apps/host"
         },
         {
-            "path": "apps/probe"
-        },
-        {
             "path": "scripts/setup/domain"
         },
         {

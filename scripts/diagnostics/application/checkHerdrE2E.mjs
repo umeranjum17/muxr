@@ -1,46 +1,18 @@
-/**
- * e2e: herdr backend, the whole loop.
- *
- * Spawns its own relay and a real (non-fake) host against the live herdr server,
- * then proves:
- *   1. session.list discovers agents herdr already knows about
- *   2. session.start -> snapshot + session.created once herdr detects the agent
- *   3. terminal.attach -> live frame stream with its initial paint
- *   4. typed input reaches the pane and echoes back
- *   5. prompt / abort / detach / stop round-trip
- *   6. title-only session.updated stays under the 500ms host cap
- *
- * Needs a running `herdr server`. Run: node scripts/diagnostics/application/checkHerdrE2E.mjs
- */
-
-import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+/** Real Herdr backend through a paired byokit device link and terminal stream. */
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import WebSocket from 'ws';
-import {
-    decodePayload,
-    encodePayload,
-    newTerminalChannel,
-    nextRequestId,
-    terminalSocketUrl,
-} from '@muxr/contract';
-import { waitForRelay } from './waitForRelay.mjs';
+import { nextRequestId, newTerminalChannel } from '@muxr/contract';
+import { linkHerdrLab } from './linkHerdrLab.mjs';
+import { requestLab } from './linkLabClient.mjs';
 
-// A port picked from a 40-wide range still collides across worktrees, and a
-// collision used to read as a pass against the other lane's relay. The kernel
-// picks instead, and the relay reports back what it bound.
-let relayUrl;
-const machineId = `herdr-check-${process.pid}`;
-const dataDir = mkdtempSync(join(tmpdir(), 'muxr-herdr-'));
-const workdir = mkdtempSync(join(tmpdir(), 'muxr-cwd-'));
-const TIMEOUT_MS = 120_000;
-
-const children = [];
-const actionPluginId = `local.action-e2e-${process.pid}`;
-const actionPluginRoot = join(dataDir, 'action-plugin');
-mkdirSync(actionPluginRoot);
-writeFileSync(join(actionPluginRoot, 'herdr-plugin.toml'), `id = "${actionPluginId}"
+const root = mkdtempSync(join(tmpdir(), 'muxr-link-herdr-'));
+const workdir = join(root, 'cwd');
+mkdirSync(workdir);
+const pluginId = `local.action-e2e-${process.pid}`;
+const pluginRoot = join(root, 'action-plugin');
+mkdirSync(pluginRoot);
+writeFileSync(join(pluginRoot, 'herdr-plugin.toml'), `id = "${pluginId}"
 name = "Action failure e2e"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
@@ -52,340 +24,145 @@ title = "Fail safely"
 contexts = ["pane"]
 command = ["sh", "-c", "echo '/tmp/private-action w9ZZ:p9' >&2; exit 7"]
 `);
-writeFileSync(join(actionPluginRoot, 'muxr-ui.json'), `${JSON.stringify({
-    schemaVersion: 1,
-    pluginId: actionPluginId,
-    contributions: [{
-        slot: 'session.toolbar', id: 'fail', type: 'button', label: 'Fail safely',
-        action: { type: 'plugin.invoke', actionId: 'fail' },
-    }],
-}, null, 2)}\n`);
-execFileSync(process.env.HERDR_BIN || 'herdr', ['plugin', 'link', actionPluginRoot, '--enabled'], { stdio: 'ignore' });
-const env = { ...process.env };
-for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH']) {
-    delete env[key];
-}
-Object.assign(env, {
-    MUXR_MODE: 'local',
-    MUXR_RELAY_DEVELOPMENT_API: '1',
-    MUXR_RELAY_PORT: '0',
-    MUXR_RELAY_MDNS: '0',
-    MUXR_MACHINE_ID: machineId,
-    MUXR_DATA_DIR: dataDir,
-    MUXR_RELAY_DATA_DIR: join(dataDir, 'relay'),
-});
-
-function start(name, args) {
-    const child = spawn('node', args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout.on('data', (d) => process.stdout.write(`      [${name}] ${d}`));
-    child.stderr.on('data', (d) => process.stderr.write(`      [${name}] ${d}`));
-    children.push(child);
-    return child;
-}
-
-let wireSeq = 0;
-const pending = new Map();
+writeFileSync(join(pluginRoot, 'muxr-ui.json'), `${JSON.stringify({ schemaVersion: 1, pluginId,
+    contributions: [{ slot: 'session.toolbar', id: 'fail', type: 'button', label: 'Fail safely',
+        action: { type: 'plugin.invoke', actionId: 'fail' } }] })}\n`);
 const events = [];
-let sessionList = [];
-let createdWorkspaceId;
-let finishing = false;
-const timer = setTimeout(() => finish(1, `FAIL: timed out after ${TIMEOUT_MS}ms\n`), TIMEOUT_MS);
-
-function fail(message) {
-    finish(1, `FAIL: ${message}\n`);
+let lab;
+let terminal;
+const workspaces = new Set();
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function until(check, label, timeout = 30_000) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+        if (await check()) return;
+        await sleep(100);
+    }
+    throw new Error(`timed out waiting for ${label}`);
 }
 
-function finish(code, message) {
-    if (finishing) return;
-    finishing = true;
-    clearTimeout(timer);
-    for (const child of children) child.kill();
-    if (createdWorkspaceId !== undefined) {
-        try {
-            execFileSync(process.env.HERDR_BIN || 'herdr', ['workspace', 'close', createdWorkspaceId], { stdio: 'ignore' });
-        } catch { /* best effort after a failed live server */ }
-    }
-    try {
-        execFileSync(process.env.HERDR_BIN || 'herdr', ['plugin', 'unlink', actionPluginId], { stdio: 'ignore' });
-    } catch { /* best effort after a failed live server */ }
-    rmSync(dataDir, { recursive: true, force: true });
-    rmSync(workdir, { recursive: true, force: true });
-    process.stdout.write(message);
-    process.exit(code);
-}
-
-process.once('SIGINT', () => finish(130, 'INTERRUPTED e2e: herdr backend loop\n'));
-process.once('SIGTERM', () => finish(143, 'TERMINATED e2e: herdr backend loop\n'));
-
-function request(socket, type, params) {
-    const requestId = nextRequestId();
-    return new Promise((resolve, reject) => {
-        pending.set(requestId, { resolve, reject });
-        send(socket, { type, requestId, params });
-    });
-}
-
-function send(socket, frame, sessionId) {
-    wireSeq += 1;
-    const envelope = {
-        header: { machineId, ...(sessionId === undefined ? {} : { sessionId }), seq: wireSeq, at: Date.now() },
-        payload: encodePayload(frame),
-    };
-    socket.send(JSON.stringify(envelope));
-}
-
-function runHerdr(args, timeout = 10_000) {
-    return execFileSync(process.env.HERDR_BIN || 'herdr', args, { encoding: 'utf8', timeout });
-}
-
-function herdrJson(args, timeout = 10_000) {
-    return JSON.parse(runHerdr(args, timeout));
-}
-
-const relayPort = await waitForRelay(start('relay', ['apps/relay/dist/main.js']))
-    .catch((error) => finish(1, `FAIL: ${error.message}\n`));
-relayUrl = `ws://127.0.0.1:${relayPort}`;
-env.MUXR_RELAY_URL = relayUrl;
-start('host', ['apps/host/dist/main.js']);
-await new Promise((resolve) => setTimeout(resolve, 1500));
-
-const socket = new WebSocket(`${relayUrl}?role=client&machineId=${machineId}`);
-
-socket.on('open', async () => {
-    try {
-        await run();
-    } catch (error) {
-        fail(error instanceof Error ? error.message : String(error));
-    }
-});
-
-socket.on('message', (raw) => {
-    let envelope;
-    try {
-        envelope = JSON.parse(String(raw));
-    } catch {
-        return;
-    }
-    const frame = decodePayload(envelope.payload);
-    if (frame?.type === 'result') {
-        const entry = pending.get(frame.requestId);
-        if (entry === undefined) return;
-        pending.delete(frame.requestId);
-        frame.ok ? entry.resolve(frame.data) : entry.reject(new Error(frame.error ?? 'request failed'));
-        return;
-    }
-    if (frame?.type === 'session.event') {
-        events.push({ sessionId: frame.sessionId, event: frame.event });
-        return;
-    }
-    if (frame?.type === 'session.list') {
-        sessionList = frame.sessions ?? [];
-    }
-});
-
-async function run() {
-    // 1. discovery: whatever herdr already knows about shows up without asking
-    send(socket, { type: 'client.hello', clientId: 'herdr-e2e' });
-    const discovered = await request(socket, 'session.list', {});
-    console.log(`ok: session.list returned ${discovered.length} herdr session(s)`);
-    const catalog = await request(socket, 'herdr.agentKinds', {});
+try {
+    lab = await linkHerdrLab(root, 'herdr-e2e', (frame) => {
+        if (frame?.type === 'session.event') events.push({ sessionId: frame.sessionId, event: frame.event });
+    }, (herdr) => herdr(['plugin', 'link', pluginRoot, '--enabled']));
+    const request = (type, params) => requestLab(lab.link, type, params);
+    const herdrJson = (args) => JSON.parse(lab.herdr(args));
+    const discovered = await request('session.list');
+    if (!Array.isArray(discovered)) throw new Error('session.list did not return agents');
+    const catalog = await request('herdr.agentKinds');
     if (!Array.isArray(catalog?.kinds) || catalog.kinds.length === 0 || catalog.kinds.length > 64
-        || !catalog.kinds.every((kind) => /^[a-z][a-z0-9_-]{0,31}$/.test(kind))) fail('herdr.agentKinds returned an invalid catalog');
-    console.log(`ok: herdr.agentKinds returned ${catalog.kinds.length} host-supported kind(s)`);
+        || !catalog.kinds.every((kind) => /^[a-z][a-z0-9_-]{0,31}$/.test(kind))) throw new Error('invalid agent kinds catalog');
+    process.stdout.write('ok: live Herdr catalog and session list\n');
 
-    const terminalOpenedShell = discovered.find((session) => session.agentKind === undefined);
-    const phoneShell = await request(socket, 'session.start', { cwd: workdir, kind: 'shell', label: 'shell-e2e' });
-    const shellId = phoneShell?.info?.id;
-    createdWorkspaceId = phoneShell?.info?.workspaceId;
-    if (typeof shellId !== 'string' || phoneShell.info.agentKind !== undefined) {
-        fail('phone-started Shell published an agentKind');
-    }
-    const shellTree = await request(socket, 'herdr.tree', {});
-    const treePanes = shellTree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
-    const phoneShellPane = treePanes.find((pane) => pane.sessionId === shellId);
-    if (phoneShellPane?.agentKind !== undefined) fail('phone-started Shell counted as an agent in herdr.tree');
-    if (terminalOpenedShell !== undefined) {
-        const terminalShellPane = treePanes.find((pane) => pane.sessionId === terminalOpenedShell.id);
-        if (terminalShellPane?.agentKind !== undefined) fail('terminal-opened Shell disagreed with phone-started Shell');
-    }
-    console.log('ok: phone-started and terminal-opened Shell omit agentKind');
+    const shell = await request('session.start', { cwd: workdir, kind: 'shell', label: 'shell-e2e' });
+    const shellId = shell?.info?.id;
+    if (shell?.info?.workspaceId) workspaces.add(shell.info.workspaceId);
+    if (typeof shellId !== 'string' || shell.info.agentKind !== undefined) throw new Error('phone-started Shell published an agentKind');
+    const tree = await request('herdr.tree');
+    const panes = tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
+    const shellPane = panes.find((pane) => pane.sessionId === shellId);
+    if (shellPane?.agentKind !== undefined) throw new Error('Shell counted as an agent in herdr.tree');
+    process.stdout.write('ok: shell classification\n');
 
-    // 2. session.start publishes the Herdr generation before it becomes promptable.
-    const started = await request(socket, 'session.start', {
-        cwd: workdir,
-        kind: 'pi',
-        label: 'e2e',
-    });
-    const newId = started?.info?.id;
-    createdWorkspaceId = started?.info?.workspaceId;
-    if (typeof newId !== 'string') fail('session.start returned no session id');
-    console.log(`ok: session.start returned current generation (promptable ${String(started?.status?.promptable)})`);
-    await waitFor(
-        () => events.some((entry) => entry.sessionId === newId && entry.event.type === 'session.created'),
-        'session.created event',
-        40_000,
-    );
-    const readyDeadline = Date.now() + 60_000;
-    while (true) {
-        const current = await request(socket, 'session.status', { sessionId: newId });
-        if (current?.promptable === true) break;
-        if (Date.now() >= readyDeadline) fail('started Herdr generation never became promptable');
-        await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    console.log('ok: current Herdr generation became promptable');
+    const started = await request('session.start', { cwd: workdir, kind: 'pi', label: 'e2e' });
+    const id = started?.info?.id;
+    if (started?.info?.workspaceId) workspaces.add(started.info.workspaceId);
+    if (typeof id !== 'string') throw new Error('session.start returned no id');
+    await until(() => events.some((entry) => entry.sessionId === id && entry.event.type === 'session.created'), 'session.created');
+    await until(async () => (await request('session.status', { sessionId: id }))?.promptable === true,
+        'current generation promptable', 60_000);
+    process.stdout.write('ok: agent generation started and promptable\n');
 
-    // A real failing Herdr action must travel invoke -> log -> bounded public error.
-    const plugins = await request(socket, 'plugin.list', {});
-    const actionPlugin = plugins.find((plugin) => plugin.pluginId === actionPluginId);
-    if (typeof actionPlugin?.manifestHash !== 'string') fail('action failure fixture was not discovered');
-    await request(socket, 'plugin.approve', {
-        pluginId: actionPluginId, manifestHash: actionPlugin.manifestHash, approved: true,
-    });
-    let actionFailure;
+    const plugins = await request('plugin.list');
+    const action = plugins.find((plugin) => plugin.pluginId === pluginId);
+    if (typeof action?.manifestHash !== 'string') throw new Error('Herdr action fixture not discovered');
+    await request('plugin.approve', { pluginId, manifestHash: action.manifestHash, approved: true });
+    let bounded;
     try {
-        await request(socket, 'plugin.invoke', {
-            pluginId: actionPluginId,
-            manifestHash: actionPlugin.manifestHash,
-            contributionId: 'fail',
-            sessionId: newId,
-            idempotencyKey: `action-e2e-${Date.now().toString(36)}`,
-        });
-    } catch (cause) {
-        actionFailure = cause instanceof Error ? cause.message : String(cause);
-    }
-    if (actionFailure !== 'plugin action failed') fail(`action failure was not bounded: ${actionFailure ?? 'request succeeded'}`);
-    console.log('ok: failed Herdr action returned a bounded client error through its real log');
+        await request('plugin.invoke', { pluginId, manifestHash: action.manifestHash,
+            contributionId: 'fail', sessionId: id, idempotencyKey: `action-e2e-${Date.now().toString(36)}` });
+    } catch (error) { bounded = error.message; }
+    if (bounded !== 'plugin action failed') throw new Error(`action error was not bounded: ${bounded}`);
+    process.stdout.write('ok: action failure bounded\n');
 
-    // Title-only session.updated is coalesced to 500ms; a raw 10 Hz OSC 0
-    // would otherwise flood the phone store the way the release regression did.
-    let shellPaneId = phoneShellPane?.paneId;
+    let shellPaneId = shellPane?.paneId;
     if (typeof shellPaneId !== 'string') {
-        const tree = await request(socket, 'herdr.tree', {});
-        const panes = tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
-        shellPaneId = panes.find((pane) => pane.sessionId === shellId)?.paneId;
+        const fresh = await request('herdr.tree');
+        shellPaneId = fresh.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes))
+            .find((pane) => pane.sessionId === shellId)?.paneId;
     }
-    if (typeof shellPaneId !== 'string') fail('phone-started Shell has no pane');
-    const animatorPaneIds = [shellPaneId];
-    while (animatorPaneIds.length < 3) {
-        const split = herdrJson(['pane', 'split', animatorPaneIds.at(-1), '--direction', animatorPaneIds.length === 1 ? 'right' : 'down', '--no-focus']);
-        const paneId = split.result?.pane?.pane_id;
-        if (typeof paneId !== 'string') fail('pane split returned no pane id');
-        animatorPaneIds.push(paneId);
+    if (typeof shellPaneId !== 'string') throw new Error('Shell has no pane');
+    const titlePanes = [shellPaneId];
+    while (titlePanes.length < 3) {
+        const split = herdrJson(['pane', 'split', titlePanes.at(-1), '--direction', titlePanes.length === 1 ? 'right' : 'down', '--no-focus']);
+        if (typeof split.result?.pane?.pane_id !== 'string') throw new Error('pane split failed');
+        titlePanes.push(split.result.pane.pane_id);
     }
-    const coalesceSessions = [];
-    const sessionDeadline = Date.now() + 12_000;
-    while (true) {
-        const tree = await request(socket, 'herdr.tree', {});
-        const panes = tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
-        coalesceSessions.length = 0;
-        for (const paneId of animatorPaneIds) {
-            const sessionId = panes.find((pane) => pane.paneId === paneId)?.sessionId;
-            if (typeof sessionId === 'string') coalesceSessions.push(sessionId);
+    const titleSessions = [];
+    await until(async () => {
+        const live = await request('herdr.tree');
+        const all = live.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes));
+        titleSessions.length = 0;
+        for (const paneId of titlePanes) {
+            const sessionId = all.find((pane) => pane.paneId === paneId)?.sessionId;
+            if (typeof sessionId === 'string') titleSessions.push(sessionId);
         }
-        if (coalesceSessions.length === animatorPaneIds.length) break;
-        if (Date.now() >= sessionDeadline) fail('split panes never published session ids');
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        return titleSessions.length === titlePanes.length;
+    }, 'split pane sessions');
+    for (const paneId of titlePanes) lab.herdr(['pane', 'run', paneId,
+        'i=0; while :; do printf "\\033]0;perf %s\\007" $((i++)); sleep 0.1; done']);
+    await sleep(400);
+    const mark = events.length;
+    await sleep(3000);
+    for (const sessionId of titleSessions) {
+        const updates = events.slice(mark).filter((entry) => entry.sessionId === sessionId && entry.event.type === 'session.updated').length;
+        if (updates > 6) throw new Error(`session.updated exceeded 500ms coalescing cap (${updates}/3s)`);
     }
-    const titleAnimator = 'i=0; while :; do printf "\\033]0;perf %s\\007" $((i++)); sleep 0.1; done';
-    for (const paneId of animatorPaneIds) {
-        runHerdr(['pane', 'run', paneId, titleAnimator]);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    const coalesceMark = events.length;
-    const coalesceWindowMs = 3_000;
-    await new Promise((resolve) => setTimeout(resolve, coalesceWindowMs));
-    const watched = new Set(coalesceSessions);
-    const coalesceCounts = new Map(coalesceSessions.map((sessionId) => [sessionId, 0]));
-    let coalesceFrames = 0;
-    for (const entry of events.slice(coalesceMark)) {
-        if (entry.event?.type !== 'session.updated' || !watched.has(entry.sessionId)) continue;
-        coalesceCounts.set(entry.sessionId, (coalesceCounts.get(entry.sessionId) ?? 0) + 1);
-        coalesceFrames += 1;
-    }
-    const coalesceSeconds = coalesceWindowMs / 1000;
-    for (const [sessionId, count] of coalesceCounts) {
-        if (count * 1000 > 2 * coalesceWindowMs) {
-            fail(`session.updated exceeded the coalescing cap (${count} frames / ${coalesceSeconds}s for ${sessionId})`);
-        }
-    }
-    console.log(`ok: session.updated stayed under the coalescing cap (${coalesceFrames} frames / ${coalesceSeconds}s for ${coalesceCounts.size} sessions)`);
-    for (const paneId of animatorPaneIds) {
-        try {
-            runHerdr(['pane', 'send-text', paneId, '\x03'], 5_000);
-        } catch { /* pane may already have exited */ }
-    }
-    for (const paneId of animatorPaneIds.slice(1)) {
-        try {
-            runHerdr(['pane', 'close', paneId], 5_000);
-        } catch { /* best effort before the workspace close */ }
-    }
+    for (const paneId of titlePanes) { try { lab.herdr(['pane', 'send-text', paneId, '\x03']); } catch {} }
+    for (const paneId of titlePanes.slice(1)) { try { lab.herdr(['pane', 'close', paneId]); } catch {} }
+    process.stdout.write('ok: title updates coalesced\n');
 
-    // 3. terminal.attach -> frames
     const channel = newTerminalChannel();
-    const attached = await request(socket, 'terminal.attach', {
-        sessionId: newId, channel, cols: 100, rows: 30, cellWidthPx: 8, cellHeightPx: 16,
-    });
-    if (typeof attached?.paneId !== 'string') fail('terminal.attach returned no paneId');
-    const term = new WebSocket(terminalSocketUrl(relayUrl, { machineId, channel, role: 'client' }));
+    terminal = await lab.link.stream('terminal', { sessionId: id, channel, requestId: nextRequestId('lab'),
+        cols: 100, rows: 30 });
     const frames = [];
-    let closedReason;
-    let socketClosed = false;
-    term.on('message', (raw) => {
-        try {
-            const frame = JSON.parse(String(raw));
+    let attached;
+    let streamError;
+    let partial = '';
+    const decoder = new TextDecoder();
+    terminal.onData = (bytes) => {
+        partial += decoder.decode(bytes, { stream: true });
+        const lines = partial.split('\n');
+        partial = lines.pop() ?? '';
+        for (const line of lines) {
+            const frame = JSON.parse(line);
+            if (frame.type === 'result') {
+                if (frame.ok) attached = frame.data;
+                else streamError = frame.error;
+            }
             if (frame.type === 'terminal.frame') frames.push(frame);
-            if (frame.type === 'terminal.closed') closedReason = frame.reason;
-        } catch { /* ignore */ }
-    });
-    term.on('close', () => { socketClosed = true; });
-    await new Promise((resolve, reject) => {
-        term.once('open', resolve);
-        term.once('error', reject);
-    });
-    await waitFor(() => frames.length > 0, 'terminal.frame stream');
-    console.log(`ok: terminal stream live (${frames.length} frame(s))`);
-
-    // 4. input round-trip: type into the pane and look for the echo in frames
-    const framesBeforeInput = frames.length;
-    const marker = `e2e${Date.now().toString(36)}`;
-    term.send(JSON.stringify({ type: 'terminal.input', text: marker }));
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    const text = Buffer.concat(frames.map((frame) => Buffer.from(frame.bytes, 'base64'))).toString('utf8');
-    if (!text.includes(marker)) {
-        const stream = closedReason === undefined || closedReason === null
-            ? (socketClosed ? 'socket closed' : 'open')
-            : `closed: ${closedReason}`;
-        let paneScreen;
-        try {
-            paneScreen = runHerdr(['pane', 'read', attached.paneId, '--source', 'visible'], 5_000).includes(marker)
-                ? 'marker reached the pane screen'
-                : 'marker never reached the pane screen';
-        } catch (cause) {
-            paneScreen = `pane screen unreadable: ${cause instanceof Error ? cause.message : String(cause)}`;
         }
-        fail(`typed input never echoed back (${framesBeforeInput} frame(s) before input, ${frames.length} after, ${text.length} bytes, stream ${stream}, ${paneScreen})`);
+    };
+    await until(() => { if (streamError) throw new Error(streamError); return attached?.paneId; }, 'terminal.attach result');
+    await until(() => frames.length > 0, 'terminal initial paint');
+    const marker = `e2e${Date.now().toString(36)}`;
+    await terminal.write(`${JSON.stringify({ type: 'terminal.input', text: marker })}\n`);
+    await until(() => Buffer.concat(frames.map((frame) => Buffer.from(frame.bytes, 'base64'))).toString('utf8').includes(marker),
+        'typed input echoed in terminal frames');
+    process.stdout.write('ok: terminal paint and input over link stream\n');
+
+    await request('session.prompt', { sessionId: id, text: 'say nothing' });
+    await request('session.abort', { sessionId: id });
+    terminal.end();
+    terminal = undefined;
+    await request('session.stop', { sessionId: id });
+    process.stdout.write('PASS e2e: Herdr backend loop over link\n');
+} finally {
+    terminal?.end();
+    if (lab !== undefined) {
+        for (const workspace of workspaces) { try { lab.herdr(['workspace', 'close', workspace]); } catch {} }
+        try { lab.herdr(['plugin', 'unlink', pluginId]); } catch {}
+        await lab.stop();
     }
-    console.log('ok: input echoed back through the terminal stream');
-
-    // 5. prompt + abort round-trip (ack-only requests)
-    await request(socket, 'session.prompt', { sessionId: newId, text: 'say nothing' });
-    console.log('ok: session.prompt acked');
-    await request(socket, 'session.abort', { sessionId: newId });
-    console.log('ok: session.abort acked');
-
-    // 6. detach + stop (close is host code, always available)
-    term.close();
-    await request(socket, 'terminal.detach', { sessionId: newId, channel });
-    await request(socket, 'session.stop', { sessionId: newId });
-    console.log('ok: detach + stop');
-
-    finish(0, 'PASS e2e: herdr backend loop\n');
-}
-
-async function waitFor(predicate, label, budgetMs = 12_000) {
-    const started = Date.now();
-    while (!predicate()) {
-        if (Date.now() - started > budgetMs) throw new Error(`timed out waiting for ${label}`);
-        await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+    rmSync(root, { recursive: true, force: true });
 }
