@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { DeviceLink } from '@byokit/link';
+import { encodeBase64 } from '@/encryption/base64';
 import { deriveLinkGrant } from '../infrastructure/linkGrant';
 import {
     generateKeyPair,
@@ -273,8 +274,8 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
 
 async function storeProvenLinkGrant(answer: LinkPairAnswer, key: { publicKey: Uint8Array; secretKey: Uint8Array }): Promise<StoredHostedGrant> {
     const deviceKey = {
-        publicKey: Buffer.from(key.publicKey).toString('base64'),
-        secretKey: Buffer.from(key.secretKey).toString('base64'),
+        publicKey: encodeBase64(key.publicKey),
+        secretKey: encodeBase64(key.secretKey),
     };
     const stored: StoredHostedGrant = {
         machineId: answer.machineId,
@@ -289,7 +290,7 @@ async function storeProvenLinkGrant(answer: LinkPairAnswer, key: { publicKey: Ui
         deviceKey,
         // The byokit link is the only transport: link-paired phones hold no
         // relay credential (desktop moves onto the link with the cutover).
-        machineBoxPublicKey: Buffer.from(unb64url(answer.machineBoxPublicKey)).toString('base64'),
+        machineBoxPublicKey: encodeBase64(unb64url(answer.machineBoxPublicKey)),
         credential: '',
         dataKey: '',
         ingressKey: '',
