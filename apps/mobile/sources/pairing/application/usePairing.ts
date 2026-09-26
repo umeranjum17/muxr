@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { Platform } from 'react-native';
+import { requiresStoredAuthority } from '../infrastructure/pairingPlatform';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
-import { linkPairMachineName, pairOverLink } from './hostedE2ee';
+import { linkPairMachineName, pairOverLink } from './linkPairing';
 import { looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
@@ -41,7 +41,7 @@ export function useHostedPairing() {
  * over the machine's own link both land.
  */
 export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>, options: { tunnelPort?: number } = {}): Promise<boolean> {
-    const browser = Platform.OS === 'web';
+    const browser = requiresStoredAuthority();
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
     const approved = await Modal.confirm(
         `Pair with ${machineName}?`,

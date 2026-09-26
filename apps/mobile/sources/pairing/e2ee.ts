@@ -1,1 +1,1 @@
-export * from './application/hostedE2ee';
+export * from './application/linkPairing';

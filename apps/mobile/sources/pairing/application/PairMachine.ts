@@ -1,4 +1,4 @@
-import type { StoredHostedGrant } from './hostedE2ee';
+import type { StoredHostedGrant } from './linkPairing';
 import { forgetSshCredential, getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
 

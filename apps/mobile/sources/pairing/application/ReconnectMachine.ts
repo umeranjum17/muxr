@@ -1,4 +1,4 @@
-import { reconnectViaDiscoveredRelay } from './hostedE2ee';
+import { reconnectViaDiscoveredRelay } from './linkPairing';
 import { syncReconnect } from '@/catalog/sync';
 
 export type ReconnectMachineCommand = {

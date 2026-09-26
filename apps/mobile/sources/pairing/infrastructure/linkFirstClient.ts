@@ -14,7 +14,7 @@ import {
 import { deriveLinkGrant } from './linkGrant';
 import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '@/connection/sshTunnel';
 import type { SshTarget } from '@/connection';
-import type { StoredHostedGrant } from '../application/hostedE2ee';
+import type { StoredHostedGrant } from '../application/linkPairing';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'stale';
 

@@ -39,7 +39,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     },
 }));
 
-import { pairOverLink, type StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
+import { pairOverLink, type StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/linkPairing.js';
 import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
 
 const repoRoot = join(import.meta.dirname, '../../..');
