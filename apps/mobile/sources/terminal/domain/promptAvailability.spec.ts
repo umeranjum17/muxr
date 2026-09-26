@@ -17,6 +17,11 @@ describe('terminal prompt guard', () => {
         expect(terminalComposerText('echo iosqa\\ ', ['/tmp/photo'], true)).toBe('echo iosqa\\  /tmp/photo');
     });
 
+    it('preserves literal punctuation in shell commands', () => {
+        const typed = 'rm \'Proposal—final.pdf\' && printf “done” don\u2019t';
+        expect(terminalComposerText(typed, [], true)).toBe(typed);
+    });
+
     it('blocks unrelated input and exposes the one-line jump action', () => {
         expect(terminalInputDisposition(
             { agentStatus: 'blocked' },
