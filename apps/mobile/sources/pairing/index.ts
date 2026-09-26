@@ -14,7 +14,6 @@ export { MuxrRequestError } from './infrastructure/linkFirstClient';
 
 export {
     acceptVerifiedGrant,
-    accountSurfaceApplies,
     connectionShouldAdoptGrant,
     defaultDeviceAuthority,
     grantAuthorizesMachine,

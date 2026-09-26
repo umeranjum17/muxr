@@ -64,13 +64,3 @@ export function connectionShouldAdoptGrant(
         || settings.relayUrl !== grant.relayUrl
         || settings.selfhost !== (grant.source === 'selfhost' ? true : undefined);
 }
-
-/** Self-host relays have no account surface; the Hosted Grant is the session. */
-export function accountSurfaceApplies(
-    mode: 'hosted' | 'local',
-    selfhost: boolean | undefined,
-    grantSource: 'selfhost' | undefined,
-): boolean {
-    if (mode !== 'hosted') return false;
-    return selfhost !== true && grantSource !== 'selfhost';
-}

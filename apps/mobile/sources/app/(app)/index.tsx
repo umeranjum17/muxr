@@ -1,37 +1,24 @@
-import { ActionButton } from "@/components/ActionButton";
-import { useAuth } from "@/account/ui";
-import { ScrollView, Text, View, Platform } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuth } from '@/account/ui';
+import { ScrollView, Text, View, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as React from 'react';
-import { encodeBase64 } from "@/encryption/base64";
-import { authGetToken } from "@/account/application/authGetToken";
-import { router } from "expo-router";
-import { StyleSheet } from "react-native-unistyles";
-import { getRandomBytesAsync } from "expo-crypto";
-import { useIsLandscape } from "@/utils/responsive";
-import { Typography } from "@/constants/Typography";
-import { HomeHeaderNotAuth } from "@/herd/ui";
-import { MainView } from "@/herd/ui";
-import { FirstRunConnection } from "@/herd/ui";
-import { Wordmark } from "@/components/Wordmark";
-import { t } from '@/text';
+import { StyleSheet } from 'react-native-unistyles';
+import { Typography } from '@/constants/Typography';
+import { MainView, FirstRunConnection } from '@/herd/ui';
+import { Wordmark } from '@/components/Wordmark';
 import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/pairing/e2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 
 export default function Home() {
     const auth = useAuth();
-    if (!auth.isAuthenticated) {
-        return <NotAuthenticated />;
-    }
-    return <MainView />;
+    if (auth.isAuthenticated) return <MainView />;
+    return <NotAuthenticated />;
 }
 
 function NotAuthenticated() {
     const auth = useAuth();
-    const isLandscape = useIsLandscape();
     const insets = useSafeAreaInsets();
-    const hosted = getCachedConnectionSettings().mode === 'hosted';
     const pairing = React.useRef(false);
 
     React.useEffect(() => {
@@ -53,150 +40,34 @@ function NotAuthenticated() {
         }).finally(() => { pairing.current = false; });
     }, [auth]);
 
-    // One mark, in a soft halo. The hero previously stacked glyph.png (upscaled
-    // from a small source, hence the blur) above the wordmark saying the same
-    // thing. Wordmark is downscaled from 300x36 here, so it stays sharp; a true
-    // vector needs either react-native-svg or a 3x re-render via genBrand.sh.
-    const heroMark = (
-        <View style={styles.markHalo} accessibilityLabel="muxr">
-            <View style={styles.markInner}>
-                <Wordmark width={148} />
-            </View>
-        </View>
-    );
-
-    if (hosted) {
-        return (
-            // Scrollable so the route chooser and the recommended route both fit
-            // at 270-wide portrait and at larger text sizes; the hero is
-            // compact rather than a full-height decorative void.
-            <ScrollView
-                style={styles.screen}
-                contentContainerStyle={[styles.hostedScroll, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 }]}
-                keyboardShouldPersistTaps="handled"
-            >
-                <View style={styles.heroCompact}>
-                    {heroMark}
-                    <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
-                    <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
-                </View>
-                <FirstRunConnection />
-            </ScrollView>
-        );
-    }
-
-    const createAccount = async () => {
-        try {
-            const secret = await getRandomBytesAsync(32);
-            const token = await authGetToken(secret);
-            if (token && secret) {
-                await auth.login(token, encodeBase64(secret, 'base64url'));
-            }
-        } catch (error) {
-            console.error('Error creating account', error);
-        }
-    }
-
-    const accountActions = Platform.OS !== 'android' && Platform.OS !== 'ios' ? (
-        <>
-            <ActionButton
-                title={t('welcome.loginWithMobileApp')}
-                onPress={() => {
-                    router.push('/restore');
-                }}
-            />
-            <ActionButton
-                variant="secondary"
-                title={t('welcome.createAccount')}
-                action={createAccount}
-            />
-        </>
-    ) : (
-        <>
-            <ActionButton title={t('welcome.createAccount')} action={createAccount} />
-            <ActionButton
-                variant="secondary"
-                title={t('welcome.linkOrRestoreAccount')}
-                onPress={() => {
-                    router.push('/restore');
-                }}
-            />
-        </>
-    );
-
-    const portraitLayout = (
-        <View style={styles.screen}>
-            <View style={styles.hero}>
-                {heroMark}
-                <Text style={styles.title}>
-                    {t('welcome.title')}
-                </Text>
-                <Text style={styles.subtitle}>
-                    {t('welcome.subtitle')}
-                </Text>
-            </View>
-            <View style={[styles.actions, { paddingBottom: insets.bottom + 24 }]}>
-                {accountActions}
-            </View>
-        </View>
-    );
-
-    const landscapeLayout = (
-        <View style={[styles.landscapeContainer, { paddingBottom: insets.bottom + 24 }]}>
-            <View style={styles.landscapeInner}>
-                <View style={styles.landscapeLogoSection}>
-                    {heroMark}
-                </View>
-                <View style={styles.landscapeContentSection}>
-                    <Text style={styles.landscapeTitle}>
-                        {t('welcome.title')}
-                    </Text>
-                    <Text style={styles.landscapeSubtitle}>
-                        {t('welcome.subtitle')}
-                    </Text>
-                    <View style={styles.landscapeActions}>
-                        {accountActions}
-                    </View>
-                </View>
-            </View>
-        </View>
-    );
-
     return (
-        <>
-            <HomeHeaderNotAuth />
-            {isLandscape ? landscapeLayout : portraitLayout}
-        </>
-    )
+        <ScrollView
+            style={styles.screen}
+            contentContainerStyle={[styles.content, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 }]}
+            keyboardShouldPersistTaps="handled"
+        >
+            <View style={styles.hero}>
+                <View style={styles.markHalo} accessibilityLabel="muxr">
+                    <View style={styles.markInner}><Wordmark width={148} /></View>
+                </View>
+                <Text style={styles.title}>{Platform.OS === 'web' ? 'Run your agents from this browser.' : 'Run your agents from your phone.'}</Text>
+                <Text style={styles.subtitle}>Pair once. Every agent session on your computer, end-to-end encrypted.</Text>
+            </View>
+            <FirstRunConnection />
+        </ScrollView>
+    );
 }
 
 const styles = StyleSheet.create((theme) => ({
-    // NotAuthenticated styles
-    screen: {
-        flex: 1,
-    },
-    hostedScroll: {
+    screen: { flex: 1 },
+    content: {
         flexGrow: 1,
         justifyContent: 'center',
         alignItems: 'center',
         gap: 24,
         paddingHorizontal: 16,
     },
-    heroCompact: {
-        alignItems: 'center',
-        paddingHorizontal: 16,
-    },
-    hero: {
-        flex: 1,
-        alignItems: 'center',
-        // Weighted low rather than dead-centre: the old layout left a ~400px
-        // void between the mark and the buttons.
-        justifyContent: 'flex-end',
-        paddingBottom: 36,
-        paddingHorizontal: 32,
-    },
-    // Two concentric low-alpha rings stand in for a blur halo -- RN has no CSS
-    // blur without a native dependency, and this reads the same at hero size.
+    hero: { alignItems: 'center', paddingHorizontal: 16 },
     markHalo: {
         padding: 26,
         borderRadius: 999,
@@ -229,62 +100,5 @@ const styles = StyleSheet.create((theme) => ({
         marginTop: 10,
         textAlign: 'center',
         maxWidth: 300,
-    },
-    actions: {
-        alignSelf: 'center',
-        width: '100%',
-        maxWidth: 340,
-        paddingHorizontal: 24,
-        gap: 10,
-    },
-    // Landscape styles
-    landscapeContainer: {
-        flexBasis: 0,
-        flexGrow: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 48,
-    },
-    landscapeInner: {
-        flexGrow: 1,
-        flexBasis: 0,
-        maxWidth: 800,
-        flexDirection: 'row',
-    },
-    landscapeLogoSection: {
-        flexBasis: 0,
-        flexGrow: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingRight: 24,
-    },
-    landscapeContentSection: {
-        flexBasis: 0,
-        flexGrow: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingLeft: 24,
-    },
-    landscapeTitle: {
-        textAlign: 'center',
-        fontSize: 26,
-        lineHeight: 32,
-        ...Typography.default('semiBold'),
-        color: theme.colors.text,
-    },
-    landscapeSubtitle: {
-        ...Typography.default(),
-        fontSize: 16,
-        lineHeight: 23,
-        color: theme.colors.textSecondary,
-        marginTop: 12,
-        textAlign: 'center',
-        marginBottom: 28,
-        paddingHorizontal: 16,
-    },
-    landscapeActions: {
-        width: 300,
-        gap: 12,
     },
 }));

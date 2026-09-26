@@ -44,9 +44,9 @@ export interface ConnectionSettings {
     mode: 'hosted' | 'local';
     relayUrl: string;
     machineId: string;
-    /** Account token from POST /v1/accounts. Required by a strict relay. */
+    /** Local development fixture token; production link grants do not use it. */
     token: string;
-    /** True when the active machine is a self-host pairing (no account surface). */
+    /** True when the active machine was paired through self-host link. */
     selfhost?: boolean;
     /** Android-only route override; the relay and E2EE grant stay unchanged. */
     ssh?: SshTarget;
@@ -148,13 +148,10 @@ function parseSettings(raw: string): ConnectionSettings {
         relayUrl: typeof parsed.relayUrl === 'string' && parsed.relayUrl.trim().length > 0
             ? parsed.relayUrl.trim()
             : DEFAULT_CONNECTION.relayUrl,
-        // Hosted account-only sessions deliberately persist an empty machine id.
-        // Falling back to the build default turns account auth into a fake machine connection.
+        // An unpaired device has no machine id; never fabricate one from a build default.
         machineId: parseMachineId(mode, parsed),
         ...(ssh === undefined ? {} : { ssh }),
-        // An empty stored token is never usable against a strict relay, so it
-        // falls back to the build default rather than pinning the app to a
-        // permanent unauthorized retry loop.
+        // Only the explicit local fixture accepts a token from build defaults.
         token: mode === 'local' ? parseLocalToken(storedToken) : '',
         lastSessionCwd: typeof parsed.lastSessionCwd === 'string' ? parsed.lastSessionCwd.trim() : '',
         ...(parsed.selfhost === true ? { selfhost: true } : {}),

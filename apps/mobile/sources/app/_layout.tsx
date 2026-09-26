@@ -312,8 +312,7 @@ export default function RootLayout() {
                         }
                         await syncRestore(credentials);
                     } catch (error) {
-                        // Machine/grant/network/bootstrap failures are not account rejection.
-                        // Runtime /v1/session validation clears only a definite 401.
+                        // A lost link never deletes local pairing credentials.
                         console.error('Error restoring sync:', error);
                     }
                 }

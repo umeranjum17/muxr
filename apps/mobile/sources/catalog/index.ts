@@ -25,8 +25,6 @@ export * from './application/ops';
 export * from './application/persistence';
 export * from './infrastructure/sessionMapping';
 export * from './infrastructure/rig';
-export * from './infrastructure/serverConfig';
-export * from './infrastructure/apiSocket';
 export * from './domain/sessionTypes';
 export * from './infrastructure/storageTypes';
 export * from './infrastructure/friendTypes';

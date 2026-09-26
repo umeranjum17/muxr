@@ -1,9 +1,8 @@
 import React, { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from 'react';
 import { Platform } from 'react-native';
 import * as Updates from 'expo-updates';
-import { relayControlUrl } from '@muxr/contract';
 import { TokenStorage, type AuthCredentials } from '../application/tokenStorage';
-import { setAccountCredentialRejectedHandler, sync, syncCreate } from '@/catalog/sync';
+import { sync, syncCreate } from '@/catalog/sync';
 import { clearPersistence } from '@/catalog';
 import { getCachedConnectionSettings } from '@/connection';
 import { clearHostedE2ee } from '@/pairing/e2ee';
@@ -53,30 +52,14 @@ export function AuthProvider({ children, initialCredentials }: { children: React
     }, []);
 
     const logout = useCallback(async () => {
-        const connection = getCachedConnectionSettings();
         if (credentials !== null) await unregisterNativePushNotifications(credentials);
         if (Platform.OS === 'web') await unsubscribeWebPush();
-        if (connection.mode === 'hosted' && credentials?.token) {
-            try {
-                await fetch(relayControlUrl(connection.relayUrl, '/v1/session'), {
-                    method: 'DELETE',
-                    headers: { authorization: `Bearer ${credentials.token}` },
-                });
-            } catch {}
-        }
         await clearLocalSession(true);
-    }, [clearLocalSession, credentials?.token]);
+    }, [clearLocalSession, credentials]);
 
     useEffect(() => {
         setCurrentAuth(credentials ? { isAuthenticated, credentials, login, logout } : null);
     }, [isAuthenticated, credentials, login, logout]);
-
-    useEffect(() => {
-        // Expired/revoked account credentials end the session, but the device key
-        // and machine grants survive so re-authentication does not require re-pairing.
-        setAccountCredentialRejectedHandler(() => { void clearLocalSession(false); });
-        return () => setAccountCredentialRejectedHandler(undefined);
-    }, [clearLocalSession]);
 
     return (
         <AuthContext.Provider value={{ isAuthenticated, credentials, login, logout }}>
