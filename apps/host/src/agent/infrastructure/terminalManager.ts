@@ -302,7 +302,7 @@ export class TerminalManager {
             delete attachment.scrollStateTimer;
             attachment.scrollStateDirty = false;
             if (reason !== undefined && socket.isOpen) {
-                this.sendResult(socket, params.channel, { type: 'terminal.closed', reason });
+                if (this.authorized(attachment)) this.sendResult(socket, params.channel, { type: 'terminal.closed', reason });
                 socket.close();
             }
             if (this.attachments.get(params.channel) === attachment) this.attachments.delete(params.channel);

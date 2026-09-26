@@ -167,6 +167,18 @@ describe('TerminalManager stream exit', () => {
         fakes.children[1]!.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'terminal.frame', full: true, bytes: 'eA==' }) + '\n'));
         expect(output.sent).toHaveLength(0);
         expect(output.isOpen).toBe(false);
+
+        authorized = true;
+        const final = pipe();
+        const fifth = manager.attach({ sessionId: 'session', channel: 'final', cols: 80, rows: 24,
+            deviceId: 'phone', socket: final, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        pending.shift()!('pane');
+        await fifth;
+        authorized = false;
+        fakes.children[2]!.emit('error', new Error('stream exited'));
+        expect(final.sent).toHaveLength(0);
+        expect(final.isOpen).toBe(false);
         manager.closeAll();
     });
 
