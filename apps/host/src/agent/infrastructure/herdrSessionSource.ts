@@ -31,7 +31,7 @@ import type {
     SessionStartResult,
     SessionStatus,
 } from '@muxr/contract';
-import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, relayControlUrl, sanitizeDisplayText } from '@muxr/contract';
+import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@muxr/contract';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
@@ -1254,15 +1254,8 @@ export async function createHerdrSessionSource(
      * Best-effort push notify when a session parks waiting for its user.
      * Fire-and-forget: never awaited in the hot path, never throws.
      */
-    let pushNotifyUrl: string | undefined;
-    if (options.relayUrl !== undefined && options.machineId !== undefined) {
-        try {
-            pushNotifyUrl = relayControlUrl(options.relayUrl, '/v1/push/notify');
-        } catch {}
-    }
-
     function notifyAttention(sessionId: string, eventId: string, kind: 'blocked' | 'done' | 'failed'): void {
-        if (pushNotifyUrl === undefined || options.machineId === undefined) return;
+        if (options.machineId === undefined) return;
         const lifecycle = options.lifecycle?.current(sessionId);
         const payload = {
             machineId: options.machineId,
@@ -1282,16 +1275,7 @@ export async function createHerdrSessionSource(
             ...(payload.agentName === undefined ? {} : { agentName: payload.agentName }),
             ...(payload.taskTitle === undefined ? {} : { taskTitle: payload.taskTitle }),
         });
-        const body = JSON.stringify(payload);
-        void fetch(pushNotifyUrl, {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),
-            },
-            body,
-            signal: AbortSignal.timeout(3000),
-        }).catch(() => {});
+
     }
 
     function applyAttention(sessionId: string, agentStatus: AgentLifecycle): void {
