@@ -3,12 +3,9 @@ import { Platform } from 'react-native';
 import { useAuth } from '@/account/ui';
 import { getCachedConnectionSettings } from '@/connection';
 import { reconnectMachine } from './ReconnectMachine';
+import { discoveredRelay, type DiscoveredRelay } from './relayLocator';
 
-export interface DiscoveredRelay {
-    name: string;
-    machineId: string;
-    relayUrl: string;
-}
+export type { DiscoveredRelay };
 
 export type RelayDiscoveryPhase = 'disabled' | 'web' | 'scanning' | 'no-service' | 'found'
     | 'verifying' | 'updated' | 'unverified' | 'permission' | 'unavailable' | 'failed';
@@ -36,39 +33,6 @@ export function retryRelayDiscovery(): void { retryScan?.(); }
 function scanFailure(cause: unknown): RelayDiscoveryPhase {
     const message = cause instanceof Error ? cause.message : String(cause);
     return /permission|denied|securityexception/i.test(message) ? 'permission' : 'failed';
-}
-
-function discoveredRelay(service: {
-    name?: string;
-    addresses?: string[];
-    port?: number;
-    txt?: Record<string, unknown>;
-}): DiscoveredRelay | undefined {
-    const machineId = typeof service.txt?.machine === 'string' ? service.txt.machine : undefined;
-    const advertised = typeof service.txt?.relay === 'string' ? service.txt.relay : undefined;
-    const mode = typeof service.txt?.mode === 'string' ? service.txt.mode : undefined;
-    if (service.name === undefined || machineId === undefined) return undefined;
-    let relayUrl = advertised;
-    if (mode === 'lan') {
-        const host = service.addresses?.find((address) => {
-            if (typeof address !== 'string') return false;
-            const octets = address.split('.').map(Number);
-            return octets.length === 4 && octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255)
-                && /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(address);
-        });
-        const port = service.port;
-        if (host === undefined || typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) return undefined;
-        relayUrl = `ws://${host}:${port}`;
-    }
-    if (relayUrl === undefined) return undefined;
-    try {
-        const parsed = new URL(relayUrl);
-        if (!['ws:', 'wss:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password
-            || parsed.pathname !== '/' || parsed.search || parsed.hash) return undefined;
-        return { name: service.name, machineId, relayUrl: parsed.toString().replace(/\/$/, '') };
-    } catch {
-        return undefined;
-    }
 }
 
 /** LAN locator scan. A result never authorises a machine; the stored E2EE grant does. */
