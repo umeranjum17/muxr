@@ -94,7 +94,7 @@ Home puts the agents waiting on you first, then the ones that finished while you
 
 ### Know your limits
 
-Home and Usage share one provider reading. See what remains in each window, when it resets, and the projected pace to run out; colour marks that outlook, and a retained reading shows when it was captured.
+See what's left in each plan window, when it resets, and whether you're on pace to run out. Home and Usage show the same numbers.
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/usage.webp" type="image/webp"><img src="docs/assets/readme/usage.jpg" alt="Usage limits showing remaining session and weekly amounts, reset times, and projected run-out" width="300" /></picture>
@@ -131,7 +131,7 @@ Use native realtime speech-to-speech when typing is the slow part. Ask what chan
 Tap the mic in the composer and speak. In the app, speech is transcribed on your phone as you talk, and the words land in the prompt for you to check before sending. Tap Stop to finish; during transcription, Cancel is on the opposite side so a second stop tap cannot discard your words. If you cancel, tap Undo within five seconds to restore them.
 
 <p align="center">
-  <picture><source srcset="docs/assets/readme/dictation.webp" type="image/webp"><img src="docs/assets/readme/dictation.jpg" alt="New-agent composer with a neutral draft and on-device dictation live; Stop dictation is available" width="300" /></picture>
+  <picture><source srcset="docs/assets/readme/dictation.webp" type="image/webp"><img src="docs/assets/readme/dictation.jpg" alt="A prompt dictated into an agent's composer: add a test for the free shipping threshold, then open a pull request when the cart tests pass" width="300" /></picture>
 </p>
 
 **Also on your phone:**
