@@ -178,22 +178,6 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
-                name="restore/index"
-                options={{
-                    headerShown: true,
-                    headerTitle: t('navigation.linkNewDevice'),
-                    headerBackTitle: t('common.back'),
-                }}
-            />
-            <Stack.Screen
-                name="restore/manual"
-                options={{
-                    headerShown: true,
-                    headerTitle: t('navigation.restoreWithSecretKey'),
-                    headerBackTitle: t('common.back'),
-                }}
-            />
-            <Stack.Screen
                 name="changelog"
                 options={{
                     headerShown: true,
@@ -206,14 +190,6 @@ export default function RootLayout() {
                 options={{
                     headerShown: true,
                     headerTitle: t('textSelection.title'),
-                    headerBackTitle: t('common.back'),
-                }}
-            />
-            <Stack.Screen
-                name="user/[id]"
-                options={{
-                    headerShown: true,
-                    headerTitle: '',
                     headerBackTitle: t('common.back'),
                 }}
             />

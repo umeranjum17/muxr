@@ -281,7 +281,7 @@ export function selfhostArgsFromSetupPlan({ mode, port, web, pairing, found, end
     return selfhostArgs;
 }
 
-function serveRootFor(found, port) {
+async function serveRootFor(found, port) {
     if (!found.tailscale.connected && !found.tailscale.dnsName) return { status: 'inconclusive' };
     return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 8_000);
 }
@@ -289,7 +289,7 @@ function serveRootFor(found, port) {
 async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
     const requestedPort = value(args, '--port');
     const plannedPort = requestedPort === undefined ? current?.relayPort || 8792 : Number(requestedPort);
-    const serveRoot = serveRootFor(found, plannedPort);
+    const serveRoot = await serveRootFor(found, plannedPort);
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
     if (!mode) {
@@ -412,7 +412,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
 
 async function recoverTailscaleServe({ plan, found }) {
     if (plan.mode !== 'tailscale') return plan;
-    const serveRoot = serveRootFor(found, plan.port);
+    const serveRoot = await serveRootFor(found, plan.port);
     if (serveRoot.status === 'free' || serveRoot.status === 'ours' || serveRoot.status === 'inconclusive') return plan;
     const occupied = serveRoot.status === 'occupied';
     const title = occupied ? 'Tailscale Serve is already in use' : 'Tailscale Serve is unavailable';
@@ -573,7 +573,7 @@ export async function applyMachineSetup(args = []) {
         plan = recovered;
         result = await startSelfHost(selfhostArgsFromSetupPlan({ ...plan, found }));
         if (result === 0) break;
-        const failedServe = plan.mode === 'tailscale' ? serveRootFor(found, plan.port).status : undefined;
+        const failedServe = plan.mode === 'tailscale' ? (await serveRootFor(found, plan.port)).status : undefined;
         if (failedServe !== 'occupied' && failedServe !== 'disabled') return result;
     }
     const { mode, endpoint, port, pairing } = plan;
@@ -635,7 +635,7 @@ export async function hostSharedRelay() {
         if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) port = parsed;
         else status('Relay port', 'enter an integer from 1024 to 65535', 'warn');
     }
-    const options = choices(found, tailscalePlanned, serveRootFor(found, port)).filter((choice) => ['tailscale', 'external'].includes(choice.value)).map((choice) => choice.value === current?.connectionMode
+    const options = choices(found, tailscalePlanned, await serveRootFor(found, port)).filter((choice) => ['tailscale', 'external'].includes(choice.value)).map((choice) => choice.value === current?.connectionMode
         ? { ...choice, title: `${choice.title} · current` }
         : choice);
     const initial = Math.max(0, options.findIndex((choice) => choice.value === current?.connectionMode));

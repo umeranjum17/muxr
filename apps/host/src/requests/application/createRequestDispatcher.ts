@@ -18,7 +18,6 @@ import {
     focusAgent,
     listAgents,
     openAgent,
-    openTerminal,
     promptAgent,
     readAgentSession,
     runPluginAction,
@@ -38,13 +37,11 @@ import {
     voiceReport,
     voiceStatus,
 } from '../../voice/index.js';
-import { attachPreview as attachPreviewTransport } from '../infrastructure/preview.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
-import { attachPreviewTunnel } from './attachPreviewTunnel.js';
 import type { DesktopSessions } from '../../desktop/index.js';
 
 export interface RequestDispatcherOptions {
@@ -55,12 +52,9 @@ export interface RequestDispatcherOptions {
     hostVersion: string;
     connectionMode?: string;
     pairedDeviceCount?: () => number;
-    /** Where to join preview channels. Absent means preview is unavailable. */
+    /** Distinguish local-only artifact preparation from hosted clients. */
     relayUrl?: string;
-    /** Hosted E2EE never permits clear preview payloads from older clients. */
-    requirePreviewEncryption?: boolean;
     terminals?: TerminalManager;
-    token?: string;
     /** Browser grants can observe but cannot mutate terminal/machine state. */
     canMutateDevice?: (deviceId: string) => boolean;
     peerRuntime?: PeerRuntime;
@@ -84,7 +78,7 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'artifact.list', 'artifact.fetch', 'artifact.read', 'unread.catalog',
     // The pre-rename spellings are the same read-only calls.
     'attachment.list', 'attachment.fetch', 'attachment.read',
-    'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
+    'attention.catalog', 'lifecycle.catalog', 'machines.list',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
     'usage.report', 'usage.now',
     // Voice readiness is readable by every grant; changing a provider or its
@@ -223,19 +217,21 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 ...(params.awaitConsent === true ? { awaitConsent: true } : {}),
             }, connectionId === undefined ? undefined : {
                 connectionId,
+                deviceId: context.deviceId,
                 isConnected: () => options.isDesktopConnectionActive?.(connectionId) === true,
             });
         },
-        'desktop.answer': async (params, context) => desktopOrThrow(options).answer(params.desktopId, params.sdp, context.connectionId),
+        'desktop.answer': async (params, context) => desktopOrThrow(options).answer(params.desktopId, params.sdp, context.connectionId, context.deviceId),
         'desktop.candidate': async (params, context) => desktopOrThrow(options).candidate(
             params.desktopId,
             params.candidate,
             params.sdpMid ?? null,
             params.sdpMLineIndex ?? null,
             context.connectionId,
+            context.deviceId,
         ),
-        'desktop.poll': async (params, context) => desktopOrThrow(options).poll(params.desktopId, params.cursor, context.connectionId),
-        'desktop.close': async (params, context) => desktopOrThrow(options).close(params.desktopId, context.connectionId),
+        'desktop.poll': async (params, context) => desktopOrThrow(options).poll(params.desktopId, params.cursor, context.connectionId, context.deviceId),
+        'desktop.close': async (params, context) => desktopOrThrow(options).close(params.desktopId, context.connectionId, context.deviceId),
         'herdr.cli': async (params) => {
             const result = await runHerdrCli(params.args, params.timeoutMs);
             await source.refreshHerdr();
@@ -362,22 +358,17 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'voice.key.clear': async (params) => { await voiceKeyClear(params.provider); return null; },
         // The spoken sentence is derived from the outcome here, never by the caller.
         'voice.report': async (params) => voiceReport(params),
-        // Voice is product code: a paired control device is the only gate, and
-        // there is no plugin approval to check.
-        'voice.stream': (params, context) => source.voiceStream({ deviceId: context.deviceId, channel: params.channel, ...(params.sessionId === undefined ? {} : { sessionId: params.sessionId }) }),
         'worktree.land': (params) => landWorktree(params.worktreePath, params.message, params.stash),
-        'preview.attach': async (params) => useCaseData(await attachPreviewTunnel({
-            ...(options.relayUrl === undefined ? {} : { relayUrl: options.relayUrl }),
-            machineId,
-            ...(options.token === undefined ? {} : { token: options.token }),
-            ...(options.requirePreviewEncryption === undefined ? {} : { requireEncryption: options.requirePreviewEncryption }),
-            attach: attachPreviewTransport,
-        }, params)),
-        'terminal.attach': async (params) => useCaseData(await openTerminal(options.terminals, params)),
+        'terminal.attach': async () => { throw new Error('terminal attach requires a link stream'); },
         'terminal.detach': async (params) => {
             await closeTerminal(options.terminals, params);
             return null;
         },
+        // A device registers its push address over the link only; the relay
+        // transport has no device identity a push store could trust.
+        'push.subscribe': async () => { throw new Error('push registration needs the link transport'); },
+        'push.unsubscribe': async () => { throw new Error('push registration needs the link transport'); },
+        'push.vapid': async () => { throw new Error('push registration needs the link transport'); },
     };
 
     async function dispatchCore(request: ClientRequest, authenticatedSenderId?: string, connectionId?: string): Promise<RequestResponse> {
@@ -388,9 +379,6 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         );
         if (isViewOnlyDevice && !viewOnlyRequestAllowed(request, source)) {
             return fail(request.requestId, 'this device grant is view-only; pair a control browser or use the native app');
-        }
-        if (isViewOnlyDevice && request.type === 'terminal.attach') {
-            request = { ...request, params: { ...request.params, mode: 'observe' } } as ClientRequest;
         }
         if (isViewOnlyDevice && request.type === 'session.open') {
             try {
@@ -416,7 +404,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     return fromUseCase(request.requestId, await runPluginAction(source, { action: 'invoke', deviceId, ...request.params }));
                 }
                 if (request.type === 'plugin.stream') {
-                    return fromUseCase(request.requestId, await runPluginAction(source, { action: 'stream', deviceId, ...request.params }));
+                    return fail(request.requestId, 'plugin stream requires a link stream');
                 }
                 return fromUseCase(request.requestId, await runPluginAction(source, { action: 'call', deviceId, ...request.params }));
             } catch (error) {

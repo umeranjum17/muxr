@@ -1,22 +1,14 @@
 import {
-    issueWsTicket,
     newRealtimeChannel,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,
-    ticketSocketUrl,
-    type Envelope,
     type PluginStreamCapability,
     type RealtimeClientFrame,
     type RealtimeHostFrame,
-    type RequestParams,
 } from '@muxr/contract';
-import { channelRelayUrl, getCachedConnectionSettings } from '@/connection';
-import {
-    DeviceV2Crypto,
-    getCachedHostedGrant,
-    refreshHostedGrant,
-    type StoredHostedGrant,
-} from '@/pairing/e2ee';
+import { getCachedConnectionSettings } from '@/connection';
+import { getCachedHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
+import { sync } from '@/catalog/sync';
 import { pluginSnapshot, refreshPlugins } from './application/pluginStore';
 
 export interface PluginStream {
@@ -27,6 +19,13 @@ export interface PluginStream {
     send: (frame: RealtimeClientFrame) => boolean;
     close: (reason?: string) => void;
 }
+
+type RealtimeStreamTransport = {
+    write(line: string): Promise<void>;
+    onLine(listener: (line: string) => void): () => void;
+    onEnd(listener: (error?: string) => void): () => void;
+    close(): void;
+};
 
 const MAX_PREACTIVATION_FRAMES = 512;
 const MAX_PREACTIVATION_BYTES = 16 * 1024 * 1024;
@@ -43,7 +42,7 @@ export interface RealtimeStreamSnapshot {
     capability: string;
     machineId: string;
     relayUrl: string;
-    mode: 'hosted' | 'local';
+    mode: 'hosted';
     token: string;
     grant?: StoredHostedGrant;
 }
@@ -58,21 +57,18 @@ export interface PluginStreamSnapshot extends RealtimeStreamSnapshot {
 export async function captureStreamTransport(capability: string, machineId: string): Promise<RealtimeStreamSnapshot> {
     const settings = { ...getCachedConnectionSettings() };
     if (settings.machineId !== machineId) throw new Error('End voice before switching computers.');
-    const cachedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(machineId) : undefined;
-    if (settings.mode === 'hosted' && cachedGrant === undefined) throw new Error('stream: hosted machine grant is missing');
-    const latestGrant = cachedGrant === undefined
-        ? undefined
-        : await refreshHostedGrant(machineId, cachedGrant.credential, cachedGrant.relayUrl, await channelRelayUrl(cachedGrant.relayUrl, machineId)) ?? cachedGrant;
+    const cachedGrant = getCachedHostedGrant(machineId);
+    if (cachedGrant === undefined) throw new Error('stream: hosted machine grant is missing');
     if (getCachedConnectionSettings().machineId !== machineId) throw new Error('End voice before switching computers.');
-    const grant = latestGrant === undefined ? undefined : JSON.parse(JSON.stringify(latestGrant)) as StoredHostedGrant;
-    if (grant !== undefined && grant.expiresAt <= Date.now()) throw new Error('stream: device grant expired; pair again');
+    const grant = JSON.parse(JSON.stringify(cachedGrant)) as StoredHostedGrant;
+    if (grant.expiresAt <= Date.now()) throw new Error('stream: device grant expired; pair again');
     return {
         capability,
         machineId,
-        relayUrl: grant?.relayUrl ?? settings.relayUrl,
+        relayUrl: grant.relayUrl,
         mode: settings.mode,
-        token: grant?.credential ?? settings.token,
-        ...(grant === undefined ? {} : { grant }),
+        token: grant.credential,
+        grant,
     };
 }
 
@@ -93,16 +89,11 @@ export async function capturePluginStreamSnapshot(capability: string, machineId:
 
 /** Refresh only the pinned machine's grant generation; never re-read the active machine or provider. */
 export async function refreshPluginStreamSnapshot<T extends RealtimeStreamSnapshot>(snapshot: T): Promise<T> {
-    if (snapshot.grant === undefined) return snapshot;
-    const refreshed = await refreshHostedGrant(snapshot.machineId, snapshot.token, snapshot.relayUrl, await channelRelayUrl(snapshot.relayUrl, snapshot.machineId));
-    if (refreshed === undefined || refreshed.machineId !== snapshot.machineId || refreshed.deviceId !== snapshot.grant.deviceId) {
-        throw new Error('stream: pinned machine grant could not be refreshed');
+    if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
+    if (snapshot.grant !== undefined && getCachedHostedGrant(snapshot.machineId)?.deviceId !== snapshot.grant.deviceId) {
+        throw new Error('stream: pinned machine grant changed; pair again');
     }
-    return {
-        ...snapshot,
-        token: refreshed.credential,
-        grant: JSON.parse(JSON.stringify(refreshed)) as StoredHostedGrant,
-    };
+    return snapshot;
 }
 
 /** Resolve a semantic stream capability without ever naming a provider/plugin id. */
@@ -112,7 +103,6 @@ export async function openPluginStream(
         sessionId?: string;
         machineId?: string;
         snapshot?: PluginStreamSnapshot;
-        requestControl: (params: RequestParams<'plugin.stream'>) => Promise<unknown>;
     },
 ): Promise<PluginStream> {
     const snapshot = options.snapshot ?? await capturePluginStreamSnapshot(
@@ -122,19 +112,17 @@ export async function openPluginStream(
     return openRealtimeStream(capability, {
         ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
         snapshot,
-        attach: (params) => options.requestControl({
+        openStream: (params) => sync.openPluginStream({
             pluginId: snapshot.pluginId,
             manifestHash: snapshot.manifestHash,
             contributionId: snapshot.contributionId,
             ...params,
-        }),
+        }) ?? Promise.resolve(undefined),
     });
 }
 
 /**
- * Attach one realtime stream over the relay. The caller owns how the host is
- * asked to attach it, so a plugin stream and a product voice stream share the
- * exact framing, e2ee and backpressure behaviour.
+ * Attach one realtime stream over the authenticated byokit duplex link.
  */
 export async function openRealtimeStream(
     capability: string,
@@ -142,7 +130,7 @@ export async function openRealtimeStream(
         sessionId?: string;
         machineId?: string;
         snapshot?: RealtimeStreamSnapshot;
-        attach: (params: { channel: string; sessionId?: string }) => Promise<unknown>;
+        openStream: (params: { channel: string; sessionId?: string }) => Promise<RealtimeStreamTransport | undefined>;
     },
 ): Promise<PluginStream> {
     const snapshot = options.snapshot ?? await captureStreamTransport(
@@ -150,40 +138,20 @@ export async function openRealtimeStream(
         options.machineId ?? getCachedConnectionSettings().machineId,
     );
     if (snapshot.capability !== capability) throw new Error('stream capability snapshot mismatch');
-    const grant = snapshot.grant;
-    const hosted = grant === undefined ? undefined : new DeviceV2Crypto(grant);
     const channel = newRealtimeChannel();
     if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
-    // Reuse the main relay client: a second socket receives the same encrypted broadcasts
-    // and can lose the shared replay race before its plugin.stream result arrives.
-    await options.attach({
-        channel,
-        ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
-    });
-    if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
-
-    const relayUrl = await channelRelayUrl(snapshot.relayUrl, snapshot.machineId);
-    const ticketInput = grant !== undefined
-        ? { credential: grant.credential }
-        : snapshot.token !== '' && !snapshot.token.startsWith('acctok_')
-            ? { credential: snapshot.token }
-            : undefined;
-    if (ticketInput === undefined) throw new Error('stream: relay ticket required');
-    const url = ticketSocketUrl(relayUrl, await issueWsTicket({
-        relayUrl,
-        credential: ticketInput.credential,
-        machineId: snapshot.machineId,
-        role: 'client',
-        transport: 'stream',
-        channel,
-    }), 'stream');
+    const attachParams = { channel, ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }) };
+    const streamTransport = await options.openStream(attachParams);
+    if (streamTransport === undefined) throw new Error('stream: required duplex transport unavailable');
+    if (getCachedConnectionSettings().machineId !== snapshot.machineId) {
+        streamTransport.close();
+        throw new Error('End voice before switching computers.');
+    }
 
     const frameListeners = new Set<(frame: RealtimeHostFrame) => void>();
     const closeListeners = new Set<(reason?: string) => void>();
     const pendingFrames: Array<{ frame: RealtimeHostFrame; bytes: number }> = [];
     let pendingFrameBytes = 0;
-    let socket: WebSocket | undefined;
-    let opened = false;
     let transportEnded = false;
     let activated = false;
     let activating = false;
@@ -191,7 +159,7 @@ export async function openRealtimeStream(
     let processing = Promise.resolve();
     let pendingWireFrames = 0;
     let pendingWireBytes = 0;
-    let replayReleased = false;
+    let streamPendingBytes = 0;
 
     const notifyTerminal = (): void => {
         if (!activated || activating || terminal === undefined || terminal.notified) return;
@@ -207,19 +175,7 @@ export async function openRealtimeStream(
             pendingFrames.length = 0;
             pendingFrameBytes = 0;
         }
-        if (!replayReleased) {
-            replayReleased = true;
-            hosted?.release('stream', channel);
-        }
-        const current = socket;
-        socket = undefined;
-        if (current !== undefined) {
-            current.onopen = null;
-            current.onmessage = null;
-            current.onerror = null;
-            current.onclose = null;
-            current.close();
-        }
+        streamTransport.close();
         notifyTerminal();
     };
     const endTransport = (): void => {
@@ -250,57 +206,16 @@ export async function openRealtimeStream(
     const processMessage = async (raw: string): Promise<void> => {
         if (terminal !== undefined) return;
         try {
-            let text = raw;
-            if (hosted !== undefined) {
-                const envelope = JSON.parse(text) as Envelope;
-                if (envelope.header.machineId !== snapshot.machineId
-                    || envelope.header.senderId !== snapshot.machineId
-                    || envelope.header.recipientId !== '*'
-                    || envelope.header.channel !== 'stream'
-                    || envelope.header.streamId !== channel
-                    || envelope.header.keyVersion !== grant?.keyVersion) {
-                    throw new Error('stream: invalid hosted routing context');
-                }
-                text = await hosted.open('stream', channel, envelope.payload, envelope.header.seq);
-            }
-            const frame = parseRealtimeHostFrame(JSON.parse(text));
+            const frame = parseRealtimeHostFrame(JSON.parse(raw));
             if (frame.type === 'realtime.closed') finish(frame.reason);
-            else deliverFrame(frame, new TextEncoder().encode(text).length);
+            else deliverFrame(frame, new TextEncoder().encode(raw).length);
         } catch {
             finish('stream frame rejected');
         }
     };
 
-    await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-            finish('stream connection timed out', false);
-            reject(new Error('stream connection timed out'));
-        }, 15_000);
-        const next = new WebSocket(url);
-        socket = next;
-        next.onopen = () => {
-            clearTimeout(timer);
-            if (terminal !== undefined || socket !== next) return;
-            opened = true;
-            resolve();
-        };
-        next.onerror = () => {
-            clearTimeout(timer);
-            if (!opened) {
-                finish('stream connection failed', false);
-                reject(new Error('stream connection failed'));
-            } else {
-                endTransport();
-            }
-        };
-        next.onclose = () => {
-            clearTimeout(timer);
-            if (socket !== next || terminal !== undefined) return;
-            endTransport();
-        };
-        next.onmessage = (event) => {
-            if (terminal !== undefined || socket !== next) return;
-            const raw = String(event.data);
+    streamTransport.onLine((raw) => {
+            if (terminal !== undefined) return;
             const wireBytes = new TextEncoder().encode(raw).length;
             if (pendingWireFrames >= MAX_PENDING_WIRE_FRAMES || pendingWireBytes + wireBytes > MAX_PENDING_WIRE_BYTES) {
                 finish('stream receive buffer exceeded');
@@ -309,15 +224,11 @@ export async function openRealtimeStream(
             pendingWireFrames += 1;
             pendingWireBytes += wireBytes;
             processing = processing.then(async () => {
-                try {
-                    await processMessage(raw);
-                } finally {
-                    pendingWireFrames -= 1;
-                    pendingWireBytes -= wireBytes;
-                }
+                try { await processMessage(raw); }
+                finally { pendingWireFrames -= 1; pendingWireBytes -= wireBytes; }
             });
-        };
-    });
+        });
+    streamTransport.onEnd(endTransport);
 
     return {
         onFrame: (listener) => {
@@ -345,25 +256,16 @@ export async function openRealtimeStream(
             notifyTerminal();
         },
         send: (frame) => {
-            if (terminal !== undefined || socket === undefined || socket.readyState !== WebSocket.OPEN) return false;
-            if (frame.type === 'realtime.audio' && socket.bufferedAmount > MAX_SEND_BUFFER_BYTES) return false;
-            const clean = parseRealtimeClientFrame(frame);
-            const plaintext = JSON.stringify(clean);
-            const sealed = hosted?.seal('stream', channel, plaintext);
+            if (terminal !== undefined) return false;
+            if (frame.type === 'realtime.audio' && streamPendingBytes > MAX_SEND_BUFFER_BYTES) return false;
+            const wire = JSON.stringify(parseRealtimeClientFrame(frame));
             try {
-                socket.send(sealed === undefined ? plaintext : JSON.stringify({
-                    header: {
-                        machineId: snapshot.machineId,
-                        senderId: grant!.deviceId,
-                        recipientId: snapshot.machineId,
-                        channel: 'stream',
-                        streamId: channel,
-                        keyVersion: grant!.keyVersion,
-                        seq: sealed.sequence,
-                        at: Date.now(),
-                    },
-                    payload: sealed.payload,
-                } satisfies Envelope));
+                const bytes = new TextEncoder().encode(wire).byteLength + 1;
+                streamPendingBytes += bytes;
+                void streamTransport.write(wire).then(
+                    () => { streamPendingBytes = Math.max(0, streamPendingBytes - bytes); },
+                    () => finish('stream disconnected'),
+                );
                 return true;
             } catch {
                 finish('stream disconnected');

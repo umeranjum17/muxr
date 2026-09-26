@@ -1,17 +1,16 @@
 # Architecture
 
-Three processes. Herdr owns agents and backend plugins, the host translates, the
-relay moves bytes, and the app draws the terminal. The app is a native extension
-shell: host-installed packages contribute approved native surfaces without downloaded code.
+Herdr owns agents and backend plugins, the host translates, the relay routes
+bytes, and the app draws the terminal. The app is a native extension shell:
+host-installed packages contribute approved native surfaces without downloaded code.
 
 ```
   PHONE / WEB               RELAY                   YOUR MACHINE
   apps/mobile               apps/relay              apps/host          herdr server
   ─────────────             ─────────               ──────────         ────────────
-  xterm.js + herd UI   ◄──► routes envelopes   ◄──► translates    ◄──► owns the PTYs
-  owns no truth             reads headers only      contract ⇄          detects agents
-                            /terminal + /preview    herdr socket        resumes them
-                            are separate channels
+  terminal + herd UI  ◄──► routes link frames   ◄──► translates    ◄──► owns the PTYs
+  owns no truth             sees ciphertext        contract ⇄          detects agents
+                            blind link routing      herdr socket        resumes them
 ```
 
 ## Why herdr
@@ -29,9 +28,9 @@ press at the desk.
 
 First, the mental model: **there is no "the terminal".** An agent never draws a
 screen — it writes ANSI escape bytes into a PTY (a kernel pipe). A terminal is
-just any program that parses those bytes into pixels: Ghostty on the desk,
-herdr's built-in emulator, xterm.js on the phone. Same bytes in, same picture
-out — that is why every client looks identical.
+just any program that parses those bytes into pixels: Ghostty on the phone,
+herdr's built-in emulator, xterm.js on web. The clients draw from the same
+stream, but each uses its own renderer.
 
 **herdr owns the pipe and the canonical state.** Agents run as ordinary OS
 processes on the host machine, each inside a real PTY that herdr holds. Herdr's
@@ -46,11 +45,11 @@ agent process → PTY (kernel pipe, herdr holds it)
                   │
                   ├─→ herdr's emulator ──→ herdr desktop UI
                   └─→ host runs `herdr terminal session control <pane>`
-                      (base64 ANSI frames) → /terminal via the relay → phone
-                      → xterm.js parses the same bytes, draws its own copy
+                      (base64 ANSI frames) → byokit link stream via relay → phone
+                      → Ghostty (native) or xterm.js (web) draws its own copy
 ```
 
-Keystrokes travel the reverse path: phone → relay → host → herdr → PTY → the
+Keystrokes travel the reverse path: phone → link → host → herdr → PTY → the
 agent reads them as if typed locally. This app owns no terminal state — it
 carries bytes and renders them. And this is why scroll gestures are forwarded to
 herdr instead of scrolling locally: the history is herdr's, and the phone only
@@ -82,8 +81,7 @@ it mounts slots and draws widgets. Realtime voice, usage and machine health,
 dictation, the terminal key row, the workspace tree, and Panes are product code,
 not plugins. The phone no longer has a separate in-conversation Browser surface:
 on a machine with a desktop session, agents open pages in its desktop browser
-and the user watches through Computer. The host still answers the preview
-transport for older phone builds; plugins do not expose a preview action.
+and the user watches through Computer. Plugins do not expose a preview action.
 Navigation destinations open `/plugin`.
 
 The app registers widgets (`item-list`, `collection`, `icon-button`, …), not
@@ -107,14 +105,11 @@ on-demand desktop engine process it starts and stops for one authorized session.
 manages no agent processes and keeps no lifecycle ledger — a closed pane simply
 disappears from the app.
 
-**The relay core owns**: envelope routing by header, one-use scoped tickets,
-file-backed user-operated pairing/revocation when enabled, replay/offline
-buffering, and terminal/preview pipes. Its public API is capability-based:
-`localAuthority`, `developmentApi`, `advertiseMdns`, and `publicEdge`; deployment
-brands do not exist in core. An embedding process may add its own authority and
-edge policy without changing relay routing. Non-development
-session/RPC and terminal channels require strict v2 ciphertext; the relay checks
-bounded routing context and never parses plaintext.
+**The relay core owns**: blind `@byokit/relay` link routing, push registration,
+shared-relay machine enrollment and readiness/web serving. The host owns pairing
+approval and device authority; `@byokit/link` encrypts phone/host traffic with
+Noise IK. The relay cannot read session, terminal or stream payloads. See
+[the cutover contract](specs/byokit-cutover.md).
 
 **The app owns**: rendering and local persistence only. No truth lives on the
 phone. A machine-scoped, display-only Home snapshot in local MMKV holds the last
@@ -139,7 +134,7 @@ removed grants, and web secure-store reset clear it.
 | Close worktree group | final explicit scope of `session.stop`, after its own confirmation | revalidate the parent workspace, then call Herdr `workspace.close`; Herdr has no separate group-close method |
 | status | `idle · working · blocked · done · unknown` | `pane.agent_status_changed` |
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
-| live view | terminal frames over the `/terminal` channel | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |
+| live view | terminal frames over a link stream | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |
 
 Sessions started at the desk show up on the phone once Herdr publishes their
 agent session (often after the first turn). Detection alone is not a session:
@@ -165,8 +160,9 @@ per-pane status watch is acknowledged, even if an older snapshot was in flight.
 - **`control` resizes the real PTY** (measured: 23×53 → 35×110); `observe` does not.
   Control is single-owner, so attaching takes over input from the desk; preview
   cards use `observe` exactly so the desk is never disturbed.
-- **herdr repaints the whole screen in its first frames.** The relay buffers those
-  until the client connects, or the terminal opens blank.
+- **herdr repaints the whole screen in its first frames.** The link path queues
+  frames arriving before the attach result and sends them to the phone after
+  attach succeeds.
 - **Pane ids change on cross-workspace moves** and agent names are user-renameable, so
   the host mints its own session ids and keeps a map, updated on `pane.moved`.
 - **`done` means "idle and you haven't looked yet."** herdr clears it when the tab is
@@ -214,9 +210,9 @@ dump directory. `artifact.list` returns a bounded metadata-only snapshot and
 changes; neither metadata path carries bytes. Previews can use `artifact.fetch`;
 current app downloads use bounded `artifact.read` chunks (up to 512 KiB each)
 on the encrypted RPC path. The host directs each chunk response to the requesting
-socket, and the relay neither replays nor buffers it. The older one-time local
-download ticket endpoint remains for installed clients but is not the current
-app's download path. The phone groups entries chronologically and reuses the
+link, and the relay neither replays nor buffers it. A separate one-time local
+HTTP download ticket remains for original artifact bytes; it is not a relay
+transport fallback. The phone groups entries chronologically and reuses the
 image gallery and rich document previews. Neither filesystem paths nor pane/session
 ids are rendered.
 
@@ -237,22 +233,19 @@ purpose, because nothing on the other side can be told to change:
 
 - `attachment.list`, `attachment.fetch`, `attachment.prepare` and
   `attachment.read` remain wired to the same host handlers, with the old
-  `attachmentId` param and the old `attachments` listing field. A host answers
-  them for an app built before the rename; the current app falls back to the
-  list, fetch and read aliases after a `host-contract-mismatch` and remembers
-  the answer.
+  `attachmentId` param and the old `attachments` listing field. The current app
+  can fall back to the list, fetch and read aliases after a
+  `host-contract-mismatch`; this does not restore pre-cutover wire compatibility.
 - `attachments.update` is published beside `artifacts.update` from the same
   publish site, carrying the same `total` and `truncated` under the old
-  `attachments` field, so a pre-rename app's open timeline still updates live.
+  `attachments` field for product-contract compatibility.
   It stays out of `SESSION_EVENT_TYPES`: a canonical client never waits for it.
   Delete it with the request aliases above.
-- `~/.muxr/attachments/pane/`, the `attachment` hosted routing channel, the
-  `/v1/attachment-download` route with its `attachmentId` query key, and the
-  plugin vocabulary (`muxr.attachments`, plugin action `type: "attachment"`)
-  are contracts with installed tooling, the cleartext envelope, and approved
-  plugin manifests. See [CONTEXT.md](../CONTEXT.md).
+- `~/.muxr/attachments/pane/` and the plugin vocabulary (`muxr.attachments`,
+  plugin action `type: "attachment"`) remain contracts with installed tooling
+  and approved plugin manifests. See [CONTEXT.md](../CONTEXT.md).
 
-The extracted attachments plugin remains wire-compatible during migration. The
+The extracted attachments plugin retains its product request aliases. The
 changes surface separately runs host-owned git requests in the session cwd.
 
 Retention bounds that history. The host sweeps once a day and removes only
@@ -274,42 +267,20 @@ after showing him the plan.
 
 ## Push notifications
 
-Notifications open the app, which sends the normal strict-v2 encrypted
-request after ticket/grant checks. They never synthesize a plaintext answer.
+Notifications open the app; requests travel over the authenticated link.
+They never synthesize a plaintext answer.
 
 ## What the relay does
 
-The same Node process on your machine serves pairing, readiness, and WebSockets.
-Long-lived scoped credentials mint 60-second, one-use tickets; the existing
-muxr WebSockets consume only those tickets. On a self-host relay,
-`@byokit/relay` also serves optional
-`/relay/v1/*` and `/link/v1/<host id>` routes beside the existing muxr routes.
-The host uses its existing machine box key and enrolls native phones from its
-`selfhost.json` device records through `@byokit/link`; browsers, terminal and
-preview streams, and remote desktop still use the existing relay transport.
-The link checks the live device table for requests (including cached replies)
-and broadcasts, so revocation and role changes do not wait for grant sync.
-On startup, the host enrolls its existing devices before opening its link relay
-connection. A role change replaces the link grant and closes the old socket;
-the phone reconnects in the new role without losing its pairing or showing
-`removed`. Revocation still removes access. A claimed phone or browser has
-only pairing-window access until its grant is published and the CLI releases
-its relay credential; the host's device record becomes durable only after
-release succeeds. An incomplete claim expires with the window, including its
-push eligibility. If the CLI exits between release and host-record durability,
-the relay credential remains but the host does not trust the device; re-pairing
-recovers. If link relay state cannot load, the existing relay continues without
-those routes. Pairing stays on the existing transport. For a self-host machine,
-a paired phone moves its session channel onto the link without re-pairing: the
-host enrols it from its device records and appends the enrolled link key to
-its `herdr.tree` replies (re-announced whenever the link relay comes online),
-and the phone then dials `/link/v1/<host id>` with the keys it already holds,
-keeping the relay transport open as a fallback. Hosted relays keep phones on
-the relay transport.
-
-The relay reads bounded `envelope.header` routing context and treats `payload` as
-opaque `e2ee:v2` ciphertext. Terminal frames stay off replay on the separate
-`/terminal` pipe, but use the same strict context/ciphertext contract.
+`@byokit/relay` routes encrypted link frames between the phone (native or web)
+and host via `/link/v1/<host id>` and `/relay/v1/host`. It also handles push and
+shared-relay enrollment; no muxr ticketed socket, ciphertext replay log, or
+fallback transport remains. The host checks live device authority on link
+requests and broadcasts; a pending pairing grant is admitted only during its
+approval window and becomes durable after proof over the machine's real link.
+Revocation closes the device link without rotating a shared data key. Older app
+builds and pre-cutover pairings must update and pair again. For connection
+routes and pairing instructions, see [Self-hosting](SELF-HOSTING.md).
 
 ## Not built
 

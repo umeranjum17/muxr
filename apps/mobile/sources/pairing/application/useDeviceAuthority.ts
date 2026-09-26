@@ -11,11 +11,11 @@ export function useDeviceAuthority(): { authority: DeviceAuthority; loading: boo
     const connection = getCachedConnectionSettings();
     const [state, setState] = React.useState<{ authority: DeviceAuthority; loading: boolean }>(() => ({
         authority: currentDeviceAuthority(),
-        loading: Platform.OS === 'web' && connection.mode === 'hosted',
+        loading: Platform.OS === 'web',
     }));
 
     React.useEffect(() => {
-        if (Platform.OS !== 'web' || connection.mode === 'local') {
+        if (Platform.OS !== 'web') {
             setState({ authority: 'control', loading: false });
             return;
         }
@@ -30,7 +30,7 @@ export function useDeviceAuthority(): { authority: DeviceAuthority; loading: boo
             if (!cancelled) setState({ authority: 'observe', loading: false });
         });
         return () => { cancelled = true; };
-    }, [connection.machineId, connection.mode, socketStatus]);
+    }, [connection.machineId, socketStatus]);
 
     return state;
 }

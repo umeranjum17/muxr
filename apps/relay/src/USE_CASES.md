@@ -1,12 +1,9 @@
 # Relay use cases
 
-HTTP and WebSocket handlers in `relay.ts` / `httpHandlers.ts` are adapters.
+| Capability | Owner | Adapter |
+|---|---|---|
+| Link host enrolment, Noise IK routing, stream and push registrations | `@byokit/relay` | `routing/infrastructure/linkRelay.ts`, mounted by `relay.ts` |
+| Shared self-host machine enrolment and revocation | `admission/infrastructure/machineAuthority.ts` | Owner and machine-scoped HTTP routes in `relay.ts` |
+| PWA static client, Origin/CSP, LAN advertisement | `relay.ts`, `@byokit/reach` | HTTP and mDNS |
 
-| Capability | Use case | Domain owner | Adapters |
-|---|---|---|---|
-| Admit a socket | `admission/application/admitSocket.ts` | Peer Identity, Ticket, loopback | WebSocket upgrade |
-| Pair a device to an account | `admission/application/pairMachine.ts` | Pairing rendezvous (sealed blob only) | `POST /v1/auth/account/request`, `.../response` |
-| Route an envelope | `routing/application/routeEnvelope.ts` | Envelope route (never opens payload) | authenticated WebSocket frames |
-| Route link frames | `routing/infrastructure/linkRelay.ts` (`@byokit/relay`) | Host proof of its machine key; owner is the mint secret | `/link/v1/<host id>`, `/relay/v1/*` |
-
-Loopback query-string admission and `machinetok_` stay live for the local harness and probe. Display names never admit a socket.
+The relay does not decrypt or interpret device messages. A device grant is checked by the host, not a muxr relay ticket.

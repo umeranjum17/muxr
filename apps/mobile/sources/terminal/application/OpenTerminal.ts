@@ -1,13 +1,10 @@
 /**
  * Live terminal, device half.
  *
- * Ask the host to attach the pane to a channel, then open the client side of
- * that channel. Frames are herdr's own NDJSON protocol --
+ * Open a byokit link stream to attach the pane. Frames are herdr's own NDJSON protocol --
  * base64 ANSI in, keystrokes out -- and are never parsed here.
  *
- * Reconnect: a dropped channel socket (phone sleep, network switch, relay
- * restart) used to be terminal -- the screen stayed 'disconnected' until
- * re-opened. Now the channel re-attaches itself with backoff and only reports
+ * Reconnect: a dropped link stream re-attaches with backoff and only reports
  * closed when the host says the stream ended or retries run out.
  *
  * Input path: keystrokes that arrive in the same JS task join into one
@@ -17,19 +14,20 @@
  * never masquerade as host output.
  */
 
-import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope } from '@muxr/contract';
+import { newTerminalChannel, nextRequestId } from '@muxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
-import { channelRelayUrl, getCachedConnectionSettings } from '@/connection';
+import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { storage } from '@/catalog/store';
+import type { ByteStreamTransport } from '@/pairing/client';
 import { beginTerminalFrameCounts, finalizeTerminalFrameCounts, recordTerminalChannel, recordTerminalFirstFrame, recordTerminalFrameReceived, recordTerminalFrameWritten, type TerminalFrameCountToken } from '@/catalog/diagnostics';
-import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
+import { getCachedHostedGrant } from '@/pairing/e2ee';
 
 /**
  * 'connecting' until this pane has painted once; 'reconnecting' while a pane
  * that did paint is being re-attached; 'live' while frames flow with nothing
- * known to be wrong; 'unconfirmed' when the pane's socket is open but the
- * machine transport last reported a timeout or a lost route, so nobody can say
+ * known to be wrong; 'unconfirmed' when the link is open but the machine
+ * transport last reported a timeout or a lost route, so nobody can say
  * the host is still there until it answers again.
  */
 export type TerminalChannelState = 'connecting' | 'live' | 'reconnecting' | 'unconfirmed';
@@ -49,7 +47,7 @@ export interface TerminalChannel {
      * report, or done nothing at all, and only the host can tell which.
      */
     onScrollState: (listener: (state: { offsetFromBottom: number; maxOffsetFromBottom: number }) => void) => () => void;
-    /** Pane socket state; 'unconfirmed' while the host is silent — see TerminalChannelState. */
+    /** Pane state; 'unconfirmed' while the host is silent — see TerminalChannelState. */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     sendText: (text: string) => void;
     sendBytes: (base64: string) => void;
@@ -77,17 +75,18 @@ const MAX_ATTEMPTS = 15;
 
 export async function openTerminal(command: OpenTerminalCommand): Promise<TerminalChannel> {
     let closedByUser = false;
+    let closedByHost = false;
     let attachSent = false;
     const assertOpen = (): void => {
-        if (closedByUser || command.signal?.aborted) throw new Error('terminal: open cancelled');
+        if (closedByUser && !closedByHost || command.signal?.aborted) throw new Error('terminal: open cancelled');
     };
     assertOpen();
     const sessionId = command.agentRoute;
     const size = command.size;
     const options = command.mode === undefined ? undefined : { mode: command.mode };
     const settings = getCachedConnectionSettings();
-    let grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
-    if (settings.mode === 'hosted' && grant === undefined) {
+    const grant = getCachedHostedGrant(settings.machineId);
+    if (grant === undefined) {
         recordTerminalChannel('attach', { ok: false, code: 'e2ee-required' });
         throw new Error('terminal: hosted machine grant is missing');
     }
@@ -95,7 +94,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         recordTerminalChannel('attach', { ok: false, code: 'grant-expired' });
         throw new Error('terminal: device grant expired; pair this browser again');
     }
-    let hosted = grant === undefined ? undefined : new DeviceV2Crypto(grant);
     const channel = newTerminalChannel();
 
     // Every re-attach spawns herdr at this size, so it has to track the resizes
@@ -105,70 +103,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     // dead space, or as text landing on the wrong rows.
     let current = size;
 
-    // The host must be on the channel before the relay will pair a client.
-    // The ticket names only the channel, so it is fetched while the host is
-    // still attaching instead of one round trip after it. The socket itself
-    // still waits for the attach: the relay pairs a client only with a host
-    // that is already on the channel.
-    let ticketAhead: Promise<string> | undefined;
-    const sendAttachRequest = async (takeover: boolean): Promise<unknown> => {
-        assertOpen();
-        attachSent = true;
-        if (ticketAhead === undefined) {
-            ticketAhead = socketUrl();
-            ticketAhead.catch(() => undefined);
-        }
+    const attach = async (takeover: boolean): Promise<void> => {
         try {
-            return await sync.request('terminal.attach', {
-                sessionId,
-                channel,
-                cols: current.cols,
-                rows: current.rows,
-                ...(options?.mode === undefined ? {} : { mode: options.mode }),
-                ...(grant === undefined ? {} : { deviceId: grant.deviceId, takeover }),
-            });
-        } finally {
-            // A detach during the request can precede host-side registration.
-            // Retire again once that request settles, without opening a socket.
-            if (closedByUser) {
-                attachSent = true;
-                close();
-            }
-        }
-    };
-    const attachOnce = (takeover: boolean): Promise<unknown> => grant === undefined
-        ? sendAttachRequest(takeover)
-        : (async () => {
-            const latest = await refreshHostedGrant(settings.machineId, grant!.credential, grant!.relayUrl, await channelRelayUrl(grant!.relayUrl, settings.machineId));
-            if (latest !== undefined && latest.keyVersion >= grant!.keyVersion) {
-                if (latest.expiresAt <= Date.now()) throw new Error('terminal: device grant expired; pair this browser again');
-                grant = latest;
-                hosted = new DeviceV2Crypto(latest);
-            }
-            return sendAttachRequest(takeover);
-        })();
-    const attach = async (takeover: boolean): Promise<unknown> => {
-        try {
-            const result = await attachOnce(takeover);
-            recordTerminalChannel('attach', { ok: true });
-            return result;
+            await attachViaLink(takeover);
         } catch (error) {
-            // A retry may come after the ticket has expired; it fetches its own.
-            ticketAhead = undefined;
             recordTerminalChannel('attach', { ok: false, error });
             throw error;
         }
     };
-    const relayTicket = (): { relayUrl: string; credential: string } | undefined => grant !== undefined
-        ? { relayUrl: grant.relayUrl, credential: grant.credential }
-        : settings.token !== '' && !settings.token.startsWith('acctok_')
-            ? { relayUrl: settings.relayUrl, credential: settings.token }
-            : undefined;
-    // Fail before attach: a ticketless socket is what produced the 1 Hz loop.
-    if (relayTicket() === undefined) {
-        recordTerminalChannel('attach', { ok: false, code: 'ticket-required' });
-        throw new Error('terminal: relay ticket required');
-    }
 
     const dataListeners = new Set<(base64: string) => void>();
     const pendingData: string[] = [];
@@ -180,9 +122,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     // scrollback -- which is not the same as knowing it has none.
     let lastScrollState: { offsetFromBottom: number; maxOffsetFromBottom: number } | undefined;
     const outbox: string[] = [];
-    let socket: WebSocket | undefined;
     let frameCounts: TerminalFrameCountToken | undefined;
     let closedByTakeover = false;
+    let lastCloseReason: string | undefined;
 
     const finalizeCounts = (): void => {
         if (frameCounts === undefined) return;
@@ -250,6 +192,39 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let queuedInput: QueuedInput | undefined;
     let inputFlushScheduled = false;
 
+    // ---- Link stream frame routing. ----
+
+    const deliverFrameBytes = (bytes: string): void => {
+        if (dataListeners.size === 0) pendingData.push(bytes);
+        else for (const listener of dataListeners) listener(bytes);
+    };
+    const applyScrollStateFrame = (frame: object): void => {
+        const state = frame as { offsetFromBottom?: unknown; maxOffsetFromBottom?: unknown };
+        if (typeof state.offsetFromBottom !== 'number' || !Number.isFinite(state.offsetFromBottom)
+            || typeof state.maxOffsetFromBottom !== 'number' || !Number.isFinite(state.maxOffsetFromBottom)) return;
+        hostAnswered();
+        lastScrollState = {
+            offsetFromBottom: Math.max(0, Math.trunc(state.offsetFromBottom)),
+            maxOffsetFromBottom: Math.max(0, Math.trunc(state.maxOffsetFromBottom)),
+        };
+        for (const listener of scrollStateListeners) listener(lastScrollState);
+    };
+    const applyClosedFrame = (frame: object): void => {
+        const reason = typeof (frame as { reason?: unknown }).reason === 'string' ? (frame as { reason: string }).reason : undefined;
+        // Automatic foreground/reconnect must not steal control back.
+        // Only the user's visible retry action may reverse a takeover.
+        closedByTakeover = reason === 'control moved to another device';
+        closedByHost = true;
+        lastCloseReason = reason;
+        closedByUser = true;
+        finalizeCounts();
+        recordTerminalChannel('disconnected', {
+            ok: false,
+            code: closedByTakeover ? 'takeover' : 'disconnected',
+        });
+        unwatchHost();
+        for (const listener of closeListeners) listener(reason);
+    };
     function scheduleRetry(): void {
         if (closedByUser || retryTimer !== undefined) return;
         attempts += 1;
@@ -278,15 +253,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         if (attachInFlight !== undefined) return;
 
         const pending = (async () => {
-            // A resize that lands while attach is waiting must replace that
-            // not-yet-paired stream before any client socket is opened.
             while (attachRequested && !closedByUser) {
                 attachRequested = false;
                 const takeover = takeoverRequested;
                 takeoverRequested = false;
                 await attach(takeover);
             }
-            if (!closedByUser) await connectSocket();
         })();
         attachInFlight = pending;
         void pending
@@ -302,7 +274,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         if (closedByUser) {
             if (!explicitTakeover || !closedByTakeover) return;
             closedByUser = false;
+            closedByHost = false;
             closedByTakeover = false;
+            lastCloseReason = undefined;
             retaking = true;
         }
         watchHost();
@@ -310,150 +284,181 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             clearTimeout(retryTimer);
             retryTimer = undefined;
         }
-        if (retaking && socket !== undefined) {
-            const stale = socket;
-            socket = undefined;
-            stale.close();
-        }
+        if (retaking && linkWire !== undefined) retireLink(linkWire);
         if (attachInFlight !== undefined) {
             if (explicitTakeover) requestAttach(true);
             return;
         }
-        if (socket !== undefined && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
+        if (linkWire !== undefined) return; // the pane is live on the link
         attempts = 0;
         emitState('reconnecting');
         requestAttach(explicitTakeover);
     };
 
-    async function socketUrl(): Promise<string> {
-        // Strict relays reject ticketless sockets. Empty and account-scoped
-        // tokens cannot mint a channel ticket, so fail closed instead of
-        // opening a 1 Hz unauthorized reconnect loop.
-        const ticketInput = relayTicket();
-        if (ticketInput === undefined) {
-            recordTerminalChannel('attach', { ok: false, code: 'ticket-required' });
-            throw new Error('terminal: relay ticket required');
-        }
-        const relayUrl = await channelRelayUrl(ticketInput.relayUrl, settings.machineId);
-        return ticketSocketUrl(relayUrl, await issueWsTicket({
-            relayUrl,
-            credential: ticketInput.credential,
-            machineId: settings.machineId,
-            role: 'client',
-            transport: 'terminal',
-            channel,
-        }), 'terminal');
-    }
-    async function connectSocket(): Promise<void> {
-        if (closedByUser) return;
-        const ticketed = ticketAhead ?? socketUrl();
-        ticketAhead = undefined;
-        const url = await ticketed;
-        // A repaint/retry may have claimed the attach owner while the ticket
-        // request was in flight. Do not let that old ticket open a second
-        // channel after the replacement has begun.
-        if (closedByUser || socket !== undefined || attachRequested) return;
-        const next = new WebSocket(url);
-        socket = next;
-        let firstFrame = false;
-        const openStarted = Date.now();
-        // Socket-open proves only relay connectivity. Require the host's first
-        // terminal frame, otherwise an orphaned relay can look live forever.
-        const openTimer = setTimeout(() => {
-            if (socket === next && !closedByUser && !firstFrame) next.close();
-        }, 15_000);
+    // The pane's stream open IS the attach; the first host frame acknowledges it.
+    // A dropped link reattaches the pane through a new stream.
+    let linkWire: ByteStreamTransport | undefined;
+    type LinkAttachAck = { ok: true } | { ok: false; error?: string; code?: string; streamLost?: boolean };
+    let linkAck: ((ack: LinkAttachAck) => void) | undefined;
+    let linkAckTransport: ByteStreamTransport | undefined;
 
-        next.onopen = () => {
-            if (socket !== next || closedByUser) {
-                next.close();
+    /** Retire a transport without touching the reconnect machinery (replacement, close, failed attach). */
+    const retireLink = (transport: ByteStreamTransport): void => {
+        if (linkWire === transport) linkWire = undefined;
+        if (linkAckTransport === transport) linkAck?.({ ok: false, code: 'socket-error', streamLost: true });
+        transport.close();
+    };
+
+    async function attachViaLink(takeover: boolean): Promise<void> {
+        const requestId = nextRequestId('lt');
+        const offer = sync.openTerminalLink({
+            requestId,
+            sessionId,
+            channel,
+            cols: current.cols,
+            rows: current.rows,
+            ...(options?.mode === undefined ? {} : { mode: options.mode }),
+            takeover,
+        });
+        if (offer === undefined) throw new Error('terminal: link unavailable');
+        const started = Date.now();
+        const transport = await offer.catch(() => undefined);
+        if (transport === undefined) throw new Error('terminal: link refused the pane stream');
+        if (closedByUser || command.signal?.aborted) {
+            transport.close();
+            throw new Error('terminal: open cancelled');
+        }
+        attachSent = true;
+        if (linkWire !== undefined && linkWire !== transport) retireLink(linkWire);
+        linkWire = transport;
+
+
+        const ackPromise = new Promise<LinkAttachAck>((resolve) => {
+            const settle = (value: LinkAttachAck): void => {
+                clearTimeout(timer);
+                if (linkAck === settle) {
+                    linkAck = undefined;
+                    linkAckTransport = undefined;
+                }
+                resolve(value);
+            };
+            linkAck = settle;
+            linkAckTransport = transport;
+            const timer = setTimeout(() => settle({ ok: false, code: 'socket-timeout', streamLost: true }), 15_000);
+        });
+        let firstFrameOfStream = false;
+        let firstFrameTimer: ReturnType<typeof setTimeout> | undefined;
+        const beforeAck: object[] = [];
+        let beforeAckSize = 0;
+        const deliverLinkFrame = (frame: object): void => {
+            const type = (frame as { type?: unknown }).type;
+            const record = frame as { bytes?: unknown };
+            if (type === 'terminal.frame' && typeof record.bytes === 'string') {
+                const bytes = record.bytes;
+                if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
+                hostAnswered();
+                if (!firstFrameOfStream) {
+                    firstFrameOfStream = true;
+                    if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
+                    painted = true;
+                    if (retryTimer !== undefined) {
+                        clearTimeout(retryTimer);
+                        retryTimer = undefined;
+                    }
+                    attempts = 0;
+                    emitState('live');
+                    recordTerminalFirstFrame(Date.now() - started);
+                }
+                deliverFrameBytes(bytes);
+            } else if (type === 'terminal.scroll-state') {
+                applyScrollStateFrame(frame);
+            } else if (type === 'terminal.closed') {
+                if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
+                applyClosedFrame(frame);
+            }
+        };
+        let received = Promise.resolve();
+        transport.onLine((line) => {
+            received = received.then(async () => {
+                if (linkWire !== transport || closedByUser) return;
+                let frame: unknown;
+                try {
+                    frame = JSON.parse(line);
+                } catch {
+                    if (linkWire !== transport) return;
+                    const attaching = linkAck !== undefined;
+                    if (attaching) linkAck?.({ ok: false, code: 'socket-error', streamLost: true });
+                    retireLink(transport);
+                    if (!attaching) scheduleRetry();
+                    return;
+                }
+                if (linkWire !== transport || closedByUser) return;
+                if (typeof frame !== 'object' || frame === null || !('type' in frame)) return;
+                const type = (frame as { type?: unknown }).type;
+                if (type === 'result') {
+                    const result = frame as { requestId?: unknown; ok?: unknown; error?: unknown; code?: unknown };
+                    if (result.requestId !== requestId || typeof result.ok !== 'boolean' || linkAck === undefined) return;
+                    if (result.ok) {
+                        firstFrameTimer = setTimeout(() => {
+                            if (linkWire === transport && !firstFrameOfStream) transport.close();
+                        }, 15_000);
+                        finalizeCounts();
+                        frameCounts = beginTerminalFrameCounts();
+                        for (const queued of outbox.splice(0)) void transport.write(queued).catch(() => undefined);
+                        linkAck?.({ ok: true });
+                        for (const queued of beforeAck.splice(0)) {
+                            if (closedByUser) break;
+                            deliverLinkFrame(queued);
+                        }
+                    } else {
+                        beforeAck.length = 0;
+                        linkAck?.({ ok: false, error: typeof result.error === 'string' ? result.error : undefined,
+                            code: typeof result.code === 'string' ? result.code : undefined });
+                    }
+                    return;
+                }
+                if (linkAck !== undefined) {
+                    beforeAckSize += line.length;
+                    if (beforeAckSize > 1_048_576) {
+                        beforeAck.length = 0;
+                        linkAck({ ok: false, code: 'socket-error', streamLost: true });
+                        retireLink(transport);
+                    } else beforeAck.push(frame);
+                    return;
+                }
+                deliverLinkFrame(frame);
+            });
+        });
+        transport.onEnd(() => {
+            void received.then(() => {
+                if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
+                if (linkWire !== transport) return;
+                linkWire = undefined;
+                if (linkAck !== undefined) {
+                    linkAck({ ok: false, code: 'socket-error', streamLost: true });
+                    return;
+                }
+                if (closedByUser) return;
+                finalizeCounts();
+                emitState('reconnecting');
+                scheduleRetry();
+            });
+        });
+        const ack = await ackPromise;
+        if (!ack.ok) {
+            beforeAck.length = 0;
+            recordTerminalChannel('attach', { ok: false, error: ack.error ?? ack.code ?? 'link attach failed' });
+            retireLink(transport);
+            if (ack.streamLost) {
+                if (!closedByUser && !attachRequested) scheduleRetry();
                 return;
             }
-            recordTerminalChannel('socket-open', { ok: true });
-            finalizeCounts();
-            frameCounts = beginTerminalFrameCounts();
-            for (const line of outbox.splice(0)) next.send(line);
-        };
-        next.onerror = () => next.close();
-        next.onmessage = async (event) => {
-            if (socket !== next || closedByUser) return;
-            try {
-                let plaintext = String(event.data);
-                if (hosted !== undefined) {
-                    const envelope = JSON.parse(plaintext) as Envelope;
-                    if (envelope.header.machineId !== settings.machineId
-                        || envelope.header.senderId !== settings.machineId
-                        || envelope.header.recipientId !== '*'
-                        || envelope.header.channel !== 'terminal'
-                        || envelope.header.streamId !== channel
-                        || envelope.header.keyVersion !== grant?.keyVersion) {
-                        throw new Error('terminal: invalid hosted routing context');
-                    }
-                    plaintext = await hosted.open('terminal', channel, envelope.payload, envelope.header.seq);
-                }
-                // Decryption may settle after repaint/reconnect replaced this socket.
-                if (socket !== next || closedByUser) return;
-                const frame: unknown = JSON.parse(plaintext);
-                if (typeof frame !== 'object' || frame === null || !('type' in frame)) {
-                    throw new Error('terminal: invalid host frame');
-                }
-                if (frame.type === 'terminal.frame' && 'bytes' in frame && typeof frame.bytes === 'string') {
-                    const bytes = frame.bytes;
-                    if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
-                    hostAnswered();
-                    if (!firstFrame) {
-                        firstFrame = true;
-                        painted = true;
-                        if (retryTimer !== undefined) {
-                            clearTimeout(retryTimer);
-                            retryTimer = undefined;
-                        }
-                        clearTimeout(openTimer);
-                        attempts = 0;
-                        emitState('live');
-                        recordTerminalFirstFrame(Date.now() - openStarted);
-                    }
-                    if (dataListeners.size === 0) pendingData.push(bytes);
-                    else for (const listener of dataListeners) listener(bytes);
-                } else if (frame.type === 'terminal.scroll-state'
-                    && 'offsetFromBottom' in frame && typeof frame.offsetFromBottom === 'number'
-                    && 'maxOffsetFromBottom' in frame && typeof frame.maxOffsetFromBottom === 'number') {
-                    hostAnswered();
-                    lastScrollState = {
-                        offsetFromBottom: Math.max(0, Math.trunc(frame.offsetFromBottom)),
-                        maxOffsetFromBottom: Math.max(0, Math.trunc(frame.maxOffsetFromBottom)),
-                    };
-                    for (const listener of scrollStateListeners) listener(lastScrollState);
-                } else if (frame.type === 'terminal.closed') {
-                    clearTimeout(openTimer);
-                    const reason = 'reason' in frame && typeof frame.reason === 'string' ? frame.reason : undefined;
-                    // Automatic foreground/reconnect must not steal control back.
-                    // Only the user's visible retry action may reverse a takeover.
-                    closedByTakeover = reason === 'control moved to another device';
-                    closedByUser = true;
-                    finalizeCounts();
-                    recordTerminalChannel('disconnected', {
-                        ok: false,
-                        code: closedByTakeover ? 'takeover' : 'disconnected',
-                    });
-                    unwatchHost();
-                    for (const listener of closeListeners) listener(reason);
-                }
-            } catch {
-                // Hosted routing/key mismatches are recoverable only after a
-                // fresh grant; close so the normal re-attach path fetches it.
-                if (hosted !== undefined) next.close();
-            }
-        };
-        next.onclose = () => {
-            clearTimeout(openTimer);
-            // A replaced socket can close after its successor is already live.
-            // Its cleanup owns only itself and must not schedule over the owner.
-            if (socket !== next) return;
-            socket = undefined;
-            finalizeCounts();
-            scheduleRetry();
-        };
+            throw new Error(ack.error ?? 'terminal: link attach failed');
+        }
+        recordTerminalChannel('attach', { ok: true });
+        return;
     }
+
     function close(): void {
         closedByUser = true;
         closedByTakeover = false;
@@ -470,15 +475,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             attachSent = false;
             void sync.request('terminal.detach', { sessionId, channel }).catch(() => {});
         }
-        socket?.close();
+        const wire = linkWire;
+        if (wire !== undefined) retireLink(wire);
     }
 
     command.signal?.addEventListener('abort', close, { once: true });
     try {
         assertOpen();
         await attach(true);
-        assertOpen();
-        await connectSocket();
         assertOpen();
     } catch (error) {
         close();
@@ -489,22 +493,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         // A resize/scroll/close must not overtake keystrokes already waiting
         // in the microbatch.
         if (frame.type !== 'terminal.input') flushInput();
-        const plaintext = JSON.stringify(frame);
-        const sealed = hosted?.seal('terminal', channel, plaintext);
-        const line = sealed === undefined ? plaintext : JSON.stringify({
-            header: {
-                machineId: settings.machineId,
-                senderId: grant!.deviceId,
-                recipientId: settings.machineId,
-                channel: 'terminal',
-                streamId: channel,
-                keyVersion: grant!.keyVersion,
-                seq: sealed.sequence,
-                at: Date.now(),
-            },
-            payload: sealed.payload,
-        } satisfies Envelope);
-        if (socket !== undefined && socket.readyState === 1) socket.send(line);
+        const line = JSON.stringify(frame);
+        if (linkWire !== undefined) void linkWire.write(line).catch(() => undefined);
         else outbox.push(line);
     };
 
@@ -569,6 +559,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         },
         onClose: (listener) => {
             closeListeners.add(listener);
+            if (closedByHost) listener(lastCloseReason);
             return () => closeListeners.delete(listener);
         },
         onScrollState: (listener) => {
@@ -611,12 +602,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 clearTimeout(retryTimer);
                 retryTimer = undefined;
             }
-            const stale = socket;
-            socket = undefined;
+            const staleLink = linkWire;
             emitState('reconnecting');
-            if (stale !== undefined) {
-                stale.close();
-            }
+            if (staleLink !== undefined) retireLink(staleLink);
             attempts = 0;
             requestAttach(false);
         },

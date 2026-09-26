@@ -18,7 +18,6 @@ export {
     parseDevice,
     parseDeviceAuthority,
     parseEnrollment,
-    parseHostedAuth,
     parseMachineCrypto,
     parsePendingRemote,
     publicRelayUrl,
@@ -37,8 +36,6 @@ export { connectEnrollment } from './application/connectEnrollment.mjs';
 export { startSelfHost } from './application/startSelfHost.mjs';
 export { enableBrowserHosting } from './application/enableBrowserHosting.mjs';
 export {
-    applyHostedSetup,
-    hostedLogin,
     inspectSetup,
     uninstallMuxr,
 } from './application/inspectSetup.mjs';
@@ -117,4 +114,5 @@ export {
 export { BACK, heading, prompt, select, status } from './presentation/ui.mjs';
 export { hostEntry, relayEntry } from './infrastructure/paths.mjs';
 
-export { machineIdentity, pairingCodeHash, printTerminalQr, stateDir } from './infrastructure/runtime.mjs';
+export { machineIdentity, newPairingCode, pairingCodeHash, printTerminalQr, stateDir } from './infrastructure/runtime.mjs';
+export { linkPair, machineLinkUrl } from './application/linkPair.mjs';

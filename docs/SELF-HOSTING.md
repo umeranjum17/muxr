@@ -19,7 +19,7 @@ whether to host the control/view-only web client and sync agent integrations.
 After a final **Apply setup** confirmation, muxr
 starts the selected relay and host, then:
 
-1. Stores strict E2EE relay state under `~/.muxr/relay`.
+1. Stores machine authority and link state under `~/.muxr`.
 2. Runs the selected phone, browser, or sequential pairing flow.
 3. Reports the selected route, exact `selfhost.json` path, relay URL, web URL when enabled, service health,
    pairing result, and integrations. Credentials and internal IDs are
@@ -35,7 +35,7 @@ return after login or reboot and `muxr update` restarts them as one managed unit
 Unchanged setup choices keep existing devices paired; changing the endpoint
 requires and displays a fresh pairing step.
 
-In the native app: **Scan QR code** or enter the short relay-qualified pairing string. On a local self-host relay, `muxr pair` waits up to 30 seconds for the running host to enroll the native device on the link before publishing its grant; if the host is not running, start muxr and rerun `muxr pair`. Browser pairing prints one short two-minute HTTPS link. `muxr pair --browser` grants full terminal and agent control; `muxr pair --browser-view` grants explicit view-only access; `muxr pair --browser-personal` grants full control to a browser only you use. Shared browser grants expire after eight hours and personal grants after 30 days, survive refresh/restart, and are reported as paired only after durable browser storage acknowledges the grant and pairing completes.
+In the native app: **Scan QR code** or paste the one-time link offer. On owned and shared relays, `muxr pair` requires the machine host to be running before it shows a code. Start muxr first, then run `muxr pair` again; pairing completes only after the phone proves its grant over the machine link. Browser pairing prints one short two-minute HTTPS link. `muxr pair --browser` grants full terminal and agent control; `muxr pair --browser-view` grants explicit view-only access; `muxr pair --browser-personal` grants full control to a browser only you use. Shared browser grants expire after eight hours and personal grants after 30 days, survive refresh/restart, and are reported as paired only after durable browser storage acknowledges the grant and pairing completes.
 
 For automation use `muxr daemon status|logs|start|stop|restart`. Shared relay
 automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
@@ -57,15 +57,15 @@ Automation uses:
 | `--advertise <url>` | Explicit relay URL wins. Use your own domain/reverse proxy. |
 | `--tunnel` | Spawns `cloudflared` for a public `trycloudflare.com` URL. The URL is ephemeral; use a named tunnel for permanence. |
 | *(choose Tailscale Serve)* | Uses private HTTPS through `tailscale serve`; the relay stays on loopback. |
-| `--tailscale-direct` | Rollback path using the tailnet IP directly. |
+| `--tailscale-direct` | Uses the tailnet IP directly. |
 | *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
 | *(choose Same Wi-Fi)* | Local network address. Phone must be on the same trusted network. |
 | *(choose Direct SSH in the Android app)* | Pair through the host's loopback relay over SSH; see [Direct SSH from Android](#direct-ssh-from-android). |
 
 For either Tailscale route, connect the phone to the same tailnet before pairing.
 Nearby mDNS discovery is only a locator for an already-paired native app; it
-never grants a new device access. A new phone still needs the one-time QR or
-pairing string, and the PWA cannot scan local mDNS advertisements.
+never grants a new device access. A new phone still needs a one-time link offer, and the PWA cannot scan local
+mDNS advertisements.
 
 Before applying Serve, the wizard checks that it is available and not already owned. A timeout or invalid JSON response is inconclusive, so muxr keeps Serve recommended and lets the bounded Apply decide. Only proven disabled or occupied Serve changes the recommendation; muxr then preserves the existing state and offers direct Tailscale.
 
@@ -73,15 +73,16 @@ Before applying Serve, the wizard checks that it is available and not already ow
 
 Direct SSH is an Android-native alternative to Tailscale, not a replacement for it. Set it up either way:
 
-- **While pairing:** choose **Connect over SSH** on the pairing screen, enter the machine's SSH details, and paste the pairing string from `muxr pair`. muxr opens the SSH forward first; both the one-time code lookup and pairing claim use that forward, even if the relay URL in the pairing payload is unreachable from the phone. After the grant arrives, muxr saves the SSH route. If the SSH connection drops during pairing, **Try again** resumes with the same pairing string in this app session within the two-minute window shown by `muxr pair` and before the grant is fetched, including when the relay answered the lookup or claim but the reply was lost. The phone sends a random resume key with its first lookup and claim, and the relay repeats a committed answer only to a request carrying that key (and, for a claim, the same device key), only inside that window. A repeated claim issues a fresh device credential and retires the lost one. The grant is verified as on a first attempt. A relay older than the phone does not repeat answers: the code then cannot be reused, and muxr says to run `muxr pair` for a fresh one. An expired code likewise needs a fresh one.
+- **While pairing:** choose **Connect over SSH** on the pairing screen, enter the machine's SSH details, and paste the offer from `muxr pair`. muxr opens the SSH forward before dialing the pairing link even if the advertised relay URL is unreachable from the phone. Compare the confirmation words and approve on the computer. If the offer expires, run `muxr pair` again.
 - **After pairing:** open **Settings → Connection & updates → Direct SSH** and save the SSH details.
 
 Either way, enter the machine's SSH host, SSH username and port, and the relay port as seen from the machine's loopback (normally `8792`). Choose either a password or an OpenSSH private key; credentials stay in the device secure store and are never written to muxr settings, logs, or the repository. A newly entered credential is checked with a separate SSH sign-in before pairing or replacing a saved credential, even when a tunnel to that host is already open. A rejected credential leaves the live tunnel alone. Use an RSA or ECDSA host key and login key: Ed25519 is not supported by this build yet, and muxr says so explicitly instead of failing to connect.
 
 Once the SSH route is saved, muxr opens a device-local SSH forward to `127.0.0.1:<relay-port>`.
-The paired machine's terminal, preview, and plugin-stream connections use that forward alongside sync,
-even if its advertised relay URL is unreachable from the phone. The relay ticket, pairing grant,
-and E2EE protections stay the same; see [the SSH transport decision](decisions/0006-ssh-loopback-transport.md)
+The paired machine's session and stream traffic uses that forward even if its advertised
+relay URL is unreachable from the phone. The terminal uses a byokit link stream
+through the forwarded relay.
+Pairing and end-to-end encryption remain in force; see [the SSH transport decision](decisions/0006-ssh-loopback-transport.md)
 for the routing contract. The desktop can use this route too; see [remote desktop on a cloud server](#remote-desktop-on-a-cloud-server).
 
 Connection & updates also exports and installs the login key. The private key's public half — pasted on that screen or saved on this device — can be copied, shared, or saved as a `.pub` file for any algorithm, including Ed25519. For RSA and ECDSA keys, **Install public key** shows its exact shell command first and runs it only after you confirm: it appends the key to `~/.ssh/authorized_keys` on the paired computer's confirmed SSH account, preserves existing entries and permissions, skips a key that is already present, and records a guarded undo that refuses to roll back if `authorized_keys` changed after the install. Ed25519 stays export-only because the native SSH path cannot use it as a login key. Installation is native-Android only; the browser keeps pairing and relay access and says so instead.
@@ -124,14 +125,13 @@ keep their quotas rather than having them reset.
 
 ## Pairing, security model
 
-- The relay enforces end-to-end encryption (v2 machine keys). Terminal output,
-  keystrokes, prompts, and files are sealed on your machines; the relay routes
-  ciphertext it cannot read.
-- Native pairing is single-use and expires in two minutes. QR and manual entry
-  use the same short value, for example `wss://relay.example?pair=7KDM4-QXP7N`.
-  The relay stores only a code hash and code-encrypted payload, deletes the
-  lookup on first resolution, and never receives the code or pair secret.
-- The phone proves itself once and receives a device credential that becomes durable when pairing completes. It remains paired until explicit revocation; normal calendar time never forces another QR.
+- The relay cannot read session or terminal content: the phone and host use
+  the end-to-end encrypted byokit link. See [the transport architecture](ARCHITECTURE.md#what-the-relay-does).
+- Pairing uses a short-lived link offer. Scan the QR or paste the offer, compare
+  the two confirmation words, and approve on the computer. The phone proves
+  its grant over the machine link before pairing completes. Normal calendar
+  time does not force a native phone to pair again; older builds and pairings
+  from before the byokit cutover must update and re-pair once.
 - Never edit relay state by hand. List and revoke phones with:
 
   ```bash
@@ -139,17 +139,8 @@ keep their quotas rather than having them reset.
   muxr devices revoke 2       # list number, or an unambiguous friendly name
   ```
 
-  Revocation immediately closes that phone's sockets and credential, rejects its unused tickets, removes its ingress key, then rotates the machine data key and every remaining device's ingress key.
-- Ticket minting is gated by a mint secret (`~/.muxr/relay/mint-secret`, owner-only
-  file). Reading that file is what "same machine" means — a reverse proxy in
-  front of the relay cannot mint tickets.
-
-## Your own email provider
-
-Self-host pairing needs no email at all. If you want notification emails from
-your own relay, set `MUXR_EMAIL_PROVIDER=resend` + `MUXR_RESEND_API_KEY` +
-`MUXR_EMAIL_FROM` — the `NotificationEmail` interface (`apps/relay/src/email.ts`)
-is the seam other providers (SMTP etc.) plug into.
+  Revocation removes its grant and closes the device link. It does not rotate a
+  shared data key; each link has its own Noise session keys.
 
 ## Docker relay
 
@@ -161,7 +152,7 @@ docker compose up
 
 That binds port 8792 and stores relay state in the `relay-data` volume. The
 interactive shared-relay flow is preferred because it adds machine-scoped
-enrollment; do not copy the relay mint secret or its data volume onto agent
+enrollment; do not copy the relay owner secret or its data volume onto agent
 machines. Set `MUXR_TRUST_PROXY=1` in `docker-compose.yml` when a reverse proxy
 sits in front.
 
@@ -187,8 +178,8 @@ scoped to that machine. The local Herdr host connects outbound, then setup offer
 native, control-browser, and view-only browser pairing.
 
 Use **Manage shared relay machines** on the VPS to list or revoke machines by
-friendly name or list number. Revocation immediately invalidates unused tickets,
-disconnects the host and its devices, and cannot affect another enrolled machine.
+friendly name or list number. Revocation disconnects the host and its devices
+and cannot affect another enrolled machine.
 The relay still routes E2EE ciphertext only.
 
 Changing a relay endpoint normally requires fresh pairing because devices pin

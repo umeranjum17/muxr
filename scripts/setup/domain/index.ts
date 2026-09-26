@@ -40,4 +40,3 @@ export {
     type PendingRemote,
 } from './enrollment.js';
 export { parseDaemonMode, parseDaemonModeArg, type DaemonMode } from './daemonMode.js';
-export { parseHostedAuth, type HostedAuth, type HostedAuthReport } from './hostedAuth.js';

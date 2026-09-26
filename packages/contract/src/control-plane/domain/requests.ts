@@ -25,6 +25,7 @@ export type LayoutSnapshot =
       };
 
 import type {
+    LifecycleNotificationLevel,
     MachineInfo,
     SessionSnapshot,
     SessionStartResult,
@@ -540,6 +541,13 @@ export interface RequestMap extends PeerRequestMap {
     'session.answer': { params: { sessionId: string; answer: 'y' | 'n' }; result: null };
     'session.status': { params: { sessionId: string }; result: SessionStatus };
 
+    // --- push ---------------------------------------------------------------
+    /** Register this device's Expo push address over the link; the host stores it on
+     *  the relay for this device (`level` filters which lifecycle states may wake it). */
+    'push.subscribe': { params: { token?: string; subscription?: { endpoint: string; keys: { p256dh: string; auth: string } }; level?: LifecycleNotificationLevel }; result: null };
+    'push.unsubscribe': { params: Record<string, never>; result: null };
+    'push.vapid': { params: Record<string, never>; result: { publicKey: string } };
+
     // --- shell + slash commands --------------------------------------------
     'session.shell': {
         params: { sessionId: string; command: string; quiet?: boolean };
@@ -681,7 +689,6 @@ export interface RequestMap extends PeerRequestMap {
      * callers send a per-preview key through this encrypted request; local
      * development may omit it when the relay is trusted.
      */
-    'preview.attach': { params: { channel: string; port: number; key?: string }; result: null };
 
     // --- worktrees ----------------------------------------------------------
     /**
@@ -751,8 +758,6 @@ export interface RequestMap extends PeerRequestMap {
         params: { displayName: string; taskTitle: string; status: string; outcome: string; tail?: string };
         result: VoiceReport;
     };
-    /** Attach one realtime voice stream to a relay channel. */
-    'voice.stream': { params: { channel: string; sessionId?: string }; result: null };
 }
 
 export type RequestType = keyof RequestMap;

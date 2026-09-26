@@ -44,8 +44,8 @@ export function validateMuxrConfig(path, text) {
     for (const key of Object.keys(parsed)) {
         if (!KNOWN_KEYS.includes(key)) return { ok: false, error: configError(path, key, 'unknown setting') };
     }
-    if (parsed.mode !== undefined && !['hosted', 'selfhost', 'local'].includes(parsed.mode)) {
-        return { ok: false, error: configError(path, 'mode', 'must be "hosted", "selfhost", or "local"') };
+    if (parsed.mode !== undefined && !['selfhost', 'local'].includes(parsed.mode)) {
+        return { ok: false, error: configError(path, 'mode', 'must be "selfhost" or "local"') };
     }
     if (parsed.relayUrl !== undefined && (typeof parsed.relayUrl !== 'string' || !validRelayUrl(parsed.relayUrl.trim()))) {
         return { ok: false, error: configError(path, 'relayUrl', 'must be a ws:// or wss:// URL') };
@@ -121,7 +121,6 @@ export async function runConfigInit(args = []) {
     }
     const mode = await select('How does this computer run muxr?', [
         { value: 'selfhost', title: 'Self-host', description: 'this computer runs its own relay; pair your phone to it' },
-        { value: 'hosted', title: 'Hosted', description: 'pair through the hosted relay after setup' },
         { value: 'local', title: 'Local only', description: 'development on this machine; no phone pairing' },
     ], 0);
     // select() resolves a symbol (BACK) on escape and undefined on ctrl-c.

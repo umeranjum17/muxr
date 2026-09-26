@@ -4,14 +4,14 @@ import { isAbsolute, join } from 'node:path';
 
 /**
  * Agent-editable host settings in `$MUXR_HOME/config.json` (beside
- * auth.json/selfhost.json). Plain JSON, no schema library. Absent or partial
+ * selfhost.json). Plain JSON, no schema library. Absent or partial
  * is normal and falls back per key; anything malformed throws
  * MuxrConfigError naming the file path and the offending key, so the caller
  * can refuse to start instead of half-applying the file.
  *
  * Precedence per key: explicit flag > environment > config file > default.
  * Credentials never live here; pairing authority stays in the owner-only
- * auth.json/selfhost.json state files.
+ * selfhost.json state file.
  */
 
 export const MUXR_CONFIG_FILENAME = 'config.json';
@@ -20,7 +20,7 @@ const CONFIG_KEYS = ['mode', 'relayUrl', 'machineId', 'machineName', 'dataDir', 
 type ConfigKey = (typeof CONFIG_KEYS)[number];
 
 export interface MuxrFileConfig {
-    mode?: 'hosted' | 'selfhost' | 'local';
+    mode?: 'selfhost' | 'local';
     relayUrl?: string;
     machineId?: string;
     machineName?: string;
@@ -29,7 +29,7 @@ export interface MuxrFileConfig {
 }
 
 export interface ResolvedHostConfig {
-    mode: 'hosted' | 'selfhost' | 'local' | undefined;
+    mode: 'selfhost' | 'local' | undefined;
     relayUrl: string;
     machineId: string;
     machineName: string;
@@ -92,8 +92,8 @@ export function parseMuxrConfigFile(path: string, text: string): MuxrFileConfig 
     const raw = (key: ConfigKey): unknown => record[key];
     if (raw('mode') !== undefined) {
         const mode = raw('mode');
-        if (mode !== 'hosted' && mode !== 'selfhost' && mode !== 'local') {
-            fail(path, 'mode', 'must be "hosted", "selfhost", or "local"');
+        if (mode !== 'selfhost' && mode !== 'local') {
+            fail(path, 'mode', 'must be "selfhost" or "local"');
         }
         config.mode = mode;
     }
@@ -177,7 +177,7 @@ export function resolveHostConfig(options: {
     env: Record<string, string | undefined>;
     file: MuxrFileConfig;
     defaults: {
-        mode: 'hosted' | 'selfhost' | 'local' | undefined;
+        mode: 'selfhost' | 'local' | undefined;
         relayUrl: string;
         machineId: string;
         machineName: string;
@@ -187,12 +187,12 @@ export function resolveHostConfig(options: {
 }): ResolvedHostConfig {
     const { argv, env, file, defaults } = options;
     const flagMode = clean(flagValue(argv, '--mode'))?.toLowerCase();
-    if (flagMode !== undefined && flagMode !== 'hosted' && flagMode !== 'selfhost' && flagMode !== 'local') {
-        throw new Error('--mode must be hosted, selfhost, or local');
+    if (flagMode !== undefined && flagMode !== 'selfhost' && flagMode !== 'local') {
+        throw new Error('--mode must be selfhost or local');
     }
     const envMode = clean(env.MUXR_MODE)?.toLowerCase();
-    if (envMode !== undefined && envMode !== 'hosted' && envMode !== 'selfhost' && envMode !== 'local') {
-        throw new Error('MUXR_MODE must be hosted, selfhost, or local');
+    if (envMode !== undefined && envMode !== 'selfhost' && envMode !== 'local') {
+        throw new Error('MUXR_MODE must be selfhost or local');
     }
     const mode = (flagMode ?? envMode ?? file.mode ?? defaults.mode) as ResolvedHostConfig['mode'];
     return {

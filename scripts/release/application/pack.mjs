@@ -40,8 +40,9 @@ if (desklinkHost.version !== desklinkPin) {
 }
 const hostPackage = require(join(root, 'apps', 'host', 'package.json'));
 // The link loads libsodium's native addon, which cannot be bundled: install it.
-const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', 'web-push': '^3.6.7', 'bonjour-service': '^1.4.4', '@desklink/host': desklinkHost.version,
-    '@byokit/link': hostPackage.dependencies['@byokit/link'], '@byokit/relay': hostPackage.dependencies['@byokit/relay'] };
+const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', '@desklink/host': desklinkHost.version,
+    '@byokit/link': hostPackage.dependencies['@byokit/link'], '@byokit/relay': hostPackage.dependencies['@byokit/relay'],
+    '@byokit/reach': rootPackage.dependencies['@byokit/reach'] };
 const external = Object.keys(runtimeDependencies);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -49,6 +50,9 @@ mkdirSync(out, { recursive: true });
 const result = await build({
     entryPoints: ['apps/host/dist/main.js'],
     outfile: join(out, 'host.js'),
+    preserveSymlinks: true,
+    define: { 'process.env.MUXR_PACKAGED': '"1"' },
+    minifySyntax: true,
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -62,6 +66,7 @@ const result = await build({
 await build({
     entryPoints: ['packages/crypto/dist/index.js'],
     outfile: join(out, 'crypto.js'),
+    preserveSymlinks: true,
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -75,6 +80,7 @@ await build({
 await build({
     entryPoints: ['apps/relay/dist/main.js'],
     outfile: join(out, 'relay.js'),
+    preserveSymlinks: true,
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -88,7 +94,7 @@ await build({
 const bundledPackagePaths = new Set(
     Object.keys(result.metafile.inputs)
         .map((input) => packagePathFromInput(root, input))
-        .filter((path) => path !== undefined),
+        .filter((path) => path !== undefined && !path.includes('node_modules/@muxr/')),
 );
 const bundledDependencies = [...bundledPackagePaths]
     .sort()
@@ -159,6 +165,7 @@ writeFileSync(
 const contractResult = await build({
     entryPoints: ['packages/contract/dist/index.js'],
     outfile: join(out, 'contract.mjs'),
+    preserveSymlinks: true,
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -227,18 +234,6 @@ if (statSync(join(webDist, 'index.html')).mtimeMs < sourceMtime) {
 }
 cpSync(webDist, join(out, 'web'), { recursive: true });
 copyFileSync(join(root, 'install.sh'), join(out, 'web', 'install.sh'));
-const packagedControlUrl = process.env.MUXR_PACKAGE_CONTROL_URL?.trim()
-    || process.env.MUXR_PUBLIC_BASE_URL?.trim();
-if (!packagedControlUrl) {
-    process.stderr.write('note: MUXR_PACKAGE_CONTROL_URL unset; packing a self-host-only artifact (hosted setup disabled)\n');
-} else if (!/^https:\/\/[^/]+$/.test(packagedControlUrl)) {
-    throw new Error('MUXR_PACKAGE_CONTROL_URL must be the published HTTPS control-plane origin');
-}
-const setupPath = join(out, 'setup', 'application', 'inspectSetup.mjs');
-writeFileSync(
-    setupPath,
-    readFileSync(setupPath, 'utf8').replace('__MUXR_PACKAGED_CONTROL_URL__', packagedControlUrl ?? ''),
-);
 chmodSync(join(out, 'cli.mjs'), 0o755);
 
 copyFileSync(join(root, 'docs', 'npm-readme.md'), join(out, 'README.md'));

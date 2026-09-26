@@ -262,7 +262,7 @@ export async function runDaemon(args = []) {
                 if (!unloaded.ok && !alreadyAbsent) throw new Error(unloaded.stderr || unloaded.stdout || 'could not stop and unload the muxr service');
                 const state = readSelfhostState();
                 await stopOwnedSelfhostRelay();
-                cleanupManagedIngress(state);
+                await cleanupManagedIngress(state);
             }
             for (const [path, entry] of entries) removeManaged(path, entry, manifest, { dryRun, force });
             saveManifest(manifest, dryRun);
@@ -305,7 +305,7 @@ export async function runDaemon(args = []) {
         }
         if (!dryRun && env('MUXR_NO_SERVICE_COMMANDS') !== '1'
             && (action === 'start' || action === 'restart')
-            && (installedMode === 'selfhost' || installedMode === 'hosted')) {
+            && installedMode === 'selfhost') {
             try { await waitForPeerBrokerReady(previousPeerCapability); }
             catch (cause) {
                 error(cause instanceof Error ? cause.message : String(cause));

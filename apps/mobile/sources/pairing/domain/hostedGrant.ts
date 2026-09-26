@@ -9,11 +9,10 @@ export function grantAuthorizesMachine(
 }
 
 export function hostedTransportReady(
-    mode: 'hosted' | 'local',
     machineId: string,
     grant: { machineId: string } | undefined,
 ): boolean {
-    return mode === 'local' || grantAuthorizesMachine(grant, machineId);
+    return grantAuthorizesMachine(grant, machineId);
 }
 
 /** Web pairing is observe unless the grant itself recorded control. */
@@ -46,10 +45,9 @@ export function grantRejectsDowngrade(existingVersion: number, nextVersion: numb
 }
 
 export function pickGrantForConnection<T extends { machineId: string }>(
-    settings: { mode: 'hosted' | 'local'; machineId: string },
+    settings: { machineId: string },
     paired: readonly T[],
 ): T | undefined {
-    if (settings.mode !== 'hosted') return undefined;
     const remembered = paired.find((entry) => entry.machineId === settings.machineId);
     if (remembered !== undefined) return remembered;
     if (settings.machineId === '' && paired.length === 1) return paired[0];
@@ -63,14 +61,4 @@ export function connectionShouldAdoptGrant(
     return settings.machineId !== grant.machineId
         || settings.relayUrl !== grant.relayUrl
         || settings.selfhost !== (grant.source === 'selfhost' ? true : undefined);
-}
-
-/** Self-host relays have no account surface; the Hosted Grant is the session. */
-export function accountSurfaceApplies(
-    mode: 'hosted' | 'local',
-    selfhost: boolean | undefined,
-    grantSource: 'selfhost' | undefined,
-): boolean {
-    if (mode !== 'hosted') return false;
-    return selfhost !== true && grantSource !== 'selfhost';
 }

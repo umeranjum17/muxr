@@ -152,7 +152,7 @@ Parallel agents work like a party: each has a job, a state, and moments when it 
 
 ## Your machines, your relay
 
-Your phone and computer stay connected over Wi-Fi, Tailscale, any mesh VPN, SSH alone, or a VPS you run. Pair once and every route carries your agents, terminals, and desktop. Nobody else runs your agents.
+Your phone and computer stay connected over Wi-Fi, Tailscale, any mesh VPN, SSH alone, or a VPS you run. Pair once and every route carries your agents, terminals, and desktop. Older app builds and pairings from before the byokit cutover must update and re-pair once. Nobody else runs your agents.
 
 Terminal text, prompts, responses, keystrokes, files, pairing secrets, and credentials remain end-to-end encrypted. Agents, repositories, model subscriptions, and encryption keys stay on your computer.
 

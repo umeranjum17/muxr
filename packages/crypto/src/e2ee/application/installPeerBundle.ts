@@ -15,9 +15,6 @@ export interface PeerInstallBundlePayload {
     targetMachineSigningPublicKey: string;
     relayUrl: string;
     peerDeviceId: string;
-    credential: string;
-    /** Hosted generic pairing grant refresh path, bound inside the signed bundle. */
-    grantPath?: string;
     grant: SealedDeviceGrant;
     capabilities: PeerCapability[];
     issuedAt: number;
@@ -39,14 +36,10 @@ function validatePeerInstallBundle(payload: PeerInstallBundlePayload): void {
         ['targetMachineId', payload.targetMachineId],
         ['relayUrl', payload.relayUrl],
         ['peerDeviceId', payload.peerDeviceId],
-        ['credential', payload.credential],
     ] as const) {
         if (typeof value !== 'string' || value === '') throw new Error(`peer bundle: ${name} required`);
     }
     if (!isWebSocketRelayUrl(payload.relayUrl)) throw new Error('peer bundle: relayUrl must use ws or wss');
-    if (payload.grantPath !== undefined && !/^\/v1\/pair-sessions\/[^/]+\/grant$/.test(payload.grantPath)) {
-        throw new Error('peer bundle: invalid grant refresh path');
-    }
     if (fromBase64(payload.targetMachineSigningPublicKey).length !== nacl.sign.publicKeyLength) {
         throw new Error('peer bundle: invalid target signing key');
     }
@@ -55,7 +48,7 @@ function validatePeerInstallBundle(payload: PeerInstallBundlePayload): void {
     if (payload.grant === null || typeof payload.grant !== 'object' || payload.grant.v !== 1) throw new Error('peer bundle: malformed grant');
 }
 
-/** Target-sign and box the credential + signed grant so the phone only forwards opaque bytes. */
+/** Target-sign and box the signed grant so the phone only forwards opaque bytes. */
 export function sealPeerInstallBundle(params: {
     payload: PeerInstallBundlePayload;
     targetMachineSigningSecretKey: string;
@@ -85,7 +78,7 @@ export function sealPeerInstallBundle(params: {
     return JSON.stringify(sealed);
 }
 
-/** Open an opaque install bundle and verify the target signature before exposing its credential. */
+/** Open an opaque install bundle and verify the target signature before exposing its grant. */
 export function openPeerInstallBundle(
     value: string,
     opts: { peerKey: KeyPair; pinnedTargetMachineSigningPublicKey: string },

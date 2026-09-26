@@ -85,7 +85,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
                 icon: 'link-outline',
                 category: 'Navigation',
                 action: () => {
-                    router.push('/restore');
+                    router.push('/pair');
                 }
             },
         ];

@@ -5,15 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
-import { WebSocketServer } from 'ws';
 import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_PEER_CAPABILITIES,
-    decodePayload,
-    encodePayload,
-    relayControlUrl,
     type ClientRequest,
-    type Envelope,
     type PeerClientRequest,
     type PeerRequestParams,
     type PeerRequestResult,
@@ -22,22 +17,16 @@ import {
     type RequestResult,
 } from '@muxr/contract';
 import {
-    createDeviceGrant,
-    deriveV2Key,
     generateKeyPair,
     generateSigningKeyPair,
-    newV2ReplayTracker,
-    newV2SenderState,
-    openV2,
-    sealV2,
-    v2EnvelopeSequence,
     verifyDeviceGrant,
 } from '@muxr/crypto';
-import { HostV2Crypto, connectToRelay, type MachineCryptoAdapter, type MachineCryptoState, type MachineRotationGrant } from '../../machine/index.js';
+import { LinkEndpoint, type MachineCryptoAdapter, type MachineCryptoState, type MachineRotationGrant } from '../../machine/index.js';
+import { startRelay } from '@muxr/relay';
 import { createRequestDispatcher } from '../../requests/index.js';
 import { HostDiagnosticsJournal } from '../../diagnostics/index.js';
 import type { SessionSource } from '../../agent/index.js';
-import { HttpPeerAuthority, type PeerAuthority } from '../infrastructure/authority.js';
+import { LinkPeerAuthority, type PeerAuthority } from '../infrastructure/authority.js';
 import { NodePeerClient, type PeerClientRequestType, type PeerClientTransport, type PeerConnectionDiagnostic } from '../infrastructure/client.js';
 import { PeerStore } from '../infrastructure/store.js';
 import { PeerBroker } from '../infrastructure/broker.js';
@@ -338,35 +327,6 @@ describe('host peer collaboration flow', () => {
             deviceKey: outbound.peerKey!,
             deviceId: authorized.peerDeviceId,
         });
-        const hostCrypto = new HostV2Crypto({
-            machineId: 'target-machine',
-            keyVersion: targetKeys.current().keyVersion,
-            dataKey: targetKeys.current().dataKey,
-            ingressKeys: { [authorized.peerDeviceId]: peerGrant.ingressKey },
-            deviceDataKeys: { [authorized.peerDeviceId]: peerGrant.dataKey },
-        });
-        const broadcast = hostCrypto.seal('session', 'machine', 'native-only');
-        expect(() => openV2(broadcast, deriveV2Key(peerGrant.dataKey, 'host->client'), {
-            machineId: 'target-machine', senderId: 'target-machine', recipientId: '*',
-            channel: 'session', streamId: 'machine', keyVersion: 1,
-        }, newV2ReplayTracker())).toThrow(/authentication/);
-        const directed = hostCrypto.seal('session', 'machine', 'peer-result', authorized.peerDeviceId);
-        expect(openV2(directed, deriveV2Key(peerGrant.dataKey, 'host->client'), {
-            machineId: 'target-machine', senderId: 'target-machine', recipientId: authorized.peerDeviceId,
-            channel: 'session', streamId: 'machine', keyVersion: 1,
-        }, newV2ReplayTracker())).toBe('peer-result');
-        const nativeAfter = hostCrypto.seal('session', 'machine', 'native-after-peer');
-        const nativeReplay = newV2ReplayTracker();
-        const nativeContext = {
-            machineId: 'target-machine', senderId: 'target-machine', recipientId: '*',
-            channel: 'session', streamId: 'machine', keyVersion: 1,
-        } as const;
-        const nativeKey = deriveV2Key(targetKeys.current().dataKey, 'host->client');
-        expect(openV2(broadcast, nativeKey, nativeContext, nativeReplay)).toBe('native-only');
-        expect(v2EnvelopeSequence(directed)).toBeGreaterThan(v2EnvelopeSequence(broadcast));
-        expect(v2EnvelopeSequence(nativeAfter)).toBeGreaterThan(v2EnvelopeSequence(directed));
-        expect(openV2(nativeAfter, nativeKey, nativeContext, nativeReplay)).toBe('native-after-peer');
-
         await sourceRuntime.store.putRelationship({
             ...outbound,
             relationshipId: 'revoked-old-build-mac',
@@ -885,385 +845,76 @@ describe('host peer collaboration flow', () => {
         })).resolves.toMatchObject({ preparationId: expect.stringMatching(/^prep_/) });
     });
 
-    it('records redacted peer ingress receive, rejection, and decode boundaries', async () => {
-        const machineId = 'private-target-machine';
-        const peerDeviceId = 'private-peer-device';
-        const ingressKey = randomBytes(32).toString('base64');
-        const server = new WebSocketServer({ port: 0 });
-        await new Promise<void>((resolve) => server.once('listening', resolve));
-        const address = server.address();
-        if (typeof address === 'string' || address === null) throw new Error('test websocket did not bind');
-        let accept!: (socket: import('ws').WebSocket) => void;
-        const accepted = new Promise<import('ws').WebSocket>((resolve) => { accept = resolve; });
-        server.once('connection', accept);
-        const root = mkdtempSync(join(tmpdir(), 'muxr-ingress-diagnostics-'));
-        const diagnostics = new HostDiagnosticsJournal(root, 'test-version');
-        let decoded!: () => void;
-        const decodedFrame = new Promise<void>((resolve) => { decoded = resolve; });
-        const link = connectToRelay({
-            relayUrl: `ws://127.0.0.1:${address.port}`,
-            machineId,
-            hostedE2ee: {
-                machineId, keyVersion: 1, dataKey: randomBytes(32).toString('base64'),
-                ingressKeys: { [peerDeviceId]: ingressKey }, deviceKinds: { [peerDeviceId]: 'peer' },
-            },
-            onPeerIngress: (outcome) => diagnostics.peerIngress(outcome),
-            onClientReject: (clientKey, kind, outcome) => diagnostics.clientReject(clientKey, kind, outcome),
-            onClientFrame: () => decoded(),
-        });
-        const socket = await accepted;
-        const header = {
-            machineId, senderId: peerDeviceId, recipientId: machineId,
-            channel: 'session' as const, streamId: 'machine', keyVersion: 1, at: Date.now(),
-        };
-        socket.send('null');
-        socket.send(JSON.stringify({ header: { ...header, seq: 0 }, payload: 'invalid-ciphertext' } satisfies Envelope));
-        const payload = sealV2(
-            encodePayload({ type: 'client.hello', clientId: 'private-client' }),
-            deriveV2Key(ingressKey, 'client->host'),
-            header,
-            newV2SenderState(),
-        );
-        socket.send(JSON.stringify({ header: { ...header, seq: v2EnvelopeSequence(payload) }, payload } satisfies Envelope));
-        await decodedFrame;
-        await diagnostics.flush();
-        const output = readFileSync(join(root, 'diagnostics.json'), 'utf8');
-        const state = JSON.parse(output) as { events: Array<{ event: string; outcome?: string }> };
-        expect(state.events.filter((event) => event.event === 'peer.ingress').map((event) => event.outcome))
-            .toEqual(['received', 'decrypt-rejected', 'received', 'decoded']);
-        expect(state.events.filter((event) => event.event === 'client.reject').map((event) => event.outcome))
-            .toEqual(['malformed', 'decrypt-rejected']);
-        expect(output).not.toContain(machineId);
-        expect(output).not.toContain(peerDeviceId);
-        link.close();
-        await new Promise<void>((resolve) => server.close(() => resolve()));
-    });
-
-    it('requires a fresh correlated host result before releasing a peer mutation', async () => {
-        const machine = machineCrypto().current();
-        const peerKey = generateKeyPair();
-        const ingressKey = randomBytes(32).toString('base64');
-        const peerDataKey = randomBytes(32).toString('base64');
-        const deviceId = 'peer-live-device';
-        const sealedGrant = createDeviceGrant({
-            machineId: 'target-live',
-            machineSigningSecretKey: machine.signingSecretKey,
-            machineKey: { publicKey: machine.boxPublicKey, secretKey: machine.boxSecretKey },
-            deviceId,
-            devicePublicKey: peerKey.publicKey,
-            dataKey: peerDataKey,
-            ingressKey,
-            keyVersion: 1,
-            expiresAt: Date.now() + 60_000,
-            deviceKind: 'peer',
-            capabilities: [...DEFAULT_PEER_CAPABILITIES],
-        });
-        expect(() => new NodePeerClient({
-            relayUrl: 'ws://127.0.0.1',
-            machineId: 'different-target',
-            credential: 'peer-credential',
-            peerDeviceId: deviceId,
-            peerKey,
-            pinnedMachineSigningPublicKey: machine.signingPublicKey,
-            sealedGrant,
-        })).toThrow('peer grant has the wrong target machine');
-
-        let releaseDisposedRefresh!: () => void;
-        const disposedRefreshGate = new Promise<void>((resolve) => { releaseDisposedRefresh = resolve; });
-        let reportDisposedRefresh!: () => void;
-        const disposedRefreshStarted = new Promise<void>((resolve) => { reportDisposedRefresh = resolve; });
-        let disposedFetchCalls = 0;
-        const disposedFetch = (async () => {
-            disposedFetchCalls += 1;
-            reportDisposedRefresh();
-            await disposedRefreshGate;
-            return new Response(JSON.stringify({ grant: JSON.stringify(sealedGrant) }), {
-                status: 200,
-                headers: { 'content-type': 'application/json' },
-            });
-        }) as typeof fetch;
-        const disposedClient = new NodePeerClient({
-            relayUrl: 'ws://127.0.0.1:1',
-            machineId: 'target-live',
-            credential: 'peer-credential',
-            peerDeviceId: deviceId,
-            peerKey,
-            pinnedMachineSigningPublicKey: machine.signingPublicKey,
-            sealedGrant,
-            fetch: disposedFetch,
-        });
-        const disposedRequest = expect(disposedClient.request('session.prompt', {
-            sessionId: 'private-session',
-            text: 'must not reconnect after local revocation',
-            peerMutation: { operationId: 'disposed-client-prompt', notValidAfter: Date.now() + 60_000 },
-        })).rejects.toMatchObject({ name: 'AbortError' });
-        await disposedRefreshStarted;
-        disposedClient.close();
-        releaseDisposedRefresh();
-        await disposedRequest;
-        await expect(disposedClient.connect()).rejects.toMatchObject({ name: 'AbortError' });
-        expect(disposedFetchCalls).toBe(1);
-
-        const sourceRelay = new WebSocketServer({ port: 0 });
-        let sourceRelayConnections = 0;
-        sourceRelay.on('connection', () => { sourceRelayConnections += 1; });
-        await new Promise<void>((resolve) => sourceRelay.once('listening', resolve));
-        const staleRelay = new WebSocketServer({ port: 0 });
-        let staleRelayConnections = 0;
-        staleRelay.on('connection', () => { staleRelayConnections += 1; });
-        await new Promise<void>((resolve) => staleRelay.once('listening', resolve));
-        const server = new WebSocketServer({ port: 0 });
-        await new Promise<void>((resolve) => server.once('listening', resolve));
-        const address = server.address();
-        if (typeof address === 'string' || address === null) throw new Error('test websocket did not bind');
-        const relayUrl = `ws://127.0.0.1:${address.port}`;
-        let releaseChallenge!: () => void;
-        const challengeGate = new Promise<void>((resolve) => { releaseChallenge = resolve; });
-        let sawChallenge!: () => void;
-        const challengeSeen = new Promise<void>((resolve) => { sawChallenge = resolve; });
-        let sawWatch!: () => void;
-        const watchSeen = new Promise<void>((resolve) => { sawWatch = resolve; });
-        let releaseWatch!: () => void;
-        const watchGate = new Promise<void>((resolve) => { releaseWatch = resolve; });
-        const watchOperationIds: string[] = [];
-        const promptOperationIds: string[] = [];
-        const executedPrompts = new Set<string>();
-        let promptExecutions = 0;
-        let answerLiveness = true;
-        const hostCrypto = new HostV2Crypto({
-            machineId: 'target-live', keyVersion: 1, dataKey: machine.dataKey,
-            ingressKeys: { [deviceId]: ingressKey }, deviceDataKeys: { [deviceId]: peerDataKey },
-        });
-        server.on('connection', (socket) => {
-            const send = (frame: object) => {
-                const payload = hostCrypto.seal('session', 'machine', JSON.stringify(frame), deviceId);
-                socket.send(JSON.stringify({
-                    header: {
-                        machineId: 'target-live', senderId: 'target-live', recipientId: deviceId,
-                        channel: 'session', streamId: 'machine', keyVersion: 1,
-                        seq: v2EnvelopeSequence(payload), at: Date.now(),
-                    },
-                    payload,
-                } satisfies Envelope));
-            };
-            send({ type: 'result', requestId: 'captured-before-restart', ok: true, data: [] });
-            const replay = newV2ReplayTracker();
-            socket.on('message', (raw) => {
-                const envelope = JSON.parse(String(raw)) as Envelope;
-                const plaintext = openV2(envelope.payload, deriveV2Key(ingressKey, 'client->host'), {
-                    machineId: 'target-live', senderId: deviceId, recipientId: 'target-live',
-                    channel: 'session', streamId: envelope.header.streamId!, keyVersion: 1,
-                }, replay);
-                const frame = decodePayload<ClientRequest>(plaintext);
-                if (frame.type === 'machines.list') {
-                    sawChallenge();
-                    if (answerLiveness) void challengeGate.then(() => send({ type: 'result', requestId: frame.requestId, ok: true, data: [] }));
-                } else if (frame.type === 'agent.watch') {
-                    watchOperationIds.push(frame.params.peerMutation!.operationId);
-                    sawWatch();
-                    void watchGate.then(() => {
-                        if (watchOperationIds.length === 1) socket.close();
-                        else send({
-                            type: 'result', requestId: frame.requestId, ok: true,
-                            data: { watching: true, settlement: { status: 'done', detail: 'directed completion' } },
-                        });
-                    });
-                } else if (frame.type === 'session.prompt') {
-                    const operationId = frame.params.peerMutation!.operationId;
-                    promptOperationIds.push(operationId);
-                    if (!executedPrompts.has(operationId)) {
-                        executedPrompts.add(operationId);
-                        promptExecutions += 1;
+    it('carries a peer mutation over a real link through a host restart', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'muxr-peer-link-'));
+        const relay = await startRelay({ port: 0, config: { dataDir: join(root, 'relay') } });
+        const sourceKeys = machineCrypto();
+        const targetKeys = machineCrypto();
+        const source = new PeerRuntime({ dataDir: join(root, 'source-peer'), machineId: 'source-live',
+            machineName: 'Source', platform: 'Linux', relayUrl: `ws://127.0.0.1:${relay.port}`,
+            crypto: sourceKeys.adapter, authority: new FakeAuthority() });
+        const target = new PeerRuntime({ dataDir: join(root, 'target-peer'), machineId: 'target-live',
+            machineName: 'Target', platform: 'Linux', relayUrl: `ws://127.0.0.1:${relay.port}`,
+            crypto: targetKeys.adapter, authority: new LinkPeerAuthority('selfhost', 'target-live') });
+        const mutation = () => ({ operationId: `peer-${randomBytes(8).toString('hex')}`, notValidAfter: Date.now() + 60_000 });
+        const prepared = await call(source, 'peer.prepare', { targetMachineId: 'target-live',
+            targetMachineSigningPublicKey: targetKeys.current().signingPublicKey, mutation: mutation() });
+        const authorized = await call(target, 'peer.authorize', { descriptor: prepared.descriptor,
+            capabilities: [...DEFAULT_PEER_CAPABILITIES], mutation: mutation() });
+        const installed = await call(source, 'peer.install', { targetMachineId: 'target-live',
+            sealedBundle: authorized.sealedBundle, mutation: mutation() });
+        const relationship = source.store.relationship(installed.relationshipId)!;
+        const peerKey = relationship.peerKey!;
+        const sealedGrant = relationship.sealedGrant!;
+        const deviceId = authorized.peerDeviceId;
+        const machine = targetKeys.current();
+        expect(machine.devices.some((device) => device.deviceId === deviceId && device.devicePublicKey === peerKey.publicKey)).toBe(true);
+        const relayUrl = `ws://127.0.0.1:${relay.port}`;
+        const ownerToken = JSON.parse(readFileSync(join(root, 'relay', 'mint-secret'), 'utf8')) as string;
+        let savedGrants: import('@byokit/link').Grant[] = [];
+        let endpoint: LinkEndpoint | undefined;
+        const effects = new Set<string>();
+        let attempts = 0;
+        const open = async () => {
+            endpoint = await LinkEndpoint.open({ relayUrl, ownerToken, machineId: 'target-live',
+                machineName: 'Target', crypto: machine, currentCrypto: () => machine,
+                savePushLevel: () => undefined, grants: { load: () => savedGrants, save: (grants) => { savedGrants = grants; } },
+                canView: () => true,
+                answer: async (frame, caller) => {
+                    expect(caller).toBe(deviceId);
+                    if (frame.type === 'machines.list') return { type: 'result', requestId: frame.requestId, ok: true, data: [] };
+                    if (frame.type !== 'session.prompt') return undefined;
+                    attempts += 1;
+                    const operationId = frame.params.peerMutation?.operationId;
+                    if (operationId === undefined) throw new Error('peer mutation has no operation id');
+                    effects.add(operationId);
+                    if (attempts === 1) {
+                        endpoint?.close();
+                        setTimeout(() => { void open(); }, 150);
                     }
-                    if (promptOperationIds.length === 1) socket.close();
-                    else send({ type: 'result', requestId: frame.requestId, ok: true, data: null });
-                }
+                    return { type: 'result', requestId: frame.requestId, ok: true, data: null };
+                },
             });
-        });
-        const controlOrigins: string[] = [];
-        const fakeFetch = (async (input: string | URL | Request) => {
-            const url = new URL(String(input));
-            controlOrigins.push(url.origin);
-            const path = url.pathname;
-            const body = path === '/v1/ws-tickets' ? { ticket: 'fresh-ticket' } : { grant: JSON.stringify(sealedGrant) };
-            return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
-        }) as typeof fetch;
-        const originalFetch = globalThis.fetch;
-        globalThis.fetch = fakeFetch;
-        const connectionDiagnostics: PeerConnectionDiagnostic[] = [];
-        const client = new NodePeerClient({
-            relayUrl,
-            machineId: 'target-live',
-            credential: 'peer-credential',
-            peerDeviceId: deviceId,
-            peerKey,
-            pinnedMachineSigningPublicKey: machine.signingPublicKey,
-            sealedGrant,
-            requestTimeoutMs: 2_000,
-            fetch: fakeFetch,
-            onConnectionDiagnostic: (event) => connectionDiagnostics.push(event),
-        });
-        let silentClient: NodePeerClient | undefined;
-        let connected = false;
-        try {
-            const connecting = client.connect().then(() => { connected = true; });
-            await challengeSeen;
-            await new Promise((resolve) => setTimeout(resolve, 0));
-            expect(connected).toBe(false);
-            releaseChallenge();
-            await connecting;
-            expect(connected).toBe(true);
-            let watchSettled = false;
-            const watching = client.request('agent.watch', {
-                sessionId: 'private-session',
-                timeoutMs: 1_000,
-                peerMutation: { operationId: 'directed-watch', notValidAfter: Date.now() + 60_000 },
-            }).then((result) => { watchSettled = true; return result; });
-            await watchSeen;
-            expect(watchSettled).toBe(false);
-            releaseWatch();
-            await expect(watching).resolves.toMatchObject({ settlement: { detail: 'directed completion' } });
-            expect(watchOperationIds).toEqual(['directed-watch', 'directed-watch']);
-            await expect(client.request('session.prompt', {
-                sessionId: 'private-session',
-                text: 'retry this exact semantic prompt',
-                peerMutation: { operationId: 'durable-buffered-prompt', notValidAfter: Date.now() + 5_000 },
-            })).resolves.toBeNull();
-            expect(promptOperationIds).toEqual(['durable-buffered-prompt', 'durable-buffered-prompt']);
-            expect(promptExecutions).toBe(1);
-            expect(sourceRelayConnections).toBe(0);
-            expect(staleRelayConnections).toBe(0);
-            expect(new Set(controlOrigins)).toEqual(new Set([new URL(relayControlUrl(relayUrl)).origin]));
-            expect(connectionDiagnostics).toEqual(expect.arrayContaining([
-                expect.objectContaining({ phase: 'grant-refresh', outcome: 'ok' }),
-                expect.objectContaining({ phase: 'ticket-issue', outcome: 'ok' }),
-                expect.objectContaining({ phase: 'socket-open', outcome: 'ok' }),
-                expect.objectContaining({ phase: 'liveness-proof', outcome: 'ok' }),
-            ]));
-
-            answerLiveness = false;
-            const timeoutDiagnostics: PeerConnectionDiagnostic[] = [];
-            silentClient = new NodePeerClient({
-                relayUrl,
-                machineId: 'target-live',
-                credential: 'peer-credential',
-                peerDeviceId: deviceId,
-                peerKey,
-                pinnedMachineSigningPublicKey: machine.signingPublicKey,
-                sealedGrant,
-                requestTimeoutMs: 50,
-                fetch: fakeFetch,
-                onConnectionDiagnostic: (event) => timeoutDiagnostics.push(event),
-            });
-            await expect(silentClient.connect()).rejects.toThrow('peer target did not prove it was live');
-            expect(timeoutDiagnostics.at(-1)).toMatchObject({ phase: 'liveness-proof', outcome: 'timeout', code: 'liveness-timeout' });
-        } finally {
-            client.close();
-            silentClient?.close();
-            globalThis.fetch = originalFetch;
-            await Promise.all([
-                new Promise<void>((resolve) => server.close(() => resolve())),
-                new Promise<void>((resolve) => sourceRelay.close(() => resolve())),
-                new Promise<void>((resolve) => staleRelay.close(() => resolve())),
-            ]);
-        }
-    });
-
-    it('scopes self-host peer authority calls to the target machine', async () => {
-        const calls: string[] = [];
-        const peerPublicKey = generateKeyPair().publicKey;
-        let lists = 0;
-        const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
-            const url = new URL(String(input));
-            const method = init?.method ?? 'GET';
-            calls.push(`${method} ${url.pathname}${url.search}`);
-            let body: Record<string, unknown> = { ok: true };
-            if (url.pathname === '/v1/selfhost/peers' && method === 'GET') {
-                body = { peers: lists++ === 0 ? [] : [{ deviceId: 'peer-device', publicKey: peerPublicKey }] };
-            } else if (url.pathname === '/v1/selfhost/peers' && method === 'POST') {
-                body = { device_id: 'peer-device', device_credential: 'peer-credential' };
-            } else if (url.pathname.endsWith('/rotate')) {
-                body = { device_credential: 'rotated-credential' };
-            }
-            return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
-        }) as typeof fetch;
-        const authority = new HttpPeerAuthority({
-            kind: 'selfhost', controlUrl: 'https://relay.test', machineId: 'target-machine', credential: 'owner-secret', fetch: fetchImpl,
-        });
-        const input = {
-            peerPublicKey,
-            sourceMachineId: 'source-machine',
-            sourceName: 'Linux builder',
-            capabilities: [...DEFAULT_PEER_CAPABILITIES],
-            credentialExpiresAt: Date.now() + 60_000,
-            refreshAfter: Date.now() + 30_000,
+            endpoint?.start();
         };
-        await authority.issuePeer(input);
-        await authority.issuePeer(input);
-        await authority.uploadGrant('peer-device', 'sealed-peer-grant', 2);
-        await authority.revokePeer('peer-device');
-        await authority.publishRotation(3, [{ deviceId: 'peer-device', devicePublicKey: peerPublicKey, grant: 'rotated-grant' }]);
+        const diagnostics: PeerConnectionDiagnostic[] = [];
+        let client: NodePeerClient | undefined;
+        try {
+            await open();
+            client = new NodePeerClient({ relayUrl, machineId: 'target-live',
+                peerDeviceId: deviceId, peerKey, pinnedMachineSigningPublicKey: machine.signingPublicKey,
+                sealedGrant, requestTimeoutMs: 8_000, onConnectionDiagnostic: (event) => diagnostics.push(event) });
+            await expect(client.request('session.prompt', { sessionId: 'private-session', text: 'once',
+                peerMutation: { operationId: 'peer-operation', notValidAfter: Date.now() + 30_000 } })).resolves.toBeNull();
+            expect(effects).toEqual(new Set(['peer-operation']));
+            expect(attempts).toBeGreaterThanOrEqual(2);
+            expect(diagnostics).toContainEqual(expect.objectContaining({ phase: 'link-connect', outcome: 'ok' }));
+            expect(diagnostics).toContainEqual(expect.objectContaining({ phase: 'liveness-proof', outcome: 'ok' }));
+        } finally {
+            client?.close();
+            endpoint?.close();
+            await relay.close();
+        }
+    }, 40_000);
 
-        expect(calls).toEqual([
-            'GET /v1/selfhost/peers?machine=target-machine',
-            'POST /v1/selfhost/peers?machine=target-machine',
-            'GET /v1/selfhost/peers?machine=target-machine',
-            'POST /v1/selfhost/peers/peer-device/rotate?machine=target-machine',
-            'POST /v1/selfhost/peers/peer-device/grant?machine=target-machine',
-            'DELETE /v1/selfhost/peers/peer-device?machine=target-machine',
-            'POST /v1/selfhost/machines/target-machine/grants',
-        ]);
-    });
-
-    it('uses deployed hosted pair-session, device revoke, and rotation APIs', async () => {
-        const calls: Array<{ path: string; method: string; authorization?: string }> = [];
-        const peerPublicKey = generateKeyPair().publicKey;
-        const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
-            const url = new URL(String(input));
-            const method = init?.method ?? 'GET';
-            const headers = new Headers(init?.headers);
-            calls.push({ path: url.pathname, method, ...(headers.get('authorization') === null ? {} : { authorization: headers.get('authorization')! }) });
-            let body: Record<string, unknown> = { ok: true };
-            if (url.pathname === '/v1/pair-sessions/old-pair' && method === 'GET') {
-                body = { state: 'claimed', device: { id: 'old-device', public_key: peerPublicKey } };
-            } else if (url.pathname === '/v1/pair-sessions' && method === 'POST') {
-                body = { pair_id: 'new-pair' };
-            } else if (url.pathname === '/v1/pair-sessions/new-pair/claim') {
-                body = { access_token: 'peer-credential', device: { id: 'new-device' } };
-            }
-            return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
-        }) as typeof fetch;
-        const authority = new HttpPeerAuthority({
-            kind: 'hosted', controlUrl: 'https://control.test', machineId: 'target-machine', credential: 'machine-credential', fetch: fetchImpl,
-        });
-        const checkpoints: string[] = [];
-        const issued = await authority.issuePeer({
-            peerPublicKey,
-            sourceMachineId: 'source-machine',
-            sourceName: 'Linux builder',
-            capabilities: [...DEFAULT_PEER_CAPABILITIES],
-            credentialExpiresAt: Date.now() + 60_000,
-            refreshAfter: Date.now() + 30_000,
-        }, {
-            recovery: { pairId: 'old-pair', controlClaim: 'old-claim' },
-            checkpoint: async (recovery) => { checkpoints.push(recovery.pairId); },
-        });
-        await authority.uploadGrant(issued.peerDeviceId, 'sealed-peer-grant', 2, issued.recovery);
-        await authority.revokePeer(issued.peerDeviceId);
-        await authority.publishRotation(3, [{ devicePublicKey: peerPublicKey, grant: 'rotated-grant' }]);
-
-        expect(issued).toMatchObject({ peerDeviceId: 'new-device', credential: 'peer-credential', recovery: { pairId: 'new-pair' } });
-        expect(checkpoints).toEqual(['new-pair']);
-        expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
-            'GET /v1/pair-sessions/old-pair',
-            'POST /v1/devices/old-device/revoke',
-            'POST /v1/pair-sessions',
-            'POST /v1/pair-sessions/new-pair/claim',
-            'POST /v1/pair-sessions/new-pair/grant',
-            'POST /v1/devices/new-device/revoke',
-            'POST /v1/machines/target-machine/keys/rotate',
-        ]);
-        expect(calls.find((call) => call.path.endsWith('/claim'))?.authorization).toBeUndefined();
-        expect(calls.some((call) => call.path.includes('/peers'))).toBe(false);
-    });
 });

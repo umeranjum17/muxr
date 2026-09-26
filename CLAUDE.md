@@ -23,7 +23,7 @@ behaviour it claims to cover and watch it go red.
 - Review standard (size triggers, errors at boundaries, lifecycle owners, how automation grows): [docs/engineering-guidelines.md](docs/engineering-guidelines.md), on top of the module-first rules in `CONTRIBUTING.md`.
 - `yarn check` is yarn v1's built-in dependency checker, not this repo's suite. The suite is `yarn run check`; the automatic pull-request lane is `yarn run check:fast`. `scripts/diagnostics/application/runSuite.mjs` owns both lists.
 - An e2e check must own the relay it starts: spawn with `MUXR_RELAY_PORT=0` and take the real port from `waitForRelay(child)`. Naming a port instead lets a relay from another worktree answer the health probe, and the check then passes having tested nothing it started.
-- A browser lab cannot be pointed at its own relay with `EXPO_PUBLIC_MUXR_*`. `BUILD_ENV_APPLIES` in `apps/mobile/sources/connection/connectionSettings.ts` drops every one of them on web on purpose, so the PWA falls back to the default relay URL — the desk's live one. Write the lab's connection into the browser secure store (`muxr.connection.v1`, see `pairing/infrastructure/webSecureStore.ts`) or pair the lab properly; otherwise the lab silently drives the machine you were trying not to touch. Against `yarn dev`, that stored connection also needs the dev relay's owner secret (`.cache/muxr-dev/relay/mint-secret`, a JSON string) as its token: the dev host dials with a ticket, and a token-less client lands in a different relay account, so its frames only buffer and the app sits at "connecting".
+- A browser lab cannot be pointed at its own relay with `EXPO_PUBLIC_MUXR_*`. `BUILD_ENV_APPLIES` in `apps/mobile/sources/connection/connectionSettings.ts` drops them on web on purpose. Pair the lab browser with its running development host and store its link grant through `pairing/infrastructure/webSecureStore.ts`; do not inject a relay owner secret or rely on an unpaired local connection.
 
 ## Voice
 
@@ -62,8 +62,8 @@ behaviour it claims to cover and watch it go red.
 
 - Artifacts meant to appear in muxr must be shared with `muxr share <path>` or written to `~/.muxr/attachments/pane/$HERDR_PANE_ID`.
 - Shared Artifacts is a durable per-session timeline. Artifacts are never rendered as transient terminal overlays; live push channels (`terminal.image`-style) must not be reintroduced.
-- One word, host and phone alike: **artifact**. A file the user sends with a prompt is a **prompt attachment**, never an artifact. `CONTEXT.md` lists the five names that stay frozen for compatibility — do not "fix" them.
-- Never put a whole artifact in one frame, broadcast its bytes, or add them to the relay replay log. See [Shared Artifacts transport](docs/ARCHITECTURE.md#shared-artifacts-and-changes).
+- One word, host and phone alike: **artifact**. A file the user sends with a prompt is a **prompt attachment**, never an artifact. `CONTEXT.md` owns the remaining frozen compatibility names — do not "fix" them.
+- Never put a whole artifact in one frame or broadcast its bytes through the link. See [Shared Artifacts transport](docs/ARCHITECTURE.md#shared-artifacts-and-changes).
 - History is bounded by the daily sweep in `apps/host/src/agent/infrastructure/artifactRetention.ts`. It never touches files shared before retention was installed; `muxr artifacts` shows the policy and what it removed, and `muxr artifacts prune` is the only path that clears the older pile.
 
 ## Self-naming

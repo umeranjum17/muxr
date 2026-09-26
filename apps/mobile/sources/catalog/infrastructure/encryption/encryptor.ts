@@ -1,6 +1,5 @@
-import { decryptBox, decryptSecretBox, encryptBox, encryptSecretBox } from "@/encryption/libsodium";
+import { decryptBox, decryptSecretBox, encryptBox, encryptSecretBox, getPublicKeyForBox } from "@/encryption/libsodium";
 import { encodeBase64, decodeBase64 } from "@/encryption/base64";
-import sodium from '@/encryption/libsodium.lib';
 import { decodeUTF8, encodeUTF8 } from "@/encryption/text";
 import { decryptAESGCMString, encryptAESGCMString } from "@/encryption/aes";
 
@@ -48,10 +47,8 @@ export class BoxEncryption implements Encryptor, Decryptor {
     private readonly publicKey: Uint8Array;
 
     constructor(seed: Uint8Array) {
-        // Use the seed to generate a proper keypair
-        const keypair = sodium.crypto_box_seed_keypair(seed);
-        this.privateKey = keypair.privateKey;
-        this.publicKey = keypair.publicKey;
+        this.privateKey = seed;
+        this.publicKey = getPublicKeyForBox(seed);
     }
 
     async encrypt(data: any[]): Promise<Uint8Array[]> {

@@ -10,9 +10,11 @@
  * So this drives the real producer into the real consumers rather than pasting
  * fixture strings: change either side and this goes red.
  */
+import { Host, keyPair } from '@byokit/link';
 import { describe, expect, it } from 'vitest';
 import { pairingIntent } from '../../../../../scripts/setup/domain/pairing';
-import { hostedPairingAuthority, looksLikePairingLink, parsePairingString } from './pairingString';
+import { hostedPairingAuthority, looksLikeLinkOffer, looksLikePairingLink, parsePairingString } from './pairingString';
+import { redirectSystemPath } from '../../app/+native-intent';
 
 /** Every relay address `muxr setup` can end up printing a QR for. */
 const relays = [
@@ -22,6 +24,18 @@ const relays = [
 ];
 
 describe('a scanned pairing QR reaches pairing', () => {
+    it('routes a real native link offer through app schemes and HTTPS to the Pair screen', async () => {
+        const host = await Host.open({ keys: keyPair(), name: 'Desk', handle: () => ({}), confirm: () => true });
+        try {
+            const offer = host.offer({ urls: [`ws://100.124.161.1:57709/link/v1/${host.id}`], role: 'control' }).text;
+            for (const url of [offer, ...['muxr', 'muxr-dev', 'muxr-preview'].map((scheme) => `${scheme}://pair#${offer}`), `https://relay.example.test/pair#${offer}`]) {
+                expect(looksLikeLinkOffer(url)).toBe(true);
+                expect(redirectSystemPath({ path: url, initial: true })).toBe(`/pair?offer=${encodeURIComponent(offer)}`);
+            }
+            expect(redirectSystemPath({ path: 'muxr-dev://pair#byokit-link:1:bad?', initial: true })).toBe('muxr-dev://pair#byokit-link:1:bad?');
+        } finally { host.close(); }
+    });
+
     it('accepts what the CLI prints and carries its authority through to the consent copy', () => {
         for (const relay of relays) {
             const scanned = pairingIntent({ kind: 'native' }).pairingLocator(relay, 'ABCD1234EF');

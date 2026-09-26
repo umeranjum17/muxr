@@ -94,16 +94,11 @@ export type {
     WatchSettlement,
     LayoutSnapshot,
     ClientFrame,
-    Envelope,
-    EnvelopeHeader,
     PluginsInvalidatedFrame,
     HostFrame,
-    RoutingChannel,
-    PreviewFrame,
     TerminalClientFrame,
     TerminalHostFrame,
     TerminalScrollStateFrame,
-    WsTransport,
 } from './control-plane/index.js';
 export {
     DESKTOP_CONSENT_WAIT_MS,
@@ -114,31 +109,14 @@ export {
     requestRequiresE2ee,
     decodePayload,
     encodePayload,
-    envelopeIsHosted,
     isPluginsInvalidatedFrame,
-    isRoutingChannel,
-    routingChannelForRequest,
     nextRequestId,
     admitClientFrame,
     parseClientFrame,
     tryParseClientFrame,
-    RELAY_CLOSE_REPLACED,
-    ROUTING_CHANNELS,
-    decodePreviewFrame,
-    encodePreviewFrame,
-    newPreviewChannel,
-    previewSocketUrl,
-    PREVIEW_CLOSE,
-    PREVIEW_DATA,
-    PREVIEW_HEADER_BYTES,
     newTerminalChannel,
-    terminalSocketUrl,
     relayControlUrl,
     isWebSocketRelayUrl,
-    relayChannelSocketUrl,
-    issueWsTicket,
-    ticketSocketUrl,
-    WsTicketError,
 } from './control-plane/index.js';
 
 export type {
@@ -302,7 +280,6 @@ export {
     REALTIME_INPUT_RATE,
     REALTIME_OUTPUT_RATE,
     realtimePcm16ByteLength,
-    realtimeSocketUrl,
 } from './realtime/index.js';
 export { spokenMatches } from './realtime/index.js';
 

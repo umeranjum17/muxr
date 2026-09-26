@@ -9,7 +9,7 @@ import { FontAwesome } from '@expo/vector-icons';
 import { ErrorBoundary as RouterErrorBoundary, usePathname, useRouter } from 'expo-router';
 import { AuthCredentials, TokenStorage } from '@/account';
 import { AuthProvider } from '@/account/ui';
-import { flushReplay, restoreHostedConnection } from '@/pairing/e2ee';
+import { restoreHostedConnection } from '@/pairing/e2ee';
 import { resetWebSecureStore } from '@/pairing/secrets';
 import { RelayDiscoveryReconnect } from '@/pairing';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
@@ -20,7 +20,6 @@ import { PluginSlot } from '@/plugins/ui';
 import { RealtimeSessionOverlay } from '@/conversation/presentation/RealtimeSessionOverlay';
 import { usePluginEvents } from '@/plugins';
 import { SidebarNavigator } from '@/herd/ui';
-import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
 import { sync, syncRestore, syncResume } from '@/catalog/sync';
@@ -266,7 +265,6 @@ export default function RootLayout() {
             let credentials: AuthCredentials | null = null;
             try {
                 await loadFonts();
-                await sodium.ready;
                 try {
                     const { sweepArtifactDownloads } = await import('@/utils/downloadArtifact');
                     await sweepArtifactDownloads();
@@ -325,8 +323,7 @@ export default function RootLayout() {
                         }
                         await syncRestore(credentials);
                     } catch (error) {
-                        // Machine/grant/network/bootstrap failures are not account rejection.
-                        // Runtime /v1/session validation clears only a definite 401.
+                        // A lost link never deletes local pairing credentials.
                         console.error('Error restoring sync:', error);
                     }
                 }
@@ -354,14 +351,8 @@ export default function RootLayout() {
         let previous = AppState.currentState;
         const subscription = AppState.addEventListener('change', (next) => {
             const resumed = next === 'active' && previous !== 'active';
-            const left = next !== 'active' && previous === 'active';
             previous = next;
             if (resumed) void syncResume().catch(() => undefined);
-            // Replay sequences are written on a trailing timer while the app
-            // runs; leaving the foreground is the last chance to land them.
-            if (left) {
-                void flushReplay().catch(() => undefined);
-            }
         });
         return () => subscription.remove();
     }, [initState?.credentials]);

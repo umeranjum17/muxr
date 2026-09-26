@@ -28,7 +28,6 @@ import {
     hasPendingRemoteConnect,
     pendingRemotePath,
     remoteHostOnline,
-    withSelfhostRotationLock,
 } from '../infrastructure/selfhostRelay.mjs';
 import { mintDeviceGrant, pairDevice } from './pairDevice.mjs';
 
@@ -73,13 +72,14 @@ export async function connectEnrollment(args = []) {
         ensurePrivateDir(stateDir());
         const reuseIdentity = existing?.relayLocation === 'remote' && publicRelayUrl(existing.relayUrl) === enrollment.relay;
         const identity = machineIdentity(reuseIdentity ? existing : undefined);
-        const message = Buffer.from(`muxr-enroll-v1\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}`, 'utf8');
+        const message = Buffer.from(`muxr-enroll-v2\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}\n${identity.crypto.boxPublicKey}`, 'utf8');
         const proof = Buffer.from(nacl.sign.detached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
         const enrollmentBase = env('MUXR_REMOTE_CONTROL_BASE')?.replace(/\/$/, '') ?? enrollment.relay.replace(/^wss:/, 'https:');
         const claimed = await api(enrollmentBase, `/v1/selfhost/enrollments/${encodeURIComponent(enrollment.id)}/claim`, {
             method: 'POST',
             body: JSON.stringify({ claim: enrollment.claim, relay_url: enrollment.relay,
-                signing_public_key: identity.crypto.signingPublicKey, proof, name: identity.name ?? hostname() }),
+                signing_public_key: identity.crypto.signingPublicKey, box_public_key: identity.crypto.boxPublicKey,
+                proof, name: identity.name ?? hostname() }),
         });
         if (!claimed.response.ok) throw new Error(claimed.body.error || 'machine enrollment failed');
         const expectedSlug = `machine-${createHash('sha256').update('muxr-machine-v1\0').update(Buffer.from(identity.crypto.signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;
@@ -97,6 +97,7 @@ export async function connectEnrollment(args = []) {
             credentialExpiresAt: claimed.body.credential_expires_at,
             webEnabled: typeof claimed.body.web_url === 'string',
             webOrigin: typeof claimed.body.web_url === 'string' ? claimed.body.web_url : undefined,
+            ...(enrollment.link === undefined ? {} : { linkEnrolToken: enrollment.link }),
             machine: identity,
         };
         const pendingPath = join(stateDir(), 'selfhost.pending.json');
@@ -104,7 +105,7 @@ export async function connectEnrollment(args = []) {
         if (existing !== undefined) {
             writeFileSync(join(stateDir(), 'selfhost.previous.json'), `${JSON.stringify(existing, null, 2)}\n`, { mode: 0o600 });
             try {
-                if (existing.relayLocation !== 'remote') cleanupManagedIngress(existing);
+                if (existing.relayLocation !== 'remote') await cleanupManagedIngress(existing);
                 if (daemonIsRunning() && (await runDaemon(['stop'])) !== 0) throw new Error('could not stop the existing muxr service');
                 await stopOwnedSelfhostRelay();
             } catch (cause) {
@@ -129,7 +130,7 @@ export async function connectEnrollment(args = []) {
         if ((pair.requiresWebHosting || args.includes('--pair-both')) && !state.webEnabled) {
             throw new Error('this shared relay does not host the browser client; pair the native app instead');
         }
-        const paired = await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority));
+        const paired = await mintDeviceGrant(state, pair.kind, pair.authority);
         if (paired !== 0) return paired;
         return args.includes('--pair-both') ? pairDevice(['--browser']) : 0;
     } catch (cause) {

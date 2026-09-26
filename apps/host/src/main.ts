@@ -1,21 +1,26 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync, type StatWatcher } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import { createDeviceGrant } from '@muxr/crypto';
-import { isPeerCapabilities, relayControlUrl } from '@muxr/contract';
+import type { Grant, LinkStream } from '@byokit/link';
+import { isPeerCapabilities, parseLifecycleNotificationLevel, relayControlUrl } from '@muxr/contract';
 import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores } from './agent/index.js';
+import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
 import { startHost } from './host.js';
-import { createPersistQueue } from './platform/persistedJson.js';
-import { HttpPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
+import { LinkPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
 import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, hostPlatformLabel, LinkEndpoint } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
 import { muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
 import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
 
-const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+function linkStreamTransport(stream: LinkStream): VoiceStreamTransport {
+    return {
+        set onData(listener: VoiceStreamTransport['onData']) { stream.onData = listener; },
+        set onEnd(listener: VoiceStreamTransport['onEnd']) { stream.onEnd = listener; },
+        write: (chunk) => stream.write(chunk),
+        end: (error) => stream.end(error),
+    };
+}
 function env(name: string): string | undefined {
     return process.env[name]?.trim() || undefined;
 }
@@ -47,21 +52,6 @@ function resolveHostVersion(): string | undefined {
 }
 
 class NonRecoverableAuthError extends Error {}
-class HostedAuthExpiredError extends NonRecoverableAuthError {}
-
-interface HostedAuthState {
-    version: 1;
-    controlUrl: string;
-    relayUrl: string;
-    credential: string;
-    credentialExpiresAt: string;
-    machine: {
-        id: string;
-        name?: string;
-        crypto?: MachineCryptoState;
-    };
-}
-
 function validBase64(value: unknown, bytes: number): boolean {
     if (typeof value !== 'string' || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return false;
     try { return Buffer.from(value, 'base64').length === bytes; }
@@ -101,10 +91,11 @@ function validDevice(value: unknown): boolean {
             && device.allowedCwds.every((cwd) => typeof cwd === 'string' && cwd !== '');
     }
     if (device.dataKey !== undefined || device.capabilities !== undefined || device.allowedCwds !== undefined) return false;
+    if (device.pushLevel !== undefined && parseLifecycleNotificationLevel(device.pushLevel) === undefined) return false;
     return device.authority === undefined || device.authority === 'control' || device.authority === 'observe';
 }
 
-function validMachineCrypto(value: unknown, expected: 'hosted' | 'selfhost'): value is MachineCryptoState {
+function validMachineCrypto(value: unknown): value is MachineCryptoState {
     if (typeof value !== 'object' || value === null) return false;
     const crypto = value as Partial<MachineCryptoState>;
     const keys = validBase64(crypto.signingPublicKey, 32)
@@ -126,9 +117,8 @@ function validMachineCrypto(value: unknown, expected: 'hosted' | 'selfhost'): va
     const peer = kind === 'peer-revoke-v1';
     const selfhost = kind === 'selfhost-revoke-v1';
     if (kind !== undefined && !peer && !selfhost) return false;
-    if (kind === undefined && expected !== 'hosted') return false;
-    if (selfhost && expected !== 'selfhost') return false;
-    if (peer && pending.authorityKind !== expected) return false;
+    if (kind === undefined) return false;
+    if (peer && pending.authorityKind !== 'selfhost') return false;
     const previous = pending.previousKeyVersion;
     const version = pending.keyVersion as number;
     if (kind === undefined) {
@@ -144,22 +134,13 @@ function validMachineCrypto(value: unknown, expected: 'hosted' | 'selfhost'): va
     return grants.every((entry) => {
         if (typeof entry !== 'object' || entry === null) return false;
         const candidate = entry as Record<string, unknown>;
-        const deviceKey = rotationGrantPublicKey(candidate, byId, kind === undefined);
+        const deviceKey = byId.get(candidate.deviceId)?.devicePublicKey ?? candidate.devicePublicKey;
         const sealed = parseSealedGrant(candidate.grant);
         if (typeof deviceKey !== 'string' || !expectedKeys.has(deviceKey) || seen.has(deviceKey) || sealed === undefined
             || sealed.sender !== crypto.boxPublicKey || sealed.signer !== crypto.signingPublicKey) return false;
         seen.add(deviceKey);
         return true;
     }) && seen.size === expectedKeys.size;
-}
-
-function rotationGrantPublicKey(
-    candidate: Record<string, unknown>,
-    byId: Map<unknown, { devicePublicKey?: unknown }>,
-    hostedUnsigned: boolean,
-): unknown {
-    if (hostedUnsigned) return candidate.device_public_key;
-    return byId.get(candidate.deviceId)?.devicePublicKey ?? candidate.devicePublicKey;
 }
 
 interface SelfhostState {
@@ -171,6 +152,8 @@ interface SelfhostState {
     credentialExpiresAt?: string;
     relayLocation?: 'local' | 'remote';
     connectionMode?: string;
+    /** The shared relay's one-use link enrolment, claimed by this host's first registration. */
+    linkEnrolToken?: string;
     ingress?: { kind?: string; dnsName?: string };
     machine: { id: string; name?: string; crypto: MachineCryptoState };
 }
@@ -211,7 +194,7 @@ function readSelfhostAuth(): SelfhostState | undefined {
         }
         throw error;
     }
-    if (parsed.version !== 1 || typeof parsed.machine?.id !== 'string' || !validMachineCrypto(parsed.machine.crypto, 'selfhost')
+    if (parsed.version !== 1 || typeof parsed.machine?.id !== 'string' || !validMachineCrypto(parsed.machine.crypto)
         || typeof parsed.mintSecret !== 'string' && typeof parsed.machineCredential !== 'string'
         || parsed.relayLocation === 'remote' && typeof parsed.relayUrl !== 'string'
         || parsed.relayLocation !== 'remote' && typeof parsed.relayPort !== 'number') {
@@ -220,49 +203,9 @@ function readSelfhostAuth(): SelfhostState | undefined {
     if (parsed.credentialExpiresAt !== undefined) {
         const expires = Date.parse(parsed.credentialExpiresAt);
         if (!Number.isFinite(expires)) throw new NonRecoverableAuthError(`${path} has an invalid credential expiry`);
-        if (expires <= Date.now()) throw new HostedAuthExpiredError('remote relay machine credential expired; create a fresh enrollment from the relay owner');
+        if (expires <= Date.now()) throw new NonRecoverableAuthError('remote relay machine credential expired; create a fresh enrollment from the relay owner');
     }
     return parsed as SelfhostState;
-}
-
-function authFile(): string {
-    return join(env('MUXR_HOME') ?? join(homedir(), '.muxr'), 'auth.json');
-}
-
-function readHostedAuth(): HostedAuthState | undefined {
-    const path = authFile();
-    if (!existsSync(path)) return undefined;
-    const info = lstatSync(path);
-    if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
-        throw new NonRecoverableAuthError(`${path} must be a regular owner-only file`);
-    }
-    let parsed: Partial<HostedAuthState>;
-    try { parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<HostedAuthState>; }
-    catch (error) {
-        if (error instanceof SyntaxError) throw new NonRecoverableAuthError(`${path} contains malformed JSON`);
-        if ((error as NodeJS.ErrnoException)?.code === 'EACCES' || (error as NodeJS.ErrnoException)?.code === 'EPERM') {
-            throw new NonRecoverableAuthError(`${path} cannot be read; restore owner read permission and run \`muxr doctor\``);
-        }
-        throw error;
-    }
-    if (parsed.version !== 1 || typeof parsed.controlUrl !== 'string' || typeof parsed.relayUrl !== 'string' || typeof parsed.credential !== 'string'
-        || typeof parsed.credentialExpiresAt !== 'string' || !Number.isFinite(Date.parse(parsed.credentialExpiresAt))
-        || typeof parsed.machine?.id !== 'string' || !validMachineCrypto(parsed.machine.crypto, 'hosted')) {
-        throw new NonRecoverableAuthError(`${path} has an unsupported or incomplete schema`);
-    }
-    if (Date.parse(parsed.credentialExpiresAt) <= Date.now()) throw new HostedAuthExpiredError('hosted machine credential expired; run `muxr login`');
-    return parsed as HostedAuthState;
-}
-
-type ReplaySnapshots = Record<string, { epochs: Array<{ epoch: string; maxSeq: number }> }>;
-
-function readReplaySnapshots(path: string): ReplaySnapshots {
-    if (!existsSync(path)) return {};
-    const info = lstatSync(path);
-    if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) throw new Error(`${path} must be a regular owner-only file`);
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw new Error('hosted replay state is malformed');
-    return parsed as ReplaySnapshots;
 }
 
 function atomicWriteJson(path: string, value: unknown): void {
@@ -273,130 +216,12 @@ function atomicWriteJson(path: string, value: unknown): void {
     renameSync(temporary, path);
 }
 
-function writeHostedAuth(auth: HostedAuthState): void {
-    atomicWriteJson(authFile(), auth);
-}
-
 function writeSelfhostAuth(auth: SelfhostState): void {
     atomicWriteJson(selfhostFile(), auth);
 }
 
-async function reconcileHostedKeys(auth: HostedAuthState): Promise<void> {
-    const crypto = auth.machine.crypto;
-    if (crypto === undefined) throw new Error('hosted machine keys are missing; re-register and re-pair this machine');
-    const response = await fetch(`${auth.controlUrl}/v1/machines/${encodeURIComponent(auth.machine.id)}/keys`, {
-        headers: { authorization: `Bearer ${auth.credential}` },
-        signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) throw new Error(`hosted key-state check failed (${response.status})`);
-    const state = await response.json() as {
-        key_version: number;
-        rotation_pending: boolean;
-        devices: Array<{ device_id: string; device_public_key: string }>;
-    };
-    const promote = (): void => {
-        const pending = crypto.pendingRotation;
-        if (pending === undefined) throw new Error('hosted key rotation recovery state is missing');
-        crypto.dataKey = pending.dataKey;
-        crypto.keyVersion = pending.keyVersion;
-        crypto.devices = pending.devices;
-        delete crypto.pendingRotation;
-        writeHostedAuth(auth);
-    };
-    const submitPending = async (): Promise<void> => {
-        const pending = crypto.pendingRotation;
-        if (pending === undefined) throw new Error('hosted key rotation recovery state is missing');
-        const rotated = await fetch(`${auth.controlUrl}/v1/machines/${encodeURIComponent(auth.machine.id)}/keys/rotate`, {
-            method: 'POST',
-            headers: { authorization: `Bearer ${auth.credential}`, 'content-type': 'application/json' },
-            body: JSON.stringify({ grants: pending.grants }),
-            signal: AbortSignal.timeout(15_000),
-        });
-        if (!rotated.ok) throw new Error(`hosted key rotation failed (${rotated.status})`);
-        promote();
-    };
-
-    if (crypto.pendingRotation !== undefined) {
-        if (!state.rotation_pending && state.key_version === crypto.pendingRotation.keyVersion) {
-            // The server committed but its response was lost. Promote the exact
-            // locally persisted candidate; never ask the relay to reconstruct it.
-            promote();
-            return;
-        }
-        if (!state.rotation_pending || state.key_version !== crypto.keyVersion) {
-            throw new Error('hosted key rotation recovery state does not match the control plane');
-        }
-        const expected = new Map(crypto.pendingRotation.devices.map((device) => [device.deviceId, device.devicePublicKey]));
-        if (state.devices.length !== expected.size || state.devices.some((device) => expected.get(device.device_id) !== device.device_public_key)) {
-            throw new Error('hosted key rotation changed while a commit was pending; refusing substitution');
-        }
-        await submitPending();
-        return;
-    }
-
-    if (!state.rotation_pending) {
-        if (state.key_version !== crypto.keyVersion) throw new Error('hosted key version mismatch; re-pair this machine');
-        return;
-    }
-    if (state.key_version !== crypto.keyVersion) throw new Error('hosted key-state version mismatch; refusing relay-directed rotation');
-    const localDevices = new Map(crypto.devices.map((device) => [device.deviceId, device]));
-    const seen = new Set<string>();
-    for (const device of state.devices) {
-        const local = localDevices.get(device.device_id);
-        if (local === undefined || local.devicePublicKey !== device.device_public_key || seen.has(device.device_id)) {
-            throw new Error('hosted key rotation rejected an unpaired or substituted device');
-        }
-        seen.add(device.device_id);
-    }
-    const nextVersion = crypto.keyVersion + 1;
-    const dataKey = randomBytes(32).toString('base64');
-    const nextDevices = state.devices.map((device) => {
-        const ingressKey = randomBytes(32).toString('base64');
-        const existing = localDevices.get(device.device_id)!;
-        const grant = DeviceGrant.from(existing);
-        const expiresAt = grant.grantExpiresAtMs(Date.now(), DURABLE_GRANT_EXPIRES_AT);
-        const peerDataKey = grant.isPeer() ? randomBytes(32).toString('base64') : undefined;
-        const local = {
-            ...existing,
-            deviceId: device.device_id,
-            devicePublicKey: device.device_public_key,
-            ingressKey,
-            expiresAt: new Date(expiresAt).toISOString(),
-            ...(peerDataKey === undefined ? {} : { dataKey: peerDataKey }),
-        };
-        return {
-            local,
-            upload: {
-                device_public_key: device.device_public_key,
-                grant: JSON.stringify(createDeviceGrant({
-                    machineId: auth.machine.id,
-                    machineSigningSecretKey: crypto.signingSecretKey,
-                    machineKey: { publicKey: crypto.boxPublicKey, secretKey: crypto.boxSecretKey },
-                    deviceId: device.device_id,
-                    devicePublicKey: device.device_public_key,
-                    dataKey: peerDataKey ?? dataKey,
-                    ingressKey,
-                    keyVersion: nextVersion,
-                    expiresAt,
-                    ...grant.sealedAudience(),
-                })),
-            },
-        };
-    });
-    // Persist the exact candidate before the network commit. A lost response is
-    // then recoverable and cannot leave local/server key versions permanently split.
-    crypto.pendingRotation = {
-        keyVersion: nextVersion,
-        dataKey,
-        devices: nextDevices.map((entry) => entry.local),
-        grants: nextDevices.map((entry) => entry.upload),
-    };
-    writeHostedAuth(auth);
-    await submitPending();
-}
-
 function readAuthStates() {
-    try { return { hostedAuth: readHostedAuth(), selfhostAuth: readSelfhostAuth() }; }
+    try { return readSelfhostAuth(); }
     catch (error) {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         // Deterministic auth faults cannot heal by restarting. Transient I/O
@@ -405,7 +230,7 @@ function readAuthStates() {
         process.exit(error instanceof NonRecoverableAuthError || code === 'EACCES' || code === 'EPERM' ? 0 : 1);
     }
 }
-const { hostedAuth, selfhostAuth } = readAuthStates();
+const selfhostAuth = readAuthStates();
 // Agent-editable `$MUXR_HOME/config.json`. A broken file names its path and
 // key and refuses to start: never half-apply, and exit non-zero so a
 // supervisor treats it as a crash rather than a clean shutdown.
@@ -418,7 +243,6 @@ try {
     process.exit(1);
 }
 function defaultRelayUrl(): string {
-    if (hostedAuth?.relayUrl !== undefined) return hostedAuth.relayUrl;
     if (selfhostAuth?.relayLocation === 'remote' && selfhostAuth.relayUrl !== undefined) return selfhostAuth.relayUrl;
     if (selfhostAuth?.relayPort !== undefined) return `ws://127.0.0.1:${selfhostAuth.relayPort}/relay`;
     return 'ws://127.0.0.1:8792';
@@ -434,8 +258,8 @@ try {
         defaults: {
             mode: undefined,
             relayUrl: defaultRelayUrl(),
-            machineId: hostedAuth?.machine.id ?? selfhostAuth?.machine.id ?? hostname(),
-            machineName: hostedAuth?.machine.name ?? selfhostAuth?.machine.name ?? hostname(),
+            machineId: selfhostAuth?.machine.id ?? hostname(),
+            machineName: selfhostAuth?.machine.name ?? hostname(),
             dataDir: defaultDataDir(),
             hostHttpPort: 8793,
         },
@@ -453,78 +277,39 @@ const useFake = process.argv.includes('--fake');
 const requestedMode = hostConfig.mode;
 function resolveHostMode(
     requested: string | undefined,
-    hosted: HostedAuthState | undefined,
     selfhost: SelfhostState | undefined,
     fake: boolean,
-): 'hosted' | 'selfhost' | 'local' | undefined {
-    if (requested !== undefined) return requested as 'hosted' | 'selfhost' | 'local';
-    if (hosted !== undefined) return 'hosted';
+): 'selfhost' | 'local' | undefined {
+    if (requested !== undefined) return requested as 'selfhost' | 'local';
     if (selfhost !== undefined) return 'selfhost';
     if (fake) return 'local';
     return undefined;
 }
 
-function relayCredential(
-    mode: 'hosted' | 'selfhost' | 'local',
-    hosted: HostedAuthState | undefined,
-    selfhost: SelfhostState | undefined,
-): string | undefined {
-    const fromEnv = env('MUXR_RELAY_TOKEN');
-    if (fromEnv !== undefined) return fromEnv;
-    if (mode === 'hosted') return hosted?.credential;
-    if (mode === 'selfhost') return selfhost?.mintSecret ?? selfhost?.machineCredential;
-    return undefined;
-}
-
-function machineCryptoForMode(
-    mode: 'hosted' | 'selfhost' | 'local',
-    hosted: HostedAuthState | undefined,
-    selfhost: SelfhostState | undefined,
-): MachineCryptoState | undefined {
-    if (mode === 'hosted') return hosted?.machine.crypto;
-    if (mode === 'selfhost') return selfhost?.machine.crypto;
-    return undefined;
-}
-
-const resolvedMode = resolveHostMode(requestedMode, hostedAuth, selfhostAuth, useFake);
-if (resolvedMode === undefined) throw new Error('no hosted auth state; set MUXR_MODE=local explicitly for development');
+const resolvedMode = resolveHostMode(requestedMode, selfhostAuth, useFake);
+if (resolvedMode === undefined) throw new Error('no self-host state; run `muxr self-host` or set MUXR_MODE=local for a fake development host');
 const mode = resolvedMode;
-const peerRelayUrl = mode === 'selfhost' ? targetPeerRelayUrl(selfhostAuth, relayUrl) : relayUrl;
-const token = relayCredential(mode, hostedAuth, selfhostAuth);
-if (mode === 'hosted' && hostedAuth === undefined) {
-    process.stderr.write('hosted mode requires muxr setup/login state; run `muxr doctor`\n');
-    process.exit(0);
-}
+const peerRelayUrl = targetPeerRelayUrl(selfhostAuth, relayUrl);
+const token = selfhostAuth?.mintSecret ?? selfhostAuth?.machineCredential;
 if (mode === 'selfhost' && selfhostAuth === undefined) {
     process.stderr.write('selfhost mode requires muxr setup state; run `muxr doctor`\n');
     process.exit(0);
 }
 
 /** Poll handles on the machine state files; held so the GC cannot silence them. */
-const stateFilePolls: StatWatcher[] = [];
+const stateFilePolls: Array<StatWatcher | NodeJS.Timeout> = [];
 
 async function main(): Promise<void> {
     const hostVersion = resolveHostVersion() ?? '0.0.0';
     let diagnostics: HostDiagnosticsJournal | undefined;
     try { diagnostics = new HostDiagnosticsJournal(dataDir, hostVersion); }
     catch (error) { process.stderr.write(`host diagnostics unavailable: ${error instanceof Error ? error.message : String(error)}\n`); }
-    if (mode === 'hosted' && hostedAuth!.machine.crypto?.pendingRotation?.kind !== 'peer-revoke-v1') {
-        await reconcileHostedKeys(hostedAuth!);
-    }
-    const machineCrypto = machineCryptoForMode(mode, hostedAuth, selfhostAuth);
-    const replayPath = join(dataDir, 'replay-v2.json');
-    const replayPersist = createPersistQueue(replayPath);
-    const replaySnapshots = machineCrypto !== undefined ? readReplaySnapshots(replayPath) : {};
+    const machineCrypto = selfhostAuth?.machine.crypto;
     const hostedE2ee = machineCrypto === undefined ? undefined : {
         machineId,
         keyVersion: machineCrypto.keyVersion,
         dataKey: machineCrypto.dataKey,
         ...deviceTablesFromCrypto(machineCrypto),
-        replaySnapshots,
-        onReplayChange: (snapshots: ReplaySnapshots) => {
-            Object.assign(replaySnapshots, snapshots);
-            replayPersist.schedule(replaySnapshots);
-        },
     };
     let linkEndpoint: LinkEndpoint | undefined;
     let linkOnline = false;
@@ -533,55 +318,48 @@ async function main(): Promise<void> {
     const recordLinkAdmission = (crypto: MachineCryptoState): void => {
         atomicWriteJson(admissionFile, crypto.devices.map(({ deviceId, devicePublicKey }) => ({ deviceId, devicePublicKey })));
     };
-    if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined) {
+    if (mode === 'selfhost' && hostedE2ee !== undefined) {
         // Pairing is a separate CLI process. Reload its appended per-device
         // ingress key without making an already-running host restart.
         const keys = hostedE2ee;
-        const stateFile = mode === 'selfhost' ? selfhostFile() : authFile();
+        const stateFile = selfhostFile();
         const applyStateFile = (): void => {
             try {
-                const crypto = mode === 'selfhost' ? readSelfhostAuth()?.machine.crypto : readHostedAuth()?.machine.crypto;
+                const crypto = readSelfhostAuth()?.machine.crypto;
                 if (crypto === undefined || crypto.keyVersion < keys.keyVersion
                     || (crypto.keyVersion === keys.keyVersion && crypto.dataKey !== keys.dataKey)) return;
-                if (mode === 'hosted') hostedAuth!.machine.crypto = crypto;
-                else selfhostAuth!.machine.crypto = crypto;
+                selfhostAuth!.machine.crypto = crypto;
                 if (crypto.keyVersion > keys.keyVersion) {
                     keys.keyVersion = crypto.keyVersion;
                     keys.dataKey = crypto.dataKey;
-                    for (const replayKey of Object.keys(replaySnapshots)) delete replaySnapshots[replayKey];
-                    replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(keys, crypto);
-                if (mode === 'selfhost') void linkEndpoint?.sync(crypto).then((ok) => { if (ok) recordLinkAdmission(crypto); if (linkOnline) host.refreshLinkEnrolment(); }).catch((error: unknown) => {
+                void linkEndpoint?.sync(crypto).then((ok) => { if (ok) recordLinkAdmission(crypto); if (linkOnline) host.refreshLinkEnrolment(); }).catch((error: unknown) => {
                     process.stderr.write(`link: admission record failed: ${error instanceof Error ? error.message : String(error)}\n`);
                 });
-                else void linkEndpoint?.sync(crypto).then(() => { if (linkOnline) host.refreshLinkEnrolment(); });
             } catch {
                 // Keep serving with the last fully validated key set.
             }
         };
         // Hold the poll's handle somewhere durable: an unreferenced watcher
-        // is collected, and its events silently stop.
+        // is collected, and its events silently stop. The stat watcher has
+        // also been observed to wake late under load, so a plain timer
+        // re-reads the same file as a backstop; the reconcile is a cheap diff.
         stateFilePolls.push(watchFile(stateFile, { interval: 2000 }, applyStateFile));
+        const resync = setInterval(applyStateFile, 2_000);
+        stateFilePolls.push(resync);
     }
     let peerRuntime: PeerRuntime | undefined;
     let peerBroker: PeerBroker | undefined;
-    if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined && token !== undefined) {
+    if (mode === 'selfhost' && hostedE2ee !== undefined) {
         const cryptoAdapter = {
-            get: (): MachineCryptoState => (mode === 'hosted' ? hostedAuth!.machine.crypto! : selfhostAuth!.machine.crypto),
+            get: (): MachineCryptoState => selfhostAuth!.machine.crypto,
             commit: async (next: MachineCryptoState): Promise<void> => {
-                if (mode === 'hosted') {
-                    hostedAuth!.machine.crypto = next;
-                    writeHostedAuth(hostedAuth!);
-                } else {
-                    selfhostAuth!.machine.crypto = next;
-                    writeSelfhostAuth(selfhostAuth!);
-                }
+                selfhostAuth!.machine.crypto = next;
+                writeSelfhostAuth(selfhostAuth!);
                 if (next.keyVersion !== hostedE2ee.keyVersion || next.dataKey !== hostedE2ee.dataKey) {
                     hostedE2ee.keyVersion = next.keyVersion;
                     hostedE2ee.dataKey = next.dataKey;
-                    for (const replayKey of Object.keys(replaySnapshots)) delete replaySnapshots[replayKey];
-                    replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(hostedE2ee, next);
                 void linkEndpoint?.sync(next).then(() => { if (linkOnline) host.refreshLinkEnrolment(); });
@@ -595,12 +373,7 @@ async function main(): Promise<void> {
                 platform: hostPlatformLabel(),
                 relayUrl: peerRelayUrl,
                 crypto: cryptoAdapter,
-                authority: new HttpPeerAuthority({
-                    kind: mode,
-                    controlUrl: mode === 'hosted' ? hostedAuth!.controlUrl : relayControlUrl(relayUrl),
-                    machineId,
-                    credential: token,
-                }),
+                authority: new LinkPeerAuthority(mode, machineId),
                 ...(diagnostics === undefined ? {} : {
                     onConnectionDiagnostic: (event) => diagnostics.peerConnection(event.phase, event.outcome, event.durationMs, event.code),
                 }),
@@ -641,6 +414,7 @@ async function main(): Promise<void> {
             routes,
             relayUrl,
             machineId,
+            onLinkAttention: (input) => linkEndpoint?.notifyAttention(input),
             artifactsDir: join(stateRoot, 'attachments', 'pane'),
             hostHttpPort: hostConfig.hostHttpPort,
             ...(token === undefined ? {} : { token }),
@@ -687,8 +461,6 @@ async function main(): Promise<void> {
         return { agent, ...(sharing > 1 ? { ambiguous: true } : {}) };
     });
     const terminals = new TerminalManager({
-        relayUrl,
-        machineId,
         resolvePane: async (sessionId) => {
             const snapshot = await source.open({ sessionId, acknowledgeAttention: false });
             if (snapshot.info.paneId === undefined) {
@@ -696,11 +468,9 @@ async function main(): Promise<void> {
             }
             return snapshot.info.paneId;
         },
-        focusSession: (sessionId) => source.paneFocus(sessionId),
+        focusSession: (sessionId, assertActive) => source.paneFocus(sessionId, assertActive),
         readPaneScroll: (paneId) => source.paneScroll(paneId),
-        ...(token === undefined ? {} : { token }),
         ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
-        ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
     });
 
     const host = startHost({
@@ -716,24 +486,18 @@ async function main(): Promise<void> {
         ...(peerRuntime === undefined ? {} : { peerRuntime }),
         ...(diagnostics === undefined ? {} : { diagnostics }),
         hostVersion,
-        linkEnrolledKey: (id) => linkOnline ? linkEndpoint?.enrolledKey(id) : undefined,
         ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
-        onStateChange: (state) => {
-            process.stdout.write(`relay link: ${state}\n`);
-            if (state === 'open') peerRuntime?.retryRecovery();
-            if (state === 'replaced') {
-                terminals.closeAll();
-                process.exit(0);
-            }
-        },
     });
 
     // A dead host must never leave --takeover streams holding the desk's panes.
     let shuttingDown = false;
+    let pairingServer: { close(): Promise<void> } | undefined;
     // The link sits beside the relay transport on a self-host relay this
     // machine owns. The relay may still be starting, so keep trying.
     const ownerToken = mode === 'selfhost' ? selfhostAuth?.mintSecret : undefined;
-    if (ownerToken !== undefined && hostedE2ee !== undefined) {
+    const linkEnrolToken = mode === 'selfhost' && selfhostAuth?.relayLocation === 'remote'
+        && typeof selfhostAuth.linkEnrolToken === 'string' ? selfhostAuth.linkEnrolToken : undefined;
+    if ((ownerToken !== undefined || linkEnrolToken !== undefined) && hostedE2ee !== undefined) {
         void (async () => {
             for (let attempt = 0; !shuttingDown; attempt++) {
                 try {
@@ -743,16 +507,61 @@ async function main(): Promise<void> {
                     };
                     linkEndpoint = await LinkEndpoint.open({
                         relayUrl,
-                        ownerToken,
+                        ...(ownerToken === undefined ? {} : { ownerToken }),
+                        ...(linkEnrolToken === undefined ? {} : { enrol: linkEnrolToken }),
+                        ...(machineId === undefined ? {} : { machineId }),
                         machineName,
                         crypto: selfhostAuth!.machine.crypto,
                         currentCrypto,
+                        savePushLevel: (deviceId, level) => {
+                            const state = readSelfhostAuth();
+                            const device = state?.machine.crypto.devices.find((entry) => entry.deviceId === deviceId);
+                            if (state === undefined || device === undefined) throw new Error('link: device no longer trusted');
+                            if (level === undefined) delete device.pushLevel;
+                            else device.pushLevel = level;
+                            writeSelfhostAuth(state);
+                        },
+                        grants: {
+                            load: () => {
+                                const path = join(dataDir, 'link-grants.json');
+                                if (!existsSync(path)) return [];
+                                const info = lstatSync(path);
+                                if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) throw new Error('link grants must be an owner-only regular file');
+                                const grants = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+                                if (!Array.isArray(grants) || !grants.every((g) => typeof g?.id === 'string' && typeof g.key === 'string' && typeof g.role === 'string')) {
+                                    throw new Error('link grants are malformed; refusing to replace device identities');
+                                }
+                                return grants as Grant[];
+                            },
+                            save: (grants) => atomicWriteJson(join(dataDir, 'link-grants.json'), grants),
+                        },
                         answer: host.answer,
                         canView: host.canView,
+                        terminals,
+                        voiceStreams: {
+                            attach: async ({ deviceId, channel, sessionId, stream }) => {
+                                await source.voiceStream({ deviceId, channel, ...(sessionId === undefined ? {} : { sessionId }), transport: linkStreamTransport(stream) });
+                            },
+                        },
+                        pluginStreams: {
+                            attach: async ({ stream, ...params }) => {
+                                await source.pluginStream({ ...params, transport: linkStreamTransport(stream) });
+                            },
+                        },
+                        onDesktopConnection: host.setLinkDesktopConnection,
+                        onDeviceConnection: host.setLinkDeviceConnection,
+                        onDeviceRevoked: (deviceId) => host.closeDeviceDesktopSessions(deviceId),
                         onStatus: (status) => {
                             linkOnline = status === 'online';
                             process.stdout.write(`link relay: ${status}\n`);
-                            if (linkOnline) host.refreshLinkEnrolment();
+                            if (status === 'replaced') {
+                                process.kill(process.pid, 'SIGTERM');
+                                return;
+                            }
+                            if (linkOnline) {
+                                host.refreshLinkEnrolment();
+                                peerRuntime?.retryRecovery();
+                            }
                         },
                     });
                     if (linkEndpoint !== undefined) {
@@ -762,11 +571,15 @@ async function main(): Promise<void> {
                             recordLinkAdmission(latest);
                         }
                         linkEndpoint.start();
+                        const { startHostPairingServer } = await import('../../../scripts/setup/application/linkPair.mjs');
+                        pairingServer = await startHostPairingServer(linkEndpoint, join(dataDir, 'pair.sock'), selfhostAuth?.relayUrl ?? relayUrl);
                         host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
                         if (linkOnline) host.refreshLinkEnrolment();
                     }
                     return;
                 } catch (error) {
+                    await pairingServer?.close();
+                    pairingServer = undefined;
                     linkEndpoint?.close();
                     linkEndpoint = undefined;
                     if (attempt === 0) process.stderr.write(`link unavailable, retrying: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -779,6 +592,7 @@ async function main(): Promise<void> {
         if (shuttingDown) return;
         shuttingDown = true;
         linkOnline = false;
+        void pairingServer?.close();
         linkEndpoint?.close();
         terminals.closeAll();
         peerRuntime?.close();
@@ -794,5 +608,5 @@ async function main(): Promise<void> {
 main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);
-    process.exit(error instanceof HostedAuthExpiredError ? 0 : 1);
+    process.exit(error instanceof NonRecoverableAuthError ? 0 : 1);
 });

@@ -13,7 +13,7 @@ In Tailscale mode muxr keeps its relay on loopback and publishes it through a mu
 - Never use Funnel.
 - Never overwrite or reset a Serve configuration muxr cannot prove it owns.
 - Prefer `Self.DNSName` from `tailscale status --json`; direct tailnet IP is the explicit rollback.
-- Pairing, tickets, revocation, and relay-side ciphertext behavior do not change.
+- Tailscale changes only reachability, not link pairing, revocation, or end-to-end encryption. See [the transport architecture](../ARCHITECTURE.md#what-the-relay-does).
 
 ## Failure cases
 
@@ -30,7 +30,6 @@ Run `muxr self-host --tailscale-direct` to use the previous direct-tailnet addre
 
 ```bash
 node scripts/diagnostics/application/checkTailscaleIngress.mjs
-node scripts/diagnostics/application/checkSelfhostRevocation.mjs
 ```
 
-The first check uses a fake Tailscale CLI and verifies MagicDNS selection, loopback relay bind, Serve invocation, occupied-handler refusal, and direct fallback. The pairing check proves application-layer authority remains intact.
+The first check uses a fake Tailscale CLI and verifies MagicDNS selection, loopback relay bind, Serve invocation, occupied-handler refusal, and direct fallback. Link pairing authority is covered by `scripts/diagnostics/application/linkPairing.integration.test.ts`.

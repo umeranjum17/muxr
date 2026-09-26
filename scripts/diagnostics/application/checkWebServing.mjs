@@ -13,7 +13,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { WebSocket } from 'ws';
 import { waitForRelay } from './waitForRelay.mjs';
 
 const failures = [];
@@ -75,20 +74,19 @@ try {
     // A phone on the Direct SSH route dials the relay through a local forward
     // and presents the relay's own loopback address as its Origin: serving
     // the PWA must not shut it out, while any other origin stays refused.
-    const originVerdict = (origin, host = `127.0.0.1:${relayPort}`) => new Promise((resolve) => {
-        const socket = new WebSocket(`ws://127.0.0.1:${relayPort}/relay`, { headers: { origin, host } });
-        socket.on('close', (_code, reason) => resolve(String(reason)));
-        socket.on('error', () => undefined);
-    });
-    check('relay admits its own loopback origin past the origin check', await originVerdict(`http://127.0.0.1:${relayPort}`) !== 'origin not allowed');
-    check('relay admits the published PWA origin', await originVerdict('https://desk.example.ts.net') !== 'origin not allowed');
-    check('relay refuses another loopback port as origin', await originVerdict('http://127.0.0.1:1') === 'origin not allowed');
+    const originVerdict = async (origin, host = `127.0.0.1:${relayPort}`) => {
+        const response = await fetch(`${relayBase}/relay/v1/hosts`, { headers: { origin, host } });
+        return { status: response.status, body: await response.text() };
+    };
+    check('relay admits its own loopback origin past the origin check', !(await originVerdict(`http://127.0.0.1:${relayPort}`)).body.includes('origin not allowed'));
+    check('relay admits the published PWA origin', !(await originVerdict('https://desk.example.ts.net')).body.includes('origin not allowed'));
+    check('relay refuses another loopback port as origin', (await originVerdict('http://127.0.0.1:1')).body.includes('origin not allowed'));
     check('relay refuses loopback aliases and URL paths', (await Promise.all([
         originVerdict(`http://localhost:${relayPort}`, `localhost:${relayPort}`),
         originVerdict(`http://[::1]:${relayPort}`, `[::1]:${relayPort}`),
         originVerdict(`http://127.0.0.1:${relayPort}/relay`),
-    ])).every((reason) => reason === 'origin not allowed'));
-    check('relay refuses a foreign origin', await originVerdict('https://evil.example') === 'origin not allowed');
+    ])).every((result) => result.body.includes('origin not allowed')));
+    check('relay refuses a foreign origin', (await originVerdict('https://evil.example')).body.includes('origin not allowed'));
 
     const index = await get(relayBase, '/index.html');
     check('relay serves index.html as html', index.status === 200 && (contentType(index)).includes('text/html'));

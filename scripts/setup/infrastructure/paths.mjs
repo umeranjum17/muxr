@@ -30,9 +30,11 @@ export function cryptoModuleUrl() {
     if (packedCrypto !== undefined && existsSync(join(dirname(packedCrypto), 'host.js'))) {
         return pathToFileURL(packedCrypto).href;
     }
-    const checkout = walkFor('packages/crypto/dist/index.js');
-    if (checkout === undefined) throw new Error('muxr crypto module not found; run yarn build');
-    return pathToFileURL(checkout).href;
+    if (process.env.MUXR_PACKAGED !== '1') {
+        const checkout = walkFor('packages/crypto/dist/index.js');
+        if (checkout !== undefined) return pathToFileURL(checkout).href;
+    }
+    throw new Error('muxr crypto module not found; run yarn build');
 }
 
 /**

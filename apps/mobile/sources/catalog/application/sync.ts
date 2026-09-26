@@ -1,10 +1,5 @@
-import {
-    AccountCredentialRejectedError,
-    validateHostedAccountSession,
-    type AccountSessionState,
-    type AuthCredentials,
-} from '@/account/session';
-import { accountSurfaceApplies, hostedTransportReady } from '@/pairing/grant';
+import type { AuthCredentials } from '@/account/session';
+import { hostedTransportReady } from '@/pairing/grant';
 import {
     lifecycleNotificationAllowed,
     MAX_RPC_PER_DEVICE,
@@ -24,7 +19,8 @@ import { createArtifactWire, type ArtifactChunk, type ArtifactListing } from '..
 import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../infrastructure/connectionDiagnostics';
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
-import { LinkFirstClient, type SessionClient } from '@/pairing/client';
+import { LinkFirstClient, type ByteStreamTransport, type SessionClient } from '@/pairing/client';
+import { setActiveSessionClient } from '@/connection/sessionClientRef';
 import { AppState, Platform } from 'react-native';
 import {
     DEFAULT_CONNECTION,
@@ -193,8 +189,6 @@ type SendMessageOptions = {
  */
 const MAX_ATTACHMENT_BYTES = 1_000_000;
 
-let accountCredentialRejectedHandler: (() => void) | undefined;
-let pendingAccountCredentialRejection = false;
 const pluginInvalidationHandlers = new Set<(frame: PluginsInvalidatedFrame) => void>();
 type ArtifactsUpdate = Extract<SessionEvent, { type: 'artifacts.update' }>;
 const artifactUpdateHandlers = new Set<(sessionId: string, event: ArtifactsUpdate) => void>();
@@ -213,14 +207,6 @@ export function registerPluginInvalidationHandler(handler: (frame: PluginsInvali
 export function registerArtifactUpdateHandler(handler: (sessionId: string, event: ArtifactsUpdate) => void): () => void {
     artifactUpdateHandlers.add(handler);
     return () => artifactUpdateHandlers.delete(handler);
-}
-
-export function setAccountCredentialRejectedHandler(handler: (() => void) | undefined): void {
-    accountCredentialRejectedHandler = handler;
-    if (handler !== undefined && pendingAccountCredentialRejection) {
-        pendingAccountCredentialRejection = false;
-        handler();
-    }
 }
 
 async function toPromptAttachments(previews: readonly AttachmentPreview[]): Promise<PromptAttachment[]> {
@@ -247,7 +233,6 @@ class MuxrSync {
     private reconnectWork: Promise<void> | undefined;
     private resumeWork: Promise<void> | undefined;
     private credentials: AuthCredentials | undefined;
-    private accountValidation: Promise<AccountSessionState> | undefined;
     private pendingShell = new Map<string, (outcome: ShellOutcome) => void>();
     private openedSessions = new Set<string>();
     private opening = new Map<string, Promise<void>>();
@@ -266,49 +251,20 @@ class MuxrSync {
 
     private hasTransport(): boolean {
         const settings = this.getConnection();
-        return hostedTransportReady(settings.mode, settings.machineId, getCachedHostedGrant(settings.machineId));
-    }
-
-    async refreshAccountSession(): Promise<AccountSessionState> {
-        const settings = this.getConnection();
-        if (this.credentials === undefined) return 'valid';
-        if (!accountSurfaceApplies(settings.mode, settings.selfhost, getCachedHostedGrant(settings.machineId)?.source)) return 'valid';
-        if (this.accountValidation !== undefined) return this.accountValidation;
-        this.accountValidation = validateHostedAccountSession(settings.relayUrl, this.credentials.token)
-            .catch((error) => {
-                if (error instanceof AccountCredentialRejectedError) {
-                    if (accountCredentialRejectedHandler === undefined) pendingAccountCredentialRejection = true;
-                    else accountCredentialRejectedHandler();
-                }
-                throw error;
-            })
-            .finally(() => { this.accountValidation = undefined; });
-        return this.accountValidation;
+        return hostedTransportReady(settings.machineId, getCachedHostedGrant(settings.machineId));
     }
 
     private ensureClient(): SessionClient {
         if (this.client !== undefined) return this.client;
         const settings = this.getConnection();
-        const hostedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
-        if (!hostedTransportReady(settings.mode, settings.machineId, hostedGrant)) {
+        const hostedGrant = getCachedHostedGrant(settings.machineId);
+        if (!hostedTransportReady(settings.machineId, hostedGrant)) {
             throw new Error('machine transport unavailable until secure pairing completes');
         }
-        const transportToken = settings.mode === 'hosted' ? hostedGrant?.credential : settings.token.trim();
         const client = new LinkFirstClient({
-            mode: settings.mode,
-            relayUrl: hostedGrant?.relayUrl ?? settings.relayUrl,
-            machineId: settings.machineId,
-            ...(transportToken ? {
-                // Discovery chooses where to dial; only the stored grant may
-                // choose the reconnect credential.
-                token: transportToken,
-            } : {}),
-            ...(hostedGrant === undefined ? {} : { hostedGrant }),
+            hostedGrant,
             ...(settings.selfhost === true && settings.ssh !== undefined && sshTunnelAvailable() ? { ssh: settings.ssh } : {}),
-            ...(settings.mode === 'hosted' ? {
-                onTicketRejected: () => { void this.refreshAccountSession().catch(() => undefined); },
-                onPermanentError: (message: string) => storage.getState().setSocketError(message),
-            } : {}),
+            onPermanentError: (message) => storage.getState().setSocketError(message),
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
         client.onStateChange((state) => {
@@ -333,6 +289,7 @@ class MuxrSync {
         client.onEvent((sessionId, event) => this.handleSessionEvent(sessionId, event));
         client.connect();
         this.client = client;
+        setActiveSessionClient(client);
         return client;
     }
 
@@ -554,7 +511,6 @@ class MuxrSync {
         if (!this.hasTransport()) {
             storage.getState().setSocketStatus('disconnected');
             storage.getState().applyHerdrTree([]);
-            await this.refreshAccountSession();
             return { workspaces: [], herdrConnected: undefined };
         }
         const tree = await this.request('herdr.tree', {});
@@ -582,7 +538,6 @@ class MuxrSync {
             storage.getState().applySessions([], true);
             storage.getState().applyHerdrTree([]);
             storage.getState().markSessionsLoaded();
-            await this.refreshAccountSession();
             return;
         }
         const client = this.ensureClient();
@@ -722,9 +677,7 @@ class MuxrSync {
             await loadHostedGrant(settings.machineId);
         }
         if (this.hasTransport() && !storage.getState().herdrTreeLoaded) storage.getState().restoreHome(settings.machineId);
-        // Account validation and machine transport are deliberately independent.
-        // Offline/account-only startup renders immediately; only a definite /v1/session
-        // 401 clears credentials, through the AuthContext rejection handler.
+        // A disconnected link renders immediately and retries without clearing the grant.
         void this.refreshCatalog().catch(() => undefined);
         storage.getState().applyReady();
     }
@@ -738,6 +691,7 @@ class MuxrSync {
         this.herdrTreeRequest += 1;
         this.client?.close();
         this.client = undefined;
+        setActiveSessionClient(undefined);
         this.credentials = undefined;
     }
 
@@ -799,8 +753,27 @@ class MuxrSync {
         return this.artifactWire.read(sessionId, artifactId, offset, length, timeoutMs);
     }
 
+    /** Release the transport-owned signaling resource when the desktop session ends. */
+    closeDesktopSignaling(): void {
+        this.client?.closeDesktopSignaling?.();
+    }
+
     getCredentials(): AuthCredentials | undefined {
         return this.credentials;
+    }
+
+    /** A link stream for one terminal pane while the link serves the session;
+     *  undefined when the relay does (or no transport exists yet). */
+    openTerminalLink(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> | undefined {
+        return this.client?.terminalStream?.(args);
+    }
+
+    openVoiceStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> | undefined {
+        return this.client?.voiceStream?.(args);
+    }
+
+    openPluginStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> | undefined {
+        return this.client?.pluginStream?.(args);
     }
 
     async request<T extends import('@muxr/contract').RequestType>(
@@ -843,6 +816,7 @@ class MuxrSync {
         const work = this.enqueueLifecycle(async () => {
             this.client?.close();
             this.client = undefined;
+            setActiveSessionClient(undefined);
             storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
             const settings = this.getConnection();
             watchAgentLifecycle(
@@ -864,6 +838,7 @@ class MuxrSync {
             if (this.client?.state === 'stale') {
                 this.client.close();
                 this.client = undefined;
+                setActiveSessionClient(undefined);
                 storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
             }
             if (this.client?.state === 'closed') this.client.connect();

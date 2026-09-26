@@ -1,14 +1,12 @@
 import * as React from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
+import type { BrowseHandle, BrowseService } from '@byokit/reach';
 import { useAuth } from '@/account/ui';
 import { getCachedConnectionSettings } from '@/connection';
 import { reconnectMachine } from './ReconnectMachine';
+import { discoveredRelay, type DiscoveredRelay } from './relayLocator';
 
-export interface DiscoveredRelay {
-    name: string;
-    machineId: string;
-    relayUrl: string;
-}
+export type { DiscoveredRelay };
 
 export type RelayDiscoveryPhase = 'disabled' | 'web' | 'scanning' | 'no-service' | 'found'
     | 'verifying' | 'updated' | 'unverified' | 'permission' | 'unavailable' | 'failed';
@@ -38,39 +36,6 @@ function scanFailure(cause: unknown): RelayDiscoveryPhase {
     return /permission|denied|securityexception/i.test(message) ? 'permission' : 'failed';
 }
 
-function discoveredRelay(service: {
-    name?: string;
-    addresses?: string[];
-    port?: number;
-    txt?: Record<string, unknown>;
-}): DiscoveredRelay | undefined {
-    const machineId = typeof service.txt?.machine === 'string' ? service.txt.machine : undefined;
-    const advertised = typeof service.txt?.relay === 'string' ? service.txt.relay : undefined;
-    const mode = typeof service.txt?.mode === 'string' ? service.txt.mode : undefined;
-    if (service.name === undefined || machineId === undefined) return undefined;
-    let relayUrl = advertised;
-    if (mode === 'lan') {
-        const host = service.addresses?.find((address) => {
-            if (typeof address !== 'string') return false;
-            const octets = address.split('.').map(Number);
-            return octets.length === 4 && octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255)
-                && /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(address);
-        });
-        const port = service.port;
-        if (host === undefined || typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) return undefined;
-        relayUrl = `ws://${host}:${port}`;
-    }
-    if (relayUrl === undefined) return undefined;
-    try {
-        const parsed = new URL(relayUrl);
-        if (!['ws:', 'wss:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password
-            || parsed.pathname !== '/' || parsed.search || parsed.hash) return undefined;
-        return { name: service.name, machineId, relayUrl: parsed.toString().replace(/\/$/, '') };
-    } catch {
-        return undefined;
-    }
-}
-
 /** LAN locator scan. A result never authorises a machine; the stored E2EE grant does. */
 export function useRelayDiscovery(enabled = true): DiscoveredRelay[] {
     const [relays, setRelays] = React.useState<DiscoveredRelay[]>([]);
@@ -78,15 +43,12 @@ export function useRelayDiscovery(enabled = true): DiscoveredRelay[] {
     React.useEffect(() => {
         if (Platform.OS === 'web') { setDiscoveryPhase('web'); return undefined; }
         if (!enabled) { setDiscoveryPhase('disabled'); return undefined; }
-        let zeroconf: any;
-        try {
-            const mod = require('react-native-zeroconf');
-            zeroconf = new (mod.default ?? mod)();
-        } catch {
-            setDiscoveryPhase('unavailable');
-            return undefined;
-        }
+        let browse: typeof import('@byokit/reach').browse;
+        try { ({ browse } = require('@byokit/reach')); }
+        catch { setDiscoveryPhase('unavailable'); return undefined; }
+        let active: BrowseHandle | undefined;
         let noServiceTimer: ReturnType<typeof setTimeout> | undefined;
+        let preemptedTimer: ReturnType<typeof setTimeout> | undefined;
         let found = false;
         let activeServiceName: string | undefined;
         const clearNoServiceTimer = () => {
@@ -99,7 +61,7 @@ export function useRelayDiscovery(enabled = true): DiscoveredRelay[] {
                 if (!found && discoveryPhase === 'scanning') setDiscoveryPhase('no-service');
             }, 10_000);
         };
-        const onResolved = (service: Parameters<typeof discoveredRelay>[0]) => {
+        const onResolved = (service: BrowseService) => {
             const relay = discoveredRelay(service);
             if (relay === undefined || relay.machineId !== getCachedConnectionSettings().machineId) return;
             found = true;
@@ -121,34 +83,43 @@ export function useRelayDiscovery(enabled = true): DiscoveredRelay[] {
             setDiscoveryPhase(scanFailure(cause));
         };
         const scan = () => {
+            if (preemptedTimer !== undefined) clearTimeout(preemptedTimer);
+            preemptedTimer = undefined;
+            active?.stop();
             found = false;
             activeServiceName = undefined;
             setRelays([]);
             setDiscoveryPhase('scanning');
             try {
-                zeroconf.scan('muxr', 'tcp', 'local.');
+                const next = browse({ type: 'muxr' });
+                active = next;
+                next.on('found', onResolved);
+                next.on('updated', onResolved);
+                next.on('lost', onRemoved);
+                next.on('error', onError);
+                next.on('stopped', ({ reason }) => {
+                    if (active !== next || reason !== 'preempted') return;
+                    active = undefined;
+                    clearNoServiceTimer();
+                    found = false;
+                    setRelays([]);
+                    setDiscoveryPhase('scanning');
+                    // SSH scan returns the browser as soon as it finishes. If another
+                    // caller preempted us, retry after that bounded scan window.
+                    preemptedTimer = setTimeout(() => { if (active === undefined) scan(); }, 8_500);
+                });
                 waitForService();
             } catch (cause) { onError(cause); }
         };
-        const retry = () => {
-            try { zeroconf.stop(); }
-            catch { /* A fresh scan still has a chance to work. */ }
-            scan();
-        };
-        zeroconf.on('resolved', onResolved);
-        zeroconf.on('remove', onRemoved);
-        zeroconf.on('error', onError);
-        retryScan = retry;
+        retryScan = scan;
+        const foreground = AppState.addEventListener('change', (state) => { if (state === 'active') scan(); });
         scan();
         return () => {
             clearNoServiceTimer();
-            if (retryScan === retry) retryScan = undefined;
-            zeroconf.removeListener('resolved', onResolved);
-            zeroconf.removeListener('remove', onRemoved);
-            zeroconf.removeListener('error', onError);
-            try { zeroconf.stop(); }
-            catch { /* shutdown best effort */ }
-            zeroconf.removeDeviceListeners();
+            if (preemptedTimer !== undefined) clearTimeout(preemptedTimer);
+            if (retryScan === scan) retryScan = undefined;
+            foreground.remove();
+            active?.stop();
         };
     }, [enabled]);
 

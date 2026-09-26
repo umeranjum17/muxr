@@ -40,13 +40,11 @@ export interface SshTarget {
 }
 
 export interface ConnectionSettings {
-    /** Hosted is fail-closed and grant-backed. Local is the explicit development fixture. */
-    mode: 'hosted' | 'local';
+    mode: 'hosted';
     relayUrl: string;
     machineId: string;
-    /** Account token from POST /v1/accounts. Required by a strict relay. */
     token: string;
-    /** True when the active machine is a self-host pairing (no account surface). */
+    /** True when the active machine was paired through self-host link. */
     selfhost?: boolean;
     /** Android-only route override; the relay and E2EE grant stay unchanged. */
     ssh?: SshTarget;
@@ -68,23 +66,19 @@ export interface ConnectionSettings {
  */
 const BUILD_ENV_APPLIES = Platform.OS !== 'web';
 
-function buildEnv(suffix: 'MODE' | 'RELAY_URL' | 'MACHINE_ID' | 'TOKEN'): string | undefined {
+function buildEnv(suffix: 'RELAY_URL' | 'MACHINE_ID'): string | undefined {
     if (!BUILD_ENV_APPLIES) return undefined;
     switch (suffix) {
-        case 'MODE': return process.env.EXPO_PUBLIC_MUXR_MODE;
         case 'RELAY_URL': return process.env.EXPO_PUBLIC_MUXR_RELAY_URL;
         case 'MACHINE_ID': return process.env.EXPO_PUBLIC_MUXR_MACHINE_ID;
-        case 'TOKEN': return process.env.EXPO_PUBLIC_MUXR_TOKEN;
     }
 }
 
-const DEFAULT_MODE: ConnectionSettings['mode'] = buildEnv('MODE') === 'local' ? 'local' : 'hosted';
-
 export const DEFAULT_CONNECTION: ConnectionSettings = {
-    mode: DEFAULT_MODE,
+    mode: 'hosted',
     relayUrl: buildEnv('RELAY_URL') ?? 'ws://127.0.0.1:8792',
-    machineId: buildEnv('MACHINE_ID') ?? (DEFAULT_MODE === 'local' ? 'devbox' : ''),
-    token: DEFAULT_MODE === 'local' ? (buildEnv('TOKEN') ?? '') : '',
+    machineId: buildEnv('MACHINE_ID') ?? '',
+    token: '',
     lastSessionCwd: '',
     recentSessionCwds: [],
 };
@@ -99,18 +93,6 @@ export function registerConnectionTargetChange(listener: () => Promise<void>): v
 
 export function isConnectionSettingsHydrated(): boolean {
     return hydrated;
-}
-
-function parseMachineId(mode: ConnectionSettings['mode'], parsed: Partial<ConnectionSettings>): string {
-    const raw = typeof parsed.machineId === 'string' ? parsed.machineId.trim() : '';
-    if (mode === 'hosted') return raw;
-    if (raw.length > 0) return raw;
-    return DEFAULT_CONNECTION.machineId;
-}
-
-function parseLocalToken(storedToken: string): string {
-    if (storedToken.length > 0) return storedToken;
-    return DEFAULT_CONNECTION.token;
 }
 
 function parsePort(value: unknown, fallback: number): number {
@@ -137,25 +119,19 @@ function parseSshTarget(value: unknown): SshTarget | undefined {
 
 function parseSettings(raw: string): ConnectionSettings {
     const parsed = JSON.parse(raw) as Partial<ConnectionSettings>;
-    const mode = parsed.mode === 'local' || parsed.mode === 'hosted' ? parsed.mode : DEFAULT_CONNECTION.mode;
     const recent = Array.isArray(parsed.recentSessionCwds)
         ? parsed.recentSessionCwds.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
         : [];
-    const storedToken = typeof parsed.token === 'string' ? parsed.token.trim() : '';
     const ssh = parsed.selfhost === true ? parseSshTarget(parsed.ssh) : undefined;
     return {
-        mode,
+        mode: 'hosted',
         relayUrl: typeof parsed.relayUrl === 'string' && parsed.relayUrl.trim().length > 0
             ? parsed.relayUrl.trim()
             : DEFAULT_CONNECTION.relayUrl,
-        // Hosted account-only sessions deliberately persist an empty machine id.
-        // Falling back to the build default turns account auth into a fake machine connection.
-        machineId: parseMachineId(mode, parsed),
+        // An unpaired device has no machine id; never fabricate one from a build default.
+        machineId: typeof parsed.machineId === 'string' ? parsed.machineId.trim() : '',
         ...(ssh === undefined ? {} : { ssh }),
-        // An empty stored token is never usable against a strict relay, so it
-        // falls back to the build default rather than pinning the app to a
-        // permanent unauthorized retry loop.
-        token: mode === 'local' ? parseLocalToken(storedToken) : '',
+        token: '',
         lastSessionCwd: typeof parsed.lastSessionCwd === 'string' ? parsed.lastSessionCwd.trim() : '',
         ...(parsed.selfhost === true ? { selfhost: true } : {}),
         recentSessionCwds: recent.slice(0, MAX_RECENT_CWDS),
@@ -189,7 +165,7 @@ export async function loadConnectionSettingsAsync(): Promise<ConnectionSettings>
         const raw = await readRaw();
         if (raw !== null) {
             memoryCache = parseSettings(raw);
-            if (memoryCache.mode === 'hosted') await writeRaw(JSON.stringify(memoryCache));
+            await writeRaw(JSON.stringify(memoryCache));
             hydrated = true;
             return memoryCache;
         }

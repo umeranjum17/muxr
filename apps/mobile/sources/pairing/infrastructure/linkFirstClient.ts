@@ -5,17 +5,39 @@ import {
     normalizeRequestFailure,
     type ClientRequest,
     type HostFrame,
+    type LifecycleNotificationLevel,
     type RequestParams,
     type RequestResult,
     type RequestType,
     type SessionEvent,
 } from '@muxr/contract';
-import { deriveLinkGrant } from '../application/linkGrant';
-import { MuxrClient, MuxrRequestError, type ConnectionState, type MuxrClientOptions } from './muxrClient';
+import { deriveLinkGrant } from './linkGrant';
+import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '@/connection/sshTunnel';
+import type { SshTarget } from '@/connection';
+import type { StoredHostedGrant } from '../application/hostedE2ee';
 
-/** The slice of a session transport the catalog sync drives; `MuxrClient` satisfies it too. */
+export type ConnectionState = 'connecting' | 'open' | 'closed' | 'stale';
+
+export interface LinkClientOptions {
+    hostedGrant?: StoredHostedGrant;
+    ssh?: SshTarget;
+    requestTimeoutMs?: number;
+    onPermanentError?: (message: string) => void;
+}
+
+export class MuxrRequestError extends Error {
+    constructor(message: string, readonly code?: string) {
+        super(message);
+        this.name = 'MuxrRequestError';
+    }
+}
+
+/** The link session port consumed by catalog sync. */
 export type SessionClient = {
     readonly state: ConnectionState;
+    /** True when this device has a byokit link (enrolled native device): the
+     *  one-shot transport for terminal panes, even while it is down. */
+    readonly linkCapable: boolean;
     connect(): void;
     close(): void;
     isLive(): boolean;
@@ -23,33 +45,51 @@ export type SessionClient = {
     onStateChange(listener: (state: ConnectionState) => void): () => void;
     onEvent(listener: (sessionId: string, event: SessionEvent) => void): () => void;
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
+    registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
+    unregisterPush(): Promise<boolean>;
+    terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
+    voiceStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
+    closeDesktopSignaling?(): void;
+    pluginStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
 };
 
-/**
- * How long the link gets to prove itself, and how long an online link may stay
- * down, before this client hands the session to the relay transport. The trial
- * sits above one full failed dial; the grace covers byokit's first backoff
- * rounds so a network blip does not flap the session onto the relay.
- */
-const LINK_TRIAL_MS = 6_000;
-const LINK_GRACE_MS = 20_000;
+/** Line-framed duplex stream used by terminal and realtime adapters. */
+export type ByteStreamTransport = {
+    write(line: string): Promise<void>;
+    onLine(listener: (line: string) => void): () => void;
+    onEnd(listener: (error?: string) => void): () => void;
+    close(): void;
+};
+
+type DesktopLinkTransport = {
+    request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>>;
+    close(): void;
+};
 
 function linkRequestFailure(type: RequestType, error: string, code?: string): MuxrRequestError {
     const normalized = normalizeRequestFailure(type, error, code);
     return new MuxrRequestError(normalized.message, normalized.code);
 }
 
+/** One byokit link, including its terminal, desktop, voice and push streams. */
 export class LinkFirstClient implements SessionClient {
-    private inner: MuxrClient | undefined;
     private link: DeviceLink | undefined;
+    /** The byokit link is the only transport for this client (one-shot migration). */
+    get linkCapable(): boolean {
+        return deriveLinkGrant(this.options.hostedGrant) !== undefined;
+    }
     private online = false;
     private closed = false;
-    private fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+    private retryTimer: ReturnType<typeof setTimeout> | undefined;
+    private retryAttempt = 0;
+    private lastPush: { token: string; level: LifecycleNotificationLevel } | undefined;
     private readonly stateListeners = new Set<(state: ConnectionState) => void>();
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
     private readonly pluginListeners = new Set<(frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void>();
+    private desktopTransport: DesktopLinkTransport | undefined;
+    private desktopOpening: Promise<DesktopLinkTransport | undefined> | undefined;
 
-    constructor(private readonly options: MuxrClientOptions) {}
+    constructor(private readonly options: LinkClientOptions) {}
 
     get state(): ConnectionState {
         return this.stateField;
@@ -57,59 +97,264 @@ export class LinkFirstClient implements SessionClient {
     private stateField: ConnectionState = 'closed';
 
     connect(): void {
-        if (this.closed) return;
-        if (this.inner === undefined) this.startRelay();
-        else this.inner.connect();
+        if (this.closed || this.link !== undefined || this.stateField === 'stale') return;
+        const stored = this.options.hostedGrant;
+        if (stored?.credential) {
+            this.setState('stale');
+            this.options.onPermanentError?.('This pairing is from an older muxr version. Update muxr on this device and the computer, then pair again: run `muxr pair` on the computer and scan its new link code.');
+            return;
+        }
+        const grant = deriveLinkGrant(stored);
+        if (stored === undefined || grant === undefined) {
+            this.setState('stale');
+            this.options.onPermanentError?.('Pair with this computer again to use the secure link.');
+            return;
+        }
+        this.link = new DeviceLink(grant, {
+            timeoutMs: 5_000,
+            ...(this.options.ssh === undefined ? {} : { resolve: async (url: string) => {
+                try { return await sshRelayUrl(url, stored.machineId, this.options.ssh!); }
+                catch (error) {
+                    if (error instanceof SshConnectionError && error.permanent) {
+                        this.stopLink();
+                        this.setState('stale', true);
+                        this.options.onPermanentError?.(error.message);
+                    }
+                    throw error;
+                }
+            } }),
+            onStatus: (status) => this.onLinkStatus(status),
+            onEvent: (event) => this.onLinkEvent(event),
+            onError: () => undefined,
+        });
+        this.setState('connecting');
     }
 
     close(): void {
         this.closed = true;
-        this.clearFallbackTimer();
+        if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
         this.stopLink();
-        this.inner?.close();
-        this.inner = undefined;
+        if (this.options.ssh !== undefined) void stopSshTunnel();
         this.setState('closed');
     }
 
     isLive(): boolean {
-        return this.online || this.inner?.isLive() === true;
+        return this.online;
     }
 
-    /** Which transport is serving the session; diagnostics and tests read this. */
-    get transport(): 'link' | 'relay' | 'closed' {
-        if (this.online) return 'link';
-        return this.inner !== undefined ? 'relay' : 'closed';
+    get transport(): 'link' | 'closed' {
+        return this.online ? 'link' : 'closed';
     }
 
     request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
         if (this.closed) return Promise.reject(new Error('not connected'));
-        const relay = this.inner;
-        if (type.startsWith('desktop.') || !this.online) {
-            if (relay === undefined) return Promise.reject(new Error('not connected'));
-            if (relay.isLive()) return relay.request(type, params, timeoutMs);
-            return new Promise<RequestResult<T>>((resolve, reject) => {
-                const ready = () => type.startsWith('desktop.') ? relay.isLive() : this.online || relay.isLive();
-                const finish = () => { clearTimeout(timer); offRelay(); offState(); };
-                const check = () => {
-                    if (this.closed) { finish(); reject(new Error('not connected')); return; }
-                    if (!ready()) return;
-                    finish();
-                    void this.request(type, params, timeoutMs).then(resolve, reject);
-                };
-                const timer = setTimeout(() => { finish(); reject(new Error('not connected')); }, timeoutMs ?? 10_000);
-                const offRelay = relay.onStateChange(check);
-                const offState = this.onStateChange(check);
-                check();
-            });
-        }
+        if (type.startsWith('desktop.')) return this.requestViaLink(type, params, timeoutMs);
         const link = this.link;
-        if (link === undefined || this.closed) return Promise.reject(new Error('not connected'));
+        if (link === undefined) return Promise.reject(new Error('link unavailable; retry when connected'));
         const frame = { type, requestId: nextRequestId('rn'), params } as ClientRequest;
         const timeout = timeoutMs ?? this.options.requestTimeoutMs ?? 20_000;
         return link.request(type, frame, { timeoutMs: timeout }).then(
             (value) => this.unwrap(type, value),
             (cause: unknown) => Promise.reject(this.mapLinkFailure(type, cause)),
         );
+    }
+
+    /** Opens a terminal or voice stream over the link. */
+    private async openByteStream(name: 'terminal' | 'voice' | 'plugin', args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+        if (!this.online || this.link === undefined || this.closed) return undefined;
+        const stream = await this.link.stream(name, args);
+        let ended = false;
+        let endError: string | undefined;
+        const lines = new Set<(line: string) => void>();
+        const ends = new Set<(error?: string) => void>();
+        const early: string[] = [];
+        let earlySize = 0;
+        const decoder = new TextDecoder();
+        let buffer = '';
+        const finish = (error?: string): void => {
+            if (ended) return;
+            ended = true;
+            endError = error;
+            for (const listener of [...ends]) listener(error);
+        };
+        stream.onData = (chunk) => {
+            if (ended) return;
+            buffer += decoder.decode(chunk, { stream: true });
+            if (buffer.length > 1_048_576) {
+                finish('terminal: link frame too large');
+                stream.end();
+                return;
+            }
+            const parts = buffer.split('\n');
+            buffer = parts.pop() ?? '';
+            for (const line of parts) {
+                if (ended) break;
+                if (lines.size > 0) {
+                    for (const listener of [...lines]) listener(line);
+                } else {
+                    earlySize += line.length;
+                    if (earlySize > 1_048_576) {
+                        finish('terminal: link input too large');
+                        stream.end();
+                    } else early.push(line);
+                }
+            }
+        };
+        stream.onEnd = finish;
+        return {
+            // The link is a byte stream, not messages: every line carries its own newline.
+            write: (line) => stream.write(`${line}\n`),
+            onLine: (listener) => {
+                lines.add(listener);
+                for (const line of early.splice(0)) listener(line);
+                earlySize = 0;
+                return () => { lines.delete(listener); };
+            },
+            onEnd: (listener) => {
+                if (ended) listener(endError);
+                else ends.add(listener);
+                return () => { ends.delete(listener); };
+            },
+            close: () => {
+                finish();
+                stream.end();
+            },
+        };
+    }
+
+    /** Opens the realtime voice stream while the link serves the session. */
+    voiceStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+        return this.openByteStream('voice', args);
+    }
+
+    /** Opens the pane's stream while the link serves the session. */
+    terminalStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+        return this.openByteStream('terminal', args);
+    }
+    private requestViaLink<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
+        if (this.closed) return Promise.reject(new Error('not connected'));
+        return new Promise<RequestResult<T>>((resolve, reject) => {
+            let opening = false;
+            let settled = false;
+            const finish = (): void => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                offState();
+            };
+            const check = (): void => {
+                if (settled) return;
+                if (this.closed) { finish(); reject(new Error('not connected')); return; }
+                if (!this.online || opening) return;
+                opening = true;
+                void this.desktopStream().then((transport) => {
+                    opening = false;
+                    if (settled) return;
+                    if (transport === undefined) {
+                        if (!this.online) return;
+                        finish();
+                        reject(new Error('desktop signaling link is unavailable'));
+                        return;
+                    }
+                    finish();
+                    void transport.request(type, params, timeoutMs).then(resolve, reject);
+                }, (error: unknown) => { finish(); reject(error); });
+            };
+            const timer = setTimeout(() => { finish(); reject(new Error('desktop signaling link unavailable')); }, timeoutMs ?? this.options.requestTimeoutMs ?? 20_000);
+            const offState = this.onStateChange(check);
+            check();
+        });
+    }
+
+    /** One duplex signaling stream for desktop requests; media remains WebRTC. */
+    private async desktopStream(): Promise<DesktopLinkTransport | undefined> {
+        if (this.desktopTransport !== undefined) return this.desktopTransport;
+        if (this.desktopOpening !== undefined) return this.desktopOpening;
+        const opening = this.openDesktopStream();
+        this.desktopOpening = opening;
+        try { return await opening; }
+        finally { if (this.desktopOpening === opening) this.desktopOpening = undefined; }
+    }
+
+    private async openDesktopStream(): Promise<DesktopLinkTransport | undefined> {
+        const link = this.link;
+        if (!this.online || link === undefined || this.closed) return undefined;
+        let stream: Awaited<ReturnType<DeviceLink['stream']>>;
+        try { stream = await link.stream('desktop', {}); }
+        catch { return undefined; }
+        if (this.closed || this.link !== link || !this.online) { stream.end(); return undefined; }
+        let ended = false;
+        let buffer = '';
+        const decoder = new TextDecoder();
+        let transport: DesktopLinkTransport;
+        const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+        const failPending = (error: Error): void => {
+            for (const request of pending.values()) {
+                clearTimeout(request.timer);
+                request.reject(error);
+            }
+            pending.clear();
+        };
+        stream.onData = (chunk) => {
+            buffer += decoder.decode(chunk, { stream: true });
+            if (buffer.length > 1_000_000) { stream.end('desktop response too large'); return; }
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const line of lines) {
+                let frame: unknown;
+                try { frame = JSON.parse(line); } catch { stream.end('malformed desktop response'); return; }
+                if (typeof frame !== 'object' || frame === null || !('requestId' in frame) || typeof frame.requestId !== 'string') continue;
+                const request = pending.get(frame.requestId);
+                if (request === undefined) continue;
+                pending.delete(frame.requestId);
+                clearTimeout(request.timer);
+                request.resolve(frame);
+            }
+        };
+        stream.onEnd = (error) => {
+            if (ended) return;
+            ended = true;
+            failPending(new Error(error ?? 'desktop signaling stream ended'));
+            if (this.desktopTransport === transport) this.desktopTransport = undefined;
+        };
+        transport = {
+            request: async <T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> => {
+                if (ended || !this.online || this.link !== link) return this.requestViaLink(type, params, timeoutMs);
+                const frame = { type, requestId: nextRequestId('rn'), params } as ClientRequest;
+                const timeout = timeoutMs ?? this.options.requestTimeoutMs ?? 20_000;
+                const response = await new Promise<unknown>((resolve, reject) => {
+                    const timer = setTimeout(() => {
+                        pending.delete(frame.requestId);
+                        reject(new Error('desktop signaling request timed out'));
+                    }, timeout);
+                    pending.set(frame.requestId, { resolve, reject, timer });
+                    void stream.write(`${JSON.stringify(frame)}\n`).catch((cause: unknown) => {
+                        if (!pending.delete(frame.requestId)) return;
+                        clearTimeout(timer);
+                        reject(cause instanceof Error ? cause : new Error(String(cause)));
+                    });
+                });
+                return this.unwrap(type, response);
+            },
+            close: () => {
+                if (ended) return;
+                ended = true;
+                stream.end();
+                failPending(new Error('desktop signaling stream closed'));
+                if (this.desktopTransport === transport) this.desktopTransport = undefined;
+            },
+        };
+        this.desktopTransport = transport;
+        return transport;
+    }
+
+    closeDesktopSignaling(): void {
+        this.desktopTransport?.close();
+        this.desktopTransport = undefined;
+    }
+
+    pluginStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+        return this.openByteStream('plugin', args);
     }
 
     onStateChange(listener: (state: ConnectionState) => void): () => void {
@@ -127,25 +372,47 @@ export class LinkFirstClient implements SessionClient {
         return () => { this.pluginListeners.delete(listener); };
     }
 
+    async registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {
+        this.lastPush = { token, level };
+        if (this.link === undefined || !this.online) return false;
+        await this.request('push.subscribe', { token, level }, 5_000);
+        return true;
+    }
+
+    async unregisterPush(): Promise<boolean> {
+        this.lastPush = undefined;
+        if (this.link === undefined || !this.online) return false;
+        await this.request('push.unsubscribe', {}, 5_000);
+        return true;
+    }
+
     private onLinkStatus(status: LinkStatus): void {
         if (this.closed || this.link === undefined) return;
         if (status === 'online') {
-            this.clearFallbackTimer();
+            this.retryAttempt = 0;
             this.online = true;
             this.setState('open', true);
+            // The registration may have ridden the relay HTTP API while the link
+            // was down; re-register here so one device lives in one push store.
+            if (this.lastPush !== undefined) {
+                void this.registerPush(this.lastPush.token, this.lastPush.level).catch(() => undefined);
+            }
             return;
         }
-        // 'removed' covers a revoked device and a host that has not admitted
-        // this device yet; the relay transport, not this client, tells the user
-        // which one it was. 'refused' means nothing answered as our host.
-        if (status === 'removed' || status === 'refused') {
+        if (status === 'removed') {
             this.stopLink();
+            this.setState('stale', true);
+            this.options.onPermanentError?.('This device can no longer connect. Pair with this computer again.');
+            return;
+        }
+        if (status === 'refused') {
+            this.stopLink();
+            this.scheduleRetry();
             return;
         }
         if (this.online) {
             this.online = false;
-            this.setState(this.inner?.state ?? 'connecting', true);
-            this.armFallback(LINK_GRACE_MS);
+            this.setState('connecting', true);
         }
     }
 
@@ -172,14 +439,17 @@ export class LinkFirstClient implements SessionClient {
     }
 
     private mapLinkFailure(type: RequestType, cause: unknown): Error {
-        if (cause instanceof PublicLinkError) {
-            this.stopLink();
-            return linkRequestFailure(type, cause.message);
-        }
+        if (cause instanceof PublicLinkError) return linkRequestFailure(type, cause.message);
         if (cause instanceof LinkError) {
-            if (cause.code === 'timeout' || cause.code === 'stopped' || cause.code === 'removed') {
-                // The link could not serve the session; the relay transport takes it from here.
+            if (cause.code === 'removed') {
                 this.stopLink();
+                this.setState('stale', true);
+                this.options.onPermanentError?.('This device can no longer connect. Pair with this computer again.');
+                return new Error('pair with this computer again');
+            }
+            if (cause.code === 'stopped') {
+                this.stopLink();
+                this.scheduleRetry();
                 return new Error('connection lost');
             }
             return linkRequestFailure(type, LINK_WORDS[cause.code]);
@@ -187,67 +457,24 @@ export class LinkFirstClient implements SessionClient {
         return cause instanceof Error ? cause : new Error(String(cause));
     }
 
-    private startRelay(): void {
-        if (this.closed || this.inner !== undefined) return;
-        const relay = new MuxrClient({
-            ...this.options,
-            onLinkEnrolled: (key) => this.onLinkEnrolled(key),
-            onHostHello: () => {
-                if (this.link === undefined && this.options.hostedGrant?.source === 'selfhost') {
-                    void this.inner?.request('herdr.tree', {}).catch(() => undefined);
-                }
-            },
-        });
-        relay.onStateChange((state) => { if (!this.online) this.setState(state); });
-        relay.onEvent((sessionId, event) => {
-            if (!this.online) for (const listener of this.eventListeners) listener(sessionId, event);
-        });
-        relay.onPluginsInvalidated((frame) => {
-            if (!this.online) for (const listener of this.pluginListeners) listener(frame);
-        });
-        this.inner = relay;
-        this.setState('connecting');
-        relay.connect();
-    }
-
-    private onLinkEnrolled(key: string): void {
-        const stored = this.options.hostedGrant;
-        if (this.closed || this.link !== undefined || stored?.source !== 'selfhost'
-            || stored.deviceKey.publicKey !== key) return;
-        const route = this.options.ssh === undefined ? undefined : this.inner?.activeRelayUrl;
-        if (this.options.ssh !== undefined && route === undefined) return;
-        const grant = deriveLinkGrant(stored, route);
-        if (grant === undefined) return;
-        this.link = new DeviceLink(grant, {
-            timeoutMs: 5_000,
-            onStatus: (status) => this.onLinkStatus(status),
-            onEvent: (event) => this.onLinkEvent(event),
-            onError: () => undefined,
-        });
-        this.armFallback(LINK_TRIAL_MS);
+    private scheduleRetry(): void {
+        if (this.closed || this.retryTimer !== undefined) return;
+        const delay = Math.min(1000 * 2 ** Math.min(this.retryAttempt++, 4), 10_000);
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = undefined;
+            this.connect();
+        }, delay);
     }
 
     private stopLink(): void {
         const link = this.link;
         this.link = undefined;
+        this.desktopTransport?.close();
+        this.desktopTransport = undefined;
         const wasOnline = this.online;
         this.online = false;
         link?.stop();
-        if (!this.closed) this.setState(this.inner?.state ?? 'connecting', wasOnline);
-    }
-
-    private armFallback(ms: number): void {
-        this.clearFallbackTimer();
-        this.fallbackTimer = setTimeout(() => {
-            this.fallbackTimer = undefined;
-            this.stopLink();
-        }, ms);
-    }
-
-    private clearFallbackTimer(): void {
-        if (this.fallbackTimer === undefined) return;
-        clearTimeout(this.fallbackTimer);
-        this.fallbackTimer = undefined;
+        if (!this.closed) this.setState('connecting', wasOnline);
     }
 
     private setState(state: ConnectionState, transportChanged = false): void {

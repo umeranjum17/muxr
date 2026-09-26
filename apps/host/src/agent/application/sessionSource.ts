@@ -26,6 +26,13 @@ import type {
     WatchSettlement,
 } from '@muxr/contract';
 
+export interface VoiceStreamTransport {
+    onData: (chunk: Uint8Array) => void | Promise<void>;
+    onEnd: (error?: string) => void | Promise<void>;
+    write(chunk: Uint8Array | string): Promise<void>;
+    end(error?: string): void;
+}
+
 export interface SessionListOptions {
     cwd?: string;
     includeSubsessions?: boolean;
@@ -116,13 +123,13 @@ export interface SessionSource {
     pluginCall(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; input?: unknown; idempotencyKey?: string }): Promise<unknown>;
     /** Declared RPC mode for a catalog contribution, so read-only devices can be allowed through read paths only. */
     pluginRpcMode?(options: { pluginId: string; manifestHash: string; contributionId: string }): 'read' | 'write' | undefined;
-    pluginStream(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string }): Promise<null>;
+    pluginStream(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string; transport: VoiceStreamTransport }): Promise<null>;
     /**
-     * Attach one product-owned realtime voice stream. Same relay channel and
-     * frame protocol as a plugin stream, but resolved from muxr's own adapter
-     * runtime: no catalog entry, manifest hash, or per-device plugin approval.
+     * Attach one product-owned realtime voice stream over its pre-opened
+     * duplex transport. It uses muxr's own adapter runtime: no catalog entry,
+     * manifest hash, or per-device plugin approval.
      */
-    voiceStream(options: { deviceId: string; channel: string; sessionId?: string }): Promise<null>;
+    voiceStream(options: { deviceId: string; channel: string; sessionId?: string; transport: VoiceStreamTransport }): Promise<null>;
     /** Split layout of one tab (rects in terminal cells) for grid views. */
     herdrLayout(tabId: string): Promise<{
         tabId: string;
@@ -165,7 +172,7 @@ export interface SessionSource {
         tabId: string;
         started: number;
     }>;
-    paneFocus(sessionId: string): Promise<void>;
+    paneFocus(sessionId: string, assertActive?: () => void): Promise<void>;
     /** Focus the adjacent pane in a grid direction, from this session's pane. */
     focusNeighbor(sessionId: string, direction: 'left' | 'right' | 'up' | 'down'): Promise<void>;
     /** Focus the adjacent tab in this session's workspace, from this session's tab. */

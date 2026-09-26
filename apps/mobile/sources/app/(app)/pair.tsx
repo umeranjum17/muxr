@@ -8,9 +8,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from '@/pairing/e2ee';
-import { pairMachine, usePairQrScanner } from '@/pairing';
-import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, tunnelPairingUrl, type SshFieldInput } from '@/connection';
+import { hostedPairingAuthority, hostedPairingDuration, linkPairMachineName, looksLikeLinkOffer } from '@/pairing/e2ee';
+import { pairLinkOffer, usePairQrScanner } from '@/pairing';
+import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
@@ -52,14 +52,14 @@ const BROWSER_PAIRING_STEPS = [
 ] as const;
 
 type PairState =
-    | { phase: 'confirm'; url: string; machineName: string }
-    | { phase: 'working'; url: string; machineName: string }
+    | { phase: 'confirm'; url: string; machineName: string; linkOffer?: boolean }
+    | { phase: 'working'; url: string; machineName: string; linkOffer?: boolean }
     | { phase: 'error'; message: string; url?: string; machineName?: string };
 
 const SSH_PAIRING_STEPS = [
-    'On the computer, run `muxr pair` — it prints a one-time pairing string.',
+    'On the computer, run `muxr pair` — it prints a one-time link offer.',
     'Fill in the SSH details; muxr opens the tunnel to that machine.',
-    'Paste the pairing string below — pairing runs through the tunnel.',
+    'Paste the offer below — pairing runs through the tunnel.',
 ] as const;
 
 function SshField(props: {
@@ -112,57 +112,44 @@ export default function PairScreen() {
     const [sshPassphrase, setSshPassphrase] = React.useState('');
     const [sshError, setSshError] = React.useState<string | undefined>(undefined);
     const [commandCopied, setCommandCopied] = React.useState(false);
-    // Deep links arrive as route params (expo-router drops unknown query keys
-    // from getInitialURL, so the raw URL is only a fallback).
+    // Native intent routes the offer into this screen's query param before Expo Router handles the URL.
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
     const PairScrollView = browser ? ScrollView : KeyboardAwareScrollView;
     const openedFromSettings = routeParams.source === 'settings';
     const sshRoute = !browser && routeParams.route === 'ssh' && Platform.OS === 'android' && sshTunnelAvailable();
     const reviewPairing = React.useCallback((raw: string) => {
-        try {
-            const url = prepareHostedPairingInput(raw);
-            setState({ phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
-        } catch (cause) {
-            setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
+        if (looksLikeLinkOffer(raw.trim())) {
+            const offer = raw.trim();
+            setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
+            void linkPairMachineName(offer).then((name) => {
+                if (name !== undefined) setState((current) => current?.url === offer ? { ...current, machineName: name } : current);
+            }).catch(() => undefined);
+            return;
         }
+        setState({ phase: 'error', message: 'This pairing code is from an older muxr. Update muxr on both devices, run `muxr pair` on the computer, then scan its new link code.' });
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const browserAuthority = browser && state?.url ? hostedPairingAuthority(state.url) : 'observe';
     const grants = browser
-        ? browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS
+        ? (browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS)
+            .map((grant) => grant.replace('eight hours', hostedPairingDuration(state?.url ?? '')))
         : PHONE_PAIRING_GRANTS;
     const pairingSteps = browser ? BROWSER_PAIRING_STEPS : PHONE_PAIRING_STEPS;
     const switching = getCachedConnectionSettings().machineId !== '';
-    const routePairUrl = React.useMemo(() => {
-        const v = routeParams.v;
-        if (typeof v !== 'string' || v === '') return undefined;
-        const query = new URLSearchParams();
-        for (const [key, value] of Object.entries(routeParams)) {
-            if (key === 'source' || key === 'route' || typeof value !== 'string') continue;
-            // Expo's deep-link parser form-decodes, so the `%2B` in a
-            // standard-base64 machinePk arrives as a space and the rebuilt
-            // mailbox no longer matches the machine's signing key. base64
-            // has no spaces, so restoring `+` is unambiguous -- but only
-            // for that key: the human-readable name may contain real spaces.
-            query.set(key, key === 'machinePk' ? value.replace(/ /g, '+') : value);
-        }
-        return `muxr://pair?${query.toString()}`;
-    }, [JSON.stringify(routeParams)]);
+    const routePairUrl = typeof routeParams.offer === 'string' && looksLikeLinkOffer(routeParams.offer)
+        ? routeParams.offer : undefined;
 
     React.useEffect(() => {
         let cancelled = false;
         const receive = (raw: string | null) => {
             if (cancelled || !raw) return false;
-            try {
-                const url = prepareHostedPairingInput(raw);
-                setState((current) => current?.url === url
-                    ? current
-                    : { phase: 'confirm', url, machineName: hostedPairingDisplayName(url) });
+            if (!looksLikeLinkOffer(raw.trim())) {
+                setState({ phase: 'error', message: 'This pairing code is from an older muxr. Run `muxr pair` on the computer for a new link code.' });
                 return true;
-            } catch {
-                return false;
             }
+            reviewPairing(raw);
+            return true;
         };
         if (routePairUrl !== undefined) {
             receive(routePairUrl);
@@ -181,52 +168,26 @@ export default function PairScreen() {
         // Warm start: the app was already open when the link arrived.
         const subscription = Linking.addEventListener('url', (event) => receive(event.url));
         return () => { cancelled = true; subscription.remove(); };
-    }, [routePairUrl, browser, sshRoute]);
+    }, [routePairUrl, browser, sshRoute, reviewPairing]);
 
     const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
-        // The SSH route pairs through its own tunnel: establish it first, claim
-        // over the loopback it opens, and only report success with the tunnel
-        // proven. The tunnel stays open; the next sync dial reuses or rebuilds it.
-        let claimUrl = url;
-        let tunnelHostKey: string | undefined;
-        if (sshInput !== undefined) {
-            const tunnel = await establishSshTunnel(sshInput);
-            if (!tunnel.ok) throw new Error(tunnel.message);
-            tunnelHostKey = tunnel.hostKey;
-            claimUrl = tunnelPairingUrl(url, tunnel.localPort);
-        }
-        const paired = await pairMachine({ url: claimUrl, resumable: sshInput !== undefined });
-        if (!paired.ok && paired.reason === 'voice-pinned') {
-            const switchApproved = await Modal.confirm(
-                'End voice and switch?',
-                'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
-                { confirmText: 'End voice and switch', destructive: true },
-            );
-            if (!switchApproved) {
-                router.replace('/');
+        // Link offers pair over the running machine; Direct SSH uses its own route.
+        if (looksLikeLinkOffer(url.trim())) {
+            const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput);
+            if (tunnel !== undefined && !tunnel.ok) throw new Error(tunnel.message);
+            const paired = await pairLinkOffer(url.trim(), auth, tunnel === undefined ? {} : { tunnelPort: tunnel.localPort });
+            if (!paired) {
+                if (tunnel !== undefined) await stopSshTunnel();
                 return;
             }
-            const retried = await pairMachine({ grant: paired.grant, endVoiceIfPinned: true });
-            if (!retried.ok) {
-                throw new Error(retried.reason === 'failed' ? retried.message ?? 'Pairing failed' : 'Pairing failed');
-            }
-            if (sshInput !== undefined) {
-                const applied = await applySshAfterPairing(sshInput, { hostKey: tunnelHostKey, relayUrl: url });
+            if (sshInput !== undefined && tunnel?.ok) {
+                const applied = await applySshAfterPairing(sshInput, { hostKey: tunnel.hostKey });
                 if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
             }
-            await auth.login(retried.credential, retried.secretKey);
             router.replace('/');
             return;
         }
-        if (!paired.ok) {
-            throw new Error(paired.message ?? 'Pairing failed');
-        }
-        if (sshInput !== undefined) {
-            const applied = await applySshAfterPairing(sshInput, { hostKey: tunnelHostKey, relayUrl: url });
-            if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
-        }
-        await auth.login(paired.credential, paired.secretKey);
-        router.replace('/');
+        throw new Error('This pairing code is from an older muxr. Run `muxr pair` on the computer for a new link code.');
     }, [auth, router]);
 
     const sshInput = React.useCallback((): { ok: true; input?: SshFieldInput } | { ok: false; error: string } => {

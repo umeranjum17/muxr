@@ -52,7 +52,7 @@ describe('muxr config file', () => {
             ['{oops', '(file)', 'malformed JSON'],
             ['[1,2]', '(file)', 'must be a JSON object'],
             [JSON.stringify({ relayUrl: 'http://plain' }), 'relayUrl', 'ws:// or wss://'],
-            [JSON.stringify({ mode: 'cloud' }), 'mode', 'hosted'],
+            [JSON.stringify({ mode: 'cloud' }), 'mode', 'selfhost'],
             [JSON.stringify({ hostHttpPort: 99999 }), 'hostHttpPort', '1 to 65535'],
             [JSON.stringify({ dataDir: 'relative/path' }), 'dataDir', 'absolute path'],
             [JSON.stringify({ mystery: 1 }), 'mystery', 'unknown setting'],

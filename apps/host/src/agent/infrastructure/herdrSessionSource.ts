@@ -31,7 +31,7 @@ import type {
     SessionStartResult,
     SessionStatus,
 } from '@muxr/contract';
-import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, relayControlUrl, sanitizeDisplayText } from '@muxr/contract';
+import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@muxr/contract';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
@@ -323,6 +323,17 @@ export interface CreateHerdrSessionSourceOptions {
     hostedE2ee?: HostedMachineKeys;
     /** Issues one revocable capability only to an approved voice.session child. */
     peerBroker?: PeerBroker;
+    /** Fan one lifecycle notification out to this machine's link devices (the
+     *  byokit relay push); the relay HTTP push above keeps serving pre-link devices. */
+    onLinkAttention?: (input: {
+        sessionId: string;
+        eventId: string;
+        kind: 'blocked' | 'done' | 'failed';
+        machineId: string;
+        reasonCode?: string;
+        agentName?: string;
+        taskTitle?: string;
+    }) => void;
     /** Writes bounded semantic prompt outcomes to the owner-only host diagnostics journal. */
     onRealtimePromptDiagnostic?: (event: RealtimePromptDiagnostic) => void;
     /** Writes bounded Realtime operation outcomes to the owner-only host diagnostics journal. */
@@ -774,10 +785,6 @@ export async function createHerdrSessionSource(
         }, options.onRealtimePromptDiagnostic, options.onRealtimeCoordinationDiagnostic);
         await codingCoordinator.start();
         pluginStreams = new PluginStreamManager({
-            relayUrl: options.relayUrl,
-            machineId: options.machineId,
-            ...(options.token === undefined ? {} : { token: options.token }),
-            ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
             ...(options.peerBroker === undefined ? {} : { peerBroker: options.peerBroker }),
             codingCoordinator,
         });
@@ -1243,17 +1250,10 @@ export async function createHerdrSessionSource(
      * Best-effort push notify when a session parks waiting for its user.
      * Fire-and-forget: never awaited in the hot path, never throws.
      */
-    let pushNotifyUrl: string | undefined;
-    if (options.relayUrl !== undefined && options.machineId !== undefined) {
-        try {
-            pushNotifyUrl = relayControlUrl(options.relayUrl, '/v1/push/notify');
-        } catch {}
-    }
-
     function notifyAttention(sessionId: string, eventId: string, kind: 'blocked' | 'done' | 'failed'): void {
-        if (pushNotifyUrl === undefined || options.machineId === undefined) return;
+        if (options.machineId === undefined) return;
         const lifecycle = options.lifecycle?.current(sessionId);
-        const body = JSON.stringify({
+        const payload = {
             machineId: options.machineId,
             sessionId,
             eventId,
@@ -1261,16 +1261,17 @@ export async function createHerdrSessionSource(
             ...(lifecycle === undefined ? {} : { reasonCode: lifecycle.reasonCode }),
             ...(lifecycle?.agentName === undefined ? {} : { agentName: lifecycle.agentName }),
             ...(lifecycle?.taskTitle === undefined ? {} : { taskTitle: lifecycle.taskTitle }),
+        };
+        options.onLinkAttention?.({
+            sessionId: payload.sessionId,
+            eventId: payload.eventId,
+            kind: payload.kind,
+            machineId: payload.machineId,
+            ...(payload.reasonCode === undefined ? {} : { reasonCode: payload.reasonCode }),
+            ...(payload.agentName === undefined ? {} : { agentName: payload.agentName }),
+            ...(payload.taskTitle === undefined ? {} : { taskTitle: payload.taskTitle }),
         });
-        void fetch(pushNotifyUrl, {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),
-            },
-            body,
-            signal: AbortSignal.timeout(3000),
-        }).catch(() => {});
+
     }
 
     function applyAttention(sessionId: string, agentStatus: AgentLifecycle): void {
@@ -2195,8 +2196,9 @@ export async function createHerdrSessionSource(
         }
     }
 
-    async function focusSession(sessionId: string): Promise<void> {
+    async function focusSession(sessionId: string, assertActive?: () => void): Promise<void> {
         const record = await resolvePane(sessionId);
+        assertActive?.();
         await client.call('pane.focus', { pane_id: record.paneId });
     }
 
@@ -2646,7 +2648,7 @@ export async function createHerdrSessionSource(
             return invocation;
         },
 
-        async pluginStream({ deviceId, pluginId, manifestHash, contributionId, channel, sessionId }): Promise<null> {
+        async pluginStream({ deviceId, pluginId, manifestHash, contributionId, channel, sessionId, transport }): Promise<null> {
             await refreshPlugins();
             if (!pluginApprovals.has(deviceId, pluginId)) throw new Error('plugin is not approved for this device');
             if (pluginStreams === undefined) throw new Error('plugin stream transport is unavailable');
@@ -2690,6 +2692,7 @@ export async function createHerdrSessionSource(
                     }),
                     ...(publicContext === undefined ? {} : { publicContext }),
                     deviceId,
+                    transport,
                     signal: approval.signal,
                     onClosed: approval.release,
                 });
@@ -2716,7 +2719,7 @@ export async function createHerdrSessionSource(
          * a paired control device is the only gate, exactly like every other
          * product mutation.
          */
-        async voiceStream({ deviceId, channel, sessionId }): Promise<null> {
+        async voiceStream({ deviceId, channel, sessionId, transport }): Promise<null> {
             if (pluginStreams === undefined) throw new Error('plugin stream transport is unavailable');
             if (typeof channel !== 'string' || !/^rs_[A-Za-z0-9_-]{8,80}$/.test(channel)) throw new Error('invalid realtime voice channel');
             if (voiceStreamAborts.has(channel)) throw new Error('realtime voice channel is already attached');
@@ -2738,6 +2741,7 @@ export async function createHerdrSessionSource(
                     // refresh must not present a cached tree as live.
                     publicContext: realtimePluginPublicContext(agentCatalog.freshness === 'fresh' ? agentCatalog.agents : []),
                     deviceId,
+                    transport,
                     signal: abort.signal,
                     onClosed: () => { voiceStreamAborts.delete(channel); },
                 });
@@ -3128,8 +3132,8 @@ export async function createHerdrSessionSource(
             return { tabId, started };
         },
 
-        async paneFocus(sessionId: string): Promise<void> {
-            await focusSession(sessionId);
+        async paneFocus(sessionId: string, assertActive?: () => void): Promise<void> {
+            await focusSession(sessionId, assertActive);
         },
 
         async focusNeighbor(sessionId: string, direction: 'left' | 'right' | 'up' | 'down'): Promise<void> {

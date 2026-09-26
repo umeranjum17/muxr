@@ -31,8 +31,14 @@ export async function enrollMachine() {
             body: JSON.stringify({ relay_url: relayUrl, ...(state.webEnabled ? { web_url: relayUrl.replace(/^wss/, 'https') } : {}) }),
         });
         if (!created.response.ok) throw new Error(created.body.error || 'could not create enrollment');
+        // The link (byokit) enrolment rides the same string: the machine's host
+        // claims it on its first registration, the legacy credential on connect.
+        const linkEnrolment = await api(base, '/relay/v1/enrolments', { method: 'POST', headers });
+        if (!linkEnrolment.response.ok) throw new Error(linkEnrolment.body.error || 'could not create the link enrolment on the shared relay');
+        if (typeof linkEnrolment.body.token !== 'string') throw new Error('the shared relay returned no link enrolment token');
         const payload = Buffer.from(JSON.stringify({ v: 1, id: created.body.enrollment_id, claim: created.body.claim,
             relay: created.body.relay_url, expires: Date.now() + Number(created.body.expires_in ?? 300) * 1000,
+            link: linkEnrolment.body.token,
             ...(typeof created.body.web_url === 'string' ? { web: created.body.web_url } : {}) })).toString('base64url');
         const link = `muxr://enroll?payload=${payload}`;
         print('');

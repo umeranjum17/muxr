@@ -10,7 +10,7 @@ export async function listDevices() {
         }
         const devices = await selfhostDevices(state);
         if (devices.length === 0) print('No paired devices.');
-        else devices.forEach((device, index) => print(`  ${index + 1}. ${device.name || 'phone'} — paired ${new Date(device.createdAt).toLocaleDateString()}`));
+        else devices.forEach((device, index) => print(`  ${index + 1}. ${device.name || 'phone'} — paired${device.createdAt === undefined ? '' : ` ${new Date(device.createdAt).toLocaleDateString()}`}`));
         return 0;
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));
