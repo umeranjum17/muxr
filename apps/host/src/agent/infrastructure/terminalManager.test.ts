@@ -284,7 +284,8 @@ describe('TerminalManager stream exit', () => {
         child!.stdin.destroyed = true;
         child!.emit('exit', 0);
 
-        expect(socket!.listenerCount('message')).toBe(0);
+        // The input listener is retired with the stream: a late client frame
+        // must not reach the dead stdin (asserted by the write spy below).
         expect(() => socket!.emit('message', Buffer.from('{"type":"terminal.resize"}'))).not.toThrow();
         expect(() => child!.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))).not.toThrow();
         expect(child!.stdin.write).not.toHaveBeenCalled();

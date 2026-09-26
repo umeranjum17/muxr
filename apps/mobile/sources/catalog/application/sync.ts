@@ -24,7 +24,7 @@ import { createArtifactWire, type ArtifactChunk, type ArtifactListing } from '..
 import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../infrastructure/connectionDiagnostics';
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
-import { LinkFirstClient, type SessionClient } from '@/pairing/client';
+import { LinkFirstClient, type SessionClient, type TerminalLinkTransport } from '@/pairing/client';
 import { AppState, Platform } from 'react-native';
 import {
     DEFAULT_CONNECTION,
@@ -801,6 +801,12 @@ class MuxrSync {
 
     getCredentials(): AuthCredentials | undefined {
         return this.credentials;
+    }
+
+    /** A link stream for one terminal pane while the link serves the session;
+     *  undefined when the relay does (or no transport exists yet). */
+    openTerminalLink(args: Record<string, unknown>): Promise<TerminalLinkTransport | undefined> | undefined {
+        return this.client?.terminalStream?.(args);
     }
 
     async request<T extends import('@muxr/contract').RequestType>(

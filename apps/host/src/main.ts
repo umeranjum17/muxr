@@ -749,6 +749,7 @@ async function main(): Promise<void> {
                         currentCrypto,
                         answer: host.answer,
                         canView: host.canView,
+                        terminals,
                         onStatus: (status) => {
                             linkOnline = status === 'online';
                             process.stdout.write(`link relay: ${status}\n`);

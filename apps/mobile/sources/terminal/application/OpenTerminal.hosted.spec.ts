@@ -41,7 +41,7 @@ vi.mock('@/connection', () => ({
 }));
 
 vi.mock('@/catalog/sync', () => ({
-    sync: { request: mocks.request },
+    sync: { request: mocks.request, openTerminalLink: () => undefined },
 }));
 
 vi.mock('@/catalog/store', async () => {
