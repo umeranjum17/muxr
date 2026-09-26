@@ -179,6 +179,7 @@ describe('generic realtime stream session', () => {
             sessionId: 's1',
             snapshot: expect.objectContaining({ machineId: 'machine-a', relayUrl: 'wss://relay-a' }),
             attach: expect.any(Function),
+            openStream: expect.any(Function),
         }));
         expect(stream.start).toHaveBeenCalledOnce();
         expect(stream.frames).toHaveLength(1);

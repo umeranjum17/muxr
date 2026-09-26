@@ -34,6 +34,7 @@ export interface LinkEndpointOptions {
     canView: (frame: ClientFrame) => boolean;
     /** Given, a control or observing device may carry a terminal pane over a link stream. */
     terminals?: LinkTerminalPort;
+    voiceStreams?: { attach(params: { deviceId: string; channel: string; sessionId?: string; stream: LinkStream }): Promise<void> };
     onStatus?: (status: string) => void;
 }
 
@@ -208,8 +209,12 @@ export class LinkEndpoint {
         // this assignment; the push handler needs the finished endpoint.
         let endpoint: LinkEndpoint;
         const host = await Host.open({
-            ...(options.terminals === undefined ? {} : {
-                stream: (stream: LinkStream, req: LinkRequest, grant: Grant) => streamTerminal(stream, req, grant, options),
+            ...(options.terminals === undefined && options.voiceStreams === undefined ? {} : {
+                stream: (stream: LinkStream, req: LinkRequest, grant: Grant) => {
+                    if (req.op === 'voice') return streamVoice(stream, req, grant, options);
+                    if (req.op === 'terminal') return streamTerminal(stream, req, grant, options);
+                    throw new PublicLinkError('unsupported link stream');
+                },
             }),
             keys,
             name: options.machineName,
@@ -223,6 +228,7 @@ export class LinkEndpoint {
                 // devices are forced to observe mode in the handler below, the
                 // same way the relay dispatcher forces it on terminal.attach.
                 if (req.op === 'terminal') return true;
+                if (req.op === 'voice') return grant.role === 'control' && options.voiceStreams !== undefined;
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) return false;
                 // A device's own push address is device-local, never machine data.
@@ -397,6 +403,22 @@ export class LinkEndpoint {
  * (ok with the pane, or the attach error with its code, e.g. `takeover`), then
  * herdr's NDJSON flows both ways until the stream ends.
  */
+async function streamVoice(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
+    const args = req.args as { channel?: unknown; sessionId?: unknown } | null;
+    if (!trusted(grant, options.currentCrypto())) throw new PublicLinkError('voice: device is no longer trusted');
+    if (grant.role !== 'control' || options.voiceStreams === undefined || args === null || typeof args !== 'object'
+        || typeof args.channel !== 'string' || !/^rs_[A-Za-z0-9_-]{8,80}$/.test(args.channel)
+        || (args.sessionId !== undefined && (typeof args.sessionId !== 'string' || args.sessionId.length === 0 || args.sessionId.length > 200))) {
+        throw new PublicLinkError('voice: malformed or unauthorized stream');
+    }
+    await options.voiceStreams.attach({
+        deviceId: muxrDeviceIdOf(grant)!,
+        channel: args.channel,
+        ...(typeof args.sessionId === 'string' ? { sessionId: args.sessionId } : {}),
+        stream,
+    });
+}
+
 async function streamTerminal(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
     const params = parseLinkTerminalAttach(req.args);
     if (params === undefined) throw new PublicLinkError('terminal: malformed attach');

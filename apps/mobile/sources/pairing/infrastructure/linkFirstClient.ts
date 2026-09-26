@@ -29,15 +29,18 @@ export type SessionClient = {
     unregisterPush(): Promise<boolean>;
     /** A terminal pane over the link while it serves the session. */
     terminalStream?(args: Record<string, unknown>): Promise<TerminalLinkTransport | undefined>;
+    voiceStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
 };
 
-/** One pane's NDJSON pipe over the link. */
-export type TerminalLinkTransport = {
+/** Line-framed duplex stream used by terminal and realtime adapters. */
+export type ByteStreamTransport = {
     write(line: string): Promise<void>;
     onLine(listener: (line: string) => void): () => void;
     onEnd(listener: (error?: string) => void): () => void;
     close(): void;
 };
+
+export type TerminalLinkTransport = ByteStreamTransport;
 
 /**
  * How long the link gets to prove itself, and how long an online link may stay
@@ -129,10 +132,10 @@ export class LinkFirstClient implements SessionClient {
         );
     }
 
-    /** Opens the pane's stream when the link is serving the session; undefined means the relay does. */
-    async terminalStream(args: Record<string, unknown>): Promise<TerminalLinkTransport | undefined> {
+    /** Opens one binary link stream; undefined means the relay serves the session. */
+    private async openByteStream(name: 'terminal' | 'voice', args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
         if (!this.online || this.link === undefined || this.closed) return undefined;
-        const stream = await this.link.stream('terminal', args);
+        const stream = await this.link.stream(name, args);
         let ended = false;
         const lines = new Set<(line: string) => void>();
         const ends = new Set<(error?: string) => void>();
@@ -166,6 +169,16 @@ export class LinkFirstClient implements SessionClient {
                 stream.end();
             },
         };
+    }
+
+    /** Opens the realtime voice stream while the link serves the session. */
+    voiceStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+        return this.openByteStream('voice', args);
+    }
+
+    /** Opens the pane's stream while the link serves the session. */
+    terminalStream(args: Record<string, unknown>): Promise<TerminalLinkTransport | undefined> {
+        return this.openByteStream('terminal', args);
     }
 
     onStateChange(listener: (state: ConnectionState) => void): () => void {

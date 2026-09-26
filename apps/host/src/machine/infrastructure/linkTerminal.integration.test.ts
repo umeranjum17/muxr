@@ -9,16 +9,16 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DeviceLink, hostId, keyPairFrom, type DeviceGrant, type LinkStatus } from '@byokit/link';
-import { decodePayload, encodePayload, parseClientFrame, terminalSocketUrl, type ClientFrame, type Envelope, type HostFrame } from '@muxr/contract';
+import { decodePayload, encodePayload, parseClientFrame, realtimeSocketUrl, terminalSocketUrl, type ClientFrame, type Envelope, type HostFrame } from '@muxr/contract';
 import { generateKeyPair } from '@muxr/crypto';
 import { startRelay, type RelayHandle } from '@muxr/relay';
-import { TerminalManager, closeTerminal, openTerminal } from '../../agent/index.js';
+import { PluginStreamManager, TerminalManager, closeTerminal, openTerminal, type VoiceStreamTransport } from '../../agent/index.js';
 import { LinkEndpoint, type LinkAnswer } from './linkEndpoint.js';
 import type { MachineCryptoState } from '../domain/crypto.js';
 
@@ -70,14 +70,14 @@ function once<T>(target: Promise<T>, ms: number, what: string): Promise<T> {
     ]);
 }
 
-describe('terminal over the byokit link (real relay + real host)', () => {
+describe('byokit link streams (real relay + real host)', () => {
     const cleanups: Array<() => void> = [];
 
     afterEach(() => {
         while (cleanups.length > 0) cleanups.pop()!();
     });
 
-    it('attaches, types and resizes over a link stream, then falls back to the relay after a link drop', { timeout: 60_000 }, async () => {
+    it('carries terminal and voice streams over link and compares voice latency with relay', { timeout: 60_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-terminal-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
         const herdrBin = writeFakeHerdr(dir);
@@ -104,6 +104,13 @@ describe('terminal over the byokit link (real relay + real host)', () => {
                 authority: 'control',
             }],
         };
+
+        const voiceRoot = join(dir, 'voice-plugin');
+        const voiceEntry = join(voiceRoot, 'stream.mjs');
+        mkdirSync(voiceRoot, { recursive: true });
+        writeFileSync(voiceEntry, `import readline from 'node:readline';\nconst input = readline.createInterface({ input: process.stdin });\ninput.on('line', (line) => { const frame = JSON.parse(line); if (frame.type === 'realtime.audio') process.stdout.write(JSON.stringify({ type: 'realtime.transcript', role: 'user', text: 'voice frame received' }) + '\\n'); });\n`);
+        const voiceRuntime = new PluginStreamManager({ relayUrl, machineId: 'machine-test' });
+        cleanups.push(() => voiceRuntime.closeAll());
 
         const terminals = new TerminalManager({
             relayUrl,
@@ -139,6 +146,23 @@ describe('terminal over the byokit link (real relay + real host)', () => {
             answer,
             canView: () => false,
             terminals: { attach: (params) => terminals.attach(params) },
+            voiceStreams: {
+                attach: ({ deviceId, channel, sessionId, stream }) => voiceRuntime.attach({
+                    target: { pluginId: 'voice-test', pluginRoot: voiceRoot, entry: 'stream.mjs' },
+                    channel,
+                    stateDir: join(dir, 'voice-state'),
+                    ...(sessionId === undefined ? {} : { sessionId }),
+                    deviceId,
+                    transport: {
+                        set onData(listener: VoiceStreamTransport['onData']) { stream.onData = listener; },
+                        set onEnd(listener: VoiceStreamTransport['onEnd']) { stream.onEnd = listener; },
+                        write: (chunk) => stream.write(chunk),
+                        end: (error) => stream.end(error),
+                    },
+                    signal: new AbortController().signal,
+                    onClosed: () => undefined,
+                }),
+            },
         });
         expect(endpoint).toBeDefined();
         cleanups.push(() => endpoint!.close());
@@ -261,6 +285,44 @@ describe('terminal over the byokit link (real relay + real host)', () => {
         // Resize.
         await stream.write(`${JSON.stringify({ type: 'terminal.resize', cols: 40, rows: 12 })}\n`);
         expect(await nextFrameBytes('resize repaint')).toBe('SCREEN pane-s1 40x12');
+
+        // Voice frames use the same duplex link stream primitive; measure a
+        // real encrypted-link round trip before dropping back to relay.
+        const voice = await link.stream('voice', { channel: 'rs_linkvoice1234', sessionId: 's1' });
+        const voiceReply = new Promise<string>((resolve, reject) => {
+            let received = '';
+            voice.onData = (chunk) => {
+                received += Buffer.from(chunk).toString('utf8');
+                if (received.includes('\n')) resolve(received.trim());
+            };
+            voice.onEnd = (error) => reject(new Error(`voice link ended: ${error ?? 'clean'}`));
+        });
+        const voiceStarted = Date.now();
+        const voiceFrame = JSON.stringify({ type: 'realtime.audio', data: 'AQI=' });
+        await voice.write(`${voiceFrame}\n`);
+        expect(await once(voiceReply, 5_000, 'voice link round trip')).toBe(JSON.stringify({ type: 'realtime.transcript', role: 'user', text: 'voice frame received' }));
+        const voiceLinkRttMs = Date.now() - voiceStarted;
+        process.stdout.write(`voice link round trip: ${voiceLinkRttMs}ms\n`);
+        expect(voiceLinkRttMs).toBeLessThan(5_000);
+
+        // The same small voice frame over the relay stream channel is the
+        // before/after baseline; the relay forwards without interpreting it.
+        const relayVoiceChannel = 'rs_relayvoice1234';
+        const relayVoiceMachine = new WebSocket(realtimeSocketUrl(relayUrl, { machineId: 'machine-test', channel: relayVoiceChannel, role: 'machine' }));
+        const relayVoicePhone = new WebSocket(realtimeSocketUrl(relayUrl, { machineId: 'machine-test', channel: relayVoiceChannel, role: 'client' }));
+        cleanups.push(() => relayVoiceMachine.close(), () => relayVoicePhone.close());
+        await Promise.all([relayVoiceMachine, relayVoicePhone].map((socket) => once(new Promise<void>((resolve, reject) => {
+            socket.once('open', resolve);
+            socket.once('error', reject);
+        }), 5_000, 'relay voice socket')));
+        relayVoiceMachine.on('message', (data) => relayVoiceMachine.send(data));
+        const relayVoiceReply = new Promise<string>((resolve) => relayVoicePhone.once('message', (data) => resolve(String(data))));
+        const relayVoiceStarted = Date.now();
+        relayVoicePhone.send(voiceFrame);
+        expect(await once(relayVoiceReply, 5_000, 'voice relay round trip')).toBe(voiceFrame);
+        const voiceRelayRttMs = Date.now() - relayVoiceStarted;
+        process.stdout.write(`voice round trip: link=${voiceLinkRttMs}ms relay=${voiceRelayRttMs}ms\n`);
+        expect(voiceRelayRttMs).toBeLessThan(5_000);
 
         // ---- The link drops mid-session; the pane reattaches over the relay. ----
         link.stop(); // the drop: the host sees the stream end and retires the pane pipe

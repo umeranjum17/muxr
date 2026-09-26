@@ -26,6 +26,13 @@ import type {
     WatchSettlement,
 } from '@muxr/contract';
 
+export interface VoiceStreamTransport {
+    onData: (chunk: Uint8Array) => void | Promise<void>;
+    onEnd: (error?: string) => void | Promise<void>;
+    write(chunk: Uint8Array | string): Promise<void>;
+    end(error?: string): void;
+}
+
 export interface SessionListOptions {
     cwd?: string;
     includeSubsessions?: boolean;
@@ -122,7 +129,7 @@ export interface SessionSource {
      * frame protocol as a plugin stream, but resolved from muxr's own adapter
      * runtime: no catalog entry, manifest hash, or per-device plugin approval.
      */
-    voiceStream(options: { deviceId: string; channel: string; sessionId?: string }): Promise<null>;
+    voiceStream(options: { deviceId: string; channel: string; sessionId?: string; transport?: VoiceStreamTransport }): Promise<null>;
     /** Split layout of one tab (rects in terminal cells) for grid views. */
     herdrLayout(tabId: string): Promise<{
         tabId: string;
