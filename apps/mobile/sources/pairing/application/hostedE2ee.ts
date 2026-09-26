@@ -21,6 +21,18 @@ import {
     type V2SenderState,
 } from '@muxr/crypto';
 import { relayControlUrl } from '@muxr/contract';
+import {
+    DeviceLink,
+    LinkError,
+    LINK_WORDS,
+    b64url,
+    keyPair as linkKeyPair,
+    keyPairFrom,
+    pairWithOffer,
+    pendingGrant,
+    unb64url,
+    type DeviceGrant as LinkDeviceGrant,
+} from '@byokit/link';
 import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from '../infrastructure/webSecureStore';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '../infrastructure/nativeSecretStore';
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
@@ -38,6 +50,7 @@ export { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingI
 const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
 const REPLAY_KEY = 'muxr.hosted-e2ee.replay.v2';
 const PENDING_PAIR_KEY = 'muxr.hosted-e2ee.pending-pair.v1';
+const PENDING_LINK_PAIR_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
 /** Trailing delay for the replay write; one write covers every frame inside it. */
 const REPLAY_FLUSH_MS = 1000;
 
@@ -444,9 +457,201 @@ async function completePendingHostedPair(pending: PendingHostedPair, wait: boole
 
 /** Resume a claim that survived an app/process restart. */
 export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | undefined> {
+    const linkPending = await secretGet(PENDING_LINK_PAIR_KEY);
+    if (linkPending !== null) return resumePendingLinkPairing();
     const raw = await secretGet(PENDING_PAIR_KEY);
     if (raw === null) return undefined;
     return completePendingHostedPair(JSON.parse(raw) as PendingHostedPair, false);
+}
+
+/** What the computer answers over the pairing link once the person approves. */
+interface LinkPairAnswer {
+    machineId: string;
+    machineName: string;
+    machineBoxPublicKey: string;
+    relayUrl: string;
+    deviceId: string;
+    authority: 'control' | 'observe';
+    linkUrl: string;
+}
+
+interface PendingLinkPair {
+    scanned: string;
+    name: string;
+    /** base64url; persisted before the first connection so a death mid-pairing resumes instead of re-pairing. */
+    secretKey: string;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Dial one link address and wait for the handshake to settle. Resolves with
+ * the (still-open) link plus how it settled: `online`, or `refused` when
+ * something other than the expected host answered, or neither inside
+ * `timeoutMs`. The caller owns `link.stop()` in every case.
+ */
+function openLink(grant: LinkDeviceGrant, timeoutMs: number): Promise<{ link: DeviceLink; online: boolean; refused: boolean }> {
+    return new Promise((resolve) => {
+        let settled = false;
+        const link = new DeviceLink(grant, {
+            timeoutMs: 5_000,
+            onStatus: (status) => {
+                if (settled) return;
+                if (status === 'online') { settled = true; resolve({ link, online: true, refused: false }); }
+                else if (status === 'removed' || status === 'refused') { settled = true; resolve({ link, online: false, refused: status === 'refused' }); }
+            },
+        });
+        setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            resolve({ link, online: false, refused: false });
+        }, timeoutMs);
+    });
+}
+
+/** The durable expiry a native grant carries (scripts/setup DURABLE_GRANT_EXPIRES_AT). */
+const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+
+/**
+ * Native pairing over the byokit link (migration step 4): scan the computer's
+ * link QR, show the two confirmation words while the person at the computer
+ * approves, then trade `pair.complete` for the machine details and prove this
+ * phone holds its key over the machine's real link before anything is stored.
+ * The pending pairing is persisted before the first connection, so a process
+ * death resumes it rather than leaving the computer holding an unused grant.
+ */
+export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void } = {}): Promise<StoredHostedGrant> {
+    const secretKey = b64url(linkKeyPair().secretKey);
+    const pending: PendingLinkPair = { scanned, name: hostedDeviceName(), secretKey };
+    await secretSet(PENDING_LINK_PAIR_KEY, JSON.stringify(pending));
+    return completeLinkPairing(pending, { ...options, mode: 'claim' });
+}
+
+/** The pairing machine display name for consent, parsed for display only; the pairing itself re-validates. */
+export async function linkPairMachineName(scanned: string): Promise<string | undefined> {
+    try {
+        return pendingGrant(scanned, { name: hostedDeviceName(), key: linkKeyPair() }).hostName;
+    } catch {
+        return undefined;
+    }
+}
+
+async function resumePendingLinkPairing(): Promise<StoredHostedGrant | undefined> {
+    const raw = await secretGet(PENDING_LINK_PAIR_KEY);
+    if (raw === null) return undefined;
+    const pending = JSON.parse(raw) as PendingLinkPair;
+    try {
+        return await completeLinkPairing(pending, { mode: 'resume' });
+    } catch {
+        // The pairing window is minutes long; anything that failed this long
+        // after a restart is dead — the person scans a fresh QR.
+        await secretDelete(PENDING_LINK_PAIR_KEY);
+        return undefined;
+    }
+}
+
+async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?: (words: string) => void; mode: 'claim' | 'resume' }): Promise<StoredHostedGrant> {
+    const key = keyPairFrom(unb64url(pending.secretKey));
+    const grant = pendingGrant(pending.scanned, { name: pending.name, key });
+    let claim: LinkDeviceGrant;
+    try {
+        if (options.mode === 'claim') {
+            // A fresh scan claims the single-use ticket; a resumed phone was
+            // already approved, so it reconnects by its key alone — the ticket
+            // burned on the first connection.
+            claim = await pairWithOffer(pending.scanned, {
+                name: pending.name,
+                key,
+                ...(options.onWords === undefined ? {} : { onWords: options.onWords }),
+            });
+        } else {
+            claim = grant;
+        }
+    } catch (cause) {
+        await secretDelete(PENDING_LINK_PAIR_KEY);
+        throw new Error(cause instanceof LinkError && cause.code in LINK_WORDS ? LINK_WORDS[cause.code] : 'pairing failed');
+    }
+    // The pairing host lives in the `muxr pair` process; reconnect with the
+    // grant it just approved to trade the machine details.
+    const dial = await openLink(claim, 15_000);
+    const pairing = dial.link;
+    try {
+        if (!dial.online) throw new Error(dial.refused ? LINK_WORDS['wrong-host'] : LINK_WORDS.unreachable);
+        const answer = await pairing.request('pair.complete', { deviceName: pending.name }, { timeoutMs: 15_000 }) as unknown as LinkPairAnswer;
+        if (typeof answer?.machineId !== 'string' || typeof answer?.machineBoxPublicKey !== 'string'
+            || typeof answer?.linkUrl !== 'string' || !/^wss?:\/\//.test(answer.linkUrl)
+            || typeof answer?.relayUrl !== 'string' || typeof answer?.deviceId !== 'string') {
+            throw new Error('the computer sent an incomplete pairing answer');
+        }
+        // The proof: this phone opens the machine's own link with its key.
+        await verifyMachineLink(answer, key, pending.name);
+        // Tell the pairing CLI the proof landed, over the pairing link.
+        await pairing.request('pair.verified', {}, { timeoutMs: 10_000 });
+        const stored: StoredHostedGrant = {
+            machineId: answer.machineId,
+            // The link pins the machine by its box key; the old transport's
+            // signing key never crosses a link pairing.
+            machineSigningPublicKey: '',
+            deviceId: answer.deviceId,
+            devicePublicKey: Buffer.from(key.publicKey).toString('base64'),
+            keyVersion: 1,
+            expiresAt: DURABLE_GRANT_EXPIRES_AT,
+            authority: 'control',
+            deviceKey: {
+                publicKey: Buffer.from(key.publicKey).toString('base64'),
+                secretKey: Buffer.from(key.secretKey).toString('base64'),
+            },
+            // The relay transport stays unused for link-paired phones; push
+            // and its credential arrive with the relay migration step.
+            machineBoxPublicKey: Buffer.from(unb64url(answer.machineBoxPublicKey)).toString('base64'),
+            credential: '',
+            dataKey: '',
+            ingressKey: '',
+            relayUrl: answer.relayUrl,
+            machineName: answer.machineName,
+            source: 'selfhost',
+        };
+        await saveHostedGrant(stored);
+        return stored;
+    } finally {
+        pairing.stop();
+        await secretDelete(PENDING_LINK_PAIR_KEY);
+    }
+}
+
+/**
+ * Prove this phone over the machine's own link: the computer only finishes the
+ * pairing once a device with our key connects there. A first dial can race the
+ * machine enrolling us from the record it just wrote, so a refusal retries
+ * inside the computer's proof window instead of failing the pairing.
+ */
+async function verifyMachineLink(answer: LinkPairAnswer, key: ReturnType<typeof keyPairFrom>, name: string): Promise<void> {
+    const grant: LinkDeviceGrant = {
+        v: 1,
+        secretKey: b64url(key.secretKey),
+        host: answer.machineBoxPublicKey,
+        hostName: answer.machineName,
+        urls: [answer.linkUrl],
+        device: { id: '', name, role: 'control' },
+    };
+    const deadline = Date.now() + 25_000;
+    while (true) {
+        const dial = await openLink(grant, 8_000);
+        try {
+            // The handshake itself proves the key reached the machine.
+            if (dial.online) return;
+            if (dial.refused) throw new Error(LINK_WORDS['wrong-host']);
+        } finally {
+            dial.link.stop();
+        }
+        // `removed` here usually means the machine has not enrolled this key
+        // yet (the record was written moments ago); retry inside the proof
+        // window before failing the pairing.
+        if (Date.now() >= deadline) {
+            throw new Error('the phone could not reach the computer over the link. Make sure muxr is running there, then run `muxr pair` again.');
+        }
+        await sleep(1_500);
+    }
 }
 
 /**

@@ -69,8 +69,22 @@ export class LinkFirstClient implements SessionClient {
     }
     private stateField: ConnectionState = 'closed';
 
+    /**
+     * A phone paired over the link holds no relay credential: the link is its
+     * only transport until the relay migration replaces the old one. It dials
+     * the link directly instead of waiting for a relay hello that never comes.
+     */
+    private get linkOnly(): boolean {
+        const stored = this.options.hostedGrant;
+        return stored !== undefined && stored.credential === '' && deriveLinkGrant(stored) !== undefined;
+    }
+
     connect(): void {
         if (this.closed) return;
+        if (this.linkOnly) {
+            this.startLink();
+            return;
+        }
         if (this.inner === undefined) this.startRelay();
         else this.inner.connect();
     }
@@ -340,11 +354,15 @@ export class LinkFirstClient implements SessionClient {
         // which one it was. 'refused' means nothing answered as our host.
         if (status === 'removed' || status === 'refused') {
             this.stopLink();
+            // A link-only phone has nothing else to connect with; a removed
+            // grant is terminal, not a reason to spin on 'connecting'.
+            if (status === 'removed' && this.linkOnly) this.setState('stale', true);
             return;
         }
         if (this.online) {
             this.online = false;
             this.setState(this.inner?.state ?? 'connecting', true);
+            this.armFallback(LINK_GRACE_MS);
         }
     }
 
@@ -386,7 +404,7 @@ export class LinkFirstClient implements SessionClient {
     }
 
     private startRelay(): void {
-        if (this.closed || this.inner !== undefined) return;
+        if (this.closed || this.inner !== undefined || this.linkOnly) return;
         const relay = new MuxrClient({
             ...this.options,
             onLinkEnrolled: (key) => this.onLinkEnrolled(key),
@@ -422,6 +440,19 @@ export class LinkFirstClient implements SessionClient {
             onEvent: (event) => this.onLinkEvent(event),
             onError: () => undefined,
         });
+    }
+
+    private startLink(): void {
+        const stored = this.options.hostedGrant;
+        const grant = deriveLinkGrant(stored);
+        if (this.closed || this.link !== undefined || grant === undefined) return;
+        this.link = new DeviceLink(grant, {
+            timeoutMs: 5_000,
+            onStatus: (status) => this.onLinkStatus(status),
+            onEvent: (event) => this.onLinkEvent(event),
+            onError: () => undefined,
+        });
+        this.setState('connecting');
     }
 
     private stopLink(): void {
