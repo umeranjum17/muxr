@@ -56,11 +56,12 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * something other than the expected host answered, or neither inside
  * `timeoutMs`. The caller owns `link.stop()` in every case.
  */
-function openLink(grant: LinkDeviceGrant, timeoutMs: number): Promise<{ link: DeviceLink; online: boolean; refused: boolean }> {
+function openLink(grant: LinkDeviceGrant, timeoutMs: number, route?: (url: string) => string): Promise<{ link: DeviceLink; online: boolean; refused: boolean }> {
     return new Promise((resolve) => {
         let settled = false;
         const link = new DeviceLink(grant, {
             timeoutMs: 5_000,
+            ...(route === undefined ? {} : { resolve: route }),
             onStatus: (status) => {
                 if (settled) return;
                 if (status === 'online') { settled = true; resolve({ link, online: true, refused: false }); }
@@ -81,7 +82,13 @@ function openLink(grant: LinkDeviceGrant, timeoutMs: number): Promise<{ link: De
  * machine's real link. The proof only settles once the machine's link served
  * this key, so the caller learns the pairing truly reached the computer.
  */
-export async function claimLinkPairing(pending: LinkPairPending, options: { mode: 'claim' | 'resume'; onWords?: (words: string) => void }): Promise<LinkPairAnswer & { key: ReturnType<typeof keyPairFrom> }> {
+export async function claimLinkPairing(pending: LinkPairPending, options: { mode: 'claim' | 'resume'; onWords?: (words: string) => void; tunnelPort?: number }): Promise<LinkPairAnswer & { key: ReturnType<typeof keyPairFrom> }> {
+    const resolve = options.tunnelPort === undefined ? undefined : (url: string) => {
+        const target = new URL(url);
+        target.protocol = 'ws:';
+        target.host = `127.0.0.1:${options.tunnelPort}`;
+        return target.toString();
+    };
     const key = keyPairFrom(unb64url(pending.secretKey));
     const grant = pendingGrant(pending.scanned, { name: pending.name, key });
     let claim: LinkDeviceGrant;
@@ -94,6 +101,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
                 name: pending.name,
                 key,
                 onWords: options.onWords ?? (() => undefined),
+                ...(resolve === undefined ? {} : { resolve }),
             });
         } else {
             claim = grant;
@@ -103,7 +111,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
     }
     // The pairing host lives in the `muxr pair` process; reconnect with the
     // grant it just approved to trade the machine details.
-    const dial = await openLink(claim, 15_000);
+    const dial = await openLink(claim, 15_000, resolve);
     const pairing = dial.link;
     try {
         if (!dial.online) throw new Error(dial.refused ? LINK_WORDS['wrong-host'] : LINK_WORDS.unreachable);
@@ -115,7 +123,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
             || !Number.isFinite(answer.expiresAt) || answer.expiresAt <= Date.now()) {
             throw new Error('the computer sent an incomplete pairing answer');
         }
-        await verifyMachineLink(answer, key, pending.name);
+        await verifyMachineLink(answer, key, pending.name, resolve);
         // Tell the pairing CLI the proof landed, over the pairing link.
         await pairing.request('pair.verified', {}, { timeoutMs: 10_000 });
         return { ...answer, key };
@@ -130,7 +138,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
  * machine enrolling us from the record it just wrote, so a refusal retries
  * inside the computer's proof window instead of failing the pairing.
  */
-async function verifyMachineLink(answer: LinkPairAnswer, key: ReturnType<typeof keyPairFrom>, name: string): Promise<void> {
+async function verifyMachineLink(answer: LinkPairAnswer, key: ReturnType<typeof keyPairFrom>, name: string, resolve?: (url: string) => string): Promise<void> {
     const grant: LinkDeviceGrant = {
         v: 1,
         secretKey: b64url(key.secretKey),
@@ -141,7 +149,7 @@ async function verifyMachineLink(answer: LinkPairAnswer, key: ReturnType<typeof 
     };
     const deadline = Date.now() + 45_000;
     while (true) {
-        const dial = await openLink(grant, 8_000);
+        const dial = await openLink(grant, 8_000, resolve);
         try {
             // The handshake itself proves the key reached the machine.
             if (dial.online) return;
