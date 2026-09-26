@@ -528,17 +528,25 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
         publicKey: Buffer.from(key.publicKey).toString('base64'),
         secretKey: Buffer.from(key.secretKey).toString('base64'),
     };
-    const verified = verifyDeviceGrant(JSON.parse(answer.grant) as SealedDeviceGrant, {
-        pinnedMachineSigningPublicKey: answer.machineSigningPublicKey,
-        deviceKey,
-        deviceId: answer.deviceId,
-    });
-    if (verified.machineId !== answer.machineId || verified.keyVersion !== answer.keyVersion) throw new Error('pairing grant does not match the machine');
+    // The durable expiry a native grant carries (scripts/setup DURABLE_GRANT_EXPIRES_AT).
+    const durableExpiry = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
     const stored: StoredHostedGrant = {
-        ...verified,
+        machineId: answer.machineId,
+        // The link pins the machine by its box key; the old transport's
+        // signing key never crosses a link pairing.
+        machineSigningPublicKey: '',
+        deviceId: answer.deviceId,
+        devicePublicKey: deviceKey.publicKey,
+        keyVersion: 1,
+        expiresAt: durableExpiry,
+        authority: 'control',
         deviceKey,
+        // The byokit link is the only transport: link-paired phones hold no
+        // relay credential (desktop moves onto the link with the cutover).
         machineBoxPublicKey: Buffer.from(unb64url(answer.machineBoxPublicKey)).toString('base64'),
-        credential: answer.credential,
+        credential: '',
+        dataKey: '',
+        ingressKey: '',
         relayUrl: answer.relayUrl,
         machineName: answer.machineName,
         source: 'selfhost',

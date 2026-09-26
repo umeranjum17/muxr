@@ -249,6 +249,9 @@ export class LinkEndpoint {
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) throw new Error('link: request op does not match its frame');
                 if (frame.type.startsWith('push.')) return endpoint.pushRequest(frame, grant, deviceId);
+                if (frame.type.startsWith('desktop.')) {
+                    throw new PublicLinkError('Remote desktop is not available over this link yet.');
+                }
                 const response = await options.answer(frame, deviceId);
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
                 return response;

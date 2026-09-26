@@ -31,10 +31,6 @@ export interface LinkPairAnswer {
     machineBoxPublicKey: string;
     relayUrl: string;
     deviceId: string;
-    keyVersion: number;
-    machineSigningPublicKey: string;
-    credential: string;
-    grant: string;
     authority: 'control' | 'observe';
     linkUrl: string;
 }
@@ -113,10 +109,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         const answer = await pairing.request('pair.complete', { deviceName: pending.name }, { timeoutMs: 15_000 }) as unknown as LinkPairAnswer;
         if (typeof answer?.machineId !== 'string' || typeof answer?.machineBoxPublicKey !== 'string'
             || typeof answer?.linkUrl !== 'string' || !/^wss?:\/\//.test(answer.linkUrl)
-            || typeof answer?.relayUrl !== 'string' || typeof answer?.deviceId !== 'string'
-            || !Number.isInteger(answer?.keyVersion) || answer.keyVersion < 1
-            || typeof answer?.machineSigningPublicKey !== 'string' || typeof answer?.credential !== 'string'
-            || answer.credential === '' || typeof answer?.grant !== 'string') {
+            || typeof answer?.relayUrl !== 'string' || typeof answer?.deviceId !== 'string') {
             throw new Error('the computer sent an incomplete pairing answer');
         }
         await verifyMachineLink(answer, key, pending.name);
