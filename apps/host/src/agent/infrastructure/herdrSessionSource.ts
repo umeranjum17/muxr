@@ -2716,7 +2716,7 @@ export async function createHerdrSessionSource(
          * a paired control device is the only gate, exactly like every other
          * product mutation.
          */
-        async voiceStream({ deviceId, channel, sessionId }): Promise<null> {
+        async voiceStream({ deviceId, channel, sessionId, transport }): Promise<null> {
             if (pluginStreams === undefined) throw new Error('plugin stream transport is unavailable');
             if (typeof channel !== 'string' || !/^rs_[A-Za-z0-9_-]{8,80}$/.test(channel)) throw new Error('invalid realtime voice channel');
             if (voiceStreamAborts.has(channel)) throw new Error('realtime voice channel is already attached');
@@ -2738,6 +2738,7 @@ export async function createHerdrSessionSource(
                     // refresh must not present a cached tree as live.
                     publicContext: realtimePluginPublicContext(agentCatalog.freshness === 'fresh' ? agentCatalog.agents : []),
                     deviceId,
+                    ...(transport === undefined ? {} : { transport }),
                     signal: abort.signal,
                     onClosed: () => { voiceStreamAborts.delete(channel); },
                 });

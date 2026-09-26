@@ -24,7 +24,7 @@ import { createArtifactWire, type ArtifactChunk, type ArtifactListing } from '..
 import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../infrastructure/connectionDiagnostics';
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
-import { LinkFirstClient, type SessionClient, type TerminalLinkTransport } from '@/pairing/client';
+import { LinkFirstClient, type ByteStreamTransport, type SessionClient, type TerminalLinkTransport } from '@/pairing/client';
 import { AppState, Platform } from 'react-native';
 import {
     DEFAULT_CONNECTION,
@@ -807,6 +807,11 @@ class MuxrSync {
      *  undefined when the relay does (or no transport exists yet). */
     openTerminalLink(args: Record<string, unknown>): Promise<TerminalLinkTransport | undefined> | undefined {
         return this.client?.terminalStream?.(args);
+    }
+
+    /** Optional duplex stream port; the stream adapter owns relay fallback. */
+    openVoiceStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> | undefined {
+        return this.client?.voiceStream?.(args);
     }
 
     async request<T extends import('@muxr/contract').RequestType>(
