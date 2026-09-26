@@ -8,7 +8,12 @@ const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e
  * because the two have to agree: a shape this rejects never reaches pairing at
  * all, which the user sees as a scan that silently does nothing.
  */
-const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#/i;
+const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#|^byokit-link:1:/i;
+
+/** A byokit link offer QR (`byokit-link:1:…`), parsed for display only; the pairing itself validates through @byokit/link. */
+export function looksLikeLinkOffer(value: string): boolean {
+    return /^byokit-link:1:[A-Za-z0-9_-]+$/.test(value.trim());
+}
 
 export function looksLikePairingLink(value: string): boolean {
     return PAIR_LINK.test(value);

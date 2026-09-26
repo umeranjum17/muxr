@@ -4,12 +4,12 @@ import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
 import { hostedPairingAuthority, hostedPairingDisplayName, prepareHostedPairingInput } from './hostedE2ee';
-import { looksLikePairingLink } from '../domain/pairingString';
+import { linkPairMachineName, pairOverLink } from './hostedE2ee';
+import { looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
 import { getCachedConnectionSettings } from '@/connection';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
 import { deliverScannedPairingLink } from './deliverScannedPairing';
-
 /**
  * Confirm + claim + save + login for a muxr pair link, wherever it came from
  * (first-run scan, Settings → Pair another machine, or the empty-herd card).
@@ -23,6 +23,10 @@ export function useHostedPairing() {
         if (pairing.current) return;
         pairing.current = true;
         try {
+            if (looksLikeLinkOffer(url)) {
+                await pairLinkOffer(url.trim(), auth);
+                return;
+            }
             const prepared = prepareHostedPairingInput(url);
             const switching = getCachedConnectionSettings().machineId !== '';
             const browserAuthority = hostedPairingAuthority(prepared);
@@ -64,6 +68,53 @@ export function useHostedPairing() {
             pairing.current = false;
         }
     }, [auth]);
+}
+
+/**
+ * Pairing over the byokit link (migration step 4): the computer shows two
+ * confirmation words while the person there approves; the words appear here
+ * too, and pairing completes only when that approval and the phone's proof
+ * over the machine's own link both land.
+ */
+async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>): Promise<void> {
+    const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
+    const approved = await Modal.confirm(
+        `Pair with ${machineName}?`,
+        'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran `muxr pair` there.',
+        { confirmText: 'Pair' },
+    );
+    if (!approved) return;
+    const grant = await pairOverLink(scanned, {
+        onWords: (words) => {
+            void Modal.alert(
+                'Compare the two words',
+                `The computer is deciding whether to pair this phone.\n\nIt shows: ${words}\n\nIt should only be approved if these words match what it displays.`,
+            );
+        },
+    });
+    // Activation runs through the shared path so a pinned voice session and a
+    // previous machine's SSH credential are handled exactly like relay pairing.
+    const paired = await pairMachine({ grant });
+    if (!paired.ok && paired.reason === 'voice-pinned') {
+        const switchApproved = await Modal.confirm(
+            'End voice and switch?',
+            'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
+            { confirmText: 'End voice and switch', destructive: true },
+        );
+        if (!switchApproved) return;
+        const retried = await pairMachine({ grant, endVoiceIfPinned: true });
+        if (!retried.ok) {
+            Modal.alert('Pairing failed', 'Pairing failed');
+            return;
+        }
+        await auth.login(retried.credential, retried.secretKey);
+        return;
+    }
+    if (!paired.ok) {
+        Modal.alert('Pairing failed', paired.message ?? 'Pairing failed');
+        return;
+    }
+    await auth.login(paired.credential, paired.secretKey);
 }
 
 /*

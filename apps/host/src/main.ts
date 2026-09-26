@@ -505,7 +505,7 @@ if (mode === 'selfhost' && selfhostAuth === undefined) {
 }
 
 /** Poll handles on the machine state files; held so the GC cannot silence them. */
-const stateFilePolls: StatWatcher[] = [];
+const stateFilePolls: Array<StatWatcher | NodeJS.Timeout> = [];
 
 async function main(): Promise<void> {
     const hostVersion = resolveHostVersion() ?? '0.0.0';
@@ -565,8 +565,12 @@ async function main(): Promise<void> {
             }
         };
         // Hold the poll's handle somewhere durable: an unreferenced watcher
-        // is collected, and its events silently stop.
+        // is collected, and its events silently stop. The stat watcher has
+        // also been observed to wake late under load, so a plain timer
+        // re-reads the same file as a backstop; the reconcile is a cheap diff.
         stateFilePolls.push(watchFile(stateFile, { interval: 2000 }, applyStateFile));
+        const resync = setInterval(applyStateFile, 2_000);
+        stateFilePolls.push(resync);
     }
     let peerRuntime: PeerRuntime | undefined;
     let peerBroker: PeerBroker | undefined;

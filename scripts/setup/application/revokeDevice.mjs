@@ -13,7 +13,7 @@ import {
     selfhostCredential,
     writeSelfhostState,
 } from '../infrastructure/selfhost.mjs';
-import { selfhostDevices, withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
+import { selfhostDevices, selfhostRelayDevices, withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
 
 export async function revokeDevice(args = []) {
     try {
@@ -28,6 +28,7 @@ export async function revokeDevice(args = []) {
                 const reference = args.join(' ').trim();
                 if (reference === '') throw new Error('choose a device from `muxr devices list`');
                 const devices = await selfhostDevices(current);
+                const relayKnown = new Set((await selfhostRelayDevices(current)).map((device) => device.deviceId));
                 const position = /^\d+$/.test(reference) ? Number(reference) - 1 : -1;
                 const named = devices.filter((device) => device.name?.toLowerCase() === reference.toLowerCase());
                 const target = position >= 0 ? devices[position] : named.length === 1 ? named[0] : undefined;
@@ -55,7 +56,7 @@ export async function revokeDevice(args = []) {
                         expiresAt: new Date(intent.refreshExpiresAt(device.expiresAt)).toISOString(),
                     };
                 });
-                const grants = nextDevices.map((device) => ({
+                const grants = nextDevices.filter((device) => relayKnown.has(device.deviceId)).map((device) => ({
                     deviceId: device.deviceId,
                     grant: JSON.stringify(createDeviceGrant({
                         machineId: current.machine.id,

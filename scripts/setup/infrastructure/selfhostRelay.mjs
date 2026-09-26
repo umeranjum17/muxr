@@ -281,7 +281,7 @@ export async function withSelfhostRotationLock(operation) {
     finally { rmSync(lock, { force: true }); }
 }
 
-export async function selfhostDevices(state) {
+export async function selfhostRelayDevices(state) {
     const result = await api(selfhostControlBase(state), `/v1/selfhost/devices?machine=${encodeURIComponent(state.machine.id)}`, {
         headers: { authorization: `Bearer ${selfhostCredential(state)}` },
     });
@@ -289,4 +289,17 @@ export async function selfhostDevices(state) {
         throw new Error(result.body.error || 'could not list paired devices; start the self-host relay first');
     }
     return result.body.devices;
+}
+
+/**
+ * Every paired device: the relay's rows plus link-paired phones, which live
+ * only in selfhost.json (they hold no relay credential to list).
+ */
+export async function selfhostDevices(state) {
+    const relayDevices = await selfhostRelayDevices(state);
+    const known = new Set(relayDevices.map((device) => device.deviceId));
+    const localOnly = (state.machine.crypto?.devices ?? [])
+        .filter((device) => device.kind === undefined && !known.has(device.deviceId))
+        .map((device) => ({ deviceId: device.deviceId, name: device.name || 'phone' }));
+    return [...relayDevices, ...localOnly];
 }

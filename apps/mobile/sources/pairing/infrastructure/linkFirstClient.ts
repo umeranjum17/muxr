@@ -73,6 +73,16 @@ export class LinkFirstClient implements SessionClient {
     }
     private stateField: ConnectionState = 'closed';
 
+    /**
+     * A phone paired over the link holds no relay credential: the link is its
+     * only transport until the relay migration replaces the old one. It dials
+     * the link directly instead of waiting for a relay hello that never comes.
+     */
+    private get linkOnly(): boolean {
+        const stored = this.options.hostedGrant;
+        return stored !== undefined && stored.credential === '' && deriveLinkGrant(stored) !== undefined;
+    }
+
     connect(): void {
         if (this.closed || this.link !== undefined || this.stateField === 'stale') return;
         const stored = this.options.hostedGrant;
@@ -425,6 +435,19 @@ export class LinkFirstClient implements SessionClient {
             this.retryTimer = undefined;
             this.connect();
         }, delay);
+    }
+
+    private startLink(): void {
+        const stored = this.options.hostedGrant;
+        const grant = deriveLinkGrant(stored);
+        if (this.closed || this.link !== undefined || grant === undefined) return;
+        this.link = new DeviceLink(grant, {
+            timeoutMs: 5_000,
+            onStatus: (status) => this.onLinkStatus(status),
+            onEvent: (event) => this.onLinkEvent(event),
+            onError: () => undefined,
+        });
+        this.setState('connecting');
     }
 
     private stopLink(): void {
