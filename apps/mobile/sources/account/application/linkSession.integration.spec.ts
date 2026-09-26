@@ -78,7 +78,7 @@ vi.mock('@/pairing/e2ee', () => ({
     refreshHostedGrant: async () => harness.grant,
 }));
 
-// The cloud machine's link grant: link-derivable without the selfhost source.
+// A stored machine link grant.
 vi.mock('@/pairing/infrastructure/linkGrant', () => ({
     deriveLinkGrant: (grant: { machineId: string; relayUrl: string } | undefined) => {
         if (grant === undefined) return undefined;
@@ -212,25 +212,14 @@ vi.mock('../../catalog/application/storage', () => ({
 
 import { storage } from '../../catalog/application/storage';
 import { saveHomeSnapshot } from '../../catalog/application/persistence';
-import { finishHostedEmailLogin } from './hostedEmailLogin';
 import {
-    setAccountCredentialRejectedHandler,
     sync,
     syncCreate,
     syncReconnect,
     syncResume,
 } from '@/catalog/sync';
 
-const originalFetch = globalThis.fetch;
-
-function response(status: number, body: unknown): Response {
-    return new Response(JSON.stringify(body), {
-        status,
-        headers: { 'content-type': 'application/json' },
-    });
-}
-
-describe('hosted account-only lifecycle', () => {
+describe('link session sync flow', () => {
     beforeEach(() => {
         harness.connection.mode = 'hosted';
         harness.connection.machineId = '';
@@ -265,109 +254,7 @@ describe('hosted account-only lifecycle', () => {
         harness.applySessions.mockClear();
     });
 
-    afterEach(() => {
-        setAccountCredentialRejectedHandler(undefined);
-        vi.stubGlobal('fetch', originalFetch);
-    });
 
-    it('survives no-machine startup, reconnects with the stored grant, and logs out only on account rejection', async () => {
-        const fetch = vi.fn()
-            .mockResolvedValueOnce(response(200, { access_token: 'pck_account' }))
-            .mockResolvedValueOnce(response(200, { machines: [] }))
-            .mockResolvedValueOnce(response(200, { account: { email: 'owner@example.com' } }))
-            .mockRejectedValueOnce(new Error('relay temporarily offline'))
-            .mockResolvedValueOnce(response(200, { account: { email: 'owner@example.com' } }))
-            .mockResolvedValueOnce(response(200, { account: { email: 'owner@example.com' } }))
-            .mockImplementation(async () => response(401, { error: 'unauthorized' }));
-        vi.stubGlobal('fetch', fetch);
-
-        const credentials = await finishHostedEmailLogin({
-            base: 'http://relay.test',
-            email: 'owner@example.com',
-            userCode: 'ABCDEF',
-        }, '123456');
-        expect(credentials.machineId).toBeUndefined();
-
-        let authenticated = true;
-        setAccountCredentialRejectedHandler(() => { authenticated = false; });
-        await syncCreate(credentials);
-        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
-        expect(harness.ready).toBe(true);
-        expect(harness.socketStatus).toBe('disconnected');
-        expect(harness.clientOptions).toHaveLength(0);
-
-        await expect(sync.refreshHerdTree()).resolves.toEqual({ workspaces: [], herdrConnected: undefined });
-        await expect(syncReconnect()).resolves.toBeUndefined();
-        await expect(sync.refreshAccountSession()).resolves.toBe('valid');
-        expect(authenticated).toBe(true);
-        expect(harness.clientOptions).toHaveLength(0);
-
-        const machineReplacementsBeforePairing = harness.machineReplaceFlags.length;
-        const sessionReplacementsBeforePairing = harness.sessionReplaceFlags.length;
-        harness.connection.machineId = 'machine-a';
-        harness.grant = {
-            machineId: 'machine-a', relayUrl: 'ws://relay.test',
-            deviceKey: { publicKey: 'device-public', secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
-            machineBoxPublicKey: 'bWFjaGluZS1ib3gta2V5LWJhc2U2NC0zMmJ5dGVzMjMyMQ',
-        } as never;
-        await syncCreate({ ...credentials, token: 'stale-login-token' });
-        await vi.waitFor(() => expect(harness.clientConnects).toBe(1));
-        expect(harness.machineReplaceFlags.length).toBeGreaterThan(machineReplacementsBeforePairing);
-        expect(harness.sessionReplaceFlags.length).toBeGreaterThan(sessionReplacementsBeforePairing);
-        expect(harness.machineReplaceFlags.at(-1)).toBe(true);
-        expect(harness.sessionReplaceFlags.at(-1)).toBe(true);
-        expect(harness.clientOptions).toHaveLength(1);
-        expect(harness.lifecycleScopes).toContain('account-device:account');
-        expect(harness.lifecycleScopes).toContain('account-device:machine-a');
-        expect(harness.lifecycleAuthorities).toEqual(['account-device', 'account-device']);
-
-        const connectedClient = harness.clients[0];
-        await syncResume();
-        connectedClient.fire('connecting');
-        await syncResume();
-        expect(harness.clientOptions).toHaveLength(1);
-        expect(harness.clientConnects).toBe(1);
-        expect(harness.clientCloses).toBe(0);
-
-        // On the link, a host that no longer admits the device signals the
-        // terminal 'removed' — the analogue of the old transport's stale.
-        connectedClient.fire('removed');
-        await Promise.all([syncResume(), syncResume()]);
-        expect(harness.clientOptions).toHaveLength(2);
-        expect(harness.clientConnects).toBe(2);
-        expect(harness.clientCloses).toBe(1);
-
-        harness.clients[1].fire('closed');
-        await Promise.all([syncResume(), syncResume()]);
-        // A closed link hands 'closed' up, so the session layer rebuilds the
-        // client instead of resuming the dead one.
-        expect(harness.clientOptions).toHaveLength(2);
-        expect(harness.clientConnects).toBe(2);
-        expect(harness.clientCloses).toBe(1);
-
-        await syncReconnect();
-        expect(harness.clientOptions).toHaveLength(3);
-        expect(harness.clientConnects).toBe(3);
-        expect(harness.clientCloses).toBe(2);
-
-        expect(harness.machineSnapshots.at(-1)).toBe('client-2');
-        const openClients = harness.clients.filter((client) => client.status !== 'closed');
-        expect(openClients).toEqual([harness.clients.at(-1)]);
-
-
-        harness.lifecycleCatalogError = new Error('relay temporarily offline');
-        await expect(sync.refreshSessions()).rejects.toThrow('relay temporarily offline');
-        harness.lifecycleCatalogError = Object.assign(new Error('older host'), { code: 'host-contract-mismatch' });
-
-        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(6));
-        expect(authenticated).toBe(true);
-
-        await expect(sync.refreshAccountSession()).rejects.toMatchObject({ name: 'AccountCredentialRejectedError' });
-        expect(authenticated).toBe(false);
-    }, 30_000);
-});
-
-describe('session sync flow', () => {
     it('saves a newer confirmed tree after a superseded catalog pass completes', async () => {
         harness.connection.mode = 'hosted';
         harness.connection.machineId = 'machine-a';

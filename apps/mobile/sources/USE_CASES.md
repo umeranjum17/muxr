@@ -42,6 +42,5 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 | Start dictation | `conversation/application/startDictation.ts` | Mic Ownership | `realtimeSessionState.ts` (`claimDictation`), `utils/dictation.ts` |
 | Stop a realtime conversation | `conversation/application/stopRealtimeConversation.ts` | Mic Ownership | `realtimeSessionState.ts` (`stopRealtimeSession`) |
 | Interrupt playback | `playback/interruptPlayback.ts` | Realtime Playback | `@/playback/interrupt`, `realtimeSessionState.ts` (`sleepRealtimeSession`) |
-| Validate the account session | `account/application/validateAccountCredential.ts` | Account Credential | `account/application/accountSession.ts`, `catalog/application/sync.ts` |
 
 Claude/Codex rewind, fork, and side-chat stubs in `ops.ts` are not use cases. `machineResumeSession` is a stub ("Resume via session list").

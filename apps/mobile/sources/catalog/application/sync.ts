@@ -1,10 +1,5 @@
-import {
-    AccountCredentialRejectedError,
-    validateHostedAccountSession,
-    type AccountSessionState,
-    type AuthCredentials,
-} from '@/account/session';
-import { accountSurfaceApplies, hostedTransportReady } from '@/pairing/grant';
+import type { AuthCredentials } from '@/account/session';
+import { hostedTransportReady } from '@/pairing/grant';
 import {
     lifecycleNotificationAllowed,
     MAX_RPC_PER_DEVICE,
@@ -194,8 +189,6 @@ type SendMessageOptions = {
  */
 const MAX_ATTACHMENT_BYTES = 1_000_000;
 
-let accountCredentialRejectedHandler: (() => void) | undefined;
-let pendingAccountCredentialRejection = false;
 const pluginInvalidationHandlers = new Set<(frame: PluginsInvalidatedFrame) => void>();
 type ArtifactsUpdate = Extract<SessionEvent, { type: 'artifacts.update' }>;
 const artifactUpdateHandlers = new Set<(sessionId: string, event: ArtifactsUpdate) => void>();
@@ -214,14 +207,6 @@ export function registerPluginInvalidationHandler(handler: (frame: PluginsInvali
 export function registerArtifactUpdateHandler(handler: (sessionId: string, event: ArtifactsUpdate) => void): () => void {
     artifactUpdateHandlers.add(handler);
     return () => artifactUpdateHandlers.delete(handler);
-}
-
-export function setAccountCredentialRejectedHandler(handler: (() => void) | undefined): void {
-    accountCredentialRejectedHandler = handler;
-    if (handler !== undefined && pendingAccountCredentialRejection) {
-        pendingAccountCredentialRejection = false;
-        handler();
-    }
 }
 
 async function toPromptAttachments(previews: readonly AttachmentPreview[]): Promise<PromptAttachment[]> {
@@ -248,7 +233,6 @@ class MuxrSync {
     private reconnectWork: Promise<void> | undefined;
     private resumeWork: Promise<void> | undefined;
     private credentials: AuthCredentials | undefined;
-    private accountValidation: Promise<AccountSessionState> | undefined;
     private pendingShell = new Map<string, (outcome: ShellOutcome) => void>();
     private openedSessions = new Set<string>();
     private opening = new Map<string, Promise<void>>();
@@ -268,23 +252,6 @@ class MuxrSync {
     private hasTransport(): boolean {
         const settings = this.getConnection();
         return hostedTransportReady(settings.mode, settings.machineId, getCachedHostedGrant(settings.machineId));
-    }
-
-    async refreshAccountSession(): Promise<AccountSessionState> {
-        const settings = this.getConnection();
-        if (this.credentials === undefined) return 'valid';
-        if (!accountSurfaceApplies(settings.mode, settings.selfhost, getCachedHostedGrant(settings.machineId)?.source)) return 'valid';
-        if (this.accountValidation !== undefined) return this.accountValidation;
-        this.accountValidation = validateHostedAccountSession(settings.relayUrl, this.credentials.token)
-            .catch((error) => {
-                if (error instanceof AccountCredentialRejectedError) {
-                    if (accountCredentialRejectedHandler === undefined) pendingAccountCredentialRejection = true;
-                    else accountCredentialRejectedHandler();
-                }
-                throw error;
-            })
-            .finally(() => { this.accountValidation = undefined; });
-        return this.accountValidation;
     }
 
     private ensureClient(): SessionClient {
@@ -544,7 +511,6 @@ class MuxrSync {
         if (!this.hasTransport()) {
             storage.getState().setSocketStatus('disconnected');
             storage.getState().applyHerdrTree([]);
-            await this.refreshAccountSession();
             return { workspaces: [], herdrConnected: undefined };
         }
         const tree = await this.request('herdr.tree', {});
@@ -572,7 +538,6 @@ class MuxrSync {
             storage.getState().applySessions([], true);
             storage.getState().applyHerdrTree([]);
             storage.getState().markSessionsLoaded();
-            await this.refreshAccountSession();
             return;
         }
         const client = this.ensureClient();
@@ -712,9 +677,7 @@ class MuxrSync {
             await loadHostedGrant(settings.machineId);
         }
         if (this.hasTransport() && !storage.getState().herdrTreeLoaded) storage.getState().restoreHome(settings.machineId);
-        // Account validation and machine transport are deliberately independent.
-        // Offline/account-only startup renders immediately; only a definite /v1/session
-        // 401 clears credentials, through the AuthContext rejection handler.
+        // A disconnected link renders immediately and retries without clearing the grant.
         void this.refreshCatalog().catch(() => undefined);
         storage.getState().applyReady();
     }
