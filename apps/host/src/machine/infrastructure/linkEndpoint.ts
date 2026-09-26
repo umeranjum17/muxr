@@ -305,6 +305,7 @@ async function streamTerminal(stream: LinkStream, req: LinkRequest, grant: Grant
         };
         const attach: LinkTerminalAttach = { ...params, deviceId, socket, assertAuthorized, ...(mode === undefined ? {} : { mode }) };
         const { paneId } = await options.terminals!.attach(attach);
+        assertAuthorized();
         process.stderr.write(`link: terminal stream attached (pane ${paneId}, device ${deviceId}${mode === 'observe' ? ', observe' : ''})\n`);
         reply({ ok: true, data: { paneId } });
     } catch (error) {

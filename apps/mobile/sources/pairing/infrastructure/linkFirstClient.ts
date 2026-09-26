@@ -133,35 +133,59 @@ export class LinkFirstClient implements SessionClient {
         if (!this.online || this.link === undefined || this.closed) return undefined;
         const stream = await this.link.stream('terminal', args);
         let ended = false;
+        let endError: string | undefined;
         const lines = new Set<(line: string) => void>();
         const ends = new Set<(error?: string) => void>();
+        const early: string[] = [];
+        let earlySize = 0;
         const decoder = new TextDecoder();
         let buffer = '';
+        const finish = (error?: string): void => {
+            if (ended) return;
+            ended = true;
+            endError = error;
+            for (const listener of [...ends]) listener(error);
+        };
         stream.onData = (chunk) => {
+            if (ended) return;
             buffer += decoder.decode(chunk, { stream: true });
+            if (buffer.length > 1_048_576) {
+                finish('terminal: link frame too large');
+                stream.end();
+                return;
+            }
             const parts = buffer.split('\n');
             buffer = parts.pop() ?? '';
             for (const line of parts) {
-                for (const listener of [...lines]) listener(line);
+                if (ended) break;
+                if (lines.size > 0) {
+                    for (const listener of [...lines]) listener(line);
+                } else {
+                    earlySize += line.length;
+                    if (earlySize > 1_048_576) {
+                        finish('terminal: link input too large');
+                        stream.end();
+                    } else early.push(line);
+                }
             }
         };
-        stream.onEnd = (error) => {
-            if (ended) return;
-            ended = true;
-            for (const listener of [...ends]) listener(error);
-        };
+        stream.onEnd = finish;
         return {
             // The link is a byte stream, not messages: every line carries its own newline.
             write: (line) => stream.write(`${line}\n`),
             onLine: (listener) => {
                 lines.add(listener);
+                for (const line of early.splice(0)) listener(line);
+                earlySize = 0;
                 return () => { lines.delete(listener); };
             },
             onEnd: (listener) => {
-                ends.add(listener);
+                if (ended) listener(endError);
+                else ends.add(listener);
                 return () => { ends.delete(listener); };
             },
             close: () => {
+                finish();
                 stream.end();
             },
         };

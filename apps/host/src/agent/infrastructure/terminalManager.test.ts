@@ -109,11 +109,13 @@ describe('TerminalManager stream exit', () => {
         });
         const pipe = () => {
             let open = true;
+            let receiveLine: (line: string) => void = () => undefined;
             const sent: string[] = [];
             return {
                 get isOpen() { return open; }, sent,
                 send: (line: string) => { sent.push(line); },
-                onLine: () => () => undefined,
+                receive: (line: string) => receiveLine(line),
+                onLine: (listener: (line: string) => void) => { receiveLine = listener; return () => { receiveLine = () => undefined; }; },
                 onEnd: () => () => undefined,
                 close: () => { open = false; },
             };
@@ -149,6 +151,22 @@ describe('TerminalManager stream exit', () => {
             machineId: 'machine', senderId: 'machine', recipientId: '*', channel: 'terminal',
             streamId: 'live', keyVersion: 2,
         }, newV2ReplayTracker())).toBe(JSON.stringify({ type: 'result', requestId: 'lt-1', ok: true }));
+        authorized = false;
+        live.receive(JSON.stringify({ type: 'terminal.input', text: 'revoked input' }));
+        expect(live.isOpen).toBe(false);
+        expect(fakes.children[0]!.stdin.write).not.toHaveBeenCalledWith(expect.stringContaining('revoked input'));
+
+        authorized = true;
+        const output = pipe();
+        const fourth = manager.attach({ sessionId: 'session', channel: 'output', cols: 80, rows: 24,
+            deviceId: 'phone', socket: output, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        pending.shift()!('pane');
+        await fourth;
+        authorized = false;
+        fakes.children[1]!.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'terminal.frame', full: true, bytes: 'eA==' }) + '\n'));
+        expect(output.sent).toHaveLength(0);
+        expect(output.isOpen).toBe(false);
         manager.closeAll();
     });
 
