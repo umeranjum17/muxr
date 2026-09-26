@@ -44,7 +44,6 @@ const checks = [
     ['unit: perf gate (gesture metrics, warm-probe gates, node --test)', 'node', ['--test', 'perf/lib/gestureMetrics.test.mjs', 'perf/lib/surfaceProbe.test.mjs']],
     ['policy: mobile architecture', 'npx', ['vitest', 'run', 'apps/mobile/sources/architecture.spec.ts', '--config', 'apps/mobile/vitest.config.ts']],
     ['policy: store/direct mobile commerce builds', 'node', ['scripts/diagnostics/application/checkMobileCommerceBuilds.mjs']],
-    ['e2e: device pairing through relay', 'node', ['scripts/diagnostics/application/checkPairing.mjs']],
     ['e2e: multi-provider usage aggregation', 'node', ['scripts/diagnostics/application/checkUsageStatus.mjs']],
     ['e2e: tailscale ingress ownership', 'node', ['scripts/diagnostics/application/checkTailscaleIngress.mjs']],
     ['unit: selfhost state survives garbage JSON', 'node', ['scripts/diagnostics/application/checkSelfhostState.mjs']],

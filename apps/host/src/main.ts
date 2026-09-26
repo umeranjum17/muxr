@@ -798,6 +798,10 @@ async function main(): Promise<void> {
                         onStatus: (status) => {
                             linkOnline = status === 'online';
                             process.stdout.write(`link relay: ${status}\n`);
+                            if (status === 'replaced') {
+                                process.kill(process.pid, 'SIGTERM');
+                                return;
+                            }
                             if (linkOnline) {
                                 host.refreshLinkEnrolment();
                                 peerRuntime?.retryRecovery();
