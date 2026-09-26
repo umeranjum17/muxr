@@ -877,6 +877,15 @@
     web-push "3.6.7"
     ws "8.21.3"
 
+"@byokit/seal@0.1.0":
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/@byokit/seal/-/seal-0.1.0.tgz#1b44210ad466200b015e479a45cdfe885cc1499d"
+  integrity sha512-SSYeuho0On9p6QfTaxJe8cQ1yZXIvNlO9Pj226E0VmuQaviOclJvtEswxu9RCwsdavz+1x4KIyfD/MYm7LFy6g==
+  dependencies:
+    "@noble/ciphers" "2.4.0"
+    "@noble/curves" "2.4.0"
+    "@noble/hashes" "2.4.0"
+
 "@ccusage/ccusage-darwin-arm64@20.0.20":
   version "20.0.20"
   resolved "https://registry.yarnpkg.com/@ccusage/ccusage-darwin-arm64/-/ccusage-darwin-arm64-20.0.20.tgz#c762ffc7f32236c934adee85ea0fa21b04f67713"
@@ -1698,17 +1707,6 @@
   dependencies:
     "@chevrotain/types" "~11.1.2"
 
-"@more-tech/react-native-libsodium@1.5.6", "@more-tech/react-native-libsodium@^1.5.5":
-  version "1.5.6"
-  resolved "https://registry.yarnpkg.com/@more-tech/react-native-libsodium/-/react-native-libsodium-1.5.6.tgz#d97196cf51c33c2f2fdab0e6aede989af597fb50"
-  integrity sha512-D8QVpKcXqPGxoQrCA7iZOWl38UzaFFOf5KbW8qVdYSdLsrRiqeIZQhu6x4LtF+HGuV3UtbYx7/oI0nwpaWPMpA==
-  dependencies:
-    "@noble/hashes" "^1.3.2"
-    "@types/libsodium-wrappers" "^0.7.13"
-    "@types/libsodium-wrappers-sumo" "^0.7.8"
-    libsodium-wrappers "^0.7.13"
-    libsodium-wrappers-sumo "^0.7.13"
-
 "@napi-rs/canvas-android-arm64@1.0.3":
   version "1.0.3"
   resolved "https://registry.yarnpkg.com/@napi-rs/canvas-android-arm64/-/canvas-android-arm64-1.0.3.tgz#9bed40bad8725fb6a950811f3e3fa2a3bea9582a"
@@ -1786,7 +1784,19 @@
   resolved "https://registry.yarnpkg.com/@noble/ciphers/-/ciphers-2.4.0.tgz#04cf9e0f1cd3d521e8e5ca92dc0c02238180f676"
   integrity sha512-AnjFn0Jv92laAkvMrghlFZq4qQCIN/4DxFV/eooqtC2YTjB7kBeLMS2T9KJX4Dn+ZVXLOwK0lSgqDtx9gvxtiw==
 
-"@noble/hashes@^1.1.5", "@noble/hashes@^1.3.2":
+"@noble/curves@2.4.0":
+  version "2.4.0"
+  resolved "https://registry.yarnpkg.com/@noble/curves/-/curves-2.4.0.tgz#367c869bfd790c3a2248152562f255b5f8898b74"
+  integrity sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==
+  dependencies:
+    "@noble/hashes" "2.4.0"
+
+"@noble/hashes@2.4.0":
+  version "2.4.0"
+  resolved "https://registry.yarnpkg.com/@noble/hashes/-/hashes-2.4.0.tgz#e6a3e98edbed3c8659b28bb8f9b18ca02ec8ea4b"
+  integrity sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==
+
+"@noble/hashes@^1.1.5":
   version "1.8.0"
   resolved "https://registry.yarnpkg.com/@noble/hashes/-/hashes-1.8.0.tgz#cee43d801fcef9644b11b8194857695acd5f815a"
   integrity sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==
@@ -2834,18 +2844,6 @@
   integrity sha512-pk2B1NWalF9toCRu6gjBzR69syFjP4Od8WRAX+0mmf9lAjCRicLOWc+ZrxZHx/0XRjotgkF9t6iaMJ+aXcOdZQ==
   dependencies:
     "@types/istanbul-lib-report" "*"
-
-"@types/libsodium-wrappers-sumo@^0.7.8":
-  version "0.7.8"
-  resolved "https://registry.yarnpkg.com/@types/libsodium-wrappers-sumo/-/libsodium-wrappers-sumo-0.7.8.tgz#33e32b454fb6b340758c9ffdb1f9657e1be058ff"
-  integrity sha512-N2+df4MB/A+W0RAcTw7A5oxKgzD+Vh6Ye7lfjWIi5SdTzVLfHPzxUjhwPqHLO5Ev9fv/+VHl+sUaUuTg4fUPqw==
-  dependencies:
-    "@types/libsodium-wrappers" "*"
-
-"@types/libsodium-wrappers@*", "@types/libsodium-wrappers@0.7.14", "@types/libsodium-wrappers@^0.7.13", "@types/libsodium-wrappers@^0.7.14":
-  version "0.7.14"
-  resolved "https://registry.yarnpkg.com/@types/libsodium-wrappers/-/libsodium-wrappers-0.7.14.tgz#f688f8d44e46ed61c401f82ff757581655fbcc42"
-  integrity sha512-5Kv68fXuXK0iDuUir1WPGw2R9fOZUlYlSAa0ztMcL0s0BfIDTqg9GXz8K30VJpPP3sxWhbolnQma2x+/TfkzDQ==
 
 "@types/mdast@^4.0.0":
   version "4.0.4"
@@ -6001,26 +5999,14 @@ leven@^3.1.0:
   resolved "https://registry.yarnpkg.com/leven/-/leven-3.1.0.tgz#77891de834064cccba82ae7842bb6b14a13ed7f2"
   integrity sha512-qsda+H8jTaUaN/x5vzW2rzc+8Rw4TAQ/4KjB46IwK5VH+IlVeeeje/EoZRpiXvIqjFgK84QffqPztGI3VBLG1A==
 
-libsodium-sumo@^0.7.16:
-  version "0.7.16"
-  resolved "https://registry.yarnpkg.com/libsodium-sumo/-/libsodium-sumo-0.7.16.tgz#85037acdf9029296373bf2a9f078930a723eedb5"
-  integrity sha512-x6atrz2AdXCJg6G709x9W9TTJRI6/0NcL5dD0l5GGVqNE48UJmDsjO4RUWYTeyXXUpg+NXZ2SHECaZnFRYzwGA==
-
-libsodium-wrappers-sumo@^0.7.13:
-  version "0.7.16"
-  resolved "https://registry.yarnpkg.com/libsodium-wrappers-sumo/-/libsodium-wrappers-sumo-0.7.16.tgz#53838cabe5d99768a3c070bdb65cd0043e0d0bfd"
-  integrity sha512-gR0JEFPeN3831lB9+ogooQk0KH4K5LSMIO5Prd5Q5XYR2wHFtZfPg0eP7t1oJIWq+UIzlU4WVeBxZ97mt28tXw==
-  dependencies:
-    libsodium-sumo "^0.7.16"
-
-libsodium-wrappers@0.8.2, libsodium-wrappers@^0.7.13:
+libsodium-wrappers@0.8.2:
   version "0.8.2"
   resolved "https://registry.yarnpkg.com/libsodium-wrappers/-/libsodium-wrappers-0.8.2.tgz#717042fb8ad62e2e4dada53795873a08c98e658c"
   integrity sha512-VFLmfxkxo+U9q60tjcnSomQBRx2UzlRjKWJqvB4K1pUqsMQg4cu3QXA2nrcsj9A1qRsnJBbi2Ozx1hsiDoCkhw==
   dependencies:
     libsodium "^0.8.0"
 
-libsodium@0.8.2, libsodium@^0.8.0:
+libsodium@^0.8.0:
   version "0.8.2"
   resolved "https://registry.yarnpkg.com/libsodium/-/libsodium-0.8.2.tgz#eadd168d478729e8f1687da8b78a352c421fa0b1"
   integrity sha512-TsnGYMoZtpweT+kR+lOv5TVsnJ/9U0FZOsLFzFOMWmxqOAYXjX3fsrPAW+i1LthgDKXJnI9A8dWEanT1tnJKIw==

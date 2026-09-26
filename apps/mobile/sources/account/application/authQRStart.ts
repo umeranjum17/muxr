@@ -1,5 +1,5 @@
 import { getRandomBytes } from 'expo-crypto';
-import sodium from '@/encryption/libsodium.lib';
+import { getPublicKeyForBox } from '@/encryption/libsodium';
 import axios from 'axios';
 import { encodeBase64 } from '@/encryption/base64';
 import { getServerUrl } from '@/catalog';
@@ -12,11 +12,7 @@ export interface QRAuthKeyPair {
 
 export function generateAuthKeyPair(): QRAuthKeyPair {
     const secret = getRandomBytes(32);
-    const keypair = sodium.crypto_box_seed_keypair(secret);
-    return {
-        publicKey: keypair.publicKey,
-        secretKey: keypair.privateKey,
-    };
+    return { publicKey: getPublicKeyForBox(secret), secretKey: secret };
 }
 
 export async function authQRStart(keypair: QRAuthKeyPair): Promise<boolean> {
