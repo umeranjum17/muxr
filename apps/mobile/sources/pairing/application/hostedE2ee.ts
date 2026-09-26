@@ -562,7 +562,7 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
             claim = await pairWithOffer(pending.scanned, {
                 name: pending.name,
                 key,
-                ...(options.onWords === undefined ? {} : { onWords: options.onWords }),
+                onWords: options.onWords ?? (() => undefined),
             });
         } else {
             claim = grant;
@@ -634,7 +634,7 @@ async function verifyMachineLink(answer: LinkPairAnswer, key: ReturnType<typeof 
         urls: [answer.linkUrl],
         device: { id: '', name, role: 'control' },
     };
-    const deadline = Date.now() + 25_000;
+    const deadline = Date.now() + 45_000;
     while (true) {
         const dial = await openLink(grant, 8_000);
         try {

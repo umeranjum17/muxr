@@ -1,10 +1,10 @@
 /**
  * Native pairing over the byokit link (migration step 4).
  *
- * The `muxr pair` side runs in this process through the real `pairOverLink`:
+ * The `muxr pair` side runs in this process through the real `linkPair`:
  * a pairing host under its own key, registered at the real relay, with the
  * approval answered here the way the terminal prompt answers it. The phone
- * side runs through the real `pairOverLink` in `hostedE2ee` against the same
+ * side runs through the real `pairOverLink` (hostedE2ee) against the same
  * relay, with its secure store mocked. The machine is the real self-host host
  * process, which enrols the phone from the device record the CLI wrote.
  *
@@ -56,8 +56,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     },
 }));
 
-const { pairOverLink: runComputerPairing } = await import('../../setup/application/linkPair.mjs');
-const { readSelfhostState } = await import('../../setup/infrastructure/selfhost.mjs');
+const { linkPair: runComputerPairing, readSelfhostState } = await import('../../setup/index.mjs');
 const { pairOverLink: runPhonePairing, resumePendingHostedPairing } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
 
 const repoRoot = join(import.meta.dirname, '../../..');
@@ -124,10 +123,11 @@ async function startMachine(): Promise<void> {
     await until(() => (running.output().includes('host -> ') ? true : undefined), 'host start');
 }
 
-/** Options `pairOverLink` on the computer side accepts (untyped .mjs import). */
+/** Options `linkPair` on the computer side accepts (untyped .mjs import). */
 interface ComputerPairingOptions {
     approve?: (req: { name: string; words: string }) => boolean | Promise<boolean>;
     signal?: AbortSignal;
+    /** Shortened pairing window for the expiry scenario. */
     pairMs?: number;
 }
 
@@ -227,10 +227,7 @@ describe('native pairing over the byokit link', () => {
 
 
     it('refuses a claim once the pairing window has passed', async () => {
-        const { offer, abort } = await showPairingQr({
-            approve: async () => true,
-            pairMs: 1_200,
-        });
+        const { offer, abort } = await showPairingQr({ approve: async () => true, pairMs: 1_200 });
         await new Promise((resolve) => setTimeout(resolve, 1_500));
         await expect(runPhonePairing(offer)).rejects.toThrow('run out');
         abort();
