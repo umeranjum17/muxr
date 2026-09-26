@@ -15,7 +15,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import {
@@ -101,6 +101,8 @@ async function until<T>(produce: () => T | undefined | Promise<T | undefined>, w
     }
 }
 
+const advertisedAddress = Object.values(networkInterfaces()).flat().find((address) => address?.family === 'IPv4' && !address.internal)?.address;
+if (advertisedAddress === undefined) throw new Error('link pairing flow needs a non-loopback IPv4 interface');
 let port = 0;
 let relay: ChildProcess | undefined;
 let host: (ChildProcess & { output: () => string }) | undefined;
@@ -108,7 +110,7 @@ let host: (ChildProcess & { output: () => string }) | undefined;
 async function startMachine(): Promise<void> {
     const started = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
         MUXR_RELAY_PORT: String(port),
-        MUXR_RELAY_HOST: '127.0.0.1',
+        MUXR_RELAY_HOST: '0.0.0.0',
         MUXR_RELAY_DATA_DIR: join(home, 'relay'),
         MUXR_RELAY_MDNS: '0',
     });
@@ -120,8 +122,8 @@ async function startMachine(): Promise<void> {
             version: 1,
             machine: { ...machineIdentity(undefined), name: 'Desk' },
             relayPort: port,
-            relayUrl: `ws://127.0.0.1:${port}`,
-            webOrigin: `https://127.0.0.1:${port}`,
+            relayUrl: `ws://${advertisedAddress}:${port}`,
+            webOrigin: `https://${advertisedAddress}:${port}`,
             relayLocation: 'local',
             relayRole: 'single-machine',
             connectionMode: 'lan',
@@ -309,7 +311,7 @@ describe('native pairing over the byokit link', () => {
     it('pairs over a forwarded link when the advertised relay is unreachable', async () => {
         const { pairing, offer } = await showPairingQr({ approve: () => true });
         const payload = JSON.parse(Buffer.from(offer.slice('byokit-link:1:'.length), 'base64url').toString('utf8')) as { urls: string[] };
-        payload.urls = payload.urls.map((url) => url.replace(`127.0.0.1:${port}`, '127.0.0.1:1'));
+        payload.urls = payload.urls.map((url) => url.replace(`${advertisedAddress}:${port}`, '127.0.0.1:1'));
         const forwarded = `byokit-link:1:${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
         const stored = await runPhonePairing(forwarded, { tunnelPort: port });
         await pairing;
@@ -384,4 +386,21 @@ describe('native pairing over the byokit link', () => {
         await until(() => (readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === target.deviceId) ? undefined : true), 'record removed');
     }, 90_000);
 
+    it('keeps an approved non-loopback claim alive while the phone reconnects to finish pairing', async () => {
+        const { pairing, offer, abort } = await showPairingQr({ approve: () => true });
+        try {
+            const key = keyPair();
+            await pairWithOffer(offer, { name: 'Android phone', key, onWords: () => undefined, WebSocket: WebSocket as never });
+            // A remote phone can take longer than the host's two-second device-record
+            // reconciliation to reconnect after approval. Its grant is provisional
+            // until pair.complete writes the durable record.
+            await new Promise((resolve) => setTimeout(resolve, 3_000));
+            phone.secure.set(PENDING_LINK_KEY, JSON.stringify({ scanned: offer, name: 'Android phone', secretKey: b64url(key.secretKey), startedAt: Date.now() }));
+            const stored = await resumePendingHostedPairing();
+            expect(stored?.relayUrl).toBe(`ws://${advertisedAddress}:${port}`);
+            expect(await pairing).toMatchObject({ deviceId: stored?.deviceId });
+        } finally {
+            await abort();
+        }
+    }, 90_000);
 });
