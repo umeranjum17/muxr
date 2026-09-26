@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { relayControlUrl, type LifecycleNotificationLevel } from '@muxr/contract';
 import { TokenStorage, type AuthCredentials } from '@/account';
+import { activeSessionClient } from '@/connection/sessionClientRef';
 import { getCachedConnectionSettings } from '@/connection';
 import { clearRegisteredPushToken, loadRegisteredPushToken, saveRegisteredPushToken } from '@/catalog/application/persistence';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
@@ -18,9 +19,13 @@ let unregistering: Promise<void> | null = null;
 export function acknowledgeLifecyclePush(data: unknown): boolean {
     if (typeof data !== 'object' || data === null || Array.isArray(data)) return false;
     const payload = data as Record<string, unknown>;
-    const eventId = payload.eventId;
-    const machineId = payload.machineId;
-    if (payload.presentationOwner !== 'relay-push') return false;
+    // byokit relay push nests the host's fields under `data`; the pre-link
+    // relay pushed them at the top level. Accept both while both live.
+    const nested = payload.data;
+    const fields = (typeof nested === 'object' && nested !== null && !Array.isArray(nested) ? nested : payload) as Record<string, unknown>;
+    const eventId = fields.eventId;
+    const machineId = fields.machineId;
+    if (fields.presentationOwner !== 'relay-push') return false;
     if (typeof eventId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(eventId)) return false;
     if (typeof machineId !== 'string' || machineId.length > 128 || machineId.trim() !== machineId || /[\u0000-\u001f\u007f]/.test(machineId)) return false;
     if (machineId === '') return false;
@@ -33,6 +38,11 @@ async function subscribeNativePush(
     credentials: AuthCredentials,
     level: LifecycleNotificationLevel,
 ): Promise<boolean> {
+    // The session transport owns where a push address is registered (the link
+    // when it serves the session, the relay HTTP API otherwise).
+    const client = activeSessionClient();
+    if (client?.registerPush !== undefined) return client.registerPush(token, level).catch(() => false);
+    // No machine session exists yet; the relay HTTP API is the only path.
     const response = await fetch(`${relayControlUrl(getCachedConnectionSettings().relayUrl)}/v1/push/expo-subscribe`, {
         method: 'POST',
         headers: {

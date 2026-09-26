@@ -25,6 +25,7 @@ import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../i
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
 import { LinkFirstClient, type SessionClient } from '@/pairing/client';
+import { setActiveSessionClient } from '@/connection/sessionClientRef';
 import { AppState, Platform } from 'react-native';
 import {
     DEFAULT_CONNECTION,
@@ -333,6 +334,7 @@ class MuxrSync {
         client.onEvent((sessionId, event) => this.handleSessionEvent(sessionId, event));
         client.connect();
         this.client = client;
+        setActiveSessionClient(client);
         return client;
     }
 
@@ -738,6 +740,7 @@ class MuxrSync {
         this.herdrTreeRequest += 1;
         this.client?.close();
         this.client = undefined;
+        setActiveSessionClient(undefined);
         this.credentials = undefined;
     }
 
@@ -843,6 +846,7 @@ class MuxrSync {
         const work = this.enqueueLifecycle(async () => {
             this.client?.close();
             this.client = undefined;
+            setActiveSessionClient(undefined);
             storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
             const settings = this.getConnection();
             watchAgentLifecycle(
@@ -864,6 +868,7 @@ class MuxrSync {
             if (this.client?.state === 'stale') {
                 this.client.close();
                 this.client = undefined;
+                setActiveSessionClient(undefined);
                 storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
             }
             if (this.client?.state === 'closed') this.client.connect();

@@ -1,0 +1,40 @@
+name: Test Rust bindings
+
+on:
+  push:
+    branches: [ "stable" ]
+  pull_request:
+    branches: [ "stable" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake libevdev-dev pkg-config
+      shell: bash
+
+    - name: Build
+      working-directory: bindings/rust
+      run: |
+        cargo build --verbose
+      shell: bash
+
+    # Disabled testing as uinput / uhid doesn't work in Github Actions.
+    # - name: Run tests
+    #   run: |
+    #     cargo test --verbose
+    #   shell: bash
+
+    - name: Machete
+      uses: bnjbvr/cargo-machete@main
