@@ -42,7 +42,7 @@ node scripts/release/presentation/changelog.mjs check    --version 0.1.27-nightl
 2. Cut the release branch manually; fixes land on `main` first and are cherry-picked onto the branch afterwards:
 
    ```bash
-   gh workflow run cut-release-branch.yml -f version="0.2.1" -f source_commit="$MAIN_SHA"   # source_commit may be omitted to cut main's head
+   gh workflow run cut-release-branch.yml -f version="0.2.1" -f source_commit="$MAIN_SHA"
    ```
 
 3. Test the branch head locally and dispatch the candidate from it, supplying that exact SHA and the version the branch names:
@@ -59,7 +59,7 @@ node scripts/release/presentation/changelog.mjs check    --version 0.1.27-nightl
      -f run_id="$CANDIDATE_RUN_ID" -f confirmation="publish-$VERSION"
    ```
 
-   For a stable candidate, replace the channel/version in step 3 and use `confirmation="promote-$VERSION"` in step 4. Do not dispatch publication before captain acceptance. `ci.yml` is likewise available only by manual dispatch; it is not a release prerequisite. A release branch created before this workflow change carries the old workflow files and must cherry-pick them before anything can be dispatched from it.
+   For a stable candidate, replace the channel/version in step 3 and use `confirmation="promote-$VERSION"` in step 4. Do not dispatch publication before captain acceptance. `ci.yml` is likewise available only by manual dispatch; it is not a release prerequisite. After this merges, cherry-picking only the workflow commit(s) onto the existing `release/0.2.0` branch is authorized so it can run the new flow; the `v0.2.0` tag stays at `fa0b780c`.
 
 An automatic nightly version takes its base from the release branch name (`release/0.2.1` builds `0.2.1-nightly.N.M`), and is still rejected unless it sorts above the published stable, so a nightly can never sort under a stable promoted meanwhile. An explicit nightly or stable version whose base does not match the branch name is rejected, and a candidate whose published-channel state cannot be read fails rather than guessing a version that might sort too low.
 
@@ -127,10 +127,12 @@ Release titles are `muxr <version>`. PR and build provenance belongs in the note
 4. Run **mobile closed testing**, then **mobile Android production promotion**, from the release branch with that Internal run ID, exact source commit, version and build number. Main may have advanced; the selected artifact's source and digest remain binding. Production remains protected and rollout is explicit. No Play upload/promotion is implied by a GitHub nightly download.
 5. Mark the GitHub candidate release stable only after the chosen platform promotions succeed. Record each platform separately. Keep previous releases and evidence; halt rollout/advance to a higher mobile build for regressions. Do not rebuild under an existing version/tag or overwrite release assets.
 
+iOS App Store builds are produced on the captain's Mac from the release branch, with no paid cloud build; `mobile-ios-internal.yml` remains a disabled stub. The site lives in `muxr-cloud`; its content lock should point at the release branch's commit for the release.
+
 The `npm` environment is the npm OIDC identity. It allows the main workflow; the separate `production` environment gates stable publication. npm trusted publishing must name this repository, `publish.yml`, and environment `npm`. No npm token is stored in the repository. A trusted-publisher failure leaves the downloadable tarball/APK intact and does not claim registry success.
 
 ## Evidence before calling a feature stable
 
 Link the exact local gate report and phone observations in the PR/release. A successful build is not proof of microphone audio, live browser paint or a historical crash fix. Record known limitations explicitly. Current terminal polish includes tested deliberate keyboard behavior and route continuity; transient blank frames around explicit IME resize remain a known limitation.
 
-Use a unique watched evidence directory for every local run. Keep failed runs alongside successful reruns. iOS delivery and OTA remain disabled pending their own native/signing/runtime validation. A separate iOS development app and fully isolated parallel CLI hosts are future work, not claims made by this first Android/npm channel rollout.
+Use a unique watched evidence directory for every local run. Keep failed runs alongside successful reruns. The GitHub iOS delivery workflow and OTA remain disabled pending their own native/signing/runtime validation. A separate iOS development app and fully isolated parallel CLI hosts are future work, not claims made by this first Android/npm channel rollout.

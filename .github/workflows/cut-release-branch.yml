@@ -8,10 +8,9 @@ on:
         required: true
         type: string
       source_commit:
-        description: Exact 40-character main commit to cut from (empty cuts the current main head)
-        required: false
+        description: Exact 40-character tested main commit to cut from
+        required: true
         type: string
-        default: ''
 
 concurrency:
   group: cut-release-branch
@@ -36,7 +35,7 @@ jobs:
         run: |
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           branch="release/$VERSION"
-          commit="${SOURCE_COMMIT:-$GITHUB_SHA}"
+          commit="$SOURCE_COMMIT"
           [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
           # A release branch freezes tested main work: the cut commit must sit
           # on main, and an existing branch is never moved or recreated.
