@@ -5,8 +5,7 @@ import { EncryptionCache } from "./encryptionCache";
 import { SessionEncryption } from "./sessionEncryption";
 import { MachineEncryption } from "./machineEncryption";
 import { decodeBase64 } from "@/encryption/base64";
-import sodium from '@/encryption/libsodium.lib';
-import { decryptBox, encryptBox } from "@/encryption/libsodium";
+import { decryptBox, encryptBox, getPublicKeyForBox } from "@/encryption/libsodium";
 import { randomUUID } from 'expo-crypto';
 
 const DATA_KEY_WRAP_VERSION = 0;
@@ -15,12 +14,11 @@ export class Encryption {
 
     static async create(masterSecret: Uint8Array) {
         const contentDataKey = await deriveKey(masterSecret, 'muxr content', ['content']);
-        const contentKeyPair = sodium.crypto_box_seed_keypair(contentDataKey);
         const anonID = encodeHex((await deriveKey(masterSecret, 'muxr analytics', ['analytics', 'id']))).slice(0, 16).toLowerCase();
-        return new Encryption(anonID, contentKeyPair);
+        return new Encryption(anonID, contentDataKey);
     }
 
-    private readonly contentKeyPair: sodium.KeyPair;
+    private readonly contentSeed: Uint8Array;
     readonly anonID: string;
     readonly contentDataKey: Uint8Array;
 
@@ -29,11 +27,11 @@ export class Encryption {
     private sessionBlobKeys = new Map<string, Uint8Array>();
     private cache: EncryptionCache;
 
-    private constructor(anonID: string, contentKeyPair: sodium.KeyPair) {
+    private constructor(anonID: string, contentSeed: Uint8Array) {
         this.anonID = anonID;
-        this.contentKeyPair = contentKeyPair;
+        this.contentSeed = contentSeed;
         this.cache = new EncryptionCache();
-        this.contentDataKey = contentKeyPair.publicKey;
+        this.contentDataKey = getPublicKeyForBox(contentSeed);
     }
 
     async openEncryption(dataEncryptionKey: Uint8Array): Promise<Encryptor & Decryptor> {
@@ -85,7 +83,7 @@ export class Encryption {
             if (encryptedKey[0] !== DATA_KEY_WRAP_VERSION) {
                 return null;
             }
-            const decrypted = decryptBox(encryptedKey.slice(1), this.contentKeyPair.privateKey);
+            const decrypted = decryptBox(encryptedKey.slice(1), this.contentSeed);
             if (!decrypted) {
                 return null;
             }
@@ -97,7 +95,7 @@ export class Encryption {
     }
 
     async encryptEncryptionKey(key: Uint8Array): Promise<Uint8Array> {
-        const encrypted = encryptBox(key, this.contentKeyPair.publicKey);
+        const encrypted = encryptBox(key, this.contentDataKey);
         const result = new Uint8Array(encrypted.length + 1);
         result[0] = DATA_KEY_WRAP_VERSION;
         result.set(encrypted, 1);

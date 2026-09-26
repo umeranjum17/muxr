@@ -20,14 +20,7 @@ export async function deriveSecretKeyTreeChild(chainCode: Uint8Array, index: str
 
     // Derive key
     const I = await hmac_sha512(chainCode, data);
-    // Use slice() not subarray() so the returned key/chainCode each own a
-    // fresh 32-byte ArrayBuffer. The native libsodium TurboModule on iOS
-    // reads the underlying ArrayBuffer length (`.length(runtime)`) when
-    // validating crypto_secretbox key bytes — passing a subarray view onto
-    // a 64-byte parent buffer makes that check see 64 and reject with
-    // "invalid key length", even though the view itself is the right 32
-    // bytes. The sibling deriveSecretKeyTreeRoot already does this; keep
-    // the two consistent.
+    // Match the root derivation: independent 32-byte key and chain code.
     return {
         key: I.slice(0, 32),
         chainCode: I.slice(32),

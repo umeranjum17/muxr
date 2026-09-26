@@ -216,7 +216,6 @@ export default {
             "expo-mail-composer",
             "expo-secure-store",
             "expo-web-browser",
-            "@more-tech/react-native-libsodium",
             [
                 "expo-audio",
                 {

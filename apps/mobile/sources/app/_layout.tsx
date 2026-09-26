@@ -20,7 +20,6 @@ import { PluginSlot } from '@/plugins/ui';
 import { RealtimeSessionOverlay } from '@/conversation/presentation/RealtimeSessionOverlay';
 import { usePluginEvents } from '@/plugins';
 import { SidebarNavigator } from '@/herd/ui';
-import sodium from '@/encryption/libsodium.lib';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
 import { sync, syncRestore, syncResume } from '@/catalog/sync';
@@ -255,7 +254,6 @@ export default function RootLayout() {
             let credentials: AuthCredentials | null = null;
             try {
                 await loadFonts();
-                await sodium.ready;
                 try {
                     const { sweepArtifactDownloads } = await import('@/utils/downloadArtifact');
                     await sweepArtifactDownloads();
