@@ -1,30 +1,5 @@
 # Relay runtime
 
-Envelope pipe. Composition lives at `main.ts` / `relay.ts` / `httpHandlers.ts`.
+`relay.ts` serves the self-hosted control surface and delegates authenticated sockets, streams, push and host routing to `@byokit/relay`. `routing/infrastructure/linkRelay.ts` persists byokit's host registry and push subscriptions in private files. The muxr relay has no envelope, ticket, replay buffer, socket router or synthetic request path.
 
-## Tree
-
-```
-src/
-  main.ts relay.ts httpHandlers.ts config.ts index.ts
-  platform/                      private file persist
-  admission/{domain,application,infrastructure}/
-  routing/{domain,application,infrastructure}/
-  push/{infrastructure}/
-```
-
-Each module exposes `index.ts`. Other modules import that file, not internals.
-
-Use cases: [USE_CASES.md](./USE_CASES.md).
-
-## Aggregates and invariants
-
-**Peer Identity** (`admission/domain`): ticket admission always carries `transport`. Loopback query-string admission has no transport and lives in the `local` tenant. Display names never admit a socket.
-
-**Pairing rendezvous** (`admission/domain`): owns expiry, flood bounds, and the sealed response state. It never sees the account secret inside the response.
-
-**Envelope route** (`routing/domain`): delivery vs tenant-mismatch vs target-unavailable is decided from delivered count and whether another tenant can see the Machine. The relay never opens `envelope.payload`.
-
-**Push** has infrastructure only: web push, webhook, mail. No invented domain layer.
-
-Loopback WS query-string admission and `machinetok_` stay live for the local harness and probe.
+The owner mint secret admits this machine's link host and authorizes shared-relay enrolment. `admission/infrastructure/machineAuthority.ts` keeps the separate owner-created, Ed25519-proven machine enrolment and scoped administrative credential; the proof binds the machine's byokit host key, so status and revocation target the same link identity. Devices authenticate to the host over Noise IK, not to the relay. `httpJson.ts` bounds the JSON control-plane body; `relay.ts` retains the web origin/CSP and LAN discovery policies.

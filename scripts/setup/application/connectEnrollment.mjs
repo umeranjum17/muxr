@@ -72,13 +72,14 @@ export async function connectEnrollment(args = []) {
         ensurePrivateDir(stateDir());
         const reuseIdentity = existing?.relayLocation === 'remote' && publicRelayUrl(existing.relayUrl) === enrollment.relay;
         const identity = machineIdentity(reuseIdentity ? existing : undefined);
-        const message = Buffer.from(`muxr-enroll-v1\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}`, 'utf8');
+        const message = Buffer.from(`muxr-enroll-v2\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}\n${identity.crypto.boxPublicKey}`, 'utf8');
         const proof = Buffer.from(nacl.sign.detached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
         const enrollmentBase = env('MUXR_REMOTE_CONTROL_BASE')?.replace(/\/$/, '') ?? enrollment.relay.replace(/^wss:/, 'https:');
         const claimed = await api(enrollmentBase, `/v1/selfhost/enrollments/${encodeURIComponent(enrollment.id)}/claim`, {
             method: 'POST',
             body: JSON.stringify({ claim: enrollment.claim, relay_url: enrollment.relay,
-                signing_public_key: identity.crypto.signingPublicKey, proof, name: identity.name ?? hostname() }),
+                signing_public_key: identity.crypto.signingPublicKey, box_public_key: identity.crypto.boxPublicKey,
+                proof, name: identity.name ?? hostname() }),
         });
         if (!claimed.response.ok) throw new Error(claimed.body.error || 'machine enrollment failed');
         const expectedSlug = `machine-${createHash('sha256').update('muxr-machine-v1\0').update(Buffer.from(identity.crypto.signingPublicKey, 'base64')).digest('hex').slice(0, 32)}`;

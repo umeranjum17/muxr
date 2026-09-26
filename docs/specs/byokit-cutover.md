@@ -1,6 +1,6 @@
 # Byokit link-only cutover inventory
 
-This is a one-shot wire break. Older phone builds and pre-cutover computer/phone pairings must update and pair again. No muxr relay socket, ticket, envelope, or fallback is retained. Product request/response and event types remain transport-neutral; Noise IK, streams, routing and trust live in infrastructure adapters.
+This is a one-shot wire break. Older phone builds and pre-cutover computer/phone pairings must update and pair again. No muxr relay socket, ticket, envelope, or fallback is retained. Product request/response and event types remain transport-neutral; Noise IK, streams, routing and trust live in infrastructure adapters. Hosted muxr-cloud mode is retired; only owner-operated self-host and shared self-hosted relay enrollment remain. App Review needs a self-hosted sandbox path before release.
 
 ## Transport inventory (pre-cutover)
 

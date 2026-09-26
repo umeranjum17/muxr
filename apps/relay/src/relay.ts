@@ -1,36 +1,15 @@
-/**
- * The relay. A pipe.
- *
- * Reads ONLY envelope.header. Never parses envelope.payload.
- */
-
-import { createServer } from 'node:http';
+/** Self-hosted HTTP surface and byokit link relay. No muxr socket or envelope transport. */
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
-import { createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto';
+import { createPublicKey, randomBytes, verify } from 'node:crypto';
 import { hostname } from 'node:os';
-import { WebSocketServer, type WebSocket } from 'ws';
-import {
-    RELAY_CLOSE_REPLACED,
-    decodePayload,
-    isPeerCapabilities,
-    encodePayload,
-    nextRequestId,
-    type Envelope,
-    type HostFrame,
-} from '@muxr/contract';
-import { admitSocketFromUrl, extractBearerToken, secureEqual, admittedByTicket, type PeerIdentity, type Ticket } from './admission/index.js';
-import { handleHttpRequest, readJsonBody, writeJson, writeJsonError, type PushActionOutcome } from './httpHandlers.js';
-import { OfflineBuffer, PeerTable, parseLastSeq, peerMayRoute, sendEnvelope, type ConnectedPeer, PreviewChannels, TerminalChannels, ReplayLog, deliverReplayAndOffline, routeEnvelope, type PeerRouteOutcome, openLinkRelay } from './routing/index.js';
-import { type RelayConfig, clientIp, isLoopbackAddress, loadRelayConfig } from './config.js';
-import { isValidPublicKey, PairingRequests, FileTicketStore, SelfhostPairing, MachineAuthority, enrollmentProofMessage, MachineRegistry } from './admission/index.js';
-import { notificationEmailFromEnv, type PushWebhookConfig } from './push/index.js';
-import { awaitPersistChain, writeJsonFileAtomic, readPrivateFile } from './platform/persist.js';
+import { openLinkRelay } from './routing/index.js';
+import { MachineAuthority, enrollmentProofMessage, secureEqual } from './admission/index.js';
+import { clientIp, loadRelayConfig, type RelayConfig } from './config.js';
+import { readJsonBody, writeJson, writeJsonError } from './httpJson.js';
+import { awaitPersistChain, readPrivateFile, writeJsonFileAtomic } from './platform/persist.js';
 
-/** How long push/action waits for the machine's answer before giving up. */
-const PUSH_ACTION_TIMEOUT_MS = 15_000;
-
-/** Read or create the 0600 mint secret that gates self-host ticket issuance. */
 export async function ensureMintSecret(dataDir: string): Promise<string> {
     const file = join(dataDir, 'mint-secret');
     const existing = await readPrivateFile(file);
@@ -38,303 +17,66 @@ export async function ensureMintSecret(dataDir: string): Promise<string> {
         try {
             const parsed = JSON.parse(existing) as unknown;
             if (typeof parsed === 'string' && parsed !== '') return parsed;
-        } catch {
-            // Corrupted or non-JSON file: rotate below.
-        }
+        } catch { /* Replace a corrupt secret; the old authority cannot authenticate. */ }
     }
     const secret = randomBytes(32).toString('base64url');
     await writeJsonFileAtomic(file, secret);
     return secret;
 }
 
-/** Secondary hosted hygiene only; endpoint authentication is authoritative. */
-function isOpaqueV2Envelope(value: unknown): value is Envelope {
-    if (typeof value !== 'object' || value === null) return false;
-    const envelope = value as Partial<Envelope>;
-    const header = envelope.header;
-    return typeof envelope.payload === 'string' && envelope.payload.startsWith('e2ee:v2:')
-        && typeof header?.machineId === 'string'
-        && typeof header.senderId === 'string'
-        && typeof header.recipientId === 'string'
-        && (header.channel === 'session' || header.channel === 'terminal' || header.channel === 'attachment' || header.channel === 'stream')
-        && typeof header.streamId === 'string'
-        && Number.isSafeInteger(header.keyVersion) && Number(header.keyVersion) > 0
-        && Number.isSafeInteger(header.seq) && header.seq >= 0;
-}
-
-function isOpaqueV2TerminalFrame(raw: string): boolean {
-    try {
-        const envelope = JSON.parse(raw) as Envelope;
-        return isOpaqueV2Envelope(envelope) && envelope.header.channel === 'terminal';
-    } catch {
-        return false;
-    }
-}
-
-function isOpaqueV2StreamFrame(raw: string): boolean {
-    try {
-        const envelope = JSON.parse(raw) as Envelope;
-        return isOpaqueV2Envelope(envelope) && envelope.header.channel === 'stream';
-    } catch {
-        return false;
-    }
-}
-
 export interface RelayOptions {
     port: number;
     host?: string;
     config?: Partial<RelayConfig>;
-    /** Extra HTTP routes (the cloud control plane mounts here). Return true when handled. */
-    httpHandlers?: Array<(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse, url: URL) => Promise<boolean>>;
-    /** Ticket consumer override. Default: the file-backed local authority. */
-    consumeTicket?: (ticket: string) => Promise<Ticket | undefined>;
-    /** Readiness probe override for an embedding process. Default: always ready. */
     readyCheck?: () => Promise<boolean>;
-    /** Push delivery for the embedded link relay (tests capture the fetch). */
     linkPush?: { subject?: string; fetch?: typeof fetch };
-    now?: () => Date;
+}
+export interface RelayHandle { port: number; close: () => Promise<void> }
+
+function originAllowed(req: IncomingMessage, config: RelayConfig): boolean {
+    const origin = req.headers.origin;
+    if (origin === undefined || config.allowedOrigins.size === 0) return true;
+    if (typeof origin !== 'string') return false;
+    if (config.allowedOrigins.has(origin)) return true;
+    const host = req.headers.host;
+    return !config.publicEdge && (req.socket.remoteAddress === '127.0.0.1' || req.socket.remoteAddress === '::1')
+        && /^127\.0\.0\.1:\d+$/.test(host ?? '') && origin === `http://${host}`;
 }
 
-export interface RelayHandle {
-    close: () => Promise<void>;
-    port: number;
-    /** Close every socket whose identity matches the scope (cloud revocation hook). */
-    revokePeers: (scope: { accountId: string; machineSlug?: string; deviceId?: string }) => void;
-    /** Count of connected client sockets for an account (cloud entitlement metering). */
-    countClients: (accountId: string) => number;
+function jsonOrigin(req: IncomingMessage, res: ServerResponse, config: RelayConfig): boolean {
+    res.setHeader('x-content-type-options', 'nosniff');
+    res.setHeader('x-frame-options', 'DENY');
+    res.setHeader('referrer-policy', 'no-referrer');
+    res.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+    if (config.publicEdge) res.setHeader('strict-transport-security', 'max-age=31536000; includeSubDomains');
+    if (!originAllowed(req, config)) { writeJsonError(res, 403, 'origin not allowed'); return false; }
+    if (typeof req.headers.origin === 'string' && config.allowedOrigins.has(req.headers.origin)) {
+        res.setHeader('access-control-allow-origin', req.headers.origin);
+        res.setHeader('access-control-allow-credentials', 'true');
+        res.setHeader('access-control-allow-headers', 'authorization, content-type');
+        res.setHeader('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS');
+        res.setHeader('vary', 'Origin');
+    }
+    return true;
 }
 
 export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
-    const config = loadRelayConfig({
-        port: options.port,
-        ...(options.host === undefined ? {} : { host: options.host }),
-        ...options.config,
-    });
-
-    const authenticatedSockets = new Set<{ socket: WebSocket; identity: PeerIdentity }>();
-    const peers = new PeerTable();
-    const now = options.now ?? (() => new Date());
-    const closePeers = (scope: { accountId: string; machineSlug?: string; deviceId?: string }, reason: string): void => {
-        for (const peer of authenticatedSockets) {
-            if (peer.identity.accountId !== scope.accountId) continue;
-            if (scope.machineSlug !== undefined && !peer.identity.machineIds.has(scope.machineSlug)) continue;
-            if (scope.deviceId !== undefined && peer.identity.deviceId !== scope.deviceId) continue;
-            peer.socket.close(1008, reason);
-        }
-    };
-    const revokePeers = (scope: { accountId: string; machineSlug?: string; deviceId?: string }): void => {
-        closePeers(scope, 'revoked');
-    };
-    const registry = new MachineRegistry(config.dataDir);
-    const offline = new OfflineBuffer(config.dataDir, config.bufferLimit, config.bufferTtlMs);
-    const replay = new ReplayLog(config.dataDir, config.replayLimit, config.replayTtlMs);
+    const config = loadRelayConfig({ port: options.port, ...(options.host === undefined ? {} : { host: options.host }), ...options.config });
     const startedAt = Date.now();
-    const peerRouteEvents: Array<{ at: string; event: 'peer.route'; direction: 'client-to-host'; outcome: PeerRouteOutcome }> = [];
-    const recordPeerRoute = (outcome: PeerRouteOutcome): void => {
-        const now = Date.now();
-        peerRouteEvents.push({ at: new Date(now).toISOString(), event: 'peer.route', direction: 'client-to-host', outcome });
-        while (peerRouteEvents.length > 64 || Date.parse(peerRouteEvents[0]?.at ?? '') < now - 15 * 60_000) peerRouteEvents.shift();
+    const mintSecret = await ensureMintSecret(config.dataDir);
+    const link = await openLinkRelay(config.dataDir, mintSecret, options.linkPush);
+    const machines = new MachineAuthority(config.dataDir);
+    const owner = (req: IncomingMessage): boolean => {
+        const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
+        return token !== undefined && secureEqual(token, mintSecret);
     };
-    const authMode = config.authMode === 'strict' ? 'strict' : 'permissive';
-
-    const pushWebhook: PushWebhookConfig | undefined =
-        config.pushWebhookUrl === undefined
-            ? undefined
-            : {
-                  url: config.pushWebhookUrl,
-                  maxRetries: config.pushWebhookRetries,
-                  timeoutMs: config.pushWebhookTimeoutMs,
-              };
-
-    const pairing = new PairingRequests();
-    const previews = new PreviewChannels();
-    const terminals = new TerminalChannels();
-    const realtimeStreams = new TerminalChannels();
-    const localTickets = config.localAuthority ? new FileTicketStore(config.dataDir) : undefined;
-    const localPairing = config.localAuthority ? new SelfhostPairing(config.dataDir) : undefined;
-    const machineAuthority = config.localAuthority ? new MachineAuthority(config.dataDir) : undefined;
-    const notifications = config.localAuthority ? notificationEmailFromEnv() : undefined;
-    // One email per machine per 5 minutes — a flap loop must not spam.
-    const lastNotified = new Map<string, number>();
-    const notifyOffline = notifications === undefined
-        ? undefined
-        : async (machineId: string): Promise<void> => {
-              const last = lastNotified.get(machineId) ?? 0;
-              if (Date.now() - last < 5 * 60_000) return;
-              lastNotified.set(machineId, Date.now());
-              await notifications.mailer.send({
-                  to: notifications.to,
-                  subject: `muxr: machine offline — ${machineId}`,
-                  text: `Machine ${machineId} disconnected from your relay and is no longer reachable from your phone.\n\nIf this was not expected, check the host and relay on that machine.`,
-              });
-          };
-    // Mint secret gates self-host ticket issuance: filesystem read access to the
-    // dataDir is the same-machine boundary (a proxy makes every request loopback).
-    const mintSecret = config.localAuthority ? await ensureMintSecret(config.dataDir) : undefined;
-    let linkRelay: Awaited<ReturnType<typeof openLinkRelay>> | undefined;
-    if (mintSecret !== undefined) {
-        try { linkRelay = await openLinkRelay(config.dataDir, mintSecret, options.linkPush); }
-        catch (error) {
-            process.stderr.write(`link relay unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
-        }
-    }
-    const resolveAuthority = async (req: Parameters<typeof extractBearerToken>[0]) => {
-        const presented = extractBearerToken(req);
-        const owner = presented !== undefined && mintSecret !== undefined && secureEqual(mintSecret, presented);
-        const machine = !owner && presented !== undefined && machineAuthority !== undefined
-            ? await machineAuthority.resolveCredential(presented)
-            : undefined;
-        return { presented, owner, machine };
-    };
-    // Minimal per-IP fixed-window limiter for the self-host HTTP surface.
-    const rateWindowMs = 60_000;
-    const rateBuckets = new Map<string, { resetAt: number; count: number }>();
-    const rateLimited = (ip: string, limit: number, now: number): boolean => {
-        const bucket = rateBuckets.get(ip);
-        if (bucket !== undefined && now < bucket.resetAt) {
-            bucket.count += 1;
-            return bucket.count > limit;
-        }
-        rateBuckets.delete(ip);
-        while (rateBuckets.size > 0) {
-            const [oldestIp, oldest] = rateBuckets.entries().next().value!;
-            if (now < oldest.resetAt) break;
-            rateBuckets.delete(oldestIp);
-        }
-        if (rateBuckets.size >= 10_000) return true;
-        rateBuckets.set(ip, { resetAt: now + rateWindowMs, count: 1 });
-        return false;
-    };
-
-    await registry.load();
-    await offline.load();
-    await replay.load();
-
-    /** sessionId -> owning machineId, learned from envelope headers (the only part the relay reads). */
-    const sessionOwner = new Map<string, string>();
-    /** requestId -> resolver for in-flight synthetic requests awaiting the machine's answer. */
-    const pendingPushActions = new Map<string, (outcome: PushActionOutcome) => void>();
-    let lastSyntheticSeq = 0;
-
-    /**
-     * A synthetic client request envelope, crafted by the relay (push/action,
-     * attachment downloads). This is the ONE sanctioned place the relay reads
-     * AND writes payloads: the host cannot be reached otherwise, and the
-     * request is answered like any other client request. E2EE is rejected
-     * before this is ever reached.
-     */
-    function nextSyntheticSeq(): number {
-        const seq = Math.max(Date.now(), lastSyntheticSeq + 1);
-        lastSyntheticSeq = seq;
-        return seq;
-    }
-
-    /**
-     * Returns true when the envelope answered a synthetic request: it is then
-     * CONSUMED, never routed -- a 300MB attachment result has no business
-     * being fanned out to every connected client socket.
-     */
-    function settlePushAction(envelope: Envelope): boolean {
-        try {
-            const frame = decodePayload<HostFrame>(envelope.payload);
-            if (frame.type !== 'result') return false;
-            const resolve = pendingPushActions.get(frame.requestId);
-            if (resolve === undefined) return false;
-            pendingPushActions.delete(frame.requestId);
-            resolve(
-                frame.ok
-                    ? { ok: true, status: 200, data: frame.data }
-                    : { ok: false, status: 502, error: frame.error },
-            );
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    /** Send a synthetic client request to a machine and await its result. */
-    function machineRequest(input: {
-        machineId: string;
-        sessionId?: string;
-        timeoutMs?: number;
-    } & (
-        | { type: 'session.answer'; params: { sessionId: string; answer: 'y' | 'n' } }
-        | { type: 'attachment.fetch'; params: { sessionId: string; attachmentId: string } }
-        | { type: 'attachment.prepare'; params: { sessionId: string; attachmentId: string } }
-    )): Promise<PushActionOutcome> {
-        if (config.e2eeMode === 'on') {
-            return Promise.resolve({
-                ok: false,
-                status: 503,
-                error: 'synthetic requests cannot cross an E2EE machine link; the caller must use the encrypted envelope channel',
-            });
-        }
-        const machines = peers.forMachine(input.machineId, 'machine');
-        if (machines.length === 0) {
-            return Promise.resolve({ ok: false, status: 503, error: 'machine offline' });
-        }
-        const requestId = nextRequestId('push');
-        let payload;
-        if (input.type === 'session.answer') {
-            payload = encodePayload({ type: 'session.answer', requestId, params: input.params });
-        } else if (input.type === 'attachment.fetch') {
-            payload = encodePayload({ type: 'attachment.fetch', requestId, params: input.params });
-        } else {
-            payload = encodePayload({ type: 'attachment.prepare', requestId, params: input.params });
-        }
-        const envelope: Envelope = {
-            header: {
-                machineId: input.machineId,
-                ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
-                seq: nextSyntheticSeq(),
-                at: Date.now(),
-            },
-            payload,
-        };
-        return new Promise((resolve) => {
-            const timer = setTimeout(() => {
-                pendingPushActions.delete(requestId);
-                resolve({ ok: false, status: 504, error: 'machine did not answer in time' });
-            }, input.timeoutMs ?? PUSH_ACTION_TIMEOUT_MS);
-            pendingPushActions.set(requestId, (outcome) => {
-                clearTimeout(timer);
-                resolve(outcome);
-            });
-            for (const peer of machines) sendEnvelope(peer.socket, envelope);
-        });
-    }
-
-    function pushAction(input: {
-        machineId: string;
-        sessionId: string;
-        answer: 'y' | 'n';
-    }): Promise<PushActionOutcome> {
-        return machineRequest({
-            machineId: input.machineId,
-            sessionId: input.sessionId,
-            type: 'session.answer',
-            params: { sessionId: input.sessionId, answer: input.answer },
-        });
-    }
-
-    const hostDownloadBaseUrl = process.env.MUXR_HOST_HTTP_URL ?? 'http://127.0.0.1:8793';
     const webRoot = process.env.MUXR_WEB_ROOT?.trim();
-    const webMime: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.map': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon', '.svg': 'image/svg+xml', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.wasm': 'application/wasm' };
-    // Mutable entries must revalidate: a cached index.html pins the client to
-    // content-hashed chunks that a re-export may already have deleted. The
-    // push worker and the install manifest are entry files for the same
-    // reason; fingerprinted bundles stay immutable.
-    const webEntryFile = (file: string): boolean => {
-        const base = file.split('/').pop() ?? '';
-        return file.endsWith('index.html') || base === 'sw.js' || base === 'manifest.webmanifest' || base === 'manifest.json';
-    };
-    const webHashedAsset = (file: string): boolean => {
-        const base = file.split('/').pop() ?? '';
-        return /[.-][0-9a-f]{8,}(?:[.-]|$)/i.test(base);
-    };
-    const serveWeb = async (pathname: string, head: boolean, res: import('node:http').ServerResponse): Promise<boolean> => {
-        if (!config.localAuthority || !webRoot || pathname.startsWith('/v1/') || pathname === '/health' || pathname === '/ready') return false;
-        const relative = normalize(decodeURIComponent(pathname)).replace(/^[/\\]+/, '');
+    const mime: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.map': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon', '.svg': 'image/svg+xml', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.wasm': 'application/wasm' };
+    const serveWeb = async (pathname: string, head: boolean, res: ServerResponse): Promise<boolean> => {
+        if (!webRoot || pathname.startsWith('/v1/') || pathname === '/health' || pathname === '/ready') return false;
+        let relative: string;
+        try { relative = normalize(decodeURIComponent(pathname)).replace(/^[/\\]+/, ''); }
+        catch { return false; }
         if (relative.startsWith('..')) return false;
         let path = join(webRoot, relative || 'index.html');
         let entryFallback = relative === '' || relative === 'index.html';
@@ -342,894 +84,151 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
         catch { path = join(webRoot, 'index.html'); entryFallback = true; }
         try {
             const body = await readFile(path);
+            const base = path.split('/').pop() ?? '';
+            const entry = path.endsWith('index.html') || base === 'sw.js' || base === 'manifest.webmanifest' || base === 'manifest.json';
+            const hashed = /[.-][0-9a-f]{8,}(?:[.-]|$)/i.test(base);
             res.writeHead(200, {
-                'content-type': webMime[extname(path).toLowerCase()] ?? 'application/octet-stream',
-                'cache-control': webEntryFile(path) || entryFallback ? 'no-store' : webHashedAsset(path) ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate',
+                'content-type': mime[extname(path).toLowerCase()] ?? 'application/octet-stream',
+                'cache-control': entry || entryFallback ? 'no-store' : hashed ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate',
                 'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
-                // The web client is a same-origin installed app surface, not an
-                // API response: camera/mic stay usable for future foreground
-                // voice and QR flows. The global API policy remains deny-by-default.
                 'permissions-policy': 'camera=(self), microphone=(self), geolocation=()',
-                'x-content-type-options': 'nosniff',
-                'referrer-policy': 'no-referrer',
+                'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer',
             });
             res.end(head ? undefined : body);
             return true;
         } catch { return false; }
     };
+    const rate = new Map<string, { until: number; count: number }>();
+    const limited = (req: IncomingMessage, max: number): boolean => {
+        const ip = clientIp(req, config.trustProxy);
+        const now = Date.now();
+        const current = rate.get(ip);
+        if (current !== undefined && current.until > now) { current.count++; return current.count > max; }
+        if (rate.size > 10_000) rate.clear();
+        rate.set(ip, { until: now + 60_000, count: 1 });
+        return false;
+    };
     const http = createServer((req, res) => {
         void (async () => {
-            if (!applyHttpOriginPolicy(req, res, config)) return;
+            if (!jsonOrigin(req, res, config)) return;
             const url = new URL(req.url ?? '/', 'http://localhost');
-            if (req.method === 'OPTIONS') {
-                res.writeHead(204);
-                res.end();
-                return;
-            }
-            // The link relay keeps its own per-address limits on its routes.
-            if (linkRelay !== undefined && await linkRelay.request(req, res)) return;
-            if (!config.developmentApi && url.pathname !== '/health' && url.pathname !== '/ready'
-                && url.pathname !== '/v1/selfhost/tickets' && url.pathname !== '/v1/ws-tickets'
-                && rateLimited(`http:${clientIp(req, config.trustProxy)}`, 300, Date.now())) {
-                writeJsonError(res, 429, 'too many requests');
-                return;
-            }
+            if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+            if (await link.request(req, res)) return;
+            if (limited(req, 300)) { writeJsonError(res, 429, 'too many requests'); return; }
             if (req.method === 'GET' && url.pathname === '/health') {
-                const online = peers.onlineMachineIds();
-                writeJson(res, 200, {
-                    ok: true,
-                    uptimeMs: Date.now() - startedAt,
-                    e2eeMode: config.e2eeMode,
-                    connectedPeers: peers.counts().total,
-                    onlineMachines: online.size,
-                    ...(config.localAuthority && isLoopbackAddress(req.socket.remoteAddress)
-                        ? { registeredMachines: registry.registeredMachineCount(), webEnabled: webRoot !== undefined, bindHost: config.host }
-                        : {}),
-                });
+                const online = link.hosts().filter((host) => host.online);
+                writeJson(res, 200, { ok: true, uptimeMs: Date.now() - startedAt, connectedPeers: link.count(), onlineMachines: online.length,
+                    ...(req.socket.remoteAddress === '127.0.0.1' || req.socket.remoteAddress === '::1'
+                        ? { registeredMachines: link.hosts().length, webEnabled: webRoot !== undefined, bindHost: config.host } : {}) });
                 return;
             }
             if (req.method === 'GET' && url.pathname === '/ready') {
-                const ready = options.readyCheck === undefined ? true : await options.readyCheck();
-                writeJson(res, ready ? 200 : 503, { ok: ready });
-                return;
-            }
-            if (config.localAuthority && req.method === 'GET' && url.pathname === '/v1/selfhost/route-diagnostics') {
-                const authority = await resolveAuthority(req);
-                if (!authority.owner) { writeJsonError(res, 403, 'route diagnostics require relay owner authority'); return; }
-                const cutoff = Date.now() - 15 * 60_000;
-                writeJson(res, 200, {
-                    note: 'bounded redacted peer routes; timestamps and outcomes only',
-                    windowMinutes: 15,
-                    events: peerRouteEvents.filter((event) => Date.parse(event.at) >= cutoff),
-                });
-                return;
+                const ready = options.readyCheck === undefined || await options.readyCheck();
+                writeJson(res, ready ? 200 : 503, { ok: ready }); return;
             }
             if ((req.method === 'GET' || req.method === 'HEAD') && await serveWeb(url.pathname, req.method === 'HEAD', res)) return;
-            if (config.localAuthority && machineAuthority !== undefined && url.pathname.startsWith('/v1/selfhost/enrollments')) {
-                const claimMatch = /^\/v1\/selfhost\/enrollments\/([^/]+)\/claim$/.exec(url.pathname);
-                if (req.method === 'POST' && url.pathname === '/v1/selfhost/enrollments') {
-                    const authority = await resolveAuthority(req);
-                    if (!authority.owner) { writeJsonError(res, 403, 'enrollment creation requires relay owner authority'); return; }
-                    const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
-                    const relayUrl = typeof body?.relay_url === 'string' ? body.relay_url.trim() : '';
-                    let valid = false;
-                    try {
-                        const parsed = new URL(relayUrl);
-                        valid = parsed.protocol === 'wss:' && parsed.hostname !== '' && !parsed.username && !parsed.password
-                            && parsed.pathname === '/' && !parsed.search && !parsed.hash;
-                    } catch { valid = false; }
-                    if (!valid) { writeJsonError(res, 400, 'relay_url must be a root wss:// URL without credentials'); return; }
-                    const webUrl = typeof body?.web_url === 'string' ? body.web_url.trim().replace(/\/$/, '') : undefined;
-                    if (webUrl !== undefined) {
-                        try {
-                            const parsed = new URL(webUrl);
-                            if (parsed.protocol !== 'https:' || parsed.origin !== webUrl) throw new Error('invalid');
-                        } catch { writeJsonError(res, 400, 'web_url must be an origin-only https:// URL'); return; }
-                    }
-                    const enrollment = await machineAuthority.createEnrollment(relayUrl.replace(/\/$/, ''), webUrl);
-                    writeJson(res, 201, { enrollment_id: enrollment.id, claim: enrollment.claim, expires_in: enrollment.expiresIn,
-                        relay_url: relayUrl.replace(/\/$/, ''), ...(webUrl === undefined ? {} : { web_url: webUrl }) });
-                    return;
+            if (url.pathname === '/v1/selfhost/enrollments' && req.method === 'POST') {
+                if (!owner(req)) { writeJsonError(res, 403, 'relay owner required'); return; }
+                const body = await readJsonBody(req).catch(() => undefined) as Record<string, unknown> | undefined;
+                const relayUrl = typeof body?.relay_url === 'string' ? body.relay_url.trim() : '';
+                let valid = false;
+                try { const parsed = new URL(relayUrl); valid = parsed.protocol === 'wss:' && parsed.hostname !== ''
+                    && !parsed.username && !parsed.password && parsed.pathname === '/' && !parsed.search && !parsed.hash; }
+                catch { /* invalid address */ }
+                if (!valid) { writeJsonError(res, 400, 'relay_url must be a root wss:// URL without credentials'); return; }
+                const webUrl = typeof body?.web_url === 'string' ? body.web_url.trim().replace(/\/$/, '') : undefined;
+                if (webUrl !== undefined) {
+                    try { const parsed = new URL(webUrl); if (parsed.protocol !== 'https:' || parsed.origin !== webUrl) throw new Error('invalid'); }
+                    catch { writeJsonError(res, 400, 'web_url must be an origin-only https:// URL'); return; }
                 }
-                if (req.method === 'POST' && claimMatch?.[1] !== undefined) {
-                    if (rateLimited(`enroll:${clientIp(req, config.trustProxy)}`, 10, Date.now())) {
-                        writeJsonError(res, 429, 'too many requests'); return;
-                    }
-                    const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
-                    const claim = typeof body?.claim === 'string' ? body.claim : '';
-                    const relayUrl = typeof body?.relay_url === 'string' ? body.relay_url : '';
-                    const signingPublicKey = typeof body?.signing_public_key === 'string' ? body.signing_public_key : '';
-                    const proof = typeof body?.proof === 'string' ? body.proof : '';
-                    const name = typeof body?.name === 'string' && body.name.trim() !== '' ? body.name.trim().slice(0, 120) : 'agent machine';
-                    let proofOk = false;
-                    try {
-                        const rawKey = Buffer.from(signingPublicKey, 'base64');
-                        const signature = Buffer.from(proof, 'base64');
-                        const key = createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), rawKey]), format: 'der', type: 'spki' });
-                        proofOk = rawKey.length === 32 && rawKey.toString('base64') === signingPublicKey && signature.length === 64
-                            && verify(null, enrollmentProofMessage(claimMatch[1], relayUrl, signingPublicKey), key, signature);
-                    } catch { proofOk = false; }
-                    if (!proofOk) { writeJsonError(res, 403, 'invalid enrollment proof'); return; }
-                    const result = await machineAuthority.claimEnrollment(claimMatch[1], { claim, relayUrl, signingPublicKey, name });
-                    if (result.state !== 'issued') {
-                        writeJsonError(res, enrollmentClaimStatus(result.state), result.state);
-                        return;
-                    }
-                    closePeers({ accountId: `local:${result.slug}`, machineSlug: result.slug }, 'machine re-enrolled');
-                    writeJson(res, 201, { machine_slug: result.slug, machine_credential: result.credential,
-                        credential_expires_at: new Date(result.expiresAt).toISOString(), relay_url: result.relayUrl,
-                        ...(result.webUrl === undefined ? {} : { web_url: result.webUrl }) });
-                    return;
-                }
-                writeJsonError(res, 404, 'not_found');
-                return;
+                const created = await machines.createEnrollment(relayUrl, webUrl);
+                writeJson(res, 201, { enrollment_id: created.id, claim: created.claim, expires_in: created.expiresIn,
+                    relay_url: relayUrl, ...(webUrl === undefined ? {} : { web_url: webUrl }) }); return;
             }
-            if (config.localAuthority && machineAuthority !== undefined && req.method === 'GET' && url.pathname === '/v1/selfhost/machine-status') {
-                const authority = await resolveAuthority(req);
-                if (authority.machine === undefined) { writeJsonError(res, 403, 'machine status requires machine authority'); return; }
-                writeJson(res, 200, { online: peers.onlineMachineIds().has(authority.machine.slug) });
-                return;
+            const claim = /^\/v1\/selfhost\/enrollments\/([^/]+)\/claim$/.exec(url.pathname);
+            if (req.method === 'POST' && claim?.[1] !== undefined) {
+                if (limited(req, 10)) { writeJsonError(res, 429, 'too many requests'); return; }
+                const body = await readJsonBody(req).catch(() => undefined) as Record<string, unknown> | undefined;
+                const relayUrl = typeof body?.relay_url === 'string' ? body.relay_url : '';
+                const signingKey = typeof body?.signing_public_key === 'string' ? body.signing_public_key : '';
+                const boxKey = typeof body?.box_public_key === 'string' ? body.box_public_key : '';
+                const signature = typeof body?.proof === 'string' ? body.proof : '';
+                let proven = false;
+                try {
+                    const raw = Buffer.from(signingKey, 'base64');
+                    const box = Buffer.from(boxKey, 'base64');
+                    const sig = Buffer.from(signature, 'base64');
+                    const key = createPublicKey({ key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), raw]), format: 'der', type: 'spki' });
+                    proven = raw.length === 32 && raw.toString('base64') === signingKey && box.length === 32 && box.toString('base64') === boxKey
+                        && sig.length === 64 && verify(null, enrollmentProofMessage(claim[1], relayUrl, signingKey, boxKey), key, sig);
+                } catch { /* invalid proof */ }
+                if (!proven) { writeJsonError(res, 403, 'invalid enrollment proof'); return; }
+                const name = typeof body?.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 120) : 'agent machine';
+                const issued = await machines.claimEnrollment(claim[1], { claim: String(body?.claim ?? ''), relayUrl,
+                    signingPublicKey: signingKey, boxPublicKey: boxKey, name });
+                if (issued.state !== 'issued') { writeJsonError(res, issued.state === 'already_claimed' ? 409 : issued.state === 'expired' ? 400 : 403, issued.state); return; }
+                writeJson(res, 201, { machine_slug: issued.slug, machine_credential: issued.credential,
+                    credential_expires_at: new Date(issued.expiresAt).toISOString(), relay_url: issued.relayUrl,
+                    ...(issued.webUrl === undefined ? {} : { web_url: issued.webUrl }) }); return;
             }
-            if (config.localAuthority && machineAuthority !== undefined && localPairing !== undefined
-                && req.method === 'DELETE' && url.pathname === '/v1/selfhost/machine-status') {
-                const authority = await resolveAuthority(req);
-                if (authority.machine === undefined) { writeJsonError(res, 403, 'machine revocation requires machine authority'); return; }
-                const slug = authority.machine.slug;
-                await machineAuthority.revokeMachine(slug);
-                for (const device of await localPairing.listDevices(slug)) {
-                    await localPairing.revokeDevice(device.deviceId, slug);
-                }
-                closePeers({ accountId: `local:${slug}`, machineSlug: slug }, 'machine uninstalled');
-                writeJson(res, 200, { ok: true });
-                return;
-            }
-            if (config.localAuthority && machineAuthority !== undefined && req.method === 'GET' && url.pathname === '/v1/selfhost/machines') {
-                const authority = await resolveAuthority(req);
-                if (!authority.owner) { writeJsonError(res, 403, 'machine listing requires relay owner authority'); return; }
-                writeJson(res, 200, { machines: await machineAuthority.listMachines() });
-                return;
-            }
-            const revokeMachineMatch = /^\/v1\/selfhost\/machines\/([^/]+)$/.exec(url.pathname);
-            if (config.localAuthority && machineAuthority !== undefined && localPairing !== undefined && req.method === 'DELETE' && revokeMachineMatch?.[1] !== undefined) {
-                const authority = await resolveAuthority(req);
-                if (!authority.owner) { writeJsonError(res, 403, 'machine revocation requires relay owner authority'); return; }
-                const slug = decodeURIComponent(revokeMachineMatch[1]);
-                const revoked = await machineAuthority.revokeMachine(slug);
-                if (revoked === undefined) { writeJsonError(res, 404, 'machine_not_found'); return; }
-                for (const device of await localPairing.listDevices(slug)) {
-                    await localPairing.revokeDevice(device.deviceId, slug);
-                }
-                closePeers({ accountId: `local:${slug}`, machineSlug: slug }, 'machine revoked');
-                writeJson(res, 200, { ok: true });
-                return;
-            }
-            // Self-host ticket issuance: owner, enrolled machines, and paired devices use bounded authority.
-            if (config.localAuthority && localTickets !== undefined
-                && req.method === 'POST' && (url.pathname === '/v1/selfhost/tickets' || url.pathname === '/v1/ws-tickets')) {
-                const ip = `mint:${clientIp(req, config.trustProxy)}`;
-                const authority = await resolveAuthority(req);
-                const device = authority.owner || authority.machine !== undefined || authority.presented === undefined || localPairing === undefined
-                    ? undefined
-                    : await localPairing.resolveDeviceCredential(authority.presented);
-                if (!authority.owner && authority.machine === undefined && device === undefined) {
-                    // Limit failures only: valid credentials are never throttled.
-                    if (rateLimited(ip, 10, Date.now())) {
-                        writeJsonError(res, 429, 'too many requests');
-                        return;
-                    }
-                    writeJsonError(res, 403, 'ticket minting requires owner, machine, or paired-device authority');
-                    return;
-                }
-                const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
-                const role = body?.role;
-                const machineSlug = readMachineSlug(body);
-                const transport = body?.transport;
-                if ((role !== 'machine' && role !== 'client') || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug)
-                    || (transport !== 'relay' && transport !== 'terminal' && transport !== 'preview' && transport !== 'stream')) {
-                    writeJsonError(res, 400, 'role, machineSlug and transport are required');
-                    return;
-                }
-                if (device !== undefined && role !== 'client') {
-                    writeJsonError(res, 403, 'device credentials mint client tickets only');
-                    return;
-                }
-                if (device?.deviceKind === 'peer' && transport !== 'relay') {
-                    writeJsonError(res, 403, 'peer credentials mint opaque relay tickets only');
-                    return;
-                }
-                if (authority.machine !== undefined && role !== 'machine') {
-                    writeJsonError(res, 403, 'machine credentials mint machine tickets only');
-                    return;
-                }
-                if (authority.machine !== undefined && authority.machine.slug !== machineSlug) {
-                    writeJsonError(res, 403, 'machine credential is not enrolled for this machine');
-                    return;
-                }
-                if (device !== undefined && device.machineSlug !== machineSlug) {
-                    writeJsonError(res, 403, 'device credential is not paired to this machine');
-                    return;
-                }
-                if (!(await machineAuthority?.isMachineAllowed(machineSlug))) {
-                    writeJsonError(res, 403, 'machine is revoked or expired');
-                    return;
-                }
-                let deviceClaims = {};
-                if (device !== undefined) {
-                    deviceClaims = {
-                        deviceId: device.deviceId,
-                        deviceKind: device.deviceKind,
-                        credentialVersion: device.credentialVersion,
-                        ...(device.capabilities === undefined ? {} : { capabilities: device.capabilities }),
-                    };
-                }
-                const ticket = await localTickets.issue({
-                    role,
-                    machineSlug,
-                    accountId: `local:${machineSlug}`,
-                    transport,
-                    ...(typeof body?.channel === 'string' && body.channel !== '' && body.channel.length <= 128 ? { channel: body.channel } : {}),
-                    ...deviceClaims,
-                    ...(authority.machine !== undefined ? { machineCredentialId: authority.machine.credentialId } : {}),
-                });
-                writeJson(res, 200, { ticket, expires_in: 60 });
-                return;
-            }
-            // Peer authority is target-machine scoped. Peer credentials can
-            // route opaque envelopes, but cannot mint terminal/preview/stream tickets.
-            if (config.localAuthority && localPairing !== undefined && req.method === 'POST'
-                && url.pathname === '/v1/selfhost/peers') {
-                const authority = await resolveAuthority(req);
-                if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'peer issuance requires owner or target machine authority'); return; }
-                const requestedSlug = url.searchParams.get('machine')?.trim() ?? '';
-                if (authority.machine !== undefined && requestedSlug !== '' && requestedSlug !== authority.machine.slug) {
-                    writeJsonError(res, 403, 'machine credential cannot issue for another machine'); return;
-                }
-                const machineSlug = authority.machine?.slug ?? requestedSlug;
-                if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug)) { writeJsonError(res, 400, 'machine is required'); return; }
-                const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
-                const publicKey = typeof body?.device_public_key === 'string' ? body.device_public_key : '';
-                const name = typeof body?.device_name === 'string' ? body.device_name.trim() : '';
-                const capabilities = body?.capabilities;
-                const peerMachineId = typeof body?.peer_machine_id === 'string' && body.peer_machine_id !== '' ? body.peer_machine_id.slice(0, 128) : undefined;
-                const expiresAt = body?.credential_expires_at;
-                const refreshAfter = body?.refresh_after;
-                const authorityId = typeof body?.authority_id === 'string' && body.authority_id !== '' ? body.authority_id.slice(0, 256) : undefined;
-                if (!isValidPublicKey(publicKey) || name === '' || !isPeerCapabilities(capabilities)
-                    || expiresAt !== undefined && (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt) || expiresAt <= Date.now())
-                    || refreshAfter !== undefined && (typeof refreshAfter !== 'number' || !Number.isFinite(refreshAfter))) {
-                    writeJsonError(res, 400, 'device_public_key, device_name and valid peer capabilities are required');
-                    return;
-                }
-                const issued = await localPairing.issuePeer({
-                    machineSlug,
-                    publicKey,
-                    name,
-                    capabilities,
-                    ...(peerMachineId === undefined ? {} : { peerMachineId }),
-                    ...(expiresAt === undefined ? {} : { expiresAt }),
-                    ...(refreshAfter === undefined ? {} : { refreshAfter }),
-                    ...(authorityId === undefined ? {} : { authorityId }),
-                });
-                if (issued === undefined) { writeJsonError(res, 409, 'peer_already_authorized'); return; }
-                writeJson(res, 201, {
-                    device_id: issued.deviceId,
-                    device_credential: issued.credential,
-                    credential_version: issued.credentialVersion,
-                });
-                return;
-            }
-            if (config.localAuthority && localPairing !== undefined && req.method === 'GET'
-                && url.pathname === '/v1/selfhost/peers') {
-                const authority = await resolveAuthority(req);
-                if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'peer listing requires owner or machine authority'); return; }
-                const requestedSlug = url.searchParams.get('machine')?.trim() ?? '';
-                if (authority.machine !== undefined && requestedSlug !== '' && requestedSlug !== authority.machine.slug) {
-                    writeJsonError(res, 403, 'machine credential cannot list another machine'); return;
-                }
-                const machineSlug = authority.machine?.slug ?? requestedSlug;
-                if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug)) { writeJsonError(res, 400, 'machine is required'); return; }
-                writeJson(res, 200, { peers: await localPairing.listPeers(machineSlug) });
-                return;
-            }
-            const peerAuthorityMatch = /^\/v1\/selfhost\/peers\/([^/]+)(?:\/(grant|rotate))?$/.exec(url.pathname);
-            if (config.localAuthority && localPairing !== undefined && peerAuthorityMatch?.[1] !== undefined) {
-                const deviceId = decodeURIComponent(peerAuthorityMatch[1]);
-                const action = peerAuthorityMatch[2];
-                if (req.method === 'POST' && action === 'grant') {
-                    const authority = await resolveAuthority(req);
-                    if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'peer grant refresh requires owner or target machine authority'); return; }
-                    const requestedSlug = url.searchParams.get('machine')?.trim() ?? '';
-                    if (authority.machine !== undefined && requestedSlug !== '' && requestedSlug !== authority.machine.slug) {
-                        writeJsonError(res, 403, 'machine credential cannot refresh another machine'); return;
-                    }
-                    const machineSlug = authority.machine?.slug ?? requestedSlug;
-                    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug)) { writeJsonError(res, 400, 'machine is required'); return; }
-                    const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
-                    const grant = typeof body?.grant === 'string' ? body.grant : '';
-                    const keyVersion = body?.key_version;
-                    if (grant === '' || grant.length > 16 * 1024 || typeof keyVersion !== 'number'
-                        || !(await localPairing.storePeerGrant(deviceId, machineSlug, grant, keyVersion))) {
-                        writeJsonError(res, 409, 'peer_grant_invalid'); return;
-                    }
-                    closePeers({ accountId: `local:${machineSlug}`, deviceId }, 'peer grant refreshed');
-                    writeJson(res, 200, { ok: true, key_version: keyVersion });
-                    return;
-                }
-                if (req.method === 'POST' && action === 'rotate') {
-                    const authority = await resolveAuthority(req);
-                    if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'peer credential rotation requires owner or target machine authority'); return; }
-                    const requestedSlug = url.searchParams.get('machine')?.trim() ?? '';
-                    if (authority.machine !== undefined && requestedSlug !== '' && requestedSlug !== authority.machine.slug) {
-                        writeJsonError(res, 403, 'machine credential cannot rotate another machine'); return;
-                    }
-                    const machineSlug = authority.machine?.slug ?? requestedSlug;
-                    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug)) { writeJsonError(res, 400, 'machine is required'); return; }
-                    const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
-                    const expiresAt = body?.credential_expires_at;
-                    const refreshAfter = body?.refresh_after;
-                    if (expiresAt !== undefined && (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt) || expiresAt <= Date.now())
-                        || refreshAfter !== undefined && (typeof refreshAfter !== 'number' || !Number.isFinite(refreshAfter))) {
-                        writeJsonError(res, 400, 'invalid peer credential lifetime'); return;
-                    }
-                    const rotated = await localPairing.rotatePeerCredential(deviceId, machineSlug, {
-                        ...(expiresAt === undefined ? {} : { expiresAt }),
-                        ...(refreshAfter === undefined ? {} : { refreshAfter }),
-                        ...(typeof body?.authority_id === 'string' && body.authority_id !== '' ? { authorityId: body.authority_id.slice(0, 256) } : {}),
-                    });
-                    if (rotated === undefined) { writeJsonError(res, 404, 'peer_not_found'); return; }
-                    revokePeers({ accountId: `local:${machineSlug}`, deviceId });
-                    writeJson(res, 200, {
-                        device_credential: rotated.credential,
-                        credential_version: rotated.credentialVersion,
-                    });
-                    return;
-                }
-                if (req.method === 'DELETE' && action === undefined) {
-                    const authority = await resolveAuthority(req);
-                    if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'peer revocation requires owner or target machine authority'); return; }
-                    const revoked = await localPairing.revokeDevice(deviceId, authority.machine?.slug, 'peer');
-                    if (revoked === undefined) { writeJsonError(res, 404, 'peer_not_found'); return; }
-                    revokePeers({ accountId: `local:${revoked.machineSlug}`, deviceId });
-                    writeJson(res, 200, { ok: true });
-                    return;
+            const credential = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
+            const machine = credential === undefined ? undefined : await machines.resolveCredential(credential);
+            if (url.pathname === '/v1/selfhost/machine-status' && machine !== undefined) {
+                if (req.method === 'GET') { writeJson(res, 200, { online: link.hosts().some((host) => host.id === machine.linkHostId && host.online) }); return; }
+                if (req.method === 'DELETE') {
+                    await machines.revokeMachine(machine.slug);
+                    await link.revoke(machine.linkHostId);
+                    writeJson(res, 200, { ok: true }); return;
                 }
             }
-            if (config.localAuthority && localPairing !== undefined && req.method === 'GET'
-                && url.pathname === '/v1/selfhost/devices') {
-                const authority = await resolveAuthority(req);
-                if (!authority.owner && authority.machine === undefined) {
-                    writeJsonError(res, 403, 'device listing requires owner or machine authority');
-                    return;
-                }
-                const requestedSlug = url.searchParams.get('machine')?.trim() ?? '';
-                if (authority.machine !== undefined && requestedSlug !== authority.machine.slug) { writeJsonError(res, 403, 'machine credential cannot list another machine'); return; }
-                const machineSlug = authority.machine?.slug ?? requestedSlug;
-                if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug)) {
-                    writeJsonError(res, 400, 'machine is required');
-                    return;
-                }
-                writeJson(res, 200, { devices: await localPairing.listDevices(machineSlug) });
-                return;
+            if (url.pathname === '/v1/selfhost/machines' && req.method === 'GET') {
+                if (!owner(req)) { writeJsonError(res, 403, 'relay owner required'); return; }
+                writeJson(res, 200, { machines: await machines.listMachines() }); return;
             }
-            const machineGrantMatch = /^\/v1\/machines\/([^/]+)\/grant$/.exec(url.pathname);
-            if (config.localAuthority && localPairing !== undefined && req.method === 'GET' && machineGrantMatch?.[1] !== undefined) {
-                const presented = extractBearerToken(req);
-                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
-                const machineSlug = decodeURIComponent(machineGrantMatch[1]);
-                if (device === undefined || device.machineSlug !== machineSlug) {
-                    writeJsonError(res, 403, 'grant download requires a paired device credential');
-                    return;
-                }
-                if (!(await machineAuthority?.isMachineAllowed(machineSlug))) { writeJsonError(res, 403, 'machine is revoked or expired'); return; }
-                const grant = await localPairing.fetchCurrentGrant(device.deviceId, machineSlug);
-                if (grant === undefined) { writeJsonError(res, 404, 'grant_not_available'); return; }
-                writeJson(res, 200, { grant });
-                return;
+            const revoke = /^\/v1\/selfhost\/machines\/([^/]+)$/.exec(url.pathname);
+            if (revoke?.[1] !== undefined && req.method === 'DELETE') {
+                if (!owner(req)) { writeJsonError(res, 403, 'relay owner required'); return; }
+                const result = await machines.revokeMachine(decodeURIComponent(revoke[1]));
+                if (result === undefined) { writeJsonError(res, 404, 'machine_not_found'); return; }
+                await link.revoke(result.linkHostId);
+                writeJson(res, 200, { ok: true }); return;
             }
-            const rotatedGrantsMatch = /^\/v1\/selfhost\/machines\/([^/]+)\/grants$/.exec(url.pathname);
-            if (config.localAuthority && localPairing !== undefined && req.method === 'POST' && rotatedGrantsMatch?.[1] !== undefined) {
-                const authority = await resolveAuthority(req);
-                if (!authority.owner && authority.machine === undefined) {
-                    writeJsonError(res, 403, 'grant rotation requires owner or machine authority');
-                    return;
-                }
-                const requestedSlug = decodeURIComponent(rotatedGrantsMatch[1]);
-                if (authority.machine !== undefined && requestedSlug !== authority.machine.slug) { writeJsonError(res, 403, 'machine credential cannot rotate another machine'); return; }
-                const machineSlug = authority.machine?.slug ?? requestedSlug;
-                const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
-                const keyVersion = body?.key_version;
-                const entries = Array.isArray(body?.grants) ? body.grants : [];
-                const grants = entries.flatMap((entry) => {
-                    if (typeof entry !== 'object' || entry === null) return [];
-                    const item = entry as Record<string, unknown>;
-                    return typeof item.device_id === 'string' && typeof item.grant === 'string' && item.grant.length <= 16 * 1024
-                        ? [{ deviceId: item.device_id, grant: item.grant }] : [];
-                });
-                if (grants.length !== entries.length || typeof keyVersion !== 'number'
-                    || !(await localPairing.storeCurrentGrants(machineSlug, keyVersion, grants))) {
-                    writeJsonError(res, 409, 'rotation_grants_invalid');
-                    return;
-                }
-                // Force every remaining peer to reconnect and refresh the new
-                // grant. This also reconnects the host after its local key swap.
-                closePeers({ accountId: `local:${machineSlug}`, machineSlug }, 'keys rotated');
-                writeJson(res, 200, { ok: true, key_version: keyVersion });
-                return;
-            }
-            // Device revocation: mint-secret authed, immediate.
-            if (config.localAuthority && localPairing !== undefined && req.method === 'DELETE'
-                && url.pathname.startsWith('/v1/selfhost/devices/')) {
-                const authority = await resolveAuthority(req);
-                if (!authority.owner && authority.machine === undefined) {
-                    writeJsonError(res, 403, 'device revocation requires owner or machine authority');
-                    return;
-                }
-                const deviceId = decodeURIComponent(url.pathname.slice('/v1/selfhost/devices/'.length));
-                const revoked = await localPairing.revokeDevice(deviceId, authority.machine?.slug);
-                if (revoked === undefined) {
-                    writeJsonError(res, 404, 'device_not_found');
-                    return;
-                }
-                revokePeers({ accountId: `local:${revoked.machineSlug}`, deviceId });
-                writeJson(res, 200, { ok: true });
-                return;
-            }
-            for (const handler of options.httpHandlers ?? []) {
-                if (await handler(req, res, url)) return;
-            }
-            if (!config.developmentApi) {
-                writeJson(res, 404, { error: 'not_found' });
-                return;
-            }
-            await handleHttpRequest(req, res, {
-                pairing,
-                registry,
-                peers,
-                offline,
-                replay,
-                startedAt,
-                e2eeMode: config.e2eeMode,
-                droppedCount: () => offline.droppedCount,
-                machineRequest,
-                hostDownloadBaseUrl,
-                sessionOwnerOf: (sessionId) => sessionOwner.get(sessionId),
-            });
-        })().catch(() => {
-            process.stderr.write('relay HTTP request failed\n');
+            writeJson(res, 404, { error: 'not_found' });
+        })().catch((error: unknown) => {
+            process.stderr.write(`relay HTTP request failed: ${error instanceof Error ? error.message : String(error)}\n`);
             if (!res.headersSent) writeJsonError(res, 500, 'internal error');
         });
     });
     http.requestTimeout = config.publicEdge ? 30_000 : 0;
     http.headersTimeout = 15_000;
-
-    const wss = new WebSocketServer({ noServer: true, maxPayload: config.maxPayloadBytes });
     http.on('upgrade', (req, socket, head) => {
-        if (linkRelay?.upgrade(req, socket, head) === true) return;
-        wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+        if (!originAllowed(req, config)) { socket.destroy(); return; }
+        if (!link.upgrade(req, socket, head)) socket.destroy();
     });
-
-    // Terminal keystrokes are small writes; Nagle would let each one sit
-    // unacked for up to ~40ms per hop. Covers every socket this server
-    // upgrades, including the terminal, preview and stream transports.
-    http.on('connection', (socket) => { socket.setNoDelay(true); });
-
-    wss.on('connection', (socket, req) => {
-        const url = new URL(req.url ?? '/', 'http://localhost');
-        const relayTransport = !url.pathname.endsWith('/preview')
-            && !url.pathname.endsWith('/terminal') && !url.pathname.endsWith('/stream');
-        const ignoreAuthError = (): void => undefined;
-        const discardRejectedMessage = (): void => undefined;
-        const rejectConnection = (code: number, reason: string): void => {
-            if (relayTransport) socket.on('message', discardRejectedMessage);
-            socket.close(code, reason);
-            if (relayTransport) socket.resume();
-        };
-        if (relayTransport) {
-            socket.pause();
-            socket.on('error', ignoreAuthError);
-        }
-        void (async () => {
-        if (!config.developmentApi
-            && rateLimited(`ws:${clientIp(req, config.trustProxy)}`, 60, Date.now())) {
-            rejectConnection(1008, 'too many requests');
-            return;
-        }
-        if (!webSocketOriginAllowed(req, config)) {
-            rejectConnection(1008, 'origin not allowed');
-            return;
-        }
-        const admitted = await admitSocketFromUrl({
-            url,
-            authMode,
-            remoteAddress: req.socket.remoteAddress,
-            consumeTicket: options.consumeTicket
-                ?? (async (ticket) => {
-                    const consumed = await (localTickets?.consume(ticket) ?? Promise.resolve(undefined));
-                    if (consumed?.machineCredentialId !== undefined
-                        && !(await machineAuthority?.isCredentialActive(consumed.machineCredentialId))) return undefined;
-                    if (consumed !== undefined && !(await machineAuthority?.isMachineAllowed(consumed.machineSlug))) return undefined;
-                    return consumed;
-                }),
-        });
-
-        const transport = websocketTransport(url.pathname);
-        if (!admitted.ok) {
-            logUnauthorizedReject(admitted.reason, transport);
-            rejectConnection(1008, 'unauthorized');
-            return;
-        }
-        const identity = admitted.identity;
-        if (config.localAuthority && localPairing !== undefined && admittedByTicket(identity)
-            && identity.deviceId !== undefined && !(await localPairing.isDeviceActive(identity.deviceId, identity.credentialVersion))) {
-            logUnauthorizedReject('device-revoked', transport);
-            rejectConnection(1008, 'revoked');
-            return;
-        }
-        if (admittedByTicket(identity) && identity.transport !== transport) {
-            logUnauthorizedReject('ticket-scope-mismatch', transport);
-            rejectConnection(1008, 'ticket scope mismatch');
-            return;
-        }
-        if (config.e2eeMode === 'on' && transport === 'preview'
-            && identity.role === 'client' && url.searchParams.get('bridge') !== '1') {
-            logUnauthorizedReject('preview-bridge-required', transport);
-            rejectConnection(1008, 'encrypted preview requires the native bridge');
-            return;
-        }
-        if (socket.readyState !== socket.OPEN) {
-            if (relayTransport) socket.off('error', ignoreAuthError);
-            return;
-        }
-        const authenticatedSocket = { socket, identity };
-        authenticatedSockets.add(authenticatedSocket);
-        const credentialTimer = admittedByTicket(identity) && (identity.machineCredentialId !== undefined || identity.deviceId !== undefined)
-            ? setInterval(() => {
-                void (async () => {
-                    const machineActive = identity.machineCredentialId === undefined
-                        || await machineAuthority?.isCredentialActive(identity.machineCredentialId) === true;
-                    const deviceActive = identity.deviceId === undefined
-                        || await localPairing?.isDeviceActive(identity.deviceId, identity.credentialVersion) === true;
-                    const machineSlug = identity.machineIds.values().next().value;
-                    const parentActive = typeof machineSlug !== 'string' || await machineAuthority?.isMachineAllowed(machineSlug) === true;
-                    if (!machineActive || !deviceActive || !parentActive) socket.close(1008, 'credential expired or revoked');
-                })();
-            }, 60_000)
-            : undefined;
-        credentialTimer?.unref();
-        socket.once('close', () => {
-            authenticatedSockets.delete(authenticatedSocket);
-            if (credentialTimer !== undefined) clearInterval(credentialTimer);
-        });
-
-        // Preview sockets carry raw tunnel bytes, not envelopes. They never join
-        // the peer table, so nothing downstream can route a session envelope at
-        // one, and their traffic never reaches the replay log or offline buffer.
-        // endsWith, not ===: a relay behind a path-prefixed proxy (wss://host/relay)
-        // sees /relay/preview.
-        if (url.pathname.endsWith('/preview')) {
-            const { channel, machineId } = tunnelAdmission(identity, url);
-            if (!channel || !machineId || !identity.machineIds.has(machineId)) {
-                socket.close(1008, 'preview requires channel and an authorized machineId');
-                return;
-            }
-            const key = tunnelKey(identity.accountId, machineId, channel);
-            if (identity.role === 'machine') {
-                previews.joinMachine(key, socket);
-            } else if (url.searchParams.get('bridge') === '1') {
-                previews.bridgeClient(key, socket);
-            } else {
-                // Same interface the relay itself is reachable on, so a preview
-                // reaches exactly as far as the session link does.
-                void previews.joinClient(key, socket, config.host, req.socket.remoteAddress);
-            }
-            return;
-        }
-
-        if (url.pathname.endsWith('/terminal') || url.pathname.endsWith('/stream')) {
-            const isStream = url.pathname.endsWith('/stream');
-            const { channel, machineId } = tunnelAdmission(identity, url);
-            if (!channel || !machineId || !identity.machineIds.has(machineId)) {
-                socket.close(1008, `${isStream ? 'stream' : 'terminal'} requires channel and an authorized machineId`);
-                return;
-            }
-            const key = tunnelKey(identity.accountId, machineId, channel);
-            const channels = isStream ? realtimeStreams : terminals;
-            const accept = opaqueTunnelAccept(config.e2eeMode === 'on', isStream);
-            if (identity.role === 'machine') {
-                channels.joinMachine(key, socket, accept);
-            } else {
-                void channels.joinClient(key, socket, accept);
-            }
-            return;
-        }
-
-        if (socket.readyState !== socket.OPEN) {
-            authenticatedSockets.delete(authenticatedSocket);
-            if (relayTransport) socket.off('error', ignoreAuthError);
-            return;
-        }
-        const lastSeenSeq = parseLastSeq(url);
-        const peer: ConnectedPeer = {
-            socket,
-            identity,
-            accountId: identity.accountId,
-            role: identity.role,
-            machineIds: identity.machineIds,
-            connectedAt: Date.now(),
-            ...(identity.role === 'client' ? { connectionId: randomUUID() } : {}),
-            ...(lastSeenSeq === undefined ? {} : { lastSeenSeq }),
-        };
-        // One host per machineId. Two hosts both answer every request, and the
-        // one that did not create a session replies "unknown session".
-        if (peer.role === 'machine') {
-            for (const machineId of peer.machineIds) {
-                for (const stale of peers.forMachine(machineId, 'machine', peer.accountId)) {
-                    peers.remove(stale);
-                    stale.socket.close(RELAY_CLOSE_REPLACED, 'replaced by a newer host');
-                }
-            }
-        }
-        peers.add(peer);
-        if (peer.role === 'machine') {
-            const connectionIds = [...new Set([...peer.machineIds].flatMap((machineId) =>
-                peers.forMachine(machineId, 'client', peer.accountId).map((client) => client.connectionId).filter((id): id is string => id !== undefined)))];
-            sendEnvelope(socket, { type: 'relay.clients', connectionIds });
-        } else {
-            for (const machineId of peer.machineIds) {
-                for (const machine of peers.forMachine(machineId, 'machine', peer.accountId)) {
-                    sendEnvelope(machine.socket, { type: 'relay.client.joined', connectionId: peer.connectionId });
-                }
-            }
-        }
-
-        deliverReplayAndOffline(peer, offline, replay,
-            // Persisted frames predate strict E2EE; never deliver cleartext into an E2EE link.
-            config.e2eeMode === 'on' ? isOpaqueV2Envelope : undefined);
-
-        socket.on('message', (raw) => {
-            let envelope: Envelope;
-            try {
-                envelope = JSON.parse(String(raw)) as Envelope;
-            } catch {
-                return;
-            }
-            if (!envelope?.header?.machineId) return;
-            if (config.e2eeMode === 'on' && !isOpaqueV2Envelope(envelope)) {
-                socket.close(1008, 'relay requires opaque v2 ciphertext');
-                return;
-            }
-            if (!peerMayRoute(envelope.header.machineId, peer)) return;
-            // Header-only learning happens only after route authorization.
-            // The map feeds the dev-only synthetic HTTP API, so only dev populates it.
-            if (config.developmentApi && envelope.header.sessionId !== undefined) {
-                sessionOwner.set(envelope.header.sessionId, envelope.header.machineId);
-            }
-            if (config.developmentApi && peer.role === 'machine' && settlePushAction(envelope)) return;
-            if (peer.role === 'client') {
-                if (peer.connectionId === undefined) return;
-                envelope = { ...envelope, header: { ...envelope.header, connectionId: peer.connectionId } };
-            }
-            routeEnvelope(
-                envelope,
-                peer,
-                peers,
-                offline,
-                replay,
-                { ...(pushWebhook === undefined ? {} : { pushWebhook }), onPeerRoute: recordPeerRoute },
-            );
-        });
-
-        let detached = false;
-        const detach = (): void => {
-            if (detached) return;
-            detached = true;
-            peers.remove(peer);
-            if (peer.role === 'client') {
-                for (const machineId of peer.machineIds) {
-                    for (const machine of peers.forMachine(machineId, 'machine', peer.accountId)) {
-                        sendEnvelope(machine.socket, { type: 'relay.client.left', connectionId: peer.connectionId });
-                    }
-                }
-            }
-            // BYO-email notify: the last machine peer dropping means the box went offline.
-            if (notifyOffline !== undefined && peer.role === 'machine'
-                && peers.forMachine(peer.machineIds.values().next().value ?? '', 'machine', peer.accountId).length === 0) {
-                void notifyOffline([...peer.machineIds][0] ?? 'unknown').catch(() => undefined);
-            }
-        };
-        socket.on('close', detach);
-        socket.on('error', detach);
-        if (relayTransport) {
-            socket.off('error', ignoreAuthError);
-            if (socket.readyState !== socket.OPEN) {
-                detach();
-                return;
-            }
-            socket.resume();
-        }
-        })().catch(() => {
-            process.stderr.write('WebSocket authentication failed\n');
-            rejectConnection(1011, 'authentication failed');
-        });
-    });
-
-    // Tunnels (cloudflared, ngrok) close idle WebSockets, which the app shows as
-    // a connect/disconnect flap. Browsers cannot send pings, so the server drives
-    // it; the client pongs automatically.
-    const keepalive = setInterval(() => {
-        for (const client of wss.clients) {
-            if (client.readyState === client.OPEN) client.ping();
-        }
-    }, 30_000);
-    keepalive.unref();
-
+    http.on('connection', (socket) => socket.setNoDelay(true));
     await new Promise<void>((resolve) => http.listen(config.port, config.host, resolve));
     const address = http.address();
-    const listeningPort = typeof address === 'object' && address !== null ? address.port : config.port;
-
-    // LAN discovery: advertise _muxr._tcp so the app can find self-host relays.
-    // The advertised locator rides the txt record; the phone dials that URL, so
-    // no interface pinning is needed here (byokit reach's advertise contract).
+    const port = typeof address === 'object' && address !== null ? address.port : config.port;
     let mdnsStop: (() => Promise<void>) | undefined;
     if (config.advertiseMdns) {
         try {
-            const advertisedUrl = config.mdnsConnectionMode === 'lan' && config.mdnsRelayUrl !== undefined
-                ? new URL(config.mdnsRelayUrl) : undefined;
-            if (advertisedUrl !== undefined && !['ws:', 'wss:'].includes(advertisedUrl.protocol)) {
-                throw new Error('LAN discovery needs a WebSocket relay URL');
-            }
-            const defaultAdvertisedPort = advertisedUrl?.protocol === 'wss:' ? 443 : 80;
-            const advertisedPort = advertisedUrl === undefined ? listeningPort
-                : Number(advertisedUrl.port || defaultAdvertisedPort);
-            if (!Number.isInteger(advertisedPort) || advertisedPort < 1 || advertisedPort > 65535) {
-                throw new Error('LAN discovery needs a valid advertised port');
-            }
-            const reach = await import('@byokit/reach');
-            if (!('advertise' in reach) || typeof reach.advertise !== 'function') throw new Error('Node reach advertise is unavailable');
-            const published = await reach.advertise({
-                type: 'muxr',
-                port: advertisedPort,
-                name: config.mdnsName ?? `muxr-${hostname()}`,
-                txt: {
-                    v: '2',
-                    ...(config.mdnsMachineId === undefined ? {} : { machine: config.mdnsMachineId }),
+            const url = config.mdnsConnectionMode === 'lan' && config.mdnsRelayUrl !== undefined ? new URL(config.mdnsRelayUrl) : undefined;
+            if (url !== undefined && !['ws:', 'wss:'].includes(url.protocol)) throw new Error('LAN discovery needs a WebSocket relay URL');
+            const defaultPort = url?.protocol === 'wss:' ? 443 : 80;
+            const advertised = url === undefined ? port : Number(url.port || defaultPort);
+            if (!Number.isInteger(advertised) || advertised < 1 || advertised > 65535) throw new Error('LAN discovery needs a valid advertised port');
+            const { advertise } = await import('@byokit/reach');
+            const published = await advertise({ type: 'muxr', port: advertised, name: config.mdnsName ?? `muxr-${hostname()}`,
+                txt: { v: '2', ...(config.mdnsMachineId === undefined ? {} : { machine: config.mdnsMachineId }),
                     ...(config.mdnsRelayUrl === undefined ? {} : { relay: config.mdnsRelayUrl }),
-                    ...(config.mdnsConnectionMode === undefined ? {} : { mode: config.mdnsConnectionMode }),
-                },
-            });
+                    ...(config.mdnsConnectionMode === undefined ? {} : { mode: config.mdnsConnectionMode }) } });
             mdnsStop = published.stop;
-        } catch (cause) {
-            process.stderr.write(`mDNS advertisement unavailable; discovery disabled (${cause instanceof Error ? cause.message : String(cause)})\n`);
-        }
+        } catch (error) { process.stderr.write(`mDNS advertisement unavailable; discovery disabled (${error instanceof Error ? error.message : String(error)})\n`); }
     }
-
-    return {
-        port: listeningPort,
-        revokePeers,
-        countClients: (accountId) => authenticatedSockets.size === 0 ? 0 : [...authenticatedSockets].filter(
-            (peer) => admittedByTicket(peer.identity) && peer.identity.role === 'client' && peer.identity.accountId === accountId,
-        ).length,
-        close: async () => {
-            clearInterval(keepalive);
-            await mdnsStop?.();
-            previews.closeAll();
-            terminals.closeAll();
-            realtimeStreams.closeAll();
-            peers.closeAll();
-            authenticatedSockets.clear();
-            linkRelay?.close();
-            wss.close();
-            await awaitPersistChain();
-            await new Promise<void>((resolve) => http.close(() => resolve()));
-        },
-    };
-}
-
-function applyHttpOriginPolicy(
-    req: import('node:http').IncomingMessage,
-    res: import('node:http').ServerResponse,
-    config: RelayConfig,
-): boolean {
-    res.setHeader('x-content-type-options', 'nosniff');
-    res.setHeader('x-frame-options', 'DENY');
-    res.setHeader('referrer-policy', 'no-referrer');
-    res.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=()');
-    if (config.publicEdge) res.setHeader('strict-transport-security', 'max-age=31536000; includeSubDomains');
-    const origin = req.headers.origin;
-    if (origin === undefined || (!config.publicEdge && config.allowedOrigins.size === 0)) return true;
-    if (typeof origin !== 'string' || !config.allowedOrigins.has(origin)) {
-        writeJsonError(res, 403, 'origin not allowed');
-        return false;
-    }
-    res.setHeader('access-control-allow-origin', origin);
-    res.setHeader('access-control-allow-credentials', 'true');
-    res.setHeader('access-control-allow-headers', 'authorization, content-type');
-    res.setHeader('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS');
-    res.setHeader('vary', 'Origin');
-    return true;
-}
-
-function webSocketOriginAllowed(req: import('node:http').IncomingMessage, config: RelayConfig): boolean {
-    const origin = req.headers.origin;
-    if (origin === undefined || (!config.publicEdge && config.allowedOrigins.size === 0)) return true;
-    if (typeof origin !== 'string') return false;
-    return config.allowedOrigins.has(origin) || (!config.publicEdge && ownLoopbackOrigin(req, origin));
-}
-
-/**
- * A phone on the Direct SSH route dials this relay through a local forward, as
- * ws://127.0.0.1:<port>, and its WebSocket names that address as its Origin.
- * That is this relay's own loopback address, which no page served from
- * anywhere else can claim, so it stays allowed when browser origins are
- * configured; otherwise serving the PWA would shut the SSH route out.
- */
-function ownLoopbackOrigin(req: import('node:http').IncomingMessage, origin: string): boolean {
-    if (!isLoopbackAddress(req.socket.remoteAddress)) return false;
-    const host = req.headers.host;
-    return /^127\.0\.0\.1:\d+$/.test(host ?? '') && origin === `http://${host}`;
-}
-
-const unauthorizedRejectLogs = new Map<string, { reason: string; transport: string; at: number; n: number }>();
-
-function logUnauthorizedReject(reason: string, transport: 'preview' | 'terminal' | 'stream' | 'relay'): void {
-    const key = `${reason}:${transport}`;
-    const now = Date.now();
-    const bucket = unauthorizedRejectLogs.get(key) ?? { reason, transport, at: 0, n: 0 };
-    if (bucket.n > 0 && now - bucket.at < 5_000) {
-        bucket.n += 1;
-        unauthorizedRejectLogs.set(key, bucket);
-        return;
-    }
-    if (bucket.n > 1) {
-        process.stderr.write(
-            `rejected unauthorized WebSocket reason=${bucket.reason} transport=${bucket.transport} repeats=${bucket.n}\n`,
-        );
-    }
-    process.stderr.write(`rejected unauthorized WebSocket reason=${reason} transport=${transport}\n`);
-    unauthorizedRejectLogs.set(key, { reason, transport, at: now, n: 1 });
-}
-
-function websocketTransport(pathname: string): 'preview' | 'terminal' | 'stream' | 'relay' {
-    if (pathname.endsWith('/preview')) return 'preview';
-    if (pathname.endsWith('/terminal')) return 'terminal';
-    if (pathname.endsWith('/stream')) return 'stream';
-    return 'relay';
-}
-
-function tunnelAdmission(identity: PeerIdentity, url: URL): { channel?: string; machineId?: string } {
-    if (admittedByTicket(identity)) {
-        const machineId = [...identity.machineIds][0];
-        return {
-            ...(identity.channel === undefined ? {} : { channel: identity.channel }),
-            ...(machineId === undefined ? {} : { machineId }),
-        };
-    }
-    const channel = url.searchParams.get('channel')?.trim();
-    const machineId = url.searchParams.get('machineId')?.trim();
-    return {
-        ...(channel === undefined || channel === '' ? {} : { channel }),
-        ...(machineId === undefined || machineId === '' ? {} : { machineId }),
-    };
-}
-
-function tunnelKey(accountId: string, machineId: string, channel: string): string {
-    return `${accountId.length}:${accountId}${machineId.length}:${machineId}${channel}`;
-}
-
-function opaqueTunnelAccept(e2eeOn: boolean, isStream: boolean): ((raw: string) => boolean) | undefined {
-    if (!e2eeOn) return undefined;
-    return isStream ? isOpaqueV2StreamFrame : isOpaqueV2TerminalFrame;
-}
-
-function readMachineSlug(body: Record<string, unknown> | undefined): string {
-    if (typeof body?.machineSlug === 'string') return body.machineSlug.trim();
-    if (typeof body?.machineId === 'string') return body.machineId.trim();
-    if (typeof body?.machine_id === 'string') return body.machine_id.trim();
-    return '';
-}
-
-function enrollmentClaimStatus(state: string): number {
-    if (state === 'expired') return 400;
-    if (state === 'already_claimed') return 409;
-    return 403;
+    return { port, close: async () => {
+        await mdnsStop?.();
+        link.close();
+        await awaitPersistChain();
+        await new Promise<void>((resolve) => http.close(() => resolve()));
+    } };
 }

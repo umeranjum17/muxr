@@ -109,7 +109,7 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         const engine = join(dir, 'desktop-engine.cjs');
         writeFileSync(engine, STUB(engineLog));
         chmodSync(engine, 0o755);
-        const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay'), developmentApi: true, advertiseMdns: false } });
+        const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay'), advertiseMdns: false } });
         cleanups.push(() => void relay.close());
         const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
         const machineId = 'machine-desktop-test';

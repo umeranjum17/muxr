@@ -368,7 +368,7 @@ describe('native pairing over the byokit link', () => {
     }, 90_000);
 
 
-    it('lists and revokes a link-paired phone with relay fallback', async () => {
+    it('lists and revokes a link-paired phone from the host record', async () => {
         const state = readSelfhostState();
         const paired = state.machine.crypto.devices;
         expect(paired).toHaveLength(5);
