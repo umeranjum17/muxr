@@ -85,8 +85,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const size = command.size;
     const options = command.mode === undefined ? undefined : { mode: command.mode };
     const settings = getCachedConnectionSettings();
-    const grant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
-    if (settings.mode === 'hosted' && grant === undefined) {
+    const grant = getCachedHostedGrant(settings.machineId);
+    if (grant === undefined) {
         recordTerminalChannel('attach', { ok: false, code: 'e2ee-required' });
         throw new Error('terminal: hosted machine grant is missing');
     }

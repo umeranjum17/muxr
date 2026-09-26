@@ -251,18 +251,18 @@ class MuxrSync {
 
     private hasTransport(): boolean {
         const settings = this.getConnection();
-        return hostedTransportReady(settings.mode, settings.machineId, getCachedHostedGrant(settings.machineId));
+        return hostedTransportReady(settings.machineId, getCachedHostedGrant(settings.machineId));
     }
 
     private ensureClient(): SessionClient {
         if (this.client !== undefined) return this.client;
         const settings = this.getConnection();
-        const hostedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
-        if (!hostedTransportReady(settings.mode, settings.machineId, hostedGrant)) {
+        const hostedGrant = getCachedHostedGrant(settings.machineId);
+        if (!hostedTransportReady(settings.machineId, hostedGrant)) {
             throw new Error('machine transport unavailable until secure pairing completes');
         }
         const client = new LinkFirstClient({
-            ...(hostedGrant === undefined ? {} : { hostedGrant }),
+            hostedGrant,
             ...(settings.selfhost === true && settings.ssh !== undefined && sshTunnelAvailable() ? { ssh: settings.ssh } : {}),
             onPermanentError: (message) => storage.getState().setSocketError(message),
         });

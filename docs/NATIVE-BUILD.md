@@ -54,10 +54,9 @@ service's state. Stop the development supervisor with **Ctrl-C**; it owns its
 compiler, renderer watcher, Metro and source host/relay processes, then removes
 its private checkout-plugin socket.
 
-This reuses the existing explicit **local development fixture** for connection
-and account setup. It drives the real source host and local Herdr panes, not a
-fake terminal. It is loopback-only, not a secure remote-phone setup or proof of
-production pairing. On first launch, use the local account creation action.
+The development host uses a paired self-host link identity; pair the phone with
+`muxr pair` before connecting. It drives the real source host and local Herdr
+panes, not a fake terminal.
 Herdr and its installed registrations remain shared: don't close or alter
 unrelated panes. The development host projects already-registered checkout-local
 plugins onto this checkout's local plugin paths for UI projections, RPC and
@@ -161,10 +160,8 @@ keys are created at runtime and live in platform SecureStore:
 }
 ```
 
-`scripts/buildAndroidLocal.sh` defaults to the grant-backed relay mode and
-unsets the public fixture token. For the internal LAN fixture only, set
-`EXPO_PUBLIC_MUXR_MODE=local` explicitly and provide its local connection
-values. Never distribute a build containing fixture credentials.
+`scripts/buildAndroidLocal.sh` uses the grant-backed relay mode. Pair the app
+with the computer before connecting; a relay URL alone does not grant access.
 
 ## Publishing identity
 

@@ -83,9 +83,12 @@ class LinkStreamSocket extends EventEmitter {
         super();
         stream.onData = async (chunk) => {
             this.buffer += this.decoder.decode(chunk, { stream: true });
+            if (this.buffer.length > MAX_STREAM_LINE_BYTES && !this.buffer.includes('\n')) { this.close(); return; }
             const lines = this.buffer.split('\n');
             this.buffer = lines.pop() ?? '';
+            if (this.buffer.length > MAX_STREAM_LINE_BYTES) { this.close(); return; }
             for (const line of lines) {
+                if (line.length > MAX_STREAM_LINE_BYTES) { this.close(); return; }
                 const frame = Buffer.from(line);
                 if (this.listenerCount('message') === 0) {
                     this.earlyBytes += frame.length;

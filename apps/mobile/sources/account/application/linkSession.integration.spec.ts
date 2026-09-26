@@ -5,7 +5,7 @@ const harness = vi.hoisted(() => {
     const sessions: Record<string, { id: string; taskTitle?: string }> = {};
     return {
         connection: {
-            mode: 'hosted' as 'hosted' | 'local',
+            mode: 'hosted' as const,
             relayUrl: 'ws://relay.test',
             machineId: '',
             token: '',

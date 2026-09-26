@@ -118,7 +118,6 @@ export function getCachedHostedGrant(machineId: string): StoredHostedGrant | und
 export function currentDeviceAuthority(): 'control' | 'observe' {
     if (Platform.OS !== 'web') return 'control';
     const connection = getCachedConnectionSettings();
-    if (connection.mode === 'local') return 'control';
     return grantsCache?.[connection.machineId]?.authority ?? 'observe';
 }
 
@@ -311,6 +310,7 @@ export async function clearHostedE2ee(): Promise<void> {
         secretDelete(DEVICE_KEY),
         secretDelete(GRANTS_INDEX),
         secretDelete(PENDING_PAIR_KEY),
+        secretDelete(PENDING_LINK_PAIR_KEY),
         ...Object.keys(all).map((id) => secretDelete(grantKey(id))),
     ]);
     deviceCache = undefined;

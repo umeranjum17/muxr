@@ -30,6 +30,28 @@ process.stdin.once('data', () => {
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
+it('closes a plugin stream whose incoming frame never terminates', async () => {
+    const manager = new PluginStreamManager({});
+    let closed = false;
+    const transport = {
+        onData: (_chunk: Uint8Array) => {},
+        onEnd: (_error?: string) => {},
+        write: async (_chunk: string | Uint8Array) => {},
+        end: () => { closed = true; transport.onEnd(); },
+    };
+    await manager.attach({
+        target: { pluginId: 'voice-test', pluginRoot: root, entry: 'plugin.mjs' },
+        channel: 'rs_unterminated_test',
+        stateDir: join(root, 'oversized-state'),
+        signal: new AbortController().signal,
+        onClosed: () => undefined,
+        transport,
+    });
+    await transport.onData(Buffer.alloc(128 * 1024 + 1, 65));
+    expect(closed).toBe(true);
+    manager.closeAll();
+});
+
 it('delivers a bursty provider reply completely and in order through a slow link stream', async () => {
     const received: string[] = [];
     let closedReason: string | undefined;

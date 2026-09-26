@@ -42,7 +42,7 @@ export interface RealtimeStreamSnapshot {
     capability: string;
     machineId: string;
     relayUrl: string;
-    mode: 'hosted' | 'local';
+    mode: 'hosted';
     token: string;
     grant?: StoredHostedGrant;
 }
@@ -57,18 +57,18 @@ export interface PluginStreamSnapshot extends RealtimeStreamSnapshot {
 export async function captureStreamTransport(capability: string, machineId: string): Promise<RealtimeStreamSnapshot> {
     const settings = { ...getCachedConnectionSettings() };
     if (settings.machineId !== machineId) throw new Error('End voice before switching computers.');
-    const cachedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(machineId) : undefined;
-    if (settings.mode === 'hosted' && cachedGrant === undefined) throw new Error('stream: hosted machine grant is missing');
+    const cachedGrant = getCachedHostedGrant(machineId);
+    if (cachedGrant === undefined) throw new Error('stream: hosted machine grant is missing');
     if (getCachedConnectionSettings().machineId !== machineId) throw new Error('End voice before switching computers.');
-    const grant = cachedGrant === undefined ? undefined : JSON.parse(JSON.stringify(cachedGrant)) as StoredHostedGrant;
-    if (grant !== undefined && grant.expiresAt <= Date.now()) throw new Error('stream: device grant expired; pair again');
+    const grant = JSON.parse(JSON.stringify(cachedGrant)) as StoredHostedGrant;
+    if (grant.expiresAt <= Date.now()) throw new Error('stream: device grant expired; pair again');
     return {
         capability,
         machineId,
-        relayUrl: grant?.relayUrl ?? settings.relayUrl,
+        relayUrl: grant.relayUrl,
         mode: settings.mode,
-        token: grant?.credential ?? settings.token,
-        ...(grant === undefined ? {} : { grant }),
+        token: grant.credential,
+        grant,
     };
 }
 

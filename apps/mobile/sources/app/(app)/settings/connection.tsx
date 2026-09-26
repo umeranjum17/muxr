@@ -216,9 +216,6 @@ export default function ConnectionSettingsScreen() {
     const offerRestart = latestFailure !== undefined && !latestFailureIsDeadGrant();
     React.useEffect(() => { if (!offerRestart) setRestartCopied(false); }, [offerRestart]);
 
-    const [relayUrl, setRelayUrl] = React.useState(initial.relayUrl);
-    const [machineId, setMachineId] = React.useState(initial.machineId);
-    const [token, setToken] = React.useState(initial.token);
     const [sshHost, setSshHost] = React.useState(initial.ssh?.host ?? '');
     const [sshPort, setSshPort] = React.useState(String(initial.ssh?.port ?? 22));
     const [sshRelayPort, setSshRelayPort] = React.useState(String(initial.ssh?.relayPort ?? 8792));
@@ -229,8 +226,6 @@ export default function ConnectionSettingsScreen() {
     const [sshCredentialPresent, setSshCredentialPresent] = React.useState(false);
     const [sshError, setSshError] = React.useState<string | undefined>(undefined);
     const [sshSaving, setSshSaving] = React.useState(false);
-    const [error, setError] = React.useState<string | undefined>(undefined);
-    const [saving, setSaving] = React.useState(false);
     const [publicKeyCopied, setPublicKeyCopied] = React.useState(false);
     const [publicKeyInfo, setPublicKeyInfo] = React.useState<SshPublicKeyInfo>();
     const [publicKeySource, setPublicKeySource] = React.useState<'pasted' | 'saved'>();
@@ -247,9 +242,6 @@ export default function ConnectionSettingsScreen() {
         void loadConnectionSettingsAsync().then((loaded) => {
             if (cancelled) return;
             setInitial(loaded);
-            setRelayUrl(loaded.relayUrl);
-            setMachineId(loaded.machineId);
-            setToken(loaded.token);
             setSshHost(loaded.ssh?.host ?? '');
             setSshPort(String(loaded.ssh?.port ?? 22));
             setSshRelayPort(String(loaded.ssh?.relayPort ?? 8792));
@@ -300,7 +292,7 @@ export default function ConnectionSettingsScreen() {
     }, [initial.machineId]);
 
     React.useEffect(() => {
-        if (!settingsLoaded || initial.mode !== 'hosted' || status !== 'connected') return undefined;
+        if (!settingsLoaded || status !== 'connected') return undefined;
         let cancelled = false;
         let checking = false;
         const refresh = () => {
@@ -316,10 +308,10 @@ export default function ConnectionSettingsScreen() {
         refresh();
         const timer = setInterval(refresh, 30_000);
         return () => { cancelled = true; clearInterval(timer); };
-    }, [settingsLoaded, initial.mode, initial.machineId, status]);
+    }, [settingsLoaded, initial.machineId, status]);
 
     React.useEffect(() => {
-        if (!settingsLoaded || initial.mode !== 'hosted') return undefined;
+        if (!settingsLoaded) return undefined;
         let cancelled = false;
         setGrantRefresh('loading');
         void loadHostedGrant(initial.machineId).then((loaded) => {
@@ -330,7 +322,7 @@ export default function ConnectionSettingsScreen() {
             if (!cancelled) setGrantRefresh('failed');
         });
         return () => { cancelled = true; };
-    }, [settingsLoaded, initial.mode, initial.machineId]);
+    }, [settingsLoaded, initial.machineId]);
 
     const sshSupported = Platform.OS === 'android' && initial.selfhost === true && sshTunnelAvailable();
 
@@ -529,8 +521,7 @@ export default function ConnectionSettingsScreen() {
         }
     };
 
-    if (initial.mode === 'hosted') {
-        const nearbyCopy: Record<typeof nearbyPhase, string> = {
+    const nearbyCopy: Record<typeof nearbyPhase, string> = {
             web: 'Browsers cannot scan nearby relays. If the computer’s address changed, run muxr setup there to refresh its route, then open a new browser pairing link.',
             disabled: 'Nearby scanning is off for this route. It runs only after pairing over a local or private address.',
             scanning: 'Looking for this paired computer on the local network. A new address must pass the saved device-grant check.',
@@ -725,66 +716,4 @@ export default function ConnectionSettingsScreen() {
                 </ItemGroup>}
             </ItemList>
         );
-    }
-
-    const save = async () => {
-        const url = relayUrl.trim();
-        // A bare host or an http:// URL is the mistake people make, and the
-        // failure mode is a silent 20s request timeout rather than anything
-        // that points at the cause.
-        if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
-            setError('Relay URL must start with ws:// or wss://');
-            return;
-        }
-        if (machineId.trim().length === 0) {
-            setError('Machine name is required — it must match the host exactly.');
-            return;
-        }
-        setError(undefined);
-        setSaving(true);
-        try {
-            await saveConnectionSettings({
-                ...initial,
-                relayUrl: url,
-                machineId: machineId.trim(),
-                token: token.trim(),
-            });
-            await syncReconnect();
-        } catch (e) {
-            setError(e instanceof Error ? e.message : String(e));
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    // Development harness only: a relay in dev mode still accepts these. Paired
-    // machines never reach this branch, so the fields stay out of the normal UI.
-    return (
-        <ItemList>
-            <Stack.Screen options={{ title: 'Connection & updates' }} />
-            <ItemGroup title="Status">
-                <Item
-                    title={statusText}
-                    subtitle="Development connection"
-                    leftElement={<View style={[styles.dot, statusDot]} />}
-                    loading={status === 'connecting'}
-                />
-            </ItemGroup>
-            <ConnectionSupport hostVersion={machine?.metadata?.muxrCliVersion} />
-            <ItemGroup title="Development relay" footer="Printed by `muxr up` on the machine running the agents. A phone must use that machine's LAN address, not 127.0.0.1.">
-                <Field label="Relay URL" value={relayUrl} onChange={setRelayUrl} placeholder="ws://192.168.1.20:8792" />
-                <Field label="Machine name" value={machineId} onChange={setMachineId} placeholder="devbox" />
-                <Field label="Token" value={token} onChange={setToken} placeholder="required off loopback" secure />
-                {error !== undefined && <Text style={styles.error}>{error}</Text>}
-                <View style={styles.actions}>
-                    <RoundButton
-                        title={saving ? 'Connecting…' : 'Save and connect'}
-                        size="large"
-                        loading={saving}
-                        onPress={save}
-                    />
-                </View>
-            </ItemGroup>
-        </ItemList>
-    );
 }

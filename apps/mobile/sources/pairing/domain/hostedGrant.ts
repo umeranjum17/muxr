@@ -9,11 +9,10 @@ export function grantAuthorizesMachine(
 }
 
 export function hostedTransportReady(
-    mode: 'hosted' | 'local',
     machineId: string,
     grant: { machineId: string } | undefined,
 ): boolean {
-    return mode === 'local' || grantAuthorizesMachine(grant, machineId);
+    return grantAuthorizesMachine(grant, machineId);
 }
 
 /** Web pairing is observe unless the grant itself recorded control. */
@@ -46,10 +45,9 @@ export function grantRejectsDowngrade(existingVersion: number, nextVersion: numb
 }
 
 export function pickGrantForConnection<T extends { machineId: string }>(
-    settings: { mode: 'hosted' | 'local'; machineId: string },
+    settings: { machineId: string },
     paired: readonly T[],
 ): T | undefined {
-    if (settings.mode !== 'hosted') return undefined;
     const remembered = paired.find((entry) => entry.machineId === settings.machineId);
     if (remembered !== undefined) return remembered;
     if (settings.machineId === '' && paired.length === 1) return paired[0];

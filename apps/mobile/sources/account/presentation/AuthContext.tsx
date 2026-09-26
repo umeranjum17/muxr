@@ -4,7 +4,6 @@ import * as Updates from 'expo-updates';
 import { TokenStorage, type AuthCredentials } from '../application/tokenStorage';
 import { sync, syncCreate } from '@/catalog/sync';
 import { clearPersistence } from '@/catalog';
-import { getCachedConnectionSettings } from '@/connection';
 import { clearHostedE2ee } from '@/pairing/e2ee';
 import { unregisterNativePushNotifications } from '@/utils/nativePushNotifications';
 import { unsubscribeWebPush } from '@/utils/pushNotifications';
@@ -25,7 +24,7 @@ export function AuthProvider({ children, initialCredentials }: { children: React
     const clearLocalSession = useCallback(async (clearMachineKeys: boolean) => {
         sync.invalidateCatalog();
         clearPersistence();
-        if (clearMachineKeys && getCachedConnectionSettings().mode === 'hosted') {
+        if (clearMachineKeys) {
             try { await clearHostedE2ee(); } catch {}
         }
         await TokenStorage.removeCredentials();
