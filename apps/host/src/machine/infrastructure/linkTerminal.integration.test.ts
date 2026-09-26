@@ -78,7 +78,17 @@ describe('byokit link streams (real relay + real host)', () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-terminal-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
         const herdrBin = writeFakeHerdr(dir);
-
+        writeFileSync(join(dir, 'plugin.mjs'), `
+let input = '';
+process.stdin.on('data', (chunk) => {
+    input += chunk;
+    for (let nl = input.indexOf('\\n'); nl >= 0; nl = input.indexOf('\\n')) {
+        const frame = JSON.parse(input.slice(0, nl));
+        input = input.slice(nl + 1);
+        if (frame.type === 'realtime.audio') process.stdout.write(JSON.stringify({ type: 'realtime.state', state: 'connected', detail: 'plugin heard phone' }) + '\\n');
+    }
+});
+`);
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay'), developmentApi: true } });
         cleanups.push(() => void relay.close());
         const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
@@ -118,6 +128,8 @@ describe('byokit link streams (real relay + real host)', () => {
             herdrBin,
         });
         cleanups.push(() => terminals.closeAll());
+        const plugins = new PluginStreamManager({});
+        cleanups.push(() => plugins.closeAll());
 
         const endpoint = await LinkEndpoint.open({
             relayUrl,
@@ -147,6 +159,21 @@ describe('byokit link streams (real relay + real host)', () => {
                     signal: new AbortController().signal,
                     onClosed: () => undefined,
                 }),
+            },
+            pluginStreams: {
+                attach: async ({ stream, channel, deviceId }) => {
+                    const transport: VoiceStreamTransport = {
+                        set onData(listener: VoiceStreamTransport['onData']) { stream.onData = listener; },
+                        set onEnd(listener: VoiceStreamTransport['onEnd']) { stream.onEnd = listener; },
+                        write: (chunk) => stream.write(chunk),
+                        end: (error) => stream.end(error),
+                    };
+                    await plugins.attach({
+                        target: { pluginId: 'fixture', pluginRoot: dir, entry: 'plugin.mjs' },
+                        channel, deviceId, stateDir: join(dir, 'plugin-state'), transport,
+                        signal: new AbortController().signal, onClosed: () => undefined,
+                    });
+                },
             },
         });
         expect(endpoint).toBeDefined();
@@ -261,6 +288,24 @@ describe('byokit link streams (real relay + real host)', () => {
         expect(voiceLinkRttMs).toBeLessThan(5_000);
 
         expect(linkAttachMs).toBeLessThan(5_000);
+
+        // The same authenticated link carries a third-party plugin process;
+        // there is no ticket, relay /stream socket, or hosted envelope.
+        const pluginStream = await link.stream('plugin', {
+            pluginId: 'fixture', manifestHash: 'fixture-hash', contributionId: 'voice', channel: 'rs_plugin_test',
+        });
+        const pluginReply = new Promise<string>((resolve) => {
+            let text = '';
+            pluginStream.onData = (chunk) => {
+                text += Buffer.from(chunk).toString('utf8');
+                const nl = text.indexOf('\n');
+                if (nl >= 0) resolve(text.slice(0, nl));
+            };
+        });
+        await pluginStream.write(`${JSON.stringify({ type: 'realtime.audio', data: 'AAA=' })}\n`);
+        const pluginFrame = JSON.parse(await once(pluginReply, 5_000, 'plugin reply'));
+        expect(pluginFrame).toMatchObject({ type: 'realtime.state', state: 'connected', detail: 'plugin heard phone' });
+        pluginStream.end();
         link.stop();
     });
 });

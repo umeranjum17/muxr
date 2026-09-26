@@ -32,6 +32,7 @@ export type SessionClient = {
     terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
     voiceStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
     closeDesktopSignaling?(): void;
+    pluginStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
 };
 
 /** Line-framed duplex stream used by terminal and realtime adapters. */
@@ -129,7 +130,7 @@ export class LinkFirstClient implements SessionClient {
     }
 
     /** Opens a terminal or voice stream over the link. */
-    private async openByteStream(name: 'terminal' | 'voice', args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+    private async openByteStream(name: 'terminal' | 'voice' | 'plugin', args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
         if (!this.online || this.link === undefined || this.closed) return undefined;
         const stream = await this.link.stream(name, args);
         let ended = false;
@@ -320,6 +321,10 @@ export class LinkFirstClient implements SessionClient {
     closeDesktopSignaling(): void {
         this.desktopTransport?.close();
         this.desktopTransport = undefined;
+    }
+
+    pluginStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+        return this.openByteStream('plugin', args);
     }
 
     onStateChange(listener: (state: ConnectionState) => void): () => void {
