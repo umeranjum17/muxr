@@ -40,7 +40,7 @@ if (desklinkHost.version !== desklinkPin) {
 }
 const hostPackage = require(join(root, 'apps', 'host', 'package.json'));
 // The link loads libsodium's native addon, which cannot be bundled: install it.
-const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', 'web-push': '^3.6.7', 'bonjour-service': '^1.4.4', '@desklink/host': desklinkHost.version,
+const runtimeDependencies = { ccusage: rootPackage.dependencies.ccusage, ws: '^8.18.0', tweetnacl: '^1.0.3', qrcode: '^1.5.4', '@desklink/host': desklinkHost.version,
     '@byokit/link': hostPackage.dependencies['@byokit/link'], '@byokit/relay': hostPackage.dependencies['@byokit/relay'] };
 const external = Object.keys(runtimeDependencies);
 rmSync(out, { recursive: true, force: true });
