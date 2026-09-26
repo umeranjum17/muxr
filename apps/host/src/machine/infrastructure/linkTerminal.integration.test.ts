@@ -10,7 +10,6 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DeviceLink, hostId, keyPairFrom, type DeviceGrant, type LinkStatus } from '@byokit/link';
 import type { HostFrame } from '@muxr/contract';
@@ -20,8 +19,8 @@ import { PluginStreamManager, TerminalManager, type VoiceStreamTransport } from 
 import { LinkEndpoint } from './linkEndpoint.js';
 import type { MachineCryptoState } from '../domain/crypto.js';
 
-/** @muxr/crypto keys are base64 strings; byokit wants base64url bytes. */
 const b64 = (value: Uint8Array | string): string => Buffer.from(value).toString('base64');
+/** @muxr/crypto keys are base64 strings; byokit wants base64url bytes. */
 const toB64url = (valueBase64: string): string => Buffer.from(valueBase64, 'base64').toString('base64url');
 
 /** The pane: paints a full screen, echoes input, repaints on resize. */
@@ -86,10 +85,11 @@ describe('byokit link streams (real relay + real host)', () => {
         const ownerToken = JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string;
 
         const machine = generateKeyPair();
+        const machineSigning = generateSigningKeyPair();
         const phone = generateKeyPair();
         const crypto: MachineCryptoState = {
-            signingPublicKey: b64(new Uint8Array(32)),
-            signingSecretKey: b64(new Uint8Array(64)),
+            signingPublicKey: machineSigning.publicKey,
+            signingSecretKey: machineSigning.secretKey,
             boxPublicKey: machine.publicKey,
             boxSecretKey: machine.secretKey,
             dataKey: b64(new Uint8Array(32)),
@@ -128,7 +128,10 @@ describe('byokit link streams (real relay + real host)', () => {
             currentCrypto: () => crypto,
             answer: async () => undefined,
             canView: () => false,
-            terminals,
+            terminals: {
+                attach: (params) => terminals.attach(params),
+                sendResult: (socket, channel, result) => terminals.sendResult(socket, channel, result),
+            },
             voiceStreams: {
                 attach: ({ deviceId, channel, sessionId, stream }) => voiceRuntime.attach({
                     target: { pluginId: 'voice-test', pluginRoot: voiceRoot, entry: 'stream.mjs' },
@@ -148,17 +151,8 @@ describe('byokit link streams (real relay + real host)', () => {
             },
         });
         expect(endpoint).toBeDefined();
-        cleanups.push(() => endpoint!.close());
         endpoint!.start();
-
-        // Keep the real muxr host session connected while the byokit endpoint
-        // owns the data streams; this socket is not a stream fallback.
-        const machineFrames = new WebSocket(`${relayUrl}?role=machine&machineId=machine-test`);
-        cleanups.push(() => machineFrames.close());
-        await once(new Promise<void>((resolve, reject) => {
-            machineFrames.once('open', resolve);
-            machineFrames.once('error', reject);
-        }), 5_000, 'machine session');
+        cleanups.push(() => endpoint!.close());
 
         const machineKeys = keyPairFrom(Buffer.from(machine.secretKey, 'base64'));
         const phoneGrant: DeviceGrant = {
@@ -193,8 +187,7 @@ describe('byokit link streams (real relay + real host)', () => {
         });
         let buffer = '';
         let ended = false;
-        type LinkFrame = HostFrame | { type: 'terminal.frame'; full?: boolean; bytes: string } | { type: 'terminal.scroll-state' };
-        const pending: Array<{ resolve: (f: LinkFrame) => void; reject: (e: Error) => void }> = [];
+        const pending: Array<{ resolve: (f: HostFrame) => void; reject: (e: Error) => void }> = [];
         const pump = (): void => {
             // Lines wait in the buffer until someone awaits them; nothing is dropped.
             while (pending.length > 0) {
@@ -203,10 +196,10 @@ describe('byokit link streams (real relay + real host)', () => {
                 const line = buffer.slice(0, nl);
                 buffer = buffer.slice(nl + 1);
                 if (!line.trim()) continue;
-                pending.shift()!.resolve(JSON.parse(line) as LinkFrame);
+                pending.shift()!.resolve(JSON.parse(line) as HostFrame);
             }
         };
-        const nextFrame = (): Promise<LinkFrame> => new Promise((resolve, reject) => {
+        const nextFrame = (): Promise<HostFrame> => new Promise((resolve, reject) => {
             pending.push({ resolve, reject });
             pump(); // may resolve immediately from an already-buffered line
             if (ended) reject(new Error('stream already ended'));
@@ -219,22 +212,11 @@ describe('byokit link streams (real relay + real host)', () => {
             ended = true;
             for (const waiter of pending.splice(0)) waiter.reject(new Error(`stream ended before its frame (error: ${error ?? 'clean'})`));
         };
-        let attachAck: HostFrame | undefined;
-        let initialPaint: string | undefined;
-        let linkAttachMs = 0;
-        while (attachAck === undefined || initialPaint === undefined) {
-            const frame = await once(nextFrame(), 10_000, 'link attach and initial paint');
-            if (frame.type === 'result') {
-                attachAck = frame;
-                linkAttachMs = Date.now() - linkAttachStarted;
-            } else if (frame.type === 'terminal.frame' && frame.full === true) {
-                initialPaint = Buffer.from(frame.bytes, 'base64').toString('utf8');
-            }
-        }
+        const attachAck = await once(nextFrame(), 10_000, 'link attach ack');
+        const linkAttachMs = Date.now() - linkAttachStarted;
         expect(attachAck).toMatchObject({ type: 'result', ok: true, data: { paneId: 'pane-s1' } });
-        expect(initialPaint).toBe('SCREEN pane-s1 20x5');
 
-        // Subsequent terminal frames carry input and resize output.
+        // Frame bytes the pane painted, skipping anything else (scroll-state).
         const nextFrameBytes = async (what: string): Promise<string> => {
             const done = once((async () => {
                 for (;;) {
@@ -247,6 +229,10 @@ describe('byokit link streams (real relay + real host)', () => {
             })(), 5_000, what);
             return done;
         };
+
+        // The pane's initial full repaint rides the same stream (herdr paints
+        // the whole screen on attach), followed by its scroll state.
+        expect(await nextFrameBytes('initial paint')).toBe('SCREEN pane-s1 20x5');
 
         // Typing.
         const typed = 'hello over the link';
