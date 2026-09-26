@@ -97,8 +97,14 @@ async function pair(name) {
     if (!uploaded.response.ok) throw new Error(`grant upload failed: ${JSON.stringify(uploaded.body)}`);
     const fetched = await json(`/v1/selfhost/pair-sessions/${pairId}/grant`, { headers: bearer(device.credential) });
     if (!fetched.response.ok || fetched.body.grant !== JSON.stringify(grant)) throw new Error('paired device did not fetch its grant');
-    const deleted = await json(`/v1/selfhost/pair-sessions/${pairId}`, { headers: bearer(mintSecret) });
-    if (deleted.body.state !== 'expired') throw new Error('completed pairing handoff was not deleted');
+    const beforeRelease = await json(`/v1/selfhost/pair-sessions/${pairId}`, { headers: bearer(mintSecret) });
+    if (beforeRelease.body.state !== 'claimed' || beforeRelease.body.grantPresent !== true) {
+        throw new Error('pairing handoff was lost before release');
+    }
+    const released = await json(`/v1/selfhost/pair-sessions/${pairId}/release`, {
+        method: 'POST', headers: bearer(mintSecret),
+    });
+    if (!released.response.ok) throw new Error(`pair release failed: ${JSON.stringify(released.body)}`);
     return device;
 }
 

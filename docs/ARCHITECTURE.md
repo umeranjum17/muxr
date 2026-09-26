@@ -289,9 +289,18 @@ The host uses its existing machine box key and enrolls native phones from its
 preview streams, and remote desktop still use the existing relay transport.
 The link checks the live device table for requests (including cached replies)
 and broadcasts, so revocation and role changes do not wait for grant sync.
-If link relay state cannot load, the existing relay continues without those
-routes. Pairing stays on the existing transport. For a self-host machine, a
-paired phone moves its session channel onto the link without re-pairing: the
+On startup, the host enrolls its existing devices before opening its link relay
+connection. A role change replaces the link grant and closes the old socket;
+the phone reconnects in the new role without losing its pairing or showing
+`removed`. Revocation still removes access. A claimed phone or browser has
+only pairing-window access until its grant is published and the CLI releases
+its relay credential; the host's device record becomes durable only after
+release succeeds. An incomplete claim expires with the window, including its
+push eligibility. If the CLI exits between release and host-record durability,
+the relay credential remains but the host does not trust the device; re-pairing
+recovers. If link relay state cannot load, the existing relay continues without
+those routes. Pairing stays on the existing transport. For a self-host machine,
+a paired phone moves its session channel onto the link without re-pairing: the
 host enrols it from its device records and appends the enrolled link key to
 its `herdr.tree` replies (re-announced whenever the link relay comes online),
 and the phone then dials `/link/v1/<host id>` with the keys it already holds,

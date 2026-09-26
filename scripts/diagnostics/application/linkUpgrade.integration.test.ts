@@ -14,7 +14,7 @@
  * way a real self-host relay restarts.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -49,10 +49,21 @@ import { MuxrClient } from '../../../apps/mobile/sources/pairing/infrastructure/
 const repoRoot = join(import.meta.dirname, '../../..');
 const home = mkdtempSync(join(tmpdir(), 'muxr-link-upgrade-'));
 const children = new Set<ChildProcess>();
+// Static loader: the spawned process imports the hook fixture from its own
+// working directory (repo root); per-scenario settings travel through
+// LINK_TEST_HOOK, never through generated source text.
+const CHILD_HOOK = `--import=data:text/javascript,${encodeURIComponent(
+    "import('node:url').then((u) => import(u.pathToFileURL(process.cwd() + '/scripts/diagnostics/application/linkHookFixture.mjs').href))",
+)}`;
+const childHookEnv = (cfg: Record<string, unknown>): { NODE_OPTIONS: string; LINK_TEST_HOOK: string } => ({
+    NODE_OPTIONS: CHILD_HOOK,
+    LINK_TEST_HOOK: JSON.stringify(cfg),
+});
 
 function launch(args: string[], extra: NodeJS.ProcessEnv = {}): ChildProcess & { output: () => string } {
     const env: NodeJS.ProcessEnv = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1', ...extra };
-    for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'DATA_DIR']) delete env[`MUXR_${key}`];
+    for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH']) delete env[`MUXR_${key}`];
+    if (extra.MUXR_DATA_DIR === undefined) delete env.MUXR_DATA_DIR;
     if (extra.MUXR_RELAY_PORT === undefined) delete env.MUXR_RELAY_PORT;
     if (extra.MUXR_MODE === undefined) delete env.MUXR_MODE;
     const child = spawn(process.execPath, args, { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -85,7 +96,7 @@ let port = 0;
 let relay: ChildProcess | undefined;
 let host: (ChildProcess & { output: () => string }) | undefined;
 
-async function startMachine(): Promise<void> {
+async function startMachine(dataDir?: string, hostEnv: NodeJS.ProcessEnv = {}): Promise<void> {
     const started = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
         MUXR_RELAY_PORT: String(port),
         MUXR_RELAY_HOST: '127.0.0.1',
@@ -108,7 +119,7 @@ async function startMachine(): Promise<void> {
             mintSecret: JSON.parse(readFileSync(join(home, 'relay', 'mint-secret'), 'utf8')),
         }, null, 2)}\n`, { mode: 0o600 });
     }
-    host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { MUXR_MODE: 'selfhost' });
+    host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { MUXR_MODE: 'selfhost', ...(dataDir === undefined ? {} : { MUXR_DATA_DIR: dataDir }), ...hostEnv });
     const running = host;
     await until(() => (running.output().includes('host -> ') ? true : undefined), 'host start');
 }
@@ -131,6 +142,16 @@ function linkGrantFrom(stored: StoredHostedGrant): DeviceGrant {
     };
 }
 
+/** The machine's own record of the device is what the link endpoint enrols from. */
+function setAuthority(deviceId: string, authority: 'observe' | 'control'): void {
+    const path = join(home, 'selfhost.json');
+    const state = JSON.parse(readFileSync(path, 'utf8')) as {
+        machine: { crypto: { devices: { deviceId: string; authority?: 'observe' | 'control' }[] } };
+    };
+    for (const device of state.machine.crypto.devices) if (device.deviceId === deviceId) device.authority = authority;
+    writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+}
+
 describe('link upgrade for an already-paired phone', () => {
     afterAll(async () => {
         vi.unstubAllGlobals();
@@ -146,6 +167,9 @@ describe('link upgrade for an already-paired phone', () => {
         const stored = await claimHostedPairing(text);
         await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'muxr pair finishes');
         expect(pair.exitCode, pair.output()).toBe(0);
+        expect((await fetch(`http://127.0.0.1:${port}/v1/push/vapid-public`, {
+            headers: { authorization: `Bearer ${stored.credential}` },
+        })).status).toBe(200);
         phone.secure.clear();
         vi.resetModules();
         const { claimHostedPairing: claimOther } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
@@ -158,7 +182,11 @@ describe('link upgrade for an already-paired phone', () => {
         // The upgrade: same machine, same keys, a relay with no link state.
         await stopMachine();
         rmSync(join(home, 'relay', 'link-relay.json'), { force: true });
-        await startMachine();
+        const enteredEnrol = join(home, 'entered-enrol');
+        const releaseEnrol = join(home, 'release-enrol');
+        await startMachine(undefined, childHookEnv({ hook: 'holdEnrol', entered: enteredEnrol, release: releaseEnrol }));
+        await until(() => existsSync(enteredEnrol) ? true : undefined, 'host begins initial link enrolment');
+        await new Promise((resolve) => setTimeout(resolve, 1500));
 
         const statuses: LinkStatus[] = [];
         const events: unknown[] = [];
@@ -167,6 +195,9 @@ describe('link upgrade for an already-paired phone', () => {
             onStatus: (status) => statuses.push(status),
             onEvent: (event) => events.push(event),
         });
+        await until(() => (link.status === 'offline' || link.status === 'removed' ? true : undefined), 'first restart dial settles while enrolment is pending', 30_000);
+        expect(statuses).not.toContain('removed');
+        writeFileSync(releaseEnrol, 'go');
         await until(() => (link.status === 'online' ? true : undefined), 'already-paired phone comes online over the link', 30_000);
         expect(link.grant.device.id).not.toBe('pending');
         const started = await link.request('session.start', { type: 'session.start', requestId: 'r1', params: { cwd: home } }) as {
@@ -220,13 +251,16 @@ describe('link upgrade for an already-paired phone', () => {
             return state.machine.crypto.pendingRotation?.revokedDeviceId === stored.deviceId ? true : undefined;
         }, 'revocation recorded');
         expect(answered).toBeDefined();
-        const replayWire = (link as unknown as { conn: { send: (message: unknown) => void } }).conn;
-        const replaySend = replayWire.send.bind(replayWire);
-        replayWire.send = (message) => {
-            const request = message as { t?: string; op?: string; key?: string; session?: string; ack?: number };
-            if (request.t === 'req' && request.op === 'client.hello') Object.assign(request, answered);
-            replaySend(message);
-        };
+        // The state poll can already have ended this link by now; replay
+        // injection has no live socket to ride in that case.
+        const replayWire = (link as unknown as { conn: { send: (message: unknown) => void } | null }).conn;
+        if (replayWire !== null) {
+            replayWire.send = (message) => {
+                const request = message as { t?: string; op?: string; key?: string; session?: string; ack?: number };
+                if (request.t === 'req' && request.op === 'client.hello') Object.assign(request, answered);
+                send(message);
+            };
+        }
         await expect(link.request('client.hello', { type: 'client.hello', clientId: 'link-phone' })).rejects.toThrow();
         await expect(link.request('session.list', { type: 'session.list', requestId: 'revoked', params: {} })).rejects.toThrow();
         const next = await otherLink.request('session.start', { type: 'session.start', requestId: 'other', params: { cwd: home } }) as {
@@ -244,6 +278,222 @@ describe('link upgrade for an already-paired phone', () => {
         link.stop();
         otherLink.stop();
     }, 180_000);
+
+    it('admits the first dial and reconnects the pairing in both roles without removal', async () => {
+        vi.stubGlobal('WebSocket', WebSocket);
+        await stopMachine();
+        const sourceClosesPath = join(home, 'link-source-closes.jsonl');
+        await startMachine(join(home, 'custom', 'host'), childHookEnv({ hook: 'recordCloses', to: sourceClosesPath }));
+        const sourceCloses = (): { code: number; reason: string }[] => existsSync(sourceClosesPath)
+            ? readFileSync(sourceClosesPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { code: number; reason: string }) : [];
+        phone.secure.clear();
+        vi.resetModules();
+        const { claimHostedPairing: claimFresh } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+        const release = join(home, 'release-pair');
+        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], childHookEnv({ hook: 'holdRequest', suffix: '/release', release }));
+        const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'pair string');
+        const claiming = claimFresh(text);
+        const stored = await Promise.race([
+            claiming,
+            until(() => pair.exitCode === null ? undefined : pair.exitCode, 'pair finishes', 45_000)
+                .then((code) => code === 0 ? claiming : Promise.reject(new Error(pair.output()))),
+        ]);
+
+        // The race: the first dial starts the moment pairing lands. The host
+        // must have enrolled the device from its own records by then, and the
+        // phone must never see `removed` - whose words are "This device was
+        // removed on your computer." - for a pre-admission moment.
+        const statuses: LinkStatus[] = [];
+        const closes: { code: number; reason: string }[] = [];
+        class TrackedWebSocket extends WebSocket {
+            constructor(url: string | URL) {
+                super(url);
+                this.on('close', (code, reason) => closes.push({ code, reason: reason.toString() }));
+            }
+        }
+        const link = new DeviceLink(linkGrantFrom(stored), { WebSocket: TrackedWebSocket as never, onStatus: (status) => statuses.push(status) });
+        await until(() => (link.status === 'online' || link.status === 'removed' ? true : undefined), 'first link dial settles before pair exits', 30_000);
+        expect(statuses).not.toContain('removed');
+        const admittedState = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+            machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
+        };
+        expect(Date.parse(admittedState.machine.crypto.devices.find((device) => device.deviceId === stored.deviceId)!.expiresAt))
+            .toBeLessThan(Date.now() + 150_000);
+        const credentialStatePath = join(home, 'relay', 'selfhost-pairing.json');
+        const credentialExpiry = () => (JSON.parse(readFileSync(credentialStatePath, 'utf8')) as {
+            devices: { deviceId: string; expiresAt?: number }[];
+        }).devices.find((device) => device.deviceId === stored.deviceId)?.expiresAt;
+        expect(credentialExpiry()).toBeLessThan(Date.now() + 150_000);
+        writeFileSync(release, 'go');
+        await until(() => (link.status === 'online' ? true : undefined), 'first link dial comes online right after pairing', 30_000);
+        await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'pair finishes');
+        expect(pair.exitCode, pair.output()).toBe(0);
+        expect(credentialExpiry()).toBeUndefined();
+        const started = await link.request('session.start', { type: 'session.start', requestId: 'fresh', params: { cwd: home } }) as {
+            type: string; ok?: boolean;
+        };
+        expect(started).toMatchObject({ ok: true });
+        const pairedState = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+            machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
+        };
+        const pairedRecord = pairedState.machine.crypto.devices.find((device) => device.deviceId === stored.deviceId);
+        expect(Date.parse(pairedRecord!.expiresAt)).toBeGreaterThan(Date.now() + 8 * 60_000);
+
+        const viewStart = statuses.length;
+        const viewClose = closes.length;
+        const viewSourceClose = sourceCloses().length;
+        setAuthority(stored.deviceId, 'observe');
+        await until(() => closes.length > viewClose ? true : undefined, 'view role closes the old socket', 15_000);
+        expect(sourceCloses().slice(viewSourceClose)).toEqual([{ code: 1001, reason: 'grant changed' }]);
+        expect(closes.slice(viewClose)).toEqual([{ code: 1000, reason: '' }]);
+        await until(() => link.status === 'online' && statuses.slice(viewStart).includes('offline') ? true : undefined, 'view role reconnects', 15_000);
+        expect(statuses.slice(viewStart)).toEqual(['offline', 'online']);
+        await expect(link.request('session.start', { type: 'session.start', requestId: 'as-view', params: { cwd: home } }))
+            .rejects.toThrow('This device can watch but not make changes.');
+        expect(await link.request('client.hello', { type: 'client.hello', clientId: 'link-phone' })).toMatchObject({ type: 'session.list' });
+
+        const controlStart = statuses.length;
+        const controlClose = closes.length;
+        const controlSourceClose = sourceCloses().length;
+        setAuthority(stored.deviceId, 'control');
+        await until(() => closes.length > controlClose ? true : undefined, 'control role closes the old socket', 15_000);
+        expect(sourceCloses().slice(controlSourceClose)).toEqual([{ code: 1001, reason: 'grant changed' }]);
+        expect(closes.slice(controlClose)).toEqual([{ code: 1000, reason: '' }]);
+        await until(() => link.status === 'online' && statuses.slice(controlStart).includes('offline') ? true : undefined, 'control role reconnects', 15_000);
+        expect(statuses.slice(controlStart)).toEqual(['offline', 'online']);
+        expect(await link.request('session.start', { type: 'session.start', requestId: 'as-control', params: { cwd: home } })).toMatchObject({ ok: true });
+        expect(statuses.every((status) => status === 'connecting' || status === 'online' || status === 'offline')).toBe(true);
+        expect(statuses).not.toContain('removed');
+        link.stop();
+
+        phone.secure.clear();
+        vi.resetModules();
+        const { claimHostedPairing: claimAfterRestart } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+        const holdUpload = join(home, 'hold-upload');
+        const interrupted = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], childHookEnv({ hook: 'holdRequest', suffix: '/grant', release: holdUpload }));
+        const nextText = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(interrupted.output())?.[1], 'recovery pair string');
+        const recovering = claimAfterRestart(nextText);
+        await until(() => {
+            const state = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+                machine: { crypto: { pendingPair?: { device?: { deviceId: string } } } };
+            };
+            const id = state.machine.crypto.pendingPair?.device?.deviceId;
+            if (id === undefined || !existsSync(join(home, 'link-enrolled.json'))) return undefined;
+            const enrolled = JSON.parse(readFileSync(join(home, 'link-enrolled.json'), 'utf8')) as { deviceId: string }[];
+            return enrolled.some((device) => device.deviceId === id) ? true : undefined;
+        }, 'device enrolled before upload');
+        await stop(interrupted);
+        await stop(host);
+        const releaseHost = join(home, 'release-host');
+        host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], {
+            MUXR_MODE: 'selfhost', MUXR_DATA_DIR: join(home, 'custom', 'host'),
+            ...childHookEnv({ hook: 'holdRequest', suffix: '/relay/v1/hosts', release: releaseHost }),
+        });
+        await until(() => host!.output().includes('host -> ') ? true : undefined, 'restarted host');
+        const retry = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], childHookEnv({ hook: 'holdRequest', suffix: '/grant', release: releaseHost }));
+        const early = await Promise.race([recovering.then(() => true), new Promise<false>((resolve) => setTimeout(() => resolve(false), 2500))]);
+        expect(early).toBe(false);
+        writeFileSync(releaseHost, 'go');
+        const recovered = await recovering;
+        expect(await until(() => retry.exitCode === null ? undefined : retry.exitCode, 'pair recovers'), retry.output()).toBe(0);
+        const reconnected = new DeviceLink(linkGrantFrom(recovered), { WebSocket: WebSocket as never });
+        await until(() => reconnected.status === 'online' || reconnected.status === 'removed' ? true : undefined, 'recovered first dial');
+        expect(reconnected.status).toBe('online');
+        reconnected.stop();
+        const resumedState = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+            machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } };
+        };
+        const resumedRecord = resumedState.machine.crypto.devices.find((device) => device.deviceId === recovered.deviceId);
+        expect(Date.parse(resumedRecord!.expiresAt)).toBeGreaterThan(Date.now() + 8 * 60_000);
+    }, 120_000);
+
+    it('drops a device whose grant never publishes once the pairing window ends', async () => {
+        vi.stubGlobal('WebSocket', WebSocket);
+        await stopMachine();
+        await startMachine();
+        phone.secure.clear();
+        vi.resetModules();
+        const { claimHostedPairing: claimDoomed } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js');
+        const pair = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], childHookEnv({ hook: 'failPost', suffix: '/grant' }));
+        const text = await until(() => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pair.output())?.[1], 'pair string');
+        // The phone claims and then waits for a grant that never publishes;
+        // its claim state (device id, device key) is what this scenario needs.
+        const claiming = claimDoomed(text).catch(() => undefined);
+        let doomedDeviceId: string | undefined;
+        let deviceKey: { publicKey: string; secretKey: string } | undefined;
+        await until(() => {
+            const pendingRaw = phone.secure.get('muxr.hosted-e2ee.pending-pair.v1');
+            if (pendingRaw == null) return undefined;
+            doomedDeviceId = (JSON.parse(pendingRaw) as { deviceId: string }).deviceId;
+            const keyRaw = phone.secure.get('muxr.hosted-e2ee.device.v2');
+            if (keyRaw == null) return undefined;
+            deviceKey = JSON.parse(keyRaw) as { publicKey: string; secretKey: string };
+            const state = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+                machine: { crypto: { devices: { deviceId: string }[] } };
+            };
+            return state.machine.crypto.devices.some((device) => device.deviceId === doomedDeviceId) ? true : undefined;
+        }, 'claimed device recorded before publication', 30_000);
+        const doomed = doomedDeviceId!;
+        expect(await until(() => (pair.exitCode === null ? undefined : pair.exitCode), 'failed pair exits'), pair.output()).toBe(1);
+        expect(pair.output()).toContain('pairing did not complete');
+        expect(pair.output()).toContain('pairing window');
+
+        const statePath = join(home, 'selfhost.json');
+        const pendingState = JSON.parse(readFileSync(statePath, 'utf8')) as {
+            machine: { crypto: { pendingPair: { expiresAt: number }; devices: { deviceId: string; expiresAt: string }[] } };
+        };
+        const windowEnd = pendingState.machine.crypto.pendingPair.expiresAt;
+        expect(Date.parse(pendingState.machine.crypto.devices.find((device) => device.deviceId === doomed)!.expiresAt))
+            .toBe(windowEnd);
+        const relayStatePath = join(home, 'relay', 'selfhost-pairing.json');
+        const claimedState = JSON.parse(readFileSync(relayStatePath, 'utf8')) as { devices: { deviceId: string; expiresAt?: number }[] };
+        expect(claimedState.devices.find((device) => device.deviceId === doomed)?.expiresAt).toBeGreaterThan(Date.now() + 60_000);
+        expect(Math.abs(claimedState.devices.find((device) => device.deviceId === doomed)!.expiresAt! - windowEnd)).toBeLessThan(3_000);
+        const credential = (JSON.parse(phone.secure.get('muxr.hosted-e2ee.pending-pair.v1')!) as { deviceCredential: string }).deviceCredential;
+        const subscription = () => fetch(`http://127.0.0.1:${port}/v1/push/vapid-public`, { headers: { authorization: `Bearer ${credential}` } });
+        expect((await subscription()).status).toBe(200);
+        expect(windowEnd).toBeGreaterThan(Date.now() + 60_000);
+        expect(windowEnd).toBeLessThan(Date.now() + 150_000);
+
+        const machineKey = Buffer.from((JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
+            machine: { crypto: { boxPublicKey: string } };
+        }).machine.crypto.boxPublicKey, 'base64');
+        const doomedGrant: DeviceGrant = {
+            v: 1,
+            secretKey: Buffer.from(deviceKey!.secretKey, 'base64').toString('base64url'),
+            host: machineKey.toString('base64url'),
+            hostName: 'Link Lab Desk',
+            urls: [`ws://127.0.0.1:${port}/link/v1/${hostId(machineKey)}`],
+            device: { id: 'pending', name: 'Doomed phone', role: 'control' },
+        };
+        const link = new DeviceLink(doomedGrant, { WebSocket: WebSocket as never });
+        await until(() => (link.status === 'online' ? true : undefined), 'claimed device is usable inside the window', 30_000);
+        link.stop();
+
+        const expired = JSON.parse(readFileSync(statePath, 'utf8')) as {
+            machine: { crypto: { pendingPair?: { expiresAt: number }; devices: { deviceId: string; expiresAt: string }[] } };
+        };
+        expired.machine.crypto.pendingPair!.expiresAt = Date.now() - 1000;
+        for (const device of expired.machine.crypto.devices) if (device.deviceId === doomed) device.expiresAt = new Date(Date.UTC(9999, 11, 31, 23, 59, 59, 999)).toISOString();
+        writeFileSync(statePath, `${JSON.stringify(expired, null, 2)}\n`, { mode: 0o600 });
+        const relayState = JSON.parse(readFileSync(relayStatePath, 'utf8')) as { devices: { deviceId: string; expiresAt?: number }[] };
+        for (const device of relayState.devices) if (device.deviceId === doomed) device.expiresAt = Date.now() - 1000;
+        writeFileSync(relayStatePath, `${JSON.stringify(relayState)}\n`, { mode: 0o600 });
+        expect((await subscription()).status).toBe(403);
+        const retry = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
+        expect(await until(() => retry.exitCode === null ? undefined : retry.exitCode, 'expired retry exits'), retry.output()).toBe(1);
+        expect(retry.output()).toContain('pairing did not complete; the device was dropped');
+        const afterRetry = JSON.parse(readFileSync(statePath, 'utf8')) as { machine: { crypto: { devices: { deviceId: string }[] } } };
+        expect(afterRetry.machine.crypto.devices.some((device) => device.deviceId === doomed)).toBe(false);
+        const statuses: LinkStatus[] = [];
+        const dropped = new DeviceLink(doomedGrant, { WebSocket: WebSocket as never, onStatus: (status) => statuses.push(status) });
+        await until(() => (dropped.status === 'removed' ? true : undefined), 'expired window drops the device', 30_000).catch((error: Error) => {
+            const nowState = JSON.parse(readFileSync(statePath, 'utf8')) as { machine: { crypto: { devices: { deviceId: string; expiresAt: string }[] } } };
+            throw new Error(`${error.message}\nstatuses: ${statuses.join(', ')}\nrecord now: ${JSON.stringify(nowState.machine.crypto.devices.find((d) => d.deviceId === doomed))}\nhost tail: ${host!.output().slice(-400)}`);
+        });
+        expect(statuses).toContain('removed');
+        dropped.stop();
+    }, 120_000);
 
     it('keeps the host alive and retrying while its relay is down, then back online when it returns', async () => {
         await stopMachine();

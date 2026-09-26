@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import nacl from 'tweetnacl';
 import {
@@ -44,25 +44,22 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
     const base = selfhostControlBase(state);
     const authHeaders = { authorization: `Bearer ${selfhostCredential(state)}` };
     let pending = state.machine.crypto.pendingPair;
-    let recoveredPoll;
-    if (pending !== undefined && typeof pending.expiresAt === 'number' && pending.expiresAt <= Date.now()) {
-        // A claimed relay session remains recoverable after its local display
-        // deadline. Poll once before discarding the only copy of its pair key.
+    if (pending !== undefined && (pending.grantUploaded !== true || pending.deviceKind === 'native')
+        && typeof pending.expiresAt === 'number' && pending.expiresAt <= Date.now()) {
         const polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
-        if (!polled.response.ok) {
-            if (polled.response.status !== 403 && polled.response.status !== 404) throw new Error(polled.body.error || 'pair recovery polling failed');
-            delete state.machine.crypto.pendingPair;
-            writeSelfhostState(state);
-            pending = undefined;
-        } else if (polled.body.state === 'claimed') recoveredPoll = polled;
-        else if (polled.body.state === 'expired') {
-            delete state.machine.crypto.pendingPair;
-            writeSelfhostState(state);
-            pending = undefined;
+        if (!polled.response.ok && polled.response.status !== 403 && polled.response.status !== 404) {
+            throw new Error(polled.body.error || 'pair recovery polling failed');
         }
+        if (pending.device !== undefined) state.machine.crypto.devices = state.machine.crypto.devices.filter((device) =>
+            device.deviceId !== pending.device.deviceId || device.devicePublicKey !== pending.device.devicePublicKey);
+        delete state.machine.crypto.pendingPair;
+        writeSelfhostState(state);
+        if (polled.response.ok && polled.body.state === 'claimed') {
+            throw new Error('pairing did not complete; the device was dropped when the pairing window ended');
+        }
+        pending = undefined;
     }
-    if (pending !== undefined && recoveredPoll === undefined
-        && (!intent.matchesPending(pending) || typeof pending.pairString !== 'string')) {
+    if (pending !== undefined && (!intent.matchesPending(pending) || typeof pending.pairString !== 'string')) {
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
         pending = undefined;
@@ -113,11 +110,30 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         writeSelfhostState(state);
     }
     if (pending.grant !== undefined && pending.device !== undefined) {
+        state.machine.crypto.devices = [
+            ...state.machine.crypto.devices.filter((entry) => entry.deviceId !== pending.device.deviceId),
+            pending.device,
+        ];
+        writeSelfhostState(state);
+        if (pending.deviceKind === 'native' && pending.grantUploaded !== true && typeof state.mintSecret === 'string') {
+            const admission = join(stateDir(), 'link-enrolled.json');
+            const deadline = Date.now() + 30_000;
+            while (true) {
+                let enrolled = [];
+                try {
+                    enrolled = JSON.parse(readFileSync(admission, 'utf8'));
+                } catch {}
+                if (enrolled.some((device) => device.deviceId === pending.device.deviceId && device.devicePublicKey === pending.device.devicePublicKey)) break;
+                if (Date.now() >= deadline) throw new Error('the host has not enrolled this device on the link; start muxr and rerun `muxr pair`');
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+        }
         if (pending.grantUploaded !== true) {
             const uploaded = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}/grant`, {
                 method: 'POST', headers: authHeaders, body: JSON.stringify({ grant: pending.grant }),
             });
-            if (!uploaded.response.ok) throw new Error(uploaded.body.error || 'grant upload recovery failed');
+            if (!uploaded.response.ok) throw new Error(`pairing did not complete: the grant could not be published. Run \`muxr pair\` again within the pairing window to finish; the device is dropped when the window ends.`);
+            if (pending.expiresAt <= Date.now()) throw new Error('pairing did not complete; the device was dropped when the pairing window ended');
             pending.grantUploaded = true;
             state.machine.crypto.pendingPair = pending;
             writeSelfhostState(state);
@@ -131,19 +147,23 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
                 if (polled.body.acknowledged === true) { acknowledged = true; break; }
                 await new Promise((resolve) => setTimeout(resolve, 1000));
             }
-            if (!acknowledged) throw new Error('the browser claimed the pairing but did not save it; reload the browser to recover, then rerun `muxr pair --browser` if needed');
+            if (!acknowledged) throw new Error('the browser claimed the pairing but did not save it; reload the browser to recover, then rerun `muxr pair --browser` if needed. The device is dropped when the pairing window ends unless pairing completes.');
         }
-        state.machine.crypto.devices = [
-            ...state.machine.crypto.devices.filter((entry) => entry.deviceId !== pending.device.deviceId),
-            pending.device,
-        ];
+        if (pending.expiresAt <= Date.now()) throw new Error('pairing did not complete; the device was dropped when the pairing window ended');
+        const released = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}/release`, {
+            method: 'POST', headers: authHeaders,
+        });
+        if (!released.response.ok) throw new Error('pairing did not complete: the relay could not release the device credential; rerun `muxr pair` within the pairing window');
+        state.machine.crypto.devices = state.machine.crypto.devices.map((entry) => entry.deviceId === pending.device.deviceId
+            ? { ...entry, expiresAt: new Date(pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal }).grantExpiresAt()).toISOString() }
+            : entry);
         delete state.machine.crypto.pendingPair;
         writeSelfhostState(state);
         print(`  ✓ paired and verified ${pending.deviceName || 'device'}`);
         return 0;
     }
 
-    if (recoveredPoll === undefined) {
+    {
         print('');
         const waiting = pairingIntent({ kind: pending.deviceKind, authority: pending.authority, personal: pending.personal });
         if (!waiting.requiresWebHosting) {
@@ -180,12 +200,8 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         print(`Waiting for the ${waiting.requiresWebHosting ? 'browser' : 'device'} to finish pairing…`);
     }
     while (true) {
-        let polled = recoveredPoll;
-        recoveredPoll = undefined;
-        if (polled === undefined) {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-            polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
-        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const polled = await api(base, `/v1/selfhost/pair-sessions/${encodeURIComponent(pending.pairId)}`, { headers: authHeaders });
         if (!polled.response.ok) throw new Error(polled.body.error || 'pair polling failed');
         if (polled.body.state === 'pending') continue;
         if (polled.body.state === 'expired') {
@@ -202,6 +218,11 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             return mintDeviceGrant(state, requestedKind, requestedAuthority, requestedPersonal);
         }
         if (polled.body.state !== 'claimed') throw new Error(`pairing session ${polled.body.state}`);
+        if (pending.expiresAt <= Date.now()) {
+            delete state.machine.crypto.pendingPair;
+            writeSelfhostState(state);
+            throw new Error('pairing did not complete; the device was dropped when the pairing window ended');
+        }
         const mailbox = polled.body.mailbox;
         const deviceId = polled.body.deviceId;
         const devicePublicKey = polled.body.devicePublicKey;
@@ -227,9 +248,14 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         if (polled.body.authority !== undefined && polled.body.authority !== claimed.authority) {
             throw new Error('pairing authority substitution rejected');
         }
-        const expiresAt = claimed.grantExpiresAt();
-        pending.device = claimed.deviceRecord({ deviceId, devicePublicKey, ingressKey, expiresAt });
+        // The record written before the grant is published carries only the
+        // pairing window: if publishing fails, the device is dropped when the
+        // window ends. Only after relay credential release does the host
+        // record receive its normal expiry. The sealed grant itself keeps the
+        // full lifetime; the host record gates access throughout.
+        pending.device = claimed.deviceRecord({ deviceId, devicePublicKey, ingressKey, expiresAt: new Date(pending.expiresAt).toISOString() });
         pending.deviceName = typeof request.deviceName === 'string' && request.deviceName.trim() !== '' ? request.deviceName.trim() : 'phone';
+        // A future link dialer must treat enrolment still pending as distinct from a device actually removed.
         pending.grant = JSON.stringify(createDeviceGrant({
             machineId: state.machine.id,
             machineSigningSecretKey: state.machine.crypto.signingSecretKey,
@@ -239,7 +265,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
             dataKey: state.machine.crypto.dataKey,
             ingressKey,
             keyVersion: state.machine.crypto.keyVersion,
-            expiresAt,
+            expiresAt: claimed.grantExpiresAt(),
             authority: claimed.authority,
         }));
         state.machine.crypto.pendingPair = pending;

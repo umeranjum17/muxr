@@ -3,7 +3,7 @@ title: Shared Remote Relay Enrollment
 slug: remote-relay-enrollment
 status: implemented
 created: 2026-08-17
-updated: 2026-08-20
+updated: 2026-09-26
 owner: umer
 links:
   - ../SELF-HOSTING.md
@@ -32,7 +32,7 @@ The CLI must expose two clearly different choices:
 - Device credentials remain client-only and machine-bound.
 - Machine revocation invalidates unused tickets and immediately closes the machine and device peers for that slug.
 - Native pairing displays one relay-qualified short string such as `wss://relay.example?pair=7KDM4-QXP7N`; QR encodes the same value.
-- Pairing codes expire after two minutes. The relay stores only a code hash and code-encrypted payload, deletes both atomically on first resolution, and deletes the underlying handoff after grant retrieval.
+- Pairing codes expire after two minutes. The relay stores only a code hash and code-encrypted payload and deletes both atomically on first resolution. The handoff is kept until the pairing completes (grant published, then the machine's `release`); the claim-window lifecycle is owned by [Architecture](../ARCHITECTURE.md).
 - The existing E2EE grant and envelope crypto remains unchanged. The relay continues routing ciphertext only.
 
 ## CLI experience
@@ -111,5 +111,6 @@ The VPS menu includes **Machines** with friendly names and list-number selection
 
 ## Revisions
 
+- 2026-09-26: The pairing handoff is no longer deleted after grant retrieval; it survives until the pairing completes and the machine releases the credential.
 - 2026-08-20: Keep QR scanning and manual entry as separate onboarding choices, remove the repeated QR action from the manual screen, and expose the paired relay, transport, and CLI version in machine details.
 - 2026-08-20: Replace native long payload strings with short relay-qualified pairing codes while preserving broker-free custom relay discovery and relay-blind pairing secrets.

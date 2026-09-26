@@ -54,10 +54,13 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
  * revoked device cannot use a stale grant before reconciliation.
  */
 export class LinkEndpoint {
-    private synced: Promise<void> = Promise.resolve();
+    private synced: Promise<boolean> = Promise.resolve(true);
 
-    private constructor(private readonly host: Host, private readonly client: RelayClient,
-        private readonly currentCrypto: () => MachineCryptoState | undefined) {}
+    private client?: RelayClient;
+
+    private constructor(private readonly host: Host,
+        private readonly currentCrypto: () => MachineCryptoState | undefined,
+        private readonly connectRelay: () => RelayClient) {}
 
     static async open(options: LinkEndpointOptions): Promise<LinkEndpoint | undefined> {
         const keys = keyPairFrom(Buffer.from(options.crypto.boxSecretKey, 'base64'));
@@ -90,21 +93,31 @@ export class LinkEndpoint {
                 return response;
             },
         });
-        const client = new RelayClient(host, {
+        const endpoint = new LinkEndpoint(host, options.currentCrypto, () => new RelayClient(host, {
             url: new URL('/relay/v1/host', relayControlUrl(options.relayUrl)).toString().replace(/^http/, 'ws'),
             name: options.machineName,
             ...(enrol === undefined ? {} : { enrol }),
             ...(options.onStatus === undefined ? {} : { onStatus: options.onStatus }),
-        });
-        const endpoint = new LinkEndpoint(host, client, options.currentCrypto);
-        await endpoint.sync(options.crypto);
+        }));
+        if (!await endpoint.sync(options.crypto)) {
+            endpoint.close();
+            throw new Error('link: initial device sync failed');
+        }
         return endpoint;
     }
 
+    start(): void {
+        this.client = this.connectRelay();
+    }
+
     /** Enrol the phones this machine now trusts and revoke the ones it no longer does. */
-    sync(crypto: MachineCryptoState): Promise<void> {
-        this.synced = this.synced.then(() => this.reconcile(crypto)).catch((error: unknown) => {
+    sync(crypto: MachineCryptoState): Promise<boolean> {
+        this.synced = this.synced.then(async () => {
+            await this.reconcile(crypto);
+            return true;
+        }).catch((error: unknown) => {
             process.stderr.write(`link: device sync failed: ${error instanceof Error ? error.message : String(error)}\n`);
+            return false;
         });
         return this.synced;
     }
@@ -121,7 +134,7 @@ export class LinkEndpoint {
     }
 
     close(): void {
-        this.client.stop();
+        this.client?.stop();
         this.host.close();
     }
 
@@ -132,11 +145,11 @@ export class LinkEndpoint {
             const deviceId = muxrDeviceIdOf(grant);
             const device = deviceId === undefined ? undefined : wanted.get(deviceId);
             const sameKey = device !== undefined && Buffer.from(device.devicePublicKey, 'base64').toString('base64url') === grant.key;
-            if (device !== undefined && sameKey && (device.authority === 'observe' ? 'view' : 'control') === grant.role) {
-                enrolled.add(device.deviceId);
-                continue;
-            }
-            await this.host.revoke(grant.id);
+            const roleMatches = device !== undefined && (device.authority === 'observe' ? 'view' : 'control') === grant.role;
+            // A role-only change keeps the pairing: the phone reconnects under
+            // the new grant without being told it was removed.
+            if (device === undefined || !sameKey) await this.host.revoke(grant.id);
+            else if (roleMatches) enrolled.add(device.deviceId);
         }
         for (const device of wanted.values()) {
             if (enrolled.has(device.deviceId)) continue;

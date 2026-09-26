@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, watchFile, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync, type StatWatcher } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { createDeviceGrant } from '@muxr/crypto';
 import { isPeerCapabilities, relayControlUrl } from '@muxr/contract';
@@ -500,6 +500,9 @@ if (mode === 'selfhost' && selfhostAuth === undefined) {
     process.exit(0);
 }
 
+/** Poll handles on the machine state files; held so the GC cannot silence them. */
+const stateFilePolls: StatWatcher[] = [];
+
 async function main(): Promise<void> {
     const hostVersion = resolveHostVersion() ?? '0.0.0';
     let diagnostics: HostDiagnosticsJournal | undefined;
@@ -525,12 +528,17 @@ async function main(): Promise<void> {
     };
     let linkEndpoint: LinkEndpoint | undefined;
     let linkOnline = false;
+    const admissionFile = join(dirname(selfhostFile()), 'link-enrolled.json');
+    if (mode === 'selfhost') rmSync(admissionFile, { force: true });
+    const recordLinkAdmission = (crypto: MachineCryptoState): void => {
+        atomicWriteJson(admissionFile, crypto.devices.map(({ deviceId, devicePublicKey }) => ({ deviceId, devicePublicKey })));
+    };
     if ((mode === 'selfhost' || mode === 'hosted') && hostedE2ee !== undefined) {
         // Pairing is a separate CLI process. Reload its appended per-device
         // ingress key without making an already-running host restart.
         const keys = hostedE2ee;
         const stateFile = mode === 'selfhost' ? selfhostFile() : authFile();
-        watchFile(stateFile, { interval: 2000 }, () => {
+        const applyStateFile = (): void => {
             try {
                 const crypto = mode === 'selfhost' ? readSelfhostAuth()?.machine.crypto : readHostedAuth()?.machine.crypto;
                 if (crypto === undefined || crypto.keyVersion < keys.keyVersion
@@ -544,11 +552,17 @@ async function main(): Promise<void> {
                     replayPersist.schedule(replaySnapshots);
                 }
                 applyDeviceTables(keys, crypto);
-                void linkEndpoint?.sync(crypto).then(() => { if (linkOnline) host.refreshLinkEnrolment(); });
+                if (mode === 'selfhost') void linkEndpoint?.sync(crypto).then((ok) => { if (ok) recordLinkAdmission(crypto); if (linkOnline) host.refreshLinkEnrolment(); }).catch((error: unknown) => {
+                    process.stderr.write(`link: admission record failed: ${error instanceof Error ? error.message : String(error)}\n`);
+                });
+                else void linkEndpoint?.sync(crypto).then(() => { if (linkOnline) host.refreshLinkEnrolment(); });
             } catch {
                 // Keep serving with the last fully validated key set.
             }
-        });
+        };
+        // Hold the poll's handle somewhere durable: an unreferenced watcher
+        // is collected, and its events silently stop.
+        stateFilePolls.push(watchFile(stateFile, { interval: 2000 }, applyStateFile));
     }
     let peerRuntime: PeerRuntime | undefined;
     let peerBroker: PeerBroker | undefined;
@@ -743,12 +757,18 @@ async function main(): Promise<void> {
                     });
                     if (linkEndpoint !== undefined) {
                         const latest = currentCrypto();
-                        if (latest !== undefined) await linkEndpoint.sync(latest);
+                        if (latest !== undefined) {
+                            if (!await linkEndpoint.sync(latest)) throw new Error('link: initial device sync failed');
+                            recordLinkAdmission(latest);
+                        }
+                        linkEndpoint.start();
                         host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
                         if (linkOnline) host.refreshLinkEnrolment();
                     }
                     return;
                 } catch (error) {
+                    linkEndpoint?.close();
+                    linkEndpoint = undefined;
                     if (attempt === 0) process.stderr.write(`link unavailable, retrying: ${error instanceof Error ? error.message : String(error)}\n`);
                     await new Promise((resolve) => setTimeout(resolve, 5000));
                 }

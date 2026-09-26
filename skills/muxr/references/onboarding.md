@@ -82,8 +82,9 @@ data plane; the relay routes ciphertext it cannot read.
 - Native pairing is single-use and expires in two minutes. QR and manual entry
   use the same short relay-qualified string. Run `muxr pair` anytime for a
   fresh QR.
-- The phone proves itself once and receives a durable device credential. It
-  stays paired until explicit revocation; calendar time never forces another QR.
+- The phone proves itself once and receives a device credential that becomes
+  durable when pairing completes. It stays paired until explicit revocation;
+  calendar time never forces another QR.
 - `muxr pair --browser` grants full terminal and agent control from a browser;
   `muxr pair --browser-view` grants explicit view-only access. Both print one
   short two-minute HTTPS link, expire after eight hours, and survive

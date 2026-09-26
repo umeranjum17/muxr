@@ -81,7 +81,26 @@ async function pairBrowser(name, personal = false) {
         body: JSON.stringify({ claim, device_public_key: keys.publicKey, device_name: name, device_kind: 'browser', mailbox: 'opaque-mailbox' }),
     });
     assert(claimed.response.ok, `browser claim failed: ${JSON.stringify(claimed.body)}`);
-    return { id: claimed.body.device_id, credential: claimed.body.device_credential, keys, name };
+    return { id: claimed.body.device_id, credential: claimed.body.device_credential, keys, name, pairId };
+}
+
+async function completeBrowser(device) {
+    const grant = createDeviceGrant({
+        machineId: machine, machineSigningSecretKey: signing.secretKey, machineKey: machineBox,
+        deviceId: device.id, devicePublicKey: device.keys.publicKey, dataKey: initialDataKey,
+        ingressKey: randomBytes(32), keyVersion: 1, expiresAt,
+    });
+    const path = `/v1/selfhost/pair-sessions/${device.pairId}`;
+    const uploaded = await json(`${path}/grant`, {
+        method: 'POST', headers: bearer(mintSecret), body: JSON.stringify({ grant: JSON.stringify(grant) }),
+    });
+    assert(uploaded.response.ok, `browser grant upload failed: ${JSON.stringify(uploaded.body)}`);
+    const fetched = await json(`${path}/grant`, { headers: bearer(device.credential) });
+    assert(fetched.response.ok && fetched.body.grant === JSON.stringify(grant), 'browser grant fetch failed');
+    const acknowledged = await json(`${path}/complete`, { method: 'POST', headers: bearer(device.credential) });
+    assert(acknowledged.response.ok, `browser grant acknowledgement failed: ${JSON.stringify(acknowledged.body)}`);
+    const released = await json(`${path}/release`, { method: 'POST', headers: bearer(mintSecret) });
+    assert(released.response.ok, `browser grant release failed: ${JSON.stringify(released.body)}`);
 }
 
 const pairingStore = () => JSON.parse(readFileSync(join(dataDir, 'selfhost-pairing.json'), 'utf8'));
@@ -114,8 +133,13 @@ try {
     const personal = await pairBrowser('browser-personal', true);
     const eightHours = 8 * 60 * 60_000;
     const thirtyDays = 30 * 24 * 60 * 60_000;
-    const normalTtl = (deviceRecord(browser.id)?.expiresAt ?? 0) - Date.now();
-    const personalTtl = (deviceRecord(personal.id)?.expiresAt ?? 0) - Date.now();
+    const claimTtl = (device) => (deviceRecord(device.id)?.expiresAt ?? 0) - Date.now();
+    assert(claimTtl(browser) > 0 && claimTtl(browser) <= 120_000, 'normal browser claim was not window-limited');
+    assert(claimTtl(personal) > 0 && claimTtl(personal) <= 120_000, 'personal browser claim was not window-limited');
+    await completeBrowser(browser);
+    await completeBrowser(personal);
+    const normalTtl = claimTtl(browser);
+    const personalTtl = claimTtl(personal);
     assert(normalTtl > eightHours - 60_000 && normalTtl <= eightHours, `normal browser credential not 8h: ${normalTtl}`);
     assert(personalTtl > thirtyDays - 60_000 && personalTtl <= thirtyDays, `personal browser credential not 30d: ${personalTtl}`);
     // A personal marker on a NATIVE session must not lengthen anything: the

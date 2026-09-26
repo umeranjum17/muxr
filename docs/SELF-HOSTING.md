@@ -35,7 +35,7 @@ return after login or reboot and `muxr update` restarts them as one managed unit
 Unchanged setup choices keep existing devices paired; changing the endpoint
 requires and displays a fresh pairing step.
 
-In the native app: **Scan QR code** or enter the short relay-qualified pairing string. Browser pairing prints one short two-minute HTTPS link. `muxr pair --browser` grants full terminal and agent control; `muxr pair --browser-view` grants explicit view-only access; `muxr pair --browser-personal` grants full control to a browser only you use. Shared browser grants expire after eight hours and personal grants after 30 days, survive refresh/restart, and are reported as paired only after durable browser storage acknowledges the grant.
+In the native app: **Scan QR code** or enter the short relay-qualified pairing string. On a local self-host relay, `muxr pair` waits up to 30 seconds for the running host to enroll the native device on the link before publishing its grant; if the host is not running, start muxr and rerun `muxr pair`. Browser pairing prints one short two-minute HTTPS link. `muxr pair --browser` grants full terminal and agent control; `muxr pair --browser-view` grants explicit view-only access; `muxr pair --browser-personal` grants full control to a browser only you use. Shared browser grants expire after eight hours and personal grants after 30 days, survive refresh/restart, and are reported as paired only after durable browser storage acknowledges the grant and pairing completes.
 
 For automation use `muxr daemon status|logs|start|stop|restart`. Shared relay
 automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
@@ -131,7 +131,7 @@ keep their quotas rather than having them reset.
   use the same short value, for example `wss://relay.example?pair=7KDM4-QXP7N`.
   The relay stores only a code hash and code-encrypted payload, deletes the
   lookup on first resolution, and never receives the code or pair secret.
-- The phone proves itself once and receives a durable device credential. It remains paired until explicit revocation; normal calendar time never forces another QR.
+- The phone proves itself once and receives a device credential that becomes durable when pairing completes. It remains paired until explicit revocation; normal calendar time never forces another QR.
 - Never edit relay state by hand. List and revoke phones with:
 
   ```bash

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
+import webpush from 'web-push';
 import type { Envelope } from '@muxr/contract';
 import { OfflineBuffer, PeerTable, ReplayLog, routeEnvelope, type ConnectedPeer, type PeerRouteOutcome } from '../routing/index.js';
 import { loadRelayConfig } from '../config.js';
@@ -13,6 +14,7 @@ import { startRelay } from '../relay.js';
 
 it('keeps a browser grant recoverable until its role and durable client acknowledgement are confirmed', async () => {
     const root = await mkdtemp(join(tmpdir(), 'muxr-browser-pairing-'));
+    vi.useFakeTimers({ toFake: ['Date'] });
     try {
         const pairing = new SelfhostPairing(root);
         const session = await pairing.createSession({
@@ -27,7 +29,6 @@ it('keeps a browser grant recoverable until its role and durable client acknowle
             deviceName: 'Browser',
             deviceKind: 'browser',
             mailbox: 'sealed-mailbox',
-            expiresAt: Date.now() + 60_000,
         });
         expect(claimed.state).toBe('issued');
         if (claimed.state !== 'issued') return;
@@ -37,7 +38,90 @@ it('keeps a browser grant recoverable until its role and durable client acknowle
         await expect(pairing.fetchGrant(session.pairId, claimed.deviceId)).resolves.toBe('sealed-grant');
         await expect(pairing.acknowledgeGrant(session.pairId, claimed.deviceId)).resolves.toBe(true);
         expect(await pairing.poll(session.pairId, 'machine-a')).toMatchObject({ acknowledged: true });
+        await expect(pairing.completeGrant(session.pairId, 'machine-a')).resolves.toBe(true);
+        await expect(pairing.resolveDeviceCredential(claimed.credential)).resolves.toMatchObject({ deviceId: claimed.deviceId });
+        const unfinished = await pairing.createSession({ claim: 'd'.repeat(43), machineSlug: 'machine-a', deviceKind: 'browser' });
+        const waiting = await pairing.claim(unfinished.pairId, {
+            claim: 'd'.repeat(43), devicePublicKey: 'other-key', deviceName: 'Browser', deviceKind: 'browser', mailbox: 'sealed',
+        });
+        if (waiting.state !== 'issued') throw new Error('browser claim failed');
+        await expect(pairing.uploadGrant(unfinished.pairId, 'machine-a', 'other-grant')).resolves.toBe(true);
+        await expect(pairing.fetchGrant(unfinished.pairId, waiting.deviceId)).resolves.toBe('other-grant');
+        await expect(pairing.acknowledgeGrant(unfinished.pairId, waiting.deviceId)).resolves.toBe(true);
+        vi.setSystemTime(Date.now() + 121_000);
+        await expect(pairing.resolveDeviceCredential(claimed.credential)).resolves.toMatchObject({ deviceId: claimed.deviceId });
+        await expect(pairing.resolveDeviceCredential(waiting.credential)).resolves.toBeUndefined();
+        await expect(pairing.isDeviceActive(waiting.deviceId)).resolves.toBe(false);
+        await expect(pairing.completeGrant(unfinished.pairId, 'machine-a')).resolves.toBe(false);
     } finally {
+        vi.useRealTimers();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+it('stops delivering both push channels when an unpublished native claim expires', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'muxr-claim-push-'));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const sendWeb = vi.spyOn(webpush, 'sendNotification').mockResolvedValue({} as never);
+    const sendExpo = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        const tokens = JSON.parse(String(init?.body)) as unknown[];
+        return new Response(JSON.stringify({ data: tokens.map(() => ({ status: 'ok' })) }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', sendExpo);
+    try {
+        const pairing = new SelfhostPairing(root);
+        const push = new PushService(root);
+        await push.load();
+        const claim = async (name: string) => {
+            const session = await pairing.createSession({ claim: name, machineSlug: 'machine-a', deviceKind: 'native' });
+            const issued = await pairing.claim(session.pairId, {
+                claim: name, devicePublicKey: name, deviceName: name, deviceKind: 'native', mailbox: 'sealed',
+            });
+            if (issued.state !== 'issued') throw new Error('claim failed');
+            await push.subscribe('local:machine-a', {
+                endpoint: `https://push.example.com/${name}`,
+                keys: { p256dh: 'key', auth: 'auth' },
+            }, { deviceId: issued.deviceId, level: 'all' });
+            await push.subscribeExpo('local:machine-a', `ExpoPushToken[${name}]`, 'all', issued.deviceId);
+            return { session, issued };
+        };
+        const pending = await claim('pending');
+        const interrupted = await claim('interrupted');
+        const published = await claim('published');
+        expect(await pairing.uploadGrant(interrupted.session.pairId, 'machine-a', 'sealed-grant')).toBe(true);
+        expect(await pairing.uploadGrant(published.session.pairId, 'machine-a', 'sealed-grant')).toBe(true);
+        await expect(pairing.completeGrant(published.session.pairId, 'machine-a')).resolves.toBe(true);
+        const notify = (eventId: string) => push.notify('local:machine-a', {
+            eventId, kind: 'done', reasonCode: 'agent-done', agentName: 'Agent',
+            taskTitle: 'Private task', sessionId: 'session-1', machineId: 'machine-a',
+        }, (id) => pairing.isDeviceActive(id));
+        await expect(notify('before-expiry')).resolves.toEqual({ sent: 6 });
+        expect(sendWeb).toHaveBeenCalledTimes(3);
+        expect(JSON.parse(String(sendExpo.mock.calls[0]?.[1]?.body))).toHaveLength(3);
+        let finishWeb!: () => void;
+        const stalledWeb = new Promise<void>((resolve) => { finishWeb = resolve; });
+        sendWeb.mockImplementationOnce(async () => { await stalledWeb; return {} as never; });
+        const crossing = notify('crossing-window');
+        await vi.waitFor(() => expect(sendWeb).toHaveBeenCalledTimes(6));
+        vi.setSystemTime(Date.now() + 121_000);
+        finishWeb();
+        await expect(crossing).resolves.toEqual({ sent: 4 });
+        expect(JSON.parse(String(sendExpo.mock.calls[1]?.[1]?.body))).toEqual([
+            expect.objectContaining({ to: 'ExpoPushToken[published]' }),
+        ]);
+        await expect(pairing.isDeviceActive(pending.issued.deviceId)).resolves.toBe(false);
+        await expect(pairing.isDeviceActive(interrupted.issued.deviceId)).resolves.toBe(false);
+        await expect(pairing.isDeviceActive(published.issued.deviceId)).resolves.toBe(true);
+        await expect(notify('after-expiry')).resolves.toEqual({ sent: 2 });
+        expect(sendWeb).toHaveBeenCalledTimes(7);
+        expect(sendWeb.mock.calls[6]?.[0]).toMatchObject({ endpoint: 'https://push.example.com/published' });
+        expect(JSON.parse(String(sendExpo.mock.calls[2]?.[1]?.body))).toEqual([
+            expect.objectContaining({ to: 'ExpoPushToken[published]' }),
+        ]);
+    } finally {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+        sendWeb.mockRestore();
         await rm(root, { recursive: true, force: true });
     }
 });
