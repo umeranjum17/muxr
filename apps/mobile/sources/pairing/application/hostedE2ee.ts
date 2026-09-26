@@ -516,12 +516,11 @@ async function resumePendingLinkPairing(): Promise<StoredHostedGrant | undefined
 }
 
 async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?: (words: string) => void; tunnelPort?: number; mode: 'claim' | 'resume' }): Promise<StoredHostedGrant> {
-    let answer: LinkPairAnswer;
-    let key: { publicKey: Uint8Array; secretKey: Uint8Array };
+    let stored: StoredHostedGrant | undefined;
     try {
-        const result = await claimLinkPairing(pending, options);
-        answer = result;
-        key = result.key;
+        await claimLinkPairing(pending, { ...options, onProven: async (answer, key) => {
+            stored = await storeProvenLinkGrant(answer, key);
+        } });
     } catch (cause) {
         const message = cause instanceof LinkError && cause.code in LINK_WORDS
             ? LINK_WORDS[cause.code] : cause instanceof Error ? cause.message : String(cause);
@@ -531,6 +530,12 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
         }
         throw new Error(message);
     }
+    if (stored === undefined) throw new Error('the computer did not prove this pairing');
+    await secretDelete(PENDING_LINK_PAIR_KEY);
+    return stored;
+}
+
+async function storeProvenLinkGrant(answer: LinkPairAnswer, key: { publicKey: Uint8Array; secretKey: Uint8Array }): Promise<StoredHostedGrant> {
     const deviceKey = {
         publicKey: Buffer.from(key.publicKey).toString('base64'),
         secretKey: Buffer.from(key.secretKey).toString('base64'),
@@ -557,7 +562,6 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
         source: 'selfhost',
     };
     await saveHostedGrant(stored);
-    await secretDelete(PENDING_LINK_PAIR_KEY);
     return stored;
 }
 

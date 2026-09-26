@@ -101,7 +101,7 @@ export class LinkFirstClient implements SessionClient {
         const stored = this.options.hostedGrant;
         if (stored?.credential) {
             this.setState('stale');
-            this.options.onPermanentError?.('This pairing is from an older muxr version. Update muxr on both devices, then pair again.');
+            this.options.onPermanentError?.('This pairing is from an older muxr version. Update muxr on this device and the computer, run `muxr pair` on the computer, then scan its new link code.');
             return;
         }
         const grant = deriveLinkGrant(stored);
