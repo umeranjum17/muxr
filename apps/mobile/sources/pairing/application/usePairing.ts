@@ -77,6 +77,7 @@ export function useHostedPairing() {
  * over the machine's own link both land.
  */
 export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>): Promise<void> {
+    if (Platform.OS === 'web') throw new Error('Native pairing codes are for phones. Use `muxr pair --browser` on the computer.');
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
     const approved = await Modal.confirm(
         `Pair with ${machineName}?`,

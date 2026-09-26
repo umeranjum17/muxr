@@ -31,15 +31,16 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { waitForRelay } from './waitForRelay.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
 import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/hostedE2ee.js';
+import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
 
 const home = mkdtempSync(join(tmpdir(), 'muxr-link-pairing-'));
 process.env.MUXR_HOME = home;
 const children = new Set<ChildProcess>();
 
-const phone = vi.hoisted(() => ({ secure: new Map<string, string>(), local: new Map<string, string>() }));
+const phone = vi.hoisted(() => ({ secure: new Map<string, string>(), local: new Map<string, string>(), platform: 'android' as 'android' | 'web' }));
 
 vi.mock('react-native', () => ({
-    Platform: { OS: 'android' },
+    Platform: { get OS() { return phone.platform; } },
     AppState: { currentState: 'active', addEventListener: () => ({ remove: () => undefined }) },
 }));
 vi.mock('expo-device', () => ({ isDevice: true }));
@@ -177,6 +178,16 @@ describe('native pairing over the byokit link', () => {
         rmSync(home, { recursive: true, force: true });
     });
 
+    it('rejects a native offer on web before storing a pending key', async () => {
+        phone.platform = 'web';
+        try {
+            await expect(runPhonePairing('byokit-link:1:invalid')).rejects.toThrow('Native pairing codes are for phones');
+            expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+        } finally {
+            phone.platform = 'android';
+        }
+    });
+
     it('pairs with the words on both screens and serves the new phone over the machine link', async () => {
         let computerWords = '';
         let computerSawName = '';
@@ -194,14 +205,12 @@ describe('native pairing over the byokit link', () => {
         expect(computerWords).not.toBe('');
         expect(phoneWords).toBe(computerWords);
 
-        // The record the CLI wrote is the machine's authority, and the phone
-        // stored the matching grant with no relay credential: link only.
         const state = readSelfhostState();
         const record = state.machine.crypto.devices.find((device) => device.deviceId === stored.deviceId);
         expect(record).toBeDefined();
         expect(record!.devicePublicKey).toBe(stored.devicePublicKey);
         expect(record!.name).toBe('Android phone');
-        expect(stored.credential).toBe('');
+        expect(stored.credential).toMatch(/^muxr_dc_/);
         expect(stored.machineId).toBe(state.machine.id);
         expect(await pairing).toMatchObject({ deviceId: record!.deviceId, devicePublicKey: record!.devicePublicKey });
 
@@ -215,6 +224,22 @@ describe('native pairing over the byokit link', () => {
         const listed = await link.request('client.hello', { type: 'client.hello', clientId: 'link-paired-phone' }) as { type: string };
         expect(listed.type).toBe('session.list');
         link.stop();
+
+        const client = new LinkFirstClient({
+            mode: 'hosted', relayUrl: stored.relayUrl, machineId: stored.machineId,
+            token: stored.credential, hostedGrant: stored, requestTimeoutMs: 5_000,
+        });
+        try {
+            client.connect();
+            await until(() => client.isLive() ? true : undefined, 'new phone session connects');
+            const sessions = await client.request('session.list', {});
+            expect(Array.isArray(sessions)).toBe(true);
+            const desktop = await client.request('desktop.open', { permissions: ['view'] }, 30_000);
+            expect(desktop.desktopId).toBeTruthy();
+            expect(await client.request('desktop.close', { desktopId: desktop.desktopId })).toEqual({ closed: true });
+        } finally {
+            client.close();
+        }
     }, 90_000);
 
 
@@ -246,18 +271,19 @@ describe('native pairing over the byokit link', () => {
             scanned: offer,
             name: 'Android phone',
             secretKey: b64url(kp.secretKey),
+            startedAt: Date.now(),
         }));
         await pairWithOffer(offer, { name: 'Android phone', key: kp, onWords: () => undefined });
 
         // Restart: the resume reconnects by key alone and finishes the pairing.
-        const stored = await resumePendingHostedPairing();
+        const stored = await resumePendingHostedPairing(false);
         expect(stored?.machineId).toBe(readSelfhostState().machine.id);
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
         expect(await pairing).toBeDefined();
     }, 90_000);
 
 
-    it('lists and revokes a link-paired phone that holds no relay credential', async () => {
+    it('lists and revokes a link-paired phone with relay fallback', async () => {
         const state = readSelfhostState();
         const paired = state.machine.crypto.devices;
         expect(paired).toHaveLength(2);

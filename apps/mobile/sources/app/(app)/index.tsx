@@ -35,10 +35,9 @@ function NotAuthenticated() {
     const pairing = React.useRef(false);
 
     React.useEffect(() => {
-        if (!hosted) return;
         if (pairing.current) return;
         pairing.current = true;
-        void resumePendingHostedPairing().then(async (grant) => {
+        void resumePendingHostedPairing(hosted).then(async (grant) => {
             if (grant === undefined) return;
             await saveConnectionSettings({
                 ...getCachedConnectionSettings(),
