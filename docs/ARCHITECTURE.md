@@ -1,17 +1,18 @@
 # Architecture
 
-Three processes. Herdr owns agents and backend plugins, the host translates, the
-relay moves bytes, and the app draws the terminal. The app is a native extension
-shell: host-installed packages contribute approved native surfaces without downloaded code.
+Herdr owns agents and backend plugins, the host translates, the relay routes
+bytes, and the app draws the terminal. The app is a native extension shell:
+host-installed packages contribute approved native surfaces without downloaded code.
 
 ```
   PHONE / WEB               RELAY                   YOUR MACHINE
   apps/mobile               apps/relay              apps/host          herdr server
   ─────────────             ─────────               ──────────         ────────────
-  xterm.js + herd UI   ◄──► routes envelopes   ◄──► translates    ◄──► owns the PTYs
+  terminal + herd UI  ◄──► routes envelopes   ◄──► translates    ◄──► owns the PTYs
   owns no truth             reads headers only      contract ⇄          detects agents
                             /terminal + /preview    herdr socket        resumes them
                             are separate channels
+  enrolled native terminal ─────── byokit link stream via relay ───► host
 ```
 
 ## Why herdr
@@ -29,9 +30,9 @@ press at the desk.
 
 First, the mental model: **there is no "the terminal".** An agent never draws a
 screen — it writes ANSI escape bytes into a PTY (a kernel pipe). A terminal is
-just any program that parses those bytes into pixels: Ghostty on the desk,
-herdr's built-in emulator, xterm.js on the phone. Same bytes in, same picture
-out — that is why every client looks identical.
+just any program that parses those bytes into pixels: Ghostty on the phone,
+herdr's built-in emulator, xterm.js on web. The clients draw from the same
+stream, but each uses its own renderer.
 
 **herdr owns the pipe and the canonical state.** Agents run as ordinary OS
 processes on the host machine, each inside a real PTY that herdr holds. Herdr's
@@ -48,7 +49,7 @@ agent process → PTY (kernel pipe, herdr holds it)
                   └─→ host runs `herdr terminal session control <pane>`
                       (base64 ANSI frames) → byokit link stream on enrolled native phones
                                            or /terminal via the relay → phone
-                      → xterm.js parses the same bytes, draws its own copy
+                      → Ghostty (native) or xterm.js (web) draws its own copy
 ```
 
 Keystrokes travel the reverse path: phone → link or relay → host → herdr → PTY → the
