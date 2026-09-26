@@ -118,4 +118,4 @@ export { BACK, heading, prompt, select, status } from './presentation/ui.mjs';
 export { hostEntry, relayEntry } from './infrastructure/paths.mjs';
 
 export { machineIdentity, newPairingCode, pairingCodeHash, printTerminalQr, stateDir } from './infrastructure/runtime.mjs';
-export { linkPair } from './application/linkPair.mjs';
+export { linkPair, machineLinkUrl } from './application/linkPair.mjs';

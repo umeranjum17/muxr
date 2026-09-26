@@ -135,7 +135,7 @@ interface ComputerPairingOptions {
 async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>): Promise<{
     pairing: Promise<unknown>;
     offer: string;
-    abort: () => void;
+    abort: () => Promise<void>;
 }> {
     let out = '';
     const controller = new AbortController();
@@ -146,7 +146,10 @@ async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>): P
     return {
         pairing,
         offer,
-        abort: () => controller.abort(),
+        abort: async () => {
+            controller.abort();
+            await pairing.catch(() => undefined);
+        },
     };
 }
 
@@ -220,7 +223,7 @@ describe('native pairing over the byokit link', () => {
         await expect(runPhonePairing(offer)).rejects.toThrow('Your computer said no to this device.');
         const state = readSelfhostState();
         expect(state.machine.crypto.devices).toHaveLength(1); // only the first pairing's record
-        abort();
+        await abort();
         await expect(pairing).rejects.toThrow('cancelled');
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     }, 90_000);
@@ -230,7 +233,7 @@ describe('native pairing over the byokit link', () => {
         const { offer, abort } = await showPairingQr({ approve: async () => true, pairMs: 1_200 });
         await new Promise((resolve) => setTimeout(resolve, 1_500));
         await expect(runPhonePairing(offer)).rejects.toThrow('run out');
-        abort();
+        await abort();
     }, 90_000);
 
 
