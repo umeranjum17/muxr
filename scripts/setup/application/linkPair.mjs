@@ -1,9 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { Host, hostId, keyPair } from '@byokit/link';
 import { RelayClient } from '@byokit/relay';
-import { api, askVisible, base64, createDeviceGrant, print, printTerminalQr } from '../infrastructure/runtime.mjs';
+import { askVisible, base64, print, printTerminalQr } from '../infrastructure/runtime.mjs';
 import { pairingIntent } from '../domain/dist/index.js';
-import { readSelfhostState, selfhostControlBase, selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
+import { readSelfhostState, selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
 
 /**
@@ -169,7 +169,7 @@ async function servePairing(state, req, device, claims, done) {
     }
     if (req.op !== 'pair.complete') throw new Error('pairing: unknown request');
     const devicePublicKey = base64(Buffer.from(key, 'base64url'));
-    const { record, created, keyVersion, credential, grant } = await withSelfhostRotationLock(async () => {
+    const { record, created } = await withSelfhostRotationLock(async () => {
         const current = readSelfhostState();
         if (current?.machine?.id !== state.machine.id || current.machine.crypto.pendingRotation) throw new Error('pairing: machine authority is changing');
         let record = current.machine.crypto.devices.find((entry) => entry.devicePublicKey === devicePublicKey && entry.kind === undefined
@@ -185,31 +185,10 @@ async function servePairing(state, req, device, claims, done) {
                 authority: 'control',
                 name,
             };
-        }
-        const keyVersion = current.machine.crypto.keyVersion;
-        const grant = JSON.stringify(createDeviceGrant({
-            machineId: current.machine.id,
-            machineSigningSecretKey: current.machine.crypto.signingSecretKey,
-            machineKey: { publicKey: current.machine.crypto.boxPublicKey, secretKey: current.machine.crypto.boxSecretKey },
-            deviceId: record.deviceId,
-            devicePublicKey,
-            dataKey: current.machine.crypto.dataKey,
-            ingressKey: record.ingressKey,
-            keyVersion,
-            expiresAt: Date.parse(record.expiresAt),
-            authority: 'control',
-        }));
-        const issued = await api(selfhostControlBase(current), `/v1/selfhost/native-devices?machine=${encodeURIComponent(current.machine.id)}`, {
-            method: 'POST',
-            headers: { authorization: `Bearer ${selfhostCredential(current)}` },
-            body: JSON.stringify({ device_id: record.deviceId, device_public_key: devicePublicKey, device_name: record.name || device.name, grant, key_version: keyVersion }),
-        });
-        if (!issued.response.ok || typeof issued.body.device_credential !== 'string') throw new Error(issued.body.error || 'could not provision the phone relay credential');
-        if (created) {
             current.machine.crypto.devices = [...current.machine.crypto.devices, record];
             writeSelfhostState(current);
         }
-        return { record, created, keyVersion, credential: issued.body.device_credential, grant };
+        return { record, created };
     });
     let claim = claims.get(key);
     if (claim === undefined) {
@@ -219,22 +198,16 @@ async function servePairing(state, req, device, claims, done) {
     claim.answered = true;
     claim.deviceId = record.deviceId;
     clearTimeout(claim.timer);
-    claim.rollback ??= async () => {
+    claim.rollback ??= () => {
         if (!created) return;
-        await withSelfhostRotationLock(async () => {
-            const current = readSelfhostState();
-            if (current?.machine?.id !== state.machine.id) return;
-            const devices = current.machine.crypto.devices.filter((entry) => entry.deviceId !== record.deviceId
-                || entry.devicePublicKey !== devicePublicKey);
-            if (devices.length !== current.machine.crypto.devices.length) {
-                current.machine.crypto.devices = devices;
-                writeSelfhostState(current);
-            }
-            const revoked = await api(selfhostControlBase(current), `/v1/selfhost/devices/${encodeURIComponent(record.deviceId)}`, {
-                method: 'DELETE', headers: { authorization: `Bearer ${selfhostCredential(current)}` },
-            });
-            if (!revoked.response.ok && revoked.response.status !== 404) throw new Error(revoked.body.error || 'pairing credential cleanup failed');
-        });
+        const current = readSelfhostState();
+        if (current?.machine?.id !== state.machine.id) return;
+        const devices = current.machine.crypto.devices.filter((entry) => entry.deviceId !== record.deviceId
+            || entry.devicePublicKey !== devicePublicKey);
+        if (devices.length !== current.machine.crypto.devices.length) {
+            current.machine.crypto.devices = devices;
+            writeSelfhostState(current);
+        }
     };
     claim.timer = setTimeout(() => {
         done.reject(new Error('pairing did not complete: the phone never reached this machine over the link. Start muxr here, then run `muxr pair` again.'));
@@ -246,10 +219,6 @@ async function servePairing(state, req, device, claims, done) {
         machineBoxPublicKey: Buffer.from(state.machine.crypto.boxPublicKey, 'base64').toString('base64url'),
         relayUrl: state.relayUrl,
         deviceId: record.deviceId,
-        keyVersion,
-        machineSigningPublicKey: state.machine.crypto.signingPublicKey,
-        credential,
-        grant,
         authority: 'control',
         linkUrl: machineLinkUrl(state.relayUrl, state.machine.crypto.boxPublicKey),
     };

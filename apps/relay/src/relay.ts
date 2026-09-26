@@ -731,35 +731,6 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 writeJsonError(res, 404, 'not_found');
                 return;
             }
-            if (config.localAuthority && localPairing !== undefined && req.method === 'POST'
-                && url.pathname === '/v1/selfhost/native-devices') {
-                const authority = await resolveAuthority(req);
-                if (!authority.owner && authority.machine === undefined) { writeJsonError(res, 403, 'device issuance requires owner or machine authority'); return; }
-                const requestedSlug = url.searchParams.get('machine')?.trim() ?? '';
-                if (authority.machine !== undefined && requestedSlug !== '' && requestedSlug !== authority.machine.slug) {
-                    writeJsonError(res, 403, 'machine credential cannot issue for another machine'); return;
-                }
-                const machineSlug = authority.machine?.slug ?? requestedSlug;
-                const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
-                const deviceId = body?.device_id;
-                const publicKey = body?.device_public_key;
-                const name = body?.device_name;
-                const grant = body?.grant;
-                const keyVersion = body?.key_version;
-                if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(machineSlug)
-                    || typeof deviceId !== 'string' || !/^dev_[A-Za-z0-9_-]{24}$/.test(deviceId)
-                    || !isValidPublicKey(publicKey) || typeof name !== 'string' || name.trim() === ''
-                    || typeof grant !== 'string' || grant.length === 0 || grant.length > 16 * 1024
-                    || typeof keyVersion !== 'number' || !Number.isInteger(keyVersion) || keyVersion < 1) {
-                    writeJsonError(res, 400, 'invalid native device grant'); return;
-                }
-                const credential = await localPairing.issueNative({
-                    machineSlug, deviceId, publicKey, name: name.trim().slice(0, 120), grant, keyVersion,
-                });
-                if (credential === undefined) { writeJsonError(res, 409, 'native_device_conflict'); return; }
-                writeJson(res, 201, { device_credential: credential });
-                return;
-            }
             // Peer authority is target-machine scoped. Peer credentials can
             // route opaque envelopes, but cannot mint terminal/preview/stream tickets.
             if (config.localAuthority && localPairing !== undefined && req.method === 'POST'

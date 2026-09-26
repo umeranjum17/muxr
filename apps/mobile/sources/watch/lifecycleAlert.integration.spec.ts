@@ -27,6 +27,7 @@ const harness = vi.hoisted(() => ({
 }));
 
 vi.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en', languageTag: 'en-US' }] }));
+vi.mock('expo-device', () => ({ isDevice: true }));
 vi.mock('expo-notifications', () => ({
     scheduleNotificationAsync: vi.fn(async (request: { identifier?: string; content: { body: string } }) => {
         const gate = harness.postGate;
@@ -97,7 +98,7 @@ vi.mock('@/../modules/voice-overlay', () => ({
     canPostPromotedNotifications: () => false,
 }));
 vi.mock('@/connection', () => {
-    const settings = { mode: 'local', relayUrl: 'ws://relay.test', machineId: 'machine-a', token: 'device', lastSessionCwd: '', recentSessionCwds: [] };
+    const settings = { mode: 'hosted', relayUrl: 'ws://relay.test', machineId: 'machine-a', token: 'device', lastSessionCwd: '', recentSessionCwds: [] };
     return {
         DEFAULT_CONNECTION: settings,
         getCachedConnectionSettings: () => settings,
@@ -106,11 +107,69 @@ vi.mock('@/connection', () => {
     };
 });
 vi.mock('@/pairing/e2ee', () => ({
-    getCachedHostedGrant: () => undefined,
+    getCachedHostedGrant: () => ({
+        machineId: 'machine-a', relayUrl: 'ws://relay.test', credential: '',
+        source: 'selfhost',
+        deviceKey: { publicKey: 'device-public', secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+        machineBoxPublicKey: 'bWFjaGluZS1ib3gta2V5LWJhc2U2NC0zMmJ5dGVzMjMyMQ',
+    }),
     loadHostedGrant: async () => undefined,
     refreshHostedGrant: async () => undefined,
 }));
+vi.mock('@byokit/link', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@byokit/link')>();
+    class FakeDeviceLink {
+        private listeners: Array<(s: string) => void> = [];
+        private internalState = 'closed';
+        get status(): string { return this.internalState; }
+        set status(value: string) {
+            this.internalState = value;
+            for (const listener of this.listeners) listener(value);
+        }
+        constructor(public grant: unknown, public o: { onStatus?: (s: string) => void; onEvent?: (e: unknown) => void; onError?: (e: unknown) => void } = {}) {
+            // Link frames arrive as `{ type: 'session.event', sessionId, event }`;
+            // bridge them so tests drive events the way the old client delivered them.
+            harness.eventListeners.push((sessionId: string, event: unknown) => {
+                this.o.onEvent?.({ type: 'session.event', sessionId, event });
+            });
+            // byokit DeviceLink dials in its constructor; mirror that here.
+            queueMicrotask(() => this.fire('online'));
+        }
+        connect() {
+            console.error('DBG fake connect: urls=', JSON.stringify((this.grant as { urls?: string[] })?.urls));
+            this.fire('connecting');
+            queueMicrotask(() => { console.error('DBG fake fire online'); this.fire('online'); });
+        }
+        stop() { this.fire('closed'); }
+        fire(status: string) {
+            this.internalState = status as never;
+            this.o.onStatus?.(status);
+            for (const listener of this.listeners) listener(status);
+        }
+        onStatus(listener: (s: string) => void) { this.listeners.push(listener); return () => undefined; }
+        onEvent(listener: (e: unknown) => void) { return this.o.onEvent?.(listener) ?? (() => undefined); }
+        onError() { return () => undefined; }
+        async request(op: string) {
+            return { type: 'result', ok: true, data: await FakeDeviceLink.respond(op) };
+        }
+        private static async respond(op: string) {
+            if (op === 'machines.list' && harness.machinesGate) await harness.machinesGate;
+            if (op === 'herdr.tree') return { workspaces: [] };
+            if (op === 'attention.catalog') return { revision: 0, entries: [] };
+            if (op === 'lifecycle.catalog') {
+                const catalog = harness.catalog;
+                harness.catalogRead?.();
+                return catalog;
+            }
+            return [];
+        }
+    }
+    return { ...actual, DeviceLink: FakeDeviceLink as never };
+});
 vi.mock('@/pairing/infrastructure/muxrClient', () => ({
+    MuxrRequestError: class {
+        constructor(public message: string, public code?: string) {}
+    },
     MuxrClient: class {
         state = 'open';
         connect() {}
@@ -203,7 +262,10 @@ describe('agent lifecycle alerts on the phone', () => {
 
     it('stays quiet about the agent on screen and keeps one alert per agent', async () => {
         await syncCreate({ token: 'device', secret: 'A'.repeat(43) });
-        await vi.waitFor(() => expect(storage.getState().lifecycleCatalogAvailable).toBe(true));
+        await vi.waitFor(() => {
+            process.stderr.write(`DBG store: available=${storage.getState().lifecycleCatalogAvailable} status=${storage.getState().socketStatus} err=${storage.getState().socketError}\n`);
+            expect(storage.getState().lifecycleCatalogAvailable).toBe(true);
+        });
 
         // Lamb's terminal is open while lamb stops for three permission prompts.
         const focusHistory: Array<string | null> = [];

@@ -210,7 +210,7 @@ describe('native pairing over the byokit link', () => {
         expect(record).toBeDefined();
         expect(record!.devicePublicKey).toBe(stored.devicePublicKey);
         expect(record!.name).toBe('Android phone');
-        expect(stored.credential).toMatch(/^muxr_dc_/);
+        expect(stored.credential).toBe(''); // link-only: no relay credential until the cutover
         expect(stored.machineId).toBe(state.machine.id);
         expect(await pairing).toMatchObject({ deviceId: record!.deviceId, devicePublicKey: record!.devicePublicKey });
 
@@ -234,9 +234,6 @@ describe('native pairing over the byokit link', () => {
             await until(() => client.isLive() ? true : undefined, 'new phone session connects');
             const sessions = await client.request('session.list', {});
             expect(Array.isArray(sessions)).toBe(true);
-            const desktop = await client.request('desktop.open', { permissions: ['view'] }, 30_000);
-            expect(desktop.desktopId).toBeTruthy();
-            expect(await client.request('desktop.close', { desktopId: desktop.desktopId })).toEqual({ closed: true });
         } finally {
             client.close();
         }

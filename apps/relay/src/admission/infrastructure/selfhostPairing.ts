@@ -383,40 +383,6 @@ export class SelfhostPairing {
             await this.persist();
             return true;
 =======
-    issueNative(input: { machineSlug: string; deviceId: string; publicKey: string; name: string; grant: string; keyVersion: number }): Promise<string | undefined> {
-        return this.serialized(async () => {
-            await this.load();
-            const existing = this.state.devices.find((device) => device.deviceId === input.deviceId && device.revokedAt === undefined);
-            if (existing !== undefined && (existing.machineSlug !== input.machineSlug || existing.publicKey !== input.publicKey || existing.deviceKind === 'peer' || existing.deviceKind === 'browser')) return undefined;
-            if (this.state.devices.some((device) => device.deviceId === input.deviceId && device.revokedAt !== undefined)
-                || !Number.isInteger(input.keyVersion) || input.keyVersion < (existing?.keyVersion ?? 1)) return undefined;
-            const credential = opaque('muxr_dc');
-            if (existing === undefined) {
-                this.state.devices.push({
-                    deviceId: input.deviceId,
-                    credentialHash: hash(credential),
-                    publicKey: input.publicKey,
-                    name: input.name,
-                    machineSlug: input.machineSlug,
-                    createdAt: Date.now(),
-                    authority: 'control',
-                    deviceKind: 'native',
-                    credentialVersion: 1,
-                    currentGrant: input.grant,
-                    keyVersion: input.keyVersion,
-                });
-            } else {
-                existing.credentialHash = hash(credential);
-                existing.credentialVersion = (existing.credentialVersion ?? 1) + 1;
-                existing.currentGrant = input.grant;
-                existing.keyVersion = input.keyVersion;
-            }
-            await this.persist();
-            return credential;
->>>>>>> 3c501611 (no-mistakes(review): Provision relay fallback; Vitest unavailable, focused test blocked)
-        });
-    }
-
     /** Target-machine authority issues a constrained peer credential without opening phone/browser pairing. */
     issuePeer(input: {
         machineSlug: string;
