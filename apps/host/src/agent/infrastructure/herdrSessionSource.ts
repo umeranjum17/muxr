@@ -785,10 +785,6 @@ export async function createHerdrSessionSource(
         }, options.onRealtimePromptDiagnostic, options.onRealtimeCoordinationDiagnostic);
         await codingCoordinator.start();
         pluginStreams = new PluginStreamManager({
-            relayUrl: options.relayUrl,
-            machineId: options.machineId,
-            ...(options.token === undefined ? {} : { token: options.token }),
-            ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
             ...(options.peerBroker === undefined ? {} : { peerBroker: options.peerBroker }),
             codingCoordinator,
         });
@@ -2652,7 +2648,7 @@ export async function createHerdrSessionSource(
             return invocation;
         },
 
-        async pluginStream({ deviceId, pluginId, manifestHash, contributionId, channel, sessionId }): Promise<null> {
+        async pluginStream({ deviceId, pluginId, manifestHash, contributionId, channel, sessionId, transport }): Promise<null> {
             await refreshPlugins();
             if (!pluginApprovals.has(deviceId, pluginId)) throw new Error('plugin is not approved for this device');
             if (pluginStreams === undefined) throw new Error('plugin stream transport is unavailable');
@@ -2696,6 +2692,7 @@ export async function createHerdrSessionSource(
                     }),
                     ...(publicContext === undefined ? {} : { publicContext }),
                     deviceId,
+                    transport,
                     signal: approval.signal,
                     onClosed: approval.release,
                 });

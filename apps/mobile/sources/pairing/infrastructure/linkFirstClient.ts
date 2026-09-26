@@ -31,6 +31,7 @@ export type SessionClient = {
     unregisterPush(): Promise<boolean>;
     terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
     voiceStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
+    pluginStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
 };
 
 export type ByteStreamTransport = {
@@ -250,7 +251,7 @@ export class LinkFirstClient implements SessionClient {
         this.desktopTransport = undefined;
     }
 
-    private async openByteStream(name: 'terminal' | 'voice', args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+    private async openByteStream(name: 'terminal' | 'voice' | 'plugin', args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
         if (!this.online || this.link === undefined || this.closed) return undefined;
         const stream = await this.link.stream(name, args);
         let ended = false;
@@ -290,6 +291,10 @@ export class LinkFirstClient implements SessionClient {
 
     voiceStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
         return this.openByteStream('voice', args);
+    }
+
+    pluginStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
+        return this.openByteStream('plugin', args);
     }
 
     terminalStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {

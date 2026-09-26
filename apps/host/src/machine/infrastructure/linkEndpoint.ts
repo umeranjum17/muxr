@@ -31,6 +31,7 @@ export interface LinkEndpointOptions {
     /** Given, a control or observing device may carry a terminal pane over a link stream. */
     terminals?: LinkTerminalPort;
     voiceStreams?: { attach(params: { deviceId: string; channel: string; sessionId?: string; stream: LinkStream }): Promise<void> };
+    pluginStreams?: { attach(params: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string; stream: LinkStream }): Promise<void> };
     onStatus?: (status: string) => void;
     onDesktopConnection?: (connectionId: string, active: boolean) => void;
     onDeviceConnection?: (deviceId: string, active: boolean) => void;
@@ -221,6 +222,7 @@ export class LinkEndpoint {
         const host = await Host.open({
             stream: (stream: LinkStream, req: LinkRequest, grant: Grant) => {
                 if (req.op === 'voice') return streamVoice(stream, req, grant, options);
+                if (req.op === 'plugin') return streamPlugin(stream, req, grant, options);
                 if (req.op === 'terminal') return streamTerminal(stream, req, grant, options);
                 if (req.op === 'desktop') return streamDesktop(stream, req, grant, options);
                 throw new PublicLinkError('unsupported link stream');
@@ -235,6 +237,7 @@ export class LinkEndpoint {
                 if (!trusted(grant, options.currentCrypto())) return false;
                 if (req.op === 'terminal' || req.op === 'desktop') return true;
                 if (req.op === 'voice') return grant.role === 'control' && options.voiceStreams !== undefined;
+                if (req.op === 'plugin') return grant.role === 'control' && options.pluginStreams !== undefined;
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op || frame.type.startsWith('desktop.')) return false;
                 return frame.type.startsWith('push.') || grant.role === 'control' || options.canView(frame);
@@ -499,6 +502,28 @@ async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant,
  * (ok with the pane, or the attach error with its code, e.g. `takeover`), then
  * herdr's NDJSON flows both ways until the stream ends.
  */
+async function streamPlugin(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
+    if (!trusted(grant, options.currentCrypto()) || grant.role !== 'control' || options.pluginStreams === undefined) {
+        throw new PublicLinkError('plugin: device is no longer trusted');
+    }
+    const args = req.args as Record<string, unknown> | null;
+    if (args === null || typeof args !== 'object'
+        || typeof args.channel !== 'string' || !/^rs_[A-Za-z0-9_-]{8,80}$/.test(args.channel)
+        || !['pluginId', 'manifestHash', 'contributionId'].every((key) => typeof args[key] === 'string' && (args[key] as string).length > 0 && (args[key] as string).length <= 200)
+        || (args.sessionId !== undefined && (typeof args.sessionId !== 'string' || args.sessionId.length === 0 || args.sessionId.length > 200))) {
+        throw new PublicLinkError('plugin: malformed stream');
+    }
+    await options.pluginStreams.attach({
+        deviceId: muxrDeviceIdOf(grant)!,
+        pluginId: args.pluginId as string,
+        manifestHash: args.manifestHash as string,
+        contributionId: args.contributionId as string,
+        channel: args.channel,
+        ...(typeof args.sessionId === 'string' ? { sessionId: args.sessionId } : {}),
+        stream,
+    });
+}
+
 async function streamVoice(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
     const args = req.args as { channel?: unknown; sessionId?: unknown } | null;
     if (!trusted(grant, options.currentCrypto())) throw new PublicLinkError('voice: device is no longer trusted');

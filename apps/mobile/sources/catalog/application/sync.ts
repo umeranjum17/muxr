@@ -821,6 +821,10 @@ class MuxrSync {
         return this.client?.voiceStream?.(args);
     }
 
+    openPluginStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> | undefined {
+        return this.client?.pluginStream?.(args);
+    }
+
     async request<T extends import('@muxr/contract').RequestType>(
         type: T,
         params: import('@muxr/contract').RequestParams<T>,

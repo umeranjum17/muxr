@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, expect, it } from 'vitest';
-import { WebSocketServer, type WebSocket } from 'ws';
 import { PluginStreamManager } from './pluginStreamManager.js';
 
 /**
@@ -31,40 +30,34 @@ process.stdin.once('data', () => {
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-it('delivers a bursty provider reply completely and in order through a slow relay socket', async () => {
+it('delivers a bursty provider reply completely and in order through a slow link stream', async () => {
     const received: string[] = [];
     let closedReason: string | undefined;
     let done: () => void;
     const finished = new Promise<void>((resolve) => { done = resolve; });
 
-    const server = new WebSocketServer({ port: 0 });
-    server.on('connection', (socket: WebSocket) => {
-        // A phone on a weak downlink: stop reading for a while so the host's
-        // socket backpressure builds past the old 512 KiB drop threshold.
-        socket.pause();
-        setTimeout(() => socket.resume(), 500);
-        socket.on('message', (data) => {
-            const frame = JSON.parse(String(data)) as { type: string; data?: string; reason?: string };
-            if (frame.type === 'realtime.audio') received.push(frame.data ?? '');
-            if (frame.type === 'realtime.closed') {
-                closedReason = frame.reason;
-                done();
+    const manager = new PluginStreamManager({});
+    const transport = {
+        onData: (_chunk: Uint8Array) => {},
+        onEnd: (_error?: string) => {},
+        write: async (chunk: string | Uint8Array) => {
+            // A weak downlink lets the host's write buffer exceed 512 KiB.
+            await new Promise((resolve) => setTimeout(resolve, 5));
+            for (const line of String(chunk).split('\n').filter(Boolean)) {
+                const frame = JSON.parse(line) as { type: string; data?: string; reason?: string };
+                if (frame.type === 'realtime.audio') received.push(frame.data ?? '');
+                if (frame.type === 'realtime.closed') { closedReason = frame.reason; done(); }
             }
-        });
-    });
-    await new Promise<void>((resolve) => server.on('listening', resolve));
-    const { port } = server.address() as { port: number };
-
-    const manager = new PluginStreamManager({
-        relayUrl: `ws://127.0.0.1:${port}`,
-        machineId: 'machine-test',
-    });
+        },
+        end: () => {},
+    };
     await manager.attach({
         target: { pluginId: 'voice-test', pluginRoot: root, entry: 'plugin.mjs' },
         channel: 'rs_burst_test',
         stateDir: join(root, 'state'),
         signal: new AbortController().signal,
         onClosed: () => undefined,
+        transport,
     });
 
     await Promise.race([
@@ -72,7 +65,6 @@ it('delivers a bursty provider reply completely and in order through a slow rela
         new Promise((_, reject) => setTimeout(() => reject(new Error(`timed out with ${received.length}/${FRAME_COUNT} frames`)), 15_000)),
     ]);
     manager.closeAll();
-    server.close();
 
     expect(closedReason).toContain('burst done');
     expect(closedReason).toContain('[credential redacted]');

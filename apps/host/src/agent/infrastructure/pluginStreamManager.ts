@@ -10,29 +10,24 @@
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import WebSocket from 'ws';
 import { EventEmitter } from 'node:events';
 import {
     encodeRealtimeFrame,
     MAX_REALTIME_CLOSE_REASON_BYTES,
-    issueWsTicket,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,
     realtimePluginPublicContext,
-    realtimeSocketUrl,
-    ticketSocketUrl,
-    type Envelope,
     type RealtimePluginOpenFrame,
     type RealtimePluginPublicContext,
     type RealtimeHostFrame,
 } from '@muxr/contract';
-import { v2EnvelopeSequence } from '@muxr/crypto';
-import { HostV2Crypto, type HostedMachineKeys, ticketWsCredential } from '../../machine/index.js';
 import type { PeerBroker } from '../../peer/index.js';
 import type { RealtimeCodingCoordinator, RealtimeCoordinatorAccess } from './realtimeCoordinator.js';
 import type { VoiceStreamTransport } from '../application/sessionSource.js';
 
-const ATTACH_TIMEOUT_MS = 10_000;
+const OPEN = 1;
+const CLOSING = 2;
+const CLOSED = 3;
 const STREAM_IDLE_TIMEOUT_MS = 10 * 60_000;
 const MAX_STREAM_LINE_BYTES = 128 * 1024;
 const KILL_GRACE_MS = 2_000;
@@ -70,19 +65,17 @@ export interface PluginStreamTarget {
 }
 
 interface StreamOptions {
-    relayUrl: string;
-    machineId: string;
-    token?: string;
-    hostedE2ee?: HostedMachineKeys;
     peerBroker?: PeerBroker;
     codingCoordinator?: RealtimeCodingCoordinator;
 }
 
 class LinkStreamSocket extends EventEmitter {
-    readyState: number = WebSocket.OPEN;
+    readyState = OPEN;
     bufferedAmount = 0;
     private readonly decoder = new TextDecoder();
     private buffer = '';
+    private readonly early: Buffer[] = [];
+    private earlyBytes = 0;
     private paused = false;
     private resumeWaiter: (() => void) | undefined;
 
@@ -93,15 +86,26 @@ class LinkStreamSocket extends EventEmitter {
             const lines = this.buffer.split('\n');
             this.buffer = lines.pop() ?? '';
             for (const line of lines) {
-                this.emit('message', Buffer.from(line));
+                const frame = Buffer.from(line);
+                if (this.listenerCount('message') === 0) {
+                    this.earlyBytes += frame.length;
+                    if (this.earlyBytes > 16 * 1024 * 1024) { this.close(); return; }
+                    this.early.push(frame);
+                } else this.emit('message', frame);
                 if (this.paused) await new Promise<void>((resolve) => { this.resumeWaiter = resolve; });
             }
         };
         stream.onEnd = () => {
             this.resume();
-            this.readyState = WebSocket.CLOSED;
+            this.readyState = CLOSED;
             this.emit('close');
         };
+    }
+
+    flushEarly(): void {
+        for (const frame of this.early.splice(0)) this.emit('message', frame);
+        this.earlyBytes = 0;
+        if (this.readyState === CLOSED) this.emit('close');
     }
 
     send(data: string, callback?: (error?: Error) => void): void {
@@ -117,8 +121,8 @@ class LinkStreamSocket extends EventEmitter {
     }
 
     close(): void {
-        if (this.readyState !== WebSocket.OPEN) return;
-        this.readyState = WebSocket.CLOSING;
+        if (this.readyState !== OPEN) return;
+        this.readyState = CLOSING;
         this.stream.end();
     }
 
@@ -135,7 +139,7 @@ interface Attachment {
     sessionId?: string;
     deviceId?: string;
     process: ChildProcess;
-    socket: WebSocket;
+    socket: LinkStreamSocket;
     idleTimer: NodeJS.Timeout;
     close: (reason?: string) => void;
     onClosed: () => void;
@@ -144,11 +148,7 @@ interface Attachment {
 export class PluginStreamManager {
     private readonly attachments = new Map<string, Attachment>();
     private readonly attachingByDevice = new Map<string, number>();
-    private readonly hosted: HostV2Crypto | undefined;
-
-    constructor(private readonly options: StreamOptions) {
-        this.hosted = options.hostedE2ee === undefined ? undefined : new HostV2Crypto(options.hostedE2ee);
-    }
+    constructor(private readonly options: StreamOptions) {}
 
     async attach(params: {
         target: PluginStreamTarget;
@@ -161,11 +161,8 @@ export class PluginStreamManager {
         deviceId?: string;
         signal: AbortSignal;
         onClosed: () => void;
-        transport?: VoiceStreamTransport;
+        transport: VoiceStreamTransport;
     }): Promise<void> {
-        if (this.hosted !== undefined && (params.deviceId === undefined || this.options.hostedE2ee?.ingressKeys[params.deviceId] === undefined)) {
-            throw new Error('plugin stream: hosted attach requires an active device grant');
-        }
         if (params.signal.aborted) throw new Error('plugin stream revoked');
         const deviceKey = params.deviceId ?? 'local';
         const activeForDevice = [...this.attachments.values()].filter((entry) => (entry.deviceId ?? 'local') === deviceKey).length;
@@ -175,39 +172,7 @@ export class PluginStreamManager {
         try {
         mkdirSync(params.stateDir, { recursive: true, mode: 0o700 });
 
-        let socket: WebSocket;
-        if (params.transport !== undefined) {
-            socket = new LinkStreamSocket(params.transport) as unknown as WebSocket;
-        } else {
-            const credential = ticketWsCredential(this.options.token);
-            let socketUrl: string;
-            if (credential === undefined) {
-                socketUrl = realtimeSocketUrl(this.options.relayUrl, {
-                    machineId: this.options.machineId,
-                    channel: params.channel,
-                    role: 'machine',
-                    ...(this.options.token === undefined ? {} : { token: this.options.token }),
-                });
-            } else {
-                socketUrl = ticketSocketUrl(this.options.relayUrl, await issueWsTicket({
-                    relayUrl: this.options.relayUrl,
-                    credential,
-                    machineId: this.options.machineId,
-                    role: 'machine',
-                    transport: 'stream',
-                    channel: params.channel,
-                }), 'stream');
-            }
-            socket = new WebSocket(socketUrl);
-        }
-        if (params.transport === undefined) await new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(() => {
-                socket.close();
-                reject(new Error('plugin stream: relay did not accept the channel'));
-            }, ATTACH_TIMEOUT_MS);
-            socket.once('open', () => { clearTimeout(timer); resolve(); });
-            socket.once('error', (error) => { clearTimeout(timer); reject(error); });
-        });
+        const socket = new LinkStreamSocket(params.transport);
         if (params.signal.aborted) {
             socket.close();
             throw new Error('plugin stream revoked');
@@ -282,7 +247,7 @@ export class PluginStreamManager {
         };
         const resumeSocketInput = (): void => {
             socketPaused = false;
-            if (!finished && socket.readyState === WebSocket.OPEN) socket.resume();
+            if (!finished && socket.readyState === OPEN) socket.resume();
         };
         const signalProcess = (signal: NodeJS.Signals): void => {
             try {
@@ -292,28 +257,8 @@ export class PluginStreamManager {
             } catch { /* already gone */ }
         };
         const send = (frame: RealtimeHostFrame): boolean => {
-            if (socket.readyState !== WebSocket.OPEN) return false;
-            const line = encodeRealtimeFrame(frame);
-            const data = this.hosted === undefined
-                ? line
-                : (() => {
-                    const payload = this.hosted.seal('stream', params.channel, line);
-                    const envelope: Envelope = {
-                        header: {
-                            machineId: this.options.machineId,
-                            senderId: this.options.machineId,
-                            recipientId: '*',
-                            channel: 'stream',
-                            streamId: params.channel,
-                            keyVersion: this.options.hostedE2ee!.keyVersion,
-                            seq: v2EnvelopeSequence(payload),
-                            at: Date.now(),
-                        },
-                        payload,
-                    };
-                    return JSON.stringify(envelope);
-                })();
-            socket.send(data, (error) => {
+            if (socket.readyState !== OPEN) return false;
+            socket.send(encodeRealtimeFrame(frame), (error) => {
                 if (error) attachment.close('plugin stream disconnected');
                 else resumeStdoutIfDrained();
             });
@@ -329,14 +274,11 @@ export class PluginStreamManager {
             child.stdin.off('drain', resumeSocketInput);
             clearTimeout(attachment.idleTimer);
             params.signal.removeEventListener('abort', onAbort);
-            if (reason !== undefined && socket.readyState === WebSocket.OPEN) {
+            if (reason !== undefined && socket.readyState === OPEN) {
                 try { send({ type: 'realtime.closed', reason }); } catch { /* best effort */ }
             }
-            if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
+            if (socket.readyState === OPEN || socket.readyState === CLOSING) socket.close();
             if (this.attachments.get(params.channel) === attachment) this.attachments.delete(params.channel);
-            if (this.hosted !== undefined && params.deviceId !== undefined) {
-                this.hosted.releaseReplay(params.deviceId, 'stream', params.channel);
-            }
             if (peerAccess !== undefined) this.options.peerBroker?.revokeCapability(peerAccess.capability);
             if (codingAccess !== undefined) this.options.codingCoordinator?.revokeCapability(codingAccess.capability);
             attachment.onClosed();
@@ -442,24 +384,10 @@ export class PluginStreamManager {
             } else finishChild();
         });
 
-        socket.on('message', (data: WebSocket.RawData) => {
+        socket.on('message', (data: Buffer) => {
             if (finished || this.attachments.get(params.channel) !== attachment || child.exitCode !== null) return;
             try {
-                let text = String(data);
-                if (this.hosted !== undefined) {
-                    const envelope = JSON.parse(text) as Envelope;
-                    if (envelope.header.machineId !== this.options.machineId
-                        || envelope.header.senderId !== params.deviceId
-                        || envelope.header.recipientId !== this.options.machineId
-                        || envelope.header.channel !== 'stream'
-                        || envelope.header.streamId !== params.channel
-                        || envelope.header.keyVersion !== this.options.hostedE2ee?.keyVersion
-                        || envelope.header.seq !== v2EnvelopeSequence(envelope.payload)) {
-                        throw new Error('invalid hosted routing context');
-                    }
-                    text = this.hosted.open(params.deviceId!, 'stream', params.channel, envelope.payload);
-                }
-                const frame = parseRealtimeClientFrame(JSON.parse(text));
+                const frame = parseRealtimeClientFrame(JSON.parse(String(data)));
                 if (!child.stdin.write(`${JSON.stringify(frame)}\n`) && !socketPaused) {
                     socketPaused = true;
                     socket.pause();
@@ -472,6 +400,8 @@ export class PluginStreamManager {
         });
         socket.on('close', () => attachment.close());
         socket.on('error', () => attachment.close());
+        socket.flushEarly();
+        if (finished) throw new Error('plugin stream disconnected before attach');
 
         try {
             const open: RealtimePluginOpenFrame = {

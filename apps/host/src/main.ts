@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync, type StatWatcher } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { createDeviceGrant } from '@muxr/crypto';
-import type { Grant } from '@byokit/link';
+import type { Grant, LinkStream } from '@byokit/link';
 import { isPeerCapabilities, parseLifecycleNotificationLevel, relayControlUrl } from '@muxr/contract';
 import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -17,6 +17,15 @@ import { muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.
 import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
 
 const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+
+function linkStreamTransport(stream: LinkStream): VoiceStreamTransport {
+    return {
+        set onData(listener: VoiceStreamTransport['onData']) { stream.onData = listener; },
+        set onEnd(listener: VoiceStreamTransport['onEnd']) { stream.onEnd = listener; },
+        write: (chunk) => stream.write(chunk),
+        end: (error) => stream.end(error),
+    };
+}
 function env(name: string): string | undefined {
     return process.env[name]?.trim() || undefined;
 }
@@ -774,13 +783,12 @@ async function main(): Promise<void> {
                         terminals,
                         voiceStreams: {
                             attach: async ({ deviceId, channel, sessionId, stream }) => {
-                                const transport: VoiceStreamTransport = {
-                                    set onData(listener: VoiceStreamTransport['onData']) { stream.onData = listener; },
-                                    set onEnd(listener: VoiceStreamTransport['onEnd']) { stream.onEnd = listener; },
-                                    write: (chunk) => stream.write(chunk),
-                                    end: (error) => stream.end(error),
-                                };
-                                await source.voiceStream({ deviceId, channel, ...(sessionId === undefined ? {} : { sessionId }), transport });
+                                await source.voiceStream({ deviceId, channel, ...(sessionId === undefined ? {} : { sessionId }), transport: linkStreamTransport(stream) });
+                            },
+                        },
+                        pluginStreams: {
+                            attach: async ({ stream, ...params }) => {
+                                await source.pluginStream({ ...params, transport: linkStreamTransport(stream) });
                             },
                         },
                         onDesktopConnection: host.setLinkDesktopConnection,

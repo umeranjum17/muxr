@@ -123,7 +123,7 @@ export interface SessionSource {
     pluginCall(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; input?: unknown; idempotencyKey?: string }): Promise<unknown>;
     /** Declared RPC mode for a catalog contribution, so read-only devices can be allowed through read paths only. */
     pluginRpcMode?(options: { pluginId: string; manifestHash: string; contributionId: string }): 'read' | 'write' | undefined;
-    pluginStream(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string }): Promise<null>;
+    pluginStream(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string; transport: VoiceStreamTransport }): Promise<null>;
     /**
      * Attach one product-owned realtime voice stream over its pre-opened
      * duplex transport. It uses muxr's own adapter runtime: no catalog entry,

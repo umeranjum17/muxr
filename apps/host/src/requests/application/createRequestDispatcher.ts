@@ -404,7 +404,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     return fromUseCase(request.requestId, await runPluginAction(source, { action: 'invoke', deviceId, ...request.params }));
                 }
                 if (request.type === 'plugin.stream') {
-                    return fromUseCase(request.requestId, await runPluginAction(source, { action: 'stream', deviceId, ...request.params }));
+                    return fail(request.requestId, 'plugin stream requires a link stream');
                 }
                 return fromUseCase(request.requestId, await runPluginAction(source, { action: 'call', deviceId, ...request.params }));
             } catch (error) {
