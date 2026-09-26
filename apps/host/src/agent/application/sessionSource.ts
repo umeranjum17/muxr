@@ -165,7 +165,7 @@ export interface SessionSource {
         tabId: string;
         started: number;
     }>;
-    paneFocus(sessionId: string): Promise<void>;
+    paneFocus(sessionId: string, assertActive?: () => void): Promise<void>;
     /** Focus the adjacent pane in a grid direction, from this session's pane. */
     focusNeighbor(sessionId: string, direction: 'left' | 'right' | 'up' | 'down'): Promise<void>;
     /** Focus the adjacent tab in this session's workspace, from this session's tab. */

@@ -2195,8 +2195,9 @@ export async function createHerdrSessionSource(
         }
     }
 
-    async function focusSession(sessionId: string): Promise<void> {
+    async function focusSession(sessionId: string, assertActive?: () => void): Promise<void> {
         const record = await resolvePane(sessionId);
+        assertActive?.();
         await client.call('pane.focus', { pane_id: record.paneId });
     }
 
@@ -3128,8 +3129,8 @@ export async function createHerdrSessionSource(
             return { tabId, started };
         },
 
-        async paneFocus(sessionId: string): Promise<void> {
-            await focusSession(sessionId);
+        async paneFocus(sessionId: string, assertActive?: () => void): Promise<void> {
+            await focusSession(sessionId, assertActive);
         },
 
         async focusNeighbor(sessionId: string, direction: 'left' | 'right' | 'up' | 'down'): Promise<void> {

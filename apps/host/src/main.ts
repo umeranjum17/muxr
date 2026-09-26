@@ -696,7 +696,7 @@ async function main(): Promise<void> {
             }
             return snapshot.info.paneId;
         },
-        focusSession: (sessionId) => source.paneFocus(sessionId),
+        focusSession: (sessionId, assertActive) => source.paneFocus(sessionId, assertActive),
         readPaneScroll: (paneId) => source.paneScroll(paneId),
         ...(token === undefined ? {} : { token }),
         ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
