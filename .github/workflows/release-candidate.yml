@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_commit:
-        description: Exact 40-character main commit tested by the captain
+        description: Exact 40-character release-branch commit tested by the captain
         required: true
         type: string
       channel:
@@ -26,7 +26,7 @@ permissions:
 
 jobs:
   select:
-    if: github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/heads/release/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -50,22 +50,25 @@ jobs:
           REQUESTED_VERSION: ${{ inputs.version }}
           REQUESTED_SOURCE_COMMIT: ${{ inputs.source_commit }}
         run: |
-          test "$GITHUB_REF" = refs/heads/main
+          # A candidate is built from a release branch, never from main: the
+          # branch name carries the release version, so main stays the
+          # integration stream and a feature branch never ships mid-flight.
+          [[ "$GITHUB_REF" =~ ^refs/heads/release/([0-9]+\.[0-9]+\.[0-9]+)$ ]]
+          export BRANCH_VERSION="${BASH_REMATCH[1]}"
           [[ "$REQUESTED_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
           test "$REQUESTED_SOURCE_COMMIT" = "$GITHUB_SHA"
           node --input-type=module <<'JS'
-          import { appendFileSync, readFileSync } from 'node:fs';
+          import { appendFileSync } from 'node:fs';
           import { compareVersions, distribution } from './scripts/release/domain/channel.mjs';
           import { CATALOG_BRANCH, parseCatalog } from './scripts/release/domain/channelCatalog.mjs';
           import { readCatalogBranch } from './scripts/release/infrastructure/catalogBranch.mjs';
+          const branch = process.env.BRANCH_VERSION;
           const channel = process.env.REQUESTED_CHANNEL;
           const requested = process.env.REQUESTED_VERSION;
           if (!requested && channel === 'stable') throw new Error('A final stable candidate needs an explicit version');
-          const nextPatch = (value) => {
-            const parts = value.split('-')[0].split('.').map(Number);
-            parts[2] += 1;
-            return parts.join('.');
-          };
+          // The release branch release/<semver> names the version it ships: an
+          // explicitly requested version must carry that base.
+          if (requested && requested.split('-')[0] !== branch) throw new Error(`requested version ${requested} does not match release branch release/${branch}`);
           let version = requested;
           // Stable is chosen from its explicit input alone. Only a nightly has
           // to know what stable currently is, so only a nightly reads the
@@ -82,13 +85,9 @@ jobs:
             // A version picked without knowing stable can sort under it, and an
             // empty or missing catalog is exactly that unknown state.
             if (stable === undefined) throw new Error('the published channels carry no stable release to sort a nightly above');
-            // The automatic base is the later of this checkout's next patch and
-            // the published stable's next patch, so a nightly never sorts under
-            // a stable promoted while the root manifest stayed behind.
-            const rootBase = nextPatch(JSON.parse(readFileSync('package.json')).version);
-            const floor = nextPatch(stable);
-            const base = compareVersions(rootBase, floor) >= 0 ? rootBase : floor;
-            version = requested || `${base}-${channel}.${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT}`;
+            // The branch names the nightly base, and the sort check keeps it
+            // above whatever stable was published meanwhile.
+            version = requested || `${branch}-${channel}.${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT}`;
             if (compareVersions(version, stable) <= 0) throw new Error(`${version} does not sort above the published stable ${stable}`);
           }
           const selected = distribution(version, channel);

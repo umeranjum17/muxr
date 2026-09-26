@@ -1,12 +1,14 @@
 # Release channels
 
-`main` is the development stream. Merging a PR or pushing to `main` does **not** start CI, build, or publication workflows. Captain-tested commits merge frequently; a candidate freezes one exact `main` commit while development continues. The repository workflows below are manual dispatches unless noted otherwise.
+`main` is the development stream. Merging a PR or pushing to `main` does **not** start CI, build, or publication workflows. Captain-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: candidate, publication and Android delivery workflows require `release/<semver>`; the branch-cut workflow starts from `main`. Candidate and Android versions must match the branch. The repository workflows below are manual dispatches unless noted otherwise.
 
 ```mermaid
 flowchart LR
  PR[Reviewed PR + local acceptance] --> MAIN[main; no automatic Actions]
  MAIN --> TEST[Captain tests exact main commit]
- TEST --> CANDIDATE[Manual release-candidate dispatch]
+ TEST --> CUT[Manual cut-release-branch dispatch]
+ CUT --> BRANCH["release/<version>; fixes cherry-picked from main"]
+ BRANCH --> CANDIDATE[Manual release-candidate dispatch from the branch]
  CANDIDATE --> PHONE[Install APK and test on phone]
  PHONE --> FINAL[Build final-version candidate]
  FINAL --> APPROVE[Explicit maintainer production approval]
@@ -37,23 +39,30 @@ node scripts/release/presentation/changelog.mjs check    --version 0.1.27-nightl
 ### Manual dispatch sequence
 
 1. Test the desired `main` commit locally (`yarn run check`) and record `MAIN_SHA=$(git rev-parse HEAD)`.
-2. Dispatch the candidate from `main`, supplying that exact SHA:
+2. Cut the release branch manually; fixes land on `main` first and are cherry-picked onto the branch afterwards:
 
    ```bash
-   gh workflow run release-candidate.yml --ref main \
-     -f source_commit="$MAIN_SHA" -f channel=nightly -f version=
+   gh workflow run cut-release-branch.yml --ref main -f version="0.2.1" -f source_commit="$MAIN_SHA"
    ```
 
-3. After the candidate is accepted, copy its run ID and dispatch publication manually. Use `publish-VERSION` for a nightly; use `promote-VERSION` for a stable, which still waits for the protected production approval:
+3. Test the branch head locally and dispatch the candidate from it, supplying that exact SHA and the version the branch names:
 
    ```bash
-   gh workflow run publish.yml --ref main \
+   BRANCH_SHA=$(git rev-parse HEAD) # from the checked-out release branch
+   gh workflow run release-candidate.yml --ref release/0.2.1 \
+     -f source_commit="$BRANCH_SHA" -f channel=nightly -f version=
+   ```
+
+4. After the candidate is accepted, copy its run ID and dispatch publication manually from the same branch. Use `publish-VERSION` for a nightly; use `promote-VERSION` for a stable, which still waits for the protected production approval:
+
+   ```bash
+   gh workflow run publish.yml --ref release/0.2.1 \
      -f run_id="$CANDIDATE_RUN_ID" -f confirmation="publish-$VERSION"
    ```
 
-   For a stable candidate, replace the channel/version in step 2 and use `confirmation="promote-$VERSION"` in step 3. Do not dispatch publication before captain acceptance. `ci.yml` is likewise available only by manual dispatch; it is not a release prerequisite.
+   For a stable candidate, replace the channel/version in step 3 and use `confirmation="promote-$VERSION"` in step 4. Do not dispatch publication before captain acceptance. `ci.yml` is likewise available only by manual dispatch; it is not a release prerequisite. After this merges, cherry-picking only the workflow commit(s) onto the existing `release/0.2.0` branch is authorized so it can run the new flow; the `v0.2.0` tag stays at `fa0b780c`.
 
-An automatic nightly version is always chosen above the published stable: its base is the later of this checkout's next patch and the published stable's next patch. That matters because promoting a stable does not edit the repository's `package.json`, so without the floor a later nightly would keep the same base and sort *below* the stable it followed — leaving stable users unable to move to nightly without `--allow-downgrade`. An explicit nightly version that does not sort above the published stable is rejected, and a candidate whose published-channel state cannot be read fails rather than guessing a version that might sort too low. Manual stable selection is unaffected.
+An automatic nightly version takes its base from the release branch name (`release/0.2.1` builds `0.2.1-nightly.N.M`), and is still rejected unless it sorts above the published stable, so a nightly can never sort under a stable promoted meanwhile. An explicit nightly or stable version whose base does not match the branch name is rejected, and a candidate whose published-channel state cannot be read fails rather than guessing a version that might sort too low.
 
 Every successful candidate attaches a signed ARM64 APK/AAB, npm tarball, compiled Android manifest, signer fingerprint and SHA256 release manifest to `v<VERSION>`. The source commit is shared by both products. GitHub Actions keeps the build artifacts for 90 days; the release assets remain available. Failed runs keep their logs and leave existing releases/channel pointers alone. GitHub runs builds and normal checks; emulator testing stays local.
 
@@ -115,9 +124,11 @@ Release titles are `muxr <version>`. PR and build provenance belongs in the note
 
 1. Select the accepted source. Build a **stable** candidate with its final version. A nightly npm tarball cannot be renamed into a stable version: this is a new package, and its exact installed artifact must pass checks before promotion. Preserve the nightly evidence and compare source/native bytes. Repeat local emulator/phone checks when relevant bytes change.
 2. Run **publish release** with that successful candidate run ID and `confirmation=promote-VERSION`. The protected `production` environment requires maintainer approval. It downloads and verifies the retained tarball; it does not rebuild. An already published version must have exactly the same registry integrity. Automatic completion of a stable candidate never enters this promotion path.
-3. For Android, run **mobile Android internal** with `candidate_run_id`, the matching app version/build number, `submit_to_play=true`, and `confirmation=release-VERSION-BUILD`. It verifies and uploads the candidate's AAB unchanged. Keep the resulting Internal run ID.
-4. Run **mobile closed testing**, then **mobile Android production promotion**, with that Internal run ID, exact source commit, version and build number. Main may have advanced; the selected artifact's source and digest remain binding. Production remains protected and rollout is explicit. No Play upload/promotion is implied by a GitHub nightly download.
+3. For Android, run **mobile Android internal** from the release branch with `candidate_run_id`, the matching app version/build number, `submit_to_play=true`, and `confirmation=release-VERSION-BUILD`. It verifies and uploads the candidate's AAB unchanged. Keep the resulting Internal run ID.
+4. Run **mobile closed testing**, then **mobile Android production promotion**, from the release branch with that Internal run ID, exact source commit, version and build number. Main may have advanced; the selected artifact's source and digest remain binding. Production remains protected and rollout is explicit. No Play upload/promotion is implied by a GitHub nightly download.
 5. Mark the GitHub candidate release stable only after the chosen platform promotions succeed. Record each platform separately. Keep previous releases and evidence; halt rollout/advance to a higher mobile build for regressions. Do not rebuild under an existing version/tag or overwrite release assets.
+
+iOS App Store builds are produced on the captain's Mac from the release branch, with no paid cloud build; `mobile-ios-internal.yml` remains a disabled stub. The site lives in `muxr-cloud`; its content lock points at a pockit commit and should point at the release branch's commit for the release.
 
 The `npm` environment is the npm OIDC identity. It allows the main workflow; the separate `production` environment gates stable publication. npm trusted publishing must name this repository, `publish.yml`, and environment `npm`. No npm token is stored in the repository. A trusted-publisher failure leaves the downloadable tarball/APK intact and does not claim registry success.
 
@@ -125,4 +136,4 @@ The `npm` environment is the npm OIDC identity. It allows the main workflow; the
 
 Link the exact local gate report and phone observations in the PR/release. A successful build is not proof of microphone audio, live browser paint or a historical crash fix. Record known limitations explicitly. Current terminal polish includes tested deliberate keyboard behavior and route continuity; transient blank frames around explicit IME resize remain a known limitation.
 
-Use a unique watched evidence directory for every local run. Keep failed runs alongside successful reruns. iOS delivery and OTA remain disabled pending their own native/signing/runtime validation. A separate iOS development app and fully isolated parallel CLI hosts are future work, not claims made by this first Android/npm channel rollout.
+Use a unique watched evidence directory for every local run. Keep failed runs alongside successful reruns. The GitHub iOS delivery workflow and OTA remain disabled pending their own native/signing/runtime validation. A separate iOS development app and fully isolated parallel CLI hosts are future work, not claims made by this first Android/npm channel rollout.

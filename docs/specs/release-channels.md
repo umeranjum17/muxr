@@ -169,7 +169,7 @@ The user approved implementation on 2026-09-05. Implementation is isolated in fe
 
 ## Implementation scope for the first rollout
 
-The executable runbook is [RELEASING.md](../RELEASING.md). Main is the development stream; beta candidates freeze a green commit without requiring a permanent beta branch. Android uses a compiled Gradle development configuration while preserving existing Release task paths. An optional separate beta identity, parallel isolated host launcher and iOS variants remain future work; beta intentionally updates the current direct-install Android app. The nightly dev app uses manual self-host pairing rather than assuming a deployed sandbox. This trial promotes nothing to production.
+The executable branch and candidate runbook is [RELEASING.md](../RELEASING.md). Android uses a compiled Gradle development configuration while preserving existing Release task paths. An optional separate beta identity, parallel isolated host launcher and iOS variants remain future work; beta intentionally updates the current direct-install Android app. The nightly dev app uses manual self-host pairing rather than assuming a deployed sandbox. This trial promotes nothing to production.
 
 ## Implementation verification
 
