@@ -41,6 +41,7 @@ import {
     DIALOG_GUARD_ACTION,
     DIALOG_GUARD_MESSAGE,
     DIALOG_GUARD_TITLE,
+    terminalComposerText,
     terminalInputDisposition,
     terminalPaneCanSend,
     terminalPaneStatus,
@@ -60,7 +61,6 @@ import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingHandle, type RingSlot } from './FloatingTerminalControls';
 import { assembleRing } from './ringSlots';
-import { composerKeyboardProps } from './composerKeyboardProps';
 import { TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { ARROW_CLUSTER, BUILTIN_KEY_CATALOG, DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
@@ -923,7 +923,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         // A booting agent is not a refusal: the host holds the prompt until it
         // can accept it, so let the composer stay live and let the host answer.
         if (attaching || selectedImages.length > 0 || dictationActive) return;
-        const text = [draftRef.current.trim(), ...attachedPaths].filter((part) => part !== '').join(' ');
+        const text = terminalComposerText(draftRef.current, attachedPaths, typing !== undefined);
         if (text === '') return;
         if (typing !== undefined) {
             draftRef.current = '';
@@ -1199,9 +1199,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 blurOnSubmit
                 submitBehavior="blurAndSubmit"
                 multiline
-                // A shell's commands must arrive exactly as typed; an agent
-                // pane keeps the keyboard's prose helpers.
-                {...composerKeyboardProps(shell)}
+                autoCapitalize={currentPane?.agentKind === undefined ? 'none' : undefined}
+                autoCorrect={currentPane?.agentKind === undefined ? false : undefined}
+                spellCheck={currentPane?.agentKind === undefined ? false : undefined}
+                smartInsertDelete={currentPane?.agentKind === undefined ? false : undefined}
                 // Web renders multiline as a textarea and defaults it to two
                 // rows: the rail stood 12dp taller than its own minimum and the
                 // placeholder sat a line above the controls beside it. Native

@@ -104,3 +104,8 @@ export function terminalPaneCanSend(pane: HerdrTreePane | undefined, hasContent:
     if (pane === undefined || !hasContent) return false;
     return pane.agentKind !== undefined || canType;
 }
+
+export function terminalComposerText(draft: string, attachedPaths: string[], isShell: boolean): string {
+    const content = draft.trim() === '' ? '' : isShell ? draft : draft.trim();
+    return [content, ...attachedPaths].filter((part) => part !== '').join(' ');
+}

@@ -4,10 +4,19 @@ import {
     DIALOG_GUARD_MESSAGE,
     DIALOG_GUARD_TITLE,
     pendingChoices,
+    terminalComposerText,
     terminalInputDisposition,
 } from './promptAvailability';
 
 describe('terminal prompt guard', () => {
+    it('sends a shell draft with its trailing space intact but trims agent prompts', () => {
+        expect(terminalComposerText('echo iosqa\\ ', [], true)).toBe('echo iosqa\\ ');
+        expect(terminalComposerText('echo iosqa\\ ', [], false)).toBe('echo iosqa\\');
+        expect(terminalComposerText('   ', [], true)).toBe('');
+        expect(terminalComposerText('   ', ['/tmp/photo'], true)).toBe('/tmp/photo');
+        expect(terminalComposerText('echo iosqa\\ ', ['/tmp/photo'], true)).toBe('echo iosqa\\  /tmp/photo');
+    });
+
     it('blocks unrelated input and exposes the one-line jump action', () => {
         expect(terminalInputDisposition(
             { agentStatus: 'blocked' },
