@@ -31,15 +31,15 @@ This is a one-shot wire break. Older phone builds and pre-cutover computer/phone
 
 ## Deletion gate
 
-All step lanes merged on `migration/byokit`; the old socket/router, envelope and fallback arms are gone. Hosted muxr-cloud host/setup and mobile account-only login UI are retired. Real relay+host terminal, desktop signaling, voice, pairing, push and reconnect flows and full suite have run; rerun the suite on the final head. Isolated HTTPS PWA paired with confirmation words, reloaded connected, and stored its grant behind a non-extractable IndexedDB AES-GCM key. Device revoke disconnected that browser; its UI displayed “Computer unavailable,” not a specific revoked explanation. Physical-phone QA belongs to the separate pre-release pass.
+All step lanes merged on `migration/byokit`; the old socket/router, envelope and fallback arms are gone. Hosted muxr-cloud host/setup and mobile account-only login UI are retired. Real relay+host terminal, desktop signaling, voice, pairing, push and reconnect flows and full suite have run; rerun the suite on the final head. Isolated HTTPS PWA paired with confirmation words, reloaded connected, and stored its grant behind a non-extractable IndexedDB AES-GCM key. Device revoke disconnected that browser; its UI displayed “Computer unavailable,” not a specific revoked explanation. A physical-phone Tailscale pairing failure exposed the host's two-second device-record reconciliation revoking an approved but still provisional grant before a remote phone could reconnect for `pair.complete`. Unbound grants remain available only while pairing is active and are pruned when pairing closes; a delayed real relay/host non-loopback pairing flow fails before and passes after the fix. Physical-phone tailnet retest remains a pre-release gate.
 
 ## Source footprint
 
-Tracked `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts` lines under each `apps/` directory, excluding `dist/` and `build/`; `*.test.*`, `*.spec.*` and `__tests__/` count as test, not source. Fixed pre-migration baseline `42afd495` (merge base with `migration/byokit`); candidate `e775c48d`:
+Tracked `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts` lines under each `apps/` directory, excluding `dist/` and `build/`; `*.test.*`, `*.spec.*` and `__tests__/` count as test, not source. Fixed pre-migration baseline `42afd495` (merge base with `migration/byokit`); candidate `9a47fea9`:
 
 | App | Source before → after (files) | Test before → after (files) |
 |---|---:|---:|
-| host | 22,794 → 21,878 (106 → 100) | 6,872 → 6,720 (22 → 23) |
+| host | 22,794 → 21,884 (106 → 100) | 6,872 → 6,720 (22 → 23) |
 | relay | 5,100 → 672 (31 → 11) | 849 → 132 (4 → 1) |
 | mobile (native and PWA) | 91,226 → 88,200 (625 → 609) | 13,795 → 12,296 (61 → 59) |
 | retired probe | 187 → 0 (1 → 0) | 0 → 0 |
