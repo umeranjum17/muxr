@@ -256,11 +256,14 @@ export function ActionsPopover({ anchor, onClose, actions, visible }: ActionsPop
             <LocalBlurHalo borderRadius={18} expansion={14} />
             <MobileGlassSurface
                 enabled
-                nativeEffect
+                nativeEffect={Platform.OS !== 'android'}
                 glassEffectStyle="regular"
                 intensity={88}
                 tintColor={theme.colors.glass.overlayTint}
-                style={styles.card}
+                style={[
+                    styles.card,
+                    Platform.OS === 'android' && { backgroundColor: theme.colors.surface },
+                ]}
             >
                 {Platform.OS !== 'web' && (
                     <View style={[styles.handle, { backgroundColor: theme.colors.textSecondary }]} />
