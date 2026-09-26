@@ -9,7 +9,6 @@
 import { RealtimeTalkButton } from '@/conversation/ui';
 import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useKeyboardHandler, useKeyboardState } from 'react-native-keyboard-controller';
