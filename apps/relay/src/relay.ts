@@ -16,16 +16,15 @@ import {
     isPeerCapabilities,
     encodePayload,
     nextRequestId,
-    parseLifecycleNotificationLevel,
     type Envelope,
     type HostFrame,
 } from '@muxr/contract';
 import { admitSocketFromUrl, extractBearerToken, secureEqual, admittedByTicket, type PeerIdentity, type Ticket } from './admission/index.js';
-import { handleHttpRequest, isExpoPushToken, isPushSubscription, readJsonBody, writeJson, writeJsonError, type PushActionOutcome } from './httpHandlers.js';
+import { handleHttpRequest, readJsonBody, writeJson, writeJsonError, type PushActionOutcome } from './httpHandlers.js';
 import { OfflineBuffer, PeerTable, parseLastSeq, peerMayRoute, sendEnvelope, type ConnectedPeer, PreviewChannels, TerminalChannels, ReplayLog, deliverReplayAndOffline, routeEnvelope, type PeerRouteOutcome, openLinkRelay } from './routing/index.js';
 import { type RelayConfig, clientIp, isLoopbackAddress, loadRelayConfig } from './config.js';
 import { isValidPublicKey, PairingRequests, FileTicketStore, SelfhostPairing, MachineAuthority, enrollmentProofMessage, MachineRegistry } from './admission/index.js';
-import { parsePushNotification, PushService, notificationEmailFromEnv, type PushWebhookConfig } from './push/index.js';
+import { notificationEmailFromEnv, type PushWebhookConfig } from './push/index.js';
 import { awaitPersistChain, writeJsonFileAtomic, readPrivateFile } from './platform/persist.js';
 
 /** How long push/action waits for the machine's answer before giving up. */
@@ -151,7 +150,6 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     const previews = new PreviewChannels();
     const terminals = new TerminalChannels();
     const realtimeStreams = new TerminalChannels();
-    const push = new PushService(config.dataDir);
     const localTickets = config.localAuthority ? new FileTicketStore(config.dataDir) : undefined;
     const localPairing = config.localAuthority ? new SelfhostPairing(config.dataDir) : undefined;
     const machineAuthority = config.localAuthority ? new MachineAuthority(config.dataDir) : undefined;
@@ -211,7 +209,6 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     await registry.load();
     await offline.load();
     await replay.load();
-    await push.load();
 
     /** sessionId -> owning machineId, learned from envelope headers (the only part the relay reads). */
     const sessionOwner = new Map<string, string>();
@@ -481,7 +478,6 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 await machineAuthority.revokeMachine(slug);
                 for (const device of await localPairing.listDevices(slug)) {
                     await localPairing.revokeDevice(device.deviceId, slug);
-                    await push.removeExpoDevice(`local:${slug}`, device.deviceId);
                 }
                 closePeers({ accountId: `local:${slug}`, machineSlug: slug }, 'machine uninstalled');
                 writeJson(res, 200, { ok: true });
@@ -502,7 +498,6 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 if (revoked === undefined) { writeJsonError(res, 404, 'machine_not_found'); return; }
                 for (const device of await localPairing.listDevices(slug)) {
                     await localPairing.revokeDevice(device.deviceId, slug);
-                    await push.removeExpoDevice(`local:${slug}`, device.deviceId);
                 }
                 closePeers({ accountId: `local:${slug}`, machineSlug: slug }, 'machine revoked');
                 writeJson(res, 200, { ok: true });
@@ -933,95 +928,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                     return;
                 }
                 revokePeers({ accountId: `local:${revoked.machineSlug}`, deviceId });
-                await push.removeExpoDevice(`local:${revoked.machineSlug}`, deviceId);
-                await push.removeWebDevice(`local:${revoked.machineSlug}`, deviceId);
                 writeJson(res, 200, { ok: true });
-                return;
-            }
-            if (config.localAuthority && localPairing !== undefined && (req.method === 'POST' || req.method === 'DELETE')
-                && url.pathname === '/v1/push/expo-subscribe') {
-                const presented = extractBearerToken(req);
-                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
-                if (device === undefined || device.deviceKind === 'peer') { writeJsonError(res, 403, 'invalid device credential'); return; }
-                if (req.method === 'POST') {
-                    const body = (await readJsonBody(req).catch(() => undefined)) as { token?: unknown; level?: unknown } | undefined;
-                    if (!isExpoPushToken(body?.token)) { writeJsonError(res, 400, 'invalid Expo push token'); return; }
-                    const level = body.level === undefined ? 'important' : parseLifecycleNotificationLevel(body.level);
-                    if (level === undefined) { writeJsonError(res, 400, 'invalid lifecycle notification level'); return; }
-                    await push.subscribeExpo(`local:${device.machineSlug}`, body.token, level, device.deviceId);
-                } else {
-                    await push.removeExpoDevice(`local:${device.machineSlug}`, device.deviceId);
-                }
-                writeJson(res, 200, { ok: true });
-                return;
-            }
-            // Web push subscribe surface on the production path (same routes
-            // httpHandlers serves behind the dev API): a paired device
-            // credential answers, anything else gets 401/403. Without these
-            // the browser subscribe flow 404s on a stock self-host relay.
-            if (config.localAuthority && localPairing !== undefined && req.method === 'GET'
-                && url.pathname === '/v1/push/vapid-public') {
-                const presented = extractBearerToken(req);
-                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
-                if (device === undefined || device.deviceKind === 'peer') { writeJsonError(res, presented === undefined ? 401 : 403, 'invalid device credential'); return; }
-                writeJson(res, 200, { publicKey: push.publicKey() });
-                return;
-            }
-            if (config.localAuthority && localPairing !== undefined && req.method === 'POST'
-                && url.pathname === '/v1/push/subscribe') {
-                const presented = extractBearerToken(req);
-                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
-                if (device === undefined || device.deviceKind === 'peer') { writeJsonError(res, presented === undefined ? 401 : 403, 'invalid device credential'); return; }
-                const body = (await readJsonBody(req).catch(() => undefined)) as { subscription?: unknown; level?: unknown } | undefined;
-                if (!isPushSubscription(body?.subscription)) { writeJsonError(res, 400, 'subscription must be {endpoint, keys: {p256dh, auth}}'); return; }
-                const level = body.level === undefined ? undefined : parseLifecycleNotificationLevel(body.level);
-                if (body.level !== undefined && level === undefined) { writeJsonError(res, 400, 'invalid lifecycle notification level'); return; }
-                try {
-                    await push.subscribe(`local:${device.machineSlug}`, body.subscription, { deviceId: device.deviceId, ...(level === undefined ? {} : { level }) });
-                } catch (error) {
-                    if (error instanceof Error && error.message.includes('allowed Web Push destination')) {
-                        writeJsonError(res, 400, 'subscription endpoint is not an allowed Web Push destination');
-                        return;
-                    }
-                    throw error;
-                }
-                writeJson(res, 200, { ok: true });
-                return;
-            }
-            if (config.localAuthority && localPairing !== undefined && req.method === 'DELETE'
-                && url.pathname === '/v1/push/subscribe') {
-                const presented = extractBearerToken(req);
-                const device = presented === undefined ? undefined : await localPairing.resolveDeviceCredential(presented);
-                if (device === undefined || device.deviceKind === 'peer') { writeJsonError(res, presented === undefined ? 401 : 403, 'invalid device credential'); return; }
-                const body = (await readJsonBody(req).catch(() => undefined)) as { endpoint?: unknown; subscription?: unknown } | undefined;
-                const endpoint = typeof body?.endpoint === 'string'
-                    ? body.endpoint
-                    : typeof body?.subscription === 'object' && body?.subscription !== null
-                        ? (body.subscription as { endpoint?: unknown }).endpoint
-                        : undefined;
-                if (typeof endpoint !== 'string' || endpoint === '') { writeJsonError(res, 400, 'endpoint is required'); return; }
-                await push.removeWebSubscription(`local:${device.machineSlug}`, endpoint);
-                writeJson(res, 200, { ok: true });
-                return;
-            }
-            if (config.localAuthority && machineAuthority !== undefined && req.method === 'POST'
-                && url.pathname === '/v1/push/notify') {
-                const presented = extractBearerToken(req);
-                const machine = presented === undefined ? undefined : await machineAuthority.resolveCredential(presented);
-                const body = (await readJsonBody(req).catch(() => undefined)) as Record<string, unknown> | undefined;
-                if (machine === undefined) { writeJsonError(res, 403, 'invalid machine credential'); return; }
-                const notification = body === undefined ? undefined : parsePushNotification(body);
-                if (body?.machineId !== machine.slug || typeof body.sessionId !== 'string' || body.sessionId === ''
-                    || body.sessionId.length > 256 || notification === undefined) {
-                    writeJsonError(res, 400, 'invalid push payload');
-                    return;
-                }
-                const outcome = await push.notify(`local:${machine.slug}`, {
-                    ...notification,
-                    sessionId: body.sessionId,
-                    machineId: machine.slug,
-                }, (deviceId) => localPairing!.isDeviceActive(deviceId));
-                writeJson(res, 200, { ok: true, ...outcome });
                 return;
             }
             for (const handler of options.httpHandlers ?? []) {
@@ -1040,8 +947,6 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
                 startedAt,
                 e2eeMode: config.e2eeMode,
                 droppedCount: () => offline.droppedCount,
-                push,
-                pushAction,
                 machineRequest,
                 hostDownloadBaseUrl,
                 sessionOwnerOf: (sessionId) => sessionOwner.get(sessionId),

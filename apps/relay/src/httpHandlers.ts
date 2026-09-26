@@ -1,10 +1,8 @@
-import { parseLifecycleNotificationLevel } from '@muxr/contract';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { get as httpGet } from 'node:http';
 import type { RelayE2eeMode } from './config.js';
 import { extractBearerToken, isValidPublicKey, pairMachine, approveMachinePairing, type PairingRequests, type MachineRegistry } from './admission/index.js';
 import type { OfflineBuffer, PeerTable, ReplayLog } from './routing/index.js';
-import { parsePushNotification, isAllowedPushEndpoint, type PushService } from './push/index.js';
 
 export interface PushActionOutcome {
     ok: boolean;
@@ -23,9 +21,6 @@ export interface HttpContext {
     startedAt: number;
     e2eeMode: RelayE2eeMode;
     droppedCount: () => number;
-    push: PushService;
-    /** Send a synthetic client request to a machine and await its result. */
-    pushAction: (input: { machineId: string; sessionId: string; answer: 'y' | 'n' }) => Promise<PushActionOutcome>;
     /** Generic synthetic request (attachment downloads); same machine link as pushAction. */
     machineRequest: (
         input: {
@@ -82,26 +77,6 @@ export function writeJson(res: ServerResponse, status: number, body: unknown): v
 export function writeJsonError(res: ServerResponse, status: number, message: string): void {
     res.writeHead(status, { 'cache-control': 'no-store', 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ error: message }));
-}
-
-export function isExpoPushToken(value: unknown): value is string {
-    return typeof value === 'string' && /^(?:Exponent|Expo)PushToken\[[A-Za-z0-9_-]+\]$/.test(value);
-}
-
-export function isPushSubscription(
-    value: unknown,
-): value is { endpoint: string; keys: { p256dh: string; auth: string } } {
-    if (typeof value !== 'object' || value === null) return false;
-    const sub = value as { endpoint?: unknown; keys?: unknown };
-    if (!isAllowedPushEndpoint(sub.endpoint)) return false;
-    const keys = sub.keys as { p256dh?: unknown; auth?: unknown } | undefined;
-    if (typeof keys !== 'object' || keys === null) return false;
-    return (
-        typeof keys.p256dh === 'string' &&
-        keys.p256dh.length > 0 &&
-        typeof keys.auth === 'string' &&
-        keys.auth.length > 0
-    );
 }
 
 export async function handleHttpRequest(
@@ -329,218 +304,6 @@ export async function handleHttpRequest(
             return;
         }
         writeJson(res, 200, { machines, e2eeMode: ctx.e2eeMode });
-        return;
-    }
-
-    if (req.method === 'GET' && path === '/v1/push/vapid-public') {
-        const token = extractBearerToken(req);
-        if (!token) {
-            writeJson(res, 401, { error: 'account token required' });
-            return;
-        }
-        if (!ctx.registry.findAccountByToken(token)) {
-            writeJson(res, 403, { error: 'invalid account token' });
-            return;
-        }
-        writeJson(res, 200, { publicKey: ctx.push.publicKey() });
-        return;
-    }
-
-    if (req.method === 'POST' && path === '/v1/push/subscribe') {
-        const token = extractBearerToken(req);
-        if (!token) {
-            writeJson(res, 401, { error: 'account token required' });
-            return;
-        }
-        const account = ctx.registry.findAccountByToken(token);
-        if (!account) {
-            writeJson(res, 403, { error: 'invalid account token' });
-            return;
-        }
-        let body: { subscription?: unknown; level?: unknown };
-        try {
-            body = (await readJsonBody(req)) as { subscription?: unknown; level?: unknown };
-        } catch {
-            writeJson(res, 400, { error: 'invalid json body' });
-            return;
-        }
-        if (!isPushSubscription(body.subscription)) {
-            writeJson(res, 400, { error: 'subscription must be {endpoint, keys: {p256dh, auth}}' });
-            return;
-        }
-        const level = body.level === undefined ? undefined : parseLifecycleNotificationLevel(body.level);
-        if (body.level !== undefined && level === undefined) {
-            writeJson(res, 400, { error: 'invalid lifecycle notification level' });
-            return;
-        }
-        try {
-            await ctx.push.subscribe(account.accountId, body.subscription, level === undefined ? {} : { level });
-        } catch (error) {
-            if (error instanceof Error && error.message.includes('allowed Web Push destination')) {
-                writeJson(res, 400, { error: 'subscription endpoint is not an allowed Web Push destination' });
-                return;
-            }
-            throw error;
-        }
-        writeJson(res, 200, { ok: true });
-        return;
-    }
-
-    if (req.method === 'DELETE' && path === '/v1/push/subscribe') {
-        const token = extractBearerToken(req);
-        if (!token) {
-            writeJson(res, 401, { error: 'account token required' });
-            return;
-        }
-        const account = ctx.registry.findAccountByToken(token);
-        if (!account) {
-            writeJson(res, 403, { error: 'invalid account token' });
-            return;
-        }
-        let body: { endpoint?: unknown; subscription?: unknown };
-        try {
-            body = (await readJsonBody(req)) as { endpoint?: unknown; subscription?: unknown };
-        } catch {
-            writeJson(res, 400, { error: 'invalid json body' });
-            return;
-        }
-        const endpoint = typeof body.endpoint === 'string'
-            ? body.endpoint
-            : typeof body.subscription === 'object' && body.subscription !== null
-                ? (body.subscription as { endpoint?: unknown }).endpoint
-                : undefined;
-        if (typeof endpoint !== 'string' || endpoint === '') {
-            writeJson(res, 400, { error: 'endpoint is required' });
-            return;
-        }
-        await ctx.push.removeWebSubscription(account.accountId, endpoint);
-        writeJson(res, 200, { ok: true });
-        return;
-    }
-
-    if ((req.method === 'POST' || req.method === 'DELETE') && path === '/v1/push/expo-subscribe') {
-        const token = extractBearerToken(req);
-        if (!token) {
-            writeJson(res, 401, { error: 'account token required' });
-            return;
-        }
-        const account = ctx.registry.findAccountByToken(token);
-        if (!account) {
-            writeJson(res, 403, { error: 'invalid account token' });
-            return;
-        }
-        let body: { token?: unknown; level?: unknown };
-        try {
-            body = (await readJsonBody(req)) as { token?: unknown; level?: unknown };
-        } catch {
-            writeJson(res, 400, { error: 'invalid json body' });
-            return;
-        }
-        if (!isExpoPushToken(body.token)) {
-            writeJson(res, 400, { error: 'invalid Expo push token' });
-            return;
-        }
-        if (req.method === 'POST') {
-            const level = body.level === undefined ? 'important' : parseLifecycleNotificationLevel(body.level);
-            if (level === undefined) {
-                writeJson(res, 400, { error: 'invalid lifecycle notification level' });
-                return;
-            }
-            await ctx.push.subscribeExpo(account.accountId, body.token, level);
-        } else {
-            await ctx.push.removeExpoToken(account.accountId, body.token);
-        }
-        writeJson(res, 200, { ok: true });
-        return;
-    }
-
-    if (req.method === 'POST' && path === '/v1/push/notify') {
-        const token = extractBearerToken(req);
-        if (!token) {
-            writeJson(res, 401, { error: 'machine token required' });
-            return;
-        }
-        const machine = ctx.registry.resolveMachineToken(token);
-        if (!machine) {
-            writeJson(res, 403, { error: 'invalid machine token' });
-            return;
-        }
-        let body: { machineId?: unknown; sessionId?: unknown; eventId?: unknown; kind?: unknown; reasonCode?: unknown; agentName?: unknown; taskTitle?: unknown };
-        try {
-            body = (await readJsonBody(req)) as typeof body;
-        } catch {
-            writeJson(res, 400, { error: 'invalid json body' });
-            return;
-        }
-        if (body.machineId !== machine.machineId) {
-            writeJson(res, 403, { error: 'machineId does not match token' });
-            return;
-        }
-        if (typeof body.sessionId !== 'string' || body.sessionId === '' || body.sessionId.length > 256) {
-            writeJson(res, 400, { error: 'valid sessionId is required' });
-            return;
-        }
-        const notification = parsePushNotification(body);
-        if (notification === undefined) {
-            writeJson(res, 400, { error: 'invalid lifecycle notification' });
-            return;
-        }
-        const outcome = await ctx.push.notify(machine.accountId, {
-            ...notification,
-            sessionId: body.sessionId,
-            machineId: machine.machineId,
-        });
-        writeJson(res, 200, { ok: true, ...outcome });
-        return;
-    }
-
-    if (req.method === 'POST' && path === '/v1/push/action') {
-        const token = extractBearerToken(req);
-        if (!token) {
-            writeJson(res, 401, { error: 'account token required' });
-            return;
-        }
-        const account = ctx.registry.findAccountByToken(token);
-        if (!account) {
-            writeJson(res, 403, { error: 'invalid account token' });
-            return;
-        }
-        let body: { sessionId?: unknown; answer?: unknown };
-        try {
-            body = (await readJsonBody(req)) as { sessionId?: unknown; answer?: unknown };
-        } catch {
-            writeJson(res, 400, { error: 'invalid json body' });
-            return;
-        }
-        if (typeof body.sessionId !== 'string' || body.sessionId === '') {
-            writeJson(res, 400, { error: 'sessionId is required' });
-            return;
-        }
-        if (body.answer !== 'y' && body.answer !== 'n') {
-            writeJson(res, 400, { error: 'answer must be y or n' });
-            return;
-        }
-        const machineId = ctx.sessionOwnerOf(body.sessionId);
-        if (machineId === undefined) {
-            writeJson(res, 404, { error: 'unknown session' });
-            return;
-        }
-        if (!account.machines[machineId]) {
-            writeJson(res, 403, { error: 'session belongs to another account' });
-            return;
-        }
-        if (ctx.e2eeMode === 'on') {
-            // Synthetic relay-originated answers cannot cross an E2EE machine
-            // link; the app answers in-band after the notification opens it.
-            writeJson(res, 410, { error: 'push answers are unavailable with E2EE on; answer from the app' });
-            return;
-        }
-        const outcome = await ctx.pushAction({ machineId, sessionId: body.sessionId, answer: body.answer });
-        if (outcome.ok) {
-            writeJson(res, 200, { ok: true, data: outcome.data ?? null });
-            return;
-        }
-        writeJson(res, outcome.status, { error: outcome.error ?? 'push action failed' });
         return;
     }
 
