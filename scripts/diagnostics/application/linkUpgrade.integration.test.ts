@@ -22,8 +22,8 @@ import { DeviceLink, hostId, type DeviceGrant, type LinkStatus } from '@byokit/l
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { waitForRelay } from './waitForRelay.mjs';
-import { machineIdentity, newPairingCode, pairingCodeHash, pairingIntent } from '../../setup/index.mjs';
-import { createDeviceGrant, deriveV2Key, newV2ReplayTracker, openV2, sealPairingCodePayload } from '@muxr/crypto';
+import { machineIdentity } from '../../setup/index.mjs';
+import { relayPairSession } from './relayPairSession.mjs';
 
 const phone = vi.hoisted(() => ({ secure: new Map<string, string>(), local: new Map<string, string>() }));
 
@@ -132,77 +132,6 @@ async function stopMachine(): Promise<void> {
     await stop(relay);
 }
 
-/**
- * Pairs a phone the pre-step-4 way: a relay pair session, the phone's claim
- * mailbox, and the CLI-side grant upload. Step 4 moved `muxr pair` onto the
- * byokit link, so the old native flow lives here to keep the upgrade scenario
- * honest: a phone paired before the link existed.
- */
-async function pairViaRelayPairSession(claimFn: (url: string) => Promise<StoredHostedGrant>): Promise<StoredHostedGrant> {
-    const state = JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8')) as {
-        machine: { id: string; name?: string; crypto: { signingPublicKey: string; signingSecretKey: string; boxPublicKey: string; boxSecretKey: string; dataKey: string; keyVersion: number } };
-        relayUrl: string; mintSecret: string;
-    };
-    const base = `http://127.0.0.1:${port}`;
-    const headers = { authorization: `Bearer ${state.mintSecret}`, 'content-type': 'application/json' };
-    const claim = randomBytes(32).toString('base64url');
-    const pairSecret = randomBytes(32).toString('base64url');
-    const created = await (await fetch(new URL('/v1/selfhost/pair-sessions', base), { method: 'POST', headers, body: JSON.stringify({ claim, machineSlug: state.machine.id, deviceKind: 'native', authority: 'control' }) })).json() as { pair_id: string };
-    const code = newPairingCode();
-    const payload = Buffer.from(JSON.stringify({
-        v: '2', generation: String(state.machine.crypto.keyVersion), id: created.pair_id, claim, pair: pairSecret,
-        machine: state.machine.id, name: state.machine.name ?? 'self-host', machinePk: state.machine.crypto.signingPublicKey,
-        r: state.relayUrl, authority: 'control',
-    })).toString('base64url');
-    await fetch(new URL(`/v1/selfhost/pair-sessions/${encodeURIComponent(created.pair_id)}/code`, base), {
-        method: 'POST', headers, body: JSON.stringify({ code_hash: pairingCodeHash(code), payload: sealPairingCodePayload(payload, code) }),
-    });
-    const text = pairingIntent({ kind: 'native' }).pairingLocator(state.relayUrl, code);
-    // The phone claims and then waits for the grant, so the old CLI's side
-    // polls concurrently, exactly as `muxr pair` used to.
-    const storedPromise = claimFn(text);
-    const deadline = Date.now() + 20_000;
-    let claimed: { mailbox?: string; deviceId?: string; devicePublicKey?: string };
-    for (;;) {
-        const polled = await (await fetch(new URL(`/v1/selfhost/pair-sessions/${encodeURIComponent(created.pair_id)}`, base), { headers })).json() as { state: string; mailbox?: string; deviceId?: string; devicePublicKey?: string };
-        if (polled.state === 'claimed' && polled.mailbox !== undefined) { claimed = polled; break; }
-        if (Date.now() > deadline) throw new Error('old-style pairing never claimed');
-        await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    const request = JSON.parse(openV2(claimed.mailbox!, deriveV2Key(pairSecret, 'client->host'), {
-        machineId: state.machine.id, senderId: claimed.devicePublicKey!, recipientId: state.machine.id,
-        channel: 'pairing', streamId: created.pair_id, keyVersion: state.machine.crypto.keyVersion,
-    }, newV2ReplayTracker())) as { deviceName?: string };
-    void request;
-    const deviceId = claimed.deviceId!;
-    const ingressKey = Buffer.from(randomBytes(32)).toString('base64');
-    const intent = pairingIntent({ kind: 'native' });
-    const grant = JSON.stringify(createDeviceGrant({
-        machineId: state.machine.id,
-        machineSigningSecretKey: state.machine.crypto.signingSecretKey,
-        machineKey: { publicKey: state.machine.crypto.boxPublicKey, secretKey: state.machine.crypto.boxSecretKey },
-        deviceId,
-        devicePublicKey: claimed.devicePublicKey!,
-        dataKey: state.machine.crypto.dataKey,
-        ingressKey,
-        keyVersion: state.machine.crypto.keyVersion,
-        expiresAt: intent.grantExpiresAt(),
-        authority: 'control',
-    }));
-    // The old CLI also recorded the device in selfhost.json — the machine's
-    // own authority, which is what a restarted host enrols the phone from.
-    state.machine.crypto.devices = [
-        ...state.machine.crypto.devices.filter((device) => device.deviceId !== deviceId),
-        { deviceId, devicePublicKey: claimed.devicePublicKey!, ingressKey, expiresAt: new Date(intent.grantExpiresAt()).toISOString(), authority: 'control' },
-    ];
-    writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-    const uploaded = await fetch(new URL(`/v1/selfhost/pair-sessions/${encodeURIComponent(created.pair_id)}/grant`, base), {
-        method: 'POST', headers, body: JSON.stringify({ grant }),
-    });
-    if (!uploaded.ok) throw new Error(`old-style grant upload failed (${uploaded.status})`);
-    return await storedPromise;
-}
-
 /** The keys a phone paired on the old build already stores, as a link grant. */
 function linkGrantFrom(stored: StoredHostedGrant): DeviceGrant {
     const machineKey = Buffer.from(stored.machineBoxPublicKey, 'base64');
@@ -236,14 +165,14 @@ describe('link upgrade for an already-paired phone', () => {
     it('opens a link session with the keys the phone already has, beside the relay transport, until revoked', async () => {
         vi.stubGlobal('WebSocket', WebSocket);
         await startMachine();
-        const stored = await pairViaRelayPairSession(claimHostedPairing);
+        const stored = await relayPairSession({ home, port, claim: claimHostedPairing });
         // The second phone is a separate device: a fresh secure store and a
         // fresh module instance give it a fresh device key.
         phone.secure.clear();
         const { generateKeyPair } = await import('@muxr/crypto');
         phone.secure.set('muxr.hosted-e2ee.device.v2', JSON.stringify(generateKeyPair()));
         const { claimHostedPairing: claimOther } = await import('../../../apps/mobile/sources/pairing/application/hostedE2ee.js?phone2');
-        const other = await pairViaRelayPairSession(claimOther);
+        const other = await relayPairSession({ home, port, claim: claimOther });
 
         // The upgrade: same machine, same keys, a relay with no link state.
         await stopMachine();
