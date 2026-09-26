@@ -38,23 +38,11 @@ async function subscribeNativePush(
     credentials: AuthCredentials,
     level: LifecycleNotificationLevel,
 ): Promise<boolean> {
-    // The link carries the registration when it is serving the session; the
-    // host stores the address on the relay for this device. The relay HTTP API
-    // below stays the path for a device still on the relay transport.
+    // The session transport owns where a push address is registered (the link
+    // when it serves the session, the relay HTTP API otherwise).
     const client = activeSessionClient();
-    if (client?.registerPush !== undefined && await client.registerPush(token, level).catch(() => false)) {
-        // A registration left in the relay's own push store from before this
-        // device joined the link would deliver every push twice.
-        await fetch(`${relayControlUrl(getCachedConnectionSettings().relayUrl)}/v1/push/expo-subscribe`, {
-            method: 'DELETE',
-            headers: {
-                'content-type': 'application/json',
-                authorization: `Bearer ${credentials.token}`,
-            },
-            body: JSON.stringify({ token }),
-        }).catch(() => undefined);
-        return true;
-    }
+    if (client?.registerPush !== undefined) return client.registerPush(token, level).catch(() => false);
+    // No machine session exists yet; the relay HTTP API is the only path.
     const response = await fetch(`${relayControlUrl(getCachedConnectionSettings().relayUrl)}/v1/push/expo-subscribe`, {
         method: 'POST',
         headers: {

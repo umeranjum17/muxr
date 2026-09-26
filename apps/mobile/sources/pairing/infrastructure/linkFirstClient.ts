@@ -3,6 +3,7 @@ import {
     isPluginsInvalidatedFrame,
     nextRequestId,
     normalizeRequestFailure,
+    relayControlUrl,
     type ClientRequest,
     type HostFrame,
     type LifecycleNotificationLevel,
@@ -24,9 +25,9 @@ export type SessionClient = {
     onStateChange(listener: (state: ConnectionState) => void): () => void;
     onEvent(listener: (sessionId: string, event: SessionEvent) => void): () => void;
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
-    /** Register this device's Expo push address over the link. False means this
-     *  transport cannot carry it yet; the caller falls back to the relay HTTP API. */
-    registerPush?(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
+    /** Register this device's Expo push address; the transport that is serving
+     *  the session decides where it lands (the link, or the relay HTTP API). */
+    registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
 };
 
 /**
@@ -135,11 +136,25 @@ export class LinkFirstClient implements SessionClient {
     }
 
     async registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {
-        if (this.closed || this.link === undefined || !this.online) return false;
         this.lastPush = { token, level };
-        const frame = { type: 'push.subscribe', requestId: nextRequestId('rn'), params: { token, level } } as ClientRequest;
-        await this.link.request('push.subscribe', frame, { timeoutMs: 5_000 });
-        return true;
+        if (this.link !== undefined && this.online) {
+            await this.link.request('push.subscribe', { type: 'push.subscribe', requestId: nextRequestId('rn'), params: { token, level } }, { timeoutMs: 5_000 });
+            // A registration left in the relay's own push store from before this
+            // device joined the link would deliver every push twice.
+            if (this.options.token !== undefined) {
+                await fetch(`${relayControlUrl(this.options.relayUrl)}/v1/push/expo-subscribe`, {
+                    method: 'DELETE',
+                    headers: {
+                        'content-type': 'application/json',
+                        authorization: `Bearer ${this.options.token}`,
+                    },
+                    body: JSON.stringify({ token }),
+                }).catch(() => undefined);
+            }
+            return true;
+        }
+        // The link is not serving the session; the relay transport registers.
+        return this.inner?.registerPush(token, level) ?? false;
     }
 
     private onLinkStatus(status: LinkStatus): void {
