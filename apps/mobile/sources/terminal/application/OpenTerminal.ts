@@ -142,7 +142,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         // When the link serves the session, the pane's stream open IS the
         // attach; the relay request + channel socket below run only when the
         // link cannot carry the pane.
-        if (await attachViaLink(takeover)) return 'link';
+        if (await attachViaLink(takeover) !== 'unavailable') return 'link';
         if (grant !== undefined) {
             const latest = await refreshHostedGrant(settings.machineId, grant!.credential, grant!.relayUrl, await channelRelayUrl(grant!.relayUrl, settings.machineId));
             if (latest !== undefined && latest.keyVersion >= grant!.keyVersion) {
@@ -505,15 +505,16 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let linkWire: TerminalLinkTransport | undefined;
     type LinkAttachAck = { ok: true } | { ok: false; error?: string; code?: string; streamLost?: boolean };
     let linkAck: ((ack: LinkAttachAck) => void) | undefined;
+    let linkAckTransport: TerminalLinkTransport | undefined;
 
     /** Retire a transport without touching the reconnect machinery (replacement, close, failed attach). */
     const retireLink = (transport: TerminalLinkTransport): void => {
         if (linkWire === transport) linkWire = undefined;
+        if (linkAckTransport === transport) linkAck?.({ ok: false, code: 'socket-error', streamLost: true });
         transport.close();
     };
 
-    /** Returns true when the link took the pane; false falls through to the relay for this attempt. */
-    async function attachViaLink(takeover: boolean): Promise<boolean> {
+    async function attachViaLink(takeover: boolean): Promise<'unavailable' | 'attached' | 'lost'> {
         const requestId = nextRequestId('lt');
         const offer = sync.openTerminalLink({
             requestId,
@@ -524,10 +525,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             ...(options?.mode === undefined ? {} : { mode: options.mode }),
             takeover,
         });
-        if (offer === undefined) return false;
+        if (offer === undefined) return 'unavailable';
         const started = Date.now();
         const transport = await offer.catch(() => undefined);
-        if (transport === undefined) return false; // the link cannot carry streams; the relay can
+        if (transport === undefined) return 'unavailable'; // the link cannot carry streams; the relay can
         if (closedByUser || command.signal?.aborted) {
             transport.close();
             throw new Error('terminal: open cancelled');
@@ -539,10 +540,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         const ackPromise = new Promise<LinkAttachAck>((resolve) => {
             const settle = (value: LinkAttachAck): void => {
                 clearTimeout(timer);
-                if (linkAck === settle) linkAck = undefined;
+                if (linkAck === settle) {
+                    linkAck = undefined;
+                    linkAckTransport = undefined;
+                }
                 resolve(value);
             };
             linkAck = settle;
+            linkAckTransport = transport;
             const timer = setTimeout(() => settle({ ok: false, code: 'socket-timeout', streamLost: true }), 15_000);
         });
         let firstFrameOfStream = false;
@@ -648,11 +653,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             beforeAck.length = 0;
             recordTerminalChannel('attach', { ok: false, error: ack.error ?? ack.code ?? 'link attach failed' });
             retireLink(transport);
-            if (ack.streamLost) return false;
+            if (ack.streamLost) {
+                if (!closedByUser && !attachRequested) scheduleRetry();
+                return 'lost';
+            }
             throw new Error(ack.error ?? 'terminal: link attach failed');
         }
         recordTerminalChannel('attach', { ok: true });
-        return true;
+        return 'attached';
     }
 
     function close(): void {
@@ -672,8 +680,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             void sync.request('terminal.detach', { sessionId, channel }).catch(() => {});
         }
         const wire = linkWire;
-        linkWire = undefined;
-        wire?.close();
+        if (wire !== undefined) retireLink(wire);
         socket?.close();
     }
 
@@ -823,9 +830,8 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             const stale = socket;
             socket = undefined;
             const staleLink = linkWire;
-            linkWire = undefined;
             emitState('reconnecting');
-            staleLink?.close();
+            if (staleLink !== undefined) retireLink(staleLink);
             if (stale !== undefined) {
                 stale.close();
             }

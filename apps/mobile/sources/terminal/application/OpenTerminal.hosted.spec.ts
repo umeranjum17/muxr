@@ -227,6 +227,33 @@ describe('openTerminal hosted transport', () => {
         expect(FakeWebSocket.instances).toHaveLength(0);
         expect(mocks.request.mock.calls.filter(([method]) => method === 'terminal.attach')).toHaveLength(0);
         droppedChannel.close();
+
+        const repainted = openTerminal({ agentRoute: 'session-1', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(transport.onLine).toHaveBeenCalledTimes(6));
+        const opened = mocks.openTerminalLink.mock.calls[5]![0] as { requestId: string; channel: string };
+        line(JSON.stringify({ header: { machineId: 'machine', senderId: 'machine', recipientId: '*',
+            channel: 'terminal', streamId: opened.channel, keyVersion: 2, seq: 15 },
+        payload: `sealed:${JSON.stringify({ type: 'result', requestId: opened.requestId, ok: true })}` }));
+        const repaintChannel = await repainted;
+        repaintChannel.repaint();
+        await vi.waitFor(() => expect(transport.onLine).toHaveBeenCalledTimes(7));
+        repaintChannel.repaint();
+        await vi.waitFor(() => expect(transport.onLine).toHaveBeenCalledTimes(8));
+        const replacement = mocks.openTerminalLink.mock.calls[7]![0] as { requestId: string; channel: string };
+        line(JSON.stringify({ header: { machineId: 'machine', senderId: 'machine', recipientId: '*',
+            channel: 'terminal', streamId: replacement.channel, keyVersion: 2, seq: 16 },
+        payload: `sealed:${JSON.stringify({ type: 'result', requestId: replacement.requestId, ok: true })}` }));
+        await vi.waitFor(() => expect(mocks.open).toHaveBeenCalledTimes(13));
+        expect(FakeWebSocket.instances).toHaveLength(0);
+        repaintChannel.close();
+
+        const lost = openTerminal({ agentRoute: 'session-1', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(transport.onLine).toHaveBeenCalledTimes(9));
+        end();
+        const lostChannel = await lost;
+        expect(FakeWebSocket.instances).toHaveLength(0);
+        expect(mocks.request.mock.calls.filter(([method]) => method === 'terminal.attach')).toHaveLength(0);
+        lostChannel.close();
     });
 
     it('joins the channel by ticket under the grant credential, then flows sealed frames', async () => {
