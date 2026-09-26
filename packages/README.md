@@ -2,11 +2,11 @@
 
 `@muxr/contract` exists so host, mobile, relay, and plugins use one implementation of cross-process wire shapes, admission and limit rules, and invariant vocabulary. It is the compatibility boundary between processes, not a general utility package. Apps import its public barrel or a focused entry point such as `@muxr/contract/herd`; they do not import module internals.
 
-Code belongs in `@muxr/contract` when multiple processes must agree on its exact shape or rule: wire envelopes and request maps, boundary admission, shared limits, and vocabulary whose meaning must not drift. Mobile parsing or presentation, host adapters, single-consumer transport DTOs, storage models, crypto implementation, and convenience helpers do not belong here.
+Code belongs in `@muxr/contract` when multiple processes must agree on its exact shape or rule: client/host frames and request maps, boundary admission, shared limits, and vocabulary whose meaning must not drift. Mobile parsing or presentation, host adapters, single-consumer transport DTOs, storage models, crypto implementation, and convenience helpers do not belong here.
 
 The name is deliberate. **Contract** says callers depend on an enforced cross-process agreement. **Shared** would invite unrelated reusable code, **core** would imply a central dependency bucket, and **protocol** would be too narrow for admission, limits, and invariant vocabulary that are not byte-level protocol.
 
-`@muxr/crypto` similarly provides one shared implementation of E2EE envelopes, authenticated context, replay rejection, and device/peer grant rules for the endpoints that seal or open payloads. The relay does not import it: the relay routes on envelope headers while encrypted payloads remain opaque, so it does not own keys, open payloads, or enforce replay and grant policy.
+`@muxr/crypto` retains pairing-code and peer/device grant proofs. `@byokit/link` owns the encrypted session transport; the relay never receives plaintext.
 
 `@desklink/host` and `@desklink/react-native`, the remote-desktop engine and its
 React Native client, are not here: they live in
@@ -61,11 +61,9 @@ Start / prompt / watch / focus are host and mobile adapters over this domain (`s
 
 ## Control plane
 
-**Owns**: Envelope, Routing Channel, client/host frames, request map, preview/terminal/ticket URLs.
+**Owns**: client/host frames, request map, terminal frames and relay URL parsing.
 
 **Invariants**:
-- The relay reads only the Envelope header. Payload is opaque.
-- Routing Channel is the same vocabulary as E2EE context.
 - Client frames fail closed at `admitClientFrame` (`tryParseClientFrame` / `parseClientFrame` remain adapter aliases).
 
 ## Peer
@@ -108,10 +106,9 @@ Start / prompt / watch / focus are host and mobile adapters over this domain (`s
 
 ## E2EE
 
-**Owns**: Device Grant, Pairing Code, v2 Envelope, signed peer descriptors, install bundles.
+**Owns**: Device Grant, Pairing Code, signed peer descriptors, install bundles.
 
 **Invariants**:
-- Open fails closed on cleartext, tamper, replay, context mismatch, and wrong key.
+- Grant verification fails closed on tamper, expiry and wrong pinned keys.
 - Peer grants never carry control/observe authority.
 - Pairing Code is ten unambiguous characters; the spoken code is not a credential after pairing.
-- Hosted Envelope headers map once onto v2 context; local/dev headers have no hosted context.

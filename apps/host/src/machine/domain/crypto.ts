@@ -1,5 +1,18 @@
 import type { LifecycleNotificationLevel, PeerCapability } from '@muxr/contract';
 
+export interface HostedMachineKeys {
+    machineId: string;
+    keyVersion: number;
+    dataKey: string;
+    ingressKeys: Readonly<Record<string, string>>;
+    deviceKinds?: Readonly<Record<string, 'native' | 'browser' | 'peer'>>;
+    deviceAuthorities?: Readonly<Record<string, 'control' | 'observe'>>;
+    deviceDataKeys?: Readonly<Record<string, string>>;
+    deviceCapabilities?: Readonly<Record<string, readonly PeerCapability[]>>;
+    deviceAllowedCwds?: Readonly<Record<string, readonly string[]>>;
+    deviceExpiresAt?: Readonly<Record<string, number>>;
+}
+
 export interface MachineDeviceRecord {
     deviceId: string;
     devicePublicKey: string;
