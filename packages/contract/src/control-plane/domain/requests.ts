@@ -689,7 +689,6 @@ export interface RequestMap extends PeerRequestMap {
      * callers send a per-preview key through this encrypted request; local
      * development may omit it when the relay is trusted.
      */
-    'preview.attach': { params: { channel: string; port: number; key?: string }; result: null };
 
     // --- worktrees ----------------------------------------------------------
     /**

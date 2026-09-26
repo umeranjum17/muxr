@@ -37,13 +37,11 @@ import {
     voiceReport,
     voiceStatus,
 } from '../../voice/index.js';
-import { attachPreview as attachPreviewTransport } from '../infrastructure/preview.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
-import { attachPreviewTunnel } from './attachPreviewTunnel.js';
 import type { DesktopSessions } from '../../desktop/index.js';
 
 export interface RequestDispatcherOptions {
@@ -54,12 +52,9 @@ export interface RequestDispatcherOptions {
     hostVersion: string;
     connectionMode?: string;
     pairedDeviceCount?: () => number;
-    /** Where to join preview channels. Absent means preview is unavailable. */
+    /** Distinguish local-only artifact preparation from hosted clients. */
     relayUrl?: string;
-    /** Hosted E2EE never permits clear preview payloads from older clients. */
-    requirePreviewEncryption?: boolean;
     terminals?: TerminalManager;
-    token?: string;
     /** Browser grants can observe but cannot mutate terminal/machine state. */
     canMutateDevice?: (deviceId: string) => boolean;
     peerRuntime?: PeerRuntime;
@@ -364,13 +359,6 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         // The spoken sentence is derived from the outcome here, never by the caller.
         'voice.report': async (params) => voiceReport(params),
         'worktree.land': (params) => landWorktree(params.worktreePath, params.message, params.stash),
-        'preview.attach': async (params) => useCaseData(await attachPreviewTunnel({
-            ...(options.relayUrl === undefined ? {} : { relayUrl: options.relayUrl }),
-            machineId,
-            ...(options.token === undefined ? {} : { token: options.token }),
-            ...(options.requirePreviewEncryption === undefined ? {} : { requireEncryption: options.requirePreviewEncryption }),
-            attach: attachPreviewTransport,
-        }, params)),
         'terminal.attach': async () => { throw new Error('terminal attach requires a link stream'); },
         'terminal.detach': async (params) => {
             await closeTerminal(options.terminals, params);
