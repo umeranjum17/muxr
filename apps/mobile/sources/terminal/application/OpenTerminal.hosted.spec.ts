@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
     fetch: vi.fn(),
     refresh: vi.fn(),
     openTerminalLink: vi.fn(),
+    hasTerminalLink: vi.fn(() => false),
 }));
 
 vi.mock('@/connection', () => ({
@@ -42,7 +43,7 @@ vi.mock('@/connection', () => ({
 }));
 
 vi.mock('@/catalog/sync', () => ({
-    sync: { request: mocks.request, openTerminalLink: mocks.openTerminalLink },
+    sync: { request: mocks.request, openTerminalLink: mocks.openTerminalLink, hasTerminalLink: mocks.hasTerminalLink },
 }));
 
 vi.mock('@/catalog/store', async () => {
@@ -99,6 +100,7 @@ describe('openTerminal hosted transport', () => {
         mocks.request.mockResolvedValue({});
         mocks.openTerminalLink.mockReset();
         mocks.openTerminalLink.mockReturnValue(undefined);
+        mocks.hasTerminalLink.mockReturnValue(false);
         mocks.seal.mockClear();
         mocks.open.mockClear();
         mocks.fetch.mockReset();
@@ -116,7 +118,8 @@ describe('openTerminal hosted transport', () => {
         vi.useRealTimers();
     });
 
-    it('refreshes a rotated grant before opening a hosted link terminal', async () => {
+    it('refreshes a rotated grant before opening a hosted link terminal', { timeout: 15_000 }, async () => {
+        mocks.hasTerminalLink.mockReturnValue(true);
         const rotated = { ...grant, keyVersion: 3 };
         mocks.refresh.mockResolvedValue(rotated);
         let receive!: (line: string) => void;
@@ -144,6 +147,7 @@ describe('openTerminal hosted transport', () => {
     });
 
     it('attaches on the link without a relay socket and consumes a final sealed close before stream end', async () => {
+        mocks.hasTerminalLink.mockReturnValue(true);
         let line!: (value: string) => void;
         let end!: () => void;
         const transport = {

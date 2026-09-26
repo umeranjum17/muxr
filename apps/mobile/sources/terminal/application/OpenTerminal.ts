@@ -139,9 +139,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         }
     };
     const attachOnce = (takeover: boolean): Promise<'link' | 'relay'> => (async () => {
-        // When the link serves the session, the pane's stream open IS the
-        // attach; the relay request + channel socket below run only when the
-        // link cannot carry the pane.
         if (grant !== undefined) {
             const latest = await refreshHostedGrant(settings.machineId, grant!.credential, grant!.relayUrl, await channelRelayUrl(grant!.relayUrl, settings.machineId));
             if (latest !== undefined && latest.keyVersion >= grant!.keyVersion) {
@@ -150,7 +147,13 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 hosted = new DeviceV2Crypto(latest);
             }
         }
-        if (await attachViaLink(takeover) !== 'unavailable') return 'link';
+        // One-shot transport rule: a device with a byokit link has no relay
+        // fallback — the pane reattaches on the link when it returns. The
+        // relay channel serves only devices without a link (browsers, hosted).
+        if (sync.hasTerminalLink()) {
+            await attachViaLink(takeover);
+            return 'link';
+        }
         await sendAttachRequest(takeover);
         return 'relay';
     })();
@@ -525,10 +528,18 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             ...(options?.mode === undefined ? {} : { mode: options.mode }),
             takeover,
         });
-        if (offer === undefined) return 'unavailable';
+        if (offer === undefined) {
+            if (sync.hasTerminalLink()) throw new Error('terminal: link unavailable');
+            return 'unavailable';
+        }
         const started = Date.now();
         const transport = await offer.catch(() => undefined);
-        if (transport === undefined) return 'unavailable'; // the link cannot carry streams; the relay can
+        if (transport === undefined) {
+            // One-shot: no fallback to the relay channel when the link cannot
+            // carry the pane. The retry loop keeps trying the link.
+            if (sync.hasTerminalLink()) throw new Error('terminal: link refused the pane stream');
+            return 'unavailable';
+        }
         if (closedByUser || command.signal?.aborted) {
             transport.close();
             throw new Error('terminal: open cancelled');

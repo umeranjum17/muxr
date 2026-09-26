@@ -16,6 +16,9 @@ import { MuxrClient, MuxrRequestError, type ConnectionState, type MuxrClientOpti
 /** The slice of a session transport the catalog sync drives; `MuxrClient` satisfies it too. */
 export type SessionClient = {
     readonly state: ConnectionState;
+    /** True when this device has a byokit link (enrolled native device): the
+     *  one-shot transport for terminal panes, even while it is down. */
+    readonly linkCapable: boolean;
     connect(): void;
     close(): void;
     isLive(): boolean;
@@ -89,6 +92,10 @@ export class LinkFirstClient implements SessionClient {
 
     isLive(): boolean {
         return this.online || this.inner?.isLive() === true;
+    }
+
+    get linkCapable(): boolean {
+        return this.link !== undefined;
     }
 
     /** Which transport is serving the session; diagnostics and tests read this. */

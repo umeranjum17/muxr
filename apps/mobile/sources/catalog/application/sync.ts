@@ -809,6 +809,13 @@ class MuxrSync {
         return this.client?.terminalStream?.(args);
     }
 
+    /** True once this device has a byokit link (enrolled native device), even
+     *  while the link is momentarily reconnecting: the terminal then waits for
+     *  the link instead of falling back to the relay channel. */
+    hasTerminalLink(): boolean {
+        return this.client?.linkCapable === true;
+    }
+
     async request<T extends import('@muxr/contract').RequestType>(
         type: T,
         params: import('@muxr/contract').RequestParams<T>,

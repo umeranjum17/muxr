@@ -113,6 +113,7 @@ const RECONNECT_BUDGET_MS = 75_000;
 const RECONNECT_CEILING_MS = 4000;
 
 export class MuxrClient {
+    readonly linkCapable = false;
     private socket: WebSocket | undefined;
     private dialRelayUrl: string | undefined;
     private readonly pending = new Map<string, Pending>();
