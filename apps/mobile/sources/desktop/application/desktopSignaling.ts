@@ -133,6 +133,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
                     // a desktopId the host has already dropped.
                     stopPolling();
                     closeForwards();
+                    closeDesktopSignaling();
                     desktopId = null;
                     return;
                 }
@@ -150,6 +151,8 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
         if (timer !== null) clearInterval(timer);
         timer = null;
     };
+
+    const closeDesktopSignaling = (): void => sync.closeDesktopSignaling?.();
 
     return {
         async request<T>(method: string, params?: Record<string, unknown>): Promise<T> {
@@ -201,8 +204,12 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
                     closeForwards();
                     desktopId = null;
                     pending.length = 0;
-                    if (id === null) return { closed: true } as T;
-                    return await sync.request('desktop.close', { desktopId: id }) as T;
+                    if (id === null) { closeDesktopSignaling(); return { closed: true } as T; }
+                    try {
+                        return await sync.request('desktop.close', { desktopId: id }) as T;
+                    } finally {
+                        closeDesktopSignaling();
+                    }
                 }
                 default:
                     throw new Error(`the desktop client asked for an unsupported method: ${method}`);

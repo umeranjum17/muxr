@@ -206,8 +206,10 @@ describe('the phone session channel on the byokit link', () => {
         linkSockets.at(-1)!.terminate();
         await until(() => (!overLink.isLive() ? true : undefined), 'both transports unavailable');
         const waiting = overLink.request('machines.list', {}, 15_000);
+        const waitingDesktop = overLink.request('desktop.capabilities', {}, 30_000);
         await until(() => (overLink.transport === 'link' ? true : undefined), 'link recovers before relay', 30_000);
         expect((await waiting).length).toBeGreaterThan(0);
+        expect(await waitingDesktop).toMatchObject({ available: expect.any(Boolean) });
         failRelay = false;
         overLink.close();
     }, 120_000);

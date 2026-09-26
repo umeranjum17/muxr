@@ -802,6 +802,11 @@ class MuxrSync {
         return this.artifactWire.read(sessionId, artifactId, offset, length, timeoutMs);
     }
 
+    /** Release the transport-owned signaling resource when the desktop session ends. */
+    closeDesktopSignaling(): void {
+        this.client?.closeDesktopSignaling?.();
+    }
+
     getCredentials(): AuthCredentials | undefined {
         return this.credentials;
     }

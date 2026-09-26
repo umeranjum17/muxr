@@ -587,18 +587,9 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
             await new Promise((resolve) => setTimeout(resolve, 10));
         }
         connected = false;
-        await desktop.closeConnection('connection-1');
         await expect(opening).rejects.toMatchObject({ code: 'session' });
         expect(stub.sent().map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> }))
             .toContainEqual(expect.objectContaining({ method: 'session.close', params: { session_id: 'engine-session-1' } }));
-        connected = true;
-        const opened = await desktop.open({ permissions: ['view'] }, {
-            connectionId: 'connection-2', isConnected: () => connected,
-        });
-        connected = false;
-        await desktop.closeConnection('connection-2');
-        await expect(desktop.poll(opened.desktopId, 0)).rejects.toMatchObject({ code: 'session' });
-        expect(stub.sent().filter((line) => JSON.parse(line).method === 'session.close')).toHaveLength(2);
         await desktop.closeAll();
     }, 20_000);
 

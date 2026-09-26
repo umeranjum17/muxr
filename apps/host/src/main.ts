@@ -792,6 +792,9 @@ async function main(): Promise<void> {
                                 await source.voiceStream({ deviceId, channel, ...(sessionId === undefined ? {} : { sessionId }), transport });
                             },
                         },
+                        onDesktopConnection: host.setLinkDesktopConnection,
+                        onDeviceConnection: host.setLinkDeviceConnection,
+                        onDeviceRevoked: (deviceId) => host.closeDeviceDesktopSessions(deviceId),
                         onStatus: (status) => {
                             linkOnline = status === 'online';
                             process.stdout.write(`link relay: ${status}\n`);

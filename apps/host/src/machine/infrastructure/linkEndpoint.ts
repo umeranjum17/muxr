@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream } from '@byokit/link';
 import { isExpoToken, RelayClient } from '@byokit/relay';
 import {
@@ -8,7 +9,7 @@ import { attachFailureCode, type LinkTerminalAttachParams, type LinkTerminalPort
 import type { MachineCryptoState, MachineDeviceRecord } from '../domain/crypto.js';
 
 /** How the host answers one device's frame: the same answer the relay transport sends back. */
-export type LinkAnswer = (frame: ClientFrame, deviceId: string) => Promise<HostFrame | undefined>;
+export type LinkAnswer = (frame: ClientFrame, deviceId: string, connectionId?: string) => Promise<HostFrame | undefined>;
 
 export interface LinkEndpointOptions {
     /** The machine's relay socket URL, e.g. ws://127.0.0.1:8792/relay. */
@@ -31,6 +32,9 @@ export interface LinkEndpointOptions {
     terminals?: LinkTerminalPort;
     voiceStreams?: { attach(params: { deviceId: string; channel: string; sessionId?: string; stream: LinkStream }): Promise<void> };
     onStatus?: (status: string) => void;
+    onDesktopConnection?: (connectionId: string, active: boolean) => void;
+    onDeviceConnection?: (deviceId: string, active: boolean) => void;
+    onDeviceRevoked?: (deviceId: string) => void | Promise<void>;
 }
 
 interface DeviceMeta { muxrDeviceId: string }
@@ -184,12 +188,16 @@ export class LinkEndpoint {
     private synced: Promise<boolean> = Promise.resolve(true);
 
     private client?: RelayClient;
+    private connectionTimer?: ReturnType<typeof setInterval>;
+    private readonly deviceConnections = new Map<string, boolean>();
 
     private constructor(private readonly host: Host,
         private readonly currentCrypto: () => MachineCryptoState | undefined,
         private readonly savePushLevel: LinkEndpointOptions['savePushLevel'],
         private readonly connectRelay: () => RelayClient,
-        private readonly machineId?: string) {}
+        private readonly machineId?: string,
+        private readonly onDeviceConnection?: (deviceId: string, active: boolean) => void,
+        private readonly onDeviceRevoked?: (deviceId: string) => void | Promise<void>) {}
 
     static async open(options: LinkEndpointOptions): Promise<LinkEndpoint | undefined> {
         const keys = keyPairFrom(Buffer.from(options.crypto.boxSecretKey, 'base64'));
@@ -204,13 +212,12 @@ export class LinkEndpoint {
         // this assignment; the push handler needs the finished endpoint.
         let endpoint: LinkEndpoint;
         const host = await Host.open({
-            ...(options.terminals === undefined && options.voiceStreams === undefined ? {} : {
-                stream: (stream: LinkStream, req: LinkRequest, grant: Grant) => {
-                    if (req.op === 'voice') return streamVoice(stream, req, grant, options);
-                    if (req.op === 'terminal') return streamTerminal(stream, req, grant, options);
-                    throw new PublicLinkError('unsupported link stream');
-                },
-            }),
+            stream: (stream: LinkStream, req: LinkRequest, grant: Grant) => {
+                if (req.op === 'voice') return streamVoice(stream, req, grant, options);
+                if (req.op === 'terminal') return streamTerminal(stream, req, grant, options);
+                if (req.op === 'desktop') return streamDesktop(stream, req, grant, options);
+                throw new PublicLinkError('unsupported link stream');
+            },
             keys,
             name: options.machineName,
             grants: options.grants,
@@ -219,16 +226,11 @@ export class LinkEndpoint {
             confirm: () => false,
             allow: (req, grant) => {
                 if (!trusted(grant, options.currentCrypto())) return false;
-                // A terminal stream is admitted for control devices; observing
-                // devices are forced to observe mode in the handler below, the
-                // same way the relay dispatcher forces it on terminal.attach.
-                if (req.op === 'terminal') return true;
+                if (req.op === 'terminal' || req.op === 'desktop') return true;
                 if (req.op === 'voice') return grant.role === 'control' && options.voiceStreams !== undefined;
                 const frame = parseClientFrame(req.args);
-                if (frame.type !== req.op) return false;
-                // A device's own push address is device-local, never machine data.
-                return frame.type.startsWith('push.') || frame.type.startsWith('desktop.')
-                    || grant.role === 'control' || options.canView(frame);
+                if (frame.type !== req.op || frame.type.startsWith('desktop.')) return false;
+                return frame.type.startsWith('push.') || grant.role === 'control' || options.canView(frame);
             },
             handle: async (req, grant) => {
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
@@ -236,9 +238,6 @@ export class LinkEndpoint {
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) throw new Error('link: request op does not match its frame');
                 if (frame.type.startsWith('push.')) return endpoint.pushRequest(frame, grant, deviceId);
-                if (frame.type.startsWith('desktop.')) {
-                    throw new PublicLinkError('Remote desktop is not available over this link yet; use the existing relay connection.');
-                }
                 const response = await options.answer(frame, deviceId);
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
                 return response;
@@ -249,7 +248,7 @@ export class LinkEndpoint {
             name: options.machineName,
             ...(enrol === undefined ? {} : { enrol }),
             ...(options.onStatus === undefined ? {} : { onStatus: options.onStatus }),
-        }), options.machineId);
+        }), options.machineId, options.onDeviceConnection, options.onDeviceRevoked);
         if (!await endpoint.sync(options.crypto)) {
             endpoint.close();
             throw new Error('link: initial device sync failed');
@@ -259,6 +258,10 @@ export class LinkEndpoint {
 
     start(): void {
         this.client = this.connectRelay();
+        this.updateDeviceConnections();
+        // ponytail: poll the public online snapshot; switch to connection events if byokit adds them.
+        this.connectionTimer = setInterval(() => this.updateDeviceConnections(), 500);
+        this.connectionTimer.unref?.();
     }
 
     /** Enrol the phones this machine now trusts and revoke the ones it no longer does. */
@@ -358,6 +361,11 @@ export class LinkEndpoint {
     }
 
     close(): void {
+        if (this.connectionTimer !== undefined) clearInterval(this.connectionTimer);
+        for (const [deviceId, active] of this.deviceConnections) {
+            if (active) this.onDeviceConnection?.(deviceId, false);
+        }
+        this.deviceConnections.clear();
         this.client?.stop();
         this.host.close();
     }
@@ -373,12 +381,15 @@ export class LinkEndpoint {
             // A role-only change keeps the pairing: the phone reconnects under
             // the new grant without being told it was removed.
             if (device === undefined || !sameKey) {
-                await this.client?.revoke(grant.id);
-            } else if (roleMatches) {
-                enrolled.add(device.deviceId);
-            } else {
-                // The device re-enrols under the new role below.
-            }
+                if (this.client !== undefined) await this.client.revoke(grant.id);
+                else await this.host.revoke(grant.id);
+                if (deviceId !== undefined) {
+                    this.deviceConnections.delete(deviceId);
+                    this.onDeviceConnection?.(deviceId, false);
+                    await this.onDeviceRevoked?.(deviceId);
+                }
+            } else if (roleMatches) enrolled.add(device.deviceId);
+            else if (deviceId !== undefined) await this.onDeviceRevoked?.(deviceId);
         }
         for (const device of wanted.values()) {
             if (enrolled.has(device.deviceId)) continue;
@@ -390,6 +401,86 @@ export class LinkEndpoint {
             });
         }
     }
+
+    private updateDeviceConnections(): void {
+        const crypto = this.currentCrypto();
+        const seen = new Set<string>();
+        for (const grant of this.host.devices()) {
+            const deviceId = muxrDeviceIdOf(grant);
+            if (deviceId === undefined || !trusted(grant, crypto)) continue;
+            seen.add(deviceId);
+            if (this.deviceConnections.get(deviceId) === grant.online) continue;
+            this.deviceConnections.set(deviceId, grant.online);
+            this.onDeviceConnection?.(deviceId, grant.online);
+        }
+        for (const [deviceId, online] of this.deviceConnections) {
+            if (seen.has(deviceId) || !online) continue;
+            this.deviceConnections.set(deviceId, false);
+            this.onDeviceConnection?.(deviceId, false);
+        }
+    }
+}
+
+/** One stream carries desktop signaling RPC frames; the WebRTC media path is unchanged. */
+async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
+    if (req.op !== 'desktop' || !trusted(grant, options.currentCrypto())) {
+        throw new PublicLinkError('desktop: device is no longer trusted');
+    }
+    const deviceId = muxrDeviceIdOf(grant)!;
+    const connectionId = `link:${deviceId}:${randomUUID()}`;
+    let buffer = '';
+    const decoder = new TextDecoder();
+    let work = Promise.resolve();
+    let finish!: () => void;
+    const ended = new Promise<void>((resolve) => { finish = resolve; });
+    options.onDeviceConnection?.(deviceId, true);
+    options.onDesktopConnection?.(connectionId, true);
+    stream.onEnd = () => finish();
+    stream.onData = (chunk) => {
+        buffer += decoder.decode(chunk, { stream: true });
+        if (buffer.length > 1_000_000) { stream.end('desktop signaling request too large'); return; }
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+            work = work.then(async () => {
+                let frame: ClientFrame;
+                try { frame = parseClientFrame(JSON.parse(line)); }
+                catch { stream.end('malformed desktop signaling request'); return; }
+                if (!('requestId' in frame)) { stream.end('invalid desktop signaling request'); return; }
+                if (!frame.type.startsWith('desktop.')) {
+                    await stream.write(JSON.stringify({ type: 'result', requestId: frame.requestId, ok: false, error: 'only desktop signaling is allowed on this stream' }) + '\n');
+                    return;
+                }
+                if (!trusted(grant, options.currentCrypto())) {
+                    stream.end('desktop device is no longer trusted');
+                    return;
+                }
+                if (frame.type === 'desktop.open' && grant.role === 'view'
+                    && frame.params.permissions.some((permission) => permission !== 'view')) {
+                    await stream.write(JSON.stringify({ type: 'result', requestId: frame.requestId, ok: false, error: 'this device may only view the desktop', code: 'permission-denied' }) + '\n');
+                    return;
+                }
+                try {
+                    const response = await options.answer(frame, deviceId, connectionId);
+                    if (!trusted(grant, options.currentCrypto())) {
+                        stream.end('desktop device is no longer trusted');
+                        return;
+                    }
+                    if (response !== undefined) await stream.write(JSON.stringify(response) + '\n');
+                } catch (error) {
+                    const value = error as { code?: unknown };
+                    await stream.write(JSON.stringify({
+                        type: 'result', requestId: frame.requestId, ok: false,
+                        error: error instanceof Error ? error.message : String(error),
+                        ...(typeof value.code === 'string' ? { code: value.code } : {}),
+                    }) + '\n');
+                }
+            });
+        }
+        return work;
+    };
+    try { await ended; }
+    finally { options.onDesktopConnection?.(connectionId, false); }
 }
 
 /**
