@@ -101,10 +101,17 @@ describe('TerminalManager stream exit', () => {
         const root = Buffer.alloc(32).toString('base64');
         const pending: Array<(pane: string) => void> = [];
         let authorized = true;
+        let blockFocus = false;
+        let releaseFocus: (() => void) | undefined;
+        const focused = vi.fn();
         const manager = new TerminalManager({
             relayUrl: 'ws://relay.test', machineId: 'machine',
             resolvePane: () => new Promise((resolve) => pending.push(resolve)),
-            focusSession: vi.fn(async () => undefined),
+            focusSession: async (_session, assertActive) => {
+                if (blockFocus) await new Promise<void>((resolve) => { releaseFocus = resolve; });
+                assertActive?.();
+                focused();
+            },
             hostedE2ee: { machineId: 'machine', keyVersion: 2, dataKey: root, ingressKeys: { phone: root } },
         });
         const pipe = () => {
@@ -139,6 +146,21 @@ describe('TerminalManager stream exit', () => {
         expect(fakes.children).toHaveLength(0);
 
         authorized = true;
+        blockFocus = true;
+        const pendingFocus = pipe();
+        const focusAttach = manager.attach({ sessionId: 'session', channel: 'pending-focus', cols: 80, rows: 24,
+            deviceId: 'phone', socket: pendingFocus, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });
+        await vi.waitFor(() => expect(pending).toHaveLength(1));
+        pending.shift()!('pane');
+        await vi.waitFor(() => expect(releaseFocus).toBeDefined());
+        authorized = false;
+        releaseFocus!();
+        await expect(focusAttach).rejects.toThrow(/revoked/);
+        expect(focused).not.toHaveBeenCalled();
+        expect(fakes.children).toHaveLength(0);
+
+        authorized = true;
+        blockFocus = false;
         const live = pipe();
         const third = manager.attach({ sessionId: 'session', channel: 'live', cols: 80, rows: 24,
             deviceId: 'phone', socket: live, assertAuthorized: () => { if (!authorized) throw new Error('revoked'); } });

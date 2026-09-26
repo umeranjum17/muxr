@@ -19,7 +19,7 @@ export interface TerminalManagerOptions {
     machineId: string;
     token?: string;
     resolvePane: (sessionId: string) => Promise<string>;
-    focusSession: (sessionId: string) => Promise<void>;
+    focusSession: (sessionId: string, assertActive?: () => void) => Promise<void>;
     /** Herdr's own viewport position for a pane. Omitted, the phone is told nothing. */
     readPaneScroll?: (paneId: string) => Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }>;
     herdrBin?: string;
@@ -162,7 +162,7 @@ export class TerminalManager {
         // Selecting a control session must select that pane on the desk;
         // observers must never move it.
         // Do this after authority/takeover checks and before opening resources.
-        if (mode === 'control') await this.options.focusSession(params.sessionId);
+        if (mode === 'control') await this.options.focusSession(params.sessionId, assertActive);
         assertActive();
 
         let socket: TerminalPipe;
