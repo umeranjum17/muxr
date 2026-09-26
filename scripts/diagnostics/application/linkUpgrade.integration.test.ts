@@ -390,7 +390,7 @@ describe('link upgrade for an already-paired phone', () => {
             ...childHookEnv({ hook: 'holdRequest', suffix: '/relay/v1/hosts', release: releaseHost }),
         });
         await until(() => host!.output().includes('host -> ') ? true : undefined, 'restarted host');
-        const retry = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair']);
+        const retry = launch([join(repoRoot, 'scripts/cli.mjs'), 'pair'], childHookEnv({ hook: 'holdRequest', suffix: '/grant', release: releaseHost }));
         const early = await Promise.race([recovering.then(() => true), new Promise<false>((resolve) => setTimeout(() => resolve(false), 2500))]);
         expect(early).toBe(false);
         writeFileSync(releaseHost, 'go');
