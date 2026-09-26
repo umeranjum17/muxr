@@ -22,8 +22,8 @@ import { DeviceLink, hostId, type DeviceGrant, type LinkStatus } from '@byokit/l
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { waitForRelay } from './waitForRelay.mjs';
-import { machineIdentity, pairingIntent } from '../../setup/index.mjs';
-import { createDeviceGrant, deriveV2Key, newPairingCode, newV2ReplayTracker, openV2, pairingCodeHash, sealPairingCodePayload } from '../../setup/infrastructure/runtime.mjs';
+import { machineIdentity, newPairingCode, pairingCodeHash, pairingIntent } from '../../setup/index.mjs';
+import { createDeviceGrant, deriveV2Key, newV2ReplayTracker, openV2, sealPairingCodePayload } from '@muxr/crypto';
 
 const phone = vi.hoisted(() => ({ secure: new Map<string, string>(), local: new Map<string, string>() }));
 

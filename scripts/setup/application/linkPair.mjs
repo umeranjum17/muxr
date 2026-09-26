@@ -26,7 +26,7 @@ import { selfhostCredential, writeSelfhostState } from '../infrastructure/selfho
 
 const PAIR_WINDOW_MS = 120_000;
 /** How long the phone has to prove itself over the machine's link. */
-const VERIFY_DEADLINE_MS = 30_000;
+const VERIFY_DEADLINE_MS = 60_000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -67,7 +67,7 @@ export function machineLinkUrl(relayUrl, machineBoxPublicKeyBase64) {
  * the paired device record once the phone has proven itself, or throws when
  * pairing was declined, failed, or never completed.
  */
-export async function pairOverLink(state, { approve, pairMs = PAIR_WINDOW_MS, signal } = {}) {
+export async function linkPair(state, { approve, pairMs = PAIR_WINDOW_MS, signal } = {}) {
     if (typeof selfhostCredential(state) !== 'string') throw new Error('muxr is not set up yet; run `muxr setup` first');
     const machine = state.machine;
     const confirm = approve ?? showApproval;

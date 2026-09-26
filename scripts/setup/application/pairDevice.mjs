@@ -25,7 +25,7 @@ import {
 } from '../infrastructure/runtime.mjs';
 import { daemonDefinition, runDaemon } from '../infrastructure/daemon.mjs';
 import { approveScreenSharing } from './approveScreenSharing.mjs';
-import { pairOverLink } from './linkPair.mjs';
+import { linkPair } from './linkPair.mjs';
 import {
     readSelfhostState,
     selfhostControlBase,
@@ -69,7 +69,7 @@ export async function mintDeviceGrant(state, requestedKind = 'native', requested
         // Native pairing runs over the byokit link with approval on this
         // computer (migration step 4, decision D1); only browsers still use
         // the relay pair session.
-        const record = await pairOverLink(state);
+        const record = await linkPair(state);
         print(`  ✓ paired and verified ${record.name || 'device'}`);
         return 0;
     }
