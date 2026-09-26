@@ -49,7 +49,6 @@ import { claimHostedPairing, type StoredHostedGrant } from '../../../apps/mobile
 import { MuxrClient } from '../../../apps/mobile/sources/pairing/infrastructure/muxrClient.js';
 
 const repoRoot = join(import.meta.dirname, '../../..');
-console.log('FILE-VERSION-7');
 const home = mkdtempSync(join(tmpdir(), 'muxr-link-upgrade-'));
 const children = new Set<ChildProcess>();
 // Static loader: the spawned process imports the hook fixture from its own

@@ -121,6 +121,10 @@ export default function PairScreen() {
     const sshRoute = !browser && routeParams.route === 'ssh' && Platform.OS === 'android' && sshTunnelAvailable();
     const reviewPairing = React.useCallback((raw: string) => {
         if (looksLikeLinkOffer(raw.trim())) {
+            if (browser) {
+                setState({ phase: 'error', message: 'Native pairing codes are for phones. Use `muxr pair --browser` on the computer.' });
+                return;
+            }
             const offer = raw.trim();
             setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
             void linkPairMachineName(offer).then((name) => {
@@ -134,7 +138,7 @@ export default function PairScreen() {
         } catch (cause) {
             setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
         }
-    }, []);
+    }, [browser]);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const browserAuthority = browser && state?.url ? hostedPairingAuthority(state.url) : 'observe';
     const grants = browser

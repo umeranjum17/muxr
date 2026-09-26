@@ -32,6 +32,9 @@ export interface LinkPairAnswer {
     relayUrl: string;
     deviceId: string;
     keyVersion: number;
+    machineSigningPublicKey: string;
+    credential: string;
+    grant: string;
     authority: 'control' | 'observe';
     linkUrl: string;
 }
@@ -99,7 +102,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
             claim = grant;
         }
     } catch (cause) {
-        throw new Error(cause instanceof LinkError && cause.code in LINK_WORDS ? LINK_WORDS[cause.code] : 'pairing failed');
+        throw cause instanceof Error ? cause : new Error('pairing failed');
     }
     // The pairing host lives in the `muxr pair` process; reconnect with the
     // grant it just approved to trade the machine details.
@@ -111,7 +114,9 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         if (typeof answer?.machineId !== 'string' || typeof answer?.machineBoxPublicKey !== 'string'
             || typeof answer?.linkUrl !== 'string' || !/^wss?:\/\//.test(answer.linkUrl)
             || typeof answer?.relayUrl !== 'string' || typeof answer?.deviceId !== 'string'
-            || !Number.isInteger(answer?.keyVersion) || answer.keyVersion < 1) {
+            || !Number.isInteger(answer?.keyVersion) || answer.keyVersion < 1
+            || typeof answer?.machineSigningPublicKey !== 'string' || typeof answer?.credential !== 'string'
+            || answer.credential === '' || typeof answer?.grant !== 'string') {
             throw new Error('the computer sent an incomplete pairing answer');
         }
         await verifyMachineLink(answer, key, pending.name);

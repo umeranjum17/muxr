@@ -455,9 +455,10 @@ async function completePendingHostedPair(pending: PendingHostedPair, wait: boole
 }
 
 /** Resume a claim that survived an app/process restart. */
-export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | undefined> {
+export async function resumePendingHostedPairing(includeLegacy = true): Promise<StoredHostedGrant | undefined> {
     const linkPending = await secretGet(PENDING_LINK_PAIR_KEY);
     if (linkPending !== null) return resumePendingLinkPairing();
+    if (!includeLegacy) return undefined;
     const raw = await secretGet(PENDING_PAIR_KEY);
     if (raw === null) return undefined;
     return completePendingHostedPair(JSON.parse(raw) as PendingHostedPair, false);
@@ -471,9 +472,6 @@ interface PendingLinkPair {
     startedAt: number;
 }
 
-/** The durable expiry a native grant carries (scripts/setup DURABLE_GRANT_EXPIRES_AT). */
-const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
-
 /**
  * Native pairing over the byokit link (migration step 4): scan the computer's
  * link QR, show the two confirmation words while the person at the computer
@@ -483,6 +481,7 @@ const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
  * death resumes it rather than leaving the computer holding an unused grant.
  */
 export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void } = {}): Promise<StoredHostedGrant> {
+    if (Platform.OS === 'web') throw new Error('Native pairing codes are for phones. Use `muxr pair --browser` on the computer.');
     const secretKey = b64url(linkKeyPair().secretKey);
     const pending: PendingLinkPair = { scanned, name: hostedDeviceName(), secretKey, startedAt: Date.now() };
     await secretSet(PENDING_LINK_PAIR_KEY, JSON.stringify(pending));
@@ -517,33 +516,29 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
         answer = result;
         key = result.key;
     } catch (cause) {
+        const message = cause instanceof LinkError && cause.code in LINK_WORDS
+            ? LINK_WORDS[cause.code] : cause instanceof Error ? cause.message : String(cause);
         if (Date.now() - pending.startedAt > 4 * 60_000
-            || (cause instanceof Error && (cause.message === 'Your computer said no to this device.' || cause.message.includes('run out')))) {
+            || message === 'Your computer said no to this device.' || message.includes('run out')) {
             await secretDelete(PENDING_LINK_PAIR_KEY);
         }
-        if (cause instanceof LinkError && cause.code in LINK_WORDS) throw new Error(LINK_WORDS[cause.code]);
-        throw cause;
+        throw new Error(message);
     }
-    const stored: StoredHostedGrant = {
-        machineId: answer.machineId,
-        // The link pins the machine by its box key; the old transport's
-        // signing key never crosses a link pairing.
-        machineSigningPublicKey: '',
+    const deviceKey = {
+        publicKey: Buffer.from(key.publicKey).toString('base64'),
+        secretKey: Buffer.from(key.secretKey).toString('base64'),
+    };
+    const verified = verifyDeviceGrant(JSON.parse(answer.grant) as SealedDeviceGrant, {
+        pinnedMachineSigningPublicKey: answer.machineSigningPublicKey,
+        deviceKey,
         deviceId: answer.deviceId,
-        devicePublicKey: Buffer.from(key.publicKey).toString('base64'),
-        keyVersion: answer.keyVersion,
-        expiresAt: DURABLE_GRANT_EXPIRES_AT,
-        authority: 'control',
-        deviceKey: {
-            publicKey: Buffer.from(key.publicKey).toString('base64'),
-            secretKey: Buffer.from(key.secretKey).toString('base64'),
-        },
-        // The relay transport stays unused for link-paired phones; push
-        // and its credential arrive with the relay migration step.
+    });
+    if (verified.machineId !== answer.machineId || verified.keyVersion !== answer.keyVersion) throw new Error('pairing grant does not match the machine');
+    const stored: StoredHostedGrant = {
+        ...verified,
+        deviceKey,
         machineBoxPublicKey: Buffer.from(unb64url(answer.machineBoxPublicKey)).toString('base64'),
-        credential: '',
-        dataKey: '',
-        ingressKey: '',
+        credential: answer.credential,
         relayUrl: answer.relayUrl,
         machineName: answer.machineName,
         source: 'selfhost',
