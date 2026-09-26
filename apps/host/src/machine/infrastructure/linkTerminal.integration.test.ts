@@ -111,8 +111,6 @@ describe('byokit link streams (real relay + real host)', () => {
         cleanups.push(() => voiceRuntime.closeAll());
 
         const terminals = new TerminalManager({
-            relayUrl,
-            machineId: 'machine-test',
             resolvePane: async (sessionId) => `pane-${sessionId}`,
             focusSession: async () => undefined,
             readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),

@@ -18,7 +18,6 @@ import {
     focusAgent,
     listAgents,
     openAgent,
-    openTerminal,
     promptAgent,
     readAgentSession,
     runPluginAction,
@@ -84,7 +83,7 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'artifact.list', 'artifact.fetch', 'artifact.read', 'unread.catalog',
     // The pre-rename spellings are the same read-only calls.
     'attachment.list', 'attachment.fetch', 'attachment.read',
-    'attention.catalog', 'lifecycle.catalog', 'machines.list', 'terminal.attach',
+    'attention.catalog', 'lifecycle.catalog', 'machines.list',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
     'usage.report', 'usage.now',
     // Voice readiness is readable by every grant; changing a provider or its
@@ -372,7 +371,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(options.requirePreviewEncryption === undefined ? {} : { requireEncryption: options.requirePreviewEncryption }),
             attach: attachPreviewTransport,
         }, params)),
-        'terminal.attach': async (params) => useCaseData(await openTerminal(options.terminals, params)),
+        'terminal.attach': async () => { throw new Error('terminal attach requires a link stream'); },
         'terminal.detach': async (params) => {
             await closeTerminal(options.terminals, params);
             return null;
@@ -392,9 +391,6 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         );
         if (isViewOnlyDevice && !viewOnlyRequestAllowed(request, source)) {
             return fail(request.requestId, 'this device grant is view-only; pair a control browser or use the native app');
-        }
-        if (isViewOnlyDevice && request.type === 'terminal.attach') {
-            request = { ...request, params: { ...request.params, mode: 'observe' } } as ClientRequest;
         }
         if (isViewOnlyDevice && request.type === 'session.open') {
             try {

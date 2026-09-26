@@ -9,40 +9,15 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import WebSocket from 'ws';
-import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope, type TerminalScrollStateFrame } from '@muxr/contract';
-import { v2EnvelopeSequence } from '@muxr/crypto';
-import { HostV2Crypto, type HostedMachineKeys, deviceTableIsObserve, ticketWsCredential, type TerminalPipe } from '../../machine/index.js';
+import { type TerminalScrollStateFrame } from '@muxr/contract';
+import { type TerminalPipe } from '../../machine/index.js';
 
 export interface TerminalManagerOptions {
-    relayUrl: string;
-    machineId: string;
-    token?: string;
     resolvePane: (sessionId: string) => Promise<string>;
     focusSession: (sessionId: string, assertActive?: () => void) => Promise<void>;
     /** Herdr's own viewport position for a pane. Omitted, the phone is told nothing. */
     readPaneScroll?: (paneId: string) => Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }>;
     herdrBin?: string;
-    hostedE2ee?: HostedMachineKeys;
-}
-
-/** Wraps the relay channel socket: one ws message per line, as the phone sends them. */
-function relayTerminalSocket(socket: WebSocket): TerminalPipe {
-    const lines = new Set<(line: string) => void>();
-    const ends = new Set<() => void>();
-    const end = (): void => { for (const listener of [...ends]) listener(); };
-    socket.on('message', (data) => { const line = String(data); for (const listener of [...lines]) listener(line); });
-    socket.on('close', end);
-    socket.on('error', end);
-    return {
-        get isOpen() { return socket.readyState === WebSocket.OPEN; },
-        send: (line) => socket.send(line),
-        onLine: (listener) => { lines.add(listener); return () => { lines.delete(listener); }; },
-        onEnd: (listener) => { ends.add(listener); return () => { ends.delete(listener); }; },
-        close: () => {
-            if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
-        },
-    };
 }
 
 interface Attachment {
@@ -72,12 +47,11 @@ export type TerminalAttachParams = {
     mode?: 'control' | 'observe';
     deviceId?: string;
     takeover?: boolean;
-    /** An already-open pipe (the byokit link). Given, the relay channel is skipped. */
-    socket?: TerminalPipe;
+    /** The already-open byokit link stream. */
+    socket: TerminalPipe;
     assertAuthorized?: () => void;
 };
 
-const ATTACH_TIMEOUT_MS = 10_000;
 const STDERR_TAIL_BYTES = 4 * 1024;
 // Herdr's terminal client turns an expired handshake read timeout into an I/O
 // framing error, printed with the platform's EAGAIN wording. Before a real
@@ -109,20 +83,13 @@ export class TerminalManager {
     /** Attach and detach for one channel must have one owner at a time. */
     private readonly channelQueues = new Map<string, Promise<void>>();
     private readonly controlQueues = new Map<string, Promise<void>>();
-    private readonly hosted: HostV2Crypto | undefined;
-
-    constructor(private readonly options: TerminalManagerOptions) {
-        this.hosted = options.hostedE2ee === undefined ? undefined : new HostV2Crypto(options.hostedE2ee);
-    }
+    constructor(private readonly options: TerminalManagerOptions) {}
 
     async attach(params: TerminalAttachParams): Promise<{ paneId: string }> {
         return this.serializeChannel(params.channel, () => this.attachUnlocked(params));
     }
 
     private async attachUnlocked(params: TerminalAttachParams): Promise<{ paneId: string }> {
-        if (this.hosted !== undefined && (params.deviceId === undefined || this.options.hostedE2ee?.ingressKeys[params.deviceId] === undefined)) {
-            throw Object.assign(new Error('terminal: hosted attach requires an active device grant'), { code: 'e2ee-required' });
-        }
         const paneId = await this.options.resolvePane(params.sessionId);
         if ((params.mode ?? 'control') !== 'control') return this.attachNow(params, paneId);
 
@@ -142,15 +109,13 @@ export class TerminalManager {
     private async attachNow(params: TerminalAttachParams, paneId: string): Promise<{ paneId: string }> {
         const assertActive = (): void => {
             params.assertAuthorized?.();
-            if (params.socket !== undefined && !params.socket.isOpen) {
+            if (!params.socket.isOpen) {
                 throw Object.assign(new Error('terminal: link stream ended'), { code: 'socket-error' });
             }
         };
         assertActive();
-        const mode = this.hosted !== undefined && deviceTableIsObserve(this.options.hostedE2ee?.deviceAuthorities, params.deviceId)
-            ? 'observe'
-            : params.mode ?? 'control';
-        if (mode === 'control' && this.hosted !== undefined) {
+        const mode = params.mode ?? 'control';
+        if (mode === 'control') {
             const controller = [...this.attachments.values()].find((attachment) =>
                 attachment.mode === 'control' && attachment.paneId === paneId,
             );
@@ -165,48 +130,7 @@ export class TerminalManager {
         if (mode === 'control') await this.options.focusSession(params.sessionId, assertActive);
         assertActive();
 
-        let socket: TerminalPipe;
-        if (params.socket !== undefined) {
-            socket = params.socket;
-        } else {
-            const credential = ticketWsCredential(this.options.token);
-            let socketUrl: string;
-            if (credential === undefined) {
-                socketUrl = terminalSocketUrl(this.options.relayUrl, {
-                    machineId: this.options.machineId,
-                    channel: params.channel,
-                    role: 'machine',
-                    ...(this.options.token === undefined ? {} : { token: this.options.token }),
-                });
-            } else {
-                socketUrl = ticketSocketUrl(this.options.relayUrl, await issueWsTicket({
-                    relayUrl: this.options.relayUrl,
-                    credential,
-                    machineId: this.options.machineId,
-                    role: 'machine',
-                    transport: 'terminal',
-                    channel: params.channel,
-                }), 'terminal');
-            }
-            const ws = new WebSocket(socketUrl);
-            await new Promise<void>((resolve, reject) => {
-                const timer = setTimeout(() => {
-                    ws.close();
-                    reject(Object.assign(new Error('terminal: relay did not accept the channel'), { code: 'socket-timeout' }));
-                }, ATTACH_TIMEOUT_MS);
-                ws.once('open', () => {
-                    clearTimeout(timer);
-                    // Small input frames must not wait on Nagle/delayed-ACK stalls.
-                    (ws as unknown as { _socket?: { setNoDelay(on: boolean): void } })._socket?.setNoDelay(true);
-                    resolve();
-                });
-                ws.once('error', (error: Error) => {
-                    clearTimeout(timer);
-                    reject(error);
-                });
-            });
-            socket = relayTerminalSocket(ws);
-        }
+        const socket = params.socket;
 
         assertActive();
         const herdr = this.options.herdrBin ?? 'herdr';
@@ -351,19 +275,6 @@ export class TerminalManager {
             if (input === null || input.destroyed || !input.writable) return;
             if (text.trim().length === 0) return;
             try {
-                if (this.hosted !== undefined) {
-                    const envelope = JSON.parse(text) as Envelope;
-                    if (envelope.header.machineId !== this.options.machineId
-                        || envelope.header.senderId !== params.deviceId
-                        || envelope.header.recipientId !== this.options.machineId
-                        || envelope.header.channel !== 'terminal'
-                        || envelope.header.streamId !== params.channel
-                        || envelope.header.keyVersion !== this.options.hostedE2ee?.keyVersion
-                        || envelope.header.seq !== v2EnvelopeSequence(envelope.payload)) {
-                        throw new Error('terminal: invalid hosted routing context');
-                    }
-                    text = this.hosted.open(params.deviceId!, 'terminal', params.channel, envelope.payload);
-                }
                 input.write(`${text}\n`);
                 // Whatever a scroll turns out to move -- Herdr's own
                 // scrollback, a program's wheel handler, or nothing at all --
@@ -494,34 +405,11 @@ export class TerminalManager {
     }
 
     private sendToPhone(attachment: Attachment, plaintext: string): void {
-        if (this.authorized(attachment)) this.sendLine(attachment.socket, attachment.channel, plaintext);
+        if (this.authorized(attachment) && attachment.socket.isOpen) attachment.socket.send(plaintext);
     }
 
     sendResult(socket: TerminalPipe, channel: string, result: object): void {
-        this.sendLine(socket, channel, JSON.stringify(result));
-    }
-
-    private sendLine(socket: TerminalPipe, channel: string, plaintext: string): void {
-        if (!socket.isOpen) return;
-        if (this.hosted === undefined) {
-            socket.send(plaintext);
-            return;
-        }
-        const payload = this.hosted.seal('terminal', channel, plaintext);
-        const envelope: Envelope = {
-            header: {
-                machineId: this.options.machineId,
-                senderId: this.options.machineId,
-                recipientId: '*',
-                channel: 'terminal',
-                streamId: channel,
-                keyVersion: this.options.hostedE2ee!.keyVersion,
-                seq: v2EnvelopeSequence(payload),
-                at: Date.now(),
-            },
-            payload,
-        };
-        socket.send(JSON.stringify(envelope));
+        if (socket.isOpen) socket.send(JSON.stringify(result));
     }
 
     private serializeChannel<T>(channel: string, operation: () => Promise<T>): Promise<T> {
