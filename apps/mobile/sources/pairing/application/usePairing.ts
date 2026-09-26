@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { requiresStoredAuthority } from '../infrastructure/pairingPlatform';
+import { pairingConsentCopy } from '../infrastructure/pairingPlatform';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
@@ -41,22 +41,16 @@ export function useHostedPairing() {
  * over the machine's own link both land.
  */
 export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>, options: { tunnelPort?: number } = {}): Promise<boolean> {
-    const browser = requiresStoredAuthority();
+    const copy = pairingConsentCopy();
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
-    const approved = await Modal.confirm(
-        `Pair with ${machineName}?`,
-        browser
-            ? 'This browser will receive the access shown on the pairing screen. Only continue if you just ran `muxr pair --browser` on that computer.'
-            : 'This phone will be able to read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr.\n\nOnly continue if you just ran `muxr pair` there.',
-        { confirmText: 'Pair' },
-    );
+    const approved = await Modal.confirm(`Pair with ${machineName}?`, copy.confirmation, { confirmText: 'Pair' });
     if (!approved) return false;
     const grant = await pairOverLink(scanned, {
         ...options,
         onWords: (words) => {
             void Modal.alert(
                 'Compare the two words',
-                `The computer is deciding whether to pair this ${browser ? 'browser' : 'phone'}.\n\nIt shows: ${words}\n\nIt should only be approved if these words match what it displays.`,
+                copy.comparison(words),
             );
         },
     });

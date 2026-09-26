@@ -1,6 +1,6 @@
 import { probeDiscoveredRelay } from '../infrastructure/linkGrant';
 import { cachedGrant, clearGrants, deleteGrant, loadGrants, storeGrant } from '../infrastructure/grantStore';
-import { assertSupportedOffer, deviceAuthority, pairingDeviceName } from '../infrastructure/pairingPlatform';
+import { assertSupportedOffer, pairingDeviceName } from '../infrastructure/pairingPlatform';
 import {
     generateKeyPair,
     type DeviceGrant,
@@ -56,11 +56,6 @@ export async function loadHostedGrant(machineId: string): Promise<StoredHostedGr
 
 export function getCachedHostedGrant(machineId: string): StoredHostedGrant | undefined {
     return cachedGrant(machineId);
-}
-
-export function currentDeviceAuthority(): 'control' | 'observe' {
-    const machineId = getCachedConnectionSettings().machineId;
-    return deviceAuthority(machineId, cachedGrant(machineId));
 }
 
 /** Every machine this device is paired to, for the Settings machine picker. */
