@@ -11,7 +11,7 @@ import {
     type RequestType,
     type SessionEvent,
 } from '@muxr/contract';
-import { deriveLinkGrant } from '../application/linkGrant';
+import { deriveLinkGrant } from './linkGrant';
 import { MuxrClient, MuxrRequestError, type ConnectionState, type MuxrClientOptions } from './muxrClient';
 
 /** The slice of a session transport the catalog sync drives; `MuxrClient` satisfies it too. */
