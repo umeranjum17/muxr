@@ -2,6 +2,7 @@ import WebSocket from 'ws';
 import { DeviceLink, LinkError, hostId, type DeviceGrant as LinkGrant, type LinkStatus } from '@byokit/link';
 import { nextRequestId, type HostFrame, type RequestParams, type RequestResult } from '@muxr/contract';
 import { verifyDeviceGrant, type KeyPair, type SealedDeviceGrant } from '@muxr/crypto';
+import type { StoredPeerRelationship } from './store.js';
 
 export type PeerClientRequestType = 'machines.list' | 'session.list' | 'herdr.tree' | 'herdr.agentKinds'
     | 'pane.read' | 'session.status' | 'agent.watch' | 'session.prompt' | 'session.start';
@@ -29,6 +30,18 @@ export interface NodePeerClientOptions {
     sealedGrant: SealedDeviceGrant;
     requestTimeoutMs?: number;
     onConnectionDiagnostic?: (event: PeerConnectionDiagnostic) => void;
+}
+
+export function createPeerClient(relationship: StoredPeerRelationship, onConnectionDiagnostic?: (event: PeerConnectionDiagnostic) => void): PeerClientTransport {
+    return new NodePeerClient({
+        relayUrl: relationship.relayUrl!,
+        machineId: relationship.machineId,
+        peerDeviceId: relationship.peerDeviceId!,
+        peerKey: relationship.peerKey!,
+        pinnedMachineSigningPublicKey: relationship.targetMachineSigningPublicKey!,
+        sealedGrant: relationship.sealedGrant!,
+        ...(onConnectionDiagnostic === undefined ? {} : { onConnectionDiagnostic }),
+    });
 }
 
 const aborted = (): Error => Object.assign(new Error('peer request cancelled'), { name: 'AbortError' });

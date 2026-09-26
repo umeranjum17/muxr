@@ -39,6 +39,10 @@ export interface LinkPairAnswer {
 export type { LinkDeviceGrant };
 export { LinkError, LINK_WORDS, b64url, keyPairFrom, linkKeyPair, unb64url };
 
+export function isBrowserLinkOffer(scanned: string): boolean {
+    return /^https:\/\/[^#]+\/pair#byokit-link:1:/.test(scanned);
+}
+
 /** The machine display name for consent, parsed for display only; the pairing itself re-validates. */
 export function linkOfferName(scanned: string, deviceName: string): string | undefined {
     try {

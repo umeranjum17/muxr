@@ -1,7 +1,6 @@
 import { Platform } from 'react-native';
-import { DeviceLink } from '@byokit/link';
 import { encodeBase64 } from '@/encryption/base64';
-import { deriveLinkGrant } from '../infrastructure/linkGrant';
+import { probeDiscoveredRelay } from '../infrastructure/linkGrant';
 import {
     generateKeyPair,
     type DeviceGrant,
@@ -14,12 +13,12 @@ import {
     LINK_WORDS,
     linkKeyPair,
     linkOfferName,
+    isBrowserLinkOffer,
     unb64url,
     type LinkPairAnswer,
     type LinkPairPending,
 } from '../infrastructure/linkPairClient';
-import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from '../infrastructure/webSecureStore';
-import { deleteNativeSecret, getNativeSecret, setNativeSecret } from '../infrastructure/nativeSecretStore';
+import { secretDelete, secretGet, secretSet, grantSecretNames } from '../infrastructure/hostedSecretStore';
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
 import { grantRejectsDowngrade } from '../domain/hostedGrant';
 import { restoreConnection } from './restoreConnection';
@@ -44,10 +43,6 @@ export interface StoredHostedGrant extends DeviceGrant {
 let deviceCache: KeyPair | undefined;
 let devicePending: Promise<KeyPair> | undefined;
 let grantsCache: Record<string, StoredHostedGrant> | undefined;
-
-const secretGet = (key: string): Promise<string | null> => Platform.OS === 'web' ? getWebSecret(key) : getNativeSecret(key);
-const secretSet = (key: string, value: string): Promise<void> => Platform.OS === 'web' ? setWebSecret(key, value) : setNativeSecret(key, value);
-const secretDelete = (key: string): Promise<void> => Platform.OS === 'web' ? deleteWebSecret(key) : deleteNativeSecret(key);
 
 export async function getOrCreateHostedDeviceKey(): Promise<KeyPair> {
     if (deviceCache !== undefined) return deviceCache;
@@ -83,14 +78,8 @@ async function grants(): Promise<Record<string, StoredHostedGrant>> {
             if (Array.isArray(parsed)) ids = parsed.filter((entry): entry is string => typeof entry === 'string');
         } catch { ids = []; }
     }
-    if (Platform.OS === 'web') {
-        // Merge committed grant records on every cold load, including an index
-        // that exists but missed the final write before a tab/process died.
-        const storedIds = (await listWebSecretNames())
-            .filter((key) => key.startsWith('muxr.grant.'))
-            .map((key) => key.slice('muxr.grant.'.length));
-        ids = [...new Set([...ids, ...storedIds])];
-    }
+    // Browser records may have committed before their index was written.
+    ids = [...new Set([...ids, ...await grantSecretNames()])];
     if (ids.length > 0) {
         const entries = await Promise.all(ids.map(async (id) => {
             try {
@@ -173,24 +162,10 @@ export async function reconnectViaDiscoveredRelay(machineId: string, relayUrl: s
     if (settings.mode !== 'hosted' || settings.machineId !== machineId || settings.relayUrl === relayUrl) return false;
     const current = await loadHostedGrant(machineId);
     if (current === undefined) return false;
-    const grant = deriveLinkGrant(current, relayUrl);
-    if (grant === undefined) return false;
-    let complete: (connected: boolean) => void = () => undefined;
-    const online = new Promise<boolean>((resolve) => { complete = resolve; });
-    const link = new DeviceLink(grant, { WebSocket: WebSocket as never, onStatus: (status) => {
-        if (status === 'online') complete(true);
-        if (status === 'removed' || status === 'refused') complete(false);
-    } });
-    const timeout = setTimeout(() => complete(false), 5000);
-    try {
-        if (!await online) return false;
-        await saveHostedGrant({ ...current, relayUrl });
-        await saveConnectionSettings({ ...settings, relayUrl });
-        return true;
-    } finally {
-        clearTimeout(timeout);
-        link.stop();
-    }
+    if (!await probeDiscoveredRelay(current, relayUrl)) return false;
+    await saveHostedGrant({ ...current, relayUrl });
+    await saveConnectionSettings({ ...settings, relayUrl });
+    return true;
 }
 
 function hostedDeviceName(): string {
@@ -222,7 +197,7 @@ interface PendingLinkPair {
  * death resumes it rather than leaving the computer holding an unused grant.
  */
 export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void; tunnelPort?: number } = {}): Promise<StoredHostedGrant> {
-    if (Platform.OS === 'web' && !/^https:\/\/[^#]+\/pair#byokit-link:1:/.test(scanned)) {
+    if (Platform.OS === 'web' && !isBrowserLinkOffer(scanned)) {
         throw new Error('Native pairing codes are for phones. Use a fresh browser link from `muxr pair --browser` on the computer.');
     }
     const secretKey = b64url(linkKeyPair().secretKey);
