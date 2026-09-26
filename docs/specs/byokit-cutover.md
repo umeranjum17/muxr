@@ -31,7 +31,7 @@ This is a one-shot wire break. Older phone builds and pre-cutover computer/phone
 
 ## Deletion gate
 
-All step lanes merged on `migration/byokit`; the old socket/router, envelope and fallback arms are gone. Hosted muxr-cloud host/setup and mobile account-only login UI are retired. Real relay+host terminal, desktop signaling, voice, pairing, push and reconnect flows and full suite have run; rerun the suite on the final head. Isolated HTTPS PWA paired with confirmation words, reloaded connected, and stored its grant behind a non-extractable IndexedDB AES-GCM key. Device revoke disconnected that browser; its UI displayed “Computer unavailable,” not a specific revoked explanation. A physical-phone Tailscale pairing failure exposed the host's two-second device-record reconciliation revoking an approved but still provisional grant before a remote phone could reconnect for `pair.complete`. Unbound grants remain available only while pairing is active and are pruned when pairing closes; a delayed real relay/host non-loopback pairing flow fails before and passes after the fix. Physical-phone tailnet retest remains a pre-release gate.
+All step lanes merged on `migration/byokit`; the old socket/router, envelope and fallback arms are gone. Hosted muxr-cloud host/setup and mobile account-only login UI are retired. Real relay+host terminal, desktop signaling, voice, pairing, push and reconnect flows and full suite have run; rerun the suite on the final head. Isolated HTTPS PWA paired with confirmation words, reloaded connected, and stored its grant behind a non-extractable IndexedDB AES-GCM key. Device revoke disconnected that browser; its UI displayed “Computer unavailable,” not a specific revoked explanation. A physical-phone Tailscale pairing failure exposed the host's two-second device-record reconciliation revoking an approved but still provisional grant before a remote phone could reconnect for `pair.complete`. Unbound grants remain available only while pairing is active and are pruned when pairing closes; a delayed real relay/host non-loopback pairing flow fails before and passes after the fix. On the standard `up.mjs` stack with an isolated host and relay advertised over Tailscale, the physical Android development build paired with matching confirmation words and attached a Herdr terminal. One offer expired before approval; a fresh offer approved within its deadline paired successfully.
 
 ## Native deep-link QA
 
@@ -46,11 +46,19 @@ The matching words still require computer-side approval. Treat the URL as a shor
 
 ## Source footprint
 
-Tracked `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts` lines under each `apps/` directory, excluding `dist/` and `build/`; `*.test.*`, `*.spec.*` and `__tests__/` count as test, not source. Fixed pre-migration baseline `42afd495` (merge base with `migration/byokit`); candidate `01ca7a8d`:
+Tracked `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts` lines under each `apps/` directory, excluding `dist/` and `build/`; `*.test.*`, `*.spec.*` and `__tests__/` count as test, not source. Fixed pre-migration baseline `42afd495` (merge base with `migration/byokit`); source candidate `316930f3`:
 
 | App | Source before → after (files) | Test before → after (files) |
 |---|---:|---:|
 | host | 22,794 → 21,884 (106 → 100) | 6,872 → 6,720 (22 → 23) |
 | relay | 5,100 → 672 (31 → 11) | 849 → 132 (4 → 1) |
-| mobile (native and PWA) | 91,226 → 88,209 (625 → 610) | 13,795 → 12,310 (61 → 59) |
+| mobile (native and PWA) | 91,226 → 88,226 (625 → 610) | 13,795 → 12,310 (61 → 59) |
 | retired probe | 187 → 0 (1 → 0) | 0 → 0 |
+
+Mobile Android tracked Kotlin/Java sources (outside the table's JS/TS definition): 1,990 → 1,999 lines (8 → 8 files); native Kotlin/Java tests: 0 → 0. The 9-line net increase routes a single blocked agent's native foreground notification to its terminal, rather than Home, on Android builds that group it ahead of the Expo alert.
+
+## Physical Android development QA
+
+Candidate `316930f3`, physical phone `a4b93ea2`, installed `app.muxr.local.dev` APK SHA-256 `abb1c42fcbfe028993da0093c889bc162d110ae9dca7b4ac4cd1b1a0a91efd67`. Isolated named Herdr lab, private `MUXR_HOME`, standard `node scripts/setup/presentation/up.mjs` on relay port 57833 advertised as `ws://100.124.161.1:57833`, Metro port 8089. The ordinary `muxr pair` code reached the phone through the native VIEW intent, confirmation words matched, and the CLI reported verified; phone Home connected and terminal attach logged on the lab host. The first code expired while navigating the UI; the fresh code paired before its deadline.
+
+A real lab Claude agent entered a blocked AskUserQuestion while the app was backgrounded. Android posted a needs-you alert. On the prior native binary, tapping the OPlus-grouped notification opened Home instead of the agent; on the rebuilt candidate, tapping opened that agent's terminal, including a new blocked event after restarting the same isolated relay/host. A task-owned `Xvfb :178 -nolisten tcp` with explicit `MUXR_DESKTOP_SOURCE=x11`, `MUXR_DESKTOP_X11_DISPLAY=:178` rendered a labeled window on the phone. A phone tap opened ImageMagick's menu on that Xvfb, proving drive. `muxr devices revoke 1` removed the grant while the desktop was live; the phone ceased showing the frame and changed to not connected. No portal, `:0`, shared relay or owner install was used. Realtime opened and showed Listening; no spoken exchange was verified because the test path had no controllable physical microphone audio. Evidence in ignored `.cache/byokit-phone-evidence/` of this worktree.
