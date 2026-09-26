@@ -46,11 +46,11 @@ The matching words still require computer-side approval. Treat the URL as a shor
 
 ## Source footprint
 
-Tracked `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts` lines under each `apps/` directory, excluding `dist/` and `build/`; `*.test.*`, `*.spec.*` and `__tests__/` count as test, not source. Fixed pre-migration baseline `42afd495` (merge base with `migration/byokit`); candidate `9a47fea9`:
+Tracked `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts` lines under each `apps/` directory, excluding `dist/` and `build/`; `*.test.*`, `*.spec.*` and `__tests__/` count as test, not source. Fixed pre-migration baseline `42afd495` (merge base with `migration/byokit`); candidate `01ca7a8d`:
 
 | App | Source before → after (files) | Test before → after (files) |
 |---|---:|---:|
 | host | 22,794 → 21,884 (106 → 100) | 6,872 → 6,720 (22 → 23) |
 | relay | 5,100 → 672 (31 → 11) | 849 → 132 (4 → 1) |
-| mobile (native and PWA) | 91,226 → 88,200 (625 → 609) | 13,795 → 12,296 (61 → 59) |
+| mobile (native and PWA) | 91,226 → 88,209 (625 → 610) | 13,795 → 12,310 (61 → 59) |
 | retired probe | 187 → 0 (1 → 0) | 0 → 0 |
