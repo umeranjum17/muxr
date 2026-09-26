@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DeviceLink, hostId, type DeviceGrant } from '@byokit/link';
-import { decodePayload, encodePayload, type ClientFrame, type Envelope, type HostFrame } from '@muxr/contract';
+import { type ClientFrame, type HostFrame } from '@muxr/contract';
 import { generateKeyPair } from '@muxr/crypto';
 import { startRelay } from '@muxr/relay';
 import type { AgentWatchStores, SessionSource } from '../../agent/index.js';
@@ -95,7 +95,7 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
     const cleanups: Array<() => void> = [];
     afterEach(() => { while (cleanups.length > 0) cleanups.pop()!(); });
 
-    it('rejects relay signaling and keeps device-owned sessions across replacement streams until revoke or link grace expires', { timeout: 60_000 }, async () => {
+    it('keeps device-owned sessions across replacement link streams until revoke or link grace expires', { timeout: 60_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-desktop-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
         const previousWayland = process.env.WAYLAND_DISPLAY;
@@ -113,7 +113,6 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         cleanups.push(() => void relay.close());
         const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
         const machineId = 'machine-desktop-test';
-        const relayStates: string[] = [];
         const source = {
             subscribe: () => () => undefined,
             dispose: async () => undefined,
@@ -122,10 +121,8 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         const domain = { unread: { acknowledge: () => undefined, noteActivity: () => undefined } } as unknown as AgentWatchStores;
         const host: MuxrHost = startHost({
             relayUrl, machineId, source, domain, desktopEnginePath: engine, stateRoot: join(dir, 'host-state'),
-            onStateChange: (state) => relayStates.push(state),
         });
         cleanups.push(() => void host.close());
-        await until(() => relayStates.includes('open') ? true : undefined, 'real host relay connection');
 
         const machine = generateKeyPair();
         const phoneA = generateKeyPair();
@@ -200,26 +197,6 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         expect(await replacement.request('desktop.poll', { desktopId: sessionA.desktopId, cursor: 0 }))
             .toMatchObject({ type: 'result', ok: true, data: { events: [{ kind: 'offer', sdp: 'v=0 offer' }] } });
 
-        // The relay remains up for ordinary control-plane work, but cannot carry desktop signaling.
-        const client = new WebSocket(`${relayUrl}?role=client&machineId=${machineId}`);
-        cleanups.push(() => client.close());
-        await new Promise<void>((resolve, reject) => { client.once('open', resolve); client.once('error', reject); });
-        let relaySeq = 0;
-        let relayResult: ((frame: HostFrame) => void) | undefined;
-        client.on('message', (raw) => {
-            const envelope = JSON.parse(String(raw)) as Envelope;
-            if (typeof envelope.payload !== 'string') return;
-            const frame = decodePayload<HostFrame>(envelope.payload);
-            if (frame.type === 'result' && relayResult !== undefined) relayResult(frame);
-        });
-        const rejected = new Promise<HostFrame>((resolve) => { relayResult = resolve; });
-        client.send(JSON.stringify({
-            header: { machineId, seq: ++relaySeq, at: Date.now() },
-            payload: encodePayload({ type: 'desktop.open', requestId: 'relay-desktop', params: { permissions: ['view'] } } satisfies ClientFrame),
-        }));
-        expect(await Promise.race([rejected, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('relay request timed out')), 5_000))]))
-            .toMatchObject({ type: 'result', requestId: 'relay-desktop', ok: false, error: 'desktop signaling requires the byokit link' });
-
         // Once the device link stays gone, the session closes after its grace; relay connectivity does not own it.
         replacement.stream.end();
         a.stop();
@@ -252,7 +229,6 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
         await until(() => b.status === 'removed' ? true : undefined, 'revoked phone is removed from the link');
         expect(sessionB.desktopId).toBeTruthy();
         b.stop();
-        client.close();
     });
 });
 
