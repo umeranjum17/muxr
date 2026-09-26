@@ -1,25 +1,18 @@
 /**
  * The machine host.
  *
- * Owns the session domain and forwards its events to the relay VERBATIM. There
- * is deliberately no projection/adapter step here -- the moment one appears,
+ * Owns the session domain and broadcasts its events over the byokit link.
+ * There is deliberately no projection/adapter step here -- the moment one appears,
  * events start getting dropped and transcripts start feeling thin.
  */
 
-import { routingChannelForRequest, type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@muxr/contract';
-import { connectToRelay, deviceTableCanMutate, type RelayLink, type RelayStateCode, type HostedMachineKeys } from './machine/index.js';
+import { type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@muxr/contract';
+import { deviceTableCanMutate, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
 import { DesktopSessions } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
-
-function sessionIdFrom(frame: { type?: string; params?: unknown } | null | undefined): string | undefined {
-    if (frame === null || typeof frame !== 'object') return undefined;
-    if (typeof frame.params !== 'object' || frame.params === null) return undefined;
-    if (!('sessionId' in frame.params) || typeof frame.params.sessionId !== 'string') return undefined;
-    return frame.params.sessionId;
-}
 
 function peerRecipientFor(senderId: string | undefined, hostedE2ee: HostedMachineKeys | undefined): string | undefined {
     if (senderId === undefined) return undefined;
@@ -40,9 +33,7 @@ export interface HostOptions {
     domain: AgentWatchStores;
     terminals?: TerminalManager;
     hostVersion?: string;
-    linkEnrolledKey?: (deviceId: string) => string | undefined;
     connectionMode?: string;
-    onStateChange?: (state: 'connecting' | 'open' | 'closed' | 'replaced', code?: RelayStateCode) => void;
     /** Mandatory strict v2 endpoint keys for hosted mode. */
     hostedE2ee?: HostedMachineKeys;
     token?: string;
@@ -62,7 +53,7 @@ export interface Host {
     setLinkDeviceConnection: (deviceId: string, active: boolean) => void;
     closeDeviceDesktopSessions: (deviceId: string) => Promise<void>;
     canView: (frame: ClientFrame) => boolean;
-    /** Every frame the relay transport broadcasts to all clients, for a second transport to broadcast too. */
+    /** Product events fan out through the byokit endpoint. */
     onBroadcast: (listener: (frame: HostFrame) => void) => void;
     refreshLinkEnrolment: () => void;
 }
@@ -71,7 +62,6 @@ export function startHost(options: HostOptions): Host {
     const { source, domain } = options;
     const hostVersion = options.hostVersion ?? '0.0.0';
     const seqBySession = new Map<string, number>();
-    let link: RelayLink | undefined;
     const activeDesktopConnections = new Set<string>();
 
     let hostedDispatcherOptions = {};
@@ -128,14 +118,12 @@ export function startHost(options: HostOptions): Host {
     }
 
     const broadcastListeners = new Set<(frame: HostFrame) => void>();
-    function broadcast(frame: HostFrame, sessionId?: string): void {
-        if (sessionId === undefined) link?.send(frame);
-        else link?.send(frame, sessionId);
+    function broadcast(frame: HostFrame): void {
         for (const listener of broadcastListeners) listener(frame);
     }
 
     /** What the host replies to one frame; the caller's transport decides where the reply goes. */
-    async function answerFrame(frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string, transport: 'link' | 'relay' = 'relay'): Promise<HostFrame | undefined> {
+    async function answerFrame(frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string): Promise<HostFrame | undefined> {
         const clientKind = diagnosticClientKind(authenticatedSenderId, options.hostedE2ee);
         options.diagnostics?.client(authenticatedSenderId ?? 'local', clientKind, frame.type === 'client.hello');
         const startedAt = Date.now();
@@ -146,9 +134,6 @@ export function startHost(options: HostOptions): Host {
             error.code = 'e2ee-required';
             options.diagnostics?.request(frame.type, clientKind, 'rejected', Date.now() - startedAt, error.code);
             throw error;
-        }
-        if (frame.type.startsWith('desktop.') && transport !== 'link') {
-            throw new Error('desktop signaling requires the byokit link');
         }
         if (frame.type.startsWith('desktop.') && (connectionId === undefined || !activeDesktopConnections.has(connectionId))) {
             throw new Error('the requesting phone is no longer connected');
@@ -174,78 +159,18 @@ export function startHost(options: HostOptions): Host {
         if (frame.type.startsWith('peer.') && options.peerRuntime !== undefined) {
             options.diagnostics?.relationships(options.peerRuntime.store.list().peers);
         }
-        if (frame.type === 'herdr.tree' && response.ok && authenticatedSenderId !== undefined) {
-            const key = options.linkEnrolledKey?.(authenticatedSenderId);
-            if (key !== undefined) return { ...response, data: { ...(response.data as object), linkEnrolledKey: key } };
-        }
         return response;
     }
 
-    async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string): Promise<void> {
-        const peerRecipient = peerRecipientFor(authenticatedSenderId, options.hostedE2ee);
-        const response = await answerFrame(frame, authenticatedSenderId, connectionId, 'relay');
-        if (frame.type === 'client.hello') {
-            if (response !== undefined) link?.send(response, undefined, 'session', peerRecipient);
-            if (peerRecipient === undefined) source.resendCumulativeState?.();
-            return;
-        }
-        if (response === undefined) return;
-        const channel = routingChannelForRequest(frame.type);
-        // Artifact chunks go to the socket that asked: broadcast, every other
-        // phone and browser paired to this machine pulled the whole file too.
-        link?.send(response, sessionIdFrom(frame), channel, peerRecipient, channel === 'attachment' ? connectionId : undefined);
-    }
-
-    link = connectToRelay({
-        relayUrl: options.relayUrl,
-        machineId: options.machineId,
-        ...(options.hostedE2ee === undefined ? {} : { hostedE2ee: options.hostedE2ee }),
-        ...(options.token === undefined ? {} : { token: options.token }),
-        onPeerIngress: (outcome) => options.diagnostics?.peerIngress(outcome),
-        onClientReject: (clientKey, kind, outcome) => options.diagnostics?.clientReject(clientKey, kind, outcome),
-        onStateChange: (state, code) => {
-            options.diagnostics?.relay(state, code);
-            options.onStateChange?.(state, code);
-            if (state === 'open') {
-                refreshLinkEnrolment();
-                // The watcher's first scan races this link: hashing a 250MB
-                // artifact outlives the connect, so the emit lands while
-                // link is still undefined and is dropped. The signature guard
-                // then suppresses every later emit, leaving clients pinned to
-                // ids from a previous host run until a file happens to change.
-                // Clients do not reconnect when the host restarts, so waiting
-                // for client.hello never rescues them.
-                source.resendCumulativeState?.();
-            }
-        },
-        onClientFrame: (frame, authenticatedSenderId, connectionId) => {
-            void handleClientFrame(frame, authenticatedSenderId, connectionId).catch((error: unknown) => {
-                const message = error instanceof Error ? error.message : String(error);
-                const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
-                const sessionId = sessionIdFrom(frame);
-                if (typeof frame === 'object' && frame !== null && 'requestId' in frame && typeof frame.requestId === 'string') {
-                    link?.send(
-                        { type: 'result', requestId: frame.requestId, ok: false, error: message, ...(code === undefined ? {} : { code }) },
-                        sessionId,
-                        routingChannelForRequest(frame.type),
-                        peerRecipientFor(authenticatedSenderId, options.hostedE2ee),
-                    );
-                    return;
-                }
-                if (sessionId !== undefined) forward(sessionId, { type: 'session.error', message });
-            });
-        },
-    });
-
     function forward(sessionId: string, body: SessionEventBody): void {
         const event: SessionEvent = { ...body, seq: nextSeq(sessionId) };
-        broadcast({ type: 'session.event', sessionId, event }, sessionId);
+        broadcast({ type: 'session.event', sessionId, event });
         if (body.type === 'session.removed') domain.unread.acknowledge(sessionId);
         else domain.unread.noteActivity(sessionId, '');
     }
 
     function refreshLinkEnrolment(): void {
-        link?.send({ type: 'machine.hello', machineId: options.machineId, hostVersion });
+        source.resendCumulativeState?.();
     }
 
     const unsubscribe = source.subscribe(forward);
@@ -254,7 +179,7 @@ export function startHost(options: HostOptions): Host {
     return {
         canView: (frame) => frame.type === 'client.hello' || viewOnlyRequestAllowed(frame as ClientRequest, source),
         answer: async (frame, authenticatedSenderId, connectionId) => {
-            const response = await answerFrame(frame, authenticatedSenderId, connectionId, 'link');
+            const response = await answerFrame(frame, authenticatedSenderId, connectionId);
             if (frame.type === 'client.hello') source.resendCumulativeState?.();
             return response;
         },
@@ -269,7 +194,6 @@ export function startHost(options: HostOptions): Host {
         close: async () => {
             unsubscribe();
             unsubscribeMachine?.();
-            link?.close();
             await desktop.closeAll();
             desktop.stopVirtualDisplay();
             await source.dispose();

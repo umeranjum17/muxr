@@ -717,16 +717,7 @@ async function main(): Promise<void> {
         ...(peerRuntime === undefined ? {} : { peerRuntime }),
         ...(diagnostics === undefined ? {} : { diagnostics }),
         hostVersion,
-        linkEnrolledKey: (id) => linkOnline ? linkEndpoint?.enrolledKey(id) : undefined,
         ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
-        onStateChange: (state) => {
-            process.stdout.write(`relay link: ${state}\n`);
-            if (state === 'open') peerRuntime?.retryRecovery();
-            if (state === 'replaced') {
-                terminals.closeAll();
-                process.exit(0);
-            }
-        },
     });
 
     // A dead host must never leave --takeover streams holding the desk's panes.
@@ -794,7 +785,10 @@ async function main(): Promise<void> {
                         onStatus: (status) => {
                             linkOnline = status === 'online';
                             process.stdout.write(`link relay: ${status}\n`);
-                            if (linkOnline) host.refreshLinkEnrolment();
+                            if (linkOnline) {
+                                host.refreshLinkEnrolment();
+                                peerRuntime?.retryRecovery();
+                            }
                         },
                     });
                     if (linkEndpoint !== undefined) {
