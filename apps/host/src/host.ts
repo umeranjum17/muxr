@@ -59,6 +59,8 @@ export interface Host {
     /** The host's reply to one client frame, for a transport that returns replies itself (the link). */
     answer: (frame: ClientFrame, authenticatedSenderId: string, connectionId?: string) => Promise<HostFrame | undefined>;
     setLinkDesktopConnection: (connectionId: string, active: boolean) => void;
+    setLinkDeviceConnection: (deviceId: string, active: boolean) => void;
+    closeDeviceDesktopSessions: (deviceId: string) => Promise<void>;
     canView: (frame: ClientFrame) => boolean;
     /** Every frame the relay transport broadcasts to all clients, for a second transport to broadcast too. */
     onBroadcast: (listener: (frame: HostFrame) => void) => void;
@@ -133,7 +135,7 @@ export function startHost(options: HostOptions): Host {
     }
 
     /** What the host replies to one frame; the caller's transport decides where the reply goes. */
-    async function answerFrame(frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string): Promise<HostFrame | undefined> {
+    async function answerFrame(frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string, transport: 'link' | 'relay' = 'relay'): Promise<HostFrame | undefined> {
         const clientKind = diagnosticClientKind(authenticatedSenderId, options.hostedE2ee);
         options.diagnostics?.client(authenticatedSenderId ?? 'local', clientKind, frame.type === 'client.hello');
         const startedAt = Date.now();
@@ -145,8 +147,10 @@ export function startHost(options: HostOptions): Host {
             options.diagnostics?.request(frame.type, clientKind, 'rejected', Date.now() - startedAt, error.code);
             throw error;
         }
-        if (frame.type.startsWith('desktop.') && frame.type !== 'desktop.capabilities'
-            && (connectionId === undefined || !activeDesktopConnections.has(connectionId))) {
+        if (frame.type.startsWith('desktop.') && transport !== 'link') {
+            throw new Error('desktop signaling requires the byokit link');
+        }
+        if (frame.type.startsWith('desktop.') && (connectionId === undefined || !activeDesktopConnections.has(connectionId))) {
             throw new Error('the requesting phone is no longer connected');
         }
         if (frame.type === 'client.hello') {
@@ -179,7 +183,7 @@ export function startHost(options: HostOptions): Host {
 
     async function handleClientFrame(frame: ClientFrame, authenticatedSenderId?: string, connectionId?: string): Promise<void> {
         const peerRecipient = peerRecipientFor(authenticatedSenderId, options.hostedE2ee);
-        const response = await answerFrame(frame, authenticatedSenderId, connectionId);
+        const response = await answerFrame(frame, authenticatedSenderId, connectionId, 'relay');
         if (frame.type === 'client.hello') {
             if (response !== undefined) link?.send(response, undefined, 'session', peerRecipient);
             if (peerRecipient === undefined) source.resendCumulativeState?.();
@@ -202,10 +206,6 @@ export function startHost(options: HostOptions): Host {
         onStateChange: (state, code) => {
             options.diagnostics?.relay(state, code);
             options.onStateChange?.(state, code);
-            if (state === 'closed' || state === 'replaced') {
-                activeDesktopConnections.clear();
-                void desktop.closeAll();
-            }
             if (state === 'open') {
                 refreshLinkEnrolment();
                 // The watcher's first scan races this link: hashing a 250MB
@@ -217,18 +217,6 @@ export function startHost(options: HostOptions): Host {
                 // for client.hello never rescues them.
                 source.resendCumulativeState?.();
             }
-        },
-        onClientConnections: (ids) => {
-            for (const id of activeDesktopConnections) {
-                if (!ids.includes(id)) void desktop.closeConnection(id);
-            }
-            activeDesktopConnections.clear();
-            for (const id of ids) activeDesktopConnections.add(id);
-        },
-        onClientConnected: (id) => activeDesktopConnections.add(id),
-        onClientDisconnected: (id) => {
-            activeDesktopConnections.delete(id);
-            void desktop.closeConnection(id);
         },
         onClientFrame: (frame, authenticatedSenderId, connectionId) => {
             void handleClientFrame(frame, authenticatedSenderId, connectionId).catch((error: unknown) => {
@@ -266,7 +254,7 @@ export function startHost(options: HostOptions): Host {
     return {
         canView: (frame) => frame.type === 'client.hello' || viewOnlyRequestAllowed(frame as ClientRequest, source),
         answer: async (frame, authenticatedSenderId, connectionId) => {
-            const response = await answerFrame(frame, authenticatedSenderId, connectionId);
+            const response = await answerFrame(frame, authenticatedSenderId, connectionId, 'link');
             if (frame.type === 'client.hello') source.resendCumulativeState?.();
             return response;
         },
@@ -274,6 +262,8 @@ export function startHost(options: HostOptions): Host {
             if (active) activeDesktopConnections.add(connectionId);
             else activeDesktopConnections.delete(connectionId);
         },
+        setLinkDeviceConnection: (deviceId, active) => desktop.setLinkDeviceConnected(deviceId, active),
+        closeDeviceDesktopSessions: (deviceId) => desktop.revokeDevice(deviceId),
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
         refreshLinkEnrolment,
         close: async () => {

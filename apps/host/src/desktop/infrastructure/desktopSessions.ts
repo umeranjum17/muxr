@@ -96,8 +96,7 @@ export interface DesktopEngineOptions {
 
 interface LiveSession extends DesktopSessionRecord {
     client: EngineClient;
-    owner?: string;
-    /** Stable authenticated device identity lets signaling resume on the relay after a link drop. */
+    /** Stable authenticated device identity owns signaling across link stream replacement and reconnects. */
     ownerDeviceId?: string;
     /** Retained notifications, oldest first, bounded to [`MAX_BACKLOG`]. */
     events: DesktopEvent[];
@@ -109,6 +108,7 @@ interface LiveSession extends DesktopSessionRecord {
 
 /** How many notifications one session keeps for a client that fell behind. */
 const MAX_BACKLOG = 512;
+const LINK_DISCONNECT_GRACE_MS = 20_000;
 
 /**
  * How long one desktop session may stay open before the engine ends it. The
@@ -138,6 +138,8 @@ export class DesktopSessions {
     private sessions = new Map<string, LiveSession>();
     private starting: Promise<EngineClient | null> | null = null;
     private opening = 0;
+    private readonly connectedLinkDevices = new Set<string>();
+    private readonly disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
     /** The reason the last start attempt failed, when the engine resolved but did not come up. */
     private startFailure: string | null = null;
 
@@ -285,11 +287,8 @@ export class DesktopSessions {
             throw new EngineRefused('session', 'the requesting phone disconnected');
         }
         const desktopId = nextDesktopId();
-        const ownerFields: Pick<LiveSession, 'owner' | 'ownerDeviceId'> = {};
-        if (owner !== undefined) {
-            ownerFields.owner = owner.connectionId;
-            if (owner.deviceId !== undefined) ownerFields.ownerDeviceId = owner.deviceId;
-        }
+        const ownerFields: Pick<LiveSession, 'ownerDeviceId'> = {};
+        if (owner?.deviceId !== undefined) ownerFields.ownerDeviceId = owner.deviceId;
         this.sessions.set(desktopId, {
             desktopId,
             engineSessionId: opened.sessionId,
@@ -352,9 +351,8 @@ export class DesktopSessions {
     async close(desktopId: string, connectionId?: string, deviceId?: string): Promise<{ closed: boolean }> {
         const session = this.sessions.get(desktopId);
         if (session === undefined) return { closed: true };
-        if (connectionId !== undefined && session.owner !== connectionId
-            && (deviceId === undefined || session.ownerDeviceId !== deviceId)) {
-            throw new EngineRefused('session', 'that desktop session belongs to another connection');
+        if (connectionId !== undefined && (deviceId === undefined || session.ownerDeviceId !== deviceId)) {
+            throw new EngineRefused('session', 'that desktop session belongs to another device');
         }
         this.sessions.delete(desktopId);
         session.client.drainEvents(session.engineSessionId);
@@ -368,18 +366,50 @@ export class DesktopSessions {
         return { closed: true };
     }
 
-    async closeConnection(connectionId: string): Promise<void> {
-        for (const session of [...this.sessions.values()]) {
-            if (session.owner === connectionId) await this.close(session.desktopId);
+    /** A device owns its desktop sessions across replacement streams and link reconnects. */
+    setLinkDeviceConnected(deviceId: string, connected: boolean): void {
+        const timer = this.disconnectTimers.get(deviceId);
+        if (connected) {
+            this.connectedLinkDevices.add(deviceId);
+            if (timer !== undefined) clearTimeout(timer);
+            this.disconnectTimers.delete(deviceId);
+            return;
         }
+        this.connectedLinkDevices.delete(deviceId);
+        if (timer !== undefined || ![...this.sessions.values()].some((session) => session.ownerDeviceId === deviceId)) return;
+        this.disconnectTimers.set(deviceId, setTimeout(() => {
+            this.disconnectTimers.delete(deviceId);
+            if (!this.connectedLinkDevices.has(deviceId)) {
+                void this.closeDeviceSessions(deviceId).catch(() => {
+                    this.options.onDiagnostic?.('could not close desktop sessions after the device link ended');
+                });
+            }
+        }, LINK_DISCONNECT_GRACE_MS));
+    }
+
+    async revokeDevice(deviceId: string): Promise<void> {
+        this.setLinkDeviceConnected(deviceId, false);
+        const timer = this.disconnectTimers.get(deviceId);
+        if (timer !== undefined) clearTimeout(timer);
+        this.disconnectTimers.delete(deviceId);
+        await this.closeDeviceSessions(deviceId);
     }
 
     /** Close every session this host owns; called when the host shuts down. */
     async closeAll(): Promise<void> {
+        for (const timer of this.disconnectTimers.values()) clearTimeout(timer);
+        this.disconnectTimers.clear();
+        this.connectedLinkDevices.clear();
         for (const desktopId of [...this.sessions.keys()]) {
             await this.close(desktopId);
         }
         await this.stopIfIdle();
+    }
+
+    private async closeDeviceSessions(deviceId: string): Promise<void> {
+        for (const session of [...this.sessions.values()]) {
+            if (session.ownerDeviceId === deviceId) await this.close(session.desktopId);
+        }
     }
 
     private async stopIfIdle(): Promise<void> {
@@ -399,9 +429,8 @@ export class DesktopSessions {
         if (session === undefined) {
             throw new EngineRefused('session', 'that desktop session is not open');
         }
-        if (connectionId !== undefined && session.owner !== connectionId
-            && (deviceId === undefined || session.ownerDeviceId !== deviceId)) {
-            throw new EngineRefused('session', 'that desktop session belongs to another connection');
+        if (connectionId !== undefined && (deviceId === undefined || session.ownerDeviceId !== deviceId)) {
+            throw new EngineRefused('session', 'that desktop session belongs to another device');
         }
         return session;
     }

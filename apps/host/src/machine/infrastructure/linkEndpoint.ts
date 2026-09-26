@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type LinkRequest, type LinkStream } from '@byokit/link';
 import { RelayClient } from '@byokit/relay';
 import { parseClientFrame, relayControlUrl, type ClientFrame, type HostFrame } from '@muxr/contract';
@@ -18,6 +19,8 @@ export interface LinkEndpointOptions {
     canView: (frame: ClientFrame) => boolean;
     onStatus?: (status: string) => void;
     onDesktopConnection?: (connectionId: string, active: boolean) => void;
+    onDeviceConnection?: (deviceId: string, active: boolean) => void;
+    onDeviceRevoked?: (deviceId: string) => void | Promise<void>;
 }
 
 interface DeviceMeta { muxrDeviceId: string }
@@ -58,10 +61,14 @@ export class LinkEndpoint {
     private synced: Promise<boolean> = Promise.resolve(true);
 
     private client?: RelayClient;
+    private connectionTimer?: ReturnType<typeof setInterval>;
+    private readonly deviceConnections = new Map<string, boolean>();
 
     private constructor(private readonly host: Host,
         private readonly currentCrypto: () => MachineCryptoState | undefined,
-        private readonly connectRelay: () => RelayClient) {}
+        private readonly connectRelay: () => RelayClient,
+        private readonly onDeviceConnection?: (deviceId: string, active: boolean) => void,
+        private readonly onDeviceRevoked?: (deviceId: string) => void | Promise<void>) {}
 
     static async open(options: LinkEndpointOptions): Promise<LinkEndpoint | undefined> {
         const keys = keyPairFrom(Buffer.from(options.crypto.boxSecretKey, 'base64'));
@@ -81,16 +88,14 @@ export class LinkEndpoint {
                 if (!trusted(grant, options.currentCrypto())) return false;
                 if (req.op === 'desktop') return true;
                 const frame = parseClientFrame(req.args);
-                return frame.type === req.op && (frame.type.startsWith('desktop.') || grant.role === 'control' || options.canView(frame));
+                return frame.type === req.op && !frame.type.startsWith('desktop.')
+                    && (grant.role === 'control' || options.canView(frame));
             },
             handle: async (req, grant) => {
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
                 const deviceId = muxrDeviceIdOf(grant)!;
                 const frame = parseClientFrame(req.args);
                 if (frame.type !== req.op) throw new Error('link: request op does not match its frame');
-                if (frame.type.startsWith('desktop.')) {
-                    throw new PublicLinkError('Desktop signaling must use a link stream.');
-                }
                 const response = await options.answer(frame, deviceId);
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
                 return response;
@@ -101,7 +106,7 @@ export class LinkEndpoint {
             name: options.machineName,
             ...(enrol === undefined ? {} : { enrol }),
             ...(options.onStatus === undefined ? {} : { onStatus: options.onStatus }),
-        }));
+        }), options.onDeviceConnection, options.onDeviceRevoked);
         if (!await endpoint.sync(options.crypto)) {
             endpoint.close();
             throw new Error('link: initial device sync failed');
@@ -111,6 +116,10 @@ export class LinkEndpoint {
 
     start(): void {
         this.client = this.connectRelay();
+        this.updateDeviceConnections();
+        // ponytail: poll the public online snapshot; switch to connection events if byokit adds them.
+        this.connectionTimer = setInterval(() => this.updateDeviceConnections(), 500);
+        this.connectionTimer.unref?.();
     }
 
     /** Enrol the phones this machine now trusts and revoke the ones it no longer does. */
@@ -137,6 +146,11 @@ export class LinkEndpoint {
     }
 
     close(): void {
+        if (this.connectionTimer !== undefined) clearInterval(this.connectionTimer);
+        for (const [deviceId, active] of this.deviceConnections) {
+            if (active) this.onDeviceConnection?.(deviceId, false);
+        }
+        this.deviceConnections.clear();
         this.client?.stop();
         this.host.close();
     }
@@ -151,8 +165,15 @@ export class LinkEndpoint {
             const roleMatches = device !== undefined && (device.authority === 'observe' ? 'view' : 'control') === grant.role;
             // A role-only change keeps the pairing: the phone reconnects under
             // the new grant without being told it was removed.
-            if (device === undefined || !sameKey) await this.host.revoke(grant.id);
-            else if (roleMatches) enrolled.add(device.deviceId);
+            if (device === undefined || !sameKey) {
+                await this.host.revoke(grant.id);
+                if (deviceId !== undefined) {
+                    this.deviceConnections.delete(deviceId);
+                    this.onDeviceConnection?.(deviceId, false);
+                    await this.onDeviceRevoked?.(deviceId);
+                }
+            } else if (roleMatches) enrolled.add(device.deviceId);
+            else if (deviceId !== undefined) await this.onDeviceRevoked?.(deviceId);
         }
         for (const device of wanted.values()) {
             if (enrolled.has(device.deviceId)) continue;
@@ -164,6 +185,24 @@ export class LinkEndpoint {
             });
         }
     }
+
+    private updateDeviceConnections(): void {
+        const crypto = this.currentCrypto();
+        const seen = new Set<string>();
+        for (const grant of this.host.devices()) {
+            const deviceId = muxrDeviceIdOf(grant);
+            if (deviceId === undefined || !trusted(grant, crypto)) continue;
+            seen.add(deviceId);
+            if (this.deviceConnections.get(deviceId) === grant.online) continue;
+            this.deviceConnections.set(deviceId, grant.online);
+            this.onDeviceConnection?.(deviceId, grant.online);
+        }
+        for (const [deviceId, online] of this.deviceConnections) {
+            if (seen.has(deviceId) || !online) continue;
+            this.deviceConnections.set(deviceId, false);
+            this.onDeviceConnection?.(deviceId, false);
+        }
+    }
 }
 
 /** One stream carries desktop signaling RPC frames; the WebRTC media path is unchanged. */
@@ -172,12 +211,13 @@ async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant,
         throw new PublicLinkError('desktop: device is no longer trusted');
     }
     const deviceId = muxrDeviceIdOf(grant)!;
-    const connectionId = `link:${deviceId}`;
+    const connectionId = `link:${deviceId}:${randomUUID()}`;
     let buffer = '';
     const decoder = new TextDecoder();
     let work = Promise.resolve();
     let finish!: () => void;
     const ended = new Promise<void>((resolve) => { finish = resolve; });
+    options.onDeviceConnection?.(deviceId, true);
     options.onDesktopConnection?.(connectionId, true);
     stream.onEnd = () => finish();
     stream.onData = (chunk) => {

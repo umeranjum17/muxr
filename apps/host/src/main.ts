@@ -750,6 +750,8 @@ async function main(): Promise<void> {
                         answer: host.answer,
                         canView: host.canView,
                         onDesktopConnection: host.setLinkDesktopConnection,
+                        onDeviceConnection: host.setLinkDeviceConnection,
+                        onDeviceRevoked: (deviceId) => host.closeDeviceDesktopSessions(deviceId),
                         onStatus: (status) => {
                             linkOnline = status === 'online';
                             process.stdout.write(`link relay: ${status}\n`);

@@ -31,15 +31,6 @@ type DesktopLinkTransport = {
     close(): void;
 };
 
-/**
- * How long the link gets to prove itself, and how long an online link may stay
- * down, before this client hands the session to the relay transport. The trial
- * sits above one full failed dial; the grace covers byokit's first backoff
- * rounds so a network blip does not flap the session onto the relay.
- */
-const LINK_TRIAL_MS = 6_000;
-const LINK_GRACE_MS = 20_000;
-
 function linkRequestFailure(type: RequestType, error: string, code?: string): MuxrRequestError {
     const normalized = normalizeRequestFailure(type, error, code);
     return new MuxrRequestError(normalized.message, normalized.code);
@@ -50,7 +41,6 @@ export class LinkFirstClient implements SessionClient {
     private link: DeviceLink | undefined;
     private online = false;
     private closed = false;
-    private fallbackTimer: ReturnType<typeof setTimeout> | undefined;
     private readonly stateListeners = new Set<(state: ConnectionState) => void>();
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
     private readonly pluginListeners = new Set<(frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void>();
@@ -72,7 +62,6 @@ export class LinkFirstClient implements SessionClient {
 
     close(): void {
         this.closed = true;
-        this.clearFallbackTimer();
         this.desktopTransport?.close();
         this.desktopTransport = undefined;
         this.stopLink();
@@ -93,11 +82,7 @@ export class LinkFirstClient implements SessionClient {
 
     request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
         if (this.closed) return Promise.reject(new Error('not connected'));
-        if (type.startsWith('desktop.') && this.online) {
-            return this.desktopStream().then((transport) => transport === undefined
-                ? this.requestViaRelay(type, params, timeoutMs)
-                : transport.request(type, params, timeoutMs));
-        }
+        if (type.startsWith('desktop.')) return this.requestViaLink(type, params, timeoutMs);
         if (!this.online) return this.requestViaRelay(type, params, timeoutMs);
         const link = this.link;
         if (link === undefined) return this.requestViaRelay(type, params, timeoutMs);
@@ -118,16 +103,48 @@ export class LinkFirstClient implements SessionClient {
             const finish = () => { clearTimeout(timer); offRelay(); offState(); };
             const check = () => {
                 if (this.closed) { finish(); reject(new Error('not connected')); return; }
-                const ready = type.startsWith('desktop.') ? relay.isLive() : this.online || relay.isLive();
-                if (!ready) return;
+                if (!this.online && !relay.isLive()) return;
                 finish();
-                const request = !type.startsWith('desktop.') && this.online
-                    ? this.request(type, params, timeoutMs)
-                    : relay.request(type, params, timeoutMs);
+                const request = this.online ? this.request(type, params, timeoutMs) : relay.request(type, params, timeoutMs);
                 void request.then(resolve, reject);
             };
             const timer = setTimeout(() => { finish(); reject(new Error('not connected')); }, timeoutMs ?? 10_000);
             const offRelay = relay.onStateChange(check);
+            const offState = this.onStateChange(check);
+            check();
+        });
+    }
+
+    private requestViaLink<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
+        if (this.closed) return Promise.reject(new Error('not connected'));
+        return new Promise<RequestResult<T>>((resolve, reject) => {
+            let opening = false;
+            let settled = false;
+            const finish = (): void => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                offState();
+            };
+            const check = (): void => {
+                if (settled) return;
+                if (this.closed) { finish(); reject(new Error('not connected')); return; }
+                if (!this.online || opening) return;
+                opening = true;
+                void this.desktopStream().then((transport) => {
+                    opening = false;
+                    if (settled) return;
+                    if (transport === undefined) {
+                        if (!this.online) return;
+                        finish();
+                        reject(new Error('desktop signaling link is unavailable'));
+                        return;
+                    }
+                    finish();
+                    void transport.request(type, params, timeoutMs).then(resolve, reject);
+                }, (error: unknown) => { finish(); reject(error); });
+            };
+            const timer = setTimeout(() => { finish(); reject(new Error('desktop signaling link unavailable')); }, timeoutMs ?? this.options.requestTimeoutMs ?? 20_000);
             const offState = this.onStateChange(check);
             check();
         });
@@ -148,7 +165,7 @@ export class LinkFirstClient implements SessionClient {
         if (!this.online || link === undefined || this.closed) return undefined;
         let stream: Awaited<ReturnType<DeviceLink['stream']>>;
         try { stream = await link.stream('desktop', {}); }
-        catch { if (this.link === link) this.stopLink(); return undefined; }
+        catch { return undefined; }
         if (this.closed || this.link !== link || !this.online) { stream.end(); return undefined; }
         let ended = false;
         let buffer = '';
@@ -186,7 +203,7 @@ export class LinkFirstClient implements SessionClient {
         };
         transport = {
             request: async <T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> => {
-                if (ended || !this.online || this.link !== link) return this.requestViaRelay(type, params, timeoutMs);
+                if (ended || !this.online || this.link !== link) return this.requestViaLink(type, params, timeoutMs);
                 const frame = { type, requestId: nextRequestId('rn'), params } as ClientRequest;
                 const timeout = timeoutMs ?? this.options.requestTimeoutMs ?? 20_000;
                 const response = await new Promise<unknown>((resolve, reject) => {
@@ -238,7 +255,6 @@ export class LinkFirstClient implements SessionClient {
     private onLinkStatus(status: LinkStatus): void {
         if (this.closed || this.link === undefined) return;
         if (status === 'online') {
-            this.clearFallbackTimer();
             this.online = true;
             this.setState('open', true);
             return;
@@ -253,7 +269,6 @@ export class LinkFirstClient implements SessionClient {
         if (this.online) {
             this.online = false;
             this.setState(this.inner?.state ?? 'connecting', true);
-            this.armFallback(LINK_GRACE_MS);
         }
     }
 
@@ -286,7 +301,6 @@ export class LinkFirstClient implements SessionClient {
         }
         if (cause instanceof LinkError) {
             if (cause.code === 'timeout' || cause.code === 'stopped' || cause.code === 'removed') {
-                // The link could not serve the session; the relay transport takes it from here.
                 this.stopLink();
                 return new Error('connection lost');
             }
@@ -332,7 +346,6 @@ export class LinkFirstClient implements SessionClient {
             onEvent: (event) => this.onLinkEvent(event),
             onError: () => undefined,
         });
-        this.armFallback(LINK_TRIAL_MS);
     }
 
     private stopLink(): void {
@@ -344,20 +357,6 @@ export class LinkFirstClient implements SessionClient {
         this.online = false;
         link?.stop();
         if (!this.closed) this.setState(this.inner?.state ?? 'connecting', wasOnline);
-    }
-
-    private armFallback(ms: number): void {
-        this.clearFallbackTimer();
-        this.fallbackTimer = setTimeout(() => {
-            this.fallbackTimer = undefined;
-            this.stopLink();
-        }, ms);
-    }
-
-    private clearFallbackTimer(): void {
-        if (this.fallbackTimer === undefined) return;
-        clearTimeout(this.fallbackTimer);
-        this.fallbackTimer = undefined;
     }
 
     private setState(state: ConnectionState, transportChanged = false): void {

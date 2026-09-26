@@ -1,195 +1,260 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DeviceLink, hostId, keyPairFrom, type DeviceGrant, type LinkStatus } from '@byokit/link';
+import { DeviceLink, hostId, type DeviceGrant } from '@byokit/link';
 import { decodePayload, encodePayload, type ClientFrame, type Envelope, type HostFrame } from '@muxr/contract';
 import { generateKeyPair } from '@muxr/crypto';
 import { startRelay } from '@muxr/relay';
-import { DesktopSessions } from '../../desktop/index.js';
-import { LinkEndpoint, type LinkAnswer } from './linkEndpoint.js';
+import type { AgentWatchStores, SessionSource } from '../../agent/index.js';
+import { startHost, type Host as MuxrHost } from '../../host.js';
 import type { MachineCryptoState } from '../domain/crypto.js';
+import { LinkEndpoint } from './linkEndpoint.js';
 
 const b64 = (value: Uint8Array | string): string => Buffer.from(value).toString('base64');
-const toB64url = (value: string): string => Buffer.from(value, 'base64').toString('base64url');
-const STUB = `
+const b64url = (value: string): string => Buffer.from(value, 'base64').toString('base64url');
+const STUB = (log: string): string => `#!/usr/bin/env node
+const fs = require('node:fs');
 const readline = require('node:readline');
+const log = ${JSON.stringify(log)};
+let opened = 0;
 const out = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
 const caps = { protocol: 2, engine: 'stub/0', platform: 'linux', session: { kind: 'wayland' }, capture: { mechanism: 'stub', formats: [], cursor: 'embedded', audio: false }, encode: { codecs: ['vp9'], hardware: false }, input: { mechanism: 'stub', pointer: true, wheel: true, keyboard: true, text: ['latin1'], unavailable_reason: null, grant: 'granted' }, clipboard: { read: true, write: true, mime: [], maxBytes: 1024 } };
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
  const request = JSON.parse(line);
  if (request.method === 'hello' || request.method === 'capabilities') return out({ id: request.id, result: caps });
  if (request.method === 'session.open') {
-   out({ event: 'session.description', params: { sessionId: 'engine-session', generation: 1, description: { type: 'offer', sdp: 'v=0 offer' } } });
-   return out({ id: request.id, result: { sessionId: 'engine-session', generation: 1, source: { kind: 'monitor', width: 100, height: 100, origin: { x: 0, y: 0 } }, geometry: { source: { width: 100, height: 100 }, encoded: { width: 100, height: 100 }, origin: { x: 0, y: 0 } } } });
+   const sessionId = 'engine-' + (++opened);
+   out({ event: 'session.description', params: { sessionId, generation: 1, description: { type: 'offer', sdp: 'v=0 offer' } } });
+   return out({ id: request.id, result: { sessionId, generation: 1, source: { kind: 'monitor', width: 100, height: 100, origin: { x: 0, y: 0 } }, geometry: { source: { width: 100, height: 100 }, encoded: { width: 100, height: 100 }, origin: { x: 0, y: 0 } } } });
  }
  if (request.method === 'session.description' || request.method === 'session.candidate') return out({ id: request.id, result: { accepted: true } });
- if (request.method === 'session.close' || request.method === 'shutdown') return out({ id: request.id, result: { closed: true } });
+ if (request.method === 'session.close') { fs.appendFileSync(log, JSON.stringify(request.params) + '\\n'); return out({ id: request.id, result: { closed: true } }); }
+ if (request.method === 'shutdown') return out({ id: request.id, result: { closed: true } });
  out({ id: request.id, error: { code: 'operation', message: 'unknown ' + request.method } });
 });
 `;
 
-function waitFor<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-    return Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${label} timed out`)), ms))]);
+async function until<T>(read: () => T | undefined, label: string, timeoutMs = 10_000): Promise<T> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() <= deadline) {
+        const value = read();
+        if (value !== undefined) return value;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error(`timed out: ${label}`);
+}
+
+function linkGrant(machine: string, phone: string, deviceId: string, port: number): DeviceGrant {
+    return {
+        v: 1,
+        secretKey: b64url(phone),
+        host: b64url(machine),
+        hostName: 'test machine',
+        urls: [`ws://127.0.0.1:${port}/link/v1/${hostId(Buffer.from(machine, 'base64'))}`],
+        device: { id: 'pending', name: deviceId, role: 'control' },
+    };
+}
+
+function desktopStream(link: DeviceLink): Promise<{
+    stream: Awaited<ReturnType<DeviceLink['stream']>>;
+    request: (type: Extract<ClientFrame, { requestId: string }>['type'], params: object) => Promise<HostFrame>;
+}> {
+    return link.stream('desktop', {}).then((stream) => {
+        let buffer = '';
+        const waiters = new Map<string, (frame: HostFrame) => void>();
+        stream.onData = (chunk) => {
+            buffer += Buffer.from(chunk).toString('utf8');
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const line of lines) {
+                const frame = JSON.parse(line) as HostFrame;
+                if ('requestId' in frame) waiters.get(frame.requestId)?.(frame);
+            }
+        };
+        let sequence = 0;
+        return {
+            stream,
+            request: async (type, params) => {
+                const requestId = `desktop-${++sequence}`;
+                const response = new Promise<HostFrame>((resolve) => waiters.set(requestId, resolve));
+                await stream.write(`${JSON.stringify({ type, requestId, params })}\n`);
+                const result = await Promise.race([
+                    response,
+                    new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${type} timed out`)), 5_000)),
+                ]);
+                waiters.delete(requestId);
+                return result;
+            },
+        };
+    });
 }
 
 describe('desktop signaling over the byokit link (real relay + host)', () => {
     const cleanups: Array<() => void> = [];
     afterEach(() => { while (cleanups.length > 0) cleanups.pop()!(); });
 
-    it('opens and signals on a link stream, preserves the WebRTC session on link loss, then uses relay signaling', { timeout: 60_000 }, async () => {
+    it('rejects relay signaling and keeps device-owned sessions across replacement streams until revoke or link grace expires', { timeout: 60_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-desktop-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+        const previousWayland = process.env.WAYLAND_DISPLAY;
+        process.env.WAYLAND_DISPLAY = 'wayland-0';
+        cleanups.push(() => {
+            if (previousWayland === undefined) delete process.env.WAYLAND_DISPLAY;
+            else process.env.WAYLAND_DISPLAY = previousWayland;
+        });
+        const engineLog = join(dir, 'engine-close.jsonl');
+        writeFileSync(engineLog, '');
         const engine = join(dir, 'desktop-engine.cjs');
-        writeFileSync(engine, STUB);
+        writeFileSync(engine, STUB(engineLog));
+        chmodSync(engine, 0o755);
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay'), developmentApi: true, advertiseMdns: false } });
         cleanups.push(() => void relay.close());
         const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
-        const ownerToken = JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string;
+        const machineId = 'machine-desktop-test';
+        const relayStates: string[] = [];
+        const source = {
+            subscribe: () => () => undefined,
+            dispose: async () => undefined,
+            resendCumulativeState: () => undefined,
+        } as unknown as SessionSource;
+        const domain = { unread: { acknowledge: () => undefined, noteActivity: () => undefined } } as unknown as AgentWatchStores;
+        const host: MuxrHost = startHost({
+            relayUrl, machineId, source, domain, desktopEnginePath: engine, stateRoot: join(dir, 'host-state'),
+            onStateChange: (state) => relayStates.push(state),
+        });
+        cleanups.push(() => void host.close());
+        await until(() => relayStates.includes('open') ? true : undefined, 'real host relay connection');
+
         const machine = generateKeyPair();
-        const phone = generateKeyPair();
-        const deviceId = 'dev-desktop-phone';
-        const crypto: MachineCryptoState = {
+        const phoneA = generateKeyPair();
+        const phoneB = generateKeyPair();
+        let crypto: MachineCryptoState = {
             signingPublicKey: b64(new Uint8Array(32)), signingSecretKey: b64(new Uint8Array(64)),
             boxPublicKey: machine.publicKey, boxSecretKey: machine.secretKey, dataKey: b64(new Uint8Array(32)), keyVersion: 1,
-            devices: [{ deviceId, devicePublicKey: phone.publicKey, ingressKey: 'ingress', expiresAt: new Date(Date.now() + 3_600_000).toISOString(), authority: 'control' }],
+            devices: [phoneA, phoneB].map((phone, index) => ({
+                deviceId: `desktop-phone-${index}`,
+                devicePublicKey: phone.publicKey,
+                ingressKey: b64(new Uint8Array(32)),
+                expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+                authority: 'control' as const,
+            })),
         };
-        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [engine] }, { WAYLAND_DISPLAY: 'wayland-0' });
-        cleanups.push(() => void desktop.closeAll());
-        const active = new Set<string>();
-        const answer: LinkAnswer = async (frame, sender, connectionId) => {
-            if (frame.type === 'desktop.capabilities') return result(frame, await desktop.capabilities());
-            if (frame.type === 'desktop.open') return result(frame, await desktop.open(frame.params, connectionId === undefined ? undefined : {
-                connectionId, deviceId: sender, isConnected: () => active.has(connectionId),
-            }));
-            if (frame.type === 'desktop.answer') return result(frame, await desktop.answer(frame.params.desktopId, frame.params.sdp, connectionId, sender));
-            if (frame.type === 'desktop.candidate') return result(frame, await desktop.candidate(frame.params.desktopId, frame.params.candidate, frame.params.sdpMid ?? null, frame.params.sdpMLineIndex ?? null, connectionId, sender));
-            if (frame.type === 'desktop.poll') return result(frame, await desktop.poll(frame.params.desktopId, frame.params.cursor, connectionId, sender));
-            if (frame.type === 'desktop.close') return result(frame, await desktop.close(frame.params.desktopId, connectionId, sender));
-            return undefined;
-        };
+        const linkStates = new Map<string, boolean>();
+        const activeStreams = new Set<string>();
         const endpoint = await LinkEndpoint.open({
-            relayUrl, ownerToken, machineName: 'test machine', crypto, currentCrypto: () => crypto, answer,
-            canView: () => false, onDesktopConnection: (id, online) => online ? active.add(id) : active.delete(id),
+            relayUrl,
+            ownerToken: JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string,
+            machineName: 'test machine',
+            crypto,
+            currentCrypto: () => crypto,
+            answer: host.answer,
+            canView: host.canView,
+            onDesktopConnection: (id, active) => {
+                host.setLinkDesktopConnection(id, active);
+                if (active) activeStreams.add(id); else activeStreams.delete(id);
+            },
+            onDeviceConnection: (id, active) => {
+                linkStates.set(id, active);
+                host.setLinkDeviceConnection(id, active);
+            },
+            onDeviceRevoked: (id) => host.closeDeviceDesktopSessions(id),
         });
         expect(endpoint).toBeDefined();
         cleanups.push(() => endpoint!.close());
+        endpoint!.start();
 
-        const machineSocket = new WebSocket(`${relayUrl}?role=machine&machineId=machine-desktop-test`);
-        await waitFor(new Promise<void>((resolve, reject) => { machineSocket.once('open', resolve); machineSocket.once('error', reject); }), 5_000, 'machine relay');
-        let machineSeq = 0;
-        let relayClient: WebSocket | undefined;
-        const relayResults = new Map<string, (frame: HostFrame) => void>();
-        machineSocket.on('message', (data) => {
-            const envelope = JSON.parse(String(data)) as Envelope;
-            if (envelope?.header === undefined || typeof envelope.payload !== 'string') return;
-            const frame = decodePayload<HostFrame | ClientFrame>(envelope.payload);
-            if (frame.type === 'result') return;
-            const connectionId = 'relay:desktop-phone';
-            active.add(connectionId);
-            void answer(frame as ClientFrame, deviceId, connectionId).then((response) => {
-                if (response === undefined || relayClient === undefined) return;
-                machineSeq += 1;
-                machineSocket.send(JSON.stringify({ header: { machineId: 'machine-desktop-test', seq: machineSeq, at: Date.now() }, payload: encodePayload(response) }));
-            });
-        });
-
-        const machineKeys = keyPairFrom(Buffer.from(machine.secretKey, 'base64'));
-        const grant: DeviceGrant = {
-            v: 1, secretKey: toB64url(phone.secretKey), host: toB64url(machine.publicKey), hostName: 'test machine',
-            urls: [`ws://127.0.0.1:${relay.port}/link/v1/${hostId(machineKeys.publicKey)}`],
-            device: { id: '', name: 'Test phone', role: 'control' },
+        const phoneLink = (keys: typeof phoneA, id: string): DeviceLink => {
+            const device = new DeviceLink(linkGrant(machine.publicKey, keys.secretKey, id, relay.port), { WebSocket });
+            cleanups.push(() => device.stop());
+            return device;
         };
-        const statuses: LinkStatus[] = [];
-        const link = new DeviceLink(grant, { onStatus: (status) => statuses.push(status) });
-        cleanups.push(() => link.stop());
-        await waitFor(new Promise<void>((resolve, reject) => {
-            const timer = setInterval(() => {
-                if (link.status === 'online') { clearInterval(timer); resolve(); }
-                if (statuses.includes('refused') || statuses.includes('removed')) { clearInterval(timer); reject(new Error(`link refused: ${statuses.join(',')}`)); }
-            }, 50);
-        }), 15_000, 'link online');
+        const a = phoneLink(phoneA, 'desktop-phone-0');
+        await until(() => linkStates.get('desktop-phone-0') === true ? true : undefined, 'phone A is live on link');
+        const first = await desktopStream(a);
+        await until(() => activeStreams.size === 1 ? true : undefined, 'first desktop stream is registered');
+        const openedA = await first.request('desktop.open', { permissions: ['view'] });
+        expect(openedA).toMatchObject({ type: 'result', ok: true });
+        const sessionA = responseData<{ desktopId: string }>(openedA);
+        expect(await first.request('desktop.poll', { desktopId: sessionA.desktopId, cursor: 0 }))
+            .toMatchObject({ type: 'result', ok: true, data: { events: [{ kind: 'offer', sdp: 'v=0 offer' }] } });
 
-        const stream = await link.stream('desktop', {});
-        let buffer = '';
-        const lines: HostFrame[] = [];
-        const waiters: Array<(frame: HostFrame) => void> = [];
-        stream.onData = (chunk) => {
-            buffer += Buffer.from(chunk).toString('utf8');
-            for (let nl = buffer.indexOf('\n'); nl >= 0; nl = buffer.indexOf('\n')) {
-                const line = buffer.slice(0, nl); buffer = buffer.slice(nl + 1);
-                const waiter = waiters.shift();
-                if (waiter !== undefined) waiter(JSON.parse(line) as HostFrame); else lines.push(JSON.parse(line) as HostFrame);
-            }
-        };
-        const next = (): Promise<HostFrame> => new Promise((resolve) => { const frame = lines.shift(); if (frame) resolve(frame); else waiters.push(resolve); });
-        let requestNo = 0;
-        const linkRequest = async (frame: ClientFrame): Promise<HostFrame> => {
-            if (!('requestId' in frame)) throw new Error('desktop request needs a request id');
-            requestNo += 1;
-            const answer = next();
-            await stream.write(`${JSON.stringify(frame)}\n`);
-            return waitFor(answer, 10_000, frame.type);
-        };
-        const started = Date.now();
-        const openedLink = await linkRequest({ type: 'desktop.open', requestId: `link-desktop-${++requestNo}`, params: { permissions: ['view'], maxWidth: 640, maxHeight: 480 } });
-        expect(openedLink).toMatchObject({ type: 'result', ok: true });
-        const linkDesktopId = responseData<{ desktopId: string }>(openedLink);
-        await expect(desktop.poll(linkDesktopId.desktopId, 0, 'relay:other')).rejects.toMatchObject({ code: 'session' });
-        await expect(desktop.close(linkDesktopId.desktopId, 'relay:other')).rejects.toMatchObject({ code: 'session' });
-        const firstLink = await linkRequest({ type: 'desktop.poll', requestId: `link-desktop-${++requestNo}`, params: { desktopId: linkDesktopId.desktopId, cursor: 0 } });
-        const linkMs = Date.now() - started;
-        expect(firstLink).toMatchObject({ type: 'result', ok: true, data: { events: [{ kind: 'offer', sdp: 'v=0 offer' }] } });
-        await linkRequest({ type: 'desktop.answer', requestId: `link-desktop-${++requestNo}`, params: { desktopId: linkDesktopId.desktopId, sdp: 'v=0 answer' } });
+        const otherPhone = phoneLink(phoneB, 'desktop-phone-1');
+        await until(() => linkStates.get('desktop-phone-1') === true ? true : undefined, 'second phone is live on link');
+        const otherStream = await desktopStream(otherPhone);
+        expect(await otherStream.request('desktop.poll', { desktopId: sessionA.desktopId, cursor: 0 }))
+            .toMatchObject({ type: 'result', ok: false, error: 'that desktop session belongs to another device' });
+        otherStream.stream.end();
+        otherPhone.stop();
+        await until(() => linkStates.get('desktop-phone-1') === false ? true : undefined, 'second phone disconnects');
+        await until(() => activeStreams.size === 1 ? true : undefined, 'second phone stream ends');
 
-        // Link loss ends only the signaling stream; the existing WebRTC session must remain available to relay signaling.
-        link.stop();
-        stream.end();
+        // A replacement stream is a distinct live connection; ending the old one cannot revoke device ownership.
+        const replacement = await desktopStream(a);
+        await until(() => activeStreams.size === 2 ? true : undefined, 'replacement stream is registered');
+        first.stream.end();
+        await until(() => activeStreams.size === 1 ? true : undefined, 'old stream ends independently');
+        expect(await replacement.request('desktop.poll', { desktopId: sessionA.desktopId, cursor: 0 }))
+            .toMatchObject({ type: 'result', ok: true, data: { events: [{ kind: 'offer', sdp: 'v=0 offer' }] } });
 
-        // Relay still carries ordinary host requests and supplies the same desktop operations after a link drop.
-        relayClient = new WebSocket(`${relayUrl}?role=client&machineId=machine-desktop-test`);
-        await waitFor(new Promise<void>((resolve, reject) => { relayClient!.once('open', resolve); relayClient!.once('error', reject); }), 5_000, 'phone relay');
-        relayClient.on('message', (data) => {
-            const envelope = JSON.parse(String(data)) as Envelope;
-            if (envelope?.header === undefined || typeof envelope.payload !== 'string') return;
+        // The relay remains up for ordinary control-plane work, but cannot carry desktop signaling.
+        const client = new WebSocket(`${relayUrl}?role=client&machineId=${machineId}`);
+        cleanups.push(() => client.close());
+        await new Promise<void>((resolve, reject) => { client.once('open', resolve); client.once('error', reject); });
+        let relaySeq = 0;
+        let relayResult: ((frame: HostFrame) => void) | undefined;
+        client.on('message', (raw) => {
+            const envelope = JSON.parse(String(raw)) as Envelope;
+            if (typeof envelope.payload !== 'string') return;
             const frame = decodePayload<HostFrame>(envelope.payload);
-            if ('requestId' in frame) {
-                const settle = relayResults.get(frame.requestId);
-                if (settle !== undefined) { relayResults.delete(frame.requestId); settle(frame); }
-            }
+            if (frame.type === 'result' && relayResult !== undefined) relayResult(frame);
         });
-        const relayRequest = (frame: ClientFrame): Promise<HostFrame> => new Promise((resolve) => {
-            if (!('requestId' in frame)) throw new Error('desktop request needs a request id');
-            relayResults.set(frame.requestId, resolve);
-            relayClient!.send(JSON.stringify({ header: { machineId: 'machine-desktop-test', seq: Date.now(), at: Date.now() }, payload: encodePayload(frame) }));
-        });
-        const fallbackPoll = await relayRequest({ type: 'desktop.poll', requestId: 'relay-fallback-poll', params: { desktopId: linkDesktopId.desktopId, cursor: 0 } });
-        expect(fallbackPoll).toMatchObject({ type: 'result', ok: true, data: { events: [{ kind: 'offer', sdp: 'v=0 offer' }] } });
-        expect(await relayRequest({ type: 'desktop.answer', requestId: 'relay-fallback-answer', params: { desktopId: linkDesktopId.desktopId, sdp: 'v=0 answer after link loss' } })).toMatchObject({ type: 'result', ok: true });
-        expect(await relayRequest({ type: 'desktop.close', requestId: 'relay-fallback-close', params: { desktopId: linkDesktopId.desktopId } })).toMatchObject({ type: 'result', ok: true });
+        const rejected = new Promise<HostFrame>((resolve) => { relayResult = resolve; });
+        client.send(JSON.stringify({
+            header: { machineId, seq: ++relaySeq, at: Date.now() },
+            payload: encodePayload({ type: 'desktop.open', requestId: 'relay-desktop', params: { permissions: ['view'] } } satisfies ClientFrame),
+        }));
+        expect(await Promise.race([rejected, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('relay request timed out')), 5_000))]))
+            .toMatchObject({ type: 'result', requestId: 'relay-desktop', ok: false, error: 'desktop signaling requires the byokit link' });
 
-        const relayStart = Date.now();
-        const openedRelay = await relayRequest({ type: 'desktop.open', requestId: 'relay-open', params: { permissions: ['view'], maxWidth: 640, maxHeight: 480 } });
-        const relayId = responseData<{ desktopId: string }>(openedRelay);
-        const firstRelay = await relayRequest({ type: 'desktop.poll', requestId: 'relay-poll', params: { desktopId: relayId.desktopId, cursor: 0 } });
-        const relayMs = Date.now() - relayStart;
-        expect(firstRelay).toMatchObject({ type: 'result', ok: true, data: { events: [{ kind: 'offer', sdp: 'v=0 offer' }] } });
-        expect(await relayRequest({ type: 'desktop.close', requestId: 'relay-close', params: { desktopId: relayId.desktopId } })).toMatchObject({ type: 'result', ok: true });
-        process.stdout.write(`desktop first offer: link=${linkMs}ms relay=${relayMs}ms\n`);
+        // Once the device link stays gone, the session closes after its grace; relay connectivity does not own it.
+        replacement.stream.end();
+        a.stop();
+        await until(() => linkStates.get('desktop-phone-0') === false ? true : undefined, 'phone A link goes offline');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(readFileSync(engineLog, 'utf8')).toBe('');
+        const reconnectedA = phoneLink(phoneA, 'desktop-phone-0');
+        await until(() => linkStates.get('desktop-phone-0') === true ? true : undefined, 'phone A reconnects within grace');
+        const resumed = await desktopStream(reconnectedA);
+        await until(() => activeStreams.size === 1 ? true : undefined, 'reconnected desktop stream is registered');
+        expect(await resumed.request('desktop.poll', { desktopId: sessionA.desktopId, cursor: 0 }))
+            .toMatchObject({ type: 'result', ok: true, data: { events: [{ kind: 'offer', sdp: 'v=0 offer' }] } });
+        resumed.stream.end();
+        reconnectedA.stop();
+        await until(() => linkStates.get('desktop-phone-0') === false ? true : undefined, 'phone A link disconnects again');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(readFileSync(engineLog, 'utf8')).toBe('');
+        await until(() => readFileSync(engineLog, 'utf8').trim() !== '' ? true : undefined, 'link grace closes phone A session', 25_000);
+        expect(readFileSync(engineLog, 'utf8').trim().split('\n')).toHaveLength(1);
 
-        stream.end();
-        relayClient.close();
-        machineSocket.close();
+        const b = phoneLink(phoneB, 'desktop-phone-1');
+        await until(() => linkStates.get('desktop-phone-1') === true ? true : undefined, 'phone B is live on link');
+        const bStream = await desktopStream(b);
+        const openedB = await bStream.request('desktop.open', { permissions: ['view'] });
+        expect(openedB).toMatchObject({ type: 'result', ok: true });
+        const sessionB = responseData<{ desktopId: string }>(openedB);
+        crypto = { ...crypto, devices: crypto.devices.filter((device) => device.deviceId !== 'desktop-phone-1') };
+        expect(await endpoint!.sync(crypto)).toBe(true);
+        await until(() => readFileSync(engineLog, 'utf8').trim().split('\n').length === 2 ? true : undefined, 'revocation closes phone B session immediately');
+        await until(() => b.status === 'removed' ? true : undefined, 'revoked phone is removed from the link');
+        expect(sessionB.desktopId).toBeTruthy();
+        b.stop();
+        client.close();
     });
 });
 
 function responseData<T>(frame: HostFrame): T {
     if (frame.type !== 'result' || !frame.ok) throw new Error('desktop request failed');
     return frame.data as T;
-}
-
-function result(frame: ClientFrame, data: unknown): HostFrame {
-    if (!('requestId' in frame)) throw new Error('desktop request needs a request id');
-    return { type: 'result', requestId: frame.requestId, ok: true, data } as HostFrame;
 }
