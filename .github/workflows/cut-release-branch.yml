@@ -1,0 +1,54 @@
+name: cut release branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, for example 0.2.1 (creates release/0.2.1)
+        required: true
+        type: string
+      source_commit:
+        description: Exact 40-character main commit to cut from (empty cuts the current main head)
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: cut-release-branch
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  cut:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Create release/<version> from the chosen main commit
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          branch="release/$VERSION"
+          commit="${SOURCE_COMMIT:-$GITHUB_SHA}"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          # A release branch freezes tested main work: the cut commit must sit
+          # on main, and an existing branch is never moved or recreated.
+          git merge-base --is-ancestor "$commit" HEAD
+          existing="$(git ls-remote origin "refs/heads/$branch" | cut -f1)"
+          if [ -n "$existing" ]; then
+            if [ "$existing" = "$commit" ]; then
+              echo "$branch already exists at $commit; nothing to do"
+              exit 0
+            fi
+            echo "$branch already exists at $existing; refusing to move it to $commit" >&2
+            exit 1
+          fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/heads/$branch" -f sha="$commit"
+          echo "Created $branch at $commit"
