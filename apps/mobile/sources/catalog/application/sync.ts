@@ -821,11 +821,6 @@ class MuxrSync {
         return this.client?.voiceStream?.(args);
     }
 
-    /** A link-capable device waits for its link rather than using a relay terminal. */
-    hasTerminalLink(): boolean {
-        return this.client?.linkCapable === true;
-    }
-
     async request<T extends import('@muxr/contract').RequestType>(
         type: T,
         params: import('@muxr/contract').RequestParams<T>,
