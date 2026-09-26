@@ -146,6 +146,8 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
             machineName: 'test machine',
             crypto,
             currentCrypto: () => crypto,
+            savePushLevel: () => undefined,
+            grants: { load: () => [], save: () => undefined },
             answer: host.answer,
             canView: host.canView,
             onDesktopConnection: (id, active) => {

@@ -13,12 +13,8 @@ Keyed admission a phone, browser, or peer holds to a Machine.
 _Avoid_: client token, paired device
 
 **Peer Identity**:
-Who a socket is after admission: ticket-backed or loopback. Agent Route still authorizes Agents; Peer Identity authorizes the wire.
+Who a host-to-host link reaches after grant admission. Agent Route still authorizes Agents; Peer Identity identifies the peer.
 _Avoid_: client token, legacy identity, account token
-
-**Ticket**:
-Short-lived proof that mints a WebSocket. Presence of transport means ticket admission.
-_Avoid_: session cookie, API key, machine token
 
 ## Agents
 
@@ -85,7 +81,7 @@ The daily bound on how much history a pane keeps: the newest 50 files, nothing y
 _Avoid_: cleanup job, cache eviction, garbage collection
 
 **Frozen names**:
-`~/.muxr/attachments/pane/`, the `attachment` hosted routing channel, the `/v1/attachment-download` route with its `attachmentId` query key, the `attachments.update` session event with its `attachments` field, and the plugin `muxr.attachments` / plugin action `type: "attachment"` keep their pre-rename spelling. They are contracts with tooling, older installs and the cleartext envelope, and renaming them would break installs that cannot be told to change. Everything else about this subsystem says artifact.
+`~/.muxr/attachments/pane/`, the `attachments.update` session event with its `attachments` field, and the plugin `muxr.attachments` / plugin action `type: "attachment"` keep their pre-rename spelling. They are contracts with tooling and approved plugin manifests. Everything else about this subsystem says artifact.
 _Avoid_: treating them as leftovers, "fixing" them in a rename
 
 ## Realtime voice
@@ -123,7 +119,7 @@ _Avoid_: peer graph, computer sharing
 ## Pairing
 
 **Pairing String**:
-The URL a person pastes or scans to bind this device to a Machine.
+The one-time link offer a person pastes or scans to bind this device to a Machine.
 _Avoid_: claim, ticket, QR payload
 
 **Device Authority**:
@@ -131,7 +127,7 @@ Control or observe permission stored on the Device Grant. Comes from the Pairing
 _Avoid_: role, browser flag
 
 **Connection**:
-Grant-backed or local (dev fixture) reachability for one machine id.
+Link-grant-backed reachability for one machine id.
 _Avoid_: settings blob, relay config
 
 **Account Credential**:

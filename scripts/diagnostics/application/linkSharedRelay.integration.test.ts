@@ -191,7 +191,7 @@ await until(() => (host!.output().includes('link relay: online') ? true : undefi
         // A restart re-registers with the spent token; the key alone is enough.
         await stop(host);
         host = undefined;
-        await expect(linkPair(readSelfhostState())).rejects.toThrow('start muxr on this computer');
+        await expect(linkPair(readSelfhostState())).rejects.toThrow('Start muxr on this computer first, then run `muxr pair` again.');
         startMachine();
         await until(() => (host!.output().includes('link relay: online') ? true : undefined), 'restarted host re-registers on the spent token');
         client.close();

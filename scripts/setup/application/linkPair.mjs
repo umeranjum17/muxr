@@ -10,7 +10,7 @@ import { readSelfhostState, selfhostCredential, writeSelfhostState } from '../in
 import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
 
 /**
- * Native pairing over the byokit link (migration step 4, decision D1).
+ * Native pairing over the byokit link.
  *
  * `muxr pair` uses the running machine's link host through its owner-only
  * local socket. The machine must already be running on either an owned or

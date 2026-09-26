@@ -4,8 +4,8 @@
  * Big files (APKs, screen recordings) must never ride the ws/JSON link: a
  * 250MB file is a ~330MB base64 string that gets stringified, escaped, and
  * copied half a dozen times until something runs out of memory. This server
- * streams the original bytes from disk instead. The relay asks for a ticket
- * over the existing request path, then pipes bytes from here to the phone.
+ * streams the original bytes from disk instead. Local callers can request a
+ * one-time ticket; hosted clients use encrypted artifact.read link chunks.
  *
  * URLs are unguessable one-time capabilities (16 random bytes, 5min TTL) --
  * no auth header, because anchor downloads can't set any.

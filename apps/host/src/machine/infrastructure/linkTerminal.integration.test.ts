@@ -118,7 +118,7 @@ process.stdin.on('data', (chunk) => {
         const voiceEntry = join(voiceRoot, 'stream.mjs');
         mkdirSync(voiceRoot, { recursive: true });
         writeFileSync(voiceEntry, `import readline from 'node:readline';\nconst input = readline.createInterface({ input: process.stdin });\ninput.on('line', (line) => { const frame = JSON.parse(line); if (frame.type === 'realtime.audio') process.stdout.write(JSON.stringify({ type: 'realtime.transcript', role: 'user', text: 'voice frame received' }) + '\\n'); });\n`);
-        const voiceRuntime = new PluginStreamManager({ relayUrl, machineId: 'machine-test' });
+        const voiceRuntime = new PluginStreamManager({});
         cleanups.push(() => voiceRuntime.closeAll());
 
         const terminals = new TerminalManager({
@@ -244,7 +244,7 @@ process.stdin.on('data', (chunk) => {
         let initialPaint: string | undefined;
         let linkAttachMs = 0;
         while (attachAck === undefined || initialPaint === undefined) {
-            const frame = await once(nextFrame(), 10_000, 'link attach and initial paint');
+            const frame = await once(nextFrame(), 10_000, 'link attach and initial paint') as HostFrame | { type: 'terminal.frame'; full?: boolean; bytes: string };
             if (frame.type === 'result') {
                 attachAck = frame;
                 linkAttachMs = Date.now() - linkAttachStarted;

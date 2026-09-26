@@ -77,11 +77,10 @@ from the relay URL itself), so relay fetches and sockets from both the
 browser tab and the native client succeed. Nothing outside the
 development loop changes.
 
-The supervisor reuses the dev relay's private owner credential to issue normal
-websocket tickets for terminal, preview and plugin streams. The credential is
-inlined only into the loopback Metro bundle, never printed; do not expose these
-development servers to a network or distribute their bundles. Production ticket
-and pairing checks remain unchanged.
+The development relay and host use byokit links for sessions and streams, just
+like production. Keep development servers and their bundles private; do not
+expose them to a network or distribute them. Pair with the running development
+host rather than relying on an unpaired local connection.
 
 | Change | Feedback path |
 |---|---|

@@ -94,7 +94,7 @@ import cycles between modules.
 
 **Ubiquitous language.** Names in code match [CONTEXT.md](CONTEXT.md): Agent,
 Agent Route, Agent Name, Task Title, Attention, Peer Allowlist, Device Grant,
-Envelope, Routing Channel, Plugin Identity, Worktree Landing. Do not invent
+Plugin Identity, Worktree Landing. Do not invent
 synonyms (session-as-chat, display label, IRepository). Public functions keep
 those words.
 
@@ -279,12 +279,12 @@ Maps:
 - `packages/contract` — modules for the host/mobile/relay vocabulary
 - `packages/crypto` — E2EE module; the relay never holds keys
 - `packages/USE_CASES.md` — capability → use case → domain owner → adapters
-- `apps/host` — the herdr bridge; `src/herdr/` is the backend
-- `apps/relay` — envelope routing, replay, terminal/preview channels, push
+- `apps/host` — the Herdr bridge; `src/agent/` owns the backend integration
+- `apps/relay` — blind byokit link routing, push and shared-relay enrollment
 - `apps/mobile` — the app; runtime and UI features under `sources/<feature>/`
 - `apps/mobile/sources/USE_CASES.md` — capability → use case → adapters
 - `docs/ARCHITECTURE.md` — the herdr facts this code depends on; read it before
-  touching `apps/host/src/herdr/`
+  touching `apps/host/src/agent/`
 
 ## Proposing changes
 

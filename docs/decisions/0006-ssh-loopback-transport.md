@@ -9,11 +9,8 @@
 Keep Tailscale Serve as the recommended self-host route and add a direct SSH
 choice for Android native builds. The phone opens a normal SSH client session to
 `sshd` and forwards the muxr relay's host-loopback port to a device-local port.
-The paired machine's relay traffic uses that local forward. Enrolled native
-terminals may open a byokit link stream there instead of a terminal WebSocket;
-otherwise the existing relay tickets, grants, and E2EE sockets remain in use.
-Grant refresh and ticket issuance also dial through the forward, while the
-saved grant retains its original relay address. See the [terminal transport](../ARCHITECTURE.md#what-the-relay-does).
+The paired machine's byokit link traffic uses that local forward. The saved
+grant retains its original relay address. See the [terminal transport](../ARCHITECTURE.md#what-the-relay-does).
 
 Android may pair through the SSH forward itself; see [Direct SSH from Android](../SELF-HOSTING.md#direct-ssh-from-android)
 for the pairing flow. The route can also be configured after the phone has been paired.
@@ -23,8 +20,8 @@ private-network, LAN, tunnel, and custom WSS choices.
 
 ## Invariants
 
-- SSH chooses only the byte route. Pairing, stable machine keys, device grants,
-  revocation, relay tickets, and `DeviceV2Crypto` remain authoritative.
+- SSH chooses only the byte route. Pairing, stable machine keys, link grants,
+  and revocation remain authoritative.
 - The SSH destination is always the host's loopback relay (`127.0.0.1`), never a
   public edge or an operated backend.
 - Passwords, private keys, and passphrases are stored only in the device secure

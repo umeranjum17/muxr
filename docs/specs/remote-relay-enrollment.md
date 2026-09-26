@@ -1,7 +1,7 @@
 ---
 title: Shared Remote Relay Enrollment
 slug: remote-relay-enrollment
-status: implemented
+status: superseded (transport details)
 created: 2026-08-17
 updated: 2026-09-26
 owner: umer
@@ -11,6 +11,11 @@ links:
 ---
 
 # Shared Remote Relay Enrollment
+
+The machine-enrollment goal remains; the ticket, pairing, grant and socket
+transport details below describe the pre-cutover design. Current behavior is
+owned by [Self-hosting](../SELF-HOSTING.md#shared-relay-on-a-vps) and the
+[byokit cutover contract](byokit-cutover.md). Do not implement the old routes.
 
 ## Context
 

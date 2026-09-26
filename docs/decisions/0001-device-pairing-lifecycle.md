@@ -7,7 +7,7 @@ Decider: Umer
 
 ## Decision
 
-A verified phone remains paired until explicitly revoked. muxr MUST NOT require calendar-based QR re-pairing. Pairing tickets remain short-lived and single-use. A device MUST re-pair only after revocation, device SecureStore/key loss, machine identity reset, or an unrecoverable key-version mismatch.
+A verified phone remains paired until explicitly revoked. muxr MUST NOT require calendar-based QR re-pairing. Pairing offers remain short-lived. A device must re-pair after revocation, device SecureStore/key loss, machine identity reset, an unrecoverable key-version mismatch, or the one-shot byokit wire cutover; see [the cutover contract](../specs/byokit-cutover.md).
 
 ## Alternatives
 
@@ -16,9 +16,7 @@ A verified phone remains paired until explicitly revoked. muxr MUST NOT require 
 
 ## Evidence and standards
 
-The grant is bound to a device key; expiry is not revocation. The current 30-day cliff drops the mobile grant and host ingress key with no recovery path. Self-hosted machines may be offline. Security comes from per-device credentials, immediate socket/credential revocation, and key rotation excluding the revoked device.
-
-Owner: accepted. Self-host revocation must remove/rotate E2EE device keys, not only mark the relay credential revoked.
+The grant is bound to a device key; expiry is not revocation. The current 30-day cliff drops the mobile grant and host ingress key with no recovery path. Self-hosted machines may be offline. Security comes from per-device link grants and immediate link revocation. The old shared-data-key rotation requirement was superseded by per-device Noise sessions; see [the transport architecture](../ARCHITECTURE.md#what-the-relay-does).
 
 ## Failure scenario
 
@@ -26,7 +24,7 @@ A paired phone reaches day 30 while its machine is healthy; both sides discard t
 
 ## Validation
 
-Implemented. `scripts/diagnostics/application/checkSelfhostRevocation.mjs` pairs two devices through the real relay, revokes one, proves its live socket, credential, pre-minted ticket, and grant fail, rotates the shared/per-device keys for the survivor, restarts the relay, and proves revocation persists while the survivor reconnects. The forced workspace/mobile typechecks, crypto self-check, and focused mobile terminal/sync flows pass.
+The current link pairing and revocation flows are exercised in `scripts/diagnostics/application/linkPairing.integration.test.ts` and `pairedDevices.integration.test.ts`.
 
 ## Rollback and reopen trigger
 

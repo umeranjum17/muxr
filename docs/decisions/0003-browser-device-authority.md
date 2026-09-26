@@ -9,9 +9,9 @@ Decider: Umer
 
 A muxr browser is a distinct, short-lived device. It does not reuse a phone credential, persist a native device grant in `localStorage`, or terminate end-to-end encryption at the relay.
 
-The browser generates its own device key. Pairing requires confirmation from the machine or an already-paired phone, and the machine seals the grant to that browser key. Browser grants expire after eight hours and are read-only observation grants. Terminal mutation remains native-only until a separately reviewed short-lived escalation is implemented. Closing or idling the browser drops unwrapped key material; revocation closes its sockets and rotates the machine data key.
+The browser generates its own device key. Pairing requires matching confirmation words and approval on the computer, which admits a grant for that browser key. Shared browser grants expire after eight hours; a separate personal grant expires after 30 days. Browser pairing explicitly chooses control or view-only authority. Revocation closes its link; there is no shared machine data key to rotate. See [browser pairing](../SELF-HOSTING.md#quick-start).
 
-The web client is served from a dedicated origin with an explicit origin allowlist, strict CSP, no analytics or third-party scripts, and no account/device secrets embedded in static assets. The same web client and pairing protocol are available to every self-hoster.
+The web client is served from the relay origin with an explicit origin allowlist, strict CSP, no analytics or third-party scripts, and no account/device secrets embedded in static assets. The same web client and pairing protocol are available to every self-hoster.
 
 ## Required key handling
 
@@ -20,10 +20,10 @@ A non-extractable AES-GCM WebCrypto key stored in IndexedDB wraps the browser de
 ## Failure cases
 
 - Shared browser retains access after the user leaves: bounded by short expiry, idle lock, and explicit browser-device revocation.
-- Agent output triggers XSS: bounded by strict CSP, removal or sandboxing of HTML/SVG sinks, short-lived keys, and read-only default.
-- Pairing claim is stolen: claims remain one-use and the verification code must match on an already trusted surface before the machine issues a grant.
+- Agent output triggers XSS: bounded by strict CSP, removal or sandboxing of HTML/SVG sinks, grant expiry, and explicit authority selection.
+- Pairing offer is stolen: approval requires matching confirmation words on the computer before the grant is usable.
 - Origin config drifts: requests fail closed with a useful diagnostic; wildcard CORS is forbidden.
-- A web device is revoked while connected: every socket closes, stale tickets fail, and machine key rotation fences cached traffic.
+- A web device is revoked while connected: its link closes and later requests are rejected.
 
 ## Rejected
 
@@ -35,15 +35,15 @@ A non-extractable AES-GCM WebCrypto key stored in IndexedDB wraps the browser de
 
 ## Rollback
 
-A server capability flag disables web pairing and returns 404 without a client release. Rollback revokes all browser devices, closes their sockets, rotates machine keys, and serves an unregistering service worker if one was deployed.
+Rollback requires revoking browser grants and closing their links; the pre-cutover socket transport cannot be restored as a fallback.
 
 ## Executable verification
 
-One end-to-end flow must prove: browser key generation → machine-confirmed claim → machine-sealed grant → encrypted observe attach → mutation rejection → expiry/revocation → socket close and reconnect rejection. Static-export scanning must prove no configured credential or E2EE key appears in emitted assets. Browser QA must prove CSP/CORS/origin enforcement and that agent-controlled Mermaid/SVG content cannot execute script.
+One end-to-end flow must prove: browser key generation → matching confirmation words and approval → link grant → encrypted attach with selected authority → expiry/revocation → link close and reconnect rejection. Static-export scanning must prove no configured credential or E2EE key appears in emitted assets. Browser QA must prove CSP/CORS/origin enforcement and that agent-controlled Mermaid/SVG content cannot execute script.
 
 ## Evidence and standards
 
-The existing Expo web target stored credentials in `localStorage` and bypassed native guards. This record rejects that path and requires a distinct short-lived browser device, machine-issued grants, a dedicated origin, strict CSP, a read-only default, explicit authority escalation, and self-host parity.
+The existing Expo web target stored credentials in `localStorage` and bypassed native guards. This record rejects that path and requires a distinct short-lived browser device, machine-issued grants, a relay origin with strict CSP, explicit authority selection and self-host parity.
 
 ## Reopen trigger
 
