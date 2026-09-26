@@ -105,10 +105,8 @@ const safeCodes: Record<string, true> = {
 const loggedRequests = new Set<RequestType>([
     'machines.list', 'herdr.tree', 'terminal.attach', 'terminal.detach',
     'session.list', 'session.start', 'session.open', 'session.prompt', 'session.status', 'agent.watch',
-    // Realtime voice is product code, so its attach and its credential changes
-    // are the only host-side trace that a voice turn was ever attempted. Without
-    // them a failed voice turn leaves no evidence of why it failed.
-    'voice.stream', 'voice.provider.set', 'voice.key.set', 'voice.key.clear',
+    // Realtime voice is product code; credential changes remain host-side RPCs.
+    'voice.provider.set', 'voice.key.set', 'voice.key.clear',
     'peer.prepare', 'peer.authorize', 'peer.install', 'peer.list', 'peer.revoke',
     'peer.remote.list', 'peer.remote.read', 'peer.remote.status', 'peer.remote.watch', 'peer.remote.prompt', 'peer.remote.start',
 ]);

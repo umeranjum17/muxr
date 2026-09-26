@@ -125,11 +125,11 @@ export interface SessionSource {
     pluginRpcMode?(options: { pluginId: string; manifestHash: string; contributionId: string }): 'read' | 'write' | undefined;
     pluginStream(options: { deviceId: string; pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string }): Promise<null>;
     /**
-     * Attach one product-owned realtime voice stream. Same relay channel and
-     * frame protocol as a plugin stream, but resolved from muxr's own adapter
-     * runtime: no catalog entry, manifest hash, or per-device plugin approval.
+     * Attach one product-owned realtime voice stream over its pre-opened
+     * duplex transport. It uses muxr's own adapter runtime: no catalog entry,
+     * manifest hash, or per-device plugin approval.
      */
-    voiceStream(options: { deviceId: string; channel: string; sessionId?: string; transport?: VoiceStreamTransport }): Promise<null>;
+    voiceStream(options: { deviceId: string; channel: string; sessionId?: string; transport: VoiceStreamTransport }): Promise<null>;
     /** Split layout of one tab (rects in terminal cells) for grid views. */
     herdrLayout(tabId: string): Promise<{
         tabId: string;

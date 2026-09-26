@@ -25,7 +25,7 @@ export type SessionClient = {
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
     /** A terminal pane over the link while the link serves the session; undefined when the relay
      *  does. Rejects when the host cannot carry streams, so the pane falls back to the relay. */
-    terminalStream?(args: Record<string, unknown>): Promise<TerminalLinkTransport | undefined>;
+    terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
     voiceStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
 };
 
@@ -39,8 +39,6 @@ export type ByteStreamTransport = {
     onEnd(listener: (error?: string) => void): () => void;
     close(): void;
 };
-
-export type TerminalLinkTransport = ByteStreamTransport;
 
 /**
  * How long the link gets to prove itself, and how long an online link may stay
@@ -136,6 +134,7 @@ export class LinkFirstClient implements SessionClient {
         let ended = false;
         const lines = new Set<(line: string) => void>();
         const ends = new Set<(error?: string) => void>();
+        const pendingLines: string[] = [];
         const decoder = new TextDecoder();
         let buffer = '';
         stream.onData = (chunk) => {
@@ -143,7 +142,8 @@ export class LinkFirstClient implements SessionClient {
             const parts = buffer.split('\n');
             buffer = parts.pop() ?? '';
             for (const line of parts) {
-                for (const listener of [...lines]) listener(line);
+                if (lines.size === 0) pendingLines.push(line);
+                else for (const listener of [...lines]) listener(line);
             }
         };
         stream.onEnd = (error) => {
@@ -156,6 +156,7 @@ export class LinkFirstClient implements SessionClient {
             write: (line) => stream.write(`${line}\n`),
             onLine: (listener) => {
                 lines.add(listener);
+                for (const line of pendingLines.splice(0)) listener(line);
                 return () => { lines.delete(listener); };
             },
             onEnd: (listener) => {
@@ -174,7 +175,7 @@ export class LinkFirstClient implements SessionClient {
     }
 
     /** Opens the pane's stream while the link serves the session. */
-    terminalStream(args: Record<string, unknown>): Promise<TerminalLinkTransport | undefined> {
+    terminalStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
         return this.openByteStream('terminal', args);
     }
 

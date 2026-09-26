@@ -36,7 +36,7 @@ A package module exists only when the packages own the behavior. Product operati
 | Grant Peer Authority | `peer.authorize` | Peer Allowlist, Device Grant | `apps/host/src/peer/runtime.ts` |
 | Revoke Peer Authority | `peer.revoke` | Peer relationship | `runtime.ts`, `apps/mobile/sources/collaboration/computerCollaboration.ts` |
 | Start Dictation | on-device dictation | Realtime (phone capture only) | `apps/mobile/sources/utils/dictation.ts` |
-| Start Realtime Conversation | `voice.stream` request | Realtime frames | `apps/mobile/sources/conversation/application/realtimeSession.ts` |
+| Start Realtime Conversation | byokit `voice` stream | Realtime frames | `apps/mobile/sources/conversation/application/realtimeSession.ts`, `apps/host/src/machine/infrastructure/linkEndpoint.ts` |
 | Interrupt Playback | `pause_output` / `stop` | Realtime control | `apps/mobile/sources/playback/realtimePlayback.ts` |
 | Report Agent Outcome | `voice.report` | Voice Report, Agent Lifecycle | `apps/mobile/sources/watch/wakeAndReport.ts` |
 | Open Terminal | terminal channel | Routing Channel `terminal` | `apps/mobile/sources/terminal/application/OpenTerminal.ts`, `apps/host/src/herdr/terminalManager.ts` |

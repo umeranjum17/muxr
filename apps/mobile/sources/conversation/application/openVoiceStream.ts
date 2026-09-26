@@ -28,7 +28,6 @@ export async function openVoiceStream(options: {
         ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
         ...(options.machineId === undefined ? {} : { machineId: options.machineId }),
         ...(options.snapshot === undefined ? {} : { snapshot: options.snapshot }),
-        attach: (params) => sync.request('voice.stream', params),
         openStream: (params) => sync.openVoiceStream(params) ?? Promise.resolve(undefined),
     });
 }

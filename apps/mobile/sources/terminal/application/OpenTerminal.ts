@@ -22,7 +22,7 @@ import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { channelRelayUrl, getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { storage } from '@/catalog/store';
-import type { TerminalLinkTransport } from '@/pairing/client';
+import type { ByteStreamTransport } from '@/pairing/client';
 import { beginTerminalFrameCounts, finalizeTerminalFrameCounts, recordTerminalChannel, recordTerminalFirstFrame, recordTerminalFrameReceived, recordTerminalFrameWritten, type TerminalFrameCountToken } from '@/catalog/diagnostics';
 import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
 
@@ -491,12 +491,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     // frames flow both ways through the stream. A dropped link ends the stream;
     // the ordinary reconnect loop reattaches the pane over the relay or a new
     // stream -- the pane itself is never torn down, and nothing says "removed".
-    let linkWire: TerminalLinkTransport | undefined;
+    let linkWire: ByteStreamTransport | undefined;
     type LinkAttachAck = { ok: true } | { ok: false; error?: string; code?: string; streamLost?: boolean };
     let linkAck: ((ack: LinkAttachAck) => void) | undefined;
 
     /** Retire a transport without touching the reconnect machinery (replacement, close, failed attach). */
-    const retireLink = (transport: TerminalLinkTransport): void => {
+    const retireLink = (transport: ByteStreamTransport): void => {
         if (linkWire === transport) linkWire = undefined;
         transport.close();
     };
@@ -541,7 +541,27 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             scheduleRetry();
         });
 
-        const ack = await new Promise<LinkAttachAck>((resolve) => {
+        const pendingLines: string[] = [];
+        let attachAccepted = false;
+        let processAttachedLine = (_line: string): void => undefined;
+        const settleAttachReply = async (line: string): Promise<void> => {
+            try {
+                const frame = JSON.parse(await unwrapHosted(line)) as { type?: unknown; ok?: unknown; error?: unknown; code?: unknown };
+                if (frame.type !== 'result' || linkAck === undefined) return;
+                const settle = linkAck;
+                linkAck = undefined;
+                settle(frame.ok === true
+                    ? { ok: true }
+                    : {
+                        ok: false,
+                        ...(typeof frame.error === 'string' ? { error: frame.error } : {}),
+                        ...(typeof frame.code === 'string' ? { code: frame.code } : {}),
+                    });
+            } catch {
+                // The normal frame handler retires malformed wire data.
+            }
+        };
+        const ackPromise = new Promise<LinkAttachAck>((resolve) => {
             const settle = (value: LinkAttachAck): void => {
                 clearTimeout(timer);
                 if (linkAck === settle) linkAck = undefined;
@@ -551,6 +571,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             // An unanswered attach is a dead transport, like the relay openTimer.
             const timer = setTimeout(() => settle({ ok: false, code: 'socket-timeout', streamLost: true }), 15_000);
         });
+        transport.onLine((line) => {
+            if (attachAccepted) processAttachedLine(line);
+            else {
+                pendingLines.push(line);
+                void settleAttachReply(line);
+            }
+        });
+        const ack = await ackPromise;
         if (!ack.ok) {
             recordTerminalChannel('attach', { ok: false, error: ack.error ?? ack.code ?? 'link attach failed' });
             retireLink(transport);
@@ -564,7 +592,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         for (const line of outbox.splice(0)) void transport.write(line).catch(() => undefined);
 
         let firstFrameOfStream = false;
-        transport.onLine((line) => {
+        processAttachedLine = (line) => {
             if (linkWire !== transport || closedByUser) return;
             void (async () => {
                 let frame: unknown;
@@ -580,7 +608,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 if (linkWire !== transport || closedByUser) return;
                 if (typeof frame !== 'object' || frame === null || !('type' in frame)) return;
                 const type = (frame as { type?: unknown }).type;
-                if (type === 'result') return; // the attach ack, already settled
+                if (type === 'result') return;
                 const record = frame as unknown as { bytes?: unknown };
                 if (type === 'terminal.frame' && typeof record.bytes === 'string') {
                     const bytes = record.bytes;
@@ -604,7 +632,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     applyClosedFrame(frame);
                 }
             })();
-        });
+        };
+        attachAccepted = true;
+        for (const line of pendingLines.splice(0)) processAttachedLine(line);
         return true;
     }
 
