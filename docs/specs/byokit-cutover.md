@@ -33,6 +33,17 @@ This is a one-shot wire break. Older phone builds and pre-cutover computer/phone
 
 All step lanes merged on `migration/byokit`; the old socket/router, envelope and fallback arms are gone. Hosted muxr-cloud host/setup and mobile account-only login UI are retired. Real relay+host terminal, desktop signaling, voice, pairing, push and reconnect flows and full suite have run; rerun the suite on the final head. Isolated HTTPS PWA paired with confirmation words, reloaded connected, and stored its grant behind a non-extractable IndexedDB AES-GCM key. Device revoke disconnected that browser; its UI displayed “Computer unavailable,” not a specific revoked explanation. A physical-phone Tailscale pairing failure exposed the host's two-second device-record reconciliation revoking an approved but still provisional grant before a remote phone could reconnect for `pair.complete`. Unbound grants remain available only while pairing is active and are pruned when pairing closes; a delayed real relay/host non-loopback pairing flow fails before and passes after the fix. Physical-phone tailnet retest remains a pre-release gate.
 
+## Native deep-link QA
+
+Expo Router's native intent maps a raw offer, `muxr://pair#byokit-link:1:…`, `muxr-dev://pair#byokit-link:1:…`, `muxr-preview://pair#byokit-link:1:…`, or an HTTPS `/pair#byokit-link:1:…` link into the Pair screen's `offer` parameter. The PWA keeps its HTTPS pairing link. For a fresh one-time native offer printed by `muxr pair`, replace `<offer-body>` with the portion after `byokit-link:1:` and use the explicit development package/activity on the scoped QA phone:
+
+```sh
+adb -s <SERIAL> shell am start -n app.muxr.local.dev/com.trymuxr.app.MainActivity \
+  -a android.intent.action.VIEW -d 'muxr-dev://pair#byokit-link:1:<offer-body>'
+```
+
+The matching words still require computer-side approval. Treat the URL as a short-lived secret; do not paste a live offer into public logs. Production uses `muxr://pair#…`, preview `muxr-preview://pair#…`. A development build does not claim the production HTTPS association; an explicit `-n` intent can exercise an HTTPS `/pair#…` URL.
+
 ## Source footprint
 
 Tracked `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts` lines under each `apps/` directory, excluding `dist/` and `build/`; `*.test.*`, `*.spec.*` and `__tests__/` count as test, not source. Fixed pre-migration baseline `42afd495` (merge base with `migration/byokit`); candidate `9a47fea9`:

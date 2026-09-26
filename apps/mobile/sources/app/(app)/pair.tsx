@@ -112,8 +112,7 @@ export default function PairScreen() {
     const [sshPassphrase, setSshPassphrase] = React.useState('');
     const [sshError, setSshError] = React.useState<string | undefined>(undefined);
     const [commandCopied, setCommandCopied] = React.useState(false);
-    // Deep links arrive as route params (expo-router drops unknown query keys
-    // from getInitialURL, so the raw URL is only a fallback).
+    // Native intent routes the offer into this screen's query param before Expo Router handles the URL.
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
     const PairScrollView = browser ? ScrollView : KeyboardAwareScrollView;
@@ -138,21 +137,8 @@ export default function PairScreen() {
         : PHONE_PAIRING_GRANTS;
     const pairingSteps = browser ? BROWSER_PAIRING_STEPS : PHONE_PAIRING_STEPS;
     const switching = getCachedConnectionSettings().machineId !== '';
-    const routePairUrl = React.useMemo(() => {
-        const v = routeParams.v;
-        if (typeof v !== 'string' || v === '') return undefined;
-        const query = new URLSearchParams();
-        for (const [key, value] of Object.entries(routeParams)) {
-            if (key === 'source' || key === 'route' || typeof value !== 'string') continue;
-            // Expo's deep-link parser form-decodes, so the `%2B` in a
-            // standard-base64 machinePk arrives as a space and the rebuilt
-            // mailbox no longer matches the machine's signing key. base64
-            // has no spaces, so restoring `+` is unambiguous -- but only
-            // for that key: the human-readable name may contain real spaces.
-            query.set(key, key === 'machinePk' ? value.replace(/ /g, '+') : value);
-        }
-        return `muxr://pair?${query.toString()}`;
-    }, [JSON.stringify(routeParams)]);
+    const routePairUrl = typeof routeParams.offer === 'string' && looksLikeLinkOffer(routeParams.offer)
+        ? routeParams.offer : undefined;
 
     React.useEffect(() => {
         let cancelled = false;

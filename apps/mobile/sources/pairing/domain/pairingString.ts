@@ -9,14 +9,30 @@ const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e
  * all, which the user sees as a scan that silently does nothing.
  */
 const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#|^byokit-link:1:/i;
+const LINK_OFFER = /^byokit-link:1:[A-Za-z0-9_-]+$/;
 
-/** A byokit link offer QR (`byokit-link:1:…`), parsed for display only; the pairing itself validates through @byokit/link. */
+/** Unwrap only the registered app schemes or an HTTPS /pair link; byokit validates the offer itself. */
+export function linkOfferFromUrl(value: string): string | undefined {
+    const input = value.trim();
+    if (LINK_OFFER.test(input)) return input;
+    try {
+        const url = new URL(input);
+        const app = ['muxr:', 'muxr-dev:', 'muxr-preview:'].includes(url.protocol)
+            && url.hostname === 'pair' && (url.pathname === '' || url.pathname === '/');
+        const web = url.protocol === 'https:' && url.hostname !== '' && url.pathname === '/pair';
+        if ((!app && !web) || url.username || url.password || url.search) return undefined;
+        const offer = url.hash.slice(1);
+        return LINK_OFFER.test(offer) ? offer : undefined;
+    } catch { return undefined; }
+}
+
+/** A byokit link offer QR (`byokit-link:1:…`), parsed for display only; @byokit/link validates it. */
 export function looksLikeLinkOffer(value: string): boolean {
-    return /^(?:byokit-link:1:|https:\/\/[^#]+\/pair#byokit-link:1:)[A-Za-z0-9_-]+$/.test(value.trim());
+    return linkOfferFromUrl(value) !== undefined;
 }
 
 export function looksLikePairingLink(value: string): boolean {
-    return PAIR_LINK.test(value);
+    return looksLikeLinkOffer(value) || PAIR_LINK.test(value);
 }
 
 export function pairingSearchParams(url: string): URLSearchParams {
