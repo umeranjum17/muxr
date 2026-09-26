@@ -187,6 +187,7 @@ export function ScreenLimits({ node, data, asOf }: { node: PluginScreenLimitsNod
                 {payload.windows.length > 0 && <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.divider, marginTop: 12, marginBottom: 12 }} />}
                 {payload.windows.map((window, index) => {
                     const run = runOut(window);
+                    const note = run?.note ?? (window.pace == null ? undefined : t(PACE_KEYS[window.pace]));
                     const tone: PluginScreenTone | undefined = run?.tone ?? (window.pace == null || window.pace === 'on pace' ? undefined : verdictTone(window.pace));
                     return (
                         <View key={`${window.label}-${index}`} style={index === payload.windows.length - 1 ? undefined : { marginBottom: 12 }}>
@@ -200,7 +201,7 @@ export function ScreenLimits({ node, data, asOf }: { node: PluginScreenLimitsNod
                             {(window.resetsIn !== undefined || window.pace != null) && (
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 4, marginTop: 3, marginBottom: 5 }}>
                                     {window.resetsIn !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>{t('plugins.rightNow.resetsIn', { time: window.resetsIn })}</Text>}
-                                    {window.pace != null && <Text style={{ color: tone === undefined ? theme.colors.text : toneColor(theme, tone), fontSize: 11.5 }}>{run?.note ?? t(PACE_KEYS[window.pace])}</Text>}
+                                    {note !== undefined && <Text style={{ color: tone === undefined ? theme.colors.text : toneColor(theme, tone), fontSize: 11.5 }}>{note}</Text>}
                                 </View>
                             )}
                             {/* Drains with what is left, as its figure says; the tick marks the time left. */}

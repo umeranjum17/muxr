@@ -69,8 +69,14 @@ export function UsageScreen() {
     const failure = reportFailure(provider);
     const failed = failure !== undefined;
     rejected.current = failed || display.status === 'unavailable';
+    // The stale treatment belongs to figures the failed read could not refresh
+    // -- those captured before it. A capture newer than the failure was
+    // refreshed by a read that worked, and keeps its own verdict.
+    const capturedAt = display.status === 'figures' ? Date.parse(display.figures.capturedAt ?? '') : NaN;
+    const stale = display.status === 'figures' && failure !== undefined
+        && (!Number.isFinite(capturedAt) || capturedAt < failure.at);
 
-    const report = display.status === 'figures' ? reportFrom(display.figures, provider, failed) : undefined;
+    const report = display.status === 'figures' ? reportFrom(display.figures, provider, stale) : undefined;
     const tabs = report?.providers ?? knownProviders();
 
     const load = React.useCallback((target: string, claimedAtMs = Date.now(), force = false): Promise<void> => {
@@ -234,8 +240,7 @@ export function UsageScreen() {
     // Retained figures carry the moment they were true on the card they
     // describe -- never as a bare age floating between the failure line and
     // the page, where it reads as the failure's timestamp.
-    const capturedAt = display.status === 'figures' ? Date.parse(display.figures.capturedAt ?? '') : NaN;
-    const limitsAsOf = display.status === 'figures' && failed && Number.isFinite(capturedAt)
+    const limitsAsOf = stale && Number.isFinite(capturedAt)
         ? t('plugins.limits.asOf', { time: asOfClock(capturedAt) })
         : undefined;
     const failureText = failure === undefined ? undefined
