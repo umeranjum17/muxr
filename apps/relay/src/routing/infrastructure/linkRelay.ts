@@ -11,10 +11,12 @@ import { readPrivateFile, writeJsonFileAtomic } from '../../platform/persist.js'
  * Its state is the list of admitted hosts and is never restored from a backup:
  * an old copy could bring back a revoked host.
  */
-export async function openLinkRelay(dataDir: string, ownerToken: string): Promise<Relay> {
+export async function openLinkRelay(dataDir: string, ownerToken: string,
+    push?: { subject?: string; fetch?: typeof fetch }): Promise<Relay> {
     const path = join(dataDir, 'link-relay.json');
     return Relay.open({
         ownerToken,
+        ...(push === undefined ? {} : { push }),
         store: {
             load: async () => {
                 const raw = await readPrivateFile(path);

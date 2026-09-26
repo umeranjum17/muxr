@@ -323,6 +323,17 @@ export interface CreateHerdrSessionSourceOptions {
     hostedE2ee?: HostedMachineKeys;
     /** Issues one revocable capability only to an approved voice.session child. */
     peerBroker?: PeerBroker;
+    /** Fan one lifecycle notification out to this machine's link devices (the
+     *  byokit relay push); the relay HTTP push above keeps serving pre-link devices. */
+    onLinkAttention?: (input: {
+        sessionId: string;
+        eventId: string;
+        kind: 'blocked' | 'done' | 'failed';
+        machineId: string;
+        reasonCode?: string;
+        agentName?: string;
+        taskTitle?: string;
+    }) => void;
     /** Writes bounded semantic prompt outcomes to the owner-only host diagnostics journal. */
     onRealtimePromptDiagnostic?: (event: RealtimePromptDiagnostic) => void;
     /** Writes bounded Realtime operation outcomes to the owner-only host diagnostics journal. */
@@ -1253,7 +1264,7 @@ export async function createHerdrSessionSource(
     function notifyAttention(sessionId: string, eventId: string, kind: 'blocked' | 'done' | 'failed'): void {
         if (pushNotifyUrl === undefined || options.machineId === undefined) return;
         const lifecycle = options.lifecycle?.current(sessionId);
-        const body = JSON.stringify({
+        const payload = {
             machineId: options.machineId,
             sessionId,
             eventId,
@@ -1261,7 +1272,17 @@ export async function createHerdrSessionSource(
             ...(lifecycle === undefined ? {} : { reasonCode: lifecycle.reasonCode }),
             ...(lifecycle?.agentName === undefined ? {} : { agentName: lifecycle.agentName }),
             ...(lifecycle?.taskTitle === undefined ? {} : { taskTitle: lifecycle.taskTitle }),
+        };
+        options.onLinkAttention?.({
+            sessionId: payload.sessionId,
+            eventId: payload.eventId,
+            kind: payload.kind,
+            machineId: payload.machineId,
+            ...(payload.reasonCode === undefined ? {} : { reasonCode: payload.reasonCode }),
+            ...(payload.agentName === undefined ? {} : { agentName: payload.agentName }),
+            ...(payload.taskTitle === undefined ? {} : { taskTitle: payload.taskTitle }),
         });
+        const body = JSON.stringify(payload);
         void fetch(pushNotifyUrl, {
             method: 'POST',
             headers: {

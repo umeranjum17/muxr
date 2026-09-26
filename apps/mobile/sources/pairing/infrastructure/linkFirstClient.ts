@@ -5,6 +5,7 @@ import {
     normalizeRequestFailure,
     type ClientRequest,
     type HostFrame,
+    type LifecycleNotificationLevel,
     type RequestParams,
     type RequestResult,
     type RequestType,
@@ -23,6 +24,9 @@ export type SessionClient = {
     onStateChange(listener: (state: ConnectionState) => void): () => void;
     onEvent(listener: (sessionId: string, event: SessionEvent) => void): () => void;
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
+    /** Register this device's Expo push address over the link. False means this
+     *  transport cannot carry it yet; the caller falls back to the relay HTTP API. */
+    registerPush?(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
 };
 
 /**
@@ -45,6 +49,9 @@ export class LinkFirstClient implements SessionClient {
     private online = false;
     private closed = false;
     private fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+    /** The last push registration; replayed when the link comes back online so a
+     *  device never stays registered on the transport it is not using. */
+    private lastPush: { token: string; level: LifecycleNotificationLevel } | undefined;
     private readonly stateListeners = new Set<(state: ConnectionState) => void>();
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
     private readonly pluginListeners = new Set<(frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void>();
@@ -127,12 +134,25 @@ export class LinkFirstClient implements SessionClient {
         return () => { this.pluginListeners.delete(listener); };
     }
 
+    async registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {
+        if (this.closed || this.link === undefined || !this.online) return false;
+        this.lastPush = { token, level };
+        const frame = { type: 'push.subscribe', requestId: nextRequestId('rn'), params: { token, level } } as ClientRequest;
+        await this.link.request('push.subscribe', frame, { timeoutMs: 5_000 });
+        return true;
+    }
+
     private onLinkStatus(status: LinkStatus): void {
         if (this.closed || this.link === undefined) return;
         if (status === 'online') {
             this.clearFallbackTimer();
             this.online = true;
             this.setState('open', true);
+            // The registration may have ridden the relay HTTP API while the link
+            // was down; re-register here so one device lives in one push store.
+            if (this.lastPush !== undefined) {
+                void this.registerPush(this.lastPush.token, this.lastPush.level).catch(() => undefined);
+            }
             return;
         }
         // 'removed' covers a revoked device and a host that has not admitted

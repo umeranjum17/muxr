@@ -25,6 +25,7 @@ export type LayoutSnapshot =
       };
 
 import type {
+    LifecycleNotificationLevel,
     MachineInfo,
     SessionSnapshot,
     SessionStartResult,
@@ -539,6 +540,11 @@ export interface RequestMap extends PeerRequestMap {
     /** Answer a blocked agent's y/n question by typing the key into its pane (push actions). */
     'session.answer': { params: { sessionId: string; answer: 'y' | 'n' }; result: null };
     'session.status': { params: { sessionId: string }; result: SessionStatus };
+
+    // --- push ---------------------------------------------------------------
+    /** Register this device's Expo push address over the link; the host stores it on
+     *  the relay for this device (`level` filters which lifecycle states may wake it). */
+    'push.subscribe': { params: { token: string; level?: LifecycleNotificationLevel }; result: null };
 
     // --- shell + slash commands --------------------------------------------
     'session.shell': {

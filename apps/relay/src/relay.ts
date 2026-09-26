@@ -91,6 +91,8 @@ export interface RelayOptions {
     consumeTicket?: (ticket: string) => Promise<Ticket | undefined>;
     /** Readiness probe override for an embedding process. Default: always ready. */
     readyCheck?: () => Promise<boolean>;
+    /** Push delivery for the embedded link relay (tests capture the fetch). */
+    linkPush?: { subject?: string; fetch?: typeof fetch };
     now?: () => Date;
 }
 
@@ -173,7 +175,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     const mintSecret = config.localAuthority ? await ensureMintSecret(config.dataDir) : undefined;
     let linkRelay: Awaited<ReturnType<typeof openLinkRelay>> | undefined;
     if (mintSecret !== undefined) {
-        try { linkRelay = await openLinkRelay(config.dataDir, mintSecret); }
+        try { linkRelay = await openLinkRelay(config.dataDir, mintSecret, options.linkPush); }
         catch (error) {
             process.stderr.write(`link relay unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
         }
