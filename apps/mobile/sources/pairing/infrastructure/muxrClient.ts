@@ -11,11 +11,13 @@ import {
     nextRequestId,
     normalizeRequestFailure,
     requestRequiresE2ee,
+    relayControlUrl,
     routingChannelForRequest,
     type ClientFrame,
     type ClientRequest,
     type Envelope,
     type HostFrame,
+    type LifecycleNotificationLevel,
     type RequestParams,
     type RequestResult,
     type RequestType,
@@ -137,6 +139,20 @@ export class MuxrClient {
     constructor(private readonly options: MuxrClientOptions) {
         if (options.mode === 'hosted' && options.hostedGrant === undefined) throw new Error('hosted connection requires a verified machine grant');
         this.hosted = options.hostedGrant === undefined ? undefined : new DeviceV2Crypto(options.hostedGrant);
+    }
+
+    /** Register this device's Expo push address through the relay HTTP API. */
+    async registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {
+        if (this.options.token === undefined) return false;
+        const response = await fetch(`${relayControlUrl(this.options.relayUrl)}/v1/push/expo-subscribe`, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${this.options.token}`,
+            },
+            body: JSON.stringify({ token, level }),
+        });
+        return response.ok;
     }
 
     get e2eeEnabled(): boolean {
