@@ -1,6 +1,6 @@
 # Release channels
 
-`main` is the development stream. Merging a PR or pushing to `main` does **not** start CI, build, or publication workflows. Captain-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: every workflow below refuses to run anywhere but `release/<semver>`, and a requested version must match its branch. The repository workflows below are manual dispatches unless noted otherwise.
+`main` is the development stream. Merging a PR or pushing to `main` does **not** start CI, build, or publication workflows. Captain-tested commits merge frequently; a release ships from its own `release/<version>` branch instead, cut from a tested `main` commit and carrying fixes cherry-picked from `main` — so the large feature branches under review can never ship an intermediate state. The branch name is the release version: candidate, publication and Android delivery workflows require `release/<semver>`; the branch-cut workflow starts from `main`. Candidate and Android versions must match the branch. The repository workflows below are manual dispatches unless noted otherwise.
 
 ```mermaid
 flowchart LR
@@ -42,12 +42,13 @@ node scripts/release/presentation/changelog.mjs check    --version 0.1.27-nightl
 2. Cut the release branch manually; fixes land on `main` first and are cherry-picked onto the branch afterwards:
 
    ```bash
-   gh workflow run cut-release-branch.yml -f version="0.2.1" -f source_commit="$MAIN_SHA"
+   gh workflow run cut-release-branch.yml --ref main -f version="0.2.1" -f source_commit="$MAIN_SHA"
    ```
 
 3. Test the branch head locally and dispatch the candidate from it, supplying that exact SHA and the version the branch names:
 
    ```bash
+   BRANCH_SHA=$(git rev-parse HEAD) # from the checked-out release branch
    gh workflow run release-candidate.yml --ref release/0.2.1 \
      -f source_commit="$BRANCH_SHA" -f channel=nightly -f version=
    ```
