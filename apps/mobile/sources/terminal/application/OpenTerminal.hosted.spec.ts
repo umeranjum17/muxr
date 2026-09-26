@@ -116,6 +116,33 @@ describe('openTerminal hosted transport', () => {
         vi.useRealTimers();
     });
 
+    it('refreshes a rotated grant before opening a hosted link terminal', async () => {
+        const rotated = { ...grant, keyVersion: 3 };
+        mocks.refresh.mockResolvedValue(rotated);
+        let receive!: (line: string) => void;
+        const transport = {
+            write: vi.fn(async () => undefined),
+            close: vi.fn(),
+            onLine: (listener: (line: string) => void) => { receive = listener; return () => undefined; },
+            onEnd: () => () => undefined,
+        };
+        mocks.openTerminalLink.mockImplementation(() => {
+            expect(mocks.refresh).toHaveBeenCalledOnce();
+            return Promise.resolve(transport);
+        });
+        const opening = openTerminal({ agentRoute: 'session-1', size: { cols: 100, rows: 30 } });
+        await vi.waitFor(() => expect(mocks.openTerminalLink).toHaveBeenCalledOnce());
+        const args = mocks.openTerminalLink.mock.calls[0]![0] as { requestId: string; channel: string };
+        receive(JSON.stringify({ header: {
+            machineId: 'machine', senderId: 'machine', recipientId: '*', channel: 'terminal',
+            streamId: args.channel, keyVersion: 3, seq: 1,
+        }, payload: `sealed:${JSON.stringify({ type: 'result', requestId: args.requestId, ok: true })}` }));
+        const channel = await opening;
+        expect(mocks.request.mock.calls.filter(([method]) => method === 'terminal.attach')).toHaveLength(0);
+        expect(FakeWebSocket.instances).toHaveLength(0);
+        channel.close();
+    });
+
     it('attaches on the link without a relay socket and consumes a final sealed close before stream end', async () => {
         let line!: (value: string) => void;
         let end!: () => void;

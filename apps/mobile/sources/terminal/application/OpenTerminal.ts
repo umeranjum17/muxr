@@ -142,7 +142,6 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         // When the link serves the session, the pane's stream open IS the
         // attach; the relay request + channel socket below run only when the
         // link cannot carry the pane.
-        if (await attachViaLink(takeover) !== 'unavailable') return 'link';
         if (grant !== undefined) {
             const latest = await refreshHostedGrant(settings.machineId, grant!.credential, grant!.relayUrl, await channelRelayUrl(grant!.relayUrl, settings.machineId));
             if (latest !== undefined && latest.keyVersion >= grant!.keyVersion) {
@@ -151,6 +150,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 hosted = new DeviceV2Crypto(latest);
             }
         }
+        if (await attachViaLink(takeover) !== 'unavailable') return 'link';
         await sendAttachRequest(takeover);
         return 'relay';
     })();
