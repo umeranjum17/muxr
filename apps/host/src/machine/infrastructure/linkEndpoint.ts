@@ -32,21 +32,10 @@ const muxrDeviceIdOf = (grant: Grant): string | undefined => {
 /** Full attach call for the port: the validated stream args plus who is asking. */
 type LinkTerminalAttach = LinkTerminalAttachParams & { deviceId: string; socket: TerminalPipe };
 
-/** Link stream args for a terminal pane, as the device opens the stream with them. */
-type LinkTerminalWireAttach = {
-    requestId: string;
-    sessionId: string;
-    channel: string;
-    cols: number;
-    rows: number;
-    mode?: 'control' | 'observe';
-    takeover?: boolean;
-};
-
 const CHANNEL_PATTERN = /^tm_[A-Za-z0-9]+_[A-Za-z0-9]+$/;
 
 /** Everything on a link stream is network input; validate before the pane machinery sees it. */
-function parseLinkTerminalAttach(args: unknown): LinkTerminalWireAttach | undefined {
+function parseLinkTerminalAttach(args: unknown): LinkTerminalAttachParams | undefined {
     if (typeof args !== 'object' || args === null) return undefined;
     const a = args as Record<string, unknown>;
     if (typeof a.requestId !== 'string' || a.requestId.length === 0 || a.requestId.length > 80) return undefined;
@@ -79,15 +68,24 @@ class LinkTerminalSocket implements TerminalPipe {
     private readonly decoder = new TextDecoder();
     /** Input lines that arrived before the pane machinery listened, flushed on the first onLine. */
     private readonly early: string[] = [];
+    private earlySize = 0;
     private buffer = '';
     private ended = false;
 
-    constructor(private readonly stream: LinkStream) {
+    constructor(private readonly stream: LinkStream, private readonly observe: boolean) {
         stream.onData = (chunk) => {
+            if (this.ended || this.observe) return;
             this.buffer += this.decoder.decode(chunk, { stream: true });
+            if (this.buffer.length > 1_048_576) {
+                this.close();
+                return;
+            }
             const lines = this.buffer.split('\n');
             this.buffer = lines.pop() ?? '';
-            for (const line of lines) this.deliver(line);
+            for (const line of lines) {
+                if (this.ended) break;
+                this.deliver(line);
+            }
         };
         stream.onEnd = () => this.finish();
     }
@@ -105,6 +103,7 @@ class LinkTerminalSocket implements TerminalPipe {
         this.lines.add(listener);
         if (this.early.length > 0) {
             for (const line of this.early.splice(0)) listener(line);
+            this.earlySize = 0;
         }
         return () => { this.lines.delete(listener); };
     }
@@ -122,7 +121,9 @@ class LinkTerminalSocket implements TerminalPipe {
 
     private deliver(line: string): void {
         if (this.lines.size === 0) {
-            this.early.push(line);
+            this.earlySize += line.length;
+            if (this.earlySize > 1_048_576) this.close();
+            else this.early.push(line);
             return;
         }
         for (const listener of [...this.lines]) listener(line);
@@ -293,7 +294,7 @@ async function streamTerminal(stream: LinkStream, req: LinkRequest, grant: Grant
     // An observing device renders the pane without touching it, the same way
     // the relay dispatcher rewrites its terminal.attach.
     const mode = grant.role === 'view' ? 'observe' : params.mode;
-    const socket: TerminalPipe = new LinkTerminalSocket(stream);
+    const socket: TerminalPipe = new LinkTerminalSocket(stream, mode === 'observe');
     const reply = (result: { ok: true; data: { paneId: string } } | { ok: false; error: string; code?: string }): void => {
         socket.send(JSON.stringify({ type: 'result', requestId: params.requestId, ...result }));
     };
