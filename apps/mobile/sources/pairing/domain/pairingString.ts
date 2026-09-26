@@ -12,7 +12,7 @@ const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\
 
 /** A byokit link offer QR (`byokit-link:1:…`), parsed for display only; the pairing itself validates through @byokit/link. */
 export function looksLikeLinkOffer(value: string): boolean {
-    return /^byokit-link:1:[A-Za-z0-9_-]+$/.test(value.trim());
+    return /^(?:byokit-link:1:|https:\/\/[^#]+\/pair#byokit-link:1:)[A-Za-z0-9_-]+$/.test(value.trim());
 }
 
 export function looksLikePairingLink(value: string): boolean {
@@ -134,7 +134,7 @@ function pairingUrlOrReject(value: string): PairingStringParse {
             }
             return acceptPairing(input);
         }
-        if (hasPairingPayload(parsed)) return acceptPairing(input);
+        if (looksLikeLinkOffer(input) || hasPairingPayload(parsed)) return acceptPairing(input);
         return { ok: false, error: 'This browser pairing link has no pairing code. Create a fresh one with `muxr pair --browser`.' };
     }
     return { ok: false, error: 'This is not a muxr pairing string. Create a fresh one with `muxr setup` or `muxr pair`.' };
@@ -155,7 +155,16 @@ export function prepareHostedPairingInput(value: string): string {
     return parsed.pairing.url;
 }
 
+function linkOfferDisplay(url: string): Record<string, unknown> | undefined {
+    if (!looksLikeLinkOffer(url)) return undefined;
+    try {
+        const payload = url.slice(url.indexOf('byokit-link:1:') + 'byokit-link:1:'.length);
+        return JSON.parse(new TextDecoder().decode(decodeBase64(payload, 'base64url'))) as Record<string, unknown>;
+    } catch { return undefined; }
+}
+
 function pairingAuthorityOf(url: string): PairingAuthority {
+    if (linkOfferDisplay(url)?.role === 'view') return 'observe';
     const fragment = pairingSearchParams(url);
     const direct = fragment.get('role') ?? fragment.get('authority');
     if (direct === 'control' || direct === 'observe') return direct;
@@ -167,6 +176,8 @@ function pairingAuthorityOf(url: string): PairingAuthority {
 }
 
 function pairingDisplayNameOf(url: string): string {
+    const offerName = linkOfferDisplay(url)?.name;
+    if (typeof offerName === 'string' && offerName.trim().length <= 60) return offerName.trim() || 'this machine';
     const fragment = pairingSearchParams(url);
     let name = fragment.get('name')?.trim();
     if (!name) {
@@ -182,4 +193,10 @@ export function hostedPairingAuthority(url: string): PairingAuthority {
 
 export function hostedPairingDisplayName(url: string): string {
     return pairingDisplayNameOf(url);
+}
+
+export function hostedPairingDuration(url: string): string {
+    const lifetime = linkOfferDisplay(url)?.lifetime;
+    return (typeof lifetime === 'number' && lifetime > 8 * 60 * 60_000)
+        || pairingSearchParams(url).get('personal') === '1' ? '30 days' : 'eight hours';
 }

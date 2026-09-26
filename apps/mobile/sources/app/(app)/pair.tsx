@@ -8,7 +8,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { hostedPairingAuthority, hostedPairingDisplayName, linkPairMachineName, looksLikeLinkOffer, prepareHostedPairingInput } from '@/pairing/e2ee';
+import { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, linkPairMachineName, looksLikeLinkOffer, prepareHostedPairingInput } from '@/pairing/e2ee';
 import { pairLinkOffer, pairMachine, usePairQrScanner } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, tunnelPairingUrl, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
@@ -121,10 +121,6 @@ export default function PairScreen() {
     const sshRoute = !browser && routeParams.route === 'ssh' && Platform.OS === 'android' && sshTunnelAvailable();
     const reviewPairing = React.useCallback((raw: string) => {
         if (looksLikeLinkOffer(raw.trim())) {
-            if (browser) {
-                setState({ phase: 'error', message: 'Native pairing codes are for phones. Use `muxr pair --browser` on the computer.' });
-                return;
-            }
             const offer = raw.trim();
             setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
             void linkPairMachineName(offer).then((name) => {
@@ -142,7 +138,8 @@ export default function PairScreen() {
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const browserAuthority = browser && state?.url ? hostedPairingAuthority(state.url) : 'observe';
     const grants = browser
-        ? browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS
+        ? (browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS)
+            .map((grant) => grant.replace('eight hours', hostedPairingDuration(state?.url ?? '')))
         : PHONE_PAIRING_GRANTS;
     const pairingSteps = browser ? BROWSER_PAIRING_STEPS : PHONE_PAIRING_STEPS;
     const switching = getCachedConnectionSettings().machineId !== '';
@@ -196,8 +193,7 @@ export default function PairScreen() {
     }, [routePairUrl, browser, sshRoute]);
 
     const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
-        // A byokit link offer pairs over the link (migration step 4); the SSH
-        // route follows in its own step and does not accept offers yet.
+        // Link offers pair over the running machine; Direct SSH uses its own route.
         if (looksLikeLinkOffer(url.trim())) {
             await pairLinkOffer(url.trim(), auth);
             router.replace('/');

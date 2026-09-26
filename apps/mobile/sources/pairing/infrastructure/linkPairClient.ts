@@ -32,6 +32,7 @@ export interface LinkPairAnswer {
     relayUrl: string;
     deviceId: string;
     authority: 'control' | 'observe';
+    expiresAt: number;
     linkUrl: string;
 }
 
@@ -109,7 +110,9 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         const answer = await pairing.request('pair.complete', { deviceName: pending.name }, { timeoutMs: 15_000 }) as unknown as LinkPairAnswer;
         if (typeof answer?.machineId !== 'string' || typeof answer?.machineBoxPublicKey !== 'string'
             || typeof answer?.linkUrl !== 'string' || !/^wss?:\/\//.test(answer.linkUrl)
-            || typeof answer?.relayUrl !== 'string' || typeof answer?.deviceId !== 'string') {
+            || typeof answer?.relayUrl !== 'string' || typeof answer?.deviceId !== 'string'
+            || (answer.authority !== 'observe' && answer.authority !== 'control')
+            || !Number.isFinite(answer.expiresAt) || answer.expiresAt <= Date.now()) {
             throw new Error('the computer sent an incomplete pairing answer');
         }
         await verifyMachineLink(answer, key, pending.name);
@@ -134,7 +137,7 @@ async function verifyMachineLink(answer: LinkPairAnswer, key: ReturnType<typeof 
         host: answer.machineBoxPublicKey,
         hostName: answer.machineName,
         urls: [answer.linkUrl],
-        device: { id: '', name, role: 'control' },
+        device: { id: '', name, role: answer.authority === 'observe' ? 'view' : 'control' },
     };
     const deadline = Date.now() + 45_000;
     while (true) {

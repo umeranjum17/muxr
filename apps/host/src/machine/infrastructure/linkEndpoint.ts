@@ -194,7 +194,7 @@ function trusted(grant: Grant, crypto: MachineCryptoState | undefined): boolean 
  */
 export class LinkEndpoint {
     private synced: Promise<boolean> = Promise.resolve(true);
-    private pairing: { confirm: (request: PairRequest) => boolean | Promise<boolean>; handle: (request: LinkRequest, grant: Grant) => Promise<unknown> } | undefined;
+    private pairing: { kind: 'native' | 'browser'; confirm: (request: PairRequest) => boolean | Promise<boolean>; handle: (request: LinkRequest, grant: Grant) => Promise<unknown> } | undefined;
 
     private client?: RelayClient;
     private connectionTimer?: ReturnType<typeof setInterval>;
@@ -234,7 +234,7 @@ export class LinkEndpoint {
             grants: options.grants,
             confirm: (request) => endpoint?.pairing?.confirm(request) ?? false,
             allow: (req, grant) => {
-                if (req.op === 'pair.complete' || req.op === 'pair.verified') return endpoint?.pairing !== undefined && grant.kind === 'native';
+                if (req.op === 'pair.complete' || req.op === 'pair.verified') return endpoint?.pairing !== undefined && grant.kind === endpoint.pairing.kind;
                 if (!trusted(grant, options.currentCrypto())) return false;
                 if (req.op === 'terminal' || req.op === 'desktop') return true;
                 if (req.op === 'voice') return grant.role === 'control' && options.voiceStreams !== undefined;
@@ -245,7 +245,7 @@ export class LinkEndpoint {
             },
             handle: async (req, grant) => {
                 if (req.op === 'pair.complete' || req.op === 'pair.verified') {
-                    if (endpoint.pairing === undefined || grant.kind !== 'native') throw new Error('link: pairing is closed');
+                    if (endpoint.pairing === undefined || grant.kind !== endpoint.pairing.kind) throw new Error('link: pairing is closed');
                     return endpoint.pairing.handle(req, grant);
                 }
                 if (!trusted(grant, options.currentCrypto())) throw new Error('link: device no longer trusted');
@@ -374,12 +374,13 @@ export class LinkEndpoint {
     }
 
     /** Open the one-time offer on this machine's already-registered host. */
-    offerPairing(pairing: NonNullable<LinkEndpoint['pairing']>, relayUrl: string): { text: string; expires: number } {
+    offerPairing(pairing: NonNullable<LinkEndpoint['pairing']>, relayUrl: string, intent: { kind: 'native' | 'browser'; authority: 'control' | 'observe'; lifetime?: number; base?: string }): { text: string; expires: number } {
         if (this.pairing !== undefined && this.pairing !== pairing) throw new Error('another pairing is in progress');
         this.pairing = pairing;
         const relay = new URL(relayUrl.replace(/^ws/i, 'http'));
         const scheme = relay.protocol === 'https:' ? 'wss' : 'ws';
-        return this.host.offer({ urls: [`${scheme}://${relay.host}/link/v1/${this.host.id}`], role: 'control', kind: 'native' });
+        return this.host.offer({ urls: [`${scheme}://${relay.host}/link/v1/${this.host.id}`], role: intent.authority === 'observe' ? 'view' : 'control', kind: intent.kind,
+            ...(intent.lifetime === undefined ? {} : { lifetime: intent.lifetime }), ...(intent.base === undefined ? {} : { base: intent.base }) });
     }
 
     stopPairing(): void {
