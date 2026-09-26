@@ -18,7 +18,6 @@ export {
     parseDevice,
     parseDeviceAuthority,
     parseEnrollment,
-    parseHostedAuth,
     parseMachineCrypto,
     parsePendingRemote,
     publicRelayUrl,
@@ -37,8 +36,6 @@ export { connectEnrollment } from './application/connectEnrollment.mjs';
 export { startSelfHost } from './application/startSelfHost.mjs';
 export { enableBrowserHosting } from './application/enableBrowserHosting.mjs';
 export {
-    applyHostedSetup,
-    hostedLogin,
     inspectSetup,
     uninstallMuxr,
 } from './application/inspectSetup.mjs';

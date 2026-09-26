@@ -305,7 +305,7 @@ export async function runDaemon(args = []) {
         }
         if (!dryRun && env('MUXR_NO_SERVICE_COMMANDS') !== '1'
             && (action === 'start' || action === 'restart')
-            && (installedMode === 'selfhost' || installedMode === 'hosted')) {
+            && installedMode === 'selfhost') {
             try { await waitForPeerBrokerReady(previousPeerCapability); }
             catch (cause) {
                 error(cause instanceof Error ? cause.message : String(cause));

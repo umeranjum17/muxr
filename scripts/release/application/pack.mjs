@@ -234,18 +234,6 @@ if (statSync(join(webDist, 'index.html')).mtimeMs < sourceMtime) {
 }
 cpSync(webDist, join(out, 'web'), { recursive: true });
 copyFileSync(join(root, 'install.sh'), join(out, 'web', 'install.sh'));
-const packagedControlUrl = process.env.MUXR_PACKAGE_CONTROL_URL?.trim()
-    || process.env.MUXR_PUBLIC_BASE_URL?.trim();
-if (!packagedControlUrl) {
-    process.stderr.write('note: MUXR_PACKAGE_CONTROL_URL unset; packing a self-host-only artifact (hosted setup disabled)\n');
-} else if (!/^https:\/\/[^/]+$/.test(packagedControlUrl)) {
-    throw new Error('MUXR_PACKAGE_CONTROL_URL must be the published HTTPS control-plane origin');
-}
-const setupPath = join(out, 'setup', 'application', 'inspectSetup.mjs');
-writeFileSync(
-    setupPath,
-    readFileSync(setupPath, 'utf8').replace('__MUXR_PACKAGED_CONTROL_URL__', packagedControlUrl ?? ''),
-);
 chmodSync(join(out, 'cli.mjs'), 0o755);
 
 copyFileSync(join(root, 'docs', 'npm-readme.md'), join(out, 'README.md'));

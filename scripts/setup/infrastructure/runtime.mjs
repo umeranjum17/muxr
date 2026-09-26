@@ -69,7 +69,6 @@ export const home = () => process.env.HOME?.trim() || homedir();
 export const defaultStateDir = () => join(home(), '.muxr');
 export const stateDir = () => env('MUXR_HOME') || defaultStateDir();
 export const manifestPath = () => join(stateDir(), 'setup-manifest.json');
-export const authPath = () => join(stateDir(), 'auth.json');
 
 export const platform = () => env('MUXR_PLATFORM') || hostPlatform();
 export const hash = (text) => createHash('sha256').update(text).digest('hex');
@@ -77,11 +76,7 @@ export const timestamp = () => new Date().toISOString().replaceAll(/[:.]/g, '-')
 export const base64 = (bytes) => Buffer.from(bytes).toString('base64');
 export const {
     PAIRING_CODE_ALPHABET,
-    createDeviceGrant,
-    deriveV2Key,
     formatPairingCode,
-    newV2ReplayTracker,
-    openV2,
     pairingCodeHash,
     sealPairingCodePayload,
 } = await import(cryptoModuleUrl());
