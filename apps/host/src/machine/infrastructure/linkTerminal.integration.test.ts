@@ -128,7 +128,7 @@ describe('byokit link streams (real relay + real host)', () => {
             currentCrypto: () => crypto,
             answer: async () => undefined,
             canView: () => false,
-            terminals: { attach: (params) => terminals.attach(params) },
+            terminals,
             voiceStreams: {
                 attach: ({ deviceId, channel, sessionId, stream }) => voiceRuntime.attach({
                     target: { pluginId: 'voice-test', pluginRoot: voiceRoot, entry: 'stream.mjs' },

@@ -73,6 +73,7 @@ export type TerminalAttachParams = {
     takeover?: boolean;
     /** An already-open pipe (the byokit link). Given, the relay channel is skipped. */
     socket?: TerminalPipe;
+    assertAuthorized?: () => void;
 };
 
 const ATTACH_TIMEOUT_MS = 10_000;
@@ -138,6 +139,13 @@ export class TerminalManager {
     }
 
     private async attachNow(params: TerminalAttachParams, paneId: string): Promise<{ paneId: string }> {
+        const assertActive = (): void => {
+            params.assertAuthorized?.();
+            if (params.socket !== undefined && !params.socket.isOpen) {
+                throw Object.assign(new Error('terminal: link stream ended'), { code: 'socket-error' });
+            }
+        };
+        assertActive();
         const mode = this.hosted !== undefined && deviceTableIsObserve(this.options.hostedE2ee?.deviceAuthorities, params.deviceId)
             ? 'observe'
             : params.mode ?? 'control';
@@ -154,6 +162,7 @@ export class TerminalManager {
         // observers must never move it.
         // Do this after authority/takeover checks and before opening resources.
         if (mode === 'control') await this.options.focusSession(params.sessionId);
+        assertActive();
 
         let socket: TerminalPipe;
         if (params.socket !== undefined) {
@@ -198,6 +207,7 @@ export class TerminalManager {
             socket = relayTerminalSocket(ws);
         }
 
+        assertActive();
         const herdr = this.options.herdrBin ?? 'herdr';
         // Observe renders the pane without touching it: no takeover, no real-PTY
         // resize -- that is what makes the home screen's live preview cards free.
@@ -252,6 +262,14 @@ export class TerminalManager {
             child.once('error', onError);
         });
 
+        try {
+            assertActive();
+        } catch (error) {
+            child.kill();
+            socket.close();
+            throw error;
+        }
+
         const attachment: Attachment = {
             channel: params.channel,
             sessionId: params.sessionId,
@@ -282,26 +300,7 @@ export class TerminalManager {
             delete attachment.scrollStateTimer;
             attachment.scrollStateDirty = false;
             if (reason !== undefined && socket.isOpen) {
-                const plaintext = JSON.stringify({ type: 'terminal.closed', reason });
-                if (this.hosted === undefined) {
-                    socket.send(plaintext);
-                } else {
-                    const payload = this.hosted.seal('terminal', params.channel, plaintext);
-                    const envelope: Envelope = {
-                        header: {
-                            machineId: this.options.machineId,
-                            senderId: this.options.machineId,
-                            recipientId: '*',
-                            channel: 'terminal',
-                            streamId: params.channel,
-                            keyVersion: this.options.hostedE2ee!.keyVersion,
-                            seq: v2EnvelopeSequence(payload),
-                            at: Date.now(),
-                        },
-                        payload,
-                    };
-                    socket.send(JSON.stringify(envelope));
-                }
+                this.sendResult(socket, params.channel, { type: 'terminal.closed', reason });
                 socket.close();
             }
             if (this.attachments.get(params.channel) === attachment) this.attachments.delete(params.channel);
@@ -482,26 +481,34 @@ export class TerminalManager {
     }
 
     private sendToPhone(attachment: Attachment, plaintext: string): void {
-        if (!attachment.socket.isOpen) return;
+        this.sendLine(attachment.socket, attachment.channel, plaintext);
+    }
+
+    sendResult(socket: TerminalPipe, channel: string, result: object): void {
+        this.sendLine(socket, channel, JSON.stringify(result));
+    }
+
+    private sendLine(socket: TerminalPipe, channel: string, plaintext: string): void {
+        if (!socket.isOpen) return;
         if (this.hosted === undefined) {
-            attachment.socket.send(plaintext);
+            socket.send(plaintext);
             return;
         }
-        const payload = this.hosted.seal('terminal', attachment.channel, plaintext);
+        const payload = this.hosted.seal('terminal', channel, plaintext);
         const envelope: Envelope = {
             header: {
                 machineId: this.options.machineId,
                 senderId: this.options.machineId,
                 recipientId: '*',
                 channel: 'terminal',
-                streamId: attachment.channel,
+                streamId: channel,
                 keyVersion: this.options.hostedE2ee!.keyVersion,
                 seq: v2EnvelopeSequence(payload),
                 at: Date.now(),
             },
             payload,
         };
-        attachment.socket.send(JSON.stringify(envelope));
+        socket.send(JSON.stringify(envelope));
     }
 
     private serializeChannel<T>(channel: string, operation: () => Promise<T>): Promise<T> {
