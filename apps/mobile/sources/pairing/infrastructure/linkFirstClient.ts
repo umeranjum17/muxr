@@ -12,9 +12,9 @@ import {
     type SessionEvent,
 } from '@muxr/contract';
 import { deriveLinkGrant } from '../application/linkGrant';
-import { MuxrClient, MuxrRequestError, type ConnectionState, type MuxrClientOptions } from './muxrClient';
+import { MuxrRequestError, type ConnectionState, type MuxrClientOptions } from './muxrClient';
 
-/** The slice of a session transport the catalog sync drives; `MuxrClient` satisfies it too. */
+/** The link session port consumed by catalog sync. */
 export type SessionClient = {
     readonly state: ConnectionState;
     connect(): void;
@@ -50,11 +50,13 @@ function linkRequestFailure(type: RequestType, error: string, code?: string): Mu
     return new MuxrRequestError(normalized.message, normalized.code);
 }
 
+/** One byokit link, including its terminal, desktop, voice and push streams. */
 export class LinkFirstClient implements SessionClient {
-    private inner: MuxrClient | undefined;
     private link: DeviceLink | undefined;
     private online = false;
     private closed = false;
+    private retryTimer: ReturnType<typeof setTimeout> | undefined;
+    private retryAttempt = 0;
     private lastPush: { token: string; level: LifecycleNotificationLevel } | undefined;
     private readonly stateListeners = new Set<(state: ConnectionState) => void>();
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
@@ -70,64 +72,54 @@ export class LinkFirstClient implements SessionClient {
     private stateField: ConnectionState = 'closed';
 
     connect(): void {
-        if (this.closed) return;
-        if (this.inner === undefined) this.startRelay();
-        else this.inner.connect();
+        if (this.closed || this.link !== undefined || this.stateField === 'stale') return;
+        const stored = this.options.hostedGrant;
+        if (stored?.credential) {
+            this.setState('stale');
+            this.options.onPermanentError?.('This pairing is from an older muxr version. Update muxr on both devices, then pair again.');
+            return;
+        }
+        const grant = deriveLinkGrant(stored);
+        if (grant === undefined) {
+            this.setState('stale');
+            this.options.onPermanentError?.('Pair with this computer again to use the secure link.');
+            return;
+        }
+        this.link = new DeviceLink(grant, {
+            timeoutMs: 5_000,
+            onStatus: (status) => this.onLinkStatus(status),
+            onEvent: (event) => this.onLinkEvent(event),
+            onError: () => undefined,
+        });
+        this.setState('connecting');
     }
 
     close(): void {
         this.closed = true;
-        this.desktopTransport?.close();
-        this.desktopTransport = undefined;
+        if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
         this.stopLink();
-        this.inner?.close();
-        this.inner = undefined;
         this.setState('closed');
     }
 
     isLive(): boolean {
-        return this.online || this.inner?.isLive() === true;
+        return this.online;
     }
 
-    /** Which transport is serving the session; diagnostics and tests read this. */
-    get transport(): 'link' | 'relay' | 'closed' {
-        if (this.online) return 'link';
-        return this.inner !== undefined ? 'relay' : 'closed';
+    get transport(): 'link' | 'closed' {
+        return this.online ? 'link' : 'closed';
     }
 
     request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
         if (this.closed) return Promise.reject(new Error('not connected'));
         if (type.startsWith('desktop.')) return this.requestViaLink(type, params, timeoutMs);
-        if (!this.online) return this.requestViaRelay(type, params, timeoutMs);
         const link = this.link;
-        if (link === undefined) return this.requestViaRelay(type, params, timeoutMs);
+        if (link === undefined) return Promise.reject(new Error('link unavailable; retry when connected'));
         const frame = { type, requestId: nextRequestId('rn'), params } as ClientRequest;
         const timeout = timeoutMs ?? this.options.requestTimeoutMs ?? 20_000;
         return link.request(type, frame, { timeoutMs: timeout }).then(
             (value) => this.unwrap(type, value),
             (cause: unknown) => Promise.reject(this.mapLinkFailure(type, cause)),
         );
-    }
-
-    private requestViaRelay<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
-        if (this.closed) return Promise.reject(new Error('not connected'));
-        const relay = this.inner;
-        if (relay === undefined) return Promise.reject(new Error('not connected'));
-        if (relay.isLive()) return relay.request(type, params, timeoutMs);
-        return new Promise<RequestResult<T>>((resolve, reject) => {
-            const finish = () => { clearTimeout(timer); offRelay(); offState(); };
-            const check = () => {
-                if (this.closed) { finish(); reject(new Error('not connected')); return; }
-                if (!this.online && !relay.isLive()) return;
-                finish();
-                const request = this.online ? this.request(type, params, timeoutMs) : relay.request(type, params, timeoutMs);
-                void request.then(resolve, reject);
-            };
-            const timer = setTimeout(() => { finish(); reject(new Error('not connected')); }, timeoutMs ?? 10_000);
-            const offRelay = relay.onStateChange(check);
-            const offState = this.onStateChange(check);
-            check();
-        });
     }
 
     private requestViaLink<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
@@ -330,21 +322,26 @@ export class LinkFirstClient implements SessionClient {
     private onLinkStatus(status: LinkStatus): void {
         if (this.closed || this.link === undefined) return;
         if (status === 'online') {
+            this.retryAttempt = 0;
             this.online = true;
             this.setState('open', true);
             if (this.lastPush !== undefined) void this.registerPush(this.lastPush.token, this.lastPush.level).catch(() => undefined);
             return;
         }
-        // 'removed' covers a revoked device and a host that has not admitted
-        // this device yet; the relay transport, not this client, tells the user
-        // which one it was. 'refused' means nothing answered as our host.
-        if (status === 'removed' || status === 'refused') {
+        if (status === 'removed') {
             this.stopLink();
+            this.setState('stale', true);
+            this.options.onPermanentError?.('This device can no longer connect. Pair with this computer again.');
+            return;
+        }
+        if (status === 'refused') {
+            this.stopLink();
+            this.scheduleRetry();
             return;
         }
         if (this.online) {
             this.online = false;
-            this.setState(this.inner?.state ?? 'connecting', true);
+            this.setState('connecting', true);
         }
     }
 
@@ -371,13 +368,17 @@ export class LinkFirstClient implements SessionClient {
     }
 
     private mapLinkFailure(type: RequestType, cause: unknown): Error {
-        if (cause instanceof PublicLinkError) {
-            this.stopLink();
-            return linkRequestFailure(type, cause.message);
-        }
+        if (cause instanceof PublicLinkError) return linkRequestFailure(type, cause.message);
         if (cause instanceof LinkError) {
-            if (cause.code === 'timeout' || cause.code === 'stopped' || cause.code === 'removed') {
+            if (cause.code === 'removed') {
                 this.stopLink();
+                this.setState('stale', true);
+                this.options.onPermanentError?.('This device can no longer connect. Pair with this computer again.');
+                return new Error('pair with this computer again');
+            }
+            if (cause.code === 'stopped') {
+                this.stopLink();
+                this.scheduleRetry();
                 return new Error('connection lost');
             }
             return linkRequestFailure(type, LINK_WORDS[cause.code]);
@@ -385,43 +386,13 @@ export class LinkFirstClient implements SessionClient {
         return cause instanceof Error ? cause : new Error(String(cause));
     }
 
-    private startRelay(): void {
-        if (this.closed || this.inner !== undefined) return;
-        const relay = new MuxrClient({
-            ...this.options,
-            onLinkEnrolled: (key) => this.onLinkEnrolled(key),
-            onHostHello: () => {
-                if (this.link === undefined && this.options.hostedGrant?.source === 'selfhost') {
-                    void this.inner?.request('herdr.tree', {}).catch(() => undefined);
-                }
-            },
-        });
-        relay.onStateChange((state) => { if (!this.online) this.setState(state); });
-        relay.onEvent((sessionId, event) => {
-            if (!this.online) for (const listener of this.eventListeners) listener(sessionId, event);
-        });
-        relay.onPluginsInvalidated((frame) => {
-            if (!this.online) for (const listener of this.pluginListeners) listener(frame);
-        });
-        this.inner = relay;
-        this.setState('connecting');
-        relay.connect();
-    }
-
-    private onLinkEnrolled(key: string): void {
-        const stored = this.options.hostedGrant;
-        if (this.closed || this.link !== undefined || stored?.source !== 'selfhost'
-            || stored.deviceKey.publicKey !== key) return;
-        const route = this.options.ssh === undefined ? undefined : this.inner?.activeRelayUrl;
-        if (this.options.ssh !== undefined && route === undefined) return;
-        const grant = deriveLinkGrant(stored, route);
-        if (grant === undefined) return;
-        this.link = new DeviceLink(grant, {
-            timeoutMs: 5_000,
-            onStatus: (status) => this.onLinkStatus(status),
-            onEvent: (event) => this.onLinkEvent(event),
-            onError: () => undefined,
-        });
+    private scheduleRetry(): void {
+        if (this.closed || this.retryTimer !== undefined) return;
+        const delay = Math.min(1000 * 2 ** Math.min(this.retryAttempt++, 4), 10_000);
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = undefined;
+            this.connect();
+        }, delay);
     }
 
     private stopLink(): void {
@@ -432,7 +403,7 @@ export class LinkFirstClient implements SessionClient {
         const wasOnline = this.online;
         this.online = false;
         link?.stop();
-        if (!this.closed) this.setState(this.inner?.state ?? 'connecting', wasOnline);
+        if (!this.closed) this.setState('connecting', wasOnline);
     }
 
     private setState(state: ConnectionState, transportChanged = false): void {
