@@ -12,7 +12,7 @@ const harness = vi.hoisted(() => {
             lastSessionCwd: '',
             recentSessionCwds: [] as string[],
         },
-        grant: undefined as { machineId: string; relayUrl: string; credential: string } | undefined,
+        grant: undefined as { machineId: string; relayUrl: string } | undefined,
         clientOptions: [] as Array<{ grant?: unknown; token?: string; onTicketRejected?: () => void }>,
         clients: [] as Array<{ status: string; fire: (status: string) => void }>,
         clientConnects: 0,
@@ -306,7 +306,7 @@ describe('hosted account-only lifecycle', () => {
         const sessionReplacementsBeforePairing = harness.sessionReplaceFlags.length;
         harness.connection.machineId = 'machine-a';
         harness.grant = {
-            machineId: 'machine-a', relayUrl: 'ws://relay.test', credential: 'stored-grant',
+            machineId: 'machine-a', relayUrl: 'ws://relay.test',
             deviceKey: { publicKey: 'device-public', secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
             machineBoxPublicKey: 'bWFjaGluZS1ib3gta2V5LWJhc2U2NC0zMmJ5dGVzMjMyMQ',
         } as never;
@@ -359,9 +359,7 @@ describe('hosted account-only lifecycle', () => {
         await expect(sync.refreshSessions()).rejects.toThrow('relay temporarily offline');
         harness.lifecycleCatalogError = Object.assign(new Error('older host'), { code: 'host-contract-mismatch' });
 
-        harness.clientOptions[0].onTicketRejected?.();
         await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(6));
-        await new Promise((resolve) => setTimeout(resolve, 0));
         expect(authenticated).toBe(true);
 
         await expect(sync.refreshAccountSession()).rejects.toMatchObject({ name: 'AccountCredentialRejectedError' });
@@ -374,7 +372,7 @@ describe('session sync flow', () => {
         harness.connection.mode = 'hosted';
         harness.connection.machineId = 'machine-a';
         harness.grant = {
-            machineId: 'machine-a', relayUrl: 'ws://relay.test', credential: 'stored-grant',
+            machineId: 'machine-a', relayUrl: 'ws://relay.test',
             deviceKey: { publicKey: 'device-public', secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
             machineBoxPublicKey: 'bWFjaGluZS1ib3gta2V5LWJhc2U2NC0zMmJ5dGVzMjMyMQ',
         } as never;
@@ -426,7 +424,7 @@ describe('session sync flow', () => {
         harness.connection.mode = 'hosted';
         harness.connection.machineId = 'machine-a';
         harness.grant = {
-            machineId: 'machine-a', relayUrl: 'ws://relay.test', credential: 'stored-grant',
+            machineId: 'machine-a', relayUrl: 'ws://relay.test',
             deviceKey: { publicKey: 'device-public', secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
             machineBoxPublicKey: 'bWFjaGluZS1ib3gta2V5LWJhc2U2NC0zMmJ5dGVzMjMyMQ',
         } as never;
