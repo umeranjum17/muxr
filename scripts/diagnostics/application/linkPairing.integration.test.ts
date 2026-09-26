@@ -226,8 +226,7 @@ describe('native pairing over the byokit link', () => {
         link.stop();
 
         const client = new LinkFirstClient({
-            mode: 'hosted', relayUrl: stored.relayUrl, machineId: stored.machineId,
-            token: stored.credential, hostedGrant: stored, requestTimeoutMs: 5_000,
+            hostedGrant: stored, requestTimeoutMs: 5_000,
         });
         try {
             client.connect();

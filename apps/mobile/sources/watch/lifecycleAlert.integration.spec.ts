@@ -166,34 +166,6 @@ vi.mock('@byokit/link', async (importOriginal) => {
     }
     return { ...actual, DeviceLink: FakeDeviceLink as never };
 });
-vi.mock('@/pairing/infrastructure/muxrClient', () => ({
-    MuxrRequestError: class {
-        constructor(public message: string, public code?: string) {}
-    },
-    MuxrClient: class {
-        state = 'open';
-        connect() {}
-        close() {}
-        isLive() { return true; }
-        onStateChange() { return () => undefined; }
-        onPluginsInvalidated() { return () => undefined; }
-        onEvent(listener: (sessionId: string, event: unknown) => void) {
-            harness.eventListeners.push(listener);
-            return () => undefined;
-        }
-        async request(type: string) {
-            if (type === 'machines.list' && harness.machinesGate) await harness.machinesGate;
-            if (type === 'herdr.tree') return { workspaces: [] };
-            if (type === 'attention.catalog') return { revision: 0, entries: [] };
-            if (type === 'lifecycle.catalog') {
-                const catalog = harness.catalog;
-                harness.catalogRead?.();
-                return catalog;
-            }
-            return [];
-        }
-    },
-}));
 vi.mock('../catalog/infrastructure/encryption/encryption', () => ({
     Encryption: { create: async () => ({ anonID: 'phone' }) },
 }));

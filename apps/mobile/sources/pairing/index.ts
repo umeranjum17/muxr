@@ -10,7 +10,7 @@ export * from './application/useRelayDiscovery';
 export * from './domain/ConnectionStatus';
 export * from './domain/PairedMachine';
 export * from './domain/machineUtils';
-export * from './infrastructure/muxrClient';
+export { MuxrRequestError } from './infrastructure/linkFirstClient';
 
 export {
     acceptVerifiedGrant,

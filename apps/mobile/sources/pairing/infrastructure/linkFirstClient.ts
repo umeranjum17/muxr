@@ -12,7 +12,25 @@ import {
     type SessionEvent,
 } from '@muxr/contract';
 import { deriveLinkGrant } from './linkGrant';
-import { MuxrRequestError, type ConnectionState, type MuxrClientOptions } from './muxrClient';
+import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '@/connection/sshTunnel';
+import type { SshTarget } from '@/connection';
+import type { StoredHostedGrant } from '../application/hostedE2ee';
+
+export type ConnectionState = 'connecting' | 'open' | 'closed' | 'stale';
+
+export interface LinkClientOptions {
+    hostedGrant?: StoredHostedGrant;
+    ssh?: SshTarget;
+    requestTimeoutMs?: number;
+    onPermanentError?: (message: string) => void;
+}
+
+export class MuxrRequestError extends Error {
+    constructor(message: string, readonly code?: string) {
+        super(message);
+        this.name = 'MuxrRequestError';
+    }
+}
 
 /** The link session port consumed by catalog sync. */
 export type SessionClient = {
@@ -71,7 +89,7 @@ export class LinkFirstClient implements SessionClient {
     private desktopTransport: DesktopLinkTransport | undefined;
     private desktopOpening: Promise<DesktopLinkTransport | undefined> | undefined;
 
-    constructor(private readonly options: MuxrClientOptions) {}
+    constructor(private readonly options: LinkClientOptions) {}
 
     get state(): ConnectionState {
         return this.stateField;
@@ -87,13 +105,24 @@ export class LinkFirstClient implements SessionClient {
             return;
         }
         const grant = deriveLinkGrant(stored);
-        if (grant === undefined) {
+        if (stored === undefined || grant === undefined) {
             this.setState('stale');
             this.options.onPermanentError?.('Pair with this computer again to use the secure link.');
             return;
         }
         this.link = new DeviceLink(grant, {
             timeoutMs: 5_000,
+            ...(this.options.ssh === undefined ? {} : { resolve: async (url: string) => {
+                try { return await sshRelayUrl(url, stored.machineId, this.options.ssh!); }
+                catch (error) {
+                    if (error instanceof SshConnectionError && error.permanent) {
+                        this.stopLink();
+                        this.setState('stale', true);
+                        this.options.onPermanentError?.(error.message);
+                    }
+                    throw error;
+                }
+            } }),
             onStatus: (status) => this.onLinkStatus(status),
             onEvent: (event) => this.onLinkEvent(event),
             onError: () => undefined,
@@ -105,6 +134,7 @@ export class LinkFirstClient implements SessionClient {
         this.closed = true;
         if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
         this.stopLink();
+        if (this.options.ssh !== undefined) void stopSshTunnel();
         this.setState('closed');
     }
 

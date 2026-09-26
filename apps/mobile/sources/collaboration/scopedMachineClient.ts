@@ -21,9 +21,6 @@ export async function requestPairedMachine<T extends PeerRequestType>(
     }
     let permanentError: string | undefined;
     const client = new LinkFirstClient({
-        mode: 'hosted',
-        relayUrl: grant.relayUrl,
-        machineId: grant.machineId,
         hostedGrant: grant,
         requestTimeoutMs: 12_000,
         onPermanentError: (message) => { permanentError = message; },

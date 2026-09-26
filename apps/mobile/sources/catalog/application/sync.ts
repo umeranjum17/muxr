@@ -294,22 +294,10 @@ class MuxrSync {
         if (!hostedTransportReady(settings.mode, settings.machineId, hostedGrant)) {
             throw new Error('machine transport unavailable until secure pairing completes');
         }
-        const transportToken = settings.mode === 'hosted' ? hostedGrant?.credential : settings.token.trim();
         const client = new LinkFirstClient({
-            mode: settings.mode,
-            relayUrl: hostedGrant?.relayUrl ?? settings.relayUrl,
-            machineId: settings.machineId,
-            ...(transportToken ? {
-                // Discovery chooses where to dial; only the stored grant may
-                // choose the reconnect credential.
-                token: transportToken,
-            } : {}),
             ...(hostedGrant === undefined ? {} : { hostedGrant }),
             ...(settings.selfhost === true && settings.ssh !== undefined && sshTunnelAvailable() ? { ssh: settings.ssh } : {}),
-            ...(settings.mode === 'hosted' ? {
-                onTicketRejected: () => { void this.refreshAccountSession().catch(() => undefined); },
-                onPermanentError: (message: string) => storage.getState().setSocketError(message),
-            } : {}),
+            onPermanentError: (message) => storage.getState().setSocketError(message),
         });
         client.onPluginsInvalidated?.((frame) => reconcilePluginCaches(frame));
         client.onStateChange((state) => {

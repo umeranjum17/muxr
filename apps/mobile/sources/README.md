@@ -24,7 +24,7 @@ apps/mobile/sources/
   pairing/
     domain/                     PairedMachine, Pairing String, Hosted Grant
     application/                UI pairing + runtime claim/restore/forget
-    infrastructure/             MuxrClient, secret stores
+    infrastructure/             link client, secret stores
     presentation/               connection chrome, QR
     index.ts                    domain + use cases
     ui.ts                       screens

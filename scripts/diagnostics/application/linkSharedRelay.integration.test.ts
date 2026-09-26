@@ -179,10 +179,6 @@ await until(() => (host!.output().includes('link relay: online') ? true : undefi
 
         stored.relayUrl = relayUrl();
         const client = new LinkFirstClient({
-            mode: 'hosted',
-            relayUrl: stored.relayUrl,
-            machineId: stored.machineId,
-            token: stored.credential,
             hostedGrant: stored,
             requestTimeoutMs: 5_000,
         });
@@ -200,10 +196,6 @@ await until(() => (host!.output().includes('link relay: online') ? true : undefi
         await until(() => (host!.output().includes('link relay: online') ? true : undefined), 'restarted host re-registers on the spent token');
         client.close();
         const again = new LinkFirstClient({
-            mode: 'hosted',
-            relayUrl: stored.relayUrl,
-            machineId: stored.machineId,
-            token: stored.credential,
             hostedGrant: stored,
             requestTimeoutMs: 5_000,
         });
