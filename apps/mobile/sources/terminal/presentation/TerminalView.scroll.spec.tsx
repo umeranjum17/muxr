@@ -39,13 +39,13 @@ it('releases the rendered terminal scroll gate when output arrives', async () =>
             createNodeMock: ({ type }) => type === 'GhosttyView' ? { write: async () => undefined, showKeyboard: async () => undefined, hideKeyboard: async () => undefined } : null,
         });
     });
-    const surface = renderer.root.findByType('View');
+    const surface = (renderer.root as any).findByType('View');
     await TestRenderer.act(async () => {
         surface.props.onLayout({ nativeEvent: { layout: { width: 800, height: 400 } } });
         await Promise.resolve();
         await Promise.resolve();
     });
-    const ghostty = renderer.root.findByType('GhosttyView');
+    const ghostty = (renderer.root as any).findByType('GhosttyView');
     await TestRenderer.act(async () => {
         ghostty.props.onResize({ nativeEvent: { cols: 80, rows: 24 } });
         await Promise.resolve();

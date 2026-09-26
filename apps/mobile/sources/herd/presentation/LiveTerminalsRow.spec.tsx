@@ -54,13 +54,13 @@ import { LiveTerminalsRow } from './LiveTerminalsRow';
  * nothing is running.
  */
 it('says what an empty herd is instead of drawing garbage', async () => {
-    let renderer!: TestRenderer.ReactTestRenderer;
+    let renderer!: ReturnType<typeof TestRenderer.create>;
     await TestRenderer.act(async () => {
         renderer = TestRenderer.create(<LiveTerminalsRow />);
     });
-    const lines = renderer.root
-        .findAll((node) => node.type === 'Text')
-        .map((node) => node.children.filter((child) => typeof child === 'string').join(''));
+    const lines = (renderer.root as any)
+        .findAll((node: { type: unknown; children: unknown[] }) => node.type === 'Text')
+        .map((node: { children: unknown[] }) => node.children.filter((child) => typeof child === 'string').join(''));
 
     expect(lines).toContain('Live');
     expect(lines).toContain('No live agents · start one below');
