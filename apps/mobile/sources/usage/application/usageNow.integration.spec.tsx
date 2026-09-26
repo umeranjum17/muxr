@@ -906,6 +906,10 @@ describe('the usage screen read path', () => {
         press(claude, 'Claude');
         await tick();
         expect(claude.root.findAllByType('ScreenLimits')[0].props.asOf).toContain('plugins.limits.asOf(');
+        // Retained figures are dimmed and stamped on their own card, never a
+        // bare age word floating under them.
+        expect(claude.root.findAllByType('ScreenLimits')[0].parent.props.style.opacity).toBe(0.55);
+        expect(screenText(claude)).not.toContain('time.justNow');
     });
 
     it('shows what the other surface learns without a remount', async () => {
@@ -1684,6 +1688,36 @@ describe('the usage screen read path', () => {
         // verdict's colour now: dot, word and big number all agree.
         expect(warmFigures[0]).toEqual(['40% plugins.limits.percentLeft', '#fa0']);
 
+        // A declarative plugin payload keeps `elapsed` with no pace at all: its
+        // projection still speaks, because a coloured figure with no note is
+        // just a mystery. And a window the host itself capped keeps the host's
+        // own word -- the projection must not talk over a decision already made.
+        TestRenderer.act(() => {
+            renderer.update(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
+                limits: {
+                    verdict: 'unknown',
+                    windows: [
+                        { label: 'Session', window: '5h', used: 90, elapsed: 0.5, resetsIn: '2h' },
+                        { label: 'Capped', window: '5h', used: 50, elapsed: 0.5, pace: 'limited', resetsIn: '2h' },
+                    ],
+                },
+            }} />);
+        });
+        const pacelessWords = renderer.root.findAllByType('Text').map((node: any) => node.props.children);
+        expect(pacelessWords).toContain('plugins.limits.runsOutIn(13m)');
+        expect(pacelessWords).toContain('plugins.limits.limited');
+        const pacelessFigures = renderer.root.findAllByType('Text')
+            .map((node: any) => [node.props.children, node.props.style?.color] as const)
+            .filter(([text]: any) => typeof text === 'string' && String(text).endsWith('plugins.limits.percentLeft'));
+        // The headline (verdict unknown, so neutral) leads, then the two rows:
+        // the paceless projection colours its figure danger, the capped row
+        // keeps the host's own danger word in danger's colour.
+        expect(pacelessFigures).toEqual([
+            ['10% plugins.limits.percentLeft', '#fff'],
+            ['10% plugins.limits.percentLeft', '#f55'],
+            ['50% plugins.limits.percentLeft', '#f55'],
+        ]);
+
     });
 
     it('keeps a failed read\'s figures in place, dimmed and stamped, vouching nothing for them', async () => {
@@ -1716,6 +1750,21 @@ describe('the usage screen read path', () => {
         expect(refreshControls(screen)[0].findAllByType('Text').map((node: any) => node.props.children).join(' '))
             .not.toContain('plugins.rightNow.refreshFailed');
         expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
+
+        // Another surface's cadence merges a capture newer than the failure
+        // into the same record: those figures were refreshed by a read that
+        // worked, so they keep their own verdict -- no unknown forcing, and no
+        // stamp over numbers newer than the failure. The look stays failed
+        // until this screen's own retry answers.
+        rememberShown('', { status: 'figures', at: Date.now(), figures: withReport(undefined, {
+            ...report('claude', 0),
+            limits: { verdict: 'go', windows: [{ label: 'Rolling', window: '5h', used: 40, elapsed: 0.5, pace: 'ahead', resetsIn: '5h' }] },
+            capturedAt: new Date().toISOString(),
+        }) });
+        await tick();
+        expect(card().props.data.limits.verdict).toBe('go');
+        expect(card().props.asOf).toBeUndefined();
+        expect(card().parent.props.style.opacity).toBe(0.55);
 
         // A read that answers restores the live card: the verdict returns and
         // the stamp goes.
