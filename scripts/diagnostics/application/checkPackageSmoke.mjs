@@ -1151,20 +1151,10 @@ else if(a[0]==='view') {
     const browserEnv = cliEnv(browserHome);
     mkdirSync(browserHome, { recursive: true });
     run(cli, ['self-host', '--port', String(browserPort), '--advertise', 'wss://browser.example.test', '--connection-mode', 'external', '--web', '--yes', '--no-pair'], { cwd: installDir, env: browserEnv });
-    const browserPair = spawn(cli, ['pair', '--browser'], { cwd: installDir, env: browserEnv, stdio: ['ignore', 'pipe', 'pipe'] });
-    let browserPairOutput = '';
-    browserPair.stdout.on('data', (chunk) => { browserPairOutput += chunk; });
-    browserPair.stderr.on('data', (chunk) => { browserPairOutput += chunk; });
-    await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`browser pairing did not print a link offer\n${browserPairOutput}`)), 10_000);
-        const poll = setInterval(() => {
-            if (!/https:\/\/browser\.example\.test\/pair#byokit-link:1:[A-Za-z0-9_-]+/.test(browserPairOutput)) return;
-            clearTimeout(timer); clearInterval(poll); resolve();
-        }, 50);
-    });
-    assert.doesNotMatch(browserPairOutput, /muxr:\/\/pair|[?&#]payload=/, 'browser pairing printed the giant payload');
-    browserPair.kill('SIGTERM');
-    await new Promise((resolve) => browserPair.once('exit', resolve));
+    const browserPair = run(cli, ['pair', '--browser'], { cwd: installDir, env: browserEnv, allowFailure: true });
+    assert.notEqual(browserPair.status, 0, 'pairing succeeded without a running machine');
+    assert.match(browserPair.stderr, /Start muxr on this computer first, then run `muxr pair` again\./);
+    assert.doesNotMatch(browserPair.stdout, /byokit-link:1:|muxr:\/\/pair/, 'offline pairing printed a code');
     stopRelayFor(join(browserHome, '.muxr', 'relay'));
 
     const relayHome = join(scratch, 'relay-home');

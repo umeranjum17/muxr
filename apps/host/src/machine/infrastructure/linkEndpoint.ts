@@ -12,7 +12,7 @@ import {
 } from '@muxr/contract';
 import { attachFailureCode, type LinkTerminalAttachParams, type LinkTerminalPort, type TerminalPipe } from '../domain/terminal.js';
 import type { MachineCryptoState, MachineDeviceRecord } from '../domain/crypto.js';
-import { safeTaskTitle } from '../../agent/infrastructure/lifecycleStore.js';
+import { safeTaskTitle } from '../../platform/safeTaskTitle.js';
 
 /** How the host answers one device's frame: the same answer the relay transport sends back. */
 export type LinkAnswer = (frame: ClientFrame, deviceId: string, connectionId?: string) => Promise<HostFrame | undefined>;

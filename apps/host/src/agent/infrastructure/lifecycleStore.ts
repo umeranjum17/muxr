@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { AgentLifecycle, LifecycleCatalog, LifecycleEvent, LifecycleReasonCode } from '@muxr/contract';
 import { createPersistQueue, loadPersistedJson } from '../../platform/persistedJson.js';
+import { safeTaskTitle } from '../../platform/safeTaskTitle.js';
 
 interface LifecycleFile {
     revision: number;
@@ -21,13 +22,6 @@ const MAX_EVENTS = 50;
 const MAX_CURRENT = 500;
 const MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 const STATES = new Set<AgentLifecycle>(['starting', 'idle', 'working', 'blocked', 'done', 'failed', 'unknown']);
-
-export function safeTaskTitle(value: string | undefined): string | undefined {
-    if (value === undefined || value === '' || value.length > 120 || /[\0-\x1F\x7F]/.test(value)) return undefined;
-    const privacyProbe = value.normalize('NFKC').trimStart();
-    if (/^(?:\/|[A-Za-z]:\\)|\b(?:token|password|secret|credential)\s*=/i.test(privacyProbe)) return undefined;
-    return value;
-}
 
 function safeAgentKind(value: string | undefined): string | undefined {
     return value !== undefined && /^[a-z][a-z0-9_-]{0,31}$/.test(value) ? value : undefined;

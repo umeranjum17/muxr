@@ -14,7 +14,7 @@
  * completion.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
@@ -134,7 +134,7 @@ async function startMachine(): Promise<void> {
     }
     host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { MUXR_MODE: 'selfhost' });
     const running = host;
-    await until(() => (running.output().includes('host -> ') ? true : undefined), 'host start');
+    await until(() => (existsSync(join(home, 'host', 'pair.sock')) ? true : undefined), `host pairing socket (${running.output()})`);
 }
 
 /** Options `linkPair` on the computer side accepts (untyped .mjs import). */
