@@ -2,7 +2,7 @@
  * Contract selfCheck: the wire carries the full event vocabulary, and every
  * declared type round-trips through the payload codec byte-identically.
  */
-import { admitClientFrame, decodePayload, encodePayload, envelopeIsHosted, isPluginsInvalidatedFrame, parseClientFrame, tryParseClientFrame } from './control-plane/index.js';
+import { admitClientFrame, decodePayload, encodePayload, isPluginsInvalidatedFrame, parseClientFrame, tryParseClientFrame } from './control-plane/index.js';
 import { SESSION_EVENT_TYPES, type SessionEventBody } from './herd/index.js';
 import { admitPeerMutation, authorizePeerDispatch, deviceIsPeer, inspectPeerGrantConstraints, isPeerCapabilities, peerCapabilityForRequest, peerMayDispatch } from './peer/index.js';
 import { boundRealtimePublicContext, parseRealtimeClientFrame, parseRealtimeHostFrame, realtimePcm16ByteLength, MAX_REALTIME_PUBLIC_SESSIONS } from './realtime/index.js';
@@ -147,7 +147,6 @@ function demo(): void {
     assert(parseClientFrame({ type: 'client.hello', clientId: 'fresh-client' }).type === 'client.hello', 'valid client hello passes');
     assert(admitClientFrame({ frame: { type: 'client.hello', clientId: 'fresh-client' } }).ok, 'admit client frame is the named use case');
     assert(tryParseClientFrame({ type: 'client.hello', clientId: 'fresh-client' }).ok, 'client hello is an expected-success outcome');
-    assert(!envelopeIsHosted({ machineId: 'm1', seq: 1, at: 0 }), 'local envelopes are not hosted');
     assert(!tryParseClientFrame(null).ok, 'malformed client frame is an expected rejection');
     for (const malformed of [null, { type: 'session.list', requestId: 'bad', params: null }]) {
         let rejected = false;

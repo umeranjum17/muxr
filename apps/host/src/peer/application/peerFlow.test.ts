@@ -17,15 +17,11 @@ import {
     type RequestResult,
 } from '@muxr/contract';
 import {
-    deriveV2Key,
     generateKeyPair,
     generateSigningKeyPair,
-    newV2ReplayTracker,
-    openV2,
-    v2EnvelopeSequence,
     verifyDeviceGrant,
 } from '@muxr/crypto';
-import { HostV2Crypto, LinkEndpoint, type MachineCryptoAdapter, type MachineCryptoState, type MachineRotationGrant } from '../../machine/index.js';
+import { LinkEndpoint, type MachineCryptoAdapter, type MachineCryptoState, type MachineRotationGrant } from '../../machine/index.js';
 import { startRelay } from '@muxr/relay';
 import { createRequestDispatcher } from '../../requests/index.js';
 import { HostDiagnosticsJournal } from '../../diagnostics/index.js';
@@ -331,35 +327,6 @@ describe('host peer collaboration flow', () => {
             deviceKey: outbound.peerKey!,
             deviceId: authorized.peerDeviceId,
         });
-        const hostCrypto = new HostV2Crypto({
-            machineId: 'target-machine',
-            keyVersion: targetKeys.current().keyVersion,
-            dataKey: targetKeys.current().dataKey,
-            ingressKeys: { [authorized.peerDeviceId]: peerGrant.ingressKey },
-            deviceDataKeys: { [authorized.peerDeviceId]: peerGrant.dataKey },
-        });
-        const broadcast = hostCrypto.seal('session', 'machine', 'native-only');
-        expect(() => openV2(broadcast, deriveV2Key(peerGrant.dataKey, 'host->client'), {
-            machineId: 'target-machine', senderId: 'target-machine', recipientId: '*',
-            channel: 'session', streamId: 'machine', keyVersion: 1,
-        }, newV2ReplayTracker())).toThrow(/authentication/);
-        const directed = hostCrypto.seal('session', 'machine', 'peer-result', authorized.peerDeviceId);
-        expect(openV2(directed, deriveV2Key(peerGrant.dataKey, 'host->client'), {
-            machineId: 'target-machine', senderId: 'target-machine', recipientId: authorized.peerDeviceId,
-            channel: 'session', streamId: 'machine', keyVersion: 1,
-        }, newV2ReplayTracker())).toBe('peer-result');
-        const nativeAfter = hostCrypto.seal('session', 'machine', 'native-after-peer');
-        const nativeReplay = newV2ReplayTracker();
-        const nativeContext = {
-            machineId: 'target-machine', senderId: 'target-machine', recipientId: '*',
-            channel: 'session', streamId: 'machine', keyVersion: 1,
-        } as const;
-        const nativeKey = deriveV2Key(targetKeys.current().dataKey, 'host->client');
-        expect(openV2(broadcast, nativeKey, nativeContext, nativeReplay)).toBe('native-only');
-        expect(v2EnvelopeSequence(directed)).toBeGreaterThan(v2EnvelopeSequence(broadcast));
-        expect(v2EnvelopeSequence(nativeAfter)).toBeGreaterThan(v2EnvelopeSequence(directed));
-        expect(openV2(nativeAfter, nativeKey, nativeContext, nativeReplay)).toBe('native-after-peer');
-
         await sourceRuntime.store.putRelationship({
             ...outbound,
             relationshipId: 'revoked-old-build-mac',

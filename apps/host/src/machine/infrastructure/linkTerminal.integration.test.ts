@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DeviceLink, hostId, keyPairFrom, type DeviceGrant, type LinkStatus } from '@byokit/link';
-import { type Envelope, type HostFrame } from '@muxr/contract';
+import { type HostFrame } from '@muxr/contract';
 import { generateKeyPair, generateSigningKeyPair } from '@muxr/crypto';
 import { startRelay } from '@muxr/relay';
 import { TerminalManager, closeTerminal, PluginStreamManager, type VoiceStreamTransport } from '../../agent/index.js';
