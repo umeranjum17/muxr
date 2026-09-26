@@ -170,7 +170,7 @@ class LinkTerminalSocket implements TerminalPipe {
 
 /** Admit native and browser grants only while the durable device record trusts them. */
 function linkDevices(crypto: MachineCryptoState, now: number): MachineDeviceRecord[] {
-    return crypto.devices.filter((device) => (device.kind === undefined || device.kind === 'browser')
+    return crypto.devices.filter((device) => (device.kind === undefined || device.kind === 'browser' || device.kind === 'peer')
         && device.deviceId !== crypto.pendingRotation?.revokedDeviceId && Date.parse(device.expiresAt) > now);
 }
 
