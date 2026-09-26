@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { Host, hostId, keyPair } from '@byokit/link';
 import { RelayClient } from '@byokit/relay';
-import { relayControlUrl } from '@muxr/contract';
 import { askVisible, base64, print, printTerminalQr } from '../infrastructure/runtime.mjs';
 import { pairingIntent } from '../domain/dist/index.js';
 import { selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
@@ -39,7 +38,8 @@ function aborted(signal) {
 /** The relay admits a host only once its owner vouches for the key — the same
  *  proof the machine's own link endpoint gives (apps/host linkEndpoint.ts). */
 async function relayEnrolment(relayUrl, ownerToken, id, name) {
-    const base = relayControlUrl(relayUrl);
+    // ws(s):// to http(s)://: the control API answers on the same origin.
+    const base = new URL(relayUrl.replace(/^ws/i, 'http')).origin;
     const headers = { authorization: `Bearer ${ownerToken}`, 'content-type': 'application/json' };
     const listed = await fetch(new URL('/relay/v1/hosts', base), { headers });
     if (listed.status === 403 || listed.status === 404) return false;
@@ -56,7 +56,7 @@ async function relayEnrolment(relayUrl, ownerToken, id, name) {
 
 /** The machine's link route on its own relay — where enrolled phones dial. */
 export function machineLinkUrl(relayUrl, machineBoxPublicKeyBase64) {
-    const relay = new URL(relayControlUrl(relayUrl));
+    const relay = new URL(relayUrl.replace(/^ws/i, 'http'));
     const scheme = relay.protocol === 'https:' ? 'wss' : 'ws';
     return `${scheme}://${relay.host}/link/v1/${hostId(Buffer.from(machineBoxPublicKeyBase64, 'base64'))}`;
 }
@@ -99,7 +99,7 @@ export async function linkPair(state, { approve, pairMs = PAIR_WINDOW_MS, signal
         handle: (req, device) => servePairing(state, req, device, claims, done),
     });
     const client = new RelayClient(host, {
-        url: new URL('/relay/v1/host', relayControlUrl(state.relayUrl)).toString().replace(/^http/, 'ws'),
+        url: new URL('/relay/v1/host', new URL(state.relayUrl.replace(/^ws/i, 'http'))).toString().replace(/^http/, 'ws'),
         name: `${machine.name ?? 'muxr'} pairing`,
         ...(enrol === undefined ? {} : { enrol }),
     });
@@ -146,7 +146,7 @@ export async function linkPair(state, { approve, pairMs = PAIR_WINDOW_MS, signal
 }
 
 function freshOffer(host, relayUrl, hostIdOnRelay) {
-    const relay = new URL(relayControlUrl(relayUrl));
+    const relay = new URL(relayUrl.replace(/^ws/i, 'http'));
     const scheme = relay.protocol === 'https:' ? 'wss' : 'ws';
     return host.offer({ urls: [`${scheme}://${relay.host}/link/v1/${hostIdOnRelay}`], role: 'control', kind: 'native' });
 }
