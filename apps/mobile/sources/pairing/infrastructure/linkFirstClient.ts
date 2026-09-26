@@ -24,10 +24,19 @@ export type SessionClient = {
     onStateChange(listener: (state: ConnectionState) => void): () => void;
     onEvent(listener: (sessionId: string, event: SessionEvent) => void): () => void;
     onPluginsInvalidated(listener: (frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void): () => void;
-    /** Register this device's Expo push address; the transport that is serving
-     *  the session decides where it lands (the link, or the relay HTTP API). */
+    /** Register this device's Expo push address through the link. */
     registerPush(token: string, level: LifecycleNotificationLevel): Promise<boolean>;
     unregisterPush(): Promise<boolean>;
+    /** A terminal pane over the link while it serves the session. */
+    terminalStream?(args: Record<string, unknown>): Promise<TerminalLinkTransport | undefined>;
+};
+
+/** One pane's NDJSON pipe over the link. */
+export type TerminalLinkTransport = {
+    write(line: string): Promise<void>;
+    onLine(listener: (line: string) => void): () => void;
+    onEnd(listener: (error?: string) => void): () => void;
+    close(): void;
 };
 
 /**
@@ -118,6 +127,45 @@ export class LinkFirstClient implements SessionClient {
             (value) => this.unwrap(type, value),
             (cause: unknown) => Promise.reject(this.mapLinkFailure(type, cause)),
         );
+    }
+
+    /** Opens the pane's stream when the link is serving the session; undefined means the relay does. */
+    async terminalStream(args: Record<string, unknown>): Promise<TerminalLinkTransport | undefined> {
+        if (!this.online || this.link === undefined || this.closed) return undefined;
+        const stream = await this.link.stream('terminal', args);
+        let ended = false;
+        const lines = new Set<(line: string) => void>();
+        const ends = new Set<(error?: string) => void>();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        stream.onData = (chunk) => {
+            buffer += decoder.decode(chunk, { stream: true });
+            const parts = buffer.split('\n');
+            buffer = parts.pop() ?? '';
+            for (const line of parts) {
+                for (const listener of [...lines]) listener(line);
+            }
+        };
+        stream.onEnd = (error) => {
+            if (ended) return;
+            ended = true;
+            for (const listener of [...ends]) listener(error);
+        };
+        return {
+            // The link is a byte stream, not messages: every line carries its own newline.
+            write: (line) => stream.write(`${line}\n`),
+            onLine: (listener) => {
+                lines.add(listener);
+                return () => { lines.delete(listener); };
+            },
+            onEnd: (listener) => {
+                ends.add(listener);
+                return () => { ends.delete(listener); };
+            },
+            close: () => {
+                stream.end();
+            },
+        };
     }
 
     onStateChange(listener: (state: ConnectionState) => void): () => void {

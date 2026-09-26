@@ -12,7 +12,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import WebSocket from 'ws';
 import { issueWsTicket, terminalSocketUrl, ticketSocketUrl, type Envelope, type TerminalScrollStateFrame } from '@muxr/contract';
 import { v2EnvelopeSequence } from '@muxr/crypto';
-import { HostV2Crypto, type HostedMachineKeys, deviceTableIsObserve, ticketWsCredential } from '../../machine/index.js';
+import { HostV2Crypto, type HostedMachineKeys, deviceTableIsObserve, ticketWsCredential, type TerminalPipe } from '../../machine/index.js';
 
 export interface TerminalManagerOptions {
     relayUrl: string;
@@ -26,6 +26,25 @@ export interface TerminalManagerOptions {
     hostedE2ee?: HostedMachineKeys;
 }
 
+/** Wraps the relay channel socket: one ws message per line, as the phone sends them. */
+function relayTerminalSocket(socket: WebSocket): TerminalPipe {
+    const lines = new Set<(line: string) => void>();
+    const ends = new Set<() => void>();
+    const end = (): void => { for (const listener of [...ends]) listener(); };
+    socket.on('message', (data) => { const line = String(data); for (const listener of [...lines]) listener(line); });
+    socket.on('close', end);
+    socket.on('error', end);
+    return {
+        get isOpen() { return socket.readyState === WebSocket.OPEN; },
+        send: (line) => socket.send(line),
+        onLine: (listener) => { lines.add(listener); return () => { lines.delete(listener); }; },
+        onEnd: (listener) => { ends.add(listener); return () => { ends.delete(listener); }; },
+        close: () => {
+            if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
+        },
+    };
+}
+
 interface Attachment {
     channel: string;
     sessionId: string;
@@ -33,7 +52,7 @@ interface Attachment {
     mode: 'control' | 'observe';
     deviceId?: string;
     process: ChildProcess;
-    socket: WebSocket;
+    socket: TerminalPipe;
     cols: number;
     rows: number;
     initialFrameReceived: boolean;
@@ -44,7 +63,7 @@ interface Attachment {
     close: (reason?: string) => void;
 }
 
-type TerminalAttachParams = {
+export type TerminalAttachParams = {
     sessionId: string;
     channel: string;
     cols: number;
@@ -52,6 +71,8 @@ type TerminalAttachParams = {
     mode?: 'control' | 'observe';
     deviceId?: string;
     takeover?: boolean;
+    /** An already-open pipe (the byokit link). Given, the relay channel is skipped. */
+    socket?: TerminalPipe;
 };
 
 const ATTACH_TIMEOUT_MS = 10_000;
@@ -134,42 +155,48 @@ export class TerminalManager {
         // Do this after authority/takeover checks and before opening resources.
         if (mode === 'control') await this.options.focusSession(params.sessionId);
 
-        const credential = ticketWsCredential(this.options.token);
-        let socketUrl: string;
-        if (credential === undefined) {
-            socketUrl = terminalSocketUrl(this.options.relayUrl, {
-                machineId: this.options.machineId,
-                channel: params.channel,
-                role: 'machine',
-                ...(this.options.token === undefined ? {} : { token: this.options.token }),
-            });
+        let socket: TerminalPipe;
+        if (params.socket !== undefined) {
+            socket = params.socket;
         } else {
-            socketUrl = ticketSocketUrl(this.options.relayUrl, await issueWsTicket({
-                relayUrl: this.options.relayUrl,
-                credential,
-                machineId: this.options.machineId,
-                role: 'machine',
-                transport: 'terminal',
-                channel: params.channel,
-            }), 'terminal');
+            const credential = ticketWsCredential(this.options.token);
+            let socketUrl: string;
+            if (credential === undefined) {
+                socketUrl = terminalSocketUrl(this.options.relayUrl, {
+                    machineId: this.options.machineId,
+                    channel: params.channel,
+                    role: 'machine',
+                    ...(this.options.token === undefined ? {} : { token: this.options.token }),
+                });
+            } else {
+                socketUrl = ticketSocketUrl(this.options.relayUrl, await issueWsTicket({
+                    relayUrl: this.options.relayUrl,
+                    credential,
+                    machineId: this.options.machineId,
+                    role: 'machine',
+                    transport: 'terminal',
+                    channel: params.channel,
+                }), 'terminal');
+            }
+            const ws = new WebSocket(socketUrl);
+            await new Promise<void>((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    ws.close();
+                    reject(Object.assign(new Error('terminal: relay did not accept the channel'), { code: 'socket-timeout' }));
+                }, ATTACH_TIMEOUT_MS);
+                ws.once('open', () => {
+                    clearTimeout(timer);
+                    // Small input frames must not wait on Nagle/delayed-ACK stalls.
+                    (ws as unknown as { _socket?: { setNoDelay(on: boolean): void } })._socket?.setNoDelay(true);
+                    resolve();
+                });
+                ws.once('error', (error: Error) => {
+                    clearTimeout(timer);
+                    reject(error);
+                });
+            });
+            socket = relayTerminalSocket(ws);
         }
-        const socket = new WebSocket(socketUrl);
-        await new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(() => {
-                socket.close();
-                reject(Object.assign(new Error('terminal: relay did not accept the channel'), { code: 'socket-timeout' }));
-            }, ATTACH_TIMEOUT_MS);
-            socket.once('open', () => {
-                clearTimeout(timer);
-                // Small input frames must not wait on Nagle/delayed-ACK stalls.
-                (socket as unknown as { _socket?: { setNoDelay(on: boolean): void } })._socket?.setNoDelay(true);
-                resolve();
-            });
-            socket.once('error', (error: Error) => {
-                clearTimeout(timer);
-                reject(error);
-            });
-        });
 
         const herdr = this.options.herdrBin ?? 'herdr';
         // Observe renders the pane without touching it: no takeover, no real-PTY
@@ -243,8 +270,9 @@ export class TerminalManager {
         };
 
         let finished = false;
+        let removeInputRef: () => void = () => undefined;
         const removeInput = (): void => {
-            socket.off('message', onInput);
+            removeInputRef();
         };
         const finish = (reason?: string): void => {
             if (finished) return;
@@ -253,7 +281,7 @@ export class TerminalManager {
             if (attachment.scrollStateTimer !== undefined) clearTimeout(attachment.scrollStateTimer);
             delete attachment.scrollStateTimer;
             attachment.scrollStateDirty = false;
-            if (reason !== undefined && socket.readyState === WebSocket.OPEN) {
+            if (reason !== undefined && socket.isOpen) {
                 const plaintext = JSON.stringify({ type: 'terminal.closed', reason });
                 if (this.hosted === undefined) {
                     socket.send(plaintext);
@@ -282,7 +310,7 @@ export class TerminalManager {
             if (finished) return;
             if (reason === undefined) {
                 finish();
-                if (socket.readyState === WebSocket.OPEN) socket.close();
+                socket.close();
             } else {
                 finish(reason);
             }
@@ -315,11 +343,10 @@ export class TerminalManager {
         const onInputError = (error: Error): void => {
             attachment.close(`herdr stream input failed: ${error.message}`);
         };
-        const onInput = (data: WebSocket.RawData): void => {
+        const onInput = (text: string): void => {
             if (finished || this.attachments.get(params.channel) !== attachment || child.exitCode !== null) return;
             const input = child.stdin;
             if (input === null || input.destroyed || !input.writable) return;
-            let text = String(data);
             if (text.trim().length === 0) return;
             try {
                 if (this.hosted !== undefined) {
@@ -377,7 +404,7 @@ export class TerminalManager {
         // Client input is written to the control stream's stdin verbatim.
         // Observe streams are read-only; drop input silently.
         if (!observe) {
-            socket.on('message', onInput);
+            removeInputRef = socket.onLine(onInput);
         }
 
         child.on('exit', (code) => {
@@ -394,7 +421,7 @@ export class TerminalManager {
                     // recovers instead of treating the terminal as ended.
                     process.stderr.write(`terminal: herdr transport failed before the first frame on ${paneId}; retiring for reattach\n`);
                     finish();
-                    if (socket.readyState === WebSocket.OPEN) socket.close();
+                    socket.close();
                     return;
                 }
                 finish(`herdr stream exited (${code ?? 'signal'})`);
@@ -406,12 +433,7 @@ export class TerminalManager {
             process.stderr.write(`terminal: could not start ${herdr}: ${error.message}\n`);
             finish(`herdr stream failed: ${error.message}`);
         });
-        socket.on('close', () => {
-            const remote = !finished;
-            finish();
-            if (remote && child.exitCode === null) child.kill();
-        });
-        socket.on('error', () => {
+        socket.onEnd(() => {
             const remote = !finished;
             finish();
             if (remote && child.exitCode === null) child.kill();
@@ -460,7 +482,7 @@ export class TerminalManager {
     }
 
     private sendToPhone(attachment: Attachment, plaintext: string): void {
-        if (attachment.socket.readyState !== WebSocket.OPEN) return;
+        if (!attachment.socket.isOpen) return;
         if (this.hosted === undefined) {
             attachment.socket.send(plaintext);
             return;

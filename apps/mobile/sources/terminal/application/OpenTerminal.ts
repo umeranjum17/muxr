@@ -17,11 +17,12 @@
  * never masquerade as host output.
  */
 
-import { issueWsTicket, newTerminalChannel, ticketSocketUrl, type Envelope } from '@muxr/contract';
+import { issueWsTicket, newTerminalChannel, nextRequestId, ticketSocketUrl, type Envelope } from '@muxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { channelRelayUrl, getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { storage } from '@/catalog/store';
+import type { TerminalLinkTransport } from '@/pairing/client';
 import { beginTerminalFrameCounts, finalizeTerminalFrameCounts, recordTerminalChannel, recordTerminalFirstFrame, recordTerminalFrameReceived, recordTerminalFrameWritten, type TerminalFrameCountToken } from '@/catalog/diagnostics';
 import { DeviceV2Crypto, getCachedHostedGrant, refreshHostedGrant } from '@/pairing/e2ee';
 
@@ -136,17 +137,21 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             }
         }
     };
-    const attachOnce = (takeover: boolean): Promise<unknown> => grant === undefined
-        ? sendAttachRequest(takeover)
-        : (async () => {
+    const attachOnce = (takeover: boolean): Promise<unknown> => (async () => {
+        // When the link serves the session, the pane's stream open IS the
+        // attach; the relay request + channel socket below run only when the
+        // link cannot carry the pane.
+        if (await attachViaLink(takeover)) return;
+        if (grant !== undefined) {
             const latest = await refreshHostedGrant(settings.machineId, grant!.credential, grant!.relayUrl, await channelRelayUrl(grant!.relayUrl, settings.machineId));
             if (latest !== undefined && latest.keyVersion >= grant!.keyVersion) {
                 if (latest.expiresAt <= Date.now()) throw new Error('terminal: device grant expired; pair this browser again');
                 grant = latest;
                 hosted = new DeviceV2Crypto(latest);
             }
-            return sendAttachRequest(takeover);
-        })();
+        }
+        return sendAttachRequest(takeover);
+    })();
     const attach = async (takeover: boolean): Promise<unknown> => {
         try {
             const result = await attachOnce(takeover);
@@ -250,6 +255,49 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     let queuedInput: QueuedInput | undefined;
     let inputFlushScheduled = false;
 
+    // ---- Frame routing shared by the relay channel and the link stream. ----
+
+    const deliverFrameBytes = (bytes: string): void => {
+        if (dataListeners.size === 0) pendingData.push(bytes);
+        else for (const listener of dataListeners) listener(bytes);
+    };
+    const applyScrollStateFrame = (frame: object): void => {
+        const state = frame as { offsetFromBottom?: unknown; maxOffsetFromBottom?: unknown };
+        hostAnswered();
+        lastScrollState = {
+            offsetFromBottom: Math.max(0, Math.trunc(Number(state.offsetFromBottom))),
+            maxOffsetFromBottom: Math.max(0, Math.trunc(Number(state.maxOffsetFromBottom))),
+        };
+        for (const listener of scrollStateListeners) listener(lastScrollState);
+    };
+    const applyClosedFrame = (frame: object): void => {
+        const reason = typeof (frame as { reason?: unknown }).reason === 'string' ? (frame as { reason: string }).reason : undefined;
+        // Automatic foreground/reconnect must not steal control back.
+        // Only the user's visible retry action may reverse a takeover.
+        closedByTakeover = reason === 'control moved to another device';
+        closedByUser = true;
+        finalizeCounts();
+        recordTerminalChannel('disconnected', {
+            ok: false,
+            code: closedByTakeover ? 'takeover' : 'disconnected',
+        });
+        unwatchHost();
+        for (const listener of closeListeners) listener(reason);
+    };
+    const unwrapHosted = async (plaintext: string): Promise<string> => {
+        if (hosted === undefined) return plaintext;
+        const envelope = JSON.parse(plaintext) as Envelope;
+        if (envelope.header.machineId !== settings.machineId
+            || envelope.header.senderId !== settings.machineId
+            || envelope.header.recipientId !== '*'
+            || envelope.header.channel !== 'terminal'
+            || envelope.header.streamId !== channel
+            || envelope.header.keyVersion !== grant?.keyVersion) {
+            throw new Error('terminal: invalid hosted routing context');
+        }
+        return hosted.open('terminal', channel, envelope.payload, envelope.header.seq);
+    };
+
     function scheduleRetry(): void {
         if (closedByUser || retryTimer !== undefined) return;
         attempts += 1;
@@ -286,7 +334,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 takeoverRequested = false;
                 await attach(takeover);
             }
-            if (!closedByUser) await connectSocket();
+            if (!closedByUser && linkWire === undefined) await connectSocket();
         })();
         attachInFlight = pending;
         void pending
@@ -319,6 +367,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             if (explicitTakeover) requestAttach(true);
             return;
         }
+        if (linkWire !== undefined) return; // the pane is live on the link
         if (socket !== undefined && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
         attempts = 0;
         emitState('reconnecting');
@@ -412,31 +461,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                         emitState('live');
                         recordTerminalFirstFrame(Date.now() - openStarted);
                     }
-                    if (dataListeners.size === 0) pendingData.push(bytes);
-                    else for (const listener of dataListeners) listener(bytes);
-                } else if (frame.type === 'terminal.scroll-state'
-                    && 'offsetFromBottom' in frame && typeof frame.offsetFromBottom === 'number'
-                    && 'maxOffsetFromBottom' in frame && typeof frame.maxOffsetFromBottom === 'number') {
-                    hostAnswered();
-                    lastScrollState = {
-                        offsetFromBottom: Math.max(0, Math.trunc(frame.offsetFromBottom)),
-                        maxOffsetFromBottom: Math.max(0, Math.trunc(frame.maxOffsetFromBottom)),
-                    };
-                    for (const listener of scrollStateListeners) listener(lastScrollState);
+                    deliverFrameBytes(bytes);
+                } else if (frame.type === 'terminal.scroll-state') {
+                    applyScrollStateFrame(frame);
                 } else if (frame.type === 'terminal.closed') {
                     clearTimeout(openTimer);
-                    const reason = 'reason' in frame && typeof frame.reason === 'string' ? frame.reason : undefined;
-                    // Automatic foreground/reconnect must not steal control back.
-                    // Only the user's visible retry action may reverse a takeover.
-                    closedByTakeover = reason === 'control moved to another device';
-                    closedByUser = true;
-                    finalizeCounts();
-                    recordTerminalChannel('disconnected', {
-                        ok: false,
-                        code: closedByTakeover ? 'takeover' : 'disconnected',
-                    });
-                    unwatchHost();
-                    for (const listener of closeListeners) listener(reason);
+                    applyClosedFrame(frame);
                 }
             } catch {
                 // Hosted routing/key mismatches are recoverable only after a
@@ -454,6 +484,130 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             scheduleRetry();
         };
     }
+
+    // ---- The link path. When the session rides the byokit link (the enrolled
+    // path), the pane's stream open IS the attach: the host answers with the
+    // same `result` shape a terminal.attach request gets, then herdr's NDJSON
+    // frames flow both ways through the stream. A dropped link ends the stream;
+    // the ordinary reconnect loop reattaches the pane over the relay or a new
+    // stream -- the pane itself is never torn down, and nothing says "removed".
+    let linkWire: TerminalLinkTransport | undefined;
+    type LinkAttachAck = { ok: true } | { ok: false; error?: string; code?: string; streamLost?: boolean };
+    let linkAck: ((ack: LinkAttachAck) => void) | undefined;
+
+    /** Retire a transport without touching the reconnect machinery (replacement, close, failed attach). */
+    const retireLink = (transport: TerminalLinkTransport): void => {
+        if (linkWire === transport) linkWire = undefined;
+        transport.close();
+    };
+
+    /** Returns true when the link took the pane; false falls through to the relay for this attempt. */
+    async function attachViaLink(takeover: boolean): Promise<boolean> {
+        const offer = sync.openTerminalLink({
+            requestId: nextRequestId('lt'),
+            sessionId,
+            channel,
+            cols: current.cols,
+            rows: current.rows,
+            ...(options?.mode === undefined ? {} : { mode: options.mode }),
+            takeover,
+        });
+        if (offer === undefined) return false;
+        const started = Date.now();
+        const transport = await offer.catch(() => undefined);
+        if (transport === undefined) return false; // the link cannot carry streams; the relay can
+        if (closedByUser || command.signal?.aborted) {
+            transport.close();
+            throw new Error('terminal: open cancelled');
+        }
+        attachSent = true;
+        if (linkWire !== undefined && linkWire !== transport) retireLink(linkWire);
+        linkWire = transport;
+
+        transport.onEnd(() => {
+            if (linkWire !== transport) return;
+            linkWire = undefined;
+            if (linkAck !== undefined) {
+                // No host verdict before the drop: transport loss, not an answer.
+                const settle = linkAck;
+                linkAck = undefined;
+                settle({ ok: false, code: 'socket-error', streamLost: true });
+                return;
+            }
+            // A live pane lost its link. The reconnect loop reattaches it over
+            // the relay (or a new stream once the link is back).
+            finalizeCounts();
+            emitState('reconnecting');
+            scheduleRetry();
+        });
+
+        const ack = await new Promise<LinkAttachAck>((resolve) => {
+            const settle = (value: LinkAttachAck): void => {
+                clearTimeout(timer);
+                if (linkAck === settle) linkAck = undefined;
+                resolve(value);
+            };
+            linkAck = settle;
+            // An unanswered attach is a dead transport, like the relay openTimer.
+            const timer = setTimeout(() => settle({ ok: false, code: 'socket-timeout', streamLost: true }), 15_000);
+        });
+        if (!ack.ok) {
+            recordTerminalChannel('attach', { ok: false, error: ack.error ?? ack.code ?? 'link attach failed' });
+            retireLink(transport);
+            if (ack.streamLost) return false; // the relay can take the pane right now
+            // The host answered: an authoritative failure (e.g. takeover).
+            throw new Error(ack.error ?? 'terminal: link attach failed');
+        }
+        recordTerminalChannel('attach', { ok: true });
+        finalizeCounts();
+        frameCounts = beginTerminalFrameCounts();
+        for (const line of outbox.splice(0)) void transport.write(line).catch(() => undefined);
+
+        let firstFrameOfStream = false;
+        transport.onLine((line) => {
+            if (linkWire !== transport || closedByUser) return;
+            void (async () => {
+                let frame: unknown;
+                try {
+                    frame = JSON.parse(await unwrapHosted(line));
+                } catch {
+                    // A framing/key mismatch recovers only through a fresh attach.
+                    linkWire = undefined;
+                    transport.close();
+                    scheduleRetry();
+                    return;
+                }
+                if (linkWire !== transport || closedByUser) return;
+                if (typeof frame !== 'object' || frame === null || !('type' in frame)) return;
+                const type = (frame as { type?: unknown }).type;
+                if (type === 'result') return; // the attach ack, already settled
+                const record = frame as unknown as { bytes?: unknown };
+                if (type === 'terminal.frame' && typeof record.bytes === 'string') {
+                    const bytes = record.bytes;
+                    if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
+                    hostAnswered();
+                    if (!firstFrameOfStream) {
+                        firstFrameOfStream = true;
+                        painted = true;
+                        if (retryTimer !== undefined) {
+                            clearTimeout(retryTimer);
+                            retryTimer = undefined;
+                        }
+                        attempts = 0;
+                        emitState('live');
+                        recordTerminalFirstFrame(Date.now() - started);
+                    }
+                    deliverFrameBytes(bytes);
+                } else if (type === 'terminal.scroll-state') {
+                    applyScrollStateFrame(frame);
+                } else if (type === 'terminal.closed') {
+                    applyClosedFrame(frame);
+                }
+            })();
+        });
+        return true;
+    }
+
     function close(): void {
         closedByUser = true;
         closedByTakeover = false;
@@ -470,6 +624,9 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             attachSent = false;
             void sync.request('terminal.detach', { sessionId, channel }).catch(() => {});
         }
+        const wire = linkWire;
+        linkWire = undefined;
+        wire?.close();
         socket?.close();
     }
 
@@ -504,6 +661,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             },
             payload: sealed.payload,
         } satisfies Envelope);
+        if (linkWire !== undefined) {
+            void linkWire.write(line).catch(() => undefined);
+            return;
+        }
         if (socket !== undefined && socket.readyState === 1) socket.send(line);
         else outbox.push(line);
     };
@@ -613,7 +774,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             }
             const stale = socket;
             socket = undefined;
+            const staleLink = linkWire;
+            linkWire = undefined;
             emitState('reconnecting');
+            staleLink?.close();
             if (stale !== undefined) {
                 stale.close();
             }
