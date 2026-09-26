@@ -106,6 +106,6 @@ export function terminalPaneCanSend(pane: HerdrTreePane | undefined, hasContent:
 }
 
 export function terminalComposerText(draft: string, attachedPaths: string[], isShell: boolean): string {
-    const content = draft.trim() === '' ? '' : isShell ? draft : draft.trim();
+    const content = isShell && draft.trim() !== '' ? draft : draft.trim();
     return [content, ...attachedPaths].filter((part) => part !== '').join(' ');
 }
