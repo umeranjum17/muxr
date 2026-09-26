@@ -108,10 +108,10 @@ export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | 
 }
 
 /**
- * Native pairing over the byokit link (migration step 4): scan the computer's
- * link QR, show the two confirmation words while the person at the computer
- * approves, then trade `pair.complete` for the machine details and prove this
- * phone holds its key over the machine's real link before anything is stored.
+ * Pair over the byokit link: open the computer's offer, show the two
+ * confirmation words while the person at the computer approves, then trade
+ * `pair.complete` for the machine details and prove this device holds its key
+ * over the machine's real link before anything is stored.
  * The pending pairing is persisted before the first connection, so a process
  * death resumes it rather than leaving the computer holding an unused grant.
  */
