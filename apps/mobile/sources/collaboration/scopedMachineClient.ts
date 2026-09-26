@@ -1,5 +1,5 @@
 import type { PeerRequestMap, PeerRequestType } from '@muxr/contract';
-import { MuxrClient, MuxrRequestError } from '@/pairing';
+import { LinkFirstClient, MuxrRequestError } from '@/pairing';
 import type { StoredHostedGrant } from '@/pairing/e2ee';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
@@ -19,25 +19,19 @@ export async function requestPairedMachine<T extends PeerRequestType>(
         }
     }
     let permanentError: string | undefined;
-    let ticketRejected = false;
-    const client = new MuxrClient({
+    const client = new LinkFirstClient({
         mode: 'hosted',
         relayUrl: grant.relayUrl,
         machineId: grant.machineId,
-        token: grant.credential,
         hostedGrant: grant,
         requestTimeoutMs: 12_000,
-        reconnectDelayMs: 30_000,
-        onTicketRejected: () => { ticketRejected = true; },
         onPermanentError: (message) => { permanentError = message; },
     });
     try {
         await new Promise<void>((resolve, reject) => {
             const timeout = setTimeout(() => {
                 unsubscribe();
-                reject(ticketRejected
-                    ? new PeerHostResponseError('The computer pairing was rejected.', 'e2ee-required')
-                    : new Error('computer unavailable'));
+                reject(new Error('computer unavailable'));
             }, 12_000);
             const unsubscribe = client.onStateChange((state) => {
                 if (state === 'open') {
