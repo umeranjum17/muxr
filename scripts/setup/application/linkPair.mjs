@@ -3,8 +3,7 @@ import { createConnection, createServer } from 'node:net';
 import { chmodSync, existsSync, lstatSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { Host, hostId, keyPair } from '@byokit/link';
-import { RelayClient } from '@byokit/relay';
+import { hostId } from '@byokit/link';
 import { askVisible, base64, print, printTerminalQr } from '../infrastructure/runtime.mjs';
 import { pairingIntent } from '../domain/dist/index.js';
 import { readSelfhostState, selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
@@ -14,9 +13,8 @@ import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
  * Native pairing over the byokit link (migration step 4, decision D1).
  *
  * `muxr pair` uses the running machine's link host through its owner-only
- * local socket. If no host is running on a relay this machine owns, it opens
- * a short-lived pairing host under a fresh key instead. On a shared relay,
- * the enrolled machine must already be running. The person compares byokit's
+ * local socket. The machine must already be running on either an owned or
+ * shared relay. The person compares byokit's
  * two words and approves on this computer; selfhost.json remains the device
  * authority.
  *
@@ -27,7 +25,6 @@ import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
  * secure store from before it first connects, so a crash never strands one.
  */
 
-const PAIR_WINDOW_MS = 120_000;
 /** How long the phone has to prove itself over the machine's link. */
 const VERIFY_DEADLINE_MS = 60_000;
 
@@ -37,25 +34,6 @@ function aborted(signal) {
     if (signal === undefined) return new Promise(() => {});
     if (signal.aborted) return Promise.resolve(undefined);
     return new Promise((resolve) => signal.addEventListener('abort', () => resolve(undefined), { once: true }));
-}
-
-/** The relay admits a host only once its owner vouches for the key — the same
- *  proof the machine's own link endpoint gives (apps/host linkEndpoint.ts). */
-async function relayEnrolment(relayUrl, ownerToken, id, name) {
-    // ws(s):// to http(s)://: the control API answers on the same origin.
-    const base = new URL(relayUrl.replace(/^ws/i, 'http')).origin;
-    const headers = { authorization: `Bearer ${ownerToken}`, 'content-type': 'application/json' };
-    const listed = await fetch(new URL('/relay/v1/hosts', base), { headers });
-    if (listed.status === 403 || listed.status === 404) return false;
-    if (!listed.ok) throw new Error(`link: relay host list failed (${listed.status})`);
-    const hosts = await listed.json();
-    const known = Array.isArray(hosts) ? hosts : hosts.hosts;
-    if (Array.isArray(known) && known.some((host) => host.id === id)) return undefined;
-    const created = await fetch(new URL('/relay/v1/enrolments', base), { method: 'POST', headers, body: JSON.stringify({ name }) });
-    if (!created.ok) throw new Error(`link: relay enrolment failed (${created.status})`);
-    const { token } = await created.json();
-    if (typeof token !== 'string') throw new Error('link: relay enrolment returned no token');
-    return token;
 }
 
 /** The machine's link route on its own relay — where enrolled phones dial. */
@@ -71,87 +49,15 @@ export function machineLinkUrl(relayUrl, machineBoxPublicKeyBase64) {
  * the paired device record once the phone has proven itself, or throws when
  * pairing was declined, failed, or never completed.
  */
-export async function linkPair(state, { approve, pairMs = PAIR_WINDOW_MS, signal, intent = pairingIntent({ kind: 'native' }) } = {}) {
+export async function linkPair(state, { approve, signal, intent = pairingIntent({ kind: 'native' }) } = {}) {
     if (typeof selfhostCredential(state) !== 'string') throw new Error('muxr is not set up yet; run `muxr setup` first');
-    let running;
-    try { running = await pairOnRunningHost(join(process.env.MUXR_HOME ?? join(homedir(), '.muxr'), 'host', 'pair.sock'), approve ?? showApproval, signal, intent); }
-    catch (error) { if (error?.code !== 'ECONNREFUSED' && error?.code !== 'ENOENT') throw error; }
-    if (running !== undefined) return running;
-    if (state.relayLocation === 'remote') throw new Error('start muxr on this computer before pairing on a shared relay');
-    const machine = state.machine;
-    const confirm = approve ?? showApproval;
-    // An owned relay is reachable on loopback even when its advertised HTTPS
-    // address requires an external proxy or cannot hairpin from this machine.
-    const dialRelayUrl = `ws://127.0.0.1:${state.relayPort}`;
-    const keys = keyPair();
-    const enrol = await relayEnrolment(dialRelayUrl, selfhostCredential(state), hostId(keys.publicKey), `${machine.name ?? 'muxr'} pairing`);
-    if (enrol === false) throw new Error('this relay does not serve link pairing; update muxr on this machine');
-    // Device keys with an open claim, for rollback when the proof never comes.
-    const claims = new Map();
-    const done = {};
-
-    // Approvals are answered one at a time, even if two phones connect at once.
-    // A confirmed (or declined) connection burns the single-use offer ticket.
-    let approvals = Promise.resolve();
-    let burned = false;
-    const confirmOne = (req) => {
-        approvals = approvals.then(() => confirm(req)).then((yes) => { burned = true; return yes; }, () => { burned = true; return false; });
-        return approvals;
-    };
-
-    const host = await Host.open({
-        keys,
-        name: machine.name ?? 'muxr',
-        pairMs,
-        confirm: confirmOne,
-        // The temporary pairing host serves exactly two requests: the phone asking for
-        // its machine details, and the same phone proving it reached the
-        // machine's real link. Everything else is the machine link's business.
-        allow: (req) => req.op === 'pair.complete' || req.op === 'pair.verified',
-        handle: (req, device) => servePairing(state, req, device, claims, done, intent),
-    });
-    const client = new RelayClient(host, {
-        url: new URL('/relay/v1/host', new URL(dialRelayUrl.replace(/^ws/i, 'http'))).toString().replace(/^http/, 'ws'),
-        name: `${machine.name ?? 'muxr'} pairing`,
-        ...(enrol === undefined ? {} : { enrol }),
-    });
-    done.promise = new Promise((resolve, reject) => { done.resolve = resolve; done.reject = reject; });
     try {
-        await untilOnline(client);
-        let offer = freshOffer(host, state.relayUrl, client.id, intent, state);
-        showOffer(offer, intent);
-        while (true) {
-            if (signal?.aborted) throw new Error('pairing cancelled');
-            const outcome = await Promise.race([
-                done.promise,
-                aborted(signal),
-                sleep(Math.min(1_000, Math.max(offer.expires - Date.now(), 0))),
-            ]);
-            if (outcome !== undefined) {
-                // Let the proof's answer flush to the phone before the pairing
-                // host and its relay socket go away.
-                await sleep(500);
-                return outcome;
-            }
-            if (signal?.aborted) throw new Error('pairing cancelled');
-            if (offer.expires - Date.now() <= 0 || burned) {
-                print(offer.expires <= Date.now() ? 'Pairing QR expired — a fresh one is shown below.' : 'Pairing QR used — a fresh one is shown below.');
-                burned = false;
-                offer = freshOffer(host, state.relayUrl, client.id, intent, state);
-                showOffer(offer, intent);
-            }
-        }
-    } finally {
-        client.stop();
-        host.close();
-        for (const claim of claims.values()) {
-            clearTimeout(claim.timer);
-            // An answered claim whose proof never arrived keeps no access; a
-            // claim still waiting on approval wrote nothing. A verified claim
-            // is a completed pairing and keeps its record.
-            if (claim.answered === true && claim.verified !== true) await claim.rollback();
-        }
+        const running = await pairOnRunningHost(join(process.env.MUXR_HOME ?? join(homedir(), '.muxr'), 'host', 'pair.sock'), approve ?? showApproval, signal, intent);
+        if (running !== undefined) return running;
+    } catch (error) {
+        if (error?.code !== 'ECONNREFUSED' && error?.code !== 'ENOENT') throw error;
     }
+    throw new Error('Start muxr on this computer first, then run `muxr pair` again.');
 }
 
 // The running machine owns its relay registration. A local, owner-only socket
@@ -304,15 +210,6 @@ function pairingOfferOptions(intent, state) {
     };
 }
 
-function freshOffer(host, relayUrl, hostIdOnRelay, intent, state) {
-    const relay = new URL(relayUrl.replace(/^ws/i, 'http'));
-    const scheme = relay.protocol === 'https:' ? 'wss' : 'ws';
-    const options = pairingOfferOptions(intent, state);
-    return host.offer({ urls: [`${scheme}://${relay.host}/link/v1/${hostIdOnRelay}`], role: intent.authority === 'observe' ? 'view' : 'control',
-        kind: intent.kind, ...(options.lifetime === undefined ? {} : { lifetime: options.lifetime }),
-        ...(options.base === undefined ? {} : { base: options.base }) });
-}
-
 /**
  * The approved phone asks for its machine details over the pairing link, dials
  * the machine's own link, and proves it there with `pair.verified`. The answer
@@ -386,15 +283,6 @@ async function servePairing(state, req, device, claims, done, intent, admit) {
         expiresAt: Date.parse(record.expiresAt),
         linkUrl: machineLinkUrl(state.relayUrl, state.machine.crypto.boxPublicKey),
     };
-}
-
-async function untilOnline(client) {
-    const deadline = Date.now() + 15_000;
-    while (client.status !== 'online') {
-        if (client.status === 'replaced' || client.status === 'refused') throw new Error(`the relay refused the pairing host (${client.status})`);
-        if (Date.now() > deadline) throw new Error('could not reach the relay for pairing; run `muxr doctor` for the exact failing check');
-        await sleep(100);
-    }
 }
 
 function showOffer(offer, intent) {

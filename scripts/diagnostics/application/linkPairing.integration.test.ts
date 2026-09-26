@@ -2,8 +2,8 @@
  * Native pairing over the byokit link (migration step 4).
  *
  * The `muxr pair` side runs in this process through the real `linkPair`:
- * a pairing host under its own key, registered at the real relay, with the
- * approval answered here the way the terminal prompt answers it. The phone
+ * the running machine's owner-only pairing socket, with approval answered
+ * here the way the terminal prompt answers it. The phone
  * side runs through the real `pairOverLink` (hostedE2ee) against the same
  * relay, with its secure store mocked. The machine is the real self-host host
  * process, which enrols the phone from the device record the CLI wrote.
@@ -141,8 +141,6 @@ async function startMachine(): Promise<void> {
 interface ComputerPairingOptions {
     approve?: (req: { name: string; words: string }) => boolean | Promise<boolean>;
     signal?: AbortSignal;
-    /** Shortened pairing window for the expiry scenario. */
-    pairMs?: number;
     intent?: ReturnType<typeof pairingIntent>;
 }
 
@@ -190,6 +188,26 @@ describe('native pairing over the byokit link', () => {
         vi.unstubAllGlobals();
         await Promise.all([...children].map((child) => stop(child)));
         rmSync(home, { recursive: true, force: true });
+    });
+
+    it('refuses owned and shared pairing without a running machine before showing a code', async () => {
+        const state = readSelfhostState();
+        const originalHome = process.env.MUXR_HOME;
+        const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+        process.env.MUXR_HOME = join(home, 'offline-pairing');
+        try {
+            for (const relayLocation of ['local', 'remote'] as const) {
+                const connection = relayLocation === 'local' ? state : {
+                    ...state, relayLocation, relayRole: 'shared', mintSecret: undefined, machineCredential: state.mintSecret,
+                };
+                await expect(runComputerPairing(connection, { approve: () => { throw new Error('no code should be offered'); } }))
+                    .rejects.toThrow('Start muxr on this computer first, then run `muxr pair` again.');
+            }
+            expect(output).not.toHaveBeenCalled();
+        } finally {
+            output.mockRestore();
+            process.env.MUXR_HOME = originalHome;
+        }
     });
 
     it('rejects a native offer on web before storing a pending key', async () => {

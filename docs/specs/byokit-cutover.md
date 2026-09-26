@@ -27,7 +27,7 @@ This is a one-shot wire break. Older phone builds and pre-cutover computer/phone
 - `@byokit/seal@0.1.0` now owns mobile catalog/blob encryption without changing stored bytes. `tweetnacl` remains for peer/setup signatures and grant verification, not a second relay transport. Root `libsodium-wrappers` was removed (no runtime imports). `naclPRNG` remains necessary for the peer/grant `tweetnacl` users in mobile.
 - `@byokit/relay` already owns link push and its Web Push/Expo transports; muxr's old `PushService` and direct `web-push` dependency are gone. Voice-provider WebSockets still need custom handshake headers and HTTP rejection bodies (`openai.mjs`, `gemini.mjs`, `xai.mjs`), so direct `ws` stays for those adapters. Peer product requests now use a byokit device link; legacy relay socket authority and routing are deleted.
 
-- On a shared relay, `muxr pair` asks the already-enrolled running machine link to open an offer through the owner-only local pairing socket; it does not mint a second relay host or use an old relay credential. If muxr is stopped, start it before pairing. On an owned relay only, the CLI may start an ephemeral pairing host when no machine host is available.
+- On owned and shared relays, `muxr pair` asks the running machine link to open an offer through the owner-only local pairing socket; it does not mint a second relay host or use an old relay credential. If muxr is stopped, start it and run `muxr pair` again.
 
 ## Deletion gate
 
