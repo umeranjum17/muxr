@@ -341,7 +341,7 @@ export interface RequestMap extends PeerRequestMap {
         result: SessionStartResult;
     };
     /** The whole herd: workspaces -> tabs -> panes with live agent state. `connected` is herdr liveness; absent from pre-liveness hosts. */
-    'herdr.tree': { params: Record<string, never>; result: { workspaces: HerdrTreeWorkspace[]; connected?: boolean } };
+    'herdr.tree': { params: Record<string, never>; result: { workspaces: HerdrTreeWorkspace[]; connected?: boolean; linkEnrolledKey?: string } };
     /**
      * Third-party Applications: the global launcher actions declared by enabled
      * plugins in the live Herdr registry. Product pane launching lives in

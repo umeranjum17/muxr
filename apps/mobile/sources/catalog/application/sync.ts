@@ -24,7 +24,7 @@ import { createArtifactWire, type ArtifactChunk, type ArtifactListing } from '..
 import { recordSocketReconnect, recordSocketState, recordTrackedRpc } from '../infrastructure/connectionDiagnostics';
 import { Modal } from '@/modal';
 import { Encryption } from '../infrastructure/encryption/encryption';
-import { MuxrClient } from '@/pairing/client';
+import { LinkFirstClient, type SessionClient } from '@/pairing/client';
 import { AppState, Platform } from 'react-native';
 import {
     DEFAULT_CONNECTION,
@@ -85,7 +85,7 @@ function socketStatusFromClient(state: string): 'connected' | 'connecting' | 'er
     return 'disconnected';
 }
 
-function waitUntilClientOpen(client: MuxrClient, timeoutMs: number): Promise<void> {
+function waitUntilClientOpen(client: SessionClient, timeoutMs: number): Promise<void> {
     if (client.isLive()) return Promise.resolve();
     // Header can stay `open` after the socket dies without onclose. A new
     // connect() is what unblocks herdr.tree / terminal.attach.
@@ -241,7 +241,7 @@ const SESSION_UPDATE_FLUSH_MS = 250;
 class MuxrSync {
     private readonly pendingSessionInfo = new Map<string, SessionInfo>();
     private sessionFlushTimer: ReturnType<typeof setTimeout> | undefined;
-    private client: MuxrClient | undefined;
+    private client: SessionClient | undefined;
     private readonly artifactWire = createArtifactWire((type, params, timeoutMs) => this.request(type, params, timeoutMs));
     private lifecycleWork: Promise<void> = Promise.resolve();
     private reconnectWork: Promise<void> | undefined;
@@ -286,7 +286,7 @@ class MuxrSync {
         return this.accountValidation;
     }
 
-    private ensureClient(): MuxrClient {
+    private ensureClient(): SessionClient {
         if (this.client !== undefined) return this.client;
         const settings = this.getConnection();
         const hostedGrant = settings.mode === 'hosted' ? getCachedHostedGrant(settings.machineId) : undefined;
@@ -294,7 +294,7 @@ class MuxrSync {
             throw new Error('machine transport unavailable until secure pairing completes');
         }
         const transportToken = settings.mode === 'hosted' ? hostedGrant?.credential : settings.token.trim();
-        const client = new MuxrClient({
+        const client = new LinkFirstClient({
             mode: settings.mode,
             relayUrl: hostedGrant?.relayUrl ?? settings.relayUrl,
             machineId: settings.machineId,

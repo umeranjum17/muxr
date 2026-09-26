@@ -117,6 +117,7 @@ vi.mock('@/pairing/infrastructure/muxrClient', () => ({
         close() {}
         isLive() { return true; }
         onStateChange() { return () => undefined; }
+        onPluginsInvalidated() { return () => undefined; }
         onEvent(listener: (sessionId: string, event: unknown) => void) {
             harness.eventListeners.push(listener);
             return () => undefined;

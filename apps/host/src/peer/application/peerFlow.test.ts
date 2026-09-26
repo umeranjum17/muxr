@@ -355,6 +355,17 @@ describe('host peer collaboration flow', () => {
             machineId: 'target-machine', senderId: 'target-machine', recipientId: authorized.peerDeviceId,
             channel: 'session', streamId: 'machine', keyVersion: 1,
         }, newV2ReplayTracker())).toBe('peer-result');
+        const nativeAfter = hostCrypto.seal('session', 'machine', 'native-after-peer');
+        const nativeReplay = newV2ReplayTracker();
+        const nativeContext = {
+            machineId: 'target-machine', senderId: 'target-machine', recipientId: '*',
+            channel: 'session', streamId: 'machine', keyVersion: 1,
+        } as const;
+        const nativeKey = deriveV2Key(targetKeys.current().dataKey, 'host->client');
+        expect(openV2(broadcast, nativeKey, nativeContext, nativeReplay)).toBe('native-only');
+        expect(v2EnvelopeSequence(directed)).toBeGreaterThan(v2EnvelopeSequence(broadcast));
+        expect(v2EnvelopeSequence(nativeAfter)).toBeGreaterThan(v2EnvelopeSequence(directed));
+        expect(openV2(nativeAfter, nativeKey, nativeContext, nativeReplay)).toBe('native-after-peer');
 
         await sourceRuntime.store.putRelationship({
             ...outbound,

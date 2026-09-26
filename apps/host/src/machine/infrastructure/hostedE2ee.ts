@@ -63,7 +63,7 @@ export class HostV2Crypto {
         this.syncGeneration();
         const peerRoot = recipientId === '*' ? undefined : this.keys.deviceDataKeys?.[recipientId];
         if (recipientId !== '*' && peerRoot === undefined) throw new Error('hosted e2ee: directed recipient has no egress key');
-        const stateKey = `${recipientId}\0${channel}`;
+        const stateKey = channel;
         const state = this.senders.get(stateKey) ?? newV2SenderState();
         this.senders.set(stateKey, state);
         return sealV2(plaintext, peerRoot === undefined ? this.outputKey : deriveV2Key(peerRoot, 'host->client'), {

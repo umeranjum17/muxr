@@ -54,6 +54,8 @@ export interface MuxrClientOptions {
     onTicketRejected?: () => void;
     /** Permanent self-host credential failures must stop retrying and offer pairing again. */
     onPermanentError?: (message: string) => void;
+    onLinkEnrolled?: (key: string) => void;
+    onHostHello?: () => void;
 }
 
 interface Pending {
@@ -112,6 +114,7 @@ const RECONNECT_CEILING_MS = 4000;
 
 export class MuxrClient {
     private socket: WebSocket | undefined;
+    private dialRelayUrl: string | undefined;
     private readonly pending = new Map<string, Pending>();
     private readonly eventListeners = new Set<EventListener>();
     private readonly stateListeners = new Set<StateListener>();
@@ -145,6 +148,10 @@ export class MuxrClient {
         return this.state === 'open'
             && this.socket !== undefined
             && this.socket.readyState === (WebSocket.OPEN ?? 1);
+    }
+
+    get activeRelayUrl(): string | undefined {
+        return this.isLive() ? this.dialRelayUrl : undefined;
     }
 
     connect(): void {
@@ -248,6 +255,7 @@ export class MuxrClient {
             return;
         }
         this.socket = socket;
+        this.dialRelayUrl = dialRelayUrl;
         let opened = false;
         let sawHostFrame = false;
         let livenessRecorded = false;
@@ -501,12 +509,18 @@ export class MuxrClient {
             if (this.hosted !== undefined && envelope.header.channel !== pending.channel) return;
             clearTimeout(pending.timer);
             this.pending.delete(frame.requestId);
-            if (frame.ok) pending.resolve(frame.data);
-            else pending.reject(requestFailure(pending.requestType, frame.error, frame.code));
+            if (frame.ok) {
+                if (pending.requestType === 'herdr.tree' && frame.data !== null && typeof frame.data === 'object'
+                    && 'linkEnrolledKey' in frame.data && typeof frame.data.linkEnrolledKey === 'string') {
+                    this.options.onLinkEnrolled?.(frame.data.linkEnrolledKey);
+                }
+                pending.resolve(frame.data);
+            } else pending.reject(requestFailure(pending.requestType, frame.error, frame.code));
             return;
         }
 
         if (this.hosted !== undefined && envelope.header.channel !== 'session') return;
+        if (frame.type === 'machine.hello') this.options.onHostHello?.();
         if (isPluginsInvalidatedFrame(frame)) {
             for (const listener of this.pluginInvalidationListeners) listener(frame);
             return;
