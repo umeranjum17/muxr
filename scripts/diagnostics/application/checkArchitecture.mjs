@@ -18,7 +18,7 @@ const DOMAIN_IO = /\bfrom ['"]node:(fs|net|http|https|child_process|os|dgram)(?:
 const NESTED_TERNARY = /\?[^?:.\n]{1,80}:[^?:.\n]{0,80}\?(?![`'"])/;
 const FORBIDDEN_DIRS = new Set(['services', 'handlers', 'usecases', 'useCases', 'use-cases']);
 const MAINTAINER = /^(check|verifyNativePatches|runSuite|runSkeletonCheck|packageLifecycleSmoke|sandbox|waitForRelay|cleanWorktrees|serveWebExport)/;
-const SIDE_EFFECT = new Set(['pack.mjs']);
+const SIDE_EFFECT = new Set(['pack.mjs', 'linkHookFixture.mjs']);
 const failures = [];
 const edges = new Map();
 
