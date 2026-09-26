@@ -9,6 +9,7 @@
 import { RealtimeTalkButton } from '@/conversation/ui';
 import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useKeyboardHandler, useKeyboardState } from 'react-native-keyboard-controller';
@@ -59,6 +60,7 @@ import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
 import { FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingHandle, type RingSlot } from './FloatingTerminalControls';
 import { assembleRing } from './ringSlots';
+import { composerKeyboardProps } from './composerKeyboardProps';
 import { TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
 import { ARROW_CLUSTER, BUILTIN_KEY_CATALOG, DEFAULT_ROW_IDS, type RowEntry, type TerminalKeyAction } from '../domain/keyRow';
@@ -1197,6 +1199,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 blurOnSubmit
                 submitBehavior="blurAndSubmit"
                 multiline
+                // A shell's commands must arrive exactly as typed; an agent
+                // pane keeps the keyboard's prose helpers.
+                {...composerKeyboardProps(shell)}
                 // Web renders multiline as a textarea and defaults it to two
                 // rows: the rail stood 12dp taller than its own minimum and the
                 // placeholder sat a line above the controls beside it. Native
