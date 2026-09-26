@@ -9,7 +9,7 @@ Decider: Umer
 
 Each pane has at most one phone control stream. Opening a terminal or tapping its visible retry after displacement is an explicit takeover action. Automatic reconnect, app foreground, repaint, and network recovery may restore the same device's control but MUST NOT displace another device. Different panes may be controlled concurrently. Observe streams are read-only and never displaced.
 
-The host, not the client, serializes same-pane attach requests and enforces takeover intent against the relay-authenticated device. A successful successor receives control only after its channel and Herdr process are ready. The prior controller receives `terminal.closed: control moved to another device`; automatic reattach is suppressed. Input and detach remain bound to the authenticated device/channel.
+The host, not the client, serializes same-pane attach requests and enforces takeover intent against the authenticated device on either the relay channel or link stream. A successful successor receives control only after its channel and Herdr process are ready. The prior controller receives `terminal.closed: control moved to another device`; automatic reattach is suppressed. Input and detach remain bound to the authenticated device/channel.
 
 ## Alternatives
 

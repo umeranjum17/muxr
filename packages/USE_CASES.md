@@ -39,7 +39,7 @@ A package module exists only when the packages own the behavior. Product operati
 | Start Realtime Conversation | `voice.stream` request | Realtime frames | `apps/mobile/sources/conversation/application/realtimeSession.ts` |
 | Interrupt Playback | `pause_output` / `stop` | Realtime control | `apps/mobile/sources/playback/realtimePlayback.ts` |
 | Report Agent Outcome | `voice.report` | Voice Report, Agent Lifecycle | `apps/mobile/sources/watch/wakeAndReport.ts` |
-| Open Terminal | terminal channel | Routing Channel `terminal` | `apps/mobile/sources/terminal/application/OpenTerminal.ts`, `apps/host/src/herdr/terminalManager.ts` |
+| Open Terminal | link stream or relay channel | Routing Channel `terminal` | See [terminal transport](../docs/ARCHITECTURE.md#what-the-relay-does). |
 | Attach Preview Tunnel | `preview.attach` | Routing Channel `preview` | host adapter; kept for older phone builds |
 | Run Plugin Action | `plugin.call` / `plugin.invoke` | Plugin Identity | dispatcher, `screenModel.ts`, `usePluginEvents.ts` |
 
