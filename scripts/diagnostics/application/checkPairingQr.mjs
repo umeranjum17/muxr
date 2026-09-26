@@ -1,14 +1,14 @@
 /**
  * End-to-end `muxr pair` QR onboarding through a live self-host relay.
  *
- * First contact is the product: the host prints a terminal QR, the phone scans
- * it, and pairing completes without the user ever typing a string. Nothing
- * else in the suite proved that chain — checkPairing covers cloud accounts and
- * the relay self-check covers store mechanics with opaque strings — so a QR
- * that encoded the wrong text, or a claim the host could not finish, would
- * ship with every lane green. This check drives the real CLI against a real
- * relay and claims the pairing exactly the way the phone does, with the
- * shared crypto module.
+ * First contact is the product: the computer prints a terminal QR of the
+ * byokit link offer, the phone scans it, and pairing completes with an
+ * approval on the computer — the two confirmation words shown on both
+ * screens (migration step 4, decision D1). Nothing else in the suite proved
+ * that chain, so a QR that encoded the wrong text, or an approval prompt that
+ * never reached the person at the computer, would ship with every lane green.
+ * This check drives the real CLI under a real PTY against a real relay, and
+ * claims the pairing exactly the way the phone does, through @byokit/link.
  *
  * Spawns its own relay on MUXR_RELAY_PORT=0 and reads the bound port from
  * waitForRelay, so it can never pass against a relay it did not start.
@@ -19,20 +19,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import QRCode from 'qrcode';
+import { DeviceLink, keyPair, pairWithOffer } from '@byokit/link';
 import { waitForRelay } from './waitForRelay.mjs';
-import {
-    deriveV2Key,
-    generateKeyPair,
-    newV2SenderState,
-    openPairingCodePayload,
-    sealV2,
-    verifyDeviceGrant,
-} from '../../../packages/crypto/dist/index.js';
 
 const repoRoot = join(fileURLToPath(new URL('../../..', import.meta.url)));
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-pair-qr-'));
 const relayDataDir = join(scratch, 'relay-data');
 const cliHome = join(scratch, 'cli-home');
+const ptyLog = join(scratch, 'pair-session.typescript');
 
 // The CLI state helpers write to $MUXR_HOME, defaulting to the real ~/.muxr.
 // Redirect this process BEFORE any setup module is imported: a check that
@@ -40,7 +34,7 @@ const cliHome = join(scratch, 'cli-home');
 process.env.MUXR_HOME = cliHome;
 process.env.MUXR_NO_SERVICE_COMMANDS = '1';
 // Cross-feature access goes through setup's public barrel.
-const { machineIdentity, pairingCodeHash, printTerminalQr, pairingIntent, writeSelfhostState } = await import('../../setup/index.mjs');
+const { machineIdentity, writeSelfhostState } = await import('../../setup/index.mjs');
 
 const children = [];
 const fail = (msg) => {
@@ -59,7 +53,6 @@ const relay = spawn('node', [join(repoRoot, 'apps/relay/dist/main.js')], {
 });
 children.push(relay);
 const PORT = await waitForRelay(relay).catch((error) => fail(error.message));
-const BASE = `http://127.0.0.1:${PORT}`;
 const RELAY_URL = `ws://127.0.0.1:${PORT}`;
 
 // ---------------------------------------------------------------------------
@@ -100,7 +93,7 @@ await waitFor(() => hostOut.includes('host -> ') ? true : undefined, 20_000, `ho
 const locator = pairingIntent({ kind: 'native' }).pairingLocator(RELAY_URL, '7KDM4-QXP7N');
 const rendered = await renderTerminalQrInProcess(locator);
 if (rendered.includes('QR omitted')) fail(`printTerminalQr refused a normal terminal: ${rendered}`);
-const expected = QRCode.create(locator, { errorCorrectionLevel: 'M' });
+const expected = QRCode.create(offerShape, { errorCorrectionLevel: 'M' });
 const decoded = decodeUtf8Qr(rendered, expected.modules.size);
 let wrong = 0;
 for (let y = 0; y < decoded.size; y += 1) {
@@ -108,57 +101,52 @@ for (let y = 0; y < decoded.size; y += 1) {
         if (decoded.modules[y][x] !== (expected.modules.data[y * decoded.size + x] ? 1 : 0)) wrong += 1;
     }
 }
-if (wrong !== 0) fail(`terminal QR differs from the pairing string in ${wrong} of ${decoded.size * decoded.size} modules — a phone scan would silently fail`);
-if (decoded.width > 80) fail(`terminal QR needs ${decoded.width} columns; it must fit a standard 80-column terminal`);
+if (wrong !== 0) fail(`terminal QR differs from the offer text in ${wrong} of ${decoded.size * decoded.size} modules — a phone scan would silently fail`);
+// The art itself is modules plus the four-module quiet zone on each side;
+// the stubbed 100-column terminal only adds centring indent around it.
+const qrColumns = expected.modules.size + 8;
+if (qrColumns > 80) fail(`the link offer QR needs ${qrColumns} columns; it must fit a standard 80-column terminal`);
 
 // ---------------------------------------------------------------------------
-// 4. The real `muxr pair` against that relay. This check is not a TTY, so the
-//    honest fallback must name the string path — and the saved file must hold
-//    the exact text the QR above encoded.
-const pair = spawn('node', [join(repoRoot, 'scripts/cli.mjs'), 'pair'], {
+// 4. The real `muxr pair` under a real PTY. It prints the offer QR and the
+//    offer text, waits for a phone, shows the confirmation words, and asks
+//    the person at the computer to approve.
+// The PTY inherits no window size from these pipes, and the QR renderer
+// needs real dimensions: set them with stty before the CLI starts.
+const pair = spawn('script', ['-q', '-f', '-c', `stty cols 100 rows 60; node ${join(repoRoot, 'scripts/cli.mjs')} pair`, ptyLog], {
     cwd: repoRoot,
-    env: { ...process.env, MUXR_HOME: cliHome },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    // MUXR_DESKTOP_SOURCE=x11: the lab has no desktop portal to prompt for
+    // screen-sharing approval, so pairing must finish without it.
+    env: { ...process.env, MUXR_HOME: cliHome, TERM: 'xterm', MUXR_DESKTOP_SOURCE: 'x11' },
+    stdio: ['pipe', 'pipe', 'pipe'],
 });
 children.push(pair);
-let pairOut = '';
-pair.stdout.on('data', (chunk) => { pairOut += chunk; });
-pair.stderr.on('data', (chunk) => { pairOut += chunk; });
+const pty = () => (existsSync(ptyLog) ? readFileSync(ptyLog, 'utf8') : '');
 const printed = await waitFor(
-    () => /Pairing string \(expires in two minutes\):\s*(\S+)/.exec(pairOut),
-    15_000,
-    'muxr pair never printed a pairing string',
+    () => /byokit-link:1:[A-Za-z0-9_-]{100,}/.exec(stripAnsi(pty())),
+    20_000,
+    'muxr pair never printed a link offer',
 );
-const printedLocator = printed[1];
-const printedUrl = new URL(printedLocator);
-const relayUrl = new URL(RELAY_URL);
-if (!['ws:', 'wss:'].includes(printedUrl.protocol)
-    || `${printedUrl.origin}${printedUrl.pathname}` !== `${relayUrl.origin}${relayUrl.pathname}`
-    || printedUrl.searchParams.getAll('pair').length !== 1) {
-    fail(`muxr pair printed a malformed locator: ${printedLocator}`);
+const offer = printed[0];
+if (!stripAnsi(pty()).includes('Scan it with the muxr app')) fail('muxr pair did not tell the person to scan the offer');
+// The printed QR art must decode to the exact offer the text shows.
+const ptyArt = stripAnsi(pty()).split('\n').filter((line) => /^[ ▀▄█]+$/.test(line)).join('\n');
+const ptyDecoded = decodeUtf8Qr(ptyArt + '\n', QRCode.create(offer, { errorCorrectionLevel: 'M' }).modules.size);
+const ptyExpected = QRCode.create(offer, { errorCorrectionLevel: 'M' });
+let ptyWrong = 0;
+for (let y = 0; y < ptyDecoded.size; y += 1) {
+    for (let x = 0; x < ptyDecoded.size; x += 1) {
+        if (ptyDecoded.modules[y][x] !== (ptyExpected.modules.data[y * ptyDecoded.size + x] ? 1 : 0)) ptyWrong += 1;
+    }
 }
-// Piped output intentionally carries no QR art at all: the isTTY gate
-// skips the renderer, so the exact string below is the whole fallback.
-if (!pairOut.includes('Pairing string (expires in two minutes)')) fail('piped muxr pair never labelled the fallback string');
-const savedPath = join(cliHome, 'pairing-string.txt');
-if (!existsSync(savedPath)) fail('muxr pair did not save pairing-string.txt');
-if (readFileSync(savedPath, 'utf8').trim() !== printedLocator) fail('saved pairing string differs from the printed one');
+if (ptyWrong !== 0) fail(`the PTY-rendered offer QR differs from the printed offer in ${ptyWrong} modules`);
 
 // ---------------------------------------------------------------------------
-// 5. Claim it the way the phone does: code -> sealed payload -> mailbox ->
-//    claim -> verified grant, all through the shared crypto module.
-const code = printedUrl.searchParams.get('pair');
-const resolved = await post('/v1/selfhost/pair-code', { code_hash: pairingCodeHash(code) });
-if (resolved.status !== 200 || typeof resolved.body.payload !== 'string') fail(`pair-code resolve failed (${resolved.status}) ${JSON.stringify(resolved.body)}`);
-// The CLI seals base64url(JSON): open, then decode, exactly like the
-// phone's payload= deep link parameter.
-const compact = openPairingCodePayload(resolved.body.payload, code);
-const payload = JSON.parse(Buffer.from(compact, 'base64url').toString('utf8'));
-if (payload.v !== '2'
-    || [payload.id, payload.claim, payload.pair, payload.machine, payload.machinePk].some((v) => typeof v !== 'string' || v.length <= 20)) {
-    fail(`resolved pairing payload is not a complete v2 record: ${Object.keys(payload).join(',')}`);
-}
-const deviceKey = generateKeyPair();
+// 5. Claim it the way the phone does: a fresh link key, persisted intent, the
+//    byokit claim, the machine details over the pairing link, and the proof
+//    over the machine's own link. The words must appear on this screen before
+//    the approval, because that is the whole point of decision D1.
+const deviceKey = keyPair();
 const deviceName = 'QR journey phone';
 const mailbox = sealV2(
     JSON.stringify({ devicePublicKey: deviceKey.publicKey, machineSigningPublicKey: payload.machinePk, deviceName }),
@@ -195,14 +183,59 @@ const grant = verifyDeviceGrant(JSON.parse(grantResponse.grant), {
     deviceKey,
     deviceId: claimed.body.device_id,
 });
-if (grant.machineId !== payload.machine || grant.authority !== 'control') fail('verified grant is not control access to the scanned machine');
+await waitFor(
+    () => (pty().includes('Compare these words on the phone') ? true : undefined),
+    15_000,
+    'the confirmation words never appeared on the computer',
+);
+const wordsLine = stripAnsi(pty()).match(/Compare these words on the phone:\s*(\S+)/);
+if (wordsLine === null || wordsLine[1].length < 3) fail('the approval prompt showed no confirmation words');
+// Approve the way the person does: typing yes at the prompt.
+pair.stdin.write('y\n');
+const pairingGrant = await claiming;
+if (typeof pairingGrant.device?.id !== 'string' || pairingGrant.device.id === '') {
+    fail('pairWithOffer did not return an approved grant');
+}
+// The rest of the phone flow: reconnect to the pairing host for the machine
+// details, prove the key over the machine's own link, and report the proof.
+const pairLink = new DeviceLink(pairingGrant, { WebSocket: WebSocket, timeoutMs: 5_000 });
+pairLink.connect();
+await waitFor(() => (pairLink.status === 'online' ? true : undefined), 15_000, 'the pairing link never reopened');
+const answer = await pairLink.request('pair.complete', { deviceName }, { timeoutMs: 15_000 });
+if (typeof answer?.machineId !== 'string' || typeof answer?.linkUrl !== 'string' || !answer.linkUrl.startsWith('ws')) {
+    fail(`the machine answered with an incomplete pairing record: ${JSON.stringify(answer).slice(0, 200)}`);
+}
+if (typeof answer?.machineId !== 'string' || typeof answer?.linkUrl !== 'string' || !answer.linkUrl.startsWith('ws')) {
+    fail(`the machine answered with an incomplete pairing record: ${JSON.stringify(answer).slice(0, 200)}`);
+}
+let machineLink;
+const proofDeadline = Date.now() + 45_000;
+while (true) {
+    machineLink = new DeviceLink({
+        v: 1,
+        secretKey: Buffer.from(deviceKey.secretKey).toString('base64url'),
+        host: answer.machineBoxPublicKey,
+        hostName: answer.machineName,
+        urls: [answer.linkUrl],
+        device: { id: '', name: deviceName, role: 'control' },
+    }, { WebSocket: WebSocket, timeoutMs: 5_000 });
+    machineLink.connect();
+    await waitFor(() => (machineLink.status !== 'connecting' ? true : undefined), 10_000, 'the machine link never settled');
+    if (machineLink.status === 'online') break;
+    const ended = machineLink.status;
+    machineLink.stop();
+    if (ended === 'refused') fail('the machine link refused this phone');
+    if (Date.now() >= proofDeadline) fail('the machine never enrolled this phone inside the proof window');
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+}
+machineLink.stop();
+await pairLink.request('pair.verified', {}, { timeoutMs: 10_000 });
+pairLink.stop();
 
-// ---------------------------------------------------------------------------
-// 6. The host side must finish on its own: mailbox decrypted, grant uploaded,
-//    device recorded durably.
-const exitCode = await waitFor(() => (pair.exitCode === null ? undefined : pair.exitCode), 20_000, 'muxr pair did not finish after the phone claimed');
-if (exitCode !== 0) fail(`muxr pair exited ${exitCode}: ${pairOut.slice(-400)}`);
-if (!pairOut.includes('paired and verified')) fail(`muxr pair did not confirm the pairing: ${pairOut.slice(-400)}`);
+// The proof window: the phone dials the machine's own link and reports it.
+const exitCode = await waitFor(() => (pair.exitCode === null ? undefined : pair.exitCode), 90_000, `muxr pair did not finish after the phone proved itself: ${JSON.stringify(stripAnsi(pty()).slice(-600))}`);
+if (exitCode !== 0) fail(`muxr pair exited ${exitCode}: ${stripAnsi(pty()).slice(-400)}`);
+if (!stripAnsi(pty()).includes('paired and verified')) fail(`muxr pair did not confirm the pairing: ${stripAnsi(pty()).slice(-400)}`);
 const listed = await runCli(['devices', 'list']).catch((cause) => fail(cause.message));
 if (!listed.includes(deviceName)) fail(`muxr devices list does not show the paired phone: ${listed.slice(-300)}`);
 
@@ -214,49 +247,45 @@ for (const child of children) {
     }
 }
 rmSync(scratch, { recursive: true, force: true });
-process.stdout.write(
-    'PASS: pair QR onboarding journey\n' +
-    `      terminal QR decodes to the exact pairing string (0 of ${decoded.size * decoded.size} modules differ, ≥4-module quiet zone): yes\n` +
-    '      piped fallback prints the exact string: yes   saved string equals the printed one: yes\n' +
-    '      phone code->payload->claim->grant verified against the pinned machine key: yes\n' +
-    '      replayed claim refused: yes   muxr pair confirmed and device listed: yes\n',
-);
+process.stdout.write('\nPASS: pair QR onboarding journey\n');
+process.stdout.write(`      terminal QR decodes to the exact link offer (${decoded.size} modules, ${qrColumns} columns wide): yes\n`);
+process.stdout.write('      PTY offer QR matches the printed offer: yes\n');
+process.stdout.write('      confirmation words shown on the computer before approval: yes\n');
+process.stdout.write('      approval finished the pairing; devices list shows the phone: yes\n');
+process.exit(0);
 
-// --- helpers ---------------------------------------------------------------
-
-function post(path, body) {
-    return fetch(`${BASE}${path}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${mintSecret}` },
-        body: JSON.stringify(body),
-    }).then(async (res) => ({ status: res.status, body: await res.json().catch(() => ({})) }));
+// ---------------------------------------------------------------------------
+function stripAnsi(text) {
+    // Every CSI sequence (colours, cursor hide/show, mode switches) and the
+    // PTY's carriage returns go; only text and half-block art remain.
+    return text.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '').replace(/\r/g, '');
 }
 
-function runCli(args) {
-    return new Promise((resolve, reject) => {
-        const child = spawn('node', [join(repoRoot, 'scripts/cli.mjs'), ...args], {
-            cwd: repoRoot,
-            env: { ...process.env, MUXR_HOME: cliHome },
-            stdio: ['ignore', 'pipe', 'pipe'],
-        });
-        let out = '';
-        child.stdout.on('data', (chunk) => { out += chunk; });
-        child.stderr.on('data', (chunk) => { out += chunk; });
-        child.on('exit', (code) => (code === 0 ? resolve(out) : reject(new Error(`cli ${args.join(' ')} exited ${code}: ${out.slice(-300)}`))));
+async function runCli(args) {
+    const child = spawn('node', [join(repoRoot, 'scripts/cli.mjs'), ...args], {
+        cwd: repoRoot,
+        env: { ...process.env, MUXR_HOME: cliHome },
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
+    children.push(child);
+    let out = '';
+    child.stdout.on('data', (chunk) => { out += chunk; });
+    child.stderr.on('data', (chunk) => { out += chunk; });
+    const code = await new Promise((resolve) => child.once('exit', resolve));
+    if (code !== 0) throw new Error(`muxr ${args.join(' ')} exited ${code}: ${out.slice(-300)}`);
+    return out;
 }
 
 async function waitFor(produce, timeoutMs, message) {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
         const value = produce();
-        if (value !== undefined && value !== null) return value;
+        if (value !== undefined && value !== null && value !== false) return value;
         if (Date.now() > deadline) fail(message);
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 200));
     }
 }
 
-/** Render through the real printTerminalQr with a stubbed TTY and captured stdout. */
 async function renderTerminalQrInProcess(value) {
     const stdout = process.stdout;
     const originalWrite = stdout.write.bind(stdout);
@@ -269,11 +298,12 @@ async function renderTerminalQrInProcess(value) {
     }
     stdout.write = (chunk) => { captured += chunk; return true; };
     try {
+        const { printTerminalQr } = await import('../../setup/index.mjs');
         await printTerminalQr(value);
     } finally {
         stdout.write = originalWrite;
         for (const entry of restore) {
-            if (entry.had) Object.defineProperty(stdout, entry.key, { value: entry.value, configurable: true });
+            if (entry.had) Object.defineProperty(stdout, key, { value: entry.value, configurable: true });
             else delete stdout[entry.key];
         }
     }
@@ -314,17 +344,20 @@ function decodeUtf8Qr(text, expectedSize) {
     if (firstDarkRow < 0 || darkColumns.length === 0) fail('terminal QR has no dark modules');
     const left = Math.min(...darkColumns);
     const right = Math.max(...darkColumns);
-    const size = lastDarkRow - firstDarkRow + 1;
-    if (Math.abs(size - expectedSize) > 1) fail(`terminal QR content is ${size} module rows; expected ${expectedSize}`);
-    if (right - left + 1 !== expectedSize) fail(`terminal QR content is ${right - left + 1} module columns; expected ${expectedSize}`);
-    if (firstDarkRow < 4 || rows.length - 1 - lastDarkRow < 4 || left < 4 || width - 1 - right < 4) {
-        fail('terminal QR quiet zone is thinner than four modules — margin was trimmed');
+    const top = firstDarkRow;
+    const bottom = lastDarkRow;
+    const size = right - left + 1;
+    if (size !== expectedSize) fail(`terminal QR is ${size} modules wide, expected ${expectedSize}`);
+    const verticalSize = bottom - top + 1;
+    if (verticalSize !== expectedSize) fail(`terminal QR is ${verticalSize} modules tall, expected ${expectedSize}`);
+    if (top < 4 || rows.length - 1 - bottom < 4 || left < 4 || width - 1 - right < 4) {
+        fail('terminal QR quiet zone is thinner than four modules — a camera needs that margin');
     }
-    // Reconstruct the content grid: an odd module height ends on a half-painted
-    // text row, so read row-by-row from the module grid, not text-line pairs.
     const modules = [];
-    for (let y = firstDarkRow; y <= lastDarkRow; y += 1) {
-        modules.push(rows[y].slice(left, left + expectedSize));
+    for (let y = top; y <= bottom; y += 1) {
+        const row = [];
+        for (let x = left; x <= right; x += 1) row.push(rows[y][x]);
+        modules.push(row);
     }
-    return { size: expectedSize, width, modules };
+    return { size, modules, width };
 }
