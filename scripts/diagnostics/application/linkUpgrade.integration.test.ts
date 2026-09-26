@@ -268,7 +268,6 @@ describe('link upgrade for an already-paired phone', () => {
         expect(await until(() => revoking.exitCode === null ? undefined : revoking.exitCode, 'revocation completes'), revoking.output()).toBe(0);
         await until(() => (link.status === 'removed' ? true : undefined), 'revoked phone is removed from the link', 30_000);
         await until(() => (client.state === 'stale' ? true : undefined), 'revoked phone loses the relay transport', 60_000);
-        writeFileSync('/tmp/lu-daemon-out.txt', host!.output());
         expect(statuses).not.toContain('refused');
         client.close();
         link.stop();

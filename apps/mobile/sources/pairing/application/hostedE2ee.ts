@@ -468,6 +468,7 @@ interface PendingLinkPair {
     name: string;
     /** base64url; persisted before the first connection so a death mid-pairing resumes instead of re-pairing. */
     secretKey: string;
+    startedAt: number;
 }
 
 /** The durable expiry a native grant carries (scripts/setup DURABLE_GRANT_EXPIRES_AT). */
@@ -483,7 +484,7 @@ const DURABLE_GRANT_EXPIRES_AT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
  */
 export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void } = {}): Promise<StoredHostedGrant> {
     const secretKey = b64url(linkKeyPair().secretKey);
-    const pending: PendingLinkPair = { scanned, name: hostedDeviceName(), secretKey };
+    const pending: PendingLinkPair = { scanned, name: hostedDeviceName(), secretKey, startedAt: Date.now() };
     await secretSet(PENDING_LINK_PAIR_KEY, JSON.stringify(pending));
     return completeLinkPairing(pending, { ...options, mode: 'claim' });
 }
@@ -497,12 +498,13 @@ async function resumePendingLinkPairing(): Promise<StoredHostedGrant | undefined
     const raw = await secretGet(PENDING_LINK_PAIR_KEY);
     if (raw === null) return undefined;
     const pending = JSON.parse(raw) as PendingLinkPair;
+    if (Date.now() - pending.startedAt > 4 * 60_000) {
+        await secretDelete(PENDING_LINK_PAIR_KEY);
+        return undefined;
+    }
     try {
         return await completeLinkPairing(pending, { mode: 'resume' });
     } catch {
-        // The pairing window is minutes long; anything that failed this long
-        // after a restart is dead — the person scans a fresh QR.
-        await secretDelete(PENDING_LINK_PAIR_KEY);
         return undefined;
     }
 }
@@ -515,7 +517,10 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
         answer = result;
         key = result.key;
     } catch (cause) {
-        await secretDelete(PENDING_LINK_PAIR_KEY);
+        if (Date.now() - pending.startedAt > 4 * 60_000
+            || (cause instanceof Error && (cause.message === 'Your computer said no to this device.' || cause.message.includes('run out')))) {
+            await secretDelete(PENDING_LINK_PAIR_KEY);
+        }
         if (cause instanceof LinkError && cause.code in LINK_WORDS) throw new Error(LINK_WORDS[cause.code]);
         throw cause;
     }
@@ -526,7 +531,7 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
         machineSigningPublicKey: '',
         deviceId: answer.deviceId,
         devicePublicKey: Buffer.from(key.publicKey).toString('base64'),
-        keyVersion: 1,
+        keyVersion: answer.keyVersion,
         expiresAt: DURABLE_GRANT_EXPIRES_AT,
         authority: 'control',
         deviceKey: {

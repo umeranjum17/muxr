@@ -303,7 +303,7 @@ async function renderTerminalQrInProcess(value) {
     } finally {
         stdout.write = originalWrite;
         for (const entry of restore) {
-            if (entry.had) Object.defineProperty(stdout, key, { value: entry.value, configurable: true });
+            if (entry.had) Object.defineProperty(stdout, entry.key, { value: entry.value, configurable: true });
             else delete stdout[entry.key];
         }
     }

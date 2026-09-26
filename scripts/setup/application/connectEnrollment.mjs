@@ -130,7 +130,9 @@ export async function connectEnrollment(args = []) {
         if ((pair.requiresWebHosting || args.includes('--pair-both')) && !state.webEnabled) {
             throw new Error('this shared relay does not host the browser client; pair the native app instead');
         }
-        const paired = await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority));
+        const paired = pair.kind === 'native'
+            ? await mintDeviceGrant(state, pair.kind, pair.authority)
+            : await withSelfhostRotationLock(() => mintDeviceGrant(state, pair.kind, pair.authority));
         if (paired !== 0) return paired;
         return args.includes('--pair-both') ? pairDevice(['--browser']) : 0;
     } catch (cause) {
