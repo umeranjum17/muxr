@@ -5,8 +5,8 @@
  */
 
 /** One pane's host↔client line pipe: NDJSON terminal frames each way, whole
- *  lines out of `onLine`. The relay channel socket and the byokit link stream
- *  both speak it, so the pane machinery cannot tell the transports apart. */
+ *  lines out of `onLine`. The byokit link stream speaks it, so the pane
+ *  machinery remains transport-blind. */
 export interface TerminalPipe {
     /** False once the transport is gone; a closed pipe must not carry frames. */
     readonly isOpen: boolean;
@@ -41,9 +41,7 @@ const ATTACH_FAILURE_CODES: Record<string, true> = {
     takeover: true,
     'socket-timeout': true,
     'socket-error': true,
-    'ticket-invalid': true,
     'device-revoked': true,
-    'ticket-issue-failed': true,
     'agent-not-ready': true,
     unavailable: true,
 };
@@ -52,9 +50,7 @@ const ATTACH_FAILURE_CODES: Record<string, true> = {
 export function attachFailureCode(error: unknown): string {
     const value = error as { code?: unknown; status?: unknown };
     if (typeof value.code === 'string' && ATTACH_FAILURE_CODES[value.code] === true) return value.code;
-    if (value.status === 401) return 'ticket-invalid';
     if (value.status === 403) return 'device-revoked';
-    if (typeof value.status === 'number') return 'ticket-issue-failed';
     const message = error instanceof Error ? error.message : String(error);
     if (/relay|socket|websocket|unexpected server response/i.test(message)
         || typeof value.code === 'string' && /^E(?:CONN|HOST|NET|PIPE|TIMEDOUT)/.test(value.code)) {
