@@ -6,7 +6,7 @@ import * as Fonts from 'expo-font';
 import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
 import { FontAwesome } from '@expo/vector-icons';
-import { usePathname, useRouter } from 'expo-router';
+import { ErrorBoundary as RouterErrorBoundary, usePathname, useRouter } from 'expo-router';
 import { AuthCredentials, TokenStorage } from '@/account';
 import { AuthProvider } from '@/account/ui';
 import { flushReplay, restoreHostedConnection } from '@/pairing/e2ee';
@@ -73,10 +73,21 @@ if (Platform.OS === 'android') {
     });
 }
 
-export {
-    // Catch any errors thrown by the Layout component.
-    ErrorBoundary,
-} from 'expo-router';
+// Expo Router's stock screen shows only the message. Preserve the JS call site
+// and any native stack so a HostFunction failure can be attributed next time.
+export function ErrorBoundary(props: React.ComponentProps<typeof RouterErrorBoundary>) {
+    React.useEffect(() => {
+        const error = props.error as Error & { moduleName?: string; nativeModule?: string; nativeStackAndroid?: unknown };
+        console.error('[RootErrorBoundary]', {
+            module: error.moduleName ?? error.nativeModule ?? 'unknown',
+            name: error.name,
+            message: error.message,
+            jsStack: error.stack,
+            nativeStack: error.nativeStackAndroid,
+        });
+    }, [props.error]);
+    return <RouterErrorBoundary {...props} />;
+}
 
 // Configure splash screen
 SplashScreen.setOptions({
