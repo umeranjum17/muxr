@@ -223,19 +223,21 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 ...(params.awaitConsent === true ? { awaitConsent: true } : {}),
             }, connectionId === undefined ? undefined : {
                 connectionId,
+                deviceId: context.deviceId,
                 isConnected: () => options.isDesktopConnectionActive?.(connectionId) === true,
             });
         },
-        'desktop.answer': async (params, context) => desktopOrThrow(options).answer(params.desktopId, params.sdp, context.connectionId),
+        'desktop.answer': async (params, context) => desktopOrThrow(options).answer(params.desktopId, params.sdp, context.connectionId, context.deviceId),
         'desktop.candidate': async (params, context) => desktopOrThrow(options).candidate(
             params.desktopId,
             params.candidate,
             params.sdpMid ?? null,
             params.sdpMLineIndex ?? null,
             context.connectionId,
+            context.deviceId,
         ),
-        'desktop.poll': async (params, context) => desktopOrThrow(options).poll(params.desktopId, params.cursor, context.connectionId),
-        'desktop.close': async (params, context) => desktopOrThrow(options).close(params.desktopId, context.connectionId),
+        'desktop.poll': async (params, context) => desktopOrThrow(options).poll(params.desktopId, params.cursor, context.connectionId, context.deviceId),
+        'desktop.close': async (params, context) => desktopOrThrow(options).close(params.desktopId, context.connectionId, context.deviceId),
         'herdr.cli': async (params) => {
             const result = await runHerdrCli(params.args, params.timeoutMs);
             await source.refreshHerdr();

@@ -28,6 +28,7 @@ export type SessionClient = {
     unregisterPush(): Promise<boolean>;
     terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
     voiceStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
+    closeDesktopSignaling?(): void;
 };
 
 /** Line-framed duplex stream used by terminal and realtime adapters. */
@@ -35,6 +36,11 @@ export type ByteStreamTransport = {
     write(line: string): Promise<void>;
     onLine(listener: (line: string) => void): () => void;
     onEnd(listener: (error?: string) => void): () => void;
+    close(): void;
+};
+
+type DesktopLinkTransport = {
+    request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>>;
     close(): void;
 };
 
@@ -64,6 +70,8 @@ export class LinkFirstClient implements SessionClient {
     private readonly stateListeners = new Set<(state: ConnectionState) => void>();
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
     private readonly pluginListeners = new Set<(frame: Extract<HostFrame, { type: 'plugins.invalidated' }>) => void>();
+    private desktopTransport: DesktopLinkTransport | undefined;
+    private desktopOpening: Promise<DesktopLinkTransport | undefined> | undefined;
 
     constructor(private readonly options: MuxrClientOptions) {}
 
@@ -81,6 +89,8 @@ export class LinkFirstClient implements SessionClient {
     close(): void {
         this.closed = true;
         this.clearFallbackTimer();
+        this.desktopTransport?.close();
+        this.desktopTransport = undefined;
         this.stopLink();
         this.inner?.close();
         this.inner = undefined;
@@ -99,27 +109,14 @@ export class LinkFirstClient implements SessionClient {
 
     request<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
         if (this.closed) return Promise.reject(new Error('not connected'));
-        const relay = this.inner;
-        if (type.startsWith('desktop.') || !this.online) {
-            if (relay === undefined) return Promise.reject(new Error('not connected'));
-            if (relay.isLive()) return relay.request(type, params, timeoutMs);
-            return new Promise<RequestResult<T>>((resolve, reject) => {
-                const ready = () => type.startsWith('desktop.') ? relay.isLive() : this.online || relay.isLive();
-                const finish = () => { clearTimeout(timer); offRelay(); offState(); };
-                const check = () => {
-                    if (this.closed) { finish(); reject(new Error('not connected')); return; }
-                    if (!ready()) return;
-                    finish();
-                    void this.request(type, params, timeoutMs).then(resolve, reject);
-                };
-                const timer = setTimeout(() => { finish(); reject(new Error('not connected')); }, timeoutMs ?? 10_000);
-                const offRelay = relay.onStateChange(check);
-                const offState = this.onStateChange(check);
-                check();
-            });
+        if (type.startsWith('desktop.') && this.online) {
+            return this.desktopStream().then((transport) => transport === undefined
+                ? this.requestViaRelay(type, params, timeoutMs)
+                : transport.request(type, params, timeoutMs));
         }
+        if (!this.online) return this.requestViaRelay(type, params, timeoutMs);
         const link = this.link;
-        if (link === undefined || this.closed) return Promise.reject(new Error('not connected'));
+        if (link === undefined) return this.requestViaRelay(type, params, timeoutMs);
         const frame = { type, requestId: nextRequestId('rn'), params } as ClientRequest;
         const timeout = timeoutMs ?? this.options.requestTimeoutMs ?? 20_000;
         return link.request(type, frame, { timeoutMs: timeout }).then(
@@ -178,6 +175,116 @@ export class LinkFirstClient implements SessionClient {
     /** Opens the pane's stream while the link serves the session. */
     terminalStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
         return this.openByteStream('terminal', args);
+    }
+    private requestViaRelay<T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> {
+        if (this.closed) return Promise.reject(new Error('not connected'));
+        const relay = this.inner;
+        if (relay === undefined) return Promise.reject(new Error('not connected'));
+        if (relay.isLive()) return relay.request(type, params, timeoutMs);
+        return new Promise<RequestResult<T>>((resolve, reject) => {
+            const finish = () => { clearTimeout(timer); offRelay(); offState(); };
+            const check = () => {
+                if (this.closed) { finish(); reject(new Error('not connected')); return; }
+                const ready = type.startsWith('desktop.') ? relay.isLive() : this.online || relay.isLive();
+                if (!ready) return;
+                finish();
+                const request = !type.startsWith('desktop.') && this.online
+                    ? this.request(type, params, timeoutMs)
+                    : relay.request(type, params, timeoutMs);
+                void request.then(resolve, reject);
+            };
+            const timer = setTimeout(() => { finish(); reject(new Error('not connected')); }, timeoutMs ?? 10_000);
+            const offRelay = relay.onStateChange(check);
+            const offState = this.onStateChange(check);
+            check();
+        });
+    }
+
+    /** One duplex signaling stream for desktop requests; media remains WebRTC. */
+    private async desktopStream(): Promise<DesktopLinkTransport | undefined> {
+        if (this.desktopTransport !== undefined) return this.desktopTransport;
+        if (this.desktopOpening !== undefined) return this.desktopOpening;
+        const opening = this.openDesktopStream();
+        this.desktopOpening = opening;
+        try { return await opening; }
+        finally { if (this.desktopOpening === opening) this.desktopOpening = undefined; }
+    }
+
+    private async openDesktopStream(): Promise<DesktopLinkTransport | undefined> {
+        const link = this.link;
+        if (!this.online || link === undefined || this.closed) return undefined;
+        let stream: Awaited<ReturnType<DeviceLink['stream']>>;
+        try { stream = await link.stream('desktop', {}); }
+        catch { if (this.link === link) this.stopLink(); return undefined; }
+        if (this.closed || this.link !== link || !this.online) { stream.end(); return undefined; }
+        let ended = false;
+        let buffer = '';
+        const decoder = new TextDecoder();
+        let transport: DesktopLinkTransport;
+        const pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+        const failPending = (error: Error): void => {
+            for (const request of pending.values()) {
+                clearTimeout(request.timer);
+                request.reject(error);
+            }
+            pending.clear();
+        };
+        stream.onData = (chunk) => {
+            buffer += decoder.decode(chunk, { stream: true });
+            if (buffer.length > 1_000_000) { stream.end('desktop response too large'); return; }
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const line of lines) {
+                let frame: unknown;
+                try { frame = JSON.parse(line); } catch { stream.end('malformed desktop response'); return; }
+                if (typeof frame !== 'object' || frame === null || !('requestId' in frame) || typeof frame.requestId !== 'string') continue;
+                const request = pending.get(frame.requestId);
+                if (request === undefined) continue;
+                pending.delete(frame.requestId);
+                clearTimeout(request.timer);
+                request.resolve(frame);
+            }
+        };
+        stream.onEnd = (error) => {
+            if (ended) return;
+            ended = true;
+            failPending(new Error(error ?? 'desktop signaling stream ended'));
+            if (this.desktopTransport === transport) this.desktopTransport = undefined;
+        };
+        transport = {
+            request: async <T extends RequestType>(type: T, params: RequestParams<T>, timeoutMs?: number): Promise<RequestResult<T>> => {
+                if (ended || !this.online || this.link !== link) return this.requestViaRelay(type, params, timeoutMs);
+                const frame = { type, requestId: nextRequestId('rn'), params } as ClientRequest;
+                const timeout = timeoutMs ?? this.options.requestTimeoutMs ?? 20_000;
+                const response = await new Promise<unknown>((resolve, reject) => {
+                    const timer = setTimeout(() => {
+                        pending.delete(frame.requestId);
+                        reject(new Error('desktop signaling request timed out'));
+                    }, timeout);
+                    pending.set(frame.requestId, { resolve, reject, timer });
+                    void stream.write(`${JSON.stringify(frame)}\n`).catch((cause: unknown) => {
+                        if (!pending.delete(frame.requestId)) return;
+                        clearTimeout(timer);
+                        reject(cause instanceof Error ? cause : new Error(String(cause)));
+                    });
+                });
+                return this.unwrap(type, response);
+            },
+            close: () => {
+                if (ended) return;
+                ended = true;
+                stream.end();
+                failPending(new Error('desktop signaling stream closed'));
+                if (this.desktopTransport === transport) this.desktopTransport = undefined;
+            },
+        };
+        this.desktopTransport = transport;
+        return transport;
+    }
+
+    closeDesktopSignaling(): void {
+        this.desktopTransport?.close();
+        this.desktopTransport = undefined;
     }
 
     onStateChange(listener: (state: ConnectionState) => void): () => void {
@@ -317,6 +424,8 @@ export class LinkFirstClient implements SessionClient {
     private stopLink(): void {
         const link = this.link;
         this.link = undefined;
+        this.desktopTransport?.close();
+        this.desktopTransport = undefined;
         const wasOnline = this.online;
         this.online = false;
         link?.stop();

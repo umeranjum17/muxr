@@ -97,6 +97,8 @@ export interface DesktopEngineOptions {
 interface LiveSession extends DesktopSessionRecord {
     client: EngineClient;
     owner?: string;
+    /** Stable authenticated device identity lets signaling resume on the relay after a link drop. */
+    ownerDeviceId?: string;
     /** Retained notifications, oldest first, bounded to [`MAX_BACKLOG`]. */
     events: DesktopEvent[];
     /** How many notifications this session has ever appended to the backlog. */
@@ -208,7 +210,7 @@ export class DesktopSessions {
         maxFps?: number;
         loopbackTcp?: boolean;
         awaitConsent?: boolean;
-    }, owner?: { connectionId: string; isConnected: () => boolean }): Promise<{ desktopId: string; generation: number; geometry: DesktopSurfaceGeometry; source: LiveSession['source'] }> {
+    }, owner?: { connectionId: string; isConnected: () => boolean; deviceId?: string }): Promise<{ desktopId: string; generation: number; geometry: DesktopSurfaceGeometry; source: LiveSession['source'] }> {
         if (owner !== undefined && !owner.isConnected()) throw new EngineRefused('session', 'the requesting phone disconnected');
         // Before the engine: on a bare server its libraries are missing too, and
         // the one step that fixes both is the one this refusal carries.
@@ -283,6 +285,11 @@ export class DesktopSessions {
             throw new EngineRefused('session', 'the requesting phone disconnected');
         }
         const desktopId = nextDesktopId();
+        const ownerFields: Pick<LiveSession, 'owner' | 'ownerDeviceId'> = {};
+        if (owner !== undefined) {
+            ownerFields.owner = owner.connectionId;
+            if (owner.deviceId !== undefined) ownerFields.ownerDeviceId = owner.deviceId;
+        }
         this.sessions.set(desktopId, {
             desktopId,
             engineSessionId: opened.sessionId,
@@ -292,7 +299,7 @@ export class DesktopSessions {
             source: opened.source,
             openedAt: Date.now(),
             client,
-            ...(owner === undefined ? {} : { owner: owner.connectionId }),
+            ...ownerFields,
             events: [],
             appended: 0,
             revoked: false,
@@ -304,8 +311,8 @@ export class DesktopSessions {
         return { desktopId, generation: opened.generation, geometry: opened.geometry, source: opened.source };
     }
 
-    async answer(desktopId: string, sdp: string, connectionId?: string): Promise<{ accepted: boolean }> {
-        const session = this.require(desktopId, connectionId);
+    async answer(desktopId: string, sdp: string, connectionId?: string, deviceId?: string): Promise<{ accepted: boolean }> {
+        const session = this.require(desktopId, connectionId, deviceId);
         return session.client.acceptAnswer(session.engineSessionId, session.generation, sdp);
     }
 
@@ -315,13 +322,14 @@ export class DesktopSessions {
         sdpMid: string | null,
         sdpMLineIndex: number | null,
         connectionId?: string,
+        deviceId?: string,
     ): Promise<{ accepted: boolean }> {
-        const session = this.require(desktopId, connectionId);
+        const session = this.require(desktopId, connectionId, deviceId);
         return session.client.addCandidate(session.engineSessionId, session.generation, candidate, sdpMid, sdpMLineIndex);
     }
 
-    async poll(desktopId: string, cursor: number, connectionId?: string): Promise<{ cursor: number; events: DesktopEvent[] }> {
-        const session = this.require(desktopId, connectionId);
+    async poll(desktopId: string, cursor: number, connectionId?: string, deviceId?: string): Promise<{ cursor: number; events: DesktopEvent[] }> {
+        const session = this.require(desktopId, connectionId, deviceId);
         this.drain(desktopId);
         // The oldest notification still retained. A client that has seen
         // everything gets exactly what arrived since; a client whose cursor
@@ -341,10 +349,11 @@ export class DesktopSessions {
         return answer;
     }
 
-    async close(desktopId: string, connectionId?: string): Promise<{ closed: boolean }> {
+    async close(desktopId: string, connectionId?: string, deviceId?: string): Promise<{ closed: boolean }> {
         const session = this.sessions.get(desktopId);
         if (session === undefined) return { closed: true };
-        if (connectionId !== undefined && session.owner !== connectionId) {
+        if (connectionId !== undefined && session.owner !== connectionId
+            && (deviceId === undefined || session.ownerDeviceId !== deviceId)) {
             throw new EngineRefused('session', 'that desktop session belongs to another connection');
         }
         this.sessions.delete(desktopId);
@@ -385,12 +394,13 @@ export class DesktopSessions {
         return explainMissingEngine(this.options.enginePath) ?? 'The desktop engine is unavailable.';
     }
 
-    private require(desktopId: string, connectionId?: string): LiveSession {
+    private require(desktopId: string, connectionId?: string, deviceId?: string): LiveSession {
         const session = this.sessions.get(desktopId);
         if (session === undefined) {
             throw new EngineRefused('session', 'that desktop session is not open');
         }
-        if (connectionId !== undefined && session.owner !== connectionId) {
+        if (connectionId !== undefined && session.owner !== connectionId
+            && (deviceId === undefined || session.ownerDeviceId !== deviceId)) {
             throw new EngineRefused('session', 'that desktop session belongs to another connection');
         }
         return session;
