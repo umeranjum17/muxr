@@ -25,7 +25,7 @@ async function until(check: () => boolean, reason: string, ms = 12_000): Promise
 }
 
 describe('browser session over byokit', () => {
-    it('shows one re-pair notice for an old grant, then reconnects a browser over the live link', { timeout: 25_000 }, async () => {
+    it('shows one re-pair notice, then serves five agents and reconnects a browser over the live link', { timeout: 40_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-browser-link-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay'), developmentApi: true } });
@@ -62,22 +62,36 @@ describe('browser session over byokit', () => {
         // The host registers after the first dial has already failed; a
         // disconnected-only retry would strand this browser on an online relay.
         await new Promise((resolve) => setTimeout(resolve, 800));
-        const endpoint = await LinkEndpoint.open({
+        const openEndpoint = () => LinkEndpoint.open({
             relayUrl,
             ownerToken: JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string,
             machineName: 'Desk', crypto, currentCrypto: () => crypto,
             savePushLevel: () => undefined,
             grants: { load: () => [], save: () => undefined },
-            answer: async (frame) => frame.type === 'machines.list'
-                ? { type: 'result', requestId: frame.requestId, ok: true, data: [{ machineId: 'machine', name: 'Desk' }] }
-                : undefined,
+            answer: async (frame) => {
+                if (frame.type === 'machines.list') return { type: 'result', requestId: frame.requestId, ok: true, data: [{ machineId: 'machine', name: 'Desk' }] };
+                if (frame.type === 'session.list') {
+                    await new Promise((resolve) => setTimeout(resolve, 105));
+                    return { type: 'result', requestId: frame.requestId, ok: true, data: Array.from({ length: 5 }, (_, i) => ({ id: `agent-${i}` })) };
+                }
+                return undefined;
+            },
             canView: () => true,
         });
+        let endpoint = await openEndpoint();
         expect(endpoint).toBeDefined();
         endpoint!.start();
-        cleanups.push(() => endpoint!.close());
+        cleanups.push(() => endpoint?.close());
         await until(() => client.state === 'open', 'browser link retry');
         expect(client.transport).toBe('link');
         expect(await client.request('machines.list', {})).toMatchObject([{ name: 'Desk' }]);
+        const catalogs = await Promise.all(Array.from({ length: 5 }, () => client.request('session.list', {})));
+        expect(catalogs.every((sessions) => sessions.length === 5)).toBe(true);
+        endpoint!.close();
+        await until(() => client.state === 'connecting', 'link offline after host stop');
+        endpoint = await openEndpoint();
+        endpoint!.start();
+        await until(() => client.state === 'open', 'browser reconnects to host');
+        expect((await client.request('session.list', {})).length).toBe(5);
     });
 });
