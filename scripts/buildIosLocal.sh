@@ -58,19 +58,8 @@ export APP_ENV=production
 export MUXR_PUBLIC_BASE_URL=https://trymuxr.com
 export MUXR_DISTRIBUTION=store
 export MUXR_EAS_PROJECT_ID
-# Metro inlines these at bundle time and they are not part of app.config, so
-# they cannot be checked in the archive afterwards. Dropping them does not
-# fall back to the hosted relay: the mode does default to hosted, but the
-# relay URL defaults to a loopback address, which is not what a store build
-# declares. Take the declared values from the committed production profile
-# rather than restating them here. Credentials are never baked in.
-store_profile="$ROOT/apps/mobile/eas.json"
-for store_key in EXPO_PUBLIC_MUXR_MODE EXPO_PUBLIC_MUXR_RELAY_URL; do
-  store_value="$(node -e 'const {env}=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).build.production;process.stdout.write(env[process.argv[2]] ?? "")' "$store_profile" "$store_key")"
-  [ -n "$store_value" ] || { echo "$store_key is missing from the production build profile" >&2; exit 1; }
-  export "$store_key=$store_value"
-done
-unset EXPO_PUBLIC_MUXR_TOKEN EXPO_PUBLIC_MUXR_MACHINE_ID
+# A store build has no baked relay identity. Pairing supplies its own link grant.
+unset EXPO_PUBLIC_MUXR_MODE EXPO_PUBLIC_MUXR_RELAY_URL EXPO_PUBLIC_MUXR_TOKEN EXPO_PUBLIC_MUXR_MACHINE_ID
 
 (cd "$ROOT" && yarn install --frozen-lockfile --non-interactive)
 (cd "$ROOT" && (bundle check || bundle install))
@@ -317,5 +306,5 @@ printf '%s\n' \
   "profile_uuid: $profile_uuid" \
   "eas_project_id: $MUXR_EAS_PROJECT_ID" \
   "extension: $extension_evidence" \
-  "build_env: EXPO_PUBLIC_MUXR_MODE=$EXPO_PUBLIC_MUXR_MODE EXPO_PUBLIC_MUXR_RELAY_URL=$EXPO_PUBLIC_MUXR_RELAY_URL (Metro inputs, not app.config keys)" \
+  "build_env: no EXPO_PUBLIC_MUXR_MODE or EXPO_PUBLIC_MUXR_RELAY_URL (pairing supplies the link grant)" \
   "ipa: $IOS_IPA_OUTPUT"

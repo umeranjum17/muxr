@@ -43,6 +43,20 @@ assert.doesNotMatch(JSON.stringify(store), /revenuecat|posthog|stripeKey|checkou
 
 const eas = JSON.parse(readFileSync(join(mobile, 'eas.json'), 'utf8'));
 assert.equal(eas.build.production.env.ORG_GRADLE_PROJECT_reactNativeArchitectures, 'arm64-v8a');
+for (const name of ['production', 'direct', 'emulator']) {
+    const profile = eas.build[name];
+    const env = { ...eas.build.production.env, ...profile.env };
+    assert.equal(env.EXPO_PUBLIC_MUXR_MODE, undefined, `${name} bakes a hosted mode`);
+    assert.equal(env.EXPO_PUBLIC_MUXR_RELAY_URL, undefined, `${name} bakes a relay URL`);
+    for (const [key, value] of Object.entries(env)) {
+        if (key.startsWith('EXPO_PUBLIC_')) assert.doesNotMatch(String(value), /relay\.trymuxr\.com/i, `${name} ${key} bakes the retired relay`);
+    }
+}
+assert.doesNotMatch(
+    readFileSync(join(mobile, 'sources', 'connection', 'connectionSettings.ts'), 'utf8'),
+    /relay\.trymuxr\.com/i,
+    'connection defaults bake the retired relay',
+);
 const podProperties = JSON.parse(readFileSync(join(mobile, 'ios', 'Podfile.properties.json'), 'utf8'));
 assert.equal(podProperties['ios.deploymentTarget'], '16.4', 'iOS target must satisfy expo-libghostty');
 const xcodeProject = readFileSync(join(mobile, 'ios', 'muxr.xcodeproj', 'project.pbxproj'), 'utf8');
