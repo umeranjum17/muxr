@@ -8,6 +8,7 @@ import { Text } from '@/components/StyledText';
 import { cardStyle } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { openExternalUrl } from '@/utils/openExternalUrl';
+import { loadAppConfig } from '@/catalog';
 
 const HOST_RESTART_COMMAND = 'muxr daemon restart';
 
@@ -54,9 +55,10 @@ export function HomeRecoveryCard({
     const router = useRouter();
     const { theme } = useUnistyles();
     const rePair = mode === 'update-app' || mode === 'update-host' || mode === 'pair' || mode === 'revoked';
+    const publicBaseUrl = loadAppConfig().publicBaseUrl;
     const appDownload = Platform.OS === 'ios'
         ? 'https://testflight.apple.com/join/aJSbs8pN'
-        : 'https://trymuxr.com/downloads/stable/android';
+        : publicBaseUrl ? `${publicBaseUrl}/downloads/stable/android` : 'https://github.com/umeranjum17/muxr/releases/latest';
     return (
         <View style={[styles.card, cardStyle(theme)]}>
             <Text style={styles.title}>{mode === 'update-app' ? 'Update the muxr app' : mode === 'update-host' ? 'Update muxr on your computer' : mode === 'pair' ? 'Pair this phone again' : mode === 'revoked' ? 'Access removed' : mode === 'host' ? 'Computer unreachable' : 'Agent runtime unavailable'}</Text>
@@ -93,7 +95,7 @@ export function HomeRecoveryCard({
                         onPress={() => mode === 'update-app'
                             ? void openExternalUrl(appDownload)
                             : mode === 'update-host'
-                                ? void openExternalUrl('https://trymuxr.com/docs/quickstart')
+                                ? void openExternalUrl(publicBaseUrl ? `${publicBaseUrl}/docs/quickstart` : 'https://github.com/umeranjum17/muxr')
                                 : router.push('/pair' as never)}
                         style={[styles.actionTarget, styles.retryButton]}
                     >
