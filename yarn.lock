@@ -922,24 +922,24 @@
   resolved "https://registry.yarnpkg.com/@chevrotain/types/-/types-11.1.2.tgz#e83a1a2704f0c5e49e7592b214031a0f4a34d7e5"
   integrity sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==
 
-"@desklink/host-linux-x64-gnu@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.1.0.tgz#aa2eab57c8296f2205c0b387004afedb9c764e70"
-  integrity sha512-YSOWv8sjG4YiX+1zqmeft/WmpaNGQ/u4b/UF0FB0n78+GAb+Mnxod+g0WACWlrFDJ7jsfXBON8fi3MA7cW05EA==
+"@desklink/host-linux-x64-gnu@0.1.1":
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.1.1.tgz#8044c57efe6579fed68378faa19962f1ad5559fb"
+  integrity sha512-1CnAmL2o8wMYrTAzN2HspLJgQu+XcbgCLnGLPF66OLaQDeDw5QwbOOwLIoq8svgxGDPm8gNM7RAvlEoEiqZvtw==
 
-"@desklink/host@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.1.0.tgz#17294d2c3c641107d55f0576caab0e96a7abd196"
-  integrity sha512-e79ydtvvp6SqfRMpgA4cFbwwXj2nUrHa4G0w67ecC0cyGpnPlH02zZGgOfODQA2dWn8Hb5+UbUqqc2ioSQ7pgQ==
+"@desklink/host@0.1.1":
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.1.1.tgz#23d5e80266a2348978c191ba59e15d0f2b0768e3"
+  integrity sha512-sskhp4f3U+G4ksMT/mB8oH8SX+dTuQUCne5aLG7KuD+GlTstlo82gN16hQS75OXNf+xSL86B7Osk+nZeYe844g==
   dependencies:
     ws "^8.18.0"
   optionalDependencies:
-    "@desklink/host-linux-x64-gnu" "0.1.0"
+    "@desklink/host-linux-x64-gnu" "0.1.1"
 
-"@desklink/react-native@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.1.0.tgz#e6431e7a462a66f468db2c8781a2792ed0675d98"
-  integrity sha512-aPkPgFaCU6vxkdTsjGOrs3S6ik5ZE0tLinrzPdoNY/DOU2jbBoYh4cB+vKGQ80HjHIL9j1GiYEk34oz/rjmJgw==
+"@desklink/react-native@0.1.1":
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.1.1.tgz#30fa97625b1e203705337cf66e7cb9dea547ccea"
+  integrity sha512-wGhvJ+XgMwft7YnOinrIH5nrQAnuMwpR9l2JLwbilz/j6e799XZi93C8c/2/BPBHgYwrmZ6ZMtnQlNe5EsV/7A==
 
 "@egjs/hammerjs@^2.0.17":
   version "2.0.17"
