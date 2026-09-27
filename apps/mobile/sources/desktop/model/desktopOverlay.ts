@@ -69,7 +69,7 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     if (snapshot.status === 'opening' && consentSecondsLeft !== null) {
         const left = Math.max(0, consentSecondsLeft);
         const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-        return { title: desktopCopy.awaitingConsentTitle, detail: `${desktopCopy.awaitingConsentBody} ${clock} left.`, spinner: true, canRetry: false };
+        return { title: openedBefore ? desktopCopy.awaitingConsentTitle : 'Approve once on your computer', detail: `${desktopCopy.awaitingConsentBody}${openedBefore ? '' : ' You will not be asked again unless you revoke it.'} ${clock} left.`, spinner: true, canRetry: false };
     }
     if (snapshot.status === 'reconnecting') {
         return { title: desktopCopy.reconnectingTitle, detail: desktopCopy.reconnectingBody, spinner: true, canRetry: false };

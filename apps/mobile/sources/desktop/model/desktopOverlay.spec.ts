@@ -38,8 +38,10 @@ describe('the desktop overlay', () => {
         const opening = { status: 'opening', geometry: null, presented: false, failure: null, diagnostics: {} } as const;
         expect(describeDesktopOverlay(opening).title).toBe('Starting desktop…');
         const waiting = describeDesktopOverlay(opening, true, 95);
-        expect(waiting.title).toBe('Approve screen sharing on your computer');
+        expect(waiting.title).toBe('Waiting for screen sharing');
+        expect(waiting.detail).toContain('Another app’s picker may be blocking');
         expect(waiting.detail).toContain('1:35 left');
+        expect(describeDesktopOverlay(opening, false, 95).title).toBe('Approve once on your computer');
         expect(waiting.canRetry).toBe(false);
 
         const overlay = describeDesktopOverlay({
@@ -50,7 +52,7 @@ describe('the desktop overlay', () => {
             diagnostics: {},
         });
 
-        expect(overlay.detail).toBe('Try again and approve it on the computer, or run muxr desktop setup there once.');
+        expect(overlay.detail).toContain('Another app’s screen-sharing picker may be blocking');
         expect(overlay.detail).not.toContain('portal');
         expect(overlay.canRetry).toBe(true);
     });
