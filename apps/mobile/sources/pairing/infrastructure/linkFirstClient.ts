@@ -14,8 +14,6 @@ import {
 import { deriveLinkGrant } from './linkGrant';
 import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '@/connection/sshTunnel';
 import type { SshTarget } from '@/connection';
-import { pairingTransport } from '@/connection/connectionSettings';
-import { getAppVersion } from '@/utils/appVersion';
 import type { StoredHostedGrant } from '../application/linkPairing';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'stale';
@@ -73,6 +71,16 @@ function linkRequestFailure(type: RequestType, error: string, code?: string): Mu
     return new MuxrRequestError(normalized.message, normalized.code);
 }
 
+function relayRoute(url: string): string {
+    try {
+        const host = new URL(url).hostname;
+        if (host.endsWith('.ts.net') || /^100\.(6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])\./.test(host)) return 'Tailscale';
+        if (host.endsWith('.trycloudflare.com')) return 'Cloudflare tunnel';
+        if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) return 'Local or private network';
+    } catch { /* A malformed route is unreachable too. */ }
+    return 'relay';
+}
+
 /** One byokit link, including its terminal, desktop, voice and push streams. */
 export class LinkFirstClient implements SessionClient {
     private link: DeviceLink | undefined;
@@ -105,7 +113,7 @@ export class LinkFirstClient implements SessionClient {
         const stored = this.options.hostedGrant;
         if (stored?.credential) {
             this.setState('stale');
-            this.options.onPermanentError?.('Pair again: This phone was paired before muxr changed its connection protocol. Pair it again with this computer.');
+            this.options.onPermanentError?.('Pair again: This phone was paired before muxr changed its connection protocol; pair again with this computer.');
             return;
         }
         const grant = deriveLinkGrant(stored);
@@ -433,7 +441,7 @@ export class LinkFirstClient implements SessionClient {
         if (stored === undefined || this.closed) return;
         this.lastHealthCheck = Date.now();
         const generation = this.healthGeneration;
-        const route = pairingTransport(stored.relayUrl) ?? 'relay';
+        const route = relayRoute(stored.relayUrl);
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 3_000);
         let message: string;
@@ -446,22 +454,24 @@ export class LinkFirstClient implements SessionClient {
             const response = await fetch(relay.toString(), { signal: controller.signal });
             const health = await response.json() as { ok?: unknown; muxrVersion?: unknown; linkProtocol?: unknown };
             if (!response.ok || health.ok !== true) throw new Error('not a muxr relay');
-            const app = getAppVersion();
             const computer = typeof health.muxrVersion === 'string' ? health.muxrVersion : undefined;
+            message = `${route} reached the muxr relay, but the computer did not accept this pairing. Check muxr on the computer; if this device was removed, pair again.`;
             if (health.linkProtocol !== 1) {
                 message = 'Update needed: This computer runs an older muxr connection protocol. Update muxr on the computer, then pair again.';
                 permanent = true;
-            } else if (computer && /^\d+\.\d+\.\d+/.test(computer) && /^\d+\.\d+\.\d+/.test(app) && computer.split(/[-+]/)[0] !== app.split(/[-+]/)[0]) {
-                const comparison = (version: string) => version.split(/[.+-]/).slice(0, 3).map(Number);
-                const hostParts = comparison(computer);
-                const appParts = comparison(app);
-                const newer = hostParts.findIndex((part, index) => part !== appParts[index]);
-                message = newer >= 0 && hostParts[newer]! > appParts[newer]!
-                    ? `Update needed: Your computer runs muxr ${computer}; this app (${app}) needs an update. Update the app, then pair again.`
-                    : `Update needed: Your computer runs muxr ${computer}; this app runs ${app}. Update muxr on the computer, then pair again.`;
-                permanent = true;
-            } else {
-                message = `${route} reached the muxr relay, but the computer did not accept this pairing. Check muxr on the computer; if this device was removed, pair again.`;
+            } else if (computer && /^\d+\.\d+\.\d+/.test(computer)) {
+                const { getAppVersion } = await import('@/utils/appVersion');
+                const app = getAppVersion();
+                if (/^\d+\.\d+\.\d+/.test(app) && computer.split(/[-+]/)[0] !== app.split(/[-+]/)[0]) {
+                    const comparison = (version: string) => version.split(/[.+-]/).slice(0, 3).map(Number);
+                    const hostParts = comparison(computer);
+                    const appParts = comparison(app);
+                    const newer = hostParts.findIndex((part, index) => part !== appParts[index]);
+                    message = newer >= 0 && hostParts[newer]! > appParts[newer]!
+                        ? `Update needed: Your computer runs muxr ${computer}; this app (${app}) needs an update. Update the app, then pair again.`
+                        : `Update needed: Your computer runs muxr ${computer}; this app runs ${app}. Update muxr on the computer, then pair again.`;
+                    permanent = true;
+                }
             }
         } catch {
             message = `${route} could not reach the computer’s muxr relay. Check that the computer and ${route} connection are online, then retry.`;
