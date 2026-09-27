@@ -4,7 +4,7 @@ const { withInfoPlist, withAndroidManifest, AndroidConfig } = require('expo/conf
 module.exports = function withZeroconf(config) {
     config = withInfoPlist(config, (c) => {
         c.modResults.NSBonjourServices = ['_muxr._tcp.'];
-        c.modResults.NSLocalNetworkUsageDescription = 'muxr discovers relays on your local network so you can connect without typing addresses.';
+        c.modResults.NSLocalNetworkUsageDescription = 'Allow muxr to find your self-hosted computer or relay nearby and connect to it.';
         return c;
     });
     return withAndroidManifest(config, (c) => {

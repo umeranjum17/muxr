@@ -133,14 +133,14 @@ export default {
             },
             infoPlist: {
                 NSMicrophoneUsageDescription: "Allow $(PRODUCT_NAME) to use your microphone for on-device dictation and, when you choose realtime voice, send audio to the provider configured on your computer.",
-                NSLocalNetworkUsageDescription: "Allow $(PRODUCT_NAME) to find and connect to local devices on your network.",
+                NSLocalNetworkUsageDescription: "Allow muxr to find your self-hosted computer or relay nearby and connect to it.",
                 NSBonjourServices: ["_http._tcp", "_https._tcp"],
                 UIBackgroundModes: ["audio"],
                 // ATS:
                 // - NSAllowsLocalNetworking: lets HTTP fetches reach LAN
                 //   addresses (e.g. self-hosted server at 192.168.x.y) without
-                //   forcing TLS. Production cloud server is HTTPS, so the
-                //   default policy still applies there.
+                //   forcing TLS. Public HTTPS connections still use the
+                //   default ATS policy.
                 // - In dev/preview only, allow arbitrary HTTP loads so a
                 //   developer pointing the app at their machine doesn't have
                 //   to ship a TLS cert just to test attachment uploads.
@@ -214,7 +214,7 @@ export default {
             "expo-asset",
             "expo-localization",
             "expo-mail-composer",
-            "expo-secure-store",
+            ["expo-secure-store", { faceIDPermission: false }],
             "expo-web-browser",
             [
                 "expo-audio",

@@ -113,7 +113,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         cmds.push({
             id: 'sign-out',
             title: 'Sign Out',
-            subtitle: 'Sign out of your account',
+            subtitle: 'Clear this device’s local pairing data',
             icon: 'log-out-outline',
             category: 'System',
             action: async () => {

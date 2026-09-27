@@ -52,7 +52,7 @@ export function FirstRunSetupCard(props: {
                 <View style={styles.badge}><Text style={styles.badgeNumber}>1</Text></View>
                 <View style={styles.body}>
                     <Text style={styles.stepText}>On your computer</Text>
-                    <Text style={styles.stepHint}>Run muxr to review setup</Text>
+                    <Text style={styles.stepHint}>muxr controls coding agents on a computer you operate. Run muxr there to review setup.</Text>
                     <View style={styles.commandRow}>
                         <Text style={styles.command} selectable>{setup.command}</Text>
                         <Pressable

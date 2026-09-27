@@ -132,6 +132,10 @@ iOS App Store builds are produced on the captain's Mac from the release branch, 
 
 The `npm` environment is the npm OIDC identity. It allows the main workflow; the separate `production` environment gates stable publication. npm trusted publishing must name this repository, `publish.yml`, and environment `npm`. No npm token is stored in the repository. A trusted-publisher failure leaves the downloadable tarball/APK intact and does not claim registry success.
 
+## Play foreground-service declaration
+
+The Android `VoiceOverlayService` declares `microphone` and `dataSync`; both are used. `microphone` starts when the user opens realtime voice and stops on hang-up. Separately, while an authenticated computer has working or attention-needed agents, `dataSync` keeps the phone's self-hosted relay socket receiving live agent state in the background and maintains the ongoing herd-status notification. It starts while the app is foregrounded, stops when the herd settles or the user signs out, and yields to `microphone` during voice. Without it Android can freeze the socket and the user misses live agent progress/attention. Android 15's six-hour daily `dataSync` limit stops the service cleanly; the last-known status remains until the app is reopened. Declare both types and demonstrate the notification/trigger/stop in Play; do not describe the service as microphone-only or continuous beyond the OS limit.
+
 ## Evidence before calling a feature stable
 
 Link the exact local gate report and phone observations in the PR/release. A successful build is not proof of microphone audio, live browser paint or a historical crash fix. Record known limitations explicitly. Current terminal polish includes tested deliberate keyboard behavior and route continuity; transient blank frames around explicit IME resize remain a known limitation.
