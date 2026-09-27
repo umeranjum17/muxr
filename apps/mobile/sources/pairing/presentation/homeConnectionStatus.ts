@@ -12,6 +12,9 @@ export function connectionStatusPresentation(
     theme: Theme,
     hostUnavailable = false,
 ): { color: string; isPulsing: boolean; text: string } {
+    if (/^(Pair again:|Update needed:|Access removed:)/.test(socketStatus.error ?? '')) {
+        return { color: theme.colors.status.error, isPulsing: false, text: 'needs pairing' };
+    }
     if (hostUnavailable) {
         return { color: theme.colors.status.disconnected, isPulsing: false, text: t('status.offline') };
     }
