@@ -10,6 +10,7 @@ try {
     const report = JSON.parse(readFileSync(reportPath, 'utf8'));
     assert.equal(report.outcome, 'inconclusive');
     assert.ok(report.reconnectMs.length > 0, 'the paired grant must reconnect the device');
+    assert.equal(report.unexpectedStreamEnds, 0, 'deliberate reconnect must not count as stream loss');
     assert.ok(report.terminalFrames > 100, 'the new link must continue streaming terminal frames');
 } finally {
     rmSync(scratch, { recursive: true, force: true });

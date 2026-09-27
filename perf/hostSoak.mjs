@@ -8,6 +8,7 @@ import { startFakeStack } from './lib/fakeStack.mjs';
 import { LOAD } from './lib/scenario.mjs';
 import { treeRssKb } from './lib/hostSignals.mjs';
 import { countTerminalFrames } from './lib/terminalFrames.mjs';
+import { hostSoakOutcome } from './lib/hostSoakVerdict.mjs';
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => { const at = args.indexOf(name); return at < 0 ? fallback : args[at + 1]; };
@@ -86,7 +87,8 @@ let stack;
 let link;
 let grant;
 const streams = [];
-const report = { startedAt: new Date().toISOString(), source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), minutes, load: LOAD, samples: [], reconnectMs: [], terminalFrames: 0, outcome: 'inconclusive' };
+const deliberateEnds = new WeakSet();
+const report = { startedAt: new Date().toISOString(), source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), minutes, load: LOAD, samples: [], reconnectMs: [], terminalFrames: 0, unexpectedStreamEnds: 0, outcome: 'inconclusive' };
 try {
     stack = await startFakeStack({ ...LOAD, transport: 'loopback' });
     ({ link, grant } = await pairLab(stack));
@@ -103,7 +105,12 @@ try {
             // One reader never takes its first chunk. The other fifteen stay
             // live, proving slow-device credit cannot grow the host write tail.
             stream.onData = index === 0 ? () => new Promise(() => {}) : countTerminalFrames(() => { report.terminalFrames += 1; });
-            stream.onEnd = (error) => { report.streamEnds ??= []; if (report.streamEnds.length < 5) report.streamEnds.push(error ?? 'clean'); };
+            stream.onEnd = (error) => {
+                if (deliberateEnds.has(stream)) return;
+                report.unexpectedStreamEnds += 1;
+                report.streamEnds ??= [];
+                if (report.streamEnds.length < 5) report.streamEnds.push(error ?? 'clean');
+            };
             streams.push(stream);
         }
     };
@@ -115,7 +122,7 @@ try {
         const ticks = cpuTicks(stack.pids.host);
         report.samples.push({ elapsedSeconds: Math.round((Date.now() - started) / 1000), hostProcessRssKb: processRssKb(stack.pids.host), hostTreeRssKb: treeRssKb(stack.pids.host), relayRssKb: treeRssKb(stack.pids.relay), hostCpuTicks: ticks, frames: report.terminalFrames });
         if (Date.now() - lastReconnect >= 60000) {
-            for (const stream of streams.splice(0)) stream.end();
+            for (const stream of streams.splice(0)) { deliberateEnds.add(stream); stream.end(); }
             link.stop();
             const at = Date.now();
             link = new DeviceLink(grant);
@@ -136,16 +143,13 @@ try {
     report.connectMs = reconnects.length ? { median: reconnects[Math.floor(reconnects.length / 2)], p95: reconnects[Math.ceil(reconnects.length * .95) - 1] } : null;
     report.peakHostTreeRssKb = Math.max(...samples.map((sample) => sample.hostTreeRssKb));
     report.hostCpuPercent = samples.length > 1 ? Math.round((samples.at(-1).hostCpuTicks - samples[0].hostCpuTicks) / (samples.at(-1).elapsedSeconds - samples[0].elapsedSeconds)) : null;
-    if (minutes < 15) report.outcome = 'inconclusive';
-    else report.outcome = settled.length >= 12 && report.terminalFrames > 100 && report.reconnectMs.length >= 1
-        && report.hostRssDriftKb < 131072
-        && stack.childHealth().every((child) => child.exitCode === null) ? 'pass' : 'failed';
+    report.outcome = hostSoakOutcome(report, settled.length, stack.childHealth());
 } catch (error) {
     report.error = error instanceof Error ? error.message : String(error);
     report.outcome = 'failed';
 } finally {
     report.finishedAt = new Date().toISOString();
-    for (const stream of streams) stream.end();
+    for (const stream of streams) { deliberateEnds.add(stream); stream.end(); }
     link?.stop();
     stack?.stop();
     if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
