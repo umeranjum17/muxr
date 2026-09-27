@@ -51,7 +51,7 @@ export interface Host {
     answer: (frame: ClientFrame, authenticatedSenderId: string, connectionId?: string) => Promise<HostFrame | undefined>;
     setLinkDesktopConnection: (connectionId: string, active: boolean) => void;
     setLinkDeviceConnection: (deviceId: string, active: boolean) => void;
-    closeDeviceDesktopSessions: (deviceId: string) => Promise<void>;
+    closeDeviceDesktopSessions: (deviceId: string, removed?: boolean) => Promise<void>;
     canView: (frame: ClientFrame) => boolean;
     /** Product events fan out through the byokit endpoint. */
     onBroadcast: (listener: (frame: HostFrame) => void) => void;
@@ -186,7 +186,7 @@ export function startHost(options: HostOptions): Host {
             else activeDesktopConnections.delete(connectionId);
         },
         setLinkDeviceConnection: (deviceId, active) => desktop.setLinkDeviceConnected(deviceId, active),
-        closeDeviceDesktopSessions: (deviceId) => desktop.revokeDevice(deviceId),
+        closeDeviceDesktopSessions: (deviceId, removed) => desktop.revokeDevice(deviceId, removed),
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
         refreshLinkEnrolment,
         close: async () => {

@@ -158,7 +158,7 @@ describe('desktop signaling over the byokit link (real relay + host)', () => {
                 linkStates.set(id, active);
                 host.setLinkDeviceConnection(id, active);
             },
-            onDeviceRevoked: (id) => host.closeDeviceDesktopSessions(id),
+            onDeviceRevoked: (id, removed) => host.closeDeviceDesktopSessions(id, removed),
         });
         expect(endpoint).toBeDefined();
         cleanups.push(() => endpoint!.close());

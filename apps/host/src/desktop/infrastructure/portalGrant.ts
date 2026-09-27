@@ -47,6 +47,16 @@ export class PortalGrant {
         }
     }
 
+    /** Explicit revocation must not leave a grant for the next phone session. */
+    clear(): void {
+        this.prepare();
+        try {
+            unlinkSync(this.path);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+    }
+
     /** Replace the previous credential atomically; temporary files are private too. */
     replace(token: string): void {
         this.prepare();

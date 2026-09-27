@@ -144,6 +144,33 @@ describe('desktop sessions, host side', () => {
         expect(sent[4]?.params).toMatchObject({ session_id: 'engine-session-1', candidate: 'candidate:2', sdp_mid: '0', sdp_m_line_index: 0 });
     }, 20_000);
 
+    it('retries a starved portal capture once with the rotated grant, without another picker', async () => {
+        const directory = mkdtempSync(join(tmpdir(), 'desklink-starved-'));
+        const script = join(directory, 'engine.cjs');
+        const log = join(directory, 'received.jsonl');
+        writeFileSync(log, '');
+        writeFileSync(script, STUB.replace("    case 'session.open':", `
+    case 'session.open':
+      if (request.params.restore_token !== 'rotated') {
+        out({ event: 'session.restoreToken', params: { sessionId: session.id, token: 'rotated' } });
+        return out({ id: request.id, error: { code: 'source', message: 'capture did not start within 10s' } });
+      }
+`));
+        const desktop = new DesktopSessions({ enginePath: process.execPath, engineArguments: [script, log], stateRoot: directory }, PORTAL_HOST);
+        try {
+            const opened = await desktop.open({ permissions: ['view'], awaitConsent: true });
+            expect(opened.source.kind).toBe('monitor');
+            const opens = readFileSync(log, 'utf8').trim().split('\n')
+                .map((line) => JSON.parse(line) as { method: string; params: { restore_token?: string } })
+                .filter((request) => request.method === 'session.open');
+            expect(opens.map((request) => request.params.restore_token)).toEqual([undefined, 'rotated']);
+            expect(existsSync(join(directory, 'desktop', 'portal-restore-token'))).toBe(false);
+        } finally {
+            await desktop.closeAll();
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
     it('keeps a private rotating portal grant across host restarts without sending it to the phone', async () => {
         const directory = mkdtempSync(join(tmpdir(), 'desklink-grant-'));
         const scriptPath = join(directory, 'engine.cjs');
@@ -213,12 +240,16 @@ describe('desktop sessions, host side', () => {
             // A deliberate later attempt asks for ordinary consent, without
             // replaying the revoked/used token or hiding the previous refusal.
             await revoked.open({ permissions: ['view'] });
+            expect(readFileSync(grantPath, 'utf8')).toBe('test-grant-1');
+            await revoked.revokeDevice('removed-phone', true);
+            expect(existsSync(grantPath)).toBe(false);
+            await revoked.open({ permissions: ['view'] });
             await revoked.closeAll();
             const requests = readFileSync(log, 'utf8').trim().split('\n')
                 .map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> })
                 .filter((request) => request.method === 'session.open');
             expect(requests.map((request) => request.params.restore_token)).toEqual([
-                undefined, 'test-grant-1', undefined, 'test-grant-2', undefined,
+                undefined, 'test-grant-1', undefined, 'test-grant-2', undefined, undefined,
             ]);
             expect(diagnostics.join('\n')).not.toContain('test-grant');
         } finally {
