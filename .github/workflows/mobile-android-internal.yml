@@ -137,16 +137,16 @@ jobs:
           node --input-type=module <<'JS'
           import { appendFileSync, readFileSync } from 'node:fs';
           // The identity a store build ships is declared once, in the profile the
-          // build is named after. Without these the app config omits extra.eas and
-          // the client falls back to a loopback relay, which a signed store build
-          // must never do. Development builds keep their own identity untouched.
+          // build is named after. Without the project id the app config omits
+          // extra.eas. Pairing, not the build, supplies the relay link grant.
+          // Development builds keep their own identity untouched.
           const profile = JSON.parse(readFileSync('apps/mobile/eas.json', 'utf8')).build.production.env;
           for (const key of ['APP_ENV', 'MUXR_PUBLIC_BASE_URL', 'ORG_GRADLE_PROJECT_reactNativeArchitectures']) {
               if (process.env[key] !== profile[key]) {
                   throw new Error(`This workflow builds with ${key}=${process.env[key]}, but the production profile declares ${profile[key]}`);
               }
           }
-          for (const key of ['MUXR_EAS_PROJECT_ID', 'MUXR_DISTRIBUTION', 'EXPO_PUBLIC_MUXR_MODE', 'EXPO_PUBLIC_MUXR_RELAY_URL']) {
+          for (const key of ['MUXR_EAS_PROJECT_ID', 'MUXR_DISTRIBUTION']) {
               const value = profile[key];
               if (typeof value !== 'string' || value === '') throw new Error(`The production profile declares no ${key}`);
               appendFileSync(process.env.GITHUB_ENV, `${key}=${value}\n`);
@@ -274,17 +274,14 @@ jobs:
           // The store identity this build was actually given. Every value is
           // already committed in the profile, so none of it is a secret. The
           // split is not decoration: the app config attests the first group in
-          // the artifact, while EXPO_PUBLIC_* are Metro inputs inlined at bundle
-          // time that no shipped file can be checked against afterwards.
+          // the artifact. Pairing supplies the relay link grant at runtime.
           const attested = ['APP_ENV', 'MUXR_PUBLIC_BASE_URL', 'MUXR_DISTRIBUTION', 'MUXR_EAS_PROJECT_ID'];
-          const metroInputs = ['EXPO_PUBLIC_MUXR_MODE', 'EXPO_PUBLIC_MUXR_RELAY_URL'];
           const gradle = ['ORG_GRADLE_PROJECT_reactNativeArchitectures'];
           const record = (keys) => Object.fromEntries(keys.map((key) => [key, process.env[key] ?? null]));
           const path = join(process.env.RUNNER_TEMP, 'android-internal', 'native-provenance.json');
           const provenance = JSON.parse(readFileSync(path, 'utf8'));
           provenance.storeEnv = {
               attestedInAppConfig: record(attested),
-              metroInputsNotAttested: record(metroInputs),
               gradle: record(gradle),
           };
           writeFileSync(path, `${JSON.stringify(provenance, null, 2)}\n`);
