@@ -8,6 +8,7 @@ import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { setAndroidSerial, androidArgs } from './lib/deviceTarget.mjs';
 import { apkIdentity, harnessIdentity, iosAppIdentity, patchedDependencies, runtimeIdentity, sha256, sourceIdentity } from './lib/provenance.mjs';
 import { acquireOwnerLock, processStartIdentity } from './lib/surfaceProbe.mjs';
+import { acquirePhoneKeeper } from './lib/phoneKeeper.mjs';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
 import { pairIosPhone, iosConnectionProof } from './lib/iosWarm.mjs';
@@ -30,6 +31,7 @@ const descriptorPath = resolve(flag('--descriptor', `/tmp/muxr-probe-session-${p
 const scope = new CommandScope();
 useCommandScope(scope);
 let releaseLock;
+let keeper;
 let lockOwner;
 let stack;
 let descriptorWritten = false;
@@ -143,11 +145,14 @@ async function main() {
     const currentRuntime = runtimeIdentity('.');
     validateHostBuild(readJson(hostBuildPath, 'host build evidence'), currentSource, currentHarness, currentRuntime);
     if (existsSync(descriptorPath)) throw new Error(`descriptor already exists: ${descriptorPath}`);
+    if (platform === 'android') keeper = await acquirePhoneKeeper(serial);
     const device = platform === 'android' ? await androidCandidate(currentSource) : await iosCandidate(currentSource);
-    const lockPath = resolve(flag('--lock', `/tmp/muxr-surface-probe-${platform}-${serial ?? udid}.lock`));
-    const owner = { pid: process.pid, descriptor: descriptorPath, platform, device: serial ?? udid };
-    releaseLock = acquireOwnerLock(lockPath, owner);
-    lockOwner = releaseLock.owner;
+    const lockPath = keeper?.path ?? resolve(flag('--lock', `/tmp/muxr-surface-probe-${platform}-${udid}.lock`));
+    if (keeper) lockOwner = keeper.owner;
+    else {
+        releaseLock = acquireOwnerLock(lockPath, { pid: process.pid, descriptor: descriptorPath, platform, device: udid });
+        lockOwner = releaseLock.owner;
+    }
     stack = await startFakeStack({ ...LOAD, sourceRoot: process.cwd(), transport: platform === 'ios' ? 'loopback' : undefined, setupPlugins: bundledPlusAddons(process.cwd()) });
     if (stack.fixturePanes?.text === undefined) throw new Error('the herd published no text fixture pane');
     const fixture = await prepareFixture();
@@ -181,7 +186,7 @@ async function main() {
         scenario: scenarioDescriptor(), candidate: { source: currentSource, harness: currentHarness, artifact: device.artifact, installed: device.installed, manifest: device.manifest, manifestPath: resolve(candidateManifestPath ?? `${device.artifact.path}.json`) },
         hostBuild: readJson(hostBuildPath, 'host build evidence'),
         host: { relayPort: stack.relayPort, dataDir: stack.dataDir, cwd: fixture.cwd, fixturePanes: stack.fixturePanes, world: stack.world, pids, pidIdentities, childHealth: stack.childHealth().filter((entry) => entry.name !== 'pair'), attachJsonl: stack.attachJsonl, inputJsonl: stack.inputJsonl, cellMetricsJsonl: stack.cellMetricsJsonl, worldIdentityPath: stack.worldIdentityPath, worldIdentity: hashObject(world), identity: stack.identity, fixture },
-        plugins: runtimeIdentity('.'), paired, lock: lockPath, lockOwner: lockOwner, probeLock: join(lockPath, 'active-probe'), worldWitness: stack.worldIdentityPath,
+        plugins: runtimeIdentity('.'), paired, lock: lockPath, lockOwner: lockOwner, probeLock: keeper ? join(process.cwd(), 'perf', `.active-probe-${serial}.lock`) : join(lockPath, 'active-probe'), worldWitness: stack.worldIdentityPath,
     };
     writeDescriptor(descriptor);
     process.stdout.write(`${scenarioSummary()}\nherd up: ${stack.world.panes.length} panes, ${stack.world.agents.length} agents\nsession ready: ${descriptorPath}\n`);
@@ -199,7 +204,8 @@ async function teardown(code = 0) {
         if (descriptorWritten) try { rmSync(descriptorPath, { force: true }); } catch { /* preserve if removal races */ }
         releaseLock?.();
     }
-    process.exit(code);
+    await keeper?.release();
+    process.exit(closed ? code : 1);
 }
 process.once('SIGINT', () => void teardown(0));
 process.once('SIGTERM', () => void teardown(0));

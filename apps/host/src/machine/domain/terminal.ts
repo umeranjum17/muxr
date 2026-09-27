@@ -10,8 +10,8 @@
 export interface TerminalPipe {
     /** False once the transport is gone; a closed pipe must not carry frames. */
     readonly isOpen: boolean;
-    /** One host→client NDJSON line. */
-    send(line: string): void;
+    /** One host→client NDJSON line; completion applies link backpressure. */
+    send(line: string): Promise<void> | void;
     /** Each complete client→host NDJSON line, in order. Returns the unsubscribe. */
     onLine(listener: (line: string) => void): () => void;
     /** The transport ended; the pane's control stream goes with it. */

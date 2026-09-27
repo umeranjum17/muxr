@@ -291,27 +291,29 @@ export class TerminalManager {
         // the entire host, dropping every session and triggering a reconnect loop.
         child.stdin?.on('error', onInputError);
 
-        // herdr stdout is NDJSON terminal.frame records; forward each line as-is.
+        // Await each link write before reading more from Herdr. LinkStream's
+        // credit window alone cannot bound memory if we enqueue writes without
+        // awaiting them while a phone stops reading.
         let buffer = '';
         child.stdout?.on('data', (chunk: Buffer) => {
             if (finished) return;
+            child.stdout?.pause();
             buffer += chunk.toString('utf8');
-            const lines = buffer.split('\n');
-            buffer = lines.pop() ?? '';
-            for (const line of lines) {
-                if (line.trim().length === 0) continue;
-                this.sendToPhone(attachment, line);
-                if (attachment.scrollOffsetFromBottom > 0) this.scheduleScrollState(attachment);
-                // Only a real full repaint is the initial screen. A closed record
-                // or a stray diagnostic line must not count, and the ANSI payload
-                // itself is forwarded untouched either way.
-                if (attachment.initialFrameReceived || !isInitialScreenRecord(line)) continue;
-                attachment.initialFrameReceived = true;
-                // The pane may already be scrolled back -- a desk reader, or this
-                // phone returning to a pane it left scrolled. The control has to
-                // be right on the first screen, not only after the first drag.
-                this.scheduleScrollState(attachment);
-            }
+            void (async () => {
+                for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
+                    const line = buffer.slice(0, end);
+                    buffer = buffer.slice(end + 1);
+                    if (finished) return;
+                    if (line.trim().length === 0) continue;
+                    await this.sendToPhone(attachment, line);
+                    if (attachment.scrollOffsetFromBottom > 0) this.scheduleScrollState(attachment);
+                    // Only a real full repaint is the initial screen. A closed record
+                    // or a stray diagnostic line must not count.
+                    if (attachment.initialFrameReceived || !isInitialScreenRecord(line)) continue;
+                    attachment.initialFrameReceived = true;
+                    this.scheduleScrollState(attachment);
+                }
+            })().then(() => { if (!finished) child.stdout?.resume(); }, () => attachment.close());
         });
 
         // Client input is written to the control stream's stdin verbatim.
@@ -380,7 +382,7 @@ export class TerminalManager {
         try {
             const scroll = await read(attachment.paneId);
             attachment.scrollOffsetFromBottom = scroll.offsetFromBottom;
-            this.sendToPhone(attachment, JSON.stringify({
+            await this.sendToPhone(attachment, JSON.stringify({
                 type: 'terminal.scroll-state',
                 offsetFromBottom: scroll.offsetFromBottom,
                 maxOffsetFromBottom: scroll.maxOffsetFromBottom,
@@ -404,12 +406,12 @@ export class TerminalManager {
         }
     }
 
-    private sendToPhone(attachment: Attachment, plaintext: string): void {
-        if (this.authorized(attachment) && attachment.socket.isOpen) attachment.socket.send(plaintext);
+    private async sendToPhone(attachment: Attachment, plaintext: string): Promise<void> {
+        if (this.authorized(attachment) && attachment.socket.isOpen) await attachment.socket.send(plaintext);
     }
 
     sendResult(socket: TerminalPipe, channel: string, result: object): void {
-        if (socket.isOpen) socket.send(JSON.stringify(result));
+        if (socket.isOpen) void Promise.resolve(socket.send(JSON.stringify(result))).catch(() => socket.close());
     }
 
     private serializeChannel<T>(channel: string, operation: () => Promise<T>): Promise<T> {
