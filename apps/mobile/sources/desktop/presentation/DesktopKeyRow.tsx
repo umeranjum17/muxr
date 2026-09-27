@@ -102,7 +102,7 @@ export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modi
                             pressed && styles.pressed,
                         ]}
                     >
-                        {label(glyphs ? glyph : text, state === 'off' ? KEY_TINT : ACTIVE_TINT)}
+                        {label(glyphs && name !== 'Meta' ? glyph : text, state === 'off' ? KEY_TINT : ACTIVE_TINT)}
                     </Pressable>
                 );
             })}
