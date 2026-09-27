@@ -22,7 +22,7 @@ if (!/^[-\w]+$/.test(serial ?? '') || !out || out.startsWith('--') || !apk || ap
 setAndroidSerial(serial);
 const pkg = 'app.muxr.crashperf.dev';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const adb = async (...args) => (await run('adb', androidArgs(args), { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
+const adb = async (...args) => (await run('adb', androidArgs(args), { timeout: args[0] === 'install' ? 120_000 : 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout;
 const ui = async () => { await adb('shell', 'uiautomator', 'dump', '/sdcard/muxr-perf-ui.xml'); return adb('shell', 'cat', '/sdcard/muxr-perf-ui.xml'); };
 function position(xml, pattern, attribute = 'text') {
     for (const node of xml.matchAll(/<node\s[^>]*\/>/g)) {
@@ -46,7 +46,7 @@ async function wait(pattern, seconds) {
     while (Date.now() < deadline) {
         const xml = await ui();
         if (/Show live agent updates\?|Keep muxr connected in the background\?/.test(xml)) {
-            await tap(/^CANCEL$/);
+            await tap(/^CANCEL$/, 'text', true);
             continue;
         }
         if (pattern.test(xml)) return xml;

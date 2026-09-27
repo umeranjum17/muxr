@@ -5,9 +5,10 @@ requires matching APK/native-patch provenance and mounted document, terminal,
 terminal and Usage flows. Run it locally from frozen reviewed source and retain
 the APK, provenance and full evidence; there is no GitHub emulator job. The longer gate below remains the gesture/soak check.
 
-`yarn perf` drives the release APK on a real device against a real relay and a
-real host, and fails on the signals that shipped broken software: a saturated JS
-thread, a dead React runtime, a frozen screen, runaway memory.
+`yarn perf` drives the production-ID release APK on an Android emulator against
+a real relay and host, and fails on a saturated JS thread, dead React runtime,
+frozen screen or runaway memory. It does not qualify a physical phone; use the
+side-by-side probe below for bounded phone smoke evidence.
 
 Relay, host and app are the builds we ship. Herdr is third party, so the gate
 brings its own: `perf/fake-herdr` speaks Herdr's three wire seams (the JSON-RPC
@@ -49,7 +50,7 @@ result for phone acceptance.
 
 Prerequisites, all checked in preflight with a named failure:
 
-- an Android device or the `muxr_sandbox` emulator on adb
+- an Android emulator (default `emulator-5554`) on adb
 - Maestro (`mise x maestro@cli-2.7.0`)
 - `yarn build`, since the gate spawns `apps/relay/dist` and `apps/host/dist`
 
@@ -118,11 +119,11 @@ before/moving/settled screenshots it wrote under
 `unavailable` with a reason, never zero.
 
 **Every probe result carries `"partial": true` and `"acceptance": false`.** It
-is a development signal. Release acceptance is one uninterrupted `yarn perf`
-run on frozen bytes, and nothing here substitutes for it. Frame accounting is
-deliberately absent: the gfxinfo ledger is frozen for acceptance, so the probe
-reports CPU and memory as diagnostics and proves behaviour from captures,
-movement candidates and host records.
+is a development signal. The emulator release gate is one uninterrupted
+`yarn perf` run on frozen bytes; it does not establish physical-phone
+acceptance. Frame accounting is deliberately absent: the gfxinfo ledger is
+frozen for acceptance, so the probe reports CPU and memory as diagnostics
+and proves behaviour from captures, movement candidates and host records.
 
 ## The pane-open probe (not acceptance either)
 
@@ -217,22 +218,17 @@ result is a **short smoke**, not the full eight-phase release gate or a long
 phone memory bound. The probe clears only the verified dev-ID build before
 pairing; if the OEM denies `pm clear`, it reinstalls that verified dev-ID APK.
 
-The September 27 physical-phone smoke on a pinned physical phone used release APK
-SHA-256 `e6dc99afba2d5c2064c161ca648857ced1be4573a7e6a5db9a3fafa6f596a73f`
-under `app.muxr.crashperf.dev` ([raw report](results/phone-probe.json)).
-Private pairing reached connected Home in 34,885 ms; all eight exact terminal
-surfaces mounted and returned to Home (4,964–9,130 ms each). Android PSS was
-337,803 KiB at Home, 391,605 KiB after eight visits and 423,419 KiB after
-30 seconds settled; 2,920 frames rendered, 81 janky (2.8%), p95 12 ms at
-60 Hz. The
-rising PSS over two minutes is **not** evidence of a settled memory ceiling.
-The production package remained installed. The probe now uninstalls only its
-verified dev-ID candidate and removes its owned reverse at teardown, including
-failed runs. Teardown rechecks the installed APK; a changed or missing build is
-not uninstalled and makes the report fail.
-The earlier full phone gate never ran its
-eight phases because this OEM repeatedly blocked Maestro's driver installs;
-its failed attempt is not a passing release gate.
+The [September 27 physical-phone smoke report](results/phone-probe.json)
+records connected Home, eight terminal visits and Android PSS and frame
+measurements. PSS rose during the short run, so this is **not** evidence of a
+settled memory ceiling. The probe never targets the production package. The
+report does not record source revision or teardown, so it cannot establish
+either for that run. The current probe rechecks installed APK bytes at teardown and
+uninstalls only its verified dev-ID candidate; a changed or missing build is
+not uninstalled and makes the report fail. It also removes its owned ADB
+reverse. The earlier full phone gate never ran its eight phases because this
+OEM repeatedly blocked Maestro's driver installs; its failed attempt is not a
+passing release gate.
 
 ## The scenario contract
 
