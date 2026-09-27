@@ -92,6 +92,15 @@ process.stdin.on('data', (chunk) => {
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
         cleanups.push(() => void relay.close());
         const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
+        const base = `http://127.0.0.1:${relay.port}`;
+        const health = await (await fetch(`${base}/health`)).json() as { muxrVersion: string; linkProtocol: number };
+        expect(health.linkProtocol).toBe(1);
+        expect(health.muxrVersion).toMatch(/^\d+\.\d+\.\d+/);
+        const oldGrant = await fetch(`${base}/v1/machines/old/grant`);
+        expect(oldGrant.status).toBe(410);
+        expect((await oldGrant.json()) as { error: string }).toMatchObject({ error: expect.stringContaining('Update the muxr app') });
+        const oldTicket = await fetch(`${base}/v1/ws-tickets`, { method: 'POST' });
+        expect(oldTicket.status).toBe(403); // 0.2.0 maps this to its fixed re-pair message.
         const ownerToken = JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string;
 
         const machine = generateKeyPair();
