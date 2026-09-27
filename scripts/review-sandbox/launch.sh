@@ -28,7 +28,7 @@ done
 [ -S "$MUXR_HOME/host/pair.sock" ] || { echo 'muxr pairing socket unavailable' >&2; exit 1; }
 
 # The container owns its own Herdr server and synthetic panes; no host Herdr state is mounted.
-if ! herdr workspace list --json | jq -e '.result.workspaces[]? | select(.label == "Review")' >/dev/null; then
+if ! herdr workspace list | jq -e '.result.workspaces[]? | select(.label == "Review")' >/dev/null; then
   pane="$(herdr workspace create --cwd /srv/review-workspace --label Review --no-focus | jq -r '.result.root_pane.pane_id')"
   [ -n "$pane" ] && [ "$pane" != null ] || { echo 'Herdr did not create the review pane' >&2; exit 1; }
   herdr pane run "$pane" /opt/review/review-agent.sh >/dev/null
