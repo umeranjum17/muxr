@@ -75,7 +75,8 @@ function buildEnv(suffix: 'RELAY_URL' | 'MACHINE_ID'): string | undefined {
 }
 
 export const DEFAULT_CONNECTION: ConnectionSettings = {
-    mode: 'hosted',
+    mode: 'hosted', // Legacy transport name; byokit grants now own self-hosted links.
+    selfhost: true,
     relayUrl: buildEnv('RELAY_URL') ?? 'ws://127.0.0.1:8792',
     machineId: buildEnv('MACHINE_ID') ?? '',
     token: '',

@@ -37,6 +37,10 @@ const distribution = process.env.MUXR_DISTRIBUTION?.trim() || 'store';
 if (!['store', 'direct', 'self-host'].includes(distribution)) {
     throw new Error(`MUXR_DISTRIBUTION must be store, direct, or self-host; received ${distribution}`);
 }
+if (variant === 'production' && Object.entries(process.env).some(([key, value]) =>
+    key.startsWith('EXPO_PUBLIC_') && /(?:^|[^a-z0-9.-])(?:[a-z0-9-]+\.)*relay\.trymuxr\.com\b/i.test(value || ''))) {
+    throw new Error('Production builds must not bake a trymuxr.com relay into EXPO_PUBLIC values');
+}
 if (variant === 'production' && distribution === 'store' && publicBaseUrl === undefined) {
     throw new Error('MUXR_PUBLIC_BASE_URL is required for production publishing');
 }
