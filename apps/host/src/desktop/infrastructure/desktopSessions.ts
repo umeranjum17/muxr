@@ -241,18 +241,19 @@ export class DesktopSessions {
                 throw new EngineRefused('desktop-unavailable', error instanceof Error ? error.message : 'the virtual screen did not start');
             }
         }
-        let restoreToken: string | undefined;
-        if (source?.kind !== 'x11') {
+        const takeGrant = (): string | undefined => {
+            if (source?.kind === 'x11') return undefined;
             try {
-                restoreToken = this.portalGrant?.take();
+                return this.portalGrant?.take();
             } catch {
-                // Never send a token we could not safely consume. Normal portal
-                // consent remains available even when local storage is broken.
+                // Never send a token we could not safely consume.
                 this.options.onDiagnostic?.('Desktop grant could not be read; requesting portal consent.');
+                return undefined;
             }
-        }
+        };
+        const restoreToken = takeGrant();
         this.opening += 1;
-        const opened = await client.openSession({
+        const openParams = {
             permissions: request.permissions,
             ...(restoreToken === undefined ? {} : { restoreToken }),
             ...(source === undefined ? {} : { source }),
@@ -266,7 +267,22 @@ export class DesktopSessions {
             // engine stays up for the whole wait when the caller waits that
             // long too, so an approval that takes a minute still opens the
             // desktop and saves the grant that stops later opens asking.
-        }, source?.kind !== 'x11' && request.awaitConsent === true ? DESKTOP_CONSENT_WAIT_MS : undefined).finally(() => {
+        };
+        const timeout = source?.kind !== 'x11' && request.awaitConsent === true ? DESKTOP_CONSENT_WAIT_MS : undefined;
+        const opened = await client.openSession(openParams, timeout).catch(async (error: unknown) => {
+            if (!(error instanceof EngineRefused) || error.code !== 'source' || error.message !== 'capture did not start within 10s') throw error;
+            // The portal may have selected a screen while another screencast
+            // starved PipeWire. Its replacement grant is single-use too.
+            const rotated = takeGrant();
+            if (rotated !== undefined) {
+                try {
+                    return await client.openSession({ ...openParams, restoreToken: rotated }, timeout);
+                } catch (retryError) {
+                    if (!(retryError instanceof EngineRefused) || retryError.code !== 'source' || retryError.message !== 'capture did not start within 10s') throw retryError;
+                }
+            }
+            throw new EngineRefused('source', 'Screen sharing started, but this computer did not receive video. Close other screen-sharing apps on the computer, then try again.');
+        }).finally(() => {
             for (const existing of this.sessions.values()) {
                 if (existing.revoked || existing.client !== client) continue;
                 existing.revoked = true;
@@ -387,12 +403,13 @@ export class DesktopSessions {
         }, LINK_DISCONNECT_GRACE_MS));
     }
 
-    async revokeDevice(deviceId: string): Promise<void> {
+    async revokeDevice(deviceId: string, clearGrant = false): Promise<void> {
         this.setLinkDeviceConnected(deviceId, false);
         const timer = this.disconnectTimers.get(deviceId);
         if (timer !== undefined) clearTimeout(timer);
         this.disconnectTimers.delete(deviceId);
         await this.closeDeviceSessions(deviceId);
+        if (clearGrant) this.portalGrant?.clear();
     }
 
     /** Close every session this host owns; called when the host shuts down. */
