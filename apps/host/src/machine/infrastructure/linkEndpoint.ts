@@ -120,9 +120,12 @@ class LinkTerminalSocket implements TerminalPipe {
         return !this.ended;
     }
 
-    send(line: string): void {
+    send(line: string): Promise<void> {
         // The link is a byte stream, not messages: every line carries its own newline.
-        this.stream.write(`${line}\n`).then(() => undefined, () => this.finish());
+        return this.stream.write(`${line}\n`).catch((error: unknown) => {
+            this.finish();
+            throw error;
+        });
     }
 
     onLine(listener: (line: string) => void): () => void {

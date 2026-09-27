@@ -12,7 +12,7 @@
  * picked free, so a running muxr install keeps working while the gate runs.
  */
 import { spawnSync } from 'node:child_process';
-import { createServer } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, realpathSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -56,8 +56,9 @@ async function spawnFakeHerdr(dir, options) {
         const deadline = setTimeout(() => reject(new Error(`the fake Herdr never announced itself: ${log.join('')}`)), 30_000);
         child.stdout.on('data', (chunk) => {
             buffered += String(chunk);
-            const line = buffered.split('\n').find((row) => row.trim().startsWith('{'));
-            if (line === undefined) return;
+            const end = buffered.indexOf('\n');
+            if (end < 0) return;
+            const line = buffered.slice(0, end);
             clearTimeout(deadline);
             resolve(JSON.parse(line));
         });
@@ -322,33 +323,38 @@ async function startStack(options, live) {
             relayLog: () => relayLog.join(''),
             /** The attach and re-grid records a measuring phase reads back. */
             cellMetricsJsonl: `${fake.socketPath}.cell-metrics.jsonl`,
-            /**
-             * A real pairing string for this throwaway host. The CLI keeps
-             * polling until the phone claims it, so the child stays up and the
-             * caller releases it once the flow has typed the code.
-             */
+            /** Consent only on the owner-only socket of this throwaway host. */
             mintPairing: async () => {
-                const pairing = spawn(process.execPath, [join(sourceRoot, 'scripts/cli.mjs'), 'pair'], {
-                    cwd: sourceRoot,
-                    stdio: ['ignore', 'pipe', 'pipe'],
-                    env: childEnv(home, muxrHome, undefined, live?.env),
+                const path = join(hostDataDir, 'pair.sock');
+                for (let attempt = 0; attempt < 100 && !existsSync(path); attempt += 1) {
+                    await new Promise((resolve) => setTimeout(resolve, 200));
+                }
+                if (!existsSync(path)) throw new Error('lab host pairing socket did not start');
+                const socket = createConnection(path);
+                let pending = '';
+                let consentWords;
+                const code = await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => reject(new Error('lab pairing offer timed out')), 20_000);
+                    const fail = (error) => { clearTimeout(timeout); reject(error); };
+                    socket.on('error', fail);
+                    socket.on('close', () => fail(new Error('lab pairing socket closed')));
+                    socket.on('connect', () => socket.write('{"intent":{"kind":"native","authority":"control","personal":false}}\n'));
+                    socket.on('data', (chunk) => {
+                        pending += String(chunk);
+                        for (let end = pending.indexOf('\n'); end >= 0; end = pending.indexOf('\n')) {
+                            let event;
+                            try { event = JSON.parse(pending.slice(0, end)); } catch (error) { fail(error); return; }
+                            pending = pending.slice(end + 1);
+                            if (event.offer) { clearTimeout(timeout); resolve(event.offer.text); }
+                            if (event.approval) {
+                                consentWords = event.approval.words;
+                                socket.write('{"yes":true}\n');
+                            }
+                            if (event.error) fail(new Error(event.error));
+                        }
+                    });
                 });
-                track('pair', pairing);
-                const code = await new Promise((resolve) => {
-                    let seen = '';
-                    const deadline = setTimeout(() => resolve(undefined), 120_000);
-                    const scan = (chunk) => {
-                        seen += String(chunk);
-                        const match = /(wss?:\/\/\S+\?pair=[A-Z0-9-]+)/.exec(seen);
-                        if (match === null) return;
-                        clearTimeout(deadline);
-                        resolve(match[1]);
-                    };
-                    pairing.stdout.on('data', scan);
-                    pairing.stderr.on('data', scan);
-                    pairing.once('exit', () => { clearTimeout(deadline); resolve(undefined); });
-                });
-                return { code, release: () => { try { pairing.kill('SIGTERM'); } catch { /* gone */ } } };
+                return { code, get consentWords() { return consentWords; }, release: () => socket.destroy() };
             },
             stop,
         };

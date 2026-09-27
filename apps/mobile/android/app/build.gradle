@@ -140,7 +140,7 @@ android {
     namespace 'com.trymuxr.app'
     defaultConfig {
         applicationId 'com.trymuxr.app'
-        if (developmentDistribution) applicationId 'app.muxr.local.dev'
+        if (developmentDistribution) applicationId(System.getenv('MUXR_DEV_APP_ID')?.trim() ?: 'app.muxr.local.dev')
         manifestPlaceholders = [muxrScheme: developmentDistribution ? 'muxr-dev' : 'muxr',
             muxrExpoScheme: developmentDistribution ? 'exp+muxr-dev' : 'exp+muxr',
             muxrPairHost: developmentDistribution ? 'dev.invalid' : 'trymuxr.com',

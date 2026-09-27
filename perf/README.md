@@ -29,7 +29,8 @@ yarn perf                                  # build, copy to /tmp/muxr-<ver>-vc<N
 yarn perf --apk /tmp/muxr-0.1.26-vc78-x86_64.apk
 yarn perf --record docs/perf/0.1.26.json   # write release evidence
 yarn perf --profile emulator               # emulator LIMITS column (default)
-yarn perf --profile device                 # real-device LIMITS column
+# On an explicitly leased, disposable phone only (clears com.trymuxr.app):
+yarn perf --serial YOUR_SERIAL --profile device --apk /path/to/exact-production-id-release.apk --record /path/to/phone-report.json
 yarn perf --keep-load                      # leave the stack up to poke at it
 ```
 
@@ -38,6 +39,16 @@ versioned path (`/tmp/muxr-<versionName>-vc<versionCode>-<abi>.apk`) and install
 that file. `device.versionCode`, `device.versionName` and `device.signerDigest`
 (apksigner SHA-256) say what actually landed.
 
+
+**Phone ownership:** this gate installs `com.trymuxr.app` and clears its data before
+pairing to its private lab stack. Run the physical-device command only on an
+explicitly leased test phone whose existing app state may be replaced; hold its
+keeper lock throughout and restore the intended build/state afterward. Every
+ADB and Maestro call is pinned to `--serial` (default `emulator-5554`). The
+report's `herdVisibleMs` is cold pairing-to-connected-Home time; the phase
+records carry Android PSS, JS-thread busy share and frame/jank timing for Home,
+agent, document and terminal journeys. `--profile device` selects physical-phone
+limits. Never mistake an emulator result for phone acceptance.
 
 Prerequisites, all checked in preflight with a named failure:
 
@@ -151,6 +162,82 @@ The reductions are pure and live in `perf/lib/paneOpenMetrics.mjs`.
 
 Like the surface probe, every record carries `"partial": true` and
 `"acceptance": false`. It is a development signal, never a release result.
+
+## Host-only long soak
+
+`node perf/hostSoak.mjs --minutes 60 --out /path/to/host-report.json` runs a
+**private foreground** host and relay on kernel-selected non-production ports,
+with private `MUXR_HOME` and a fake Herdr world of 100 panes / 30 agents. It
+pairs a synthetic link device to its own host, opens 16 terminal streams at
+4 KiB/s (one reader deliberately stalls), changes titles at 2 Hz, opens and
+closes an Xvfb-backed desktop on each minute's reconnect, and samples the host
+process RSS, host+terminal-child RSS, relay RSS and host CPU every five seconds.
+A run under 15 minutes is diagnostic and reports `inconclusive`, never PASS;
+a qualifying run requires frames, reconnects, desktop opens and less than
+128 MiB host-process RSS drift after a one-minute warmup. The full 60-minute
+run is preferable for detecting a long tail. A desktop failure or process exit
+fails the run. The fake Herdr is not evidence that real Herdr's process memory
+is bounded. This host-only pass never invokes adb, a service command or the
+captain's Herdr session; run it from a dedicated shell pane after `yarn build`.
+
+The September 27 candidate's **15-minute development baseline**
+([raw samples](results/host-soak-final-15m.json)) measured 100 panes, 15
+draining streams and one permanently stalled reader: 134,777 terminal frames,
+14 link reconnects (median 101 ms, p95 102 ms), 15 verified virtual desktop
+open/close cycles, 180 samples, host-process RSS 133,812 → 202,636 KiB,
+settled host-process RSS drift −540 KiB, host+terminal-child peak RSS
+1,527,660 KiB, host-process CPU about 6% of one core. It passed the bounded host checks;
+it is not a physical-phone result or proof of the exact process behind the
+prior systemd cgroup's 23.9 GiB peak.
+The prior host was deliberately stopped for an update, not shown to have
+crashed. The reproduced unbounded link-write tail is a concrete cause that
+could accumulate under slow phone reads; the regression test proves the fixed
+bound and the long run tests its loaded behavior.
+
+## Side-by-side physical phone probe
+
+For a shared phone whose `com.trymuxr.app` install must not be touched, build a
+**release** variant under a unique dev ID, e.g. set `APP_ENV=development`,
+`MUXR_APP_ID_BASE=app.muxr.crashperf`, `MUXR_DEV_APP_ID=app.muxr.crashperf.dev`
+and `MUXR_DISTRIBUTION=direct` when invoking `:app:assembleRelease
+-PmuxrDevelopmentApp=true -PreactNativeArchitectures=arm64-v8a` with your
+normal release-signing Gradle properties. Verify the APK's package, signer and
+SHA-256, then install it side by side on the leased phone. Some OEMs require
+approving their installation screen. If `pm clear` is denied by the OEM,
+uninstall and reinstall **only that dev-ID** for a fresh run. Do not invoke the
+production-ID `yarn perf` command on this phone.
+
+```bash
+# Own the phone keeper lock for the full run; set the pinned serial and use a
+# dedicated shell pane. MUXR_ADDONS_ROOT points at local herdr-files and
+# herdr-attachments checkouts (or install their pinned devDependencies).
+MUXR_ADDONS_ROOT=/path/to/addons node perf/phoneProbe.mjs \
+  --serial YOUR_SERIAL --apk /path/to/dev-id-release.apk \
+  --fresh-install --out perf/results/phone-probe.json
+# Remove only the dev-ID package and this run's ADB reverse when finished.
+```
+
+The probe runs the real built host/relay against fake Herdr in private state,
+verifies the installed APK's SHA-256 against the supplied candidate, pairs the
+dev-ID release via ADB UI (without Maestro's driver installation), checks connected Home and eight actual terminal surfaces, then samples Android
+PSS and rendered frames after each visit and 30 seconds settled on Home. Its
+result is a **short smoke**, not the full eight-phase release gate or a long
+phone memory bound. `--fresh-install` promises a just-installed dev-ID build;
+without it the probe uses `pm clear` and fails closed if denied.
+
+The September 27 physical-phone smoke on serial `a4b93ea2` used release APK
+SHA-256 `e6dc99afba2d5c2064c161ca648857ced1be4573a7e6a5db9a3fafa6f596a73f`
+under `app.muxr.crashperf.dev` ([raw report](results/phone-probe.json)).
+Private pairing reached connected Home in 34,885 ms; all eight exact terminal
+surfaces mounted and returned to Home (4,964–9,130 ms each). Android PSS was
+337,803 KiB at Home, 391,605 KiB after eight visits and 423,419 KiB after
+30 seconds settled; 2,920 frames rendered, 81 janky (2.8%), p95 12 ms at
+60 Hz. The
+rising PSS over two minutes is **not** evidence of a settled memory ceiling.
+The production package remained installed, and the dev-ID package and owned
+reverse were removed at teardown. The earlier full phone gate never ran its
+eight phases because this OEM repeatedly blocked Maestro's driver installs;
+its failed attempt is not a passing release gate.
 
 ## The scenario contract
 
