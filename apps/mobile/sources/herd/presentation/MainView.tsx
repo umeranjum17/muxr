@@ -464,9 +464,10 @@ export const MainView = React.memo(() => {
         setHeaderBackdropVisible(nextVisible);
     }, []);
 
+    const permanentRecovery = !['host', 'runtime'].includes(recoveryMode(socketStatus.error, false));
     const homeHeader = <>
         <PluginSlot slot="home.cards" context={{}} />
-        <RightNowCard />
+        {!permanentRecovery && <RightNowCard />}
         <DeclarativeHomeCards />
         <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
     </>;
@@ -510,7 +511,7 @@ export const MainView = React.memo(() => {
                     {homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitRecovering && socketStatus.status === 'connected'
                         ? <HomeDiscoveryRows /> : null}
                     <PluginSlot slot="home.cards" context={{}} />
-                    <RightNowCard />
+                    {!permanentRecovery && <RightNowCard />}
                     <DeclarativeHomeCards />
                     {recentSessions.length > 0 && (
                         <View style={styles.recentSection}>
