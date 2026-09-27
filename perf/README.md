@@ -199,9 +199,7 @@ production-ID `yarn perf` command on this phone.
 
 ```bash
 # The probe holds the fleet same-serial flock keeper shared with probeSession.
-# MUXR_ADDONS_ROOT points at local herdr-files and herdr-attachments checkouts
-# (or install their pinned devDependencies).
-MUXR_ADDONS_ROOT=/path/to/addons node perf/phoneProbe.mjs \
+node perf/phoneProbe.mjs \
   --serial YOUR_SERIAL --apk /path/to/dev-id-release.apk \
   --out perf/results/phone-probe.json
 # The probe removes only the dev-ID package and its ADB reverse in teardown.
@@ -217,7 +215,7 @@ checks connected Home and eight terminal surfaces, then samples Android PSS and
 rendered frames after each visit and 30 seconds settled on Home. Its
 result is a **short smoke**, not the full eight-phase release gate or a long
 phone memory bound. The probe clears only the verified dev-ID build before
-pairing and fails closed if the OEM denies that reset.
+pairing; if the OEM denies `pm clear`, it reinstalls that verified dev-ID APK.
 
 The September 27 physical-phone smoke on a pinned physical phone used release APK
 SHA-256 `e6dc99afba2d5c2064c161ca648857ced1be4573a7e6a5db9a3fafa6f596a73f`

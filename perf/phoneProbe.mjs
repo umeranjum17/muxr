@@ -8,7 +8,6 @@ import { promisify } from 'node:util';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { setAndroidSerial, androidArgs } from './lib/deviceTarget.mjs';
 import { LOAD } from './lib/scenario.mjs';
-import { usagePlugins } from './fixtures/usageHome.mjs';
 import { appPid, totalPssKb, framesRendered, resetGfx, jankReport } from './lib/androidSignals.mjs';
 import { apkIdentity, sha256 } from './lib/provenance.mjs';
 import { acquirePhoneKeeper } from './lib/phoneKeeper.mjs';
@@ -71,7 +70,7 @@ try {
     const hardware = (await adb('shell', 'getprop', 'ro.hardware')).trim();
     const characteristics = (await adb('shell', 'getprop', 'ro.build.characteristics')).trim().split(',');
     if (serial.startsWith('emulator-') || state !== 'device' || (qemu !== '' && qemu !== '0')
-        || !hardware || /^(ranchu|goldfish|generic)$/i.test(hardware) || !characteristics.includes('phone') || characteristics.includes('emulator')) {
+        || !hardware || /^(ranchu|goldfish|generic)$/i.test(hardware) || characteristics.includes('emulator')) {
         throw new Error('pinned adb serial is not an online physical phone');
     }
     const candidate = await apkIdentity(apk);
@@ -89,8 +88,24 @@ try {
         report.apkSha256 = candidate.sha256;
         verifiedCandidate = true;
     } finally { rmSync(scratch, { recursive: true, force: true }); }
-    await adb('shell', 'pm', 'clear', pkg);
-    stack = await startFakeStack({ ...LOAD, setupPlugins: usagePlugins(process.cwd()) });
+    try {
+        await adb('shell', 'pm', 'clear', pkg);
+    } catch (error) {
+        if (!String(error.stderr ?? error).includes('android.permission.CLEAR_APP_USER_DATA')) throw error;
+        await adb('uninstall', pkg);
+        verifiedCandidate = false;
+        await adb('install', apk);
+        const remote = /^package:(\/[^\s]+\.apk)/m.exec(await adb('shell', 'pm', 'path', pkg))?.[1];
+        if (!remote) throw new Error('dev-ID reinstall did not complete');
+        const scratch = mkdtempSync(join(tmpdir(), 'muxr-phone-reinstall-'));
+        try {
+            const pulled = join(scratch, 'installed.apk');
+            await adb('pull', remote, pulled);
+            if (sha256(pulled) !== report.apkSha256) throw new Error('dev-ID reinstall differs from release candidate');
+            verifiedCandidate = true;
+        } finally { rmSync(scratch, { recursive: true, force: true }); }
+    }
+    stack = await startFakeStack({ ...LOAD });
     report.load = LOAD;
     report.relayPort = stack.relayPort;
     pairing = await stack.mintPairing();
