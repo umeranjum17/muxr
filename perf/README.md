@@ -5,9 +5,10 @@ requires matching APK/native-patch provenance and mounted document, terminal,
 terminal and Usage flows. Run it locally from frozen reviewed source and retain
 the APK, provenance and full evidence; there is no GitHub emulator job. The longer gate below remains the gesture/soak check.
 
-`yarn perf` drives the release APK on a real device against a real relay and a
-real host, and fails on the signals that shipped broken software: a saturated JS
-thread, a dead React runtime, a frozen screen, runaway memory.
+`yarn perf` drives the production-ID release APK on an Android emulator against
+a real relay and host, and fails on a saturated JS thread, dead React runtime,
+frozen screen or runaway memory. It does not qualify a physical phone; use the
+side-by-side probe below for bounded phone smoke evidence.
 
 Relay, host and app are the builds we ship. Herdr is third party, so the gate
 brings its own: `perf/fake-herdr` speaks Herdr's three wire seams (the JSON-RPC
@@ -29,7 +30,6 @@ yarn perf                                  # build, copy to /tmp/muxr-<ver>-vc<N
 yarn perf --apk /tmp/muxr-0.1.26-vc78-x86_64.apk
 yarn perf --record docs/perf/0.1.26.json   # write release evidence
 yarn perf --profile emulator               # emulator LIMITS column (default)
-yarn perf --profile device                 # real-device LIMITS column
 yarn perf --keep-load                      # leave the stack up to poke at it
 ```
 
@@ -39,9 +39,18 @@ that file. `device.versionCode`, `device.versionName` and `device.signerDigest`
 (apksigner SHA-256) say what actually landed.
 
 
+**Device ownership:** this production-ID gate runs only on emulators and clears
+`com.trymuxr.app` there. Use the side-by-side dev-ID probe below on a physical
+phone. Every ADB and Maestro call is pinned to `--serial` (default
+`emulator-5554`). The report's `herdVisibleMs` is cold pairing-to-connected-Home time; the phase
+records carry Android PSS, JS-thread busy share and frame/jank timing for Home,
+agent, document and terminal journeys. `--profile device` selects device
+thresholds but does not permit a physical serial. Never mistake an emulator
+result for phone acceptance.
+
 Prerequisites, all checked in preflight with a named failure:
 
-- an Android device or the `muxr_sandbox` emulator on adb
+- an Android emulator (default `emulator-5554`) on adb
 - Maestro (`mise x maestro@cli-2.7.0`)
 - `yarn build`, since the gate spawns `apps/relay/dist` and `apps/host/dist`
 
@@ -110,11 +119,11 @@ before/moving/settled screenshots it wrote under
 `unavailable` with a reason, never zero.
 
 **Every probe result carries `"partial": true` and `"acceptance": false`.** It
-is a development signal. Release acceptance is one uninterrupted `yarn perf`
-run on frozen bytes, and nothing here substitutes for it. Frame accounting is
-deliberately absent: the gfxinfo ledger is frozen for acceptance, so the probe
-reports CPU and memory as diagnostics and proves behaviour from captures,
-movement candidates and host records.
+is a development signal. The emulator release gate is one uninterrupted
+`yarn perf` run on frozen bytes; it does not establish physical-phone
+acceptance. Frame accounting is deliberately absent: the gfxinfo ledger is
+frozen for acceptance, so the probe reports CPU and memory as diagnostics
+and proves behaviour from captures, movement candidates and host records.
 
 ## The pane-open probe (not acceptance either)
 
@@ -151,6 +160,75 @@ The reductions are pure and live in `perf/lib/paneOpenMetrics.mjs`.
 
 Like the surface probe, every record carries `"partial": true` and
 `"acceptance": false`. It is a development signal, never a release result.
+
+## Host-only long soak
+
+`node perf/hostSoak.mjs --minutes 60 --out /path/to/host-report.json` runs a
+**private foreground** host and relay on kernel-selected non-production ports,
+with private `MUXR_HOME` and a fake Herdr world of 100 panes / 30 agents. It
+pairs a synthetic link device to its own host, opens 16 terminal streams at
+4 KiB/s (one reader deliberately stalls), changes titles at 2 Hz, reconnects
+each minute, and samples the host process RSS, host+terminal-child RSS, relay
+RSS and host CPU every five seconds. A run under 15 minutes is diagnostic and
+reports `inconclusive`, never PASS; a qualifying run requires frames, reconnects
+and less than 128 MiB host-process RSS drift after a one-minute warmup. The
+full 60-minute run is preferable for detecting a long tail. An unexpected
+terminal-stream end or child exit by code or signal fails the run. The fake
+Herdr is not evidence that real Herdr's process memory is bounded. This host-only pass never invokes adb, a service command or the
+captain's Herdr session; run it from a dedicated shell pane after `yarn build`.
+`node perf/hostSoak.reconnect.smoke.mjs` checks the two-minute reconnect path
+against the same isolated stack.
+
+The prior host was deliberately stopped for an update, not shown to have
+crashed. The reproduced unbounded link-write tail could accumulate under slow
+phone reads; the regression flow test proves the fixed boundary, not a post-fix
+memory ceiling or the cause of the prior 23.9 GiB cgroup peak. No post-fix
+host soak is claimed here.
+
+## Side-by-side physical phone probe
+
+For a shared phone whose `com.trymuxr.app` install must not be touched, build a
+**release** variant under a unique dev ID, e.g. set `APP_ENV=development`,
+`MUXR_APP_ID_BASE=app.muxr.crashperf`, `MUXR_DEV_APP_ID=app.muxr.crashperf.dev`
+and `MUXR_DISTRIBUTION=direct` when invoking `:app:assembleRelease
+-PmuxrDevelopmentApp=true -PreactNativeArchitectures=arm64-v8a` with your
+normal release-signing Gradle properties. Verify the APK's package, signer and
+SHA-256, then install it side by side on the leased phone. Some OEMs require
+approving their installation screen. If `pm clear` is denied by the OEM,
+uninstall and reinstall **only that dev-ID** for a fresh run. Do not invoke the
+production-ID `yarn perf` command on this phone.
+
+```bash
+# The probe holds the fleet same-serial flock keeper shared with probeSession.
+node perf/phoneProbe.mjs \
+  --serial YOUR_SERIAL --apk /path/to/dev-id-release.apk \
+  --out perf/results/phone-probe.json
+# The probe removes only the dev-ID package and its ADB reverse in teardown.
+```
+
+The keeper file is `/tmp/fm-phone-<serial>.lock` by default; set
+`FM_PHONE_LOCK_DIR` to an existing shared directory only when every probe
+owner uses the same override.
+The probe runs the real built host/relay against fake Herdr in private state,
+verifies the non-debuggable dev-ID APK and installed package before changing
+app state, pairs the release via ADB UI (without Maestro's driver install),
+checks connected Home and eight terminal surfaces, then samples Android PSS and
+rendered frames after each visit and 30 seconds settled on Home. Its
+result is a **short smoke**, not the full eight-phase release gate or a long
+phone memory bound. The probe clears only the verified dev-ID build before
+pairing; if the OEM denies `pm clear`, it reinstalls that verified dev-ID APK.
+
+The [September 27 physical-phone smoke report](results/phone-probe.json)
+records connected Home, eight terminal visits and Android PSS and frame
+measurements. PSS rose during the short run, so this is **not** evidence of a
+settled memory ceiling. The probe never targets the production package. The
+report does not record source revision or teardown, so it cannot establish
+either for that run. The current probe rechecks installed APK bytes at teardown and
+uninstalls only its verified dev-ID candidate; a changed or missing build is
+not uninstalled and makes the report fail. It also removes its owned ADB
+reverse. The earlier full phone gate never ran its eight phases because this
+OEM repeatedly blocked Maestro's driver installs; its failed attempt is not a
+passing release gate.
 
 ## The scenario contract
 
