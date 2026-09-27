@@ -10,7 +10,7 @@ import { setAndroidSerial, androidArgs } from './lib/deviceTarget.mjs';
 import { LOAD } from './lib/scenario.mjs';
 import { usagePlugins } from './fixtures/usageHome.mjs';
 import { appPid, totalPssKb, framesRendered, resetGfx, jankReport } from './lib/androidSignals.mjs';
-import { sha256 } from './lib/provenance.mjs';
+import { apkIdentity } from './lib/provenance.mjs';
 import { acquirePhoneKeeper } from './lib/phoneKeeper.mjs';
 
 const run = promisify(execFile);
@@ -66,18 +66,23 @@ const report = { startedAt: new Date().toISOString(), started: Date.now(), pkg, 
 let stack, pairing, keeper, verifiedCandidate = false;
 try {
     keeper = await acquirePhoneKeeper(serial);
+    const candidate = await apkIdentity(apk);
+    if (candidate.package !== pkg || candidate.debuggable) throw new Error('candidate must be a non-debuggable release APK with the dev application ID');
     const remote = /^package:(\/[^\s]+\.apk)/m.exec(await adb('shell', 'pm', 'path', pkg))?.[1];
     if (!remote) throw new Error(`${pkg} not installed`);
     const scratch = mkdtempSync(join(tmpdir(), 'muxr-phone-probe-'));
     try {
         const pulled = join(scratch, 'installed.apk');
         await adb('pull', remote, pulled);
-        report.apkSha256 = sha256(apk);
-        if (sha256(pulled) !== report.apkSha256) throw new Error('installed dev-ID APK differs from candidate');
+        const installed = await apkIdentity(pulled);
+        if (installed.sha256 !== candidate.sha256 || installed.package !== pkg || installed.debuggable) throw new Error('installed dev-ID APK differs from non-debuggable release candidate');
+        const dump = await adb('shell', 'dumpsys', 'package', pkg);
+        if (!dump.includes(`Package [${pkg}]`) || !/\bflags=\[[^\]]*\]/.test(dump) || /\bDEBUGGABLE\b/.test(dump)) throw new Error('installed package ID or debuggable state differs from release candidate');
+        report.apkSha256 = candidate.sha256;
         verifiedCandidate = true;
     } finally { rmSync(scratch, { recursive: true, force: true }); }
     if (!process.argv.includes('--fresh-install')) await adb('shell', 'pm', 'clear', pkg);
-    stack = await startFakeStack({ ...LOAD, emulatorBind: process.argv.includes('--emulator-bind'), setupPlugins: usagePlugins(process.cwd()) });
+    stack = await startFakeStack({ ...LOAD, setupPlugins: usagePlugins(process.cwd()) });
     report.load = LOAD;
     report.relayPort = stack.relayPort;
     pairing = await stack.mintPairing();

@@ -177,20 +177,11 @@ fails the run. The fake Herdr is not evidence that real Herdr's process memory
 is bounded. This host-only pass never invokes adb, a service command or the
 captain's Herdr session; run it from a dedicated shell pane after `yarn build`.
 
-The September 27 **pre-fix 15-minute development baseline** from source
-`2723a7c5d97bf81b694c21266701f10bb75a603d`
-([raw samples](results/host-soak-pre-fix-15m.json)) measured 100 panes, 15
-draining streams and one permanently stalled reader: 134,777 terminal frames,
-14 link reconnects (median 101 ms, p95 102 ms), 15 verified virtual desktop
-open/close cycles, 180 samples, host-process RSS 133,812 → 202,636 KiB,
-settled host-process RSS drift −540 KiB, host+terminal-child peak RSS
-1,527,660 KiB, host-process CPU about 6% of one core. It passed the pre-fix
-bounded host checks, but does not measure the backpressure fix, establish its
-post-fix loaded behavior, or prove the process behind the prior systemd cgroup's
-23.9 GiB peak. The prior host was deliberately stopped for an update, not shown
-to have crashed. The reproduced unbounded link-write tail could accumulate
-under slow phone reads; the regression flow test proves the fixed boundary,
-not a post-fix memory ceiling.
+The prior host was deliberately stopped for an update, not shown to have
+crashed. The reproduced unbounded link-write tail could accumulate under slow
+phone reads; the regression flow test proves the fixed boundary, not a post-fix
+memory ceiling or the cause of the prior 23.9 GiB cgroup peak. No post-fix
+host soak is claimed here.
 
 ## Side-by-side physical phone probe
 
@@ -219,9 +210,10 @@ The keeper file is `/tmp/fm-phone-<serial>.lock` by default; set
 `FM_PHONE_LOCK_DIR` to an existing shared directory only when every probe
 owner uses the same override.
 The probe runs the real built host/relay against fake Herdr in private state,
-verifies the installed APK's SHA-256 against the supplied candidate, pairs the
-dev-ID release via ADB UI (without Maestro's driver installation), checks connected Home and eight actual terminal surfaces, then samples Android
-PSS and rendered frames after each visit and 30 seconds settled on Home. Its
+verifies the non-debuggable dev-ID APK and installed package before changing
+app state, pairs the release via ADB UI (without Maestro's driver install),
+checks connected Home and eight terminal surfaces, then samples Android PSS and
+rendered frames after each visit and 30 seconds settled on Home. Its
 result is a **short smoke**, not the full eight-phase release gate or a long
 phone memory bound. `--fresh-install` promises a just-installed dev-ID build;
 without it the probe uses `pm clear` and fails closed if denied.

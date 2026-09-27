@@ -146,7 +146,6 @@ async function startStack(options, live) {
     }
 
     const root = mkdtempSync(join(tmpdir(), 'muxr-perf-'));
-    const bindHost = options.emulatorBind ? '0.0.0.0' : '127.0.0.1';
     onCommandCleanup(() => rmSync(root, { recursive: true, force: true }));
     const home = join(root, 'home');
     const muxrHome = join(root, 'muxr');
@@ -248,7 +247,7 @@ async function startStack(options, live) {
             stdio: ['ignore', 'pipe', 'pipe'],
             env: childEnv(home, muxrHome, {
                 MUXR_RELAY_PORT: String(relayPort),
-                MUXR_RELAY_HOST: bindHost,
+                MUXR_RELAY_HOST: '127.0.0.1',
                 MUXR_RELAY_DATA_DIR: join(muxrHome, 'relay'),
                 MUXR_RELAY_LOCAL_AUTHORITY: '1',
                 MUXR_RELAY_MDNS: '0',
@@ -270,7 +269,7 @@ async function startStack(options, live) {
             '--port', String(relayPort),
             '--advertise', `ws://127.0.0.1:${relayPort}`,
             '--connection-mode', 'lan',
-            ...(!options.emulatorBind ? ['--bind-loopback'] : []),
+            '--bind-loopback',
         ], { cwd: sourceRoot, env: childEnv(home, muxrHome, undefined, live?.env), timeout: 120_000 }).catch((cause) => {
             throw new Error(`self-host identity failed: ${cause instanceof Error ? cause.message : String(cause)}`);
         });
