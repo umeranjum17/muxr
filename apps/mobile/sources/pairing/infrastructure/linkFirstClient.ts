@@ -14,6 +14,8 @@ import {
 import { deriveLinkGrant } from './linkGrant';
 import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '@/connection/sshTunnel';
 import type { SshTarget } from '@/connection';
+import { pairingTransport } from '@/connection/connectionSettings';
+import { getAppVersion } from '@/utils/appVersion';
 import type { StoredHostedGrant } from '../application/linkPairing';
 
 export type ConnectionState = 'connecting' | 'open' | 'closed' | 'stale';
@@ -82,6 +84,8 @@ export class LinkFirstClient implements SessionClient {
     private closed = false;
     private retryTimer: ReturnType<typeof setTimeout> | undefined;
     private retryAttempt = 0;
+    private lastHealthCheck = 0;
+    private healthGeneration = 0;
     private lastPush: { token: string; level: LifecycleNotificationLevel } | undefined;
     private readonly stateListeners = new Set<(state: ConnectionState) => void>();
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
@@ -132,6 +136,7 @@ export class LinkFirstClient implements SessionClient {
 
     close(): void {
         this.closed = true;
+        this.healthGeneration++;
         if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
         this.stopLink();
         if (this.options.ssh !== undefined) void stopSshTunnel();
@@ -389,6 +394,7 @@ export class LinkFirstClient implements SessionClient {
     private onLinkStatus(status: LinkStatus): void {
         if (this.closed || this.link === undefined) return;
         if (status === 'online') {
+            this.healthGeneration++;
             this.retryAttempt = 0;
             this.online = true;
             this.setState('open', true);
@@ -400,21 +406,72 @@ export class LinkFirstClient implements SessionClient {
             return;
         }
         if (status === 'removed') {
+            this.healthGeneration++;
+            const wasOnline = this.online;
             this.stopLink();
             this.setState('stale', true);
-            this.options.onPermanentError?.('Pair again: This computer no longer recognises this pairing.');
+            this.options.onPermanentError?.(wasOnline
+                ? 'Access removed: This computer revoked this device. Pair again to restore access.'
+                : 'Pair again: This computer no longer recognises this pairing (it may have been removed).');
             return;
         }
         if (status === 'refused') {
             this.stopLink();
             this.setState('stale', true);
-            this.options.onPermanentError?.('Update needed: This computer does not speak this app’s link protocol. Update muxr, then pair again.');
+            void this.checkHealth();
             return;
         }
+        if (status === 'offline' && Date.now() - this.lastHealthCheck > 10_000) void this.checkHealth();
         if (this.online) {
             this.online = false;
             this.setState('connecting', true);
         }
+    }
+
+    private async checkHealth(): Promise<void> {
+        const stored = this.options.hostedGrant;
+        if (stored === undefined || this.closed) return;
+        this.lastHealthCheck = Date.now();
+        const generation = this.healthGeneration;
+        const route = pairingTransport(stored.relayUrl) ?? 'relay';
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3_000);
+        let message: string;
+        let permanent = false;
+        try {
+            const relay = new URL(stored.relayUrl);
+            relay.protocol = relay.protocol === 'wss:' ? 'https:' : 'http:';
+            relay.pathname = '/health';
+            relay.search = '';
+            const response = await fetch(relay.toString(), { signal: controller.signal });
+            const health = await response.json() as { ok?: unknown; muxrVersion?: unknown; linkProtocol?: unknown };
+            if (!response.ok || health.ok !== true) throw new Error('not a muxr relay');
+            const app = getAppVersion();
+            const computer = typeof health.muxrVersion === 'string' ? health.muxrVersion : undefined;
+            if (health.linkProtocol !== 1) {
+                message = 'Update needed: This computer runs an older muxr connection protocol. Update muxr on the computer, then pair again.';
+                permanent = true;
+            } else if (computer && /^\d+\.\d+\.\d+/.test(computer) && /^\d+\.\d+\.\d+/.test(app) && computer.split(/[-+]/)[0] !== app.split(/[-+]/)[0]) {
+                const comparison = (version: string) => version.split(/[.+-]/).slice(0, 3).map(Number);
+                const hostParts = comparison(computer);
+                const appParts = comparison(app);
+                const newer = hostParts.findIndex((part, index) => part !== appParts[index]);
+                message = newer >= 0 && hostParts[newer]! > appParts[newer]!
+                    ? `Update needed: Your computer runs muxr ${computer}; this app (${app}) needs an update. Update the app, then pair again.`
+                    : `Update needed: Your computer runs muxr ${computer}; this app runs ${app}. Update muxr on the computer, then pair again.`;
+                permanent = true;
+            } else {
+                message = `${route} reached the muxr relay, but the computer did not accept this pairing. Check muxr on the computer; if this device was removed, pair again.`;
+            }
+        } catch {
+            message = `${route} could not reach the computer’s muxr relay. Check that the computer and ${route} connection are online, then retry.`;
+        } finally {
+            clearTimeout(timer);
+        }
+        if (this.closed || this.online || generation !== this.healthGeneration) return;
+        if (permanent) this.stopLink();
+        this.setState(permanent ? 'stale' : 'closed', true);
+        this.options.onPermanentError?.(message);
     }
 
     /** Broadcast frames ride the link unsealed-looking but authenticated by its handshake. */
@@ -449,9 +506,12 @@ export class LinkFirstClient implements SessionClient {
                 return new Error('update muxr and pair again');
             }
             if (cause.code === 'removed' || cause.code === 'not-paired' || cause.code === 'ended') {
+                const wasOnline = this.online;
                 this.stopLink();
                 this.setState('stale', true);
-                this.options.onPermanentError?.('Pair again: This computer no longer recognises this pairing.');
+                this.options.onPermanentError?.(wasOnline && cause.code === 'removed'
+                    ? 'Access removed: This computer revoked this device. Pair again to restore access.'
+                    : 'Pair again: This computer no longer recognises this pairing (it may have been removed).');
                 return new Error('pair with this computer again');
             }
             if (cause.code === 'stopped') {

@@ -28,7 +28,7 @@ import { useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
-import { HomeRecoveryCard } from './HomeRecoveryCard';
+import { HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
@@ -181,7 +181,8 @@ export const HerdView = React.memo(({
     };
     const recoveryCard = needsRecovery ? (
         <HomeRecoveryCard
-            mode={runtimeOffline && !hostOffline ? 'runtime' : 'host'}
+            mode={recoveryMode(socketStatus.error, runtimeOffline && !hostOffline)}
+            reason={socketStatus.error}
             retrying={retrying}
             feedback={recoveryFeedback}
             onRetry={() => void retryConnection()}

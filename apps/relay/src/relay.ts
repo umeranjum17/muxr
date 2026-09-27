@@ -1,7 +1,9 @@
 /** Self-hosted HTTP surface and byokit link relay. No muxr socket or envelope transport. */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { dirname, extname, join, normalize } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createPublicKey, randomBytes, verify } from 'node:crypto';
 import { hostname } from 'node:os';
 import { openLinkRelay } from './routing/index.js';
@@ -9,6 +11,18 @@ import { MachineAuthority, enrollmentProofMessage, secureEqual } from './admissi
 import { clientIp, loadRelayConfig, type RelayConfig } from './config.js';
 import { readJsonBody, writeJson, writeJsonError } from './httpJson.js';
 import { awaitPersistChain, readPrivateFile, writeJsonFileAtomic } from './platform/persist.js';
+
+function muxrVersion(): string {
+    let dir = dirname(fileURLToPath(import.meta.url));
+    for (let depth = 0; depth < 5; depth++) {
+        try {
+            const version = (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { version?: string }).version;
+            if (version && version !== '0.0.0') return version;
+        } catch { /* Package manifest lives higher up in the source tree. */ }
+        dir = dirname(dir);
+    }
+    return 'unknown';
+}
 
 export async function ensureMintSecret(dataDir: string): Promise<string> {
     const file = join(dataDir, 'mint-secret');
@@ -63,6 +77,7 @@ function jsonOrigin(req: IncomingMessage, res: ServerResponse, config: RelayConf
 export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
     const config = loadRelayConfig({ port: options.port, ...(options.host === undefined ? {} : { host: options.host }), ...options.config });
     const startedAt = Date.now();
+    const version = muxrVersion();
     const mintSecret = await ensureMintSecret(config.dataDir);
     const link = await openLinkRelay(config.dataDir, mintSecret, options.linkPush);
     const machines = new MachineAuthority(config.dataDir);
@@ -127,7 +142,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             }
             if (req.method === 'GET' && url.pathname === '/health') {
                 const online = link.hosts().filter((host) => host.online);
-                writeJson(res, 200, { ok: true, uptimeMs: Date.now() - startedAt, connectedPeers: link.count(), onlineMachines: online.length,
+                writeJson(res, 200, { ok: true, muxrVersion: version, linkProtocol: 1, uptimeMs: Date.now() - startedAt, connectedPeers: link.count(), onlineMachines: online.length,
                     ...(req.socket.remoteAddress === '127.0.0.1' || req.socket.remoteAddress === '::1'
                         ? { registeredMachines: link.hosts().length, webEnabled: webRoot !== undefined, bindHost: config.host } : {}) });
                 return;
