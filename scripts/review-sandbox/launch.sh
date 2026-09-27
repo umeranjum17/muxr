@@ -41,7 +41,7 @@ fi
 export REVIEW_INVITE_TOKEN_HASH="$(printf %s "$(cat "$MUXR_HOME/review-token")" | sha256sum | cut -d' ' -f1)"
 export REVIEW_INVITE_EXPIRES_AT="$(cat "$MUXR_HOME/review-expiry")" REVIEW_INVITE_MAX_CLAIMS=200 PORT=8081 MUXR_BIN=/usr/local/bin/muxr
 node /opt/review/invite.mjs & invite_pid=$!
-nginx -c /opt/review/nginx.conf -g 'daemon off;' & nginx_pid=$!
+/usr/sbin/nginx -c /opt/review/nginx.conf -g 'daemon off;' & nginx_pid=$!
 (
   while sleep 86400; do
     git -C /srv/review-workspace reset --hard baseline >/dev/null
