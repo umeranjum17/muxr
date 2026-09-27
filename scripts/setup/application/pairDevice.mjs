@@ -4,7 +4,8 @@ import { error, print } from '../infrastructure/runtime.mjs';
 import { daemonDefinition, runDaemon } from '../infrastructure/daemon.mjs';
 import { approveScreenSharing } from './approveScreenSharing.mjs';
 import { linkPair } from './linkPair.mjs';
-import { readSelfhostState, selfhostCredential, selfhostRelayHealthy } from '../infrastructure/selfhost.mjs';
+import { readSelfhostState, selfhostControlBase, selfhostCredential, selfhostRelayHealthy } from '../infrastructure/selfhost.mjs';
+import { cliVersion, hostServiceVersion } from './inspectSetup.mjs';
 import { browserHostingReady, ensureSelfhostRelay, relayDiscovery } from '../infrastructure/selfhostRelay.mjs';
 
 export async function mintDeviceGrant(state, kind = 'native', authority = 'control', personal = false) {
@@ -18,6 +19,20 @@ export async function pairDevice(args = []) {
         const state = readSelfhostState();
         if (state?.machine?.crypto === undefined || typeof selfhostCredential(state) !== 'string') {
             throw new Error('muxr is not set up yet; run `muxr setup` first');
+        }
+        const cli = cliVersion();
+        const running = hostServiceVersion();
+        if (running && cli !== 'unknown' && running !== cli) {
+            throw new Error(`This muxr command is ${cli} but your running muxr is ${running} — run \`muxr update\` from the active Node environment.`);
+        }
+        // A local relay may outlive the CLI that launched it. Check before
+        // trying to restart it or minting a grant with an incompatible API.
+        if (state.relayLocation !== 'remote') {
+            const health = await fetch(`${selfhostControlBase(state)}/health`, { signal: AbortSignal.timeout(2_000) })
+                .then((response) => response.ok ? response.json() : undefined).catch(() => undefined);
+            if (typeof health?.muxrVersion === 'string' && cli !== 'unknown' && health.muxrVersion !== cli) {
+                throw new Error(`This muxr command is ${cli} but your running muxr is ${health.muxrVersion} — run \`muxr update\` from the active Node environment.`);
+            }
         }
         const pair = pairingIntentFromHostedFlags(args);
         if (pair.requiresWebHosting && !browserHostingReady()) throw new Error('browser hosting is off. Run `muxr`, choose Pair or manage devices, then Pair a control browser — muxr can enable browser access on your current secure connection.');

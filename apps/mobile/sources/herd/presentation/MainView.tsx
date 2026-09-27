@@ -48,7 +48,7 @@ import { herdrPaneForSession, navigateToSession } from '@/herd';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
-import { HomeRecoveryCard } from './HomeRecoveryCard';
+import { HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
 
 
 const styles = StyleSheet.create((theme) => ({
@@ -497,7 +497,8 @@ export const MainView = React.memo(() => {
                     <VersionNotice />
                     {splitRecovering ? (
                         <HomeRecoveryCard
-                            mode={splitRuntimeOffline && !splitHostOffline ? 'runtime' : 'host'}
+                            mode={recoveryMode(socketStatus.error, splitRuntimeOffline && !splitHostOffline)}
+                            reason={socketStatus.error}
                             retrying={retryingHome}
                             feedback={homeRecoveryFeedback}
                             onRetry={() => void retrySplitConnection()}
