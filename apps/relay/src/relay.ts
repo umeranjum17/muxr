@@ -115,6 +115,16 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
             if (await link.request(req, res)) return;
             if (limited(req, 300)) { writeJsonError(res, 429, 'too many requests'); return; }
+            // Pre-link phones ask these HTTP routes before opening their retired socket.
+            // Their ticket client treats 403 as a permanent pairing refusal; other
+            // legacy callers can read the explicit 410 without restoring the wire.
+            if (url.pathname === '/v1/ws-tickets' && req.method === 'POST') {
+                writeJsonError(res, 403, 'This computer has a newer muxr. Update the muxr app, then pair again.'); return;
+            }
+            if ((/^\/v1\/machines\/[^/]+\/grant$/.test(url.pathname) && req.method === 'GET')
+                || (url.pathname === '/v1/selfhost/tickets' && req.method === 'POST')) {
+                writeJsonError(res, 410, 'This computer has a newer muxr. Update the muxr app, then pair again.'); return;
+            }
             if (req.method === 'GET' && url.pathname === '/health') {
                 const online = link.hosts().filter((host) => host.online);
                 writeJson(res, 200, { ok: true, uptimeMs: Date.now() - startedAt, connectedPeers: link.count(), onlineMachines: online.length,

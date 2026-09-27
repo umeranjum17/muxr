@@ -101,13 +101,13 @@ export class LinkFirstClient implements SessionClient {
         const stored = this.options.hostedGrant;
         if (stored?.credential) {
             this.setState('stale');
-            this.options.onPermanentError?.('This pairing is from an older muxr version. Update muxr on this device and the computer, then pair again: run `muxr pair` on the computer and scan its new link code.');
+            this.options.onPermanentError?.('Update needed: This pairing uses an older muxr protocol. Update the app, then pair again with this computer.');
             return;
         }
         const grant = deriveLinkGrant(stored);
         if (stored === undefined || grant === undefined) {
             this.setState('stale');
-            this.options.onPermanentError?.('Pair with this computer again to use the secure link.');
+            this.options.onPermanentError?.('Pair again: This computer no longer recognises this pairing.');
             return;
         }
         this.link = new DeviceLink(grant, {
@@ -402,12 +402,13 @@ export class LinkFirstClient implements SessionClient {
         if (status === 'removed') {
             this.stopLink();
             this.setState('stale', true);
-            this.options.onPermanentError?.('This device can no longer connect. Pair with this computer again.');
+            this.options.onPermanentError?.('Pair again: This computer no longer recognises this pairing.');
             return;
         }
         if (status === 'refused') {
             this.stopLink();
-            this.scheduleRetry();
+            this.setState('stale', true);
+            this.options.onPermanentError?.('Update needed: This computer does not speak this app’s link protocol. Update muxr, then pair again.');
             return;
         }
         if (this.online) {
@@ -441,10 +442,16 @@ export class LinkFirstClient implements SessionClient {
     private mapLinkFailure(type: RequestType, cause: unknown): Error {
         if (cause instanceof PublicLinkError) return linkRequestFailure(type, cause.message);
         if (cause instanceof LinkError) {
-            if (cause.code === 'removed') {
+            if (cause.code === 'not-supported' || cause.code === 'unsupported') {
                 this.stopLink();
                 this.setState('stale', true);
-                this.options.onPermanentError?.('This device can no longer connect. Pair with this computer again.');
+                this.options.onPermanentError?.('Update needed: Update muxr on the computer, then pair again.');
+                return new Error('update muxr and pair again');
+            }
+            if (cause.code === 'removed' || cause.code === 'not-paired' || cause.code === 'ended') {
+                this.stopLink();
+                this.setState('stale', true);
+                this.options.onPermanentError?.('Pair again: This computer no longer recognises this pairing.');
                 return new Error('pair with this computer again');
             }
             if (cause.code === 'stopped') {
