@@ -11,9 +11,10 @@ import { LOAD } from './lib/scenario.mjs';
 import { usagePlugins } from './fixtures/usageHome.mjs';
 import { appPid, totalPssKb, framesRendered, resetGfx, jankReport } from './lib/androidSignals.mjs';
 import { sha256 } from './lib/provenance.mjs';
+import { acquireOwnerLock } from './lib/surfaceProbe.mjs';
 
 const run = promisify(execFile);
-const serial = process.argv[process.argv.indexOf('--serial') + 1];
+const serial = process.argv.includes('--serial') ? process.argv[process.argv.indexOf('--serial') + 1] : process.env.ANDROID_SERIAL;
 const out = process.argv[process.argv.indexOf('--out') + 1];
 const apk = process.argv[process.argv.indexOf('--apk') + 1];
 if (!/^[-\w]+$/.test(serial ?? '') || !out || out.startsWith('--') || !apk || apk.startsWith('--')) {
@@ -61,9 +62,10 @@ async function sample(label) {
     report.samples.push(result);
     return result;
 }
-const report = { startedAt: new Date().toISOString(), started: Date.now(), serial, pkg, samples: [], visits: [], outcome: 'inconclusive' };
-let stack, pairing;
+const report = { startedAt: new Date().toISOString(), started: Date.now(), pkg, samples: [], visits: [], outcome: 'inconclusive' };
+let stack, pairing, releaseLock;
 try {
+    releaseLock = acquireOwnerLock(join(process.cwd(), 'perf', `.phone-probe-${serial}.lock`), { pid: process.pid, device: serial, descriptor: out });
     const remote = /^package:(\/[^\s]+\.apk)/m.exec(await adb('shell', 'pm', 'path', pkg))?.[1];
     if (!remote) throw new Error(`${pkg} not installed`);
     const scratch = mkdtempSync(join(tmpdir(), 'muxr-phone-probe-'));
@@ -74,7 +76,7 @@ try {
         if (sha256(pulled) !== report.apkSha256) throw new Error('installed dev-ID APK differs from candidate');
     } finally { rmSync(scratch, { recursive: true, force: true }); }
     if (!process.argv.includes('--fresh-install')) await adb('shell', 'pm', 'clear', pkg);
-    stack = await startFakeStack({ ...LOAD, setupPlugins: usagePlugins(process.cwd()) });
+    stack = await startFakeStack({ ...LOAD, emulatorBind: process.argv.includes('--emulator-bind'), setupPlugins: usagePlugins(process.cwd()) });
     report.load = LOAD;
     report.relayPort = stack.relayPort;
     pairing = await stack.mintPairing();
@@ -130,13 +132,27 @@ try {
         && report.samples.every((entry) => entry.pid && entry.pssKb) ? 'pass' : 'fail';
 } catch (error) {
     report.outcome = 'fail';
-    report.error = error instanceof Error ? error.message : String(error);
+    report.error = (error instanceof Error ? error.message : String(error)).replaceAll(serial, '[redacted]');
     process.stderr.write(`${report.error}\n`);
 } finally {
-    pairing?.release();
-    stack?.stop();
-    report.finishedAt = new Date().toISOString();
-    delete report.started;
-    writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
+    try {
+        pairing?.release();
+        stack?.stop();
+    } catch (error) {
+        report.outcome = 'fail';
+        report.cleanupError = (error instanceof Error ? error.message : String(error)).replaceAll(serial, '[redacted]');
+    } finally {
+        try {
+            if (releaseLock) await adb('uninstall', pkg);
+        } catch (error) {
+            report.outcome = 'fail';
+            report.cleanupError = (error instanceof Error ? error.message : String(error)).replaceAll(serial, '[redacted]');
+        } finally {
+            releaseLock?.();
+            report.finishedAt = new Date().toISOString();
+            delete report.started;
+            writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
+        }
+    }
 }
 if (report.outcome !== 'pass') process.exitCode = 1;

@@ -382,7 +382,7 @@ export class TerminalManager {
         try {
             const scroll = await read(attachment.paneId);
             attachment.scrollOffsetFromBottom = scroll.offsetFromBottom;
-            this.sendToPhone(attachment, JSON.stringify({
+            await this.sendToPhone(attachment, JSON.stringify({
                 type: 'terminal.scroll-state',
                 offsetFromBottom: scroll.offsetFromBottom,
                 maxOffsetFromBottom: scroll.maxOffsetFromBottom,

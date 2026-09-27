@@ -208,13 +208,13 @@ uninstall and reinstall **only that dev-ID** for a fresh run. Do not invoke the
 production-ID `yarn perf` command on this phone.
 
 ```bash
-# Own the phone keeper lock for the full run; set the pinned serial and use a
-# dedicated shell pane. MUXR_ADDONS_ROOT points at local herdr-files and
-# herdr-attachments checkouts (or install their pinned devDependencies).
+# The probe owns a same-serial keeper lock in this worktree for the full run.
+# MUXR_ADDONS_ROOT points at local herdr-files and herdr-attachments checkouts
+# (or install their pinned devDependencies).
 MUXR_ADDONS_ROOT=/path/to/addons node perf/phoneProbe.mjs \
   --serial YOUR_SERIAL --apk /path/to/dev-id-release.apk \
   --fresh-install --out perf/results/phone-probe.json
-# Remove only the dev-ID package and this run's ADB reverse when finished.
+# The probe removes only the dev-ID package and its ADB reverse in teardown.
 ```
 
 The probe runs the real built host/relay against fake Herdr in private state,
@@ -225,7 +225,7 @@ result is a **short smoke**, not the full eight-phase release gate or a long
 phone memory bound. `--fresh-install` promises a just-installed dev-ID build;
 without it the probe uses `pm clear` and fails closed if denied.
 
-The September 27 physical-phone smoke on serial `a4b93ea2` used release APK
+The September 27 physical-phone smoke on a pinned physical phone used release APK
 SHA-256 `e6dc99afba2d5c2064c161ca648857ced1be4573a7e6a5db9a3fafa6f596a73f`
 under `app.muxr.crashperf.dev` ([raw report](results/phone-probe.json)).
 Private pairing reached connected Home in 34,885 ms; all eight exact terminal
@@ -234,8 +234,9 @@ surfaces mounted and returned to Home (4,964–9,130 ms each). Android PSS was
 30 seconds settled; 2,920 frames rendered, 81 janky (2.8%), p95 12 ms at
 60 Hz. The
 rising PSS over two minutes is **not** evidence of a settled memory ceiling.
-The production package remained installed, and the dev-ID package and owned
-reverse were removed at teardown. The earlier full phone gate never ran its
+The production package remained installed. The probe now uninstalls the dev-ID
+package and removes its owned reverse at teardown, including failed runs.
+The earlier full phone gate never ran its
 eight phases because this OEM repeatedly blocked Maestro's driver installs;
 its failed attempt is not a passing release gate.
 

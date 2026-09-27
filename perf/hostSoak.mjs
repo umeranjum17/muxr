@@ -143,6 +143,7 @@ try {
     };
     try {
         report.desktop = await desktopRequest('desktop.capabilities', {});
+        if (!report.desktop?.ok) throw new Error(report.desktop?.error ?? 'desktop capabilities failed');
         await desktopCycle();
     } catch (error) { report.desktopOpenError = error.message; }
     const started = Date.now();
@@ -174,9 +175,10 @@ try {
     report.connectMs = reconnects.length ? { median: reconnects[Math.floor(reconnects.length / 2)], p95: reconnects[Math.ceil(reconnects.length * .95) - 1] } : null;
     report.peakHostTreeRssKb = Math.max(...samples.map((sample) => sample.hostTreeRssKb));
     report.hostCpuPercent = samples.length > 1 ? Math.round((samples.at(-1).hostCpuTicks - samples[0].hostCpuTicks) / (samples.at(-1).elapsedSeconds - samples[0].elapsedSeconds)) : null;
-    if (minutes < 15) report.outcome = 'inconclusive';
+    if (report.desktopOpenError) report.outcome = 'failed';
+    else if (minutes < 15) report.outcome = 'inconclusive';
     else report.outcome = settled.length >= 12 && report.terminalFrames > 100 && report.reconnectMs.length >= 1
-        && report.desktopSessions >= 2 && report.hostRssDriftKb < 131072
+        && !report.desktopOpenError && report.desktopSessions >= 2 && report.hostRssDriftKb < 131072
         && stack.childHealth().every((child) => child.exitCode === null) ? 'pass' : 'failed';
 } catch (error) {
     report.error = error instanceof Error ? error.message : String(error);
