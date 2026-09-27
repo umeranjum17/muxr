@@ -1005,6 +1005,22 @@ try {
     const stoppedDoctor = run(cli, ['doctor'], { cwd: installDir, env, allowFailure: true });
     assert.notEqual(stoppedDoctor.status, 0, 'doctor accepted a configured relay that was not running');
     assert.match(`${stoppedDoctor.stdout}${stoppedDoctor.stderr}`, /not reachable/);
+    const servicePath = join(home, '.config', 'systemd', 'user', 'muxr.service');
+    const alternateUnit = linuxUnit.replace(/^(ExecStart=)\S+/, `$1${process.execPath}`);
+    if (alternateUnit !== linuxUnit) {
+        writeFileSync(servicePath, alternateUnit);
+        const doctor = run(cli, ['doctor'], { cwd: installDir, env, allowFailure: true });
+        assert.doesNotMatch(doctor.stdout, /managed setup.*drifted.*integrations sync --force/, 'an alternate valid service path was misreported as an integration failure');
+        writeFileSync(servicePath, linuxUnit);
+    }
+    const hostDiagnosticsPath = join(home, '.muxr', 'host', 'diagnostics.json');
+    mkdirSync(dirname(hostDiagnosticsPath), { recursive: true });
+    writeFileSync(hostDiagnosticsPath, JSON.stringify({ current: { hostVersion: '0.2.1' } }), { mode: 0o600 });
+    const mismatchedPair = run(cli, ['pair'], { cwd: installDir, env, allowFailure: true });
+    assert.notEqual(mismatchedPair.status, 0);
+    assert.match(`${mismatchedPair.stdout}${mismatchedPair.stderr}`, /This muxr command is .* but your running muxr is 0\.2\.1.*muxr update/);
+    assert.doesNotMatch(`${mismatchedPair.stdout}${mismatchedPair.stderr}`, /relay could not restart|not_found/);
+    rmSync(hostDiagnosticsPath);
 
     const localSelfhostPath = join(home, '.muxr', 'selfhost.json');
     const upgradedLocalState = JSON.parse(readFileSync(localSelfhostPath, 'utf8'));

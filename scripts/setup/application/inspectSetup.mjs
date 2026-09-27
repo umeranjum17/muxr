@@ -306,11 +306,24 @@ export async function inspectSetup() {
             } : undefined);
     }
     const manifest = loadManifest();
-    const states = Object.entries(manifest.entries).map(([path, entry]) => `${path.startsWith(`${home()}/`) ? `~/${path.slice(home().length + 1)}` : basename(path)}:${entryStatus(path, entry)}`);
-    const drifted = states.filter((state) => state.endsWith(':drifted') || state.endsWith(':missing'));
+    const integrations = Object.entries(manifest.entries).filter(([, entry]) => entry.scope !== 'daemon');
+    const states = integrations.map(([path, entry]) => `${path.startsWith(`${home()}/`) ? `~/${path.slice(home().length + 1)}` : basename(path)}:${entryStatus(path, entry)}`);
+    const drifted = integrations
+        .filter(([path, entry]) => entryStatus(path, entry) !== 'current')
+        .map(([path, entry]) => `${basename(path)}:${entryStatus(path, entry)}`);
     const setup = managedSetupReport(states, drifted);
     add(setup.level, 'managed setup', setup.detail,
         drifted.length ? { label: 're-sync managed integration files', run: () => runIntegrations(['sync', '--force']) } : undefined);
+    // Daemon files are installed by `muxr daemon install`, not integrations
+    // sync. An alternate Node prefix changes their hash without changing the
+    // running version; executable-path validity is checked separately below.
+    for (const [path, entry] of Object.entries(manifest.entries).filter(([, entry]) => entry.scope === 'daemon')) {
+        if (!existsSync(path)) {
+            add('fail', 'muxr service registration', `${basename(path)} is missing — run \`muxr daemon install\``);
+        } else if (entryStatus(path, entry) !== 'current' && staleUnitPaths(path).length === 0) {
+            add('warn', 'muxr service registration', `${basename(path)} differs from its saved installation — run \`muxr daemon install\` if you want to pin this CLI's paths`);
+        }
+    }
     // The pinned-path landmine: a service file whose exec paths no longer
     // resolve dies 203/EXEC at boot while doctor's liveness checks stay green.
     const muxrServicePath = platform() === 'linux'
