@@ -31,6 +31,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { startFakeStack } from './lib/fakeStack.mjs';
+import { androidArgs, setAndroidSerial } from './lib/deviceTarget.mjs';
 import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, SCENARIO_VERSION, scenarioSummary } from './lib/scenario.mjs';
 import { tourEverySession } from './lib/deviceTour.mjs';
 import { herdChromeConnected, pairPhone } from './lib/pairPhone.mjs';
@@ -182,6 +183,9 @@ const flag = (name) => {
 };
 const apkArg = flag('--apk');
 const recordPath = flag('--record');
+const serial = flag('--serial') ?? 'emulator-5554';
+if (!/^emulator-\d+$/.test(serial)) throw new Error('production-ID release gate is emulator-only; use the dev-ID phone probe');
+setAndroidSerial(serial);
 const profileName = flag('--profile') === 'device' ? 'device' : 'emulator';
 const LIMITS = profileName === 'device' ? DEVICE_LIMITS : EMULATOR_LIMITS;
 const keepLoad = args.includes('--keep-load');
@@ -281,7 +285,7 @@ function maestro(flow, variables = {}) {
     // the process environment.
     const declared = Object.entries(variables).flatMap(([key, value]) => ['-e', `${key}=${value}`]);
     return new Promise((resolve) => {
-        const child = spawn(bin, [...prefix, '--device', 'emulator-5554', 'test', ...declared, join(FLOWS, flow)], {
+        const child = spawn(bin, [...prefix, '--device', serial, 'test', ...declared, join(FLOWS, flow)], {
             env: { ...process.env, ANDROID_HOME: process.env.ANDROID_HOME ?? join(process.env.HOME, 'Android/Sdk') },
             stdio: ['ignore', 'pipe', 'pipe'],
         });
@@ -335,7 +339,7 @@ async function returnToHerd() {
         const dump = await dumpUi();
         if (/text="LIVE"/.test(dump) && herdChromeConnected(dump)
             && !dump.includes(`content-desc="${TERMINAL_SURFACE}"`) && !/Type a prompt/.test(dump)) return true;
-        await run('adb', ['shell', 'input', 'keyevent', 'BACK'], { timeout: 10_000 }).catch(() => undefined);
+        await run('adb', androidArgs(['shell', 'input', 'keyevent', 'BACK']), { timeout: 10_000 }).catch(() => undefined);
         await sleep(700);
     }
     return false;
@@ -349,7 +353,7 @@ async function tapBounds(pattern) {
 }
 
 const pullPhoneTrail = () => readPhoneTrail({
-    openSettings: () => run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings/connection', PKG], { timeout: 20_000 }).catch(() => undefined),
+    openSettings: () => run('adb', androidArgs(['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', 'muxr:///settings/connection', PKG]), { timeout: 20_000 }).catch(() => undefined),
     dumpUi,
     drag,
     tap,
@@ -775,7 +779,7 @@ async function openFixturePane(paneId) {
     const url = fixtureRoute(paneId);
     if (url === undefined) return `no host session route resolves pane ${paneId}`;
     const openedAt = new Date().toISOString();
-    await run('adb', ['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', url, PKG], { timeout: 20_000 })
+    await run('adb', androidArgs(['shell', 'am', 'start', '-a', 'android.intent.action.VIEW', '-d', url, PKG]), { timeout: 20_000 })
         .catch(() => undefined);
     await dismissPrompts();
     const deadline = Date.now() + 15_000;
@@ -1253,10 +1257,12 @@ function inspectApk(apk) {
     const apksigner = buildTool('apksigner');
     let versionCode;
     let versionName;
+    let packageName;
     let abi;
     if (aapt !== undefined) {
         const dump = spawnSync(aapt, ['dump', 'badging', apk], { encoding: 'utf8', timeout: 30_000 });
         const text = `${dump.stdout ?? ''}\n${dump.stderr ?? ''}`;
+        packageName = /package: name='([^']+)'/.exec(text)?.[1];
         versionCode = Number(/versionCode='(\d+)'/.exec(text)?.[1]);
         versionName = /versionName='([^']+)'/.exec(text)?.[1];
         abi = /native-code:\s+'([^']+)'/.exec(text)?.[1]?.trim().split(/\s+/)[0];
@@ -1271,6 +1277,7 @@ function inspectApk(apk) {
     return {
         versionCode: Number.isFinite(versionCode) ? versionCode : undefined,
         versionName,
+        packageName,
         abi: abi || 'x86_64',
         signerDigest,
     };
@@ -1414,19 +1421,23 @@ if (apk === undefined) {
     apk = 'apps/mobile/android/app/build/outputs/apk/release/app-release.apk';
 }
 const apkInfo = inspectApk(apk);
+if (apkInfo.packageName !== PKG) {
+    fail(`APK package ${apkInfo.packageName ?? 'unknown'} does not match ${PKG}`);
+    finish(1);
+}
 apk = versionedApkPath(apk, apkInfo);
 report.apk = apk;
 report.device.versionCode = apkInfo.versionCode;
 report.device.versionName = apkInfo.versionName;
 report.device.signerDigest = apkInfo.signerDigest;
 try {
-    await run('adb', ['install', '-r', apk], { timeout: 600_000 });
+    await run('adb', androidArgs(['install', '-r', apk]), { timeout: 600_000 });
+    // A cold app every run: pairing, catalog and caches all start from nothing.
+    await run('adb', androidArgs(['shell', 'pm', 'clear', PKG]), { timeout: 120_000 });
 } catch (cause) {
-    fail(`adb install failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    fail(`adb install/clear failed: ${cause instanceof Error ? cause.message : String(cause)}`);
     finish(1);
 }
-// A cold app every run: pairing, catalog and caches all start from nothing.
-await run('adb', ['shell', 'pm', 'clear', PKG], { timeout: 120_000 }).catch(() => undefined);
 ok(`installed ${apk} vc ${apkInfo.versionCode ?? '?'} ${apkInfo.signerDigest ?? ''}` + ' and cleared app state');
 
 // 3. The stack the phone talks to: a relay and a host of this run's own, in a

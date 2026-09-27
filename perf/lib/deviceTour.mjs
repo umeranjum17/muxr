@@ -12,12 +12,13 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { appPid, dismissKeyboard, dismissPrompts, dumpUiXml, framesRendered, totalPssKb } from './androidSignals.mjs';
 import { herdChromeConnected } from './pairPhone.mjs';
+import { androidArgs } from './deviceTarget.mjs';
 import { TERMINAL_SURFACE } from './gestureMetrics.mjs';
 
 const run = promisify(execFile);
 
 async function adb(args, timeout = 20_000) {
-    const { stdout } = await run('adb', args, { timeout, maxBuffer: 16 * 1024 * 1024 });
+    const { stdout } = await run('adb', androidArgs(args), { timeout, maxBuffer: 16 * 1024 * 1024 });
     return stdout;
 }
 

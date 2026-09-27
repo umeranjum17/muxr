@@ -70,7 +70,8 @@ export async function apkIdentity(path) {
     const cert = apksigner === undefined ? '' : (await runCommand(apksigner, ['verify', '--print-certs', artifact], { timeout: 30_000 })).stdout;
     const signerDigest = /SHA-256 digest:\s*([0-9a-fA-F:]+)/.exec(cert)?.[1];
     if (!packageName || !Number.isFinite(versionCode) || !versionName || !signerDigest) throw new Error('candidate APK has incomplete package identity');
-    return { path: artifact, sha256: sha256(artifact), package: packageName, versionCode, versionName, signerDigest };
+    return { path: artifact, sha256: sha256(artifact), package: packageName, versionCode, versionName, signerDigest,
+        debuggable: dump.split(/\r?\n/).some((line) => line.trim() === 'application-debuggable') };
 }
 
 /** Identity of a simulator .app; paths are excluded from the identity comparison. */
