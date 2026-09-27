@@ -29,8 +29,6 @@ yarn perf                                  # build, copy to /tmp/muxr-<ver>-vc<N
 yarn perf --apk /tmp/muxr-0.1.26-vc78-x86_64.apk
 yarn perf --record docs/perf/0.1.26.json   # write release evidence
 yarn perf --profile emulator               # emulator LIMITS column (default)
-# On an explicitly leased, disposable phone only (clears com.trymuxr.app):
-yarn perf --serial YOUR_SERIAL --profile device --apk /path/to/exact-production-id-release.apk --record /path/to/phone-report.json
 yarn perf --keep-load                      # leave the stack up to poke at it
 ```
 
@@ -40,15 +38,14 @@ that file. `device.versionCode`, `device.versionName` and `device.signerDigest`
 (apksigner SHA-256) say what actually landed.
 
 
-**Phone ownership:** this gate installs `com.trymuxr.app` and clears its data before
-pairing to its private lab stack. Run the physical-device command only on an
-explicitly leased test phone whose existing app state may be replaced; hold its
-keeper lock throughout and restore the intended build/state afterward. Every
-ADB and Maestro call is pinned to `--serial` (default `emulator-5554`). The
-report's `herdVisibleMs` is cold pairing-to-connected-Home time; the phase
+**Device ownership:** this production-ID gate runs only on emulators and clears
+`com.trymuxr.app` there. Use the side-by-side dev-ID probe below on a physical
+phone. Every ADB and Maestro call is pinned to `--serial` (default
+`emulator-5554`). The report's `herdVisibleMs` is cold pairing-to-connected-Home time; the phase
 records carry Android PSS, JS-thread busy share and frame/jank timing for Home,
-agent, document and terminal journeys. `--profile device` selects physical-phone
-limits. Never mistake an emulator result for phone acceptance.
+agent, document and terminal journeys. `--profile device` selects device
+thresholds but does not permit a physical serial. Never mistake an emulator
+result for phone acceptance.
 
 Prerequisites, all checked in preflight with a named failure:
 
@@ -208,7 +205,7 @@ uninstall and reinstall **only that dev-ID** for a fresh run. Do not invoke the
 production-ID `yarn perf` command on this phone.
 
 ```bash
-# The probe owns a same-serial keeper lock in this worktree for the full run.
+# The probe holds a same-serial flock keeper shared with probeSession in this worktree.
 # MUXR_ADDONS_ROOT points at local herdr-files and herdr-attachments checkouts
 # (or install their pinned devDependencies).
 MUXR_ADDONS_ROOT=/path/to/addons node perf/phoneProbe.mjs \
@@ -217,6 +214,7 @@ MUXR_ADDONS_ROOT=/path/to/addons node perf/phoneProbe.mjs \
 # The probe removes only the dev-ID package and its ADB reverse in teardown.
 ```
 
+The lock is worktree-local; do not run another worktree against the same phone.
 The probe runs the real built host/relay against fake Herdr in private state,
 verifies the installed APK's SHA-256 against the supplied candidate, pairs the
 dev-ID release via ADB UI (without Maestro's driver installation), checks connected Home and eight actual terminal surfaces, then samples Android
@@ -234,8 +232,9 @@ surfaces mounted and returned to Home (4,964–9,130 ms each). Android PSS was
 30 seconds settled; 2,920 frames rendered, 81 janky (2.8%), p95 12 ms at
 60 Hz. The
 rising PSS over two minutes is **not** evidence of a settled memory ceiling.
-The production package remained installed. The probe now uninstalls the dev-ID
-package and removes its owned reverse at teardown, including failed runs.
+The production package remained installed. The probe now uninstalls only its
+verified dev-ID candidate and removes its owned reverse at teardown, including
+failed runs. A mismatched installed APK is not uninstalled.
 The earlier full phone gate never ran its
 eight phases because this OEM repeatedly blocked Maestro's driver installs;
 its failed attempt is not a passing release gate.

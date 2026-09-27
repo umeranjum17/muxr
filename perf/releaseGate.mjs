@@ -184,6 +184,7 @@ const flag = (name) => {
 const apkArg = flag('--apk');
 const recordPath = flag('--record');
 const serial = flag('--serial') ?? 'emulator-5554';
+if (!/^emulator-\d+$/.test(serial)) throw new Error('production-ID release gate is emulator-only; use the dev-ID phone probe');
 setAndroidSerial(serial);
 const profileName = flag('--profile') === 'device' ? 'device' : 'emulator';
 const LIMITS = profileName === 'device' ? DEVICE_LIMITS : EMULATOR_LIMITS;

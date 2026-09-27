@@ -11,7 +11,7 @@ import { LOAD } from './lib/scenario.mjs';
 import { usagePlugins } from './fixtures/usageHome.mjs';
 import { appPid, totalPssKb, framesRendered, resetGfx, jankReport } from './lib/androidSignals.mjs';
 import { sha256 } from './lib/provenance.mjs';
-import { acquireOwnerLock } from './lib/surfaceProbe.mjs';
+import { acquirePhoneKeeper } from './lib/phoneKeeper.mjs';
 
 const run = promisify(execFile);
 const serial = process.argv.includes('--serial') ? process.argv[process.argv.indexOf('--serial') + 1] : process.env.ANDROID_SERIAL;
@@ -63,9 +63,9 @@ async function sample(label) {
     return result;
 }
 const report = { startedAt: new Date().toISOString(), started: Date.now(), pkg, samples: [], visits: [], outcome: 'inconclusive' };
-let stack, pairing, releaseLock;
+let stack, pairing, keeper, verifiedCandidate = false;
 try {
-    releaseLock = acquireOwnerLock(join(process.cwd(), 'perf', `.phone-probe-${serial}.lock`), { pid: process.pid, device: serial, descriptor: out });
+    keeper = await acquirePhoneKeeper(serial);
     const remote = /^package:(\/[^\s]+\.apk)/m.exec(await adb('shell', 'pm', 'path', pkg))?.[1];
     if (!remote) throw new Error(`${pkg} not installed`);
     const scratch = mkdtempSync(join(tmpdir(), 'muxr-phone-probe-'));
@@ -74,6 +74,7 @@ try {
         await adb('pull', remote, pulled);
         report.apkSha256 = sha256(apk);
         if (sha256(pulled) !== report.apkSha256) throw new Error('installed dev-ID APK differs from candidate');
+        verifiedCandidate = true;
     } finally { rmSync(scratch, { recursive: true, force: true }); }
     if (!process.argv.includes('--fresh-install')) await adb('shell', 'pm', 'clear', pkg);
     stack = await startFakeStack({ ...LOAD, emulatorBind: process.argv.includes('--emulator-bind'), setupPlugins: usagePlugins(process.cwd()) });
@@ -143,12 +144,12 @@ try {
         report.cleanupError = (error instanceof Error ? error.message : String(error)).replaceAll(serial, '[redacted]');
     } finally {
         try {
-            if (releaseLock) await adb('uninstall', pkg);
+            if (verifiedCandidate) await adb('uninstall', pkg);
         } catch (error) {
             report.outcome = 'fail';
             report.cleanupError = (error instanceof Error ? error.message : String(error)).replaceAll(serial, '[redacted]');
         } finally {
-            releaseLock?.();
+            await keeper?.release();
             report.finishedAt = new Date().toISOString();
             delete report.started;
             writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
