@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useUnistyles } from 'react-native-unistyles';
 import type { DesktopSession, StickyModifier } from '@desklink/react-native';
 
 import { Typography } from '@/constants/Typography';
@@ -21,6 +20,8 @@ const KEEP_KEYBOARD = Platform.OS === 'web'
 /** The row's height, so the chrome floating above it can clear it. */
 export const DESKTOP_KEY_ROW_HEIGHT = 36;
 const KEY_TINT = '#B5B7C2'; // Desktop canvas is black even in the light app theme.
+const ACTIVE_TINT = '#80BBFF';
+const LOCK_TINT = '#1A334F';
 
 const MODIFIERS: readonly { name: StickyModifier; label: string; glyph: string }[] = [
     { name: 'Control', label: 'ctrl', glyph: '⌃' },
@@ -60,7 +61,6 @@ const MORE_KEYS: readonly DesktopKey[] = [
  * the session chords the next phone key or a key in either row.
  */
 export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modifiers' | 'tapModifier' | 'pressKey'> }) {
-    const { theme } = useUnistyles();
     const glyphs = useLocalSetting('terminalModifierIcons') === true;
     const [more, setMore] = React.useState(false);
     const { modifiers, tapModifier, pressKey } = session;
@@ -69,7 +69,6 @@ export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modi
     // modifiers it went down with. Lifting the finger lets it go, and so does
     // the row closing under the finger.
     const held = React.useRef<(() => void) | null>(null);
-    const row = React.useRef<ScrollView>(null);
     const release = React.useCallback(() => {
         held.current?.();
         held.current = null;
@@ -82,7 +81,7 @@ export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modi
 
     return (
         <View {...KEEP_KEYBOARD} style={{ height: DESKTOP_KEY_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4 }}>
-            <ScrollView ref={row} horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={{ alignItems: 'center' }}>
+            <ScrollView key={more ? 'more' : 'main'} horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={{ alignItems: 'center' }}>
             {MODIFIERS.map(({ name, label: text, glyph }) => {
                 const state = modifiers[name];
                 return (
@@ -99,11 +98,11 @@ export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modi
                         style={({ pressed }) => [
                             styles.key,
                             { minWidth: 42 },
-                            state === 'lock' && { backgroundColor: theme.colors.accentSubtle },
+                            state === 'lock' && { backgroundColor: LOCK_TINT },
                             pressed && styles.pressed,
                         ]}
                     >
-                        {label(glyphs ? glyph : text, state === 'off' ? KEY_TINT : theme.colors.accent)}
+                        {label(glyphs ? glyph : text, state === 'off' ? KEY_TINT : ACTIVE_TINT)}
                     </Pressable>
                 );
             })}
@@ -132,13 +131,13 @@ export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modi
             ))}
             </ScrollView>
             <Pressable
-                onPress={() => { release(); hapticsSelection(); row.current?.scrollTo({ x: 0, animated: false }); setMore(!more); }}
+                onPress={() => { release(); hapticsSelection(); setMore(!more); }}
                 accessibilityRole="button"
                 accessibilityLabel={more ? 'Back to main desktop keys' : 'More desktop keys'}
                 accessibilityState={{ selected: more }}
-                style={({ pressed }) => [styles.key, { minWidth: 38 }, more && { backgroundColor: theme.colors.accentSubtle }, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.key, { minWidth: 38 }, more && { backgroundColor: LOCK_TINT }, pressed && styles.pressed]}
             >
-                {label(more ? '‹' : 'more', more ? theme.colors.accent : KEY_TINT)}
+                {label(more ? '‹' : 'more', more ? ACTIVE_TINT : KEY_TINT)}
             </Pressable>
         </View>
     );
