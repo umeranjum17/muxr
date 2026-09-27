@@ -179,9 +179,10 @@ export const HerdView = React.memo(({
             setRetrying(false);
         }
     };
+    const mode = recoveryMode(socketStatus.error, runtimeOffline && !hostOffline);
     const recoveryCard = needsRecovery ? (
         <HomeRecoveryCard
-            mode={recoveryMode(socketStatus.error, runtimeOffline && !hostOffline)}
+            mode={mode}
             reason={socketStatus.error}
             retrying={retrying}
             feedback={recoveryFeedback}
@@ -249,11 +250,9 @@ export const HerdView = React.memo(({
                     visibilityBottomInset={bottomContentInset}
                 />}
             {!needsRecovery && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
-            {needsRecovery ? (
-                <Text style={styles.quietLine}>{socketStatus.error?.startsWith('Pair again:') || socketStatus.error?.startsWith('Update needed:') || socketStatus.error?.startsWith('Access removed:')
-                    ? 'Pair again to restore your terminals.'
-                    : 'Your terminals will reappear when the computer reconnects.'}</Text>
-            ) : error !== null ? (
+            {needsRecovery && (mode === 'host' || mode === 'runtime') ? (
+                <Text style={styles.quietLine}>Your terminals will reappear when the computer reconnects.</Text>
+            ) : needsRecovery ? null : error !== null ? (
                 <View style={styles.empty}>
                     <Text style={styles.emptyText}>{error}</Text>
                     <View style={styles.emptyAction}>
