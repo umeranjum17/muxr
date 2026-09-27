@@ -175,6 +175,8 @@ full 60-minute run is preferable for detecting a long tail. A process exit
 fails the run. The fake Herdr is not evidence that real Herdr's process memory
 is bounded. This host-only pass never invokes adb, a service command or the
 captain's Herdr session; run it from a dedicated shell pane after `yarn build`.
+`node perf/hostSoak.reconnect.smoke.mjs` checks the two-minute reconnect path
+against the same isolated stack.
 
 The prior host was deliberately stopped for an update, not shown to have
 crashed. The reproduced unbounded link-write tail could accumulate under slow
@@ -201,7 +203,7 @@ production-ID `yarn perf` command on this phone.
 # (or install their pinned devDependencies).
 MUXR_ADDONS_ROOT=/path/to/addons node perf/phoneProbe.mjs \
   --serial YOUR_SERIAL --apk /path/to/dev-id-release.apk \
-  --fresh-install --out perf/results/phone-probe.json
+  --out perf/results/phone-probe.json
 # The probe removes only the dev-ID package and its ADB reverse in teardown.
 ```
 
@@ -214,8 +216,8 @@ app state, pairs the release via ADB UI (without Maestro's driver install),
 checks connected Home and eight terminal surfaces, then samples Android PSS and
 rendered frames after each visit and 30 seconds settled on Home. Its
 result is a **short smoke**, not the full eight-phase release gate or a long
-phone memory bound. `--fresh-install` promises a just-installed dev-ID build;
-without it the probe uses `pm clear` and fails closed if denied.
+phone memory bound. The probe clears only the verified dev-ID build before
+pairing and fails closed if the OEM denies that reset.
 
 The September 27 physical-phone smoke on a pinned physical phone used release APK
 SHA-256 `e6dc99afba2d5c2064c161ca648857ced1be4573a7e6a5db9a3fafa6f596a73f`

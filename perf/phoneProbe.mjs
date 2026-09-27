@@ -66,6 +66,14 @@ const report = { startedAt: new Date().toISOString(), started: Date.now(), pkg, 
 let stack, pairing, keeper, verifiedCandidate = false;
 try {
     keeper = await acquirePhoneKeeper(serial);
+    const state = (await adb('get-state')).trim();
+    const qemu = (await adb('shell', 'getprop', 'ro.kernel.qemu')).trim();
+    const hardware = (await adb('shell', 'getprop', 'ro.hardware')).trim();
+    const characteristics = (await adb('shell', 'getprop', 'ro.build.characteristics')).trim().split(',');
+    if (serial.startsWith('emulator-') || state !== 'device' || (qemu !== '' && qemu !== '0')
+        || !hardware || /^(ranchu|goldfish|generic)$/i.test(hardware) || !characteristics.includes('phone') || characteristics.includes('emulator')) {
+        throw new Error('pinned adb serial is not an online physical phone');
+    }
     const candidate = await apkIdentity(apk);
     if (candidate.package !== pkg || candidate.debuggable) throw new Error('candidate must be a non-debuggable release APK with the dev application ID');
     const remote = /^package:(\/[^\s]+\.apk)/m.exec(await adb('shell', 'pm', 'path', pkg))?.[1];
@@ -81,7 +89,7 @@ try {
         report.apkSha256 = candidate.sha256;
         verifiedCandidate = true;
     } finally { rmSync(scratch, { recursive: true, force: true }); }
-    if (!process.argv.includes('--fresh-install')) await adb('shell', 'pm', 'clear', pkg);
+    await adb('shell', 'pm', 'clear', pkg);
     stack = await startFakeStack({ ...LOAD, setupPlugins: usagePlugins(process.cwd()) });
     report.load = LOAD;
     report.relayPort = stack.relayPort;

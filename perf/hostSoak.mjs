@@ -84,12 +84,12 @@ async function pairLab(stack) {
 
 let stack;
 let link;
+let grant;
 const streams = [];
 const report = { startedAt: new Date().toISOString(), source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), minutes, load: LOAD, samples: [], reconnectMs: [], terminalFrames: 0, outcome: 'inconclusive' };
 try {
     stack = await startFakeStack({ ...LOAD, transport: 'loopback' });
-    ({ link } = await pairLab(stack));
-    const grant = link.grant;
+    ({ link, grant } = await pairLab(stack));
     report.stage = 'listing sessions';
     const listed = await link.request('session.list', { type: 'session.list', requestId: 'soak-list', params: {} }, { timeoutMs: 15000 });
     if (!listed?.ok) throw new Error(`session.list failed: ${listed?.error ?? 'empty response'}`);
