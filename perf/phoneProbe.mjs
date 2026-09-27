@@ -10,7 +10,7 @@ import { setAndroidSerial, androidArgs } from './lib/deviceTarget.mjs';
 import { LOAD } from './lib/scenario.mjs';
 import { usagePlugins } from './fixtures/usageHome.mjs';
 import { appPid, totalPssKb, framesRendered, resetGfx, jankReport } from './lib/androidSignals.mjs';
-import { apkIdentity } from './lib/provenance.mjs';
+import { apkIdentity, sha256 } from './lib/provenance.mjs';
 import { acquirePhoneKeeper } from './lib/phoneKeeper.mjs';
 
 const run = promisify(execFile);
@@ -149,7 +149,17 @@ try {
         report.cleanupError = (error instanceof Error ? error.message : String(error)).replaceAll(serial, '[redacted]');
     } finally {
         try {
-            if (verifiedCandidate) await adb('uninstall', pkg);
+            if (verifiedCandidate) {
+                const remote = /^package:(\/[^\s]+\.apk)/m.exec(await adb('shell', 'pm', 'path', pkg))?.[1];
+                if (!remote) throw new Error('verified dev-ID build is no longer installed; skipped uninstall');
+                const scratch = mkdtempSync(join(tmpdir(), 'muxr-phone-teardown-'));
+                try {
+                    const pulled = join(scratch, 'installed.apk');
+                    await adb('pull', remote, pulled);
+                    if (sha256(pulled) !== report.apkSha256) throw new Error('dev-ID build changed during probe; skipped uninstall');
+                    await adb('uninstall', pkg);
+                } finally { rmSync(scratch, { recursive: true, force: true }); }
+            }
         } catch (error) {
             report.outcome = 'fail';
             report.cleanupError = (error instanceof Error ? error.message : String(error)).replaceAll(serial, '[redacted]');

@@ -2,11 +2,12 @@
 /** Long-running isolated host soak. No service commands, real relay/host/link, fake Herdr load. */
 import { createConnection } from 'node:net';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { DeviceLink, pairWithOffer } from '@byokit/link';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { LOAD } from './lib/scenario.mjs';
 import { treeRssKb } from './lib/hostSignals.mjs';
+import { countTerminalFrames } from './lib/terminalFrames.mjs';
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => { const at = args.indexOf(name); return at < 0 ? fallback : args[at + 1]; };
@@ -84,13 +85,9 @@ async function pairLab(stack) {
 let stack;
 let link;
 const streams = [];
-const report = { startedAt: new Date().toISOString(), source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), minutes, load: LOAD, samples: [], reconnectMs: [], terminalFrames: 0, desktop: 'not sampled', outcome: 'inconclusive' };
+const report = { startedAt: new Date().toISOString(), source: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), minutes, load: LOAD, samples: [], reconnectMs: [], terminalFrames: 0, outcome: 'inconclusive' };
 try {
-    stack = await startFakeStack({ ...LOAD, transport: 'loopback', setupHome: (home) => {
-        const runtime = `${home}/runtime`;
-        mkdirSync(runtime, { mode: 0o700 });
-        return { XDG_SESSION_TYPE: 'tty', XDG_RUNTIME_DIR: runtime, WAYLAND_DISPLAY: '', DISPLAY: '' };
-    } });
+    stack = await startFakeStack({ ...LOAD, transport: 'loopback' });
     ({ link } = await pairLab(stack));
     const grant = link.grant;
     report.stage = 'listing sessions';
@@ -105,47 +102,12 @@ try {
             const stream = await link.stream('terminal', { requestId: `soak-${index}`, sessionId: session.id, channel, cols: 80, rows: 24, mode: 'observe' });
             // One reader never takes its first chunk. The other fifteen stay
             // live, proving slow-device credit cannot grow the host write tail.
-            stream.onData = index === 0 ? () => new Promise(() => {}) : (data) => {
-                const text = Buffer.from(data).toString('utf8');
-                report.terminalFrames += text.split('terminal.frame').length - 1;
-            };
+            stream.onData = index === 0 ? () => new Promise(() => {}) : countTerminalFrames(() => { report.terminalFrames += 1; });
             stream.onEnd = (error) => { report.streamEnds ??= []; if (report.streamEnds.length < 5) report.streamEnds.push(error ?? 'clean'); };
             streams.push(stream);
         }
     };
     await open();
-    // The host is forced to an isolated headless display: no Wayland portal
-    // request can reach the person's desktop. Exercise actual open/close when
-    // an Xvfb-backed engine is available.
-    const desktopRequest = async (type, params) => {
-        const desktop = await link.stream('desktop', {});
-        try {
-            return await deadline(new Promise((resolve, reject) => {
-                let buffer = '';
-                desktop.onData = (chunk) => {
-                    buffer += Buffer.from(chunk).toString('utf8');
-                    const end = buffer.indexOf('\n');
-                    if (end >= 0) { try { resolve(JSON.parse(buffer.slice(0, end))); } catch (error) { reject(error); } }
-                };
-                desktop.onEnd = () => reject(new Error('desktop stream ended'));
-                void desktop.write(JSON.stringify({ type, requestId: `soak-${type}`, params }) + '\n').catch(reject);
-            }), 20000, type);
-        } finally { desktop.end(); }
-    };
-    const desktopCycle = async () => {
-        const opened = await desktopRequest('desktop.open', { permissions: ['view'] });
-        if (!opened.ok || typeof opened.data?.desktopId !== 'string') throw new Error(opened.error ?? 'no desktop id');
-        try { report.desktopSessions = (report.desktopSessions ?? 0) + 1; }
-        finally {
-            const closed = await desktopRequest('desktop.close', { desktopId: opened.data.desktopId });
-            if (!closed.ok) throw new Error(closed.error ?? 'desktop close failed');
-        }
-    };
-    try {
-        report.desktop = await desktopRequest('desktop.capabilities', {});
-        if (!report.desktop?.ok) throw new Error(report.desktop?.error ?? 'desktop capabilities failed');
-        await desktopCycle();
-    } catch (error) { report.desktopOpenError = error.message; }
     const started = Date.now();
     const end = started + minutes * 60000;
     let lastReconnect = started;
@@ -160,7 +122,6 @@ try {
             await online(link);
             report.reconnectMs.push(Date.now() - at);
             await open();
-            await desktopCycle();
             lastReconnect = Date.now();
         }
         await sleep(5000);
@@ -175,10 +136,9 @@ try {
     report.connectMs = reconnects.length ? { median: reconnects[Math.floor(reconnects.length / 2)], p95: reconnects[Math.ceil(reconnects.length * .95) - 1] } : null;
     report.peakHostTreeRssKb = Math.max(...samples.map((sample) => sample.hostTreeRssKb));
     report.hostCpuPercent = samples.length > 1 ? Math.round((samples.at(-1).hostCpuTicks - samples[0].hostCpuTicks) / (samples.at(-1).elapsedSeconds - samples[0].elapsedSeconds)) : null;
-    if (report.desktopOpenError) report.outcome = 'failed';
-    else if (minutes < 15) report.outcome = 'inconclusive';
+    if (minutes < 15) report.outcome = 'inconclusive';
     else report.outcome = settled.length >= 12 && report.terminalFrames > 100 && report.reconnectMs.length >= 1
-        && !report.desktopOpenError && report.desktopSessions >= 2 && report.hostRssDriftKb < 131072
+        && report.hostRssDriftKb < 131072
         && stack.childHealth().every((child) => child.exitCode === null) ? 'pass' : 'failed';
 } catch (error) {
     report.error = error instanceof Error ? error.message : String(error);

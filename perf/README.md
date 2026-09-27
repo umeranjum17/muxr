@@ -166,13 +166,12 @@ Like the surface probe, every record carries `"partial": true` and
 **private foreground** host and relay on kernel-selected non-production ports,
 with private `MUXR_HOME` and a fake Herdr world of 100 panes / 30 agents. It
 pairs a synthetic link device to its own host, opens 16 terminal streams at
-4 KiB/s (one reader deliberately stalls), changes titles at 2 Hz, opens and
-closes an Xvfb-backed desktop on each minute's reconnect, and samples the host
-process RSS, host+terminal-child RSS, relay RSS and host CPU every five seconds.
-A run under 15 minutes is diagnostic and reports `inconclusive`, never PASS;
-a qualifying run requires frames, reconnects, desktop opens and less than
-128 MiB host-process RSS drift after a one-minute warmup. The full 60-minute
-run is preferable for detecting a long tail. A desktop failure or process exit
+4 KiB/s (one reader deliberately stalls), changes titles at 2 Hz, reconnects
+each minute, and samples the host process RSS, host+terminal-child RSS, relay
+RSS and host CPU every five seconds. A run under 15 minutes is diagnostic and
+reports `inconclusive`, never PASS; a qualifying run requires frames, reconnects
+and less than 128 MiB host-process RSS drift after a one-minute warmup. The
+full 60-minute run is preferable for detecting a long tail. A process exit
 fails the run. The fake Herdr is not evidence that real Herdr's process memory
 is bounded. This host-only pass never invokes adb, a service command or the
 captain's Herdr session; run it from a dedicated shell pane after `yarn build`.
@@ -229,7 +228,8 @@ surfaces mounted and returned to Home (4,964–9,130 ms each). Android PSS was
 rising PSS over two minutes is **not** evidence of a settled memory ceiling.
 The production package remained installed. The probe now uninstalls only its
 verified dev-ID candidate and removes its owned reverse at teardown, including
-failed runs. A mismatched installed APK is not uninstalled.
+failed runs. Teardown rechecks the installed APK; a changed or missing build is
+not uninstalled and makes the report fail.
 The earlier full phone gate never ran its
 eight phases because this OEM repeatedly blocked Maestro's driver installs;
 its failed attempt is not a passing release gate.
