@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { processStartIdentity } from './surfaceProbe.mjs';
 
 export async function acquirePhoneKeeper(serial) {
     if (!/^[-\w]+$/.test(serial)) throw new Error('a pinned Android serial is required');
-    const path = join(process.cwd(), 'perf', `.fm-phone-${serial}.lock`);
+    const dir = process.env.FM_PHONE_LOCK_DIR ?? '/tmp';
+    if (!isAbsolute(dir)) throw new Error('FM_PHONE_LOCK_DIR must be an absolute shared directory');
+    const path = join(dir, `fm-phone-${serial}.lock`);
     const child = spawn('flock', ['-n', '-F', path, process.execPath, '-e', "process.stdout.write('READY\\n'); setInterval(() => {}, 60000)"], { stdio: ['ignore', 'pipe', 'pipe'] });
     const closed = new Promise((resolve) => child.once('close', resolve));
     try {

@@ -177,19 +177,20 @@ fails the run. The fake Herdr is not evidence that real Herdr's process memory
 is bounded. This host-only pass never invokes adb, a service command or the
 captain's Herdr session; run it from a dedicated shell pane after `yarn build`.
 
-The September 27 candidate's **15-minute development baseline**
-([raw samples](results/host-soak-final-15m.json)) measured 100 panes, 15
+The September 27 **pre-fix 15-minute development baseline** from source
+`2723a7c5d97bf81b694c21266701f10bb75a603d`
+([raw samples](results/host-soak-pre-fix-15m.json)) measured 100 panes, 15
 draining streams and one permanently stalled reader: 134,777 terminal frames,
 14 link reconnects (median 101 ms, p95 102 ms), 15 verified virtual desktop
 open/close cycles, 180 samples, host-process RSS 133,812 → 202,636 KiB,
 settled host-process RSS drift −540 KiB, host+terminal-child peak RSS
-1,527,660 KiB, host-process CPU about 6% of one core. It passed the bounded host checks;
-it is not a physical-phone result or proof of the exact process behind the
-prior systemd cgroup's 23.9 GiB peak.
-The prior host was deliberately stopped for an update, not shown to have
-crashed. The reproduced unbounded link-write tail is a concrete cause that
-could accumulate under slow phone reads; the regression test proves the fixed
-bound and the long run tests its loaded behavior.
+1,527,660 KiB, host-process CPU about 6% of one core. It passed the pre-fix
+bounded host checks, but does not measure the backpressure fix, establish its
+post-fix loaded behavior, or prove the process behind the prior systemd cgroup's
+23.9 GiB peak. The prior host was deliberately stopped for an update, not shown
+to have crashed. The reproduced unbounded link-write tail could accumulate
+under slow phone reads; the regression flow test proves the fixed boundary,
+not a post-fix memory ceiling.
 
 ## Side-by-side physical phone probe
 
@@ -205,7 +206,7 @@ uninstall and reinstall **only that dev-ID** for a fresh run. Do not invoke the
 production-ID `yarn perf` command on this phone.
 
 ```bash
-# The probe holds a same-serial flock keeper shared with probeSession in this worktree.
+# The probe holds the fleet same-serial flock keeper shared with probeSession.
 # MUXR_ADDONS_ROOT points at local herdr-files and herdr-attachments checkouts
 # (or install their pinned devDependencies).
 MUXR_ADDONS_ROOT=/path/to/addons node perf/phoneProbe.mjs \
@@ -214,7 +215,9 @@ MUXR_ADDONS_ROOT=/path/to/addons node perf/phoneProbe.mjs \
 # The probe removes only the dev-ID package and its ADB reverse in teardown.
 ```
 
-The lock is worktree-local; do not run another worktree against the same phone.
+The keeper file is `/tmp/fm-phone-<serial>.lock` by default; set
+`FM_PHONE_LOCK_DIR` to an existing shared directory only when every probe
+owner uses the same override.
 The probe runs the real built host/relay against fake Herdr in private state,
 verifies the installed APK's SHA-256 against the supplied candidate, pairs the
 dev-ID release via ADB UI (without Maestro's driver installation), checks connected Home and eight actual terminal surfaces, then samples Android

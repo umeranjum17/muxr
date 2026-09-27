@@ -53,5 +53,4 @@ apps/mobile/sources/components/artifact/preview.bundle.bin
 
 # desktop proof scratch (relay data, logs, pids)
 .desklink-lab/
-/perf/.fm-phone-*.lock
-/perf/.fm-phone-*.lock.active-probe/
+/perf/.active-probe-*.lock/
