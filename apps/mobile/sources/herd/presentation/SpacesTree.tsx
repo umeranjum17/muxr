@@ -18,7 +18,7 @@ import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { agentCounts, buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
 import { agentIdentityLine, agentKindLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -140,13 +140,23 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         ...Typography.mono(),
     },
-    agentCount: {
+    countSummary: {
         marginLeft: 'auto',
         flexShrink: 0,
-        fontSize: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    agentCount: {
+        fontSize: 11,
         lineHeight: 16,
         color: theme.colors.textSecondary,
-        ...Typography.default(),
+        ...Typography.mono(),
+    },
+    countState: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
     },
     agentRow: {
         paddingHorizontal: 16,
@@ -476,6 +486,32 @@ const Chip = React.memo(({ count, word, color }: { count: number; word?: string;
     </View>
 ));
 
+const AgentCountSummary = React.memo(({ counts, includeTotal = true }: {
+    counts: ReturnType<typeof agentCounts>;
+    includeTotal?: boolean;
+}) => {
+    const { theme } = useUnistyles();
+    const spoken = [
+        includeTotal ? t('spacesTree.childAgents', { count: counts.total }) : undefined,
+        counts.needsYou > 0 ? `${counts.needsYou} ${t('spacesTree.needsYou')}` : undefined,
+        counts.working > 0 ? `${counts.working} ${t('spacesTree.working')}` : undefined,
+    ].filter(Boolean).join(', ');
+    return (
+        <View style={stylesheet.countSummary} accessible accessibilityRole="text" accessibilityLabel={spoken}>
+            {includeTotal && <Text style={stylesheet.agentCount}>{t('spacesTree.childAgents', { count: counts.total })}</Text>}
+            {([
+                ['needsYou', theme.colors.status.error],
+                ['working', theme.colors.status.working],
+            ] as const).map(([key, color]) => counts[key] > 0 && (
+                <View key={key} style={stylesheet.countState}>
+                    <StatusDot color={color} size={5} />
+                    <Text style={[stylesheet.agentCount, { color }]}>{counts[key]}</Text>
+                </View>
+            ))}
+        </View>
+    );
+});
+
 const railHidden = {
     accessible: false,
     accessibilityElementsHidden: true,
@@ -619,6 +655,7 @@ const ChildRow = React.memo(({
     const agentPanes = panes.filter((pane) => pane.agentKind !== undefined);
     const singleAgent = agentPanes.length === 1 ? agentPanes[0] : undefined;
     const singleSessionId = singleAgent?.sessionId;
+    const counts = agentCounts([child.workspace]);
     const agentName = childAgentName(child);
     const label = agentName === undefined ? name : `${agentName}, ${name}`;
     const baseName = workspaceName(child.workspace);
@@ -667,6 +704,7 @@ const ChildRow = React.memo(({
                         </Text>
                         <Text numberOfLines={1} style={styles.childLine2}>{line2}</Text>
                     </View>
+                    {counts.total > 1 && (counts.working > 0 || counts.needsYou > 0) && <AgentCountSummary counts={counts} includeTotal={false} />}
                     <StatusDot color={quiet ? theme.colors.status.disconnected : dot.color} isPulsing={dot.pulsing} size={7} />
                 </Pressable>
                 {child.hasChildren && <RowStem depth={depth} />}
@@ -698,7 +736,6 @@ const WorkspaceCard = React.memo(({
     name,
     childNames,
     expanded,
-    agentCount,
     panes,
     childSpaces,
     searchForced,
@@ -718,7 +755,6 @@ const WorkspaceCard = React.memo(({
     name: string;
     childNames: readonly string[];
     expanded: boolean;
-    agentCount: number;
     panes: HerdrTreePane[];
     childSpaces: HerdChildSpace[];
     /** A search holds this card open: its header states that, it does not control it. */
@@ -743,8 +779,9 @@ const WorkspaceCard = React.memo(({
     const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
     const branch = workspace.worktree?.branch;
     const paneCount = workspace.tabs.reduce((count, tab) => count + tab.panes.length, 0);
-    const countLabel = agentCount > 0
-        ? t('spacesTree.childAgents', { count: agentCount })
+    const counts = agentCounts([workspace, ...childSpaces.map((child) => child.workspace)]);
+    const countLabel = counts.total > 0
+        ? t('spacesTree.childAgents', { count: counts.total })
         : paneCount > 0 ? t('spacesTree.shell') : undefined;
     // A folded card summarises its family under its name — count, needs
     // you, working — so attention shows before anything is expanded; open,
@@ -808,7 +845,8 @@ const WorkspaceCard = React.memo(({
                             <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
                         </View>
                     )}
-                    {countLabel !== undefined && <Text numberOfLines={1} style={styles.agentCount}>{countLabel}</Text>}
+                    {counts.total > 0 && <AgentCountSummary counts={counts} />}
+                    {counts.total === 0 && countLabel !== undefined && <Text style={styles.agentCount}>{countLabel}</Text>}
                 </View>
                 {folded && (
                     <View style={[styles.cardHeaderLine, styles.cardHeaderSummary]}>
@@ -1007,7 +1045,6 @@ export const SpacesTree = React.memo(({
                 name={names.get(item.workspace.workspaceId)!}
                 childNames={childNames.get(item.workspace.workspaceId)!}
                 expanded={item.expanded}
-                agentCount={item.agentCount}
                 panes={item.panes}
                 childSpaces={item.children}
                 searchForced={searching && item.children.length > 0}
@@ -1051,6 +1088,7 @@ export const SpacesTree = React.memo(({
                 renderSectionHeader={({ section }) => (
                     <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
                         <SectionLabel>{section.title}</SectionLabel>
+                        {section.key === 'spaces' && !searching && <AgentCountSummary counts={agentCounts(workspaces)} />}
                     </View>
                 )}
                 stickySectionHeadersEnabled={false}

@@ -84,6 +84,20 @@ export function hasAgent(ws: HerdrTreeWorkspace): boolean {
     return ws.tabs.some((tab) => tab.panes.some((pane) => pane.agentKind !== undefined));
 }
 
+/** Count unique Herdr agent routes, including descendants even when their cards are folded. */
+export function agentCounts(workspaces: readonly HerdrTreeWorkspace[]): { total: number; working: number; needsYou: number } {
+    const agents = new Map<string, HerdrTreePane>();
+    for (const ws of workspaces) for (const tab of ws.tabs) for (const pane of tab.panes) {
+        if (pane.agentKind !== undefined && pane.sessionId !== undefined) agents.set(pane.sessionId, pane);
+    }
+    const panes = [...agents.values()];
+    return {
+        total: panes.length,
+        working: panes.filter((pane) => pane.agentStatus === 'working' || pane.agentStatus === 'starting').length,
+        needsYou: panes.filter((pane) => pane.agentStatus === 'blocked' || pane.agentStatus === 'failed').length,
+    };
+}
+
 
 /** Long cwd paths collapse around a midline ellipsis, like a shell prompt. */
 export function middleTruncate(value: string, max = 44): string {
