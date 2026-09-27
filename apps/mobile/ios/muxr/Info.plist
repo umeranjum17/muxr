@@ -84,10 +84,8 @@
     </array>
     <key>NSCameraUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to access your camera to scan pairing QR codes.</string>
-    <key>NSFaceIDUsageDescription</key>
-    <string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>muxr discovers relays on your local network so you can connect without typing addresses.</string>
+    <string>Allow muxr to find your self-hosted computer or relay nearby and connect to it.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Allow $(PRODUCT_NAME) to use your microphone for on-device dictation and, when you choose realtime voice, send audio to the provider configured on your computer.</string>
     <key>NSPhotoLibraryUsageDescription</key>

@@ -74,10 +74,10 @@ See root `CONTEXT.md`. Agent Route authorizes. Agent Name, Task Title, and compu
 - **Hosted Grant**: machine id authorizes transport. No key-version downgrade. Web defaults to observe. Grant, not discovery, owns authority.
 - **TerminalLink**: bounded display formatting for URLs printed by an agent.
 - **Collaboration**: two to six machines, or none. Machine ids authorize.
-- **Connection**: hosted persists an empty machine id for account-only sessions. Local is the explicit dev fixture.
+- **Connection**: `hosted` is the persisted mode for self-hosted link grants, not an operated account; see [the cutover contract](../../../docs/specs/byokit-cutover.md).
 - **Mic Ownership**: dictation, realtime, and VAD never own the mic together.
 - **Realtime Playback**: drain acks bind to Stream Generation. Replacement streams do not ack previous audio.
-- **Account Credential**: independent of Hosted Grant. Empty proof is unavailability. 401 is rejection, not unavailability.
+- **Local session credentials**: see [account/CONTEXT.md](account/CONTEXT.md) for grant storage and clearing.
 
 ## Dependency direction
 

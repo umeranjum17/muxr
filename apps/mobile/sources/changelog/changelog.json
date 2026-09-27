@@ -1,6 +1,29 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.1",
+            "title": "A new private link to your computer",
+            "summary": "muxr now pairs directly with a computer and relay you or someone you trust operates. Update both the phone app and computer, then pair once again; older pairings cannot connect after this change.",
+            "features": [
+                {
+                    "title": "Confirm who you connect to",
+                    "detail": "Scan a fresh pairing QR or paste its link, check the matching words, and approve access to your computer. Your agent activity travels over an end-to-end encrypted link through a self-hosted relay. No muxr account or muxr-operated relay is needed."
+                }
+            ],
+            "fixes": [],
+            "verification": [
+                {
+                    "title": "Final native store candidate",
+                    "status": "not-run",
+                    "detail": "Fresh-device App Store and Play candidate acceptance has not run yet."
+                }
+            ],
+            "knownLimits": [
+                "Pre-cutover phone and computer builds must both update and pair again once.",
+                "A self-hosted computer and relay are required."
+            ]
+        },
+        {
             "appVersion": "0.2.0",
             "title": "Rename anything, and a steadier terminal and Right now",
             "summary": "Rename agents, tabs, panes and spaces from the app, keep the terminal's quick actions while you type, and trust that Right now shows the latest reading.",
