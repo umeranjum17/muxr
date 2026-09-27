@@ -1,7 +1,7 @@
 import { herdPanes } from './herd';
 import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it, vi } from 'vitest';
-import { buildSpaceRows, defaultExpandedSpaces, displayedWorkspaceNames, effectiveExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceCloseMessage, workspaceName, workspaceNames, workspacePath } from './herdTree';
+import { agentCounts, buildSpaceRows, defaultExpandedSpaces, displayedWorkspaceNames, effectiveExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceCloseMessage, workspaceName, workspaceNames, workspacePath } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
 import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
 import { paneMapTiles } from './paneMap';
@@ -18,6 +18,28 @@ const agent = pane('p-a', 'pi', {
 const shell = pane('p-s', undefined, { cwd: '/tmp' });
 
 describe('visible herd tree flow', () => {
+    it('counts unique agents and their live states across folded spaces', () => {
+        const root = ws('root', 'Work', [tab('t1', undefined, [
+            pane('p1', 'pi', { sessionId: 's1', agentStatus: 'working' }),
+            pane('p2', 'pi', { sessionId: 's2', agentStatus: 'blocked' }),
+            shell,
+        ])]);
+        const child = { ...ws('child', 'Task', [tab('t2', undefined, [
+            pane('p3', 'pi', { sessionId: 's3', agentStatus: 'starting' }),
+            pane('p4', 'pi', { sessionId: 's4', agentStatus: 'failed' }),
+            pane('p5', 'pi', { sessionId: 's5', agentStatus: 'done' }),
+            pane('p6', 'pi', { agentStatus: 'working' }),
+        ])]), tokens: { parent: 'root', kind: 'task' } };
+        const elsewhere = ws('elsewhere', 'Other', [tab('t3', undefined, [
+            pane('p7', 'pi', { sessionId: 's6', agentStatus: 'idle' }),
+            pane('p8', 'pi', { sessionId: 's1', agentStatus: 'working' }),
+        ])]);
+        const rows = buildSpaceRows([root, child, elsewhere], new Set(), '');
+        expect(rows[0]).toMatchObject({ expanded: false, agentCount: 2, children: [{}] });
+        expect(agentCounts([root, child])).toEqual({ total: 5, working: 2, needsYou: 2 });
+        expect(agentCounts([child])).toEqual({ total: 3, working: 1, needsYou: 1 });
+        expect(agentCounts([root, child, elsewhere])).toEqual({ total: 6, working: 2, needsYou: 2 });
+    });
     it('expands, collapses, and filters workspace cards without losing shell panes', () => {
         const workspaces = [ws('w1', 'repo-a', [tab('7', 'review', [agent, shell])])];
         const expanded = buildSpaceRows(workspaces, new Set(['w1']), '');
