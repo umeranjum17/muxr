@@ -41,6 +41,26 @@ export function toHerdrRoot(node: LayoutSnapshot, env?: Record<string, string>):
     return { type: 'pane', ...(node.cwd === undefined ? {} : { cwd: node.cwd }), ...(env === undefined ? {} : { env }) };
 }
 
+/** As toHerdrRoot, but each pane carries the env its walk-order position was given. */
+export function toHerdrRootWithEnv(node: LayoutSnapshot, envForPane: (index: number) => Record<string, string> | undefined): HerdrLayoutNode {
+    let index = 0;
+    const walk = (node: LayoutSnapshot): HerdrLayoutNode => {
+        if (node.type === 'split') {
+            return {
+                type: 'split',
+                direction: node.direction,
+                ratio: node.ratio,
+                first: walk(node.first),
+                second: walk(node.second),
+            };
+        }
+        const env = envForPane(index);
+        index += 1;
+        return { type: 'pane', ...(node.cwd === undefined ? {} : { cwd: node.cwd }), ...(env === undefined ? {} : { env }) };
+    };
+    return walk(node);
+}
+
 export function collectKinds(node: LayoutSnapshot, out: (string | undefined)[] = []): (string | undefined)[] {
     if (node.type === 'split') {
         collectKinds(node.first, out);

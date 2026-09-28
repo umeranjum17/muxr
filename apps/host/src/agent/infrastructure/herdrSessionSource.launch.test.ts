@@ -63,6 +63,18 @@ function fakeHerdr(dir: string, cwd: string) {
         };
     };
     const handlePaneClose = () => ({});
+    const handleLayoutApply = (params: Record<string, unknown>) => {
+        const tab_id = `t${next}`;
+        const assign = (node: Record<string, unknown>): Record<string, unknown> => {
+            if (node.type === 'split') {
+                return { ...node, first: assign(node.first as Record<string, unknown>), second: assign(node.second as Record<string, unknown>) };
+            }
+            const pane_id = `w1:p${next++}`;
+            panes.push({ pane_id, tab_id, workspace_id: 'w1', cwd, env: node.env });
+            return { ...node, pane_id };
+        };
+        return { layout: { tab_id, root: assign((params.root ?? {}) as Record<string, unknown>) } };
+    };
     const server = createServer((socket) => {
         let buffer = '';
         socket.on('data', (chunk) => {
@@ -103,6 +115,9 @@ function fakeHerdr(dir: string, cwd: string) {
                     case 'workspace.list':
                         reply = { id, result: handleWorkspaceList() };
                         break;
+                    case 'pane.get':
+                        reply = { id, result: { pane: panes.find((pane) => pane.pane_id === p.pane_id) } };
+                        break;
                     case 'tab.create':
                         reply = { id, result: handleTabCreate(p) };
                         break;
@@ -117,6 +132,9 @@ function fakeHerdr(dir: string, cwd: string) {
                         break;
                     case 'pane.close':
                         reply = { id, result: handlePaneClose() };
+                        break;
+                    case 'layout.apply':
+                        reply = { id, result: handleLayoutApply(p) };
                         break;
                     default:
                         reply = { id, error: { code: 'method_not_found', message: method } };
@@ -263,6 +281,64 @@ describe('a private screen belongs to an agent pane, not a shell pane', () => {
             const agentEnv = (herdr.tabs[1] as { env?: Record<string, string> }).env;
             expect(agentEnv?.DISPLAY).toBe(':110');
             expect(agentEnv?.MUXR_AGENT_CAPABILITIES).toContain('this pane has its own screen');
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});
+
+describe('a restored layout gives its agent panes screens', () => {
+    it('allocates a screen for each restored agent pane and none for shell panes', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-restore-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const allocated: string[] = [];
+        const bound: Array<[string | undefined, string]> = [];
+        const screens = {
+            allocate: async () => {
+                allocated.push(':110');
+                return { display: ':110', env: { DISPLAY: ':110', XAUTHORITY: join(dir, 'auth') } };
+            },
+            bind: (screen: { display?: string } | undefined, paneId: string) => {
+                if (screen !== undefined) bound.push([screen.display, paneId]);
+            },
+            releaseScreen: () => {},
+            release: () => {},
+            releaseMissing: () => {},
+            stop: () => {},
+        } as unknown as PaneScreens;
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+            screens,
+        });
+        try {
+            const host = await source.start({ cwd, kind: 'shell' });
+            if (!('info' in host)) throw new Error('shell rejected');
+            expect(allocated).toEqual([]);
+
+            const applied = await source.layoutApply({
+                sessionId: host.info.id,
+                snapshot: {
+                    type: 'split',
+                    direction: 'right',
+                    ratio: 0.5,
+                    first: { type: 'pane', kind: 'claude' },
+                    second: { type: 'pane' },
+                },
+            });
+            expect(applied.started).toBe(1);
+            expect(allocated).toEqual([':110']);
+            expect(bound).toEqual([[':110', 'w1:p2']]);
+            const agentEnv = herdr.panes.find((pane) => pane.pane_id === 'w1:p2')?.env as Record<string, string> | undefined;
+            const shellEnv = herdr.panes.find((pane) => pane.pane_id === 'w1:p3')?.env as Record<string, string> | undefined;
+            expect(agentEnv?.DISPLAY).toBe(':110');
+            expect(agentEnv?.MUXR_AGENT_CAPABILITIES).toContain('this pane has its own screen');
+            expect(shellEnv?.DISPLAY).toBeUndefined();
         } finally {
             await source.dispose();
             herdr.close();

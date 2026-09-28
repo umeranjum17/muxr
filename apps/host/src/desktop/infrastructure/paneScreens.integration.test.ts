@@ -88,18 +88,25 @@ describe('a private screen per agent pane', () => {
             // flight: it cannot name this pane, and must not retire the screen.
             screens.releaseMissing(new Set(), Date.now() - 10_000);
             expect(screens.screenFor('w1:p1')?.display).toBe(screen.display);
-            // A tree read after it, without the pane, does retire it.
-            screens.releaseMissing(new Set(), Date.now() + 1);
-            expect(screens.screenFor('w1:p1')).toBeUndefined();
-
-            screens.bind(screen, 'w1:p1');
-            // The pane left Herdr's tree: no display, no keeper, no socket.
+            // A tree read after it, without the pane, retires it: no display, no
+            // keeper, no socket.
             const socket = join(sockets, `X${screen.display.slice(1)}`);
-            screens.release('w1:p1');
+            screens.releaseMissing(new Set(), Date.now() + 1);
             expect(existsSync(socket)).toBe(false);
             expect(screens.screenFor('w1:p1')).toBeUndefined();
             expect(screens.windowsFor('w1:p1')).toEqual([]);
-            await waitFor(() => !existsSync(socket));
+
+            // An explicit pane close releases a live bound screen the same way.
+            const second = await screens.allocate();
+            if (second === undefined) throw new Error('no second screen was allocated');
+            const secondSocket = join(sockets, `X${second.display.slice(1)}`);
+            screens.bind(second, 'w1:p2');
+            expect(existsSync(secondSocket)).toBe(true);
+            expect(screens.screenFor('w1:p2')?.display).toBe(second.display);
+            screens.release('w1:p2');
+            expect(existsSync(secondSocket)).toBe(false);
+            expect(screens.screenFor('w1:p2')).toBeUndefined();
+            expect(screens.windowsFor('w1:p2')).toEqual([]);
 
             // The installed 0.1.1 engine lists no keeper mode: no screen, and the
             // one status line, said once however many panes ask.

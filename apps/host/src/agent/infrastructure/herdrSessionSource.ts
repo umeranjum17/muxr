@@ -81,7 +81,7 @@ import {
     collectKinds,
     collectPaneIds,
     neighborId,
-    toHerdrRoot,
+    toHerdrRootWithEnv,
     toSnapshot,
     type HerdrLayoutNode,
 } from '../domain/layout.js';
@@ -3146,30 +3146,48 @@ export async function createHerdrSessionSource(
             const pane = await client.call<{ pane?: { workspace_id?: string } }>('pane.get', {
                 pane_id: record.paneId,
             });
-            const applied = await client.call<{ layout?: { tab_id?: string; root?: HerdrLayoutNode } }>(
-                'layout.apply',
-                {
-                    root: toHerdrRoot(applyOptions.snapshot, MUXR_AGENT_ENV),
-                    ...(pane.pane?.workspace_id === undefined ? {} : { workspace_id: pane.pane.workspace_id }),
-                    ...(applyOptions.label === undefined ? {} : { tab_label: applyOptions.label }),
-                    focus: false,
-                },
-            );
+            // Every restored agent pane brings its own screen into the root, the
+            // way start, pane.split and tab.create give theirs to their pane.
+            const kinds = collectKinds(applyOptions.snapshot);
+            const screensForPanes: (PaneScreen | undefined)[] = [];
+            for (const kind of kinds) {
+                screensForPanes.push(kind === undefined ? undefined : await screens?.allocate());
+            }
+            let applied: { layout?: { tab_id?: string; root?: HerdrLayoutNode } };
+            try {
+                applied = await client.call<{ layout?: { tab_id?: string; root?: HerdrLayoutNode } }>(
+                    'layout.apply',
+                    {
+                        root: toHerdrRootWithEnv(applyOptions.snapshot, (index) => paneEnvironment(screensForPanes[index])),
+                        ...(pane.pane?.workspace_id === undefined ? {} : { workspace_id: pane.pane.workspace_id }),
+                        ...(applyOptions.label === undefined ? {} : { tab_label: applyOptions.label }),
+                        focus: false,
+                    },
+                );
+            } catch (cause) {
+                for (const screen of screensForPanes) screens?.releaseScreen(screen);
+                throw cause;
+            }
             const tabId = applied.layout?.tab_id;
             const appliedRoot = applied.layout?.root;
             if (tabId === undefined || appliedRoot === undefined) {
+                for (const screen of screensForPanes) screens?.releaseScreen(screen);
                 throw new Error('herdr: layout.apply returned no tab');
             }
 
             // apply preserves tree shape, so the two walks line up position for
             // position -- that is how a recorded kind finds its new pane.
-            const kinds = collectKinds(applyOptions.snapshot);
             const newPanes = collectPaneIds(appliedRoot);
             let started = 0;
-            for (let index = 0; index < Math.min(kinds.length, newPanes.length); index += 1) {
+            for (let index = 0; index < kinds.length; index += 1) {
                 const kind = kinds[index];
                 const paneId = newPanes[index];
-                if (kind === undefined || paneId === undefined) continue;
+                const screen = screensForPanes[index];
+                if (kind === undefined || paneId === undefined) {
+                    screens?.releaseScreen(screen);
+                    continue;
+                }
+                screens?.bind(screen, paneId);
                 const name = `pph_${kind}_${paneId.replace(/[^a-z0-9]/gi, '').toLowerCase()}`.slice(0, 32);
                 // Fire and forget: agent.start blocks on detection, and one agent
                 // failing to come up must not lose the rest of the layout.
