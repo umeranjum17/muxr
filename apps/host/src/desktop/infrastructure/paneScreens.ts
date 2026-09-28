@@ -10,8 +10,8 @@ import { authorityEntry, firstFreeDisplayNumber, onPath, removeDisplayFiles, wai
 /**
  * A private screen for one agent pane.
  *
- * Every pane muxr launches through Herdr gets its own cookie-protected Xvfb and
- * the pinned engine's display keeper (K1) on it, so whatever the agent puts on
+ * Every agent pane muxr launches through Herdr gets its own cookie-protected
+ * Xvfb and the pinned engine's display keeper on it, so whatever the agent puts on
  * that screen — a headed browser, a windowed emulator — belongs to that pane.
  * The screen is the evidence that an agent is using a browser, not a claim made
  * by some tool's API, which is what makes it work for every browser tool.
@@ -25,7 +25,7 @@ const XVFB = 'Xvfb';
 const FIRST_NUMBER = 110;
 /** Screens one host keeps alive: past this, a pane gets today's behaviour. */
 export const MAX_PANE_SCREENS = 16;
-/** A desktop viewport; the phone fits it to width and zooms (report §1.3). */
+/** A desktop viewport; the phone fits it to width and zooms. */
 const SCREEN_SIZE = '1280x800x24';
 const START_TIMEOUT_MS = 5000;
 /** How long the keeper must stay up before this host trusts it is installed. */
@@ -36,8 +36,7 @@ const MODE_PROBE_TIMEOUT_MS = 2000;
 const KEEPER_MODE = 'keep';
 /**
  * Headed by default, off Wayland, and painting while occluded: the owner's own
- * browser flags force Wayland, and a background renderer throttles to ~2.5 fps
- * (report §1.2).
+ * browser flags force Wayland, and a background renderer throttles to ~2.5 fps.
  */
 const AGENT_BROWSER_ARGS = [
     '--ozone-platform=x11',
@@ -85,7 +84,7 @@ interface LiveScreen extends PaneScreen {
     boundAt?: number;
 }
 
-/** The variables that put a pane's processes on its own screen (§1.1). */
+/** The variables that put a pane's processes on its own screen. */
 function screenEnv(display: string, authorityFile: string): Record<string, string> {
     return {
         DISPLAY: display,

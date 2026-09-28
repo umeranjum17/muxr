@@ -63,7 +63,7 @@ describe('a private screen per agent pane', () => {
         try {
             const screen = await screens.allocate();
             if (screen === undefined) throw new Error('no screen was allocated');
-            // The variables that keep a browser off the owner's desktop (§1.1).
+            // The variables that keep a browser off the owner's desktop.
             expect(screen.display).toMatch(/^:\d+$/);
             expect(screen.env).toMatchObject({
                 DISPLAY: screen.display,
