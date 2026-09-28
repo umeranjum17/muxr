@@ -14,6 +14,7 @@ let phoneClipboardRead = vi.fn(async () => 'phone');
 let screenWidth = 270;
 let screenHeight = 594;
 let authorize: () => Promise<unknown>;
+const hostRequests: [string, unknown][] = [];
 let reportKeyboardMotion: (motion: { covered: number; phase: number }) => void;
 const appState = vi.hoisted(() => new Set<(state: string) => void>());
 const platform = vi.hoisted(() => ({ OS: 'web' }));
@@ -31,6 +32,7 @@ const session = {
     setOrientation: (mode: string) => { orientation.push(mode); },
     fitToView: () => undefined,
     copyRemoteToLocal: vi.fn(async (): Promise<{ text: string; truncated: boolean }> => ({ text: '', truncated: false })),
+    send: vi.fn((_message: unknown) => { expect(inputEnabled).toBe(true); }),
 };
 
 vi.mock('react-native', () => ({
@@ -54,6 +56,9 @@ vi.mock('react-native-reanimated', () => {
         ReduceMotion: { System: 'system' },
         useAnimatedStyle: (style: () => unknown) => style(),
         useSharedValue: (initial: number) => React.useRef({ value: initial }).current,
+        useReducedMotion: () => false,
+        runOnJS: (fn: unknown) => fn,
+        withSpring: (value: number) => value,
         withTiming: (value: number) => value,
     };
 });
@@ -65,7 +70,7 @@ vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ b
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: {
     text: '', textSecondary: '', surfaceHighest: '', surfacePressed: '',
     glass: { border: '' }, terminalChrome: { cluster: '', clusterPressed: '' },
-    button: { primary: { background: '', tint: '' } },
+    button: { primary: { background: '', tint: '' } }, status: { connected: '', working: '' }, divider: '', surface: '',
 } } }) }));
 vi.mock('expo-router', () => ({ useFocusEffect: (effect: () => void | (() => void)) => React.useEffect(effect, [effect]) }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: 'Icon', MaterialCommunityIcons: 'Icon' }));
@@ -82,10 +87,11 @@ vi.mock('@desklink/react-native', () => ({
         return session;
     },
 }));
+vi.mock('@/components/haptics', () => ({ hapticsSelection: () => undefined }));
 vi.mock('@/components/StyledText', () => ({ Text: 'Text' }));
 vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}), mono: () => ({}) } }));
 vi.mock('@/components/ui', () => ({ ui: { radius: { control: 8 } } }));
-vi.mock('@/catalog', () => ({ sync: { request: async () => ({ clipboard: available }) } }));
+vi.mock('@/catalog', () => ({ sync: { request: async (method: string, params: unknown) => { hostRequests.push([method, params]); return { clipboard: available }; } } }));
 vi.mock('@/catalog/store', () => ({ useLocalSettingMutable: () => [openedBefore, (value: boolean) => { openedBefore = value; }], useMachine: () => null }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId }) }));
 vi.mock('./DesktopKeyRow', () => ({ DesktopKeyRow: 'DesktopKeyRow', DESKTOP_KEY_ROW_HEIGHT: 36 }));
@@ -415,4 +421,55 @@ it('gives the phone its orientation back however Computer is left', async () => 
     } finally {
         platform.OS = 'web';
     }
+});
+
+it("watches an agent's browser, takes control only on a tap, and says when it closes", async () => {
+    session.snapshot.status = 'live';
+    inputEnabled = false;
+    hostRequests.length = 0;
+    const onExit = vi.fn();
+    let view!: ReturnType<typeof TestRenderer.create>;
+    const root = () => view.root as Rendered;
+    const has = (label: string) => root().findAllByProps({ accessibilityLabel: label }).length > 0;
+    const press = async (label: string) => TestRenderer.act(async () => root().findAllByProps({ accessibilityLabel: label }).at(-1)!.props.onPress());
+    const show = async (target: { closed?: boolean; title?: string }) => TestRenderer.act(async () => view.update(
+        <DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser', ...target }} />,
+    ));
+
+    // The desktop's tap never opens the agent's browser, and the other way round.
+    requestDesktop('computer', 'P');
+    session.connect.mockClear();
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser' }} />); });
+    expect(session.connect).not.toHaveBeenCalled();
+    await TestRenderer.act(async () => view.unmount());
+
+    // Watch: it opens that session's own screen, and watching sends nothing.
+    requestDesktop('computer', 'P', true);
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser', title: 'Pricing' }} />); });
+    expect(session.connect).toHaveBeenCalledTimes(1);
+    expect(hostRequests).toContainEqual(['desktop.capabilities', { target: { sessionId: 'P' } }]);
+    expect(inputEnabled).toBe(false);
+    expect(has('Tap to take control')).toBe(true);
+
+    // Back is a deliberate tap: it takes control as it sends Alt+Left.
+    session.send.mockClear();
+    await press('Back');
+    expect(session.send.mock.calls.map(([message]) => message)).toEqual([
+        { kind: 'key', name: 'ArrowLeft', modifiers: ['Alt'], down: true },
+        { kind: 'key', name: 'ArrowLeft', modifiers: ['Alt'], down: false },
+    ]);
+    expect(has('Hand back')).toBe(true);
+    await press('Hand back');
+    expect(inputEnabled).toBe(false);
+    expect(has('Tap to take control')).toBe(true);
+
+    // The agent navigates: the header follows. Then its window goes away.
+    await show({ title: 'Checkout' });
+    expect(has('Browser, Checkout, Live')).toBe(true);
+    await show({ closed: true, title: 'Checkout' });
+    expect(root().findAll((node) => (node.children as unknown[]).includes('The browser closed')).length).toBeGreaterThan(0);
+    expect(has('Tap to take control')).toBe(false);
+    await press('Back to the conversation');
+    expect(onExit).toHaveBeenCalled();
+    await TestRenderer.act(async () => view.unmount());
 });

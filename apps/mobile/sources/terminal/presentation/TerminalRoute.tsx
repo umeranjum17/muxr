@@ -8,7 +8,7 @@ import { agentOnScreen } from '@/watch/lifecycleAlert';
 import { TerminalScreen } from './TerminalScreen';
 
 /** Keep an open terminal on its pane when an agent starts, exits or restarts. */
-export function TerminalRoute({ id, desktop = false }: { id: string; desktop?: boolean }): React.JSX.Element {
+export function TerminalRoute({ id, desktop = false, preview = false }: { id: string; desktop?: boolean; preview?: boolean }): React.JSX.Element {
     const focused = useIsFocused();
     const { workspaces } = useHerdrTree();
     const lifecycleEvents = useLifecycleEvents();
@@ -50,5 +50,5 @@ export function TerminalRoute({ id, desktop = false }: { id: string; desktop?: b
     // A new route needs a fresh native surface/layout callback and channel.
     // Reusing the view resets its attach refs without changing native size,
     // leaving it waiting for a size event that may never happen.
-    return <TerminalScreen key={`${machineId}:${currentId}`} id={currentId} desktop={desktop} />;
+    return <TerminalScreen key={`${machineId}:${currentId}`} id={currentId} desktop={desktop} preview={preview} />;
 }

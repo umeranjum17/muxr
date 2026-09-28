@@ -85,7 +85,7 @@ import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
 import { agentCommands, destructiveCommand, type AgentCommand } from '../domain/agentCommands';
 import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
-import { requestDesktop } from '@/desktop/request';
+import { PREVIEW_DOCK, previewDocks, requestDesktop, type DesktopOrigin } from '@/desktop/request';
 import { FindOutputSheet } from './FindOutputSheet';
 import { PendingChoices } from './PendingChoices';
 import { useTerminalQuickReplies } from '@/plugins/ui';
@@ -141,7 +141,7 @@ function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnis
     return <>{children(theme)}</>;
 }
 
-export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean }) => {
+export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean; preview?: boolean }) => {
     const { width: windowWidth } = useWindowDimensions();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const isFocused = useIsFocused();
@@ -149,7 +149,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [appActive, setAppActive] = React.useState(Platform.OS === 'web' || AppState.currentState === 'active');
     const keepScreenAwake = useLocalSettingMutable('keepScreenAwakeWhileWatching')[0];
     const canControl = authority === 'control' && !authorityLoading;
-    const desktopVisible = props.desktop === true && canControl && isFocused;
+    const computerVisible = props.desktop === true && canControl && isFocused;
     const insets = useSafeAreaInsets();
     // The rail keeps its bottom inset through keyboard motion; its translation
     // cancels that inset as the keyboard opens so the composer is not double-padded.
@@ -192,6 +192,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         transform: [{ translateY: railHeight.value + insets.bottom * railProgress.value + settledRaise.value }],
     }), [insets.bottom]);
     const session = useSession(props.id);
+    // The agent's browser stays on screen as it closes, so the view can say so.
+    const livePreview = session?.metadata?.preview;
+    const lastPreview = React.useRef(livePreview);
+    if (livePreview !== undefined) lastPreview.current = livePreview;
+    const previewShown = props.preview === true && isFocused ? lastPreview.current : undefined;
+    const previewDocked = previewShown !== undefined && previewDocks(Platform.OS === 'web', windowWidth);
+    // Whether a live view covers the conversation; a docked one sits beside it.
+    const desktopVisible = computerVisible || (previewShown !== undefined && !previewDocked);
     const sessions = useSessions();
     const { workspaces, loaded: treeLoaded } = useHerdrTree();
     const storedPane = herdrPaneForSession(workspaces, props.id);
@@ -260,6 +268,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         setActionsOpen(false);
         ringRef.current?.close();
         router.setParams({ desktop: '1' });
+    }, [props.id]);
+    const openPreview = React.useCallback((from?: DesktopOrigin) => {
+        requestDesktop(getCachedConnectionSettings().machineId ?? '', props.id, true, from);
+        Keyboard.dismiss();
+        setActionsOpen(false);
+        ringRef.current?.close();
+        router.setParams({ desktop: 'preview' });
     }, [props.id]);
     const closeDesktop = React.useCallback(() => {
         Keyboard.dismiss();
@@ -1279,7 +1294,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // above the IME, and it measures the gap below itself to do it, so a bar
             // that floats over it gets counted as empty space and lands on the output.
                 return (
-                <Animated.View collapsable={false} style={[{ flex: 1, backgroundColor: props.desktop ? '#000' : theme.colors.terminalChrome.canvas, paddingTop: insets.top }, settledLayout]}>
+                <Animated.View collapsable={false} style={[{ flex: 1, backgroundColor: props.desktop ? '#000' : theme.colors.terminalChrome.canvas, paddingTop: insets.top, paddingRight: previewDocked ? PREVIEW_DOCK.width : 0 }, settledLayout]}>
                     {watchingWorkingAgent && <ActiveAgentWakeLock />}
                     {/* The terminal is dark in both themes, so the system bar
                         above it is too: under a light app theme its clock and
@@ -1775,14 +1790,17 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         The desktop covers the header too, and draws the same header
                         line in its place. It runs to the bottom of the screen and
                         moves itself above the keyboard, with the keyboard. */}
-                    {desktopVisible && <View style={{ position: 'absolute', top: insets.top, left: 0, right: 0, bottom: 0, backgroundColor: '#000', zIndex: 10 }}>
+                    {(computerVisible || previewShown !== undefined) && <View style={{ position: 'absolute', top: insets.top, right: 0, bottom: 0, zIndex: 10, ...(previewDocked ? { width: PREVIEW_DOCK.width } : { left: 0 }), ...(previewShown === undefined ? { backgroundColor: '#000' } : {}) }}>
                         <React.Suspense fallback={<View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator size="small" color={theme.colors.textSecondary} /></View>}>
                             <DesktopSurface
-                                key={props.id}
+                                key={previewShown === undefined ? props.id : `${props.id}:preview`}
                                 sessionId={props.id}
                                 onExit={closeDesktop}
                                 title={contextTitle}
                                 leading={<AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
+                                {...(previewShown === undefined ? {} : {
+                                    target: { sessionId: props.id, kind: previewShown.kind, title: livePreview?.title ?? previewShown.title, closed: livePreview === undefined, viewOnly: !canControl },
+                                })}
                             />
                         </React.Suspense>
                     </View>}
@@ -1832,6 +1850,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="desktop-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>}
+                                    {desktopAvailable && livePreview !== undefined && <Pressable onPress={() => openPreview()} accessibilityRole="button" accessibilityLabel={livePreview.kind === 'android' ? 'Watch Android emulator' : 'Watch browser'}
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name={livePreview.kind === 'android' ? 'logo-android' : 'globe-outline'} size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{livePreview.kind === 'android' ? 'Watch Android emulator' : 'Watch browser'}</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"

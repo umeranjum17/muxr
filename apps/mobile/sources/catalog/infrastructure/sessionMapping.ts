@@ -102,6 +102,7 @@ function sessionMetadataFromInfo(
         ...(info.tabId === undefined || info.tabId === '' ? {} : { tabId: info.tabId }),
         ...(info.tabLabel === undefined || info.tabLabel === '' ? {} : { tabLabel: info.tabLabel }),
         ...(info.spawnedBy === undefined || info.spawnedBy === '' ? {} : { spawnedBy: info.spawnedBy }),
+        ...(info.preview === undefined ? {} : { preview: info.preview }),
         startedBy: 'daemon',
         rigMetadataVersion: 1,
         capabilities: {
