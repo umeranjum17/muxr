@@ -1,5 +1,5 @@
 import { EngineRefused } from '@desklink/host';
-import type { DesktopEvent, PreviewPresence, SessionInfo } from '@muxr/contract';
+import type { DesktopCapabilities, DesktopEvent, PreviewPresence, SessionInfo } from '@muxr/contract';
 
 import { DesktopSessions, type DesktopEngineOptions } from '../infrastructure/desktopSessions.js';
 
@@ -103,7 +103,8 @@ export interface PreviewPresenceTrackerOptions {
 interface PanePresence {
     candidate: { kind: PreviewPresence['kind']; title: string | undefined; firstSeen: number } | undefined;
     announced: PreviewPresence | undefined;
-    timer: ReturnType<typeof setTimeout> | undefined;
+    announceTimer: ReturnType<typeof setTimeout> | undefined;
+    withdrawTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
 /**
@@ -141,30 +142,34 @@ export class PreviewPresenceTracker {
     handleWindows(paneId: string, windows: readonly PreviewScreenWindow[]): boolean {
         let state = this.panes.get(paneId);
         if (state === undefined) {
-            state = { candidate: undefined, announced: undefined, timer: undefined };
+            state = { candidate: undefined, announced: undefined, announceTimer: undefined, withdrawTimer: undefined };
             this.panes.set(paneId, state);
         }
         const found = windows.find((window) => showable(window) && previewKindForClass(window.class) !== undefined);
         const kind = found === undefined ? undefined : previewKindForClass(found.class);
         if (found === undefined || kind === undefined) {
             state.candidate = undefined;
+            if (state.announceTimer !== undefined) {
+                clearTimeout(state.announceTimer);
+                state.announceTimer = undefined;
+            }
             if (state.announced === undefined) return false;
             // Still mapped a moment ago: give a restart the grace period, and
             // withdraw only if nothing comes back.
-            if (state.timer === undefined) {
-                state.timer = setTimeout(() => {
-                    state.timer = undefined;
+            if (state.withdrawTimer === undefined) {
+                state.withdrawTimer = setTimeout(() => {
+                    state.withdrawTimer = undefined;
                     state.announced = undefined;
                     this.emit(paneId);
                 }, this.withdrawAfterMs);
-                state.timer.unref?.();
+                state.withdrawTimer.unref?.();
             }
             return false;
         }
-        if (state.timer !== undefined) {
+        if (state.withdrawTimer !== undefined) {
             // The window came back inside the grace period: still announced.
-            clearTimeout(state.timer);
-            state.timer = undefined;
+            clearTimeout(state.withdrawTimer);
+            state.withdrawTimer = undefined;
         }
         const title = cleanPreviewTitle(found.title, kind);
         const announced = state.announced;
@@ -185,14 +190,15 @@ export class PreviewPresenceTracker {
             : this.now();
         state.candidate = { kind, title, firstSeen };
         if (this.now() - firstSeen < this.announceAfterMs) {
-            if (state.timer === undefined) {
-                const wait = this.announceAfterMs - (this.now() - firstSeen);
-                state.timer = setTimeout(() => {
-                    state.timer = undefined;
-                    this.announce(paneId);
-                }, Math.max(wait, 0));
-                state.timer.unref?.();
-            }
+            // The pending timer always belongs to the current candidate, so a
+            // replacement waits out its own hysteresis from its own first sight.
+            if (state.announceTimer !== undefined) clearTimeout(state.announceTimer);
+            const wait = this.announceAfterMs - (this.now() - firstSeen);
+            state.announceTimer = setTimeout(() => {
+                state.announceTimer = undefined;
+                this.announce(paneId);
+            }, Math.max(wait, 0));
+            state.announceTimer.unref?.();
             return false;
         }
         return this.announce(paneId);
@@ -202,7 +208,8 @@ export class PreviewPresenceTracker {
     release(paneId: string): boolean {
         const state = this.panes.get(paneId);
         if (state === undefined) return false;
-        if (state.timer !== undefined) clearTimeout(state.timer);
+        if (state.announceTimer !== undefined) clearTimeout(state.announceTimer);
+        if (state.withdrawTimer !== undefined) clearTimeout(state.withdrawTimer);
         this.panes.delete(paneId);
         if (state.announced === undefined) return false;
         this.emit(paneId);
@@ -211,8 +218,10 @@ export class PreviewPresenceTracker {
 
     stop(): void {
         for (const state of this.panes.values()) {
-            if (state.timer !== undefined) clearTimeout(state.timer);
-            state.timer = undefined;
+            if (state.announceTimer !== undefined) clearTimeout(state.announceTimer);
+            if (state.withdrawTimer !== undefined) clearTimeout(state.withdrawTimer);
+            state.announceTimer = undefined;
+            state.withdrawTimer = undefined;
         }
     }
 
@@ -303,20 +312,7 @@ export class PreviewDesktops {
 
     async openTarget(sessionId: string, request: DesktopOpenRequest, owner?: DesktopOwner) {
         const { paneId, display } = await this.resolveTarget(sessionId);
-        let entry = this.panes.get(paneId);
-        if (entry === undefined) {
-            const authority = this.screens?.screenFor(paneId)?.env.XAUTHORITY;
-            entry = {
-                desktop: this.makeDesktop({
-                    MUXR_DESKTOP_SOURCE: 'x11',
-                    MUXR_DESKTOP_X11_DISPLAY: display,
-                    ...(authority === undefined ? {} : { XAUTHORITY: authority }),
-                }),
-                lastUsed: Date.now(),
-            };
-            this.panes.set(paneId, entry);
-        }
-        entry.lastUsed = Date.now();
+        const entry = this.paneEntry(paneId, display);
         const opened = await entry.desktop.open(request, owner);
         this.counter += 1;
         const desktopId = `${TARGET_ID_PREFIX}${this.counter.toString(36)}`;
@@ -331,6 +327,31 @@ export class PreviewDesktops {
     /** A client handle from a target open, never a Computer handle. */
     owns(desktopId: string): boolean {
         return desktopId.startsWith(TARGET_ID_PREFIX) && this.targets.has(desktopId);
+    }
+
+    /** The named session's own screen, never the whole desktop. */
+    async capabilitiesFor(sessionId: string): Promise<DesktopCapabilities> {
+        const { paneId, display } = await this.resolveTarget(sessionId);
+        return this.paneEntry(paneId, display).desktop.capabilities();
+    }
+
+    /** The pane's engine wrapper, created on first use and reaped when idle. */
+    private paneEntry(paneId: string, display: string): { desktop: DesktopSessions; lastUsed: number } {
+        let entry = this.panes.get(paneId);
+        if (entry === undefined) {
+            const authority = this.screens?.screenFor(paneId)?.env.XAUTHORITY;
+            entry = {
+                desktop: this.makeDesktop({
+                    MUXR_DESKTOP_SOURCE: 'x11',
+                    MUXR_DESKTOP_X11_DISPLAY: display,
+                    ...(authority === undefined ? {} : { XAUTHORITY: authority }),
+                }),
+                lastUsed: Date.now(),
+            };
+            this.panes.set(paneId, entry);
+        }
+        entry.lastUsed = Date.now();
+        return entry;
     }
 
     private require(desktopId: string): { desktop: DesktopSessions; desktopId: string } {

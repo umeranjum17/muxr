@@ -525,15 +525,16 @@ export class DesktopSessions {
                     },
                     // The engine reaches this host's own screen with its cookie. A
                     // headless host may start that screen after the engine, so
-                    // the engine always carries it there. A pane's engine instead
-                    // carries that pane's cookie and display, which is the only
-                    // way it can open the pane's private screen.
+                    // the engine always carries it there — even when the service
+                    // inherited a cookie for some other display. A pane's engine
+                    // instead carries that pane's cookie and display, which is
+                    // the only way it can open the pane's private screen.
                     {
                         ...process.env,
-                        ...(this.environment.XAUTHORITY !== undefined && this.environment.XAUTHORITY !== ''
-                            ? { XAUTHORITY: this.environment.XAUTHORITY }
-                            : headless(this.environment)
-                                ? { XAUTHORITY: this.virtualDisplay.authorityFile }
+                        ...(headless(this.environment)
+                            ? { XAUTHORITY: this.virtualDisplay.authorityFile }
+                            : this.environment.XAUTHORITY !== undefined && this.environment.XAUTHORITY !== ''
+                                ? { XAUTHORITY: this.environment.XAUTHORITY }
                                 : {}),
                         ...(this.environment.DISPLAY !== undefined && this.environment.DISPLAY !== ''
                             ? { DISPLAY: this.environment.DISPLAY }

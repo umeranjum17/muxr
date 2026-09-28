@@ -736,6 +736,10 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
         });
         const owner = { connectionId: 'c1', deviceId: 'phone-1', isConnected: () => true };
         try {
+            // The probe answers about the pane's own screen, not the whole
+            // desktop: the pane is X11, so input without a clipboard, though
+            // the same engine offers the computer's Wayland desktop both.
+            expect(await preview.capabilitiesFor('sess-1')).toMatchObject({ available: true, input: true, clipboard: false });
             const target = await preview.openTarget('sess-1', { permissions: ['view'] }, owner);
             expect(target.desktopId.startsWith('pv')).toBe(true);
             expect(preview.owns(target.desktopId)).toBe(true);
@@ -771,6 +775,7 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
             // Unknown or unscreened sessions are refused, never shown the desktop.
             await expect(preview.openTarget('sess-9', { permissions: ['view'] }, owner)).rejects.toMatchObject({ code: 'permission-denied' });
             await expect(preview.openTarget('sess-2', { permissions: ['view'] }, owner)).rejects.toMatchObject({ code: 'permission-denied' });
+            await expect(preview.capabilitiesFor('sess-2')).rejects.toMatchObject({ code: 'permission-denied' });
 
             // Revoke ends both: the Computer session and the target session.
             await desktop.revokeDevice('phone-1');
@@ -812,6 +817,18 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
             await new Promise((resolve) => setTimeout(resolve, 45));
             expect(tracker.previewFor('pane-1')).toBeUndefined();
             expect(changed).toEqual(['pane-1', 'pane-1']);
+            // A browser leaves, an emulator maps within the grace period and
+            // quits before its own announce: the browser chip must go with the
+            // last window out, never stick on screen forever.
+            expect(tracker.handleWindows('pane-1', chrome)).toBe(false);
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            expect(tracker.previewFor('pane-1')).toMatchObject({ kind: 'browser' });
+            expect(tracker.handleWindows('pane-1', [])).toBe(false);
+            const emulator = [{ title: 'Android Emulator - Medium_Phone:5554', class: ['Emulator'], width: 400, height: 800 }];
+            expect(tracker.handleWindows('pane-1', emulator)).toBe(false);
+            expect(tracker.handleWindows('pane-1', [])).toBe(false);
+            await new Promise((resolve) => setTimeout(resolve, 45));
+            expect(tracker.previewFor('pane-1')).toBeUndefined();
             // Too small to show, and tools that are not browsers, stay quiet.
             expect(tracker.handleWindows('pane-2', [{ title: 'x', class: ['Google-chrome'], width: 100, height: 100 }])).toBe(false);
             expect(tracker.handleWindows('pane-2', [{ title: 'term', class: ['Alacritty'], width: 800, height: 600 }])).toBe(false);

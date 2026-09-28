@@ -212,8 +212,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'desktop.capabilities': async (params) => {
             if (params.target !== undefined) {
                 // A named screen must resolve before anything is reported about
-                // it; an unknown or unscreened session is refused, never the desktop.
-                await previewOrThrow(options).resolveTarget(params.target.sessionId);
+                // it, and the answer is that screen's, never the desktop's; an
+                // unknown or unscreened session is refused, never the desktop.
+                return previewOrThrow(options).capabilitiesFor(params.target.sessionId);
             }
             if (options.desktop === undefined) {
                 return { available: false, unavailableReason: 'This host has no desktop engine.', input: false, clipboard: false };
