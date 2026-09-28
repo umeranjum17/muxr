@@ -70,6 +70,7 @@ import {
     type RealtimePromptDiagnostic,
 } from './realtimeCoordinator.js';
 import type { HostedMachineKeys } from '../../machine/index.js';
+import type { PaneScreen, PaneScreens } from '../../desktop/index.js';
 
 /** Diagnostics and env identity for the product-owned realtime voice runtime. */
 const VOICE_STREAM_ID = 'voice';
@@ -94,8 +95,16 @@ const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 
 /** Provider-neutral hint inherited by every pane muxr creates through Herdr. */
 export const MUXR_AGENT_ENV = {
-    MUXR_AGENT_CAPABILITIES: "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer. Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.",
+    MUXR_AGENT_CAPABILITIES: "Browser: this pane has its own screen that the user can watch live in muxr and take over. Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11. Check `muxr preview status` before acting in the browser; pause while it says human. Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.",
 } as const;
+
+/**
+ * What a new pane starts with: the agent hints, plus its own screen when this
+ * host could make one. A pane without a screen behaves exactly as before.
+ */
+function paneEnvironment(screen: PaneScreen | undefined): Record<string, string> {
+    return { ...MUXR_AGENT_ENV, ...screen?.env };
+}
 
 /** How long to watch a started Herdr action before reporting it as merely started. */
 const HERDR_ACTION_REPORT_MS = 5_000;
@@ -323,6 +332,8 @@ export interface CreateHerdrSessionSourceOptions {
     hostedE2ee?: HostedMachineKeys;
     /** Issues one revocable capability only to an approved voice.session child. */
     peerBroker?: PeerBroker;
+    /** Private screens: one per agent pane this host launches. */
+    screens?: PaneScreens;
     /** Fan one lifecycle notification out to this machine's link devices (the
      *  byokit relay push); the relay HTTP push above keeps serving pre-link devices. */
     onLinkAttention?: (input: {
@@ -757,6 +768,7 @@ export async function createHerdrSessionSource(
     options: CreateHerdrSessionSourceOptions,
 ): Promise<SessionSource> {
     const socketPath = options.socketPath ?? join(homedir(), '.config', 'herdr', 'herdr.sock');
+    const screens = options.screens;
     const routes = options.routes ?? new AgentRouteStore(options.dataDir);
     await routes.load();
     const catalog = new PluginCatalog();
@@ -1382,7 +1394,7 @@ export async function createHerdrSessionSource(
     }
 
     /** Bind routes to current Herdr generations and remove every vanished generation first. */
-    async function syncDiscovery(): Promise<void> {
+    async function syncDiscovery(treesSince: number): Promise<void> {
         rehydratePendingLaunches();
         adoptPublishedLaunches();
         sweepStaleLaunches();
@@ -1424,6 +1436,8 @@ export async function createHerdrSessionSource(
             lifecycleEpochByPane.delete(paneId);
             if (!panesById.has(paneId)) artifacts.dropPane(paneId);
         }
+        // A pane that left Herdr's tree takes its screen, keeper and socket with it.
+        screens?.releaseMissing(new Set(panesById.keys()), treesSince);
         await routes.flush();
 
         const currentShells = new Set(
@@ -1468,6 +1482,7 @@ export async function createHerdrSessionSource(
     }
 
     async function refreshSnapshotOnce(): Promise<void> {
+        const treesSince = Date.now();
         const lifecycleEpochAtStart = new Map(lifecycleEpochByPane);
         const result = await client.call<{
             snapshot?: {
@@ -1503,7 +1518,7 @@ export async function createHerdrSessionSource(
             workspacesById.set(workspace.workspace_id, workspace);
         }
         for (const tab of result.snapshot?.tabs ?? []) tabsById.set(tab.tab_id, tab);
-        await syncDiscovery();
+        await syncDiscovery(treesSince);
     }
 
     let snapshotInFlight: Promise<void> | undefined;
@@ -1925,6 +1940,7 @@ export async function createHerdrSessionSource(
             };
         };
 
+        const screen = await screens?.allocate();
         let cwd = startOptions.cwd;
         let workspaceId: string | undefined;
         try {
@@ -1956,31 +1972,40 @@ export async function createHerdrSessionSource(
                     const created = await client.call<{ workspace?: { workspace_id: string } }>('workspace.create', {
                         cwd,
                         label: cwd,
-                        env: MUXR_AGENT_ENV,
+                        env: paneEnvironment(screen),
                         focus: false,
                     });
                     workspaceId = created.workspace?.workspace_id;
                 }
             }
         } catch {
+            screens?.releaseScreen(screen);
             return earlyFailure();
         }
-        if (workspaceId === undefined) return earlyFailure();
+        if (workspaceId === undefined) {
+            screens?.releaseScreen(screen);
+            return earlyFailure();
+        }
 
         let tab: { tab?: { tab_id: string }; root_pane?: { pane_id: string } };
         try {
             tab = await client.call('tab.create', {
                 workspace_id: workspaceId,
                 cwd,
-                env: MUXR_AGENT_ENV,
+                env: paneEnvironment(screen),
                 ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
                 focus: false,
             });
         } catch {
+            screens?.releaseScreen(screen);
             return earlyFailure();
         }
         const paneId = tab.root_pane?.pane_id;
-        if (paneId === undefined || tab.tab?.tab_id === undefined) return earlyFailure();
+        if (paneId === undefined || tab.tab?.tab_id === undefined) {
+            screens?.releaseScreen(screen);
+            return earlyFailure();
+        }
+        screens?.bind(screen, paneId);
 
         if (kind === 'shell') {
             await refreshSnapshot();
@@ -2937,14 +2962,25 @@ export async function createHerdrSessionSource(
             kind?: string;
         }): Promise<{ paneId: string; sessionId?: string }> {
             const record = await resolvePane(splitOptions.sessionId);
-            const result = await client.call<{ pane?: { pane_id?: string } }>('pane.split', {
-                direction: splitOptions.direction,
-                target_pane_id: record.paneId,
-                env: MUXR_AGENT_ENV,
-                focus: false,
-            });
+            const screen = await screens?.allocate();
+            let result: { pane?: { pane_id?: string } };
+            try {
+                result = await client.call<{ pane?: { pane_id?: string } }>('pane.split', {
+                    direction: splitOptions.direction,
+                    target_pane_id: record.paneId,
+                    env: paneEnvironment(screen),
+                    focus: false,
+                });
+            } catch (error) {
+                screens?.releaseScreen(screen);
+                throw error;
+            }
             const newPaneId = result.pane?.pane_id;
-            if (newPaneId === undefined) throw new Error('herdr: pane.split returned no pane');
+            if (newPaneId === undefined) {
+                screens?.releaseScreen(screen);
+                throw new Error('herdr: pane.split returned no pane');
+            }
+            screens?.bind(screen, newPaneId);
             if (splitOptions.kind === undefined) {
                 await refreshSnapshot();
                 return { paneId: newPaneId, sessionId: shellRoute(newPaneId) };
@@ -3200,12 +3236,23 @@ export async function createHerdrSessionSource(
             const cwd = cwdForSession(sessionId);
             if (workspaceId === undefined || cwd === undefined) throw new Error('herdr: session has no workspace');
             const requestedLabel = options.label?.trim();
-            const tab = await client.call<{ tab?: { tab_id: string }; root_pane?: { pane_id: string } }>(
-                'tab.create',
-                { workspace_id: workspaceId, cwd, env: MUXR_AGENT_ENV, ...(requestedLabel === undefined ? {} : { label: requestedLabel }), focus: false },
-            );
+            const screen = await screens?.allocate();
+            let tab: { tab?: { tab_id: string }; root_pane?: { pane_id: string } };
+            try {
+                tab = await client.call<{ tab?: { tab_id: string }; root_pane?: { pane_id: string } }>(
+                    'tab.create',
+                    { workspace_id: workspaceId, cwd, env: paneEnvironment(screen), ...(requestedLabel === undefined ? {} : { label: requestedLabel }), focus: false },
+                );
+            } catch (error) {
+                screens?.releaseScreen(screen);
+                throw error;
+            }
             const paneId = tab.root_pane?.pane_id;
-            if (paneId === undefined || tab.tab?.tab_id === undefined) throw new Error('herdr: tab.create returned no root pane');
+            if (paneId === undefined || tab.tab?.tab_id === undefined) {
+                screens?.releaseScreen(screen);
+                throw new Error('herdr: tab.create returned no root pane');
+            }
+            screens?.bind(screen, paneId);
             if (options.kind === undefined) {
                 await refreshSnapshot();
                 emitState(shellRoute(paneId));
