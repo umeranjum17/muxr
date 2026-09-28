@@ -127,5 +127,7 @@ it('recounts the whole machine within the pass that spots a rewritten transcript
     await ledger.refresh();
     const rows = ledger.snapshot().rows;
     expect(rows.find((row) => row.harness === 'pi')).toBeDefined();
-    expect(rows.some((row) => row.harness === 'claude' && row.input === 20)).toBe(true);
+    // Rows are hourly buckets, so the rewritten record lands beside whatever
+    // else shares its hour: the record is counted, not a row named after it.
+    expect(rows.filter((row) => row.harness === 'claude').reduce((sum, row) => sum + row.input, 0)).toBe(30);
 });

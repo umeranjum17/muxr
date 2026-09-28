@@ -852,11 +852,13 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     // earn no tab. While a first count runs, every harness whose store is on
     // this machine holds its tab, so the strip does not reshuffle when it
     // lands; a harness whose store failed keeps its tab when installed, so
-    // its honest reason has somewhere to show.
+    // its honest reason has somewhere to show -- and the same for an agent
+    // the daily backend measures when its scan failed.
     const providerIds = [...new Set([
         ...rows.filter((row) => total(row) > 0).map((row) => row.harness),
         ...(counting ? snapshot.present : []),
         ...Object.keys(failures).filter((agent) => installed.includes(agent)),
+        ...(extrasAnswer.failure !== undefined ? [...CCUSAGE_AGENTS].filter((agent) => installed.includes(agent)) : []),
         ...planConnected,
         ...(codex.length > 0 ? ['codex'] : []),
     ])]

@@ -33,7 +33,7 @@ function provider(url: string, init?: RequestInit): Promise<Response> {
     return health === 'slow' ? new Promise((resolve) => setTimeout(() => resolve(answer()), 3_000)) : Promise.resolve(answer());
 }
 
-afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); health = 'up'; });
+afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); vi.useRealTimers(); health = 'up'; });
 
 it('keeps the aged Claude plan while its token expires and reads Claude Code renewal', async () => {
     const fetch = vi.fn(provider);
@@ -122,6 +122,37 @@ it('keeps every plan on the card through failed reads and paints the last good r
     expect(landed.refreshing).toBeUndefined();
     expect(landed.capturedAt).not.toBe(restarted.capturedAt);
     expect(plans(landed)).toEqual(['claude', 'zai']);
+}, 20_000);
+
+it('keeps an agent its tab and names the scan failure once its measured days age out', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'muxr-usage-'));
+    const bin = join(home, 'bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'kimi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const scanOk = join(home, 'scan-ok');
+    const backend = join(bin, 'ccusage-backend');
+    writeFileSync(backend, `#!/bin/sh\nif [ -f ${scanOk} ]; then printf '{"daily":[{"period":"%s","agents":[{"agent":"kimi","totalTokens":1240,"totalCost":0.5,"modelBreakdowns":[{"modelName":"kimi-latest","inputTokens":1200,"outputTokens":40,"cacheReadTokens":0,"cacheCreationTokens":0,"cost":0.5}]}]}]}' "$(date +%F)"; echo; else exit 1; fi\n`, { mode: 0o755 });
+    const env: NodeJS.ProcessEnv = { HOME: home, PATH: bin, MUXR_HOME: join(home, 'muxr'), MUXR_CCUSAGE_BIN: backend };
+    const { collectUsage } = await import('./collectUsage.js');
+
+    writeFileSync(scanOk, '');
+    const measured = await collectUsage({ refresh: true }, env);
+    expect(measured.provider).toBe('kimi');
+    expect(measured.todayTokens).toBe('1.2K');
+
+    // A day and an hour on, every scan still fails: past the 24h honesty cap
+    // the measured figures give way, and the tab stays so the honest reason --
+    // not "no supported providers" -- has somewhere to show.
+    rmSync(scanOk);
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 25 * 3_600_000);
+    const aged = await collectUsage({ refresh: true }, env);
+    expect(aged.providers.map(({ id }) => id)).toContain('kimi');
+    expect(aged.provider).toBe('kimi');
+    expect(aged.todayTokens).toBe('\u2014');
+    expect(aged.activity?.state).toBe('unavailable');
+    expect(aged.activity?.reason).toMatch(/reopen Usage in a minute/);
+    expect(aged.noProviders).toBeUndefined();
 }, 20_000);
 
 it('answers the card and every Usage tab from one collection, and never lends a plan to an aggregator', async () => {
