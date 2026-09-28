@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -74,16 +74,11 @@ it('keeps the aged Claude plan while its token expires and reads Claude Code ren
 it('never answers with a cached day older than the plan readings stored since', async () => {
     vi.stubGlobal('fetch', vi.fn(provider));
     const env = host();
-    const activity = join(env.HOME!, 'ccusage');
-    writeFileSync(activity, '#!/bin/sh\necho \'{"daily":[],"session":[]}\'\n', { mode: 0o755 });
-    env.MUXR_CCUSAGE_BIN = activity;
     const { usageNow } = await import('./usageNow.js');
     const cached = await usageNow(env, { refresh: true });
 
-    // Two minutes on, local activity cannot be measured: the collection reads
-    // every plan again, but the day's cached payload cannot be replaced.
+    // Two minutes on, a forced read collects every plan again.
     env.MUXR_USAGE_NOW = new Date(Date.now() + 120_000).toISOString();
-    writeFileSync(activity, '#!/bin/sh\nexit 1\n');
     const fresh = await usageNow(env, { refresh: true });
     expect(fresh.capturedAt).not.toBe(cached.capturedAt);
 
@@ -129,125 +124,57 @@ it('keeps every plan on the card through failed reads and paints the last good r
     expect(plans(landed)).toEqual(['claude', 'zai']);
 }, 20_000);
 
-it('answers the card and every Usage tab from one collection, however many readers ask', async () => {
+it('answers the card and every Usage tab from one collection, and never lends a plan to an aggregator', async () => {
     const fetch = vi.fn(provider);
     vi.stubGlobal('fetch', fetch);
     const env = host();
-    // Local activity the tab's report can carry, measured the way ccusage
-    // measures it: one agent, one day, one model.
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const activity = join(env.HOME!, 'ccusage');
-    writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${today}","agents":[{"agent":"opencode","totalTokens":1234,"totalCost":0.5,"modelBreakdowns":[{"modelName":"go-model","inputTokens":1000,"outputTokens":200,"cacheCreationTokens":0,"cacheReadTokens":34}]}]}],"session":[]}'\n`, { mode: 0o755 });
-    env.MUXR_CCUSAGE_BIN = activity;
+    // Pi routed today's work to Z.ai and to Anthropic through an API key: two
+    // providers, and Pi itself holds no plan.
+    const sessions = join(env.PI_AGENT_DIR!, 'sessions', '--project--');
+    mkdirSync(sessions, { recursive: true });
+    const at = new Date(Date.now() - 60_000).toISOString();
+    const turn = (id: string, provider: string, model: string, input: number) => JSON.stringify({
+        type: 'message', id, timestamp: at,
+        message: { role: 'assistant', provider, model, usage: { input, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: input + 10, cost: { total: 0.01 } } },
+    });
+    writeFileSync(join(sessions, 'a.jsonl'), `${turn('1', 'zai', 'glm-flash', 990)}\n${turn('2', 'anthropic', 'claude-sonnet', 190)}\n`);
     const { collectUsage } = await import('./collectUsage.js');
+    const { usageNow } = await import('./usageNow.js');
 
     // The card's ask and a Usage tab's ask landing together -- the tap from
     // the card into the screen -- cost one collection, not one per reader.
-    // The tab's answer carries the whole report, activity included.
     health = 'slow';
-    const [now_, report] = await Promise.all([
-        collectUsage({ refresh: true }, env),
-        collectUsage({ provider: 'opencode', refresh: true }, env),
+    const [card, report] = await Promise.all([
+        usageNow(env, { refresh: true }),
+        collectUsage({ provider: 'pi', refresh: true }, env),
     ]);
     const reads = fetch.mock.calls.length;
     expect(reads).toBe(2);
-    expect(now_.capturedAt).toBe(report.capturedAt);
-    expect(report.provider).toBe('opencode');
-    expect(report.providers.map(({ id }) => id)).toContain('opencode');
+    expect(card.capturedAt).toBe(report.capturedAt);
+    expect(report.provider).toBe('pi');
     expect(report.todayTokens).toBe('1.2K');
-    expect(report.modelSeries.map(({ label }) => label)).toEqual(['go-model']);
-    expect(existsSync(join(env.MUXR_HOME!, 'usage', 'usage-v2-all.json'))).toBe(false);
+    // No borrowed plan: the card still shows the machine's tightest window,
+    // while Pi's own limits are empty and each route speaks for its provider.
+    expect(card.limits.windows).toHaveLength(1);
+    expect(report.limits.windows).toEqual([]);
+    expect(report.limits.plan).toBeUndefined();
+    const routes = report.activity?.routes ?? [];
+    expect(routes.map(({ id, today }) => [id, today])).toEqual([['zai', 1000], ['anthropic', 200]]);
+    expect(routes[0]?.plan).toBe('Z.ai plan');
+    expect(routes[1]?.windows).toBeUndefined();
 
-    const other = await collectUsage({ provider: 'claude' }, env);
+    // The Z.ai plan tab sees the traffic that spent it, and who sent it.
+    const zai = await collectUsage({ provider: 'zai' }, env);
     expect(fetch.mock.calls).toHaveLength(reads);
-    expect(other.capturedAt).toBe(report.capturedAt);
-    expect(other.windows).toEqual(now_.windows);
+    expect(zai.capturedAt).toBe(report.capturedAt);
+    expect(zai.todayTokens).toBe('1.0K');
+    expect(zai.activity?.sources?.map(({ id, week }) => [id, week])).toEqual([['pi', 1000]]);
 
     env.MUXR_USAGE_NOW = new Date(Date.now() + 61_000).toISOString();
     const [staleCard, staleTab] = await Promise.all([
-        collectUsage({}, env), collectUsage({ provider: 'opencode' }, env),
+        collectUsage({}, env), collectUsage({ provider: 'pi' }, env),
     ]);
     expect(staleCard.capturedAt).toBe(staleTab.capturedAt);
     expect(staleCard.capturedAt).not.toBe(report.capturedAt);
     expect(fetch.mock.calls).toHaveLength(reads + 2);
-    await collectUsage({ provider: 'claude' }, env);
-    expect(fetch.mock.calls).toHaveLength(reads + 2);
-}, 20_000);
-
-it('persists a measured default OpenCode report only when its resolved plan is available', async () => {
-    const env = host();
-    rmSync(join(env.CLAUDE_CONFIG_DIR!, '.credentials.json'));
-    rmSync(join(env.PI_AGENT_DIR!, 'auth.json'));
-    const today = new Date().toLocaleDateString('sv-SE');
-    const activity = join(env.HOME!, 'ccusage');
-    writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${today}","agents":[{"agent":"opencode","totalTokens":1234}]}],"session":[{"agent":"opencode","totalTokens":1234,"metadata":{"lastActivity":"${new Date(Date.now() - 1_000).toISOString()}"}}]}'\n`, { mode: 0o755 });
-    env.MUXR_CCUSAGE_BIN = activity;
-    const brokenDb = join(env.HOME!, 'broken.db');
-    writeFileSync(brokenDb, 'not a database');
-    env.OPENCODE_DB = brokenDb;
-    const { collectUsage } = await import('./collectUsage.js');
-    const cache = join(env.MUXR_HOME!, 'usage', 'usage-v2-all.json');
-    const missingPlan = await collectUsage({ report: true, refresh: true }, env);
-    expect(missingPlan.provider).toBe('opencode');
-    expect(missingPlan.todayTokens).toBe('1.2K');
-    expect(existsSync(cache)).toBe(false);
-
-    env.OPENCODE_AUTH_CONTENT = JSON.stringify({ 'opencode-go': { type: 'api', key: 'go-token' } });
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(Response.json({ usage: {
-        rolling: { percent: 20, status: 'ok', resetsAt: new Date(Date.now() + 3_600_000).toISOString() },
-    } }))));
-    const measured = await collectUsage({ report: true, refresh: true }, env);
-    expect(measured.provider).toBe('opencode');
-    expect(measured.todayTokens).toBe('1.2K');
-    expect(measured.windows).toHaveLength(1);
-    expect(JSON.parse(readFileSync(cache, 'utf8')).output.todayTokens).toBe('1.2K');
-
-    vi.resetModules();
-    const { collectUsage: restarted } = await import('./collectUsage.js');
-    env.MUXR_USAGE_NOW = new Date(Date.now() + 30_000).toISOString();
-    const coldReport = await restarted({ report: true }, env);
-    const coldCard = await restarted({}, env);
-    expect(coldReport.capturedAt).not.toBe(measured.capturedAt);
-    expect(coldCard.capturedAt).toBe(coldReport.capturedAt);
-    expect(coldReport.todayTokens).toBe('1.2K');
-}, 20_000);
-
-it('keeps a completed activity-only scan for card follow-ups without writing all agents to disk', async () => {
-    const env = host();
-    rmSync(join(env.CLAUDE_CONFIG_DIR!, '.credentials.json'));
-    rmSync(join(env.PI_AGENT_DIR!, 'auth.json'));
-    const activity = join(env.HOME!, 'ccusage');
-    const firstDay = new Date();
-    firstDay.setHours(12, 0, 0, 0);
-    env.MUXR_USAGE_NOW = firstDay.toISOString();
-    const today = `${firstDay.getFullYear()}-${String(firstDay.getMonth() + 1).padStart(2, '0')}-${String(firstDay.getDate()).padStart(2, '0')}`;
-    writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${today}","agents":[{"agent":"opencode","totalTokens":1234}]}],"session":[]}'\n`, { mode: 0o755 });
-    env.MUXR_CCUSAGE_BIN = activity;
-    const { collectUsage } = await import('./collectUsage.js');
-    const first = await collectUsage({ refresh: true }, env);
-    writeFileSync(activity, '#!/bin/sh\nexit 1\n');
-    const next = await collectUsage({}, env);
-    expect(next.capturedAt).toBe(first.capturedAt);
-    expect(next.providers.map(({ id }) => id)).toContain('opencode');
-    expect(existsSync(join(env.MUXR_HOME!, 'usage', 'usage-v2-all.json'))).toBe(false);
-
-    const followingDay = new Date(firstDay);
-    followingDay.setDate(followingDay.getDate() + 1);
-    env.MUXR_USAGE_NOW = followingDay.toISOString();
-    const nextDate = `${followingDay.getFullYear()}-${String(followingDay.getMonth() + 1).padStart(2, '0')}-${String(followingDay.getDate()).padStart(2, '0')}`;
-    writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${nextDate}","agents":[{"agent":"opencode","totalTokens":1234}]}],"session":[]}'\n`, { mode: 0o755 });
-    await collectUsage({ refresh: true }, env);
-    env.MUXR_USAGE_NOW = new Date(firstDay.getTime() + 1_000).toISOString();
-    writeFileSync(activity, '#!/bin/sh\nexit 1\n');
-    const revisited = await collectUsage({}, env);
-    expect(revisited.capturedAt).not.toBe(first.capturedAt);
-
-    env.MUXR_USAGE_NOW = new Date(firstDay.getTime() + 1_000).toISOString();
-    writeFileSync(activity, `#!/bin/sh\necho '{"daily":[{"period":"${today}","agents":[{"agent":"opencode","totalTokens":1234}]}],"session":[]}'\n`, { mode: 0o755 });
-    const refreshed = await collectUsage({ refresh: true }, env);
-    env.MUXR_USAGE_NOW = new Date(firstDay.getTime() + 2_000).toISOString();
-    writeFileSync(activity, '#!/bin/sh\nexit 1\n');
-    const cached = await collectUsage({}, env);
-    expect(cached.capturedAt).toBe(refreshed.capturedAt);
 }, 20_000);

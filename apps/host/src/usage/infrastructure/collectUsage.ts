@@ -1,8 +1,9 @@
 /**
  * Usage collection: local measured activity, connected plan quota windows and
  * provider tab selection for the Usage screen and the Home "Right now" card.
- * Host product code -- provider environment access stays internal to the host,
- * and the pinned offline ccusage backend stays the measured-activity source.
+ * Host product code -- provider environment access stays internal to the host.
+ * Measured activity comes from the token ledger reading each harness's own
+ * store; the pinned offline ccusage backend covers the remaining agents.
  */
 import { scryptSync } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -10,13 +11,14 @@ import { accessSync, chmodSync, constants, mkdirSync, readFileSync, renameSync, 
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import type { UsageConnectedProvider, UsageReport, UsageSeriesPoint, UsageWindowViewModel } from '@muxr/contract';
+import type { UsageActivity, UsageConnectedProvider, UsageReport, UsageSeriesPoint } from '@muxr/contract';
 import {
-    activityTotals, claudeWindows, codexWindows, goWindows, limitsPayload, localActivityForModels,
-    NOT_CONNECTED_MESSAGE, providerModelIds, tightestWindow, zaiWindows,
-    type UsageDayRow, type UsageWindowVM,
+    claudeWindows, codexWindows, goWindows, limitsPayload,
+    NOT_CONNECTED_MESSAGE, tightestWindow, zaiWindows,
+    type UsageWindowVM,
 } from '../domain/usageWindows.js';
-import { collectLocalUsage, piAgentDir, type LocalAgentReport } from './localUsage.js';
+import { AGGREGATORS, rowPlan, tabActivity, total, type LedgerRow, type PlanId, type PlanLimits } from '../domain/activity.js';
+import { LEDGER_DAYS, ledgerFor, ledgerRoots, localHour, piAgentDir } from './tokenLedger.js';
 
 /** Which provider tab the screen asked for; empty means most recently used. */
 const MAX_PROVIDER_INPUT = 32;
@@ -30,7 +32,10 @@ const AGENTS: Record<string, string> = {
     copilot: 'GitHub Copilot CLI', gemini: 'Gemini CLI', grok: 'xAI Grok', cursor: 'Cursor', omp: 'OMP',
     devin: 'Devin', agy: 'Antigravity', cline: 'Cline', mastracode: 'Mastra Code', kiro: 'Kiro', qodercli: 'Qoder', maki: 'Maki',
 };
-const CCUSAGE_AGENTS = new Set(['claude', 'codex', 'opencode', 'amp', 'droid', 'codebuff', 'hermes', 'pi', 'goose', 'openclaw', 'kilo', 'kimi', 'qwen', 'copilot', 'gemini', 'grok']);
+/** Harnesses the token ledger reads from their own stores. */
+const LEDGER_AGENTS = new Set(['pi', 'omp', 'claude', 'codex', 'opencode']);
+/** Agents only the pinned daily backend can measure. */
+const CCUSAGE_AGENTS = new Set(['amp', 'droid', 'codebuff', 'hermes', 'goose', 'openclaw', 'kilo', 'kimi', 'qwen', 'copilot', 'gemini', 'grok']);
 const AGENT_COMMANDS: Record<string, string> = { ...Object.fromEntries(Object.keys(AGENTS).map((agent) => [agent, agent])), cursor: 'cursor-agent' };
 const COMMAND_ALIASES: Record<string, string[]> = {
     kilo: ['kilo', 'kilocode'], cursor: ['cursor-agent'], copilot: ['copilot', 'github-copilot'],
@@ -109,6 +114,13 @@ function runJson<T = unknown>(command: string, args: string[], timeout = 8_000):
 }
 
 const RANGE_DAYS = 7;
+/** A first ledger count on a large machine takes a while; past this the
+ *  collection answers without it and the next ask picks it up. */
+const LEDGER_WAIT_MS = 8_000;
+const EXTRAS_WAIT_MS = 8_000;
+/** The daily backend rereads every store it knows, so its answer is kept
+ *  this long rather than paid for on every collection. */
+const EXTRAS_REUSE_MS = 10 * 60_000;
 
 function nowDate(env: NodeJS.ProcessEnv): Date {
     const raw = env.MUXR_USAGE_NOW;
@@ -123,12 +135,12 @@ function localDate(at: Date): string {
     return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
 }
 
-/** The window we report, oldest first, always ending on today. */
-function windowPeriods(origin: Date): string[] {
+/** The last `days` local dates, oldest first, always ending on today. */
+function windowPeriods(origin: Date, days = RANGE_DAYS): string[] {
     // Local midnight, then setDate — fixed 86_400_000 ms skips a DST spring-forward day.
-    return Array.from({ length: RANGE_DAYS }, (_, index) => {
+    return Array.from({ length: days }, (_, index) => {
         const at = new Date(origin.getFullYear(), origin.getMonth(), origin.getDate());
-        at.setDate(at.getDate() - (RANGE_DAYS - 1 - index));
+        at.setDate(at.getDate() - (days - 1 - index));
         return localDate(at);
     });
 }
@@ -139,15 +151,32 @@ interface CcusageRange {
 }
 
 /**
- * One report covers every provider and every day on screen. Asking per tab
- * would re-read the same session logs once per provider.
+ * One report covers every agent the ledger does not read, over the whole
+ * window. Asking per tab would re-read the same session logs once per agent.
  */
-async function ccusageRange(env: NodeJS.ProcessEnv): Promise<{ range?: CcusageRange; failure?: string }> {
+async function ccusageRange(env: NodeJS.ProcessEnv, since: string): Promise<{ range?: CcusageRange; failure?: string }> {
     const { binary, failure } = ccusageBinary(env);
     if (binary === undefined) return failure === undefined ? {} : { failure };
-    const result = await runJson<CcusageRange>(binary, ['daily', '--by-agent', '--sections', 'daily,session', '--json', '--offline'], 10_000);
+    const result = await runJson<CcusageRange>(binary, ['daily', '--by-agent', '--sections', 'daily,session', '--json', '--offline', '--since', since], 120_000);
     if (!Array.isArray(result?.daily)) return { failure: 'Local activity unavailable · reopen Usage in a minute' };
     return { range: result };
+}
+
+let extras: { at: number; key: string; answer: Promise<{ range?: CcusageRange; failure?: string }>; settled?: { range?: CcusageRange; failure?: string } } | undefined;
+
+/** The daily backend's answer, only when an agent it alone measures is
+ *  installed, reused for a while, and never waited on past `EXTRAS_WAIT_MS`. */
+async function extrasRange(env: NodeJS.ProcessEnv, since: string): Promise<{ range?: CcusageRange; failure?: string; counting?: true }> {
+    if (![...CCUSAGE_AGENTS].some((agent) => installedAgent(agent, AGENT_COMMANDS[agent] ?? agent, env))) return {};
+    const key = `${env.MUXR_CCUSAGE_BIN ?? ''}\u0000${since}`;
+    if (extras === undefined || extras.key !== key || Date.now() - extras.at > EXTRAS_REUSE_MS) {
+        const next: NonNullable<typeof extras> = { at: Date.now(), key, answer: ccusageRange(env, since) };
+        void next.answer.then((answer) => { next.settled = answer; });
+        extras = next;
+    }
+    const current = extras;
+    const answer = await Promise.race([current.answer, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), EXTRAS_WAIT_MS).unref(); })]);
+    return answer ?? { counting: true };
 }
 
 function readJson(path: string, maxBytes: number): { value: unknown; modified: number } | undefined {
@@ -308,15 +337,6 @@ function zaiToken(env: NodeJS.ProcessEnv): string | undefined {
     return token;
 }
 
-/** The models Pi routes through Z.ai, from Pi's own model registries. */
-function zaiModels(env: NodeJS.ProcessEnv): Set<string> {
-    const dir = piAgentDir(env);
-    return new Set([
-        ...providerModelIds(readJson(join(dir, 'models.json'), 256 * 1024)?.value, 'zai'),
-        ...providerModelIds(readJson(join(dir, 'models-store.json'), 256 * 1024)?.value, 'zai'),
-    ]);
-}
-
 async function zaiPlanLimits(env: NodeJS.ProcessEnv): Promise<PlanOutcome> {
     const token = zaiToken(env);
     if (token === undefined) return { label: 'Z.ai limits unavailable · connect Z.ai in Pi' };
@@ -353,39 +373,50 @@ function dayLabel(period: string): string {
 }
 
 /**
- * agent -> one entry per day of the window, so every tab reads from one report.
- * Days are placed by date rather than by position: ccusage omits days with no
- * activity, so trusting its order would slide an older day into today's slot
- * and report stale totals as current.
+ * The daily backend's rows as ledger rows: one per agent, model and day, at
+ * the day's first hour (the backend records no hours). Only agents the
+ * ledger does not read: its own rows for those would count them twice.
  */
-function byAgent(result: CcusageRange | undefined, periods: string[]): Map<string, UsageDayRow[]> {
-    const slots = new Map(periods.map((period, index) => [period, index]));
-    const agents = new Map<string, UsageDayRow[]>();
+function extrasRows(result: CcusageRange | undefined, periods: Set<string>): LedgerRow[] {
+    const rows: LedgerRow[] = [];
     for (const day of Array.isArray(result?.daily) ? result!.daily as unknown[] : []) {
         const entry = isRecord(day) ? day : {};
-        const index = slots.get(String(entry.period ?? ''));
-        if (index === undefined) continue;
+        const period = String(entry.period ?? '');
+        if (!periods.has(period)) continue;
         for (const row of Array.isArray(entry.agents) ? entry.agents.slice(0, 32) : []) {
             if (!isRecord(row)) continue;
             const agent = String(row.agent ?? '');
-            if (!CCUSAGE_AGENTS.has(agent) || !Number.isSafeInteger(row.totalTokens) || (row.totalTokens as number) < 0) continue;
-            const days = agents.get(agent) ?? periods.map((period) => ({ period, row: undefined }));
-            days[index] = { period: periods[index]!, row: row as unknown as NonNullable<UsageDayRow['row']> };
-            agents.set(agent, days);
+            if (!CCUSAGE_AGENTS.has(agent)) continue;
+            const breakdowns = Array.isArray(row.modelBreakdowns) ? row.modelBreakdowns.filter(isRecord) : [];
+            const base = { harness: agent, route: agent, hour: `${period}T00`, latest: 0 };
+            let counted = 0;
+            for (const model of breakdowns.slice(0, 16)) {
+                const counts = {
+                    input: safeCount(model.inputTokens), output: safeCount(model.outputTokens),
+                    cacheRead: safeCount(model.cacheReadTokens), cacheWrite: safeCount(model.cacheCreationTokens),
+                };
+                if (total(counts) === 0) continue;
+                counted += total(counts);
+                const cost = typeof model.cost === 'number' && Number.isFinite(model.cost) ? Math.max(0, model.cost) : undefined;
+                rows.push({
+                    ...base, model: String(model.modelName ?? 'unknown').replace(/[^\x20-\x7e]+/g, ' ').trim().slice(0, 48) || 'unknown',
+                    ...counts, cost: cost ?? 0, unpriced: cost === undefined, estimated: cost !== undefined,
+                });
+            }
+            // The agent's own total is the day's truth: whatever its first
+            // models do not account for is the rest, not nothing.
+            const rest = safeCount(row.totalTokens) - counted;
+            if (rest > 0) {
+                const cost = counted === 0 && typeof row.totalCost === 'number' && Number.isFinite(row.totalCost) ? Math.max(0, row.totalCost) : undefined;
+                rows.push({ ...base, model: 'other models', input: rest, output: 0, cacheRead: 0, cacheWrite: 0, cost: cost ?? 0, unpriced: cost === undefined, estimated: cost !== undefined });
+            }
         }
     }
-    return agents;
+    return rows;
 }
 
-function modelSeries(row: UsageDayRow['row']): UsageSeriesPoint[] {
-    const breakdowns = Array.isArray(row?.modelBreakdowns) ? row!.modelBreakdowns.slice(0, 8) : [];
-    return breakdowns.flatMap((model) => {
-        const total = (model.inputTokens ?? 0) + (model.outputTokens ?? 0) + (model.cacheCreationTokens ?? 0) + (model.cacheReadTokens ?? 0);
-        const label = String(model.modelName ?? '').replace(/[^\x20-\x7e]+/g, ' ').trim().slice(0, 40);
-        const valueLabel = tokens(total);
-        if (label === '' || valueLabel === undefined) return [];
-        return [{ label, value: total, valueLabel }];
-    }).sort((a, b) => b.value - a.value);
+function safeCount(value: unknown): number {
+    return Number.isSafeInteger(value) && (value as number) > 0 ? value as number : 0;
 }
 
 function usageStateDir(env: NodeJS.ProcessEnv): string {
@@ -403,46 +434,33 @@ interface RawCollection {
     capturedAt: string;
     /** The oldest plan reading shown, when a last good reading stood in. */
     readingsFrom: number;
-    periods: string[];
+    /** Thirty local dates, oldest first, ending today. */
+    dates: string[];
+    nowHour: string;
     plans: Partial<Record<PlanId, UsageWindowVM[]>>;
     /** Every plan collector's real windows, most urgent first. */
     shapes: ReturnType<typeof planStrip>['planShapes'];
     connected: UsageConnectedProvider[];
     providerIds: string[];
-    /** Measured local activity per agent, in the report's own day shape. */
-    agents: Record<string, UsageDayRow[]>;
-    reports: Record<string, LocalAgentReport>;
-    /** Why local activity could not be measured, when it could not. */
-    ccusageFailure?: string;
-    /** The Z.ai attribution facts its activity rules read. */
-    zaiConnected: boolean;
-    zaiModelCount: number;
+    /** Every harness's measured hours, and the daily backend's days. */
+    rows: LedgerRow[];
+    /** The ledger has not finished its first count yet. */
+    counting: boolean;
+    extrasCounting: boolean;
+    /** Why a harness's activity could not be measured, by harness. */
+    failures: Record<string, string>;
+    extrasFailure?: string;
+    /** Pi's Anthropic route spends the Claude plan: signed in, not an API key. */
+    anthropicSubscription: boolean;
     /** The plan collectors' own words for a plan they could not read. */
     goLabel: string;
     zaiLabel: string;
-    /** A successful plan read or local activity scan produced this answer. */
+    /** A successful plan read or local activity count produced this answer. */
     storedFresh: boolean;
 }
 
 const completed = new Map<string, RawCollection>();
 
-function cacheName(selected: string): string {
-    return `usage-v2-${selected === '' ? 'all' : selected}.json`;
-}
-
-function saveOutput(env: NodeJS.ProcessEnv, output: UsageReport, identity: string, today: string, nowMs: number, selected: string): void {
-    const body = JSON.stringify({ at: nowMs, date: today, identity, output });
-    if (Buffer.byteLength(body) > 65_536) return;
-    const cache = join(usageStateDir(env), cacheName(selected));
-    const temporary = `${cache}.${process.pid}.tmp`;
-    try {
-        mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
-        writeFileSync(temporary, body, { mode: 0o600 });
-        renameSync(temporary, cache);
-    } catch { /* an unwritten cache only makes the next paint slower */ }
-}
-
-type PlanId = 'claude' | 'codex' | 'opencode' | 'zai';
 const PLAN_IDS: PlanId[] = ['claude', 'codex', 'opencode', 'zai'];
 /** A reading this recent is the answer: asking the provider again sooner
  *  spends its rate limit and, on a loaded host, a process spawn for nothing. */
@@ -671,27 +689,28 @@ function cacheIdentity(env: NodeJS.ProcessEnv): string {
 
 export interface CollectUsageInput {
     provider?: string;
-    report?: boolean;
     /** Re-collect past the recent shared collection on an explicit refresh. */
     refresh?: boolean;
 }
 
-/** The provider whose limits message the selected tab would speak. */
-function selectedLimitsMessage(provider: string, claudeVMs: UsageWindowVM[], goVMs: UsageWindowVM[], goLabel: string, zaiVMs: UsageWindowVM[], zaiLabel: string, codex: UsageWindowVM[]): string | undefined {
-    if (provider === 'claude' && claudeVMs.length === 0) return 'Claude plan limits unavailable';
-    if (provider === 'opencode' && goVMs.length === 0) return goLabel;
-    if (provider === 'zai' && zaiVMs.length === 0) return zaiLabel;
-    if (provider === 'codex' && codex.length === 0) return 'Codex plan limits unavailable';
-    return NOT_CONNECTED_MESSAGE;
+/** A plan tab's own words for limits it could not read; other tabs have no
+ *  plan to speak for, so they say nothing rather than borrow another's. */
+function selectedLimitsMessage(provider: string, raw: RawCollection): string | undefined {
+    const { plans } = raw;
+    if (provider === 'claude' && (plans.claude ?? []).length === 0) return 'Claude plan limits unavailable';
+    if (provider === 'opencode' && (plans.opencode ?? []).length === 0) return raw.goLabel;
+    if (provider === 'zai' && (plans.zai ?? []).length === 0) return raw.zaiLabel;
+    if (provider === 'codex' && (plans.codex ?? []).length === 0) return 'Codex plan limits unavailable';
+    return undefined;
 }
 
 /** Collections in flight, keyed by identity and local date: the card's ask and
  *  any tab's ask join the one collection instead of racing a second one. */
 const inFlight = new Map<string, Promise<RawCollection>>();
 
-export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.ProcessEnv = process.env): Promise<UsageReport> {
-    const requested = (input.provider ?? '').slice(0, MAX_PROVIDER_INPUT);
-    const selected = Object.hasOwn(AGENTS, requested) ? requested : '';
+/** The shared collection for this machine and moment: a recent completed one,
+ *  the one in flight, or a new one. */
+async function collection(input: CollectUsageInput, env: NodeJS.ProcessEnv): Promise<{ raw: RawCollection; now: number }> {
     // One captured instant for the whole response: two reads either side of local
     // midnight would label one provider's day with another day's window.
     const NOW = nowDate(env);
@@ -699,13 +718,16 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
     const accounts = planAccounts(env);
     const identity = `${cacheIdentity(env)}:${JSON.stringify(accounts)}`;
     const key = `${identity}\u0000${TODAY}`;
-    let collection = inFlight.get(key);
-    if (input.refresh !== true && collection === undefined) {
+    let pending = inFlight.get(key);
+    if (input.refresh !== true && pending === undefined) {
         const cached = completed.get(key);
-        if (cached !== undefined && NOW.getTime() - cached.at < PLAN_MIN_READ_MS) return project(cached, selected, NOW.getTime());
+        // A collection taken while the first count ran is not reused once the
+        // count has landed: the tab asking again is asking for it.
+        const counted = cached?.counting === true && ledgerFor(ledgerRoots(env)).ready;
+        if (cached !== undefined && !counted && NOW.getTime() - cached.at < PLAN_MIN_READ_MS) return { raw: cached, now: NOW.getTime() };
     }
-    if (collection === undefined) {
-        collection = collectFresh(NOW, accounts, env).then((raw) => {
+    if (pending === undefined) {
+        pending = collectFresh(NOW, accounts, env).then((raw) => {
             if (raw.storedFresh) {
                 for (const storedKey of completed.keys()) {
                     if (storedKey.slice(-10) < TODAY) completed.delete(storedKey);
@@ -714,19 +736,36 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
             }
             return raw;
         }).finally(() => { inFlight.delete(key); });
-        inFlight.set(key, collection);
+        inFlight.set(key, pending);
     }
-    const raw = await collection;
-    const output = project(raw, selected, NOW.getTime());
-    const limitsUnavailable = (output.provider === 'claude' && raw.plans.claude?.length === 0)
-        || (output.provider === 'codex' && raw.plans.codex?.length === 0)
-        || (output.provider === 'opencode' && raw.plans.opencode?.length === 0)
-        || (output.provider === 'zai' && raw.plans.zai?.length === 0);
-    if (input.report && raw.storedFresh && output.activityNotice === undefined && !limitsUnavailable
-        && (selected === '' || selected === output.provider)) {
-        saveOutput(env, output, identity, TODAY, NOW.getTime(), selected);
-    }
-    return output;
+    return { raw: await pending, now: NOW.getTime() };
+}
+
+export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.ProcessEnv = process.env): Promise<UsageReport> {
+    const requested = (input.provider ?? '').slice(0, MAX_PROVIDER_INPUT);
+    const selected = Object.hasOwn(AGENTS, requested) ? requested : '';
+    const { raw, now } = await collection(input, env);
+    return project(raw, selected, now);
+}
+
+/** The machine's limits, whichever tab is on screen: the tightest connected
+ *  plan and the strip of every plan. What the Home card speaks for. */
+export async function collectPlans(input: CollectUsageInput = {}, env: NodeJS.ProcessEnv = process.env): Promise<Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'>> {
+    const { raw } = await collection(input, env);
+    const tightest = raw.shapes[0];
+    return {
+        windows: tightest?.vms ?? [],
+        limits: limitsPayload(tightest?.vms ?? [], tightest === undefined ? { message: NOT_CONNECTED_MESSAGE } : { plan: tightest.plan }),
+        ...(raw.connected.length === 0 ? {} : { connected: raw.connected }),
+        capturedAt: raw.capturedAt,
+        ...(raw.readingsFrom < raw.at ? { readingsFrom: new Date(raw.readingsFrom).toISOString() } : {}),
+    };
+}
+
+/** Whether Pi reaches Anthropic through a Claude subscription sign-in. */
+function anthropicSubscription(env: NodeJS.ProcessEnv): boolean {
+    const stored = readJson(join(piAgentDir(env), 'auth.json'), 64 * 1024)?.value;
+    return isRecord(stored) && isRecord(stored.anthropic) && stored.anthropic.type === 'oauth';
 }
 
 /** The collection itself, once the caller knows the cache is cold. It measures
@@ -734,10 +773,10 @@ export async function collectUsage(input: CollectUsageInput = {}, env: NodeJS.Pr
  *  tab asked is a projection concern and never reaches this code. The captured
  *  instant is fixed for the whole payload. */
 async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>, env: NodeJS.ProcessEnv): Promise<RawCollection> {
-    const PERIODS = windowPeriods(NOW);
+    const DATES = windowPeriods(NOW, LEDGER_DAYS);
     const skipPlan: PlanOutcome = { label: '' };
     // Every connected plan is read alongside local activity, not after it:
-    // under load the activity scan is the long pole, and the plans are what
+    // under load the activity count is the long pole, and the plans are what
     // the Home card waits on. Codex limits load every time: the home card
     // lists them whatever tab the details screen last showed.
     const stored = readPlans(env, accounts);
@@ -754,8 +793,14 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
         opencode: readEarly('opencode', () => goPlanLimits(env), skipPlan) ?? goPlanLimits(env),
         zai: readEarly('zai', () => zaiPlanLimits(env), skipPlan) ?? zaiPlanLimits(env),
     };
-    const [{ range, failure: ccusageFailure }, codexRaw, local] = await Promise.all([
-        ccusageRange(env), recent('codex') ? Promise.resolve(undefined) : codexUsage(env), collectLocalUsage(PERIODS, NOW.getTime(), env),
+    // The ledger keeps counting past the wait: a first count on a large
+    // machine lands for the next ask instead of holding this one.
+    const ledger = ledgerFor(ledgerRoots(env));
+    const counted = ledger.refresh(NOW.getTime()).catch(() => undefined);
+    const [extrasAnswer, codexRaw] = await Promise.all([
+        extrasRange(env, DATES[0]!),
+        recent('codex') ? Promise.resolve(undefined) : codexUsage(env),
+        Promise.race([counted, new Promise((resolve) => { setTimeout(resolve, LEDGER_WAIT_MS).unref(); })]),
     ]);
     // Per-provider isolation: a plan whose read failed this time -- a
     // timeout, a refusal, a rate limit -- or that was read moments ago keeps
@@ -777,87 +822,44 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
         return planWindows(id, last.raw, nowMs);
     };
     const codex = windowsOf('codex', codexRaw);
-    const agents = byAgent(range, PERIODS);
+    const snapshot = ledger.snapshot(NOW.getTime());
+    const counting = !ledger.ready;
+    const rows = [...snapshot.rows, ...extrasRows(extrasAnswer.range, new Set(DATES))];
     const latest = new Map<string, number>();
-    const sessions = range?.session;
+    for (const row of rows) latest.set(row.harness, Math.max(latest.get(row.harness) ?? 0, row.latest));
+    const sessions = extrasAnswer.range?.session;
     for (const row of Array.isArray(sessions) ? sessions : []) {
         const session = isRecord(row) ? row : {};
         const agent = String(session.agent ?? '');
-        const total = session.totalTokens;
-        if (!CCUSAGE_AGENTS.has(agent) || typeof total !== 'number' || !(total > 0)) continue;
+        const sessionTotal = session.totalTokens;
+        if (!CCUSAGE_AGENTS.has(agent) || typeof sessionTotal !== 'number' || !(sessionTotal > 0)) continue;
         const at = Date.parse(String((isRecord(session.metadata) ? session.metadata.lastActivity : undefined) ?? ''));
         if (Number.isFinite(at) && at <= NOW.getTime()) latest.set(agent, Math.max(latest.get(agent) ?? 0, at));
     }
-    // OMP and Pi are accounted from their own transcripts, so ccusage's rows for
-    // them are the duplicated ones this collector replaces. A collection that
-    // timed out, crashed or answered with nothing leaves no total to fall back to.
-    const reports: Record<string, LocalAgentReport> = { ...local };
-    for (const agent of ['omp', 'pi']) {
-        const report = reports[agent];
-        if (!isRecord(report) || !Array.isArray(report.rows) && report.unavailable !== true) {
-            reports[agent] = { unavailable: true, reason: 'Local activity could not be measured · reopen Usage in a minute' };
-        }
+    const failures: Record<string, string> = { ...snapshot.failures };
+    if (env.OMP_PROFILE !== undefined || env.PI_PROFILE !== undefined) {
+        if (ledgerRoots(env).omp === undefined) failures.omp = 'Invalid OMP profile configuration';
     }
-    for (const [agent, report] of Object.entries(reports)) {
-        if (report === undefined) continue;
-        if (Number.isFinite(report.latest) && (report.latest as number) <= NOW.getTime()) latest.set(agent, report.latest as number);
-        if (report.unavailable) {
-            if (agent === 'omp' || agent === 'pi') agents.delete(agent);
-            continue;
-        }
-        if (!report.rows) continue;
-        const days: UsageDayRow[] = PERIODS.map((period) => ({ period, row: undefined }));
-        for (const aggregate of report.rows) {
-            if (!Number.isSafeInteger(aggregate.totalTokens) || (aggregate.totalTokens ?? 0) < 0) continue;
-            const day = days.find((candidate) => candidate.period === aggregate.period);
-            if (!day) continue;
-            day.row ??= { totalTokens: 0, totalCost: 0, modelBreakdowns: [] };
-            day.row.totalTokens += aggregate.totalTokens ?? 0;
-            day.row.totalCost = Number.isFinite(day.row.totalCost) && Number.isFinite(aggregate.totalCost)
-                ? (day.row.totalCost as number) + (aggregate.totalCost as number)
-                : undefined;
-            day.row.modelBreakdowns.push(aggregate);
-        }
-        agents.set(agent, days);
-    }
-    // A connected plan with no collector of its own is measured from the local
-    // worker records that run it: Pi transcripts name every model per turn, so
-    // the Z.ai tab aggregates its own slice instead of reporting dashes.
-    const zaiConnected = zaiToken(env) !== undefined;
-    const zaiModelIds = zaiConnected ? zaiModels(env) : new Set<string>();
-    const zaiLocal = zaiConnected ? localActivityForModels(reports.pi, zaiModelIds, PERIODS) : undefined;
-    if (zaiLocal) {
-        agents.set('zai', zaiLocal.days);
-        if (Number.isFinite(zaiLocal.latest) && (zaiLocal.latest as number) <= NOW.getTime()) latest.set('zai', zaiLocal.latest as number);
-        reports.zai = {
-            rows: zaiLocal.days.flatMap((day) => day.row?.modelBreakdowns ?? []),
-            ...(zaiLocal.latest === undefined ? {} : { latest: zaiLocal.latest }),
-        };
-    }
-    const installed = Object.entries(AGENT_COMMANDS).filter(([agent, command]) => installedAgent(agent, command, env));
-    // A tab means real integration: measured activity this week, or a connected
-    // plan/account. Installed-but-idle CLIs are neither, so they earn no tab;
-    // a deep link to one falls back to the default tab. A failed collection is
-    // not a detection: an uninstalled provider's placeholder earns no tab (so a
-    // machine with nothing measured or connected reaches the no-provider state).
-    // An explicit selection still resolves to its own collector report, so a
-    // chosen provider whose collection just failed shows its honest unavailable
-    // notice instead of quietly borrowing another provider's numbers.
+    const installed = Object.entries(AGENT_COMMANDS).filter(([agent, command]) => installedAgent(agent, command, env)).map(([agent]) => agent);
+    // A tab means real integration: measured activity this month, or a
+    // connected plan/account. Installed-but-idle CLIs are neither, so they
+    // earn no tab. While a first count runs, every harness whose store is on
+    // this machine holds its tab, so the strip does not reshuffle when it
+    // lands; a harness whose store failed keeps its tab when installed, so
+    // its honest reason has somewhere to show.
     const providerIds = [...new Set([
-        ...agents.keys(),
-        ...latest.keys(),
-        ...Object.keys(reports).filter((agent) => reports[agent]?.unavailable !== true || installed.some(([name]) => name === agent)),
+        ...rows.filter((row) => total(row) > 0).map((row) => row.harness),
+        ...(counting ? snapshot.present : []),
+        ...Object.keys(failures).filter((agent) => installed.includes(agent)),
         ...planConnected,
         ...(codex.length > 0 ? ['codex'] : []),
     ])]
+        .filter((agent) => Object.hasOwn(AGENTS, agent))
         .sort((a, b) => (latest.get(b) ?? 0) - (latest.get(a) ?? 0) || (AGENTS[a] ?? a).localeCompare(AGENTS[b] ?? b));
     // Connected plans load whatever tab is on screen: a machine-level view
     // (the default tab, the Home card) must see every real window, not just
-    // the selected tab's. A disconnected plan's collector answers with its
-    // own honest label, so that label is on hand for whichever tab asks.
+    // the selected tab's.
     const [claudeRaw, go, zaiPlan] = await Promise.all([early.claude, early.opencode, early.zai]);
-    // One transform per source, one view model for the screen: everything below
-    // renders from these, never from a provider payload.
     const claudeVMs = windowsOf('claude', claudeRaw);
     const zaiVMs = windowsOf('zai', zaiPlan.raw);
     const goVMs = windowsOf('opencode', go.raw);
@@ -867,28 +869,71 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
         if (reading !== undefined && reading !== stored[id]) updates[id] = reading;
     }
     if (Object.keys(updates).length > 0) savePlans(env, updates, accounts);
-    // Every plan collector's real windows, most urgent first: the borrow rule
-    // and the Home card's connected strip read the same list, so a machine-level
-    // view and a per-tab view can never disagree about which plan is tightest.
     const { planShapes, connected } = planStrip({ claude: claudeVMs, codex, opencode: goVMs, zai: zaiVMs });
     return {
         at: NOW.getTime(),
         capturedAt: NOW.toISOString(),
         readingsFrom,
-        periods: PERIODS,
+        dates: DATES,
+        nowHour: localHour(NOW.getTime()),
         plans: { claude: claudeVMs, codex, opencode: goVMs, zai: zaiVMs },
         shapes: planShapes,
         connected,
         providerIds,
-        agents: Object.fromEntries(agents),
-        reports,
-        ...(ccusageFailure === undefined ? {} : { ccusageFailure }),
-        zaiConnected,
-        zaiModelCount: zaiModelIds.size,
+        rows,
+        counting,
+        extrasCounting: extrasAnswer.counting === true,
+        failures,
+        ...(extrasAnswer.failure === undefined ? {} : { extrasFailure: extrasAnswer.failure }),
+        anthropicSubscription: anthropicSubscription(env),
         goLabel: go.label,
         zaiLabel: zaiPlan.label,
-        storedFresh: Object.keys(updates).length > 0 || range !== undefined || Object.values(local).some((report) => Array.isArray(report.rows)),
+        storedFresh: Object.keys(updates).length > 0 || !counting,
     };
+}
+
+const COUNTING_NOTICE = 'Counting local activity · the first count reads this computer\u2019s sessions and takes about a minute';
+
+/** One tab's measured activity: counted, still counting, or unavailable with
+ *  the reason and the fix. */
+function activityFor(raw: RawCollection, provider: string): UsageActivity {
+    const empty = { hourly: [], days: [], models: [] };
+    const ledgerTab = LEDGER_AGENTS.has(provider) || provider === 'zai';
+    if (!ledgerTab && !CCUSAGE_AGENTS.has(provider)) {
+        return { state: 'unavailable', reason: 'Local activity isn\u2019t recorded for this agent', ...empty };
+    }
+    if (ledgerTab ? raw.counting : raw.extrasCounting) return { state: 'counting', reason: COUNTING_NOTICE, ...empty };
+    const tabRows = provider === 'zai'
+        ? raw.rows.filter((row) => rowPlan(row.harness, row.route, raw.anthropicSubscription) === 'zai')
+        : raw.rows.filter((row) => row.harness === provider);
+    const failure = ledgerTab ? raw.failures[provider === 'zai' ? 'pi' : provider] : raw.extrasFailure;
+    if (failure !== undefined && tabRows.length === 0) return { state: 'unavailable', reason: failure, ...empty };
+    const ownPlan = Object.hasOwn(PLAN_PROVIDERS, provider) ? provider as PlanId : undefined;
+    const plans: Partial<Record<PlanId, PlanLimits>> = {};
+    for (const id of PLAN_IDS) {
+        const vms = raw.plans[id] ?? [];
+        if (vms.length > 0) plans[id] = { plan: PLAN_PROVIDERS[id]!, windows: limitsPayload(vms, { plan: PLAN_PROVIDERS[id]! }).windows };
+    }
+    const activity = tabActivity({
+        rows: tabRows,
+        dates: raw.dates,
+        nowHour: raw.nowHour,
+        hourly: ledgerTab,
+        routes: AGGREGATORS.has(provider),
+        plans,
+        ...(ownPlan === undefined ? {} : {
+            ownPlan,
+            planRows: raw.rows.filter((row) => rowPlan(row.harness, row.route, raw.anthropicSubscription) === ownPlan),
+        }),
+        tabId: provider,
+        harnessLabel: (id) => TAB_LABELS[id] ?? AGENTS[id] ?? id,
+        anthropicSubscription: raw.anthropicSubscription,
+    });
+    // A plan-only tab's tokens are priced by the plan: a harness's recorded
+    // dollar figure for them must never stand in for one.
+    if (provider !== 'zai') return activity;
+    const { costBasis: _basis, ...priceless } = activity;
+    return { ...priceless, days: activity.days.map(({ cost: _cost, unpriced: _unpriced, ...day }) => day) };
 }
 
 /** One tab's report, projected from the shared collection: which provider this
@@ -897,46 +942,29 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
  *  of its own, so the card's compact figures and every tab's detailed ones are
  *  the same figures by construction. */
 function project(raw: RawCollection, selected: string, nowMs: number): UsageReport {
-    const { plans, providerIds, reports } = raw;
-    const claudeVMs = plans.claude ?? [];
-    const codex = plans.codex ?? [];
-    const zaiVMs = plans.zai ?? [];
-    const goVMs = plans.opencode ?? [];
-    const provider = selected !== '' && (providerIds.includes(selected) || reports[selected] !== undefined)
+    const { providerIds } = raw;
+    const provider = selected !== '' && (providerIds.includes(selected) || raw.failures[selected] !== undefined)
         ? selected
         : providerIds[0] ?? '';
-    const activitySupported = CCUSAGE_AGENTS.has(provider) || provider === 'omp' || provider === 'zai';
-    const localReport = reports[provider];
-    let activityFailure = raw.ccusageFailure;
-    if (localReport?.rows) activityFailure = undefined;
-    // A local report gates only the activity it is itself the source of: omp
-    // and pi are measured from their own transcripts, so an unavailable scan
-    // really means no rows. opencode's own database is only probed for recency
-    // -- its tab's activity is ccusage's, and a missing database must not
-    // blank activity ccusage measured.
-    if (localReport?.unavailable && (provider === 'omp' || provider === 'pi')) activityFailure = localReport.reason ?? 'Local activity unavailable';
-    // Z.ai is measured from Pi's records, so ccusage's health says nothing about
-    // this tab; only whether its models could be attributed does.
-    if (provider === 'zai' && raw.zaiConnected && raw.zaiModelCount === 0) activityFailure = 'Local activity unavailable for this provider';
-    else if (provider === 'zai' && raw.zaiConnected && reports.pi?.unavailable) activityFailure = reports.pi.reason ?? 'Local activity unavailable';
-    else if (provider === 'zai' && raw.zaiConnected) activityFailure = undefined;
-    const activityAvailable = activitySupported && activityFailure === undefined;
-    // Only failures speak on the screen now (a notice inside the Today card).
-    const days = raw.agents[provider] ?? raw.periods.map((period) => ({ period, row: undefined }));
-    const totals = activityTotals(days);
-    const { today, tokensToday, tokensWeek, costToday, costWeek } = totals;
-    const selectedVMs = selectedWindows(provider, claudeVMs, codex, zaiVMs, goVMs);
-    // A selection without its own plan collector (pi, omp, gemini, ...) borrows
-    // the tightest connected plan, so the default view answers with a real
-    // window instead of a machine-level "not connected" that is false whenever
-    // any plan is connected. A plan tab keeps speaking for itself: its own
-    // unavailable message beats another plan's numbers.
-    const borrowed = (PLAN_PROVIDERS[provider] === undefined && selectedVMs.length === 0) ? raw.shapes[0] : undefined;
-    const limitsVMs = borrowed !== undefined ? borrowed.vms : selectedVMs;
-    const limitsPlan = borrowed !== undefined ? borrowed.plan : PLAN_PROVIDERS[provider];
-    const limitsMessage = (providerIds.length > 0 && limitsVMs.length === 0)
-        ? selectedLimitsMessage(provider, claudeVMs, goVMs, raw.goLabel, zaiVMs, raw.zaiLabel, codex)
-        : undefined;
+    const activity = provider === '' ? undefined : activityFor(raw, provider);
+    const measured = activity?.state === 'measured';
+    const week = activity?.days.slice(-RANGE_DAYS) ?? [];
+    const today = week[week.length - 1];
+    const tokensOf = (days: typeof week) => days.reduce((sum, day) => sum + total(day), 0);
+    // A measured day with no activity cost nothing; a measured day whose cost
+    // was never recorded is unknown, and a dash is the only honest figure.
+    const costOf = (days: typeof week): string => {
+        const active = days.filter((day) => total(day) > 0);
+        if (active.length === 0) return '$0.00';
+        if (active.some((day) => day.cost === undefined || day.unpriced === true)) return '—';
+        return money(active.reduce((sum, day) => sum + (day.cost ?? 0), 0)) ?? '—';
+    };
+    // A tab with its own plan speaks for it; a harness with none (Pi, OMP, a
+    // CLI with no plan reader) shows no limits rather than another plan's:
+    // its routes carry each provider's own.
+    const limitsVMs = selectedWindows(provider, raw.plans);
+    const limitsPlan = PLAN_PROVIDERS[provider];
+    const limitsMessage = limitsVMs.length === 0 ? selectedLimitsMessage(provider, raw) : undefined;
     const output: UsageReport = {
         providers: providerIds.map((agent) => ({ id: agent, label: TAB_LABELS[agent] ?? AGENTS[agent] ?? agent, glyph: agent })),
         provider,
@@ -944,20 +972,23 @@ function project(raw: RawCollection, selected: string, nowMs: number): UsageRepo
         ...(providerIds.length === 0
             ? { noProviders: 'Run a coding agent on this computer or connect a plan.', noProvidersTitle: 'No supported providers detected' }
             : {}),
-        ...(activityFailure === undefined ? {} : { activityNotice: activityFailure }),
-        todayTokens: activityTokens(tokensToday, activityAvailable),
-        // A measured day with no activity cost nothing; a measured row whose cost
-        // was never recorded is unknown, and a dash is the only honest figure.
-        todayCost: activityCost(costToday, today !== undefined, activityAvailable),
-        modelSeries: modelSeries(today),
-        weekTokens: activityTokens(tokensWeek, activityAvailable),
-        weekCost: (activityAvailable && costWeek !== undefined) ? money(costWeek) ?? '—' : '—',
-        weekSeries: (activityAvailable ? days : []).map(({ period, row }): UsageSeriesPoint => ({
-            label: dayLabel(period), value: row?.totalTokens ?? 0, valueLabel: tokens(row?.totalTokens ?? 0) ?? '0', detail: period,
+        ...(activity?.reason === undefined ? {} : { activityNotice: activity.reason }),
+        ...(activity === undefined ? {} : { activity }),
+        todayTokens: measured ? tokens(today === undefined ? 0 : total(today)) ?? '—' : '—',
+        todayCost: measured ? costOf(today === undefined ? [] : [today]) : '—',
+        modelSeries: measured
+            ? activity.models.filter((model) => model.today > 0).sort((a, b) => b.today - a.today).map((model): UsageSeriesPoint => ({
+                label: model.model.slice(0, 40), value: model.today, valueLabel: tokens(model.today) ?? '0',
+            }))
+            : [],
+        weekTokens: measured ? tokens(tokensOf(week)) ?? '—' : '—',
+        weekCost: measured ? costOf(week) : '—',
+        weekSeries: (measured ? week : []).map((day): UsageSeriesPoint => ({
+            label: dayLabel(day.date), value: total(day), valueLabel: tokens(total(day)) ?? '0', detail: day.date,
         })),
         capturedAt: raw.capturedAt,
         ...(raw.readingsFrom < raw.at ? { readingsFrom: new Date(raw.readingsFrom).toISOString() } : {}),
-        windowPeriods: raw.periods,
+        windowPeriods: raw.dates.slice(-RANGE_DAYS),
         // The normalized view model behind every rendered rate-limit shape.
         windows: limitsVMs,
         limits: limitsPayload(limitsVMs, {
@@ -980,24 +1011,6 @@ function withAge(output: UsageReport, nowMs: number): UsageReport {
     return { ...output, ageSeconds: Math.max(0, Math.round((nowMs - capturedAt) / 1_000)) };
 }
 
-function selectedWindows(provider: string, claudeVMs: UsageWindowVM[], codex: UsageWindowVM[], zaiVMs: UsageWindowVM[], goVMs: UsageWindowVM[]): UsageWindowVM[] {
-    if (provider === 'claude') return claudeVMs;
-    if (provider === 'codex') return codex;
-    if (provider === 'zai') return zaiVMs;
-    if (provider === 'opencode') return goVMs;
-    return [];
-}
-
-/** A measured figure, or the dash that says this tab could not be measured. */
-function activityTokens(value: number, available: boolean): string {
-    if (!available) return '—';
-    return tokens(value) ?? '—';
-}
-
-function activityCost(cost: number | undefined, measured: boolean, available: boolean): string {
-    if (!available) return '—';
-    // A measured day with no activity cost nothing; a measured row whose cost
-    // was never recorded is unknown, and a dash is the only honest figure.
-    if (!measured) return '$0.00';
-    return money(cost ?? Number.NaN) ?? '—';
+function selectedWindows(provider: string, plans: RawCollection['plans']): UsageWindowVM[] {
+    return (PLAN_IDS as string[]).includes(provider) ? plans[provider as PlanId] ?? [] : [];
 }
