@@ -48,8 +48,10 @@ const Harness = () => {
     </>);
 };
 
+type PressedStyle = (state: { pressed: boolean }) => { opacity: number };
+
 type Node = {
-    props: { disabled?: boolean; style: unknown };
+    props: { disabled?: boolean; style: unknown; onPress?: () => void };
     findAllByProps(props: Record<string, unknown>): Node[];
     findByProps(props: Record<string, unknown>): Node;
     findAllByType(type: string): Node[];
@@ -64,7 +66,7 @@ it('keeps a stale chip honest when the link drops, and takes it away when the dr
     const chip = () => root().findByProps({ accessibilityLabel: 'Browser in use, Pricing. Watch live' });
     const watchButton = () => root().findAllByProps({ accessibilityLabel: 'Watch' });
     const dot = () => chip().findAllByType('View');
-    const ink = () => (typeof chip().props.style === 'function' ? (chip().props.style as ({ pressed: boolean }) => { opacity: number })({ pressed: false }) : chip().props.style as { opacity: number });
+    const ink = () => (typeof chip().props.style === 'function' ? (chip().props.style as PressedStyle)({ pressed: false }) : chip().props.style as { opacity: number });
 
     await TestRenderer.act(async () => { view = TestRenderer.create(<Harness />); });
 
