@@ -149,12 +149,16 @@ function useKeyboardMotion(): { height: SharedValue<number>; progress: SharedVal
  */
 export function DesktopSurface(props: DesktopSurfaceProps) {
     const { width } = useWindowDimensions();
+    const docked = props.target !== undefined && previewDocks(Platform.OS === 'web', width);
     // Docked beside the conversation, the panel's chrome is the app's own
-    // theme; over the conversation it is the terminal's dark.
-    if (props.target !== undefined && previewDocks(Platform.OS === 'web', width)) {
-        return <ScopedTheme reset><DesktopSurfaceBody {...props} docked /></ScopedTheme>;
-    }
-    return <DesktopSurfaceBody {...props} docked={false} />;
+    // theme; over the conversation it is the terminal's dark. One ScopedTheme
+    // element renders for both, so crossing the web width that docks swaps
+    // only its theme and the live view under it never remounts.
+    return (
+        <ScopedTheme {...(docked ? { reset: true } : { name: 'dark' as const })}>
+            <DesktopSurfaceBody {...props} docked={docked} />
+        </ScopedTheme>
+    );
 }
 
 function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked }: DesktopSurfaceProps & { docked: boolean }) {

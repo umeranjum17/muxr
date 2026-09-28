@@ -269,6 +269,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         ringRef.current?.close();
         router.setParams({ desktop: '1' });
     }, [props.id]);
+    // The presence chip (PreviewChip, P1.4) opens the live view, passing its measured rect as `from`.
     const openPreview = React.useCallback((from?: DesktopOrigin) => {
         requestDesktop(getCachedConnectionSettings().machineId ?? '', props.id, true, from);
         Keyboard.dismiss();
@@ -1850,12 +1851,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="desktop-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
-                                    </Pressable>}
-                                    {desktopAvailable && livePreview !== undefined && <Pressable onPress={() => openPreview()} accessibilityRole="button" accessibilityLabel={livePreview.kind === 'android' ? 'Watch Android emulator' : 'Watch browser'}
-                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name={livePreview.kind === 'android' ? 'logo-android' : 'globe-outline'} size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{livePreview.kind === 'android' ? 'Watch Android emulator' : 'Watch browser'}</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"

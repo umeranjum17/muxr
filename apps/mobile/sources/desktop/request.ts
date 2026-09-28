@@ -29,7 +29,10 @@ const origins = new Map<string, DesktopOrigin>();
  */
 const requestKey = (machineId: string, sessionId: string, preview: boolean) => JSON.stringify([machineId, sessionId, preview]);
 
-/** The person tapped the desktop action, or Watch on an agent's browser. */
+/**
+ * The person tapped the desktop action, or Watch on an agent's browser.
+ * The presence chip (PreviewChip, P1.4) passes its measured rect as `from`.
+ */
 export function requestDesktop(machineId: string, sessionId: string, preview = false, from?: DesktopOrigin): void {
     const key = requestKey(machineId, sessionId, preview);
     tapped.add(key);

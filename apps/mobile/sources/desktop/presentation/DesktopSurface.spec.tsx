@@ -23,7 +23,7 @@ const session = {
     snapshot: { status: 'live', failure: null, diagnostics: {}, presented: true },
     nativeId: 'surface',
     connect: vi.fn(async () => { await authorize(); }),
-    close: async () => undefined,
+    close: vi.fn(async () => undefined),
     releaseHeld: () => undefined,
     hideKeyboard: vi.fn(() => undefined),
     setInputEnabled: vi.fn((enabled: boolean) => { inputEnabled = enabled; }),
@@ -67,7 +67,7 @@ vi.mock('react-native-keyboard-controller', () => ({
     useReanimatedKeyboardAnimation: () => ({ height: { value: keyboardVisible ? -Math.min(290, screenHeight - 80) : 0 }, progress: { value: keyboardVisible ? 1 : 0 } }),
 }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
-vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme: { colors: {
+vi.mock('react-native-unistyles', () => ({ ScopedTheme: ({ children }: { children?: React.ReactNode }) => children, useUnistyles: () => ({ theme: { colors: {
     text: '', textSecondary: '', surfaceHighest: '', surfacePressed: '',
     glass: { border: '' }, terminalChrome: { cluster: '', clusterPressed: '' },
     button: { primary: { background: '', tint: '' } }, status: { connected: '', working: '' }, divider: '', surface: '',
@@ -451,6 +451,18 @@ it("watches an agent's browser, takes control only on a tap, and says when it cl
     expect(hostRequests).toContainEqual(['desktop.capabilities', { target: { sessionId: 'P' } }]);
     expect(inputEnabled).toBe(false);
     expect(has('Tap to take control')).toBe(true);
+
+    // Crossing the web width that docks the view re-lays it out in place:
+    // the same stream keeps running, nothing closes and nothing reopens.
+    session.close.mockClear();
+    screenWidth = 1080;
+    await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser', title: 'Pricing' }} />));
+    expect(session.connect).toHaveBeenCalledTimes(1);
+    expect(session.close).not.toHaveBeenCalled();
+    screenWidth = 270;
+    await TestRenderer.act(async () => view.update(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser', title: 'Pricing' }} />));
+    expect(session.connect).toHaveBeenCalledTimes(1);
+    expect(session.close).not.toHaveBeenCalled();
 
     // Back is a deliberate tap: it takes control as it sends Alt+Left.
     session.send.mockClear();
