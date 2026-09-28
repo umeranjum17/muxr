@@ -39,6 +39,7 @@ export const ru: TranslationStructure = {
         notNow: 'Не сейчас',
         watchBrowser: 'Смотреть браузер',
         watchAndroid: 'Смотреть эмулятор Android',
+        reconnecting: 'Переподключение…',
         chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
             `${kind === 'android' ? 'Эмулятор Android используется' : 'Браузер используется'}${title ? `, ${title}` : ''}. Смотреть вживую`,
     },

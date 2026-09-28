@@ -28,6 +28,7 @@ export const es: TranslationStructure = {
         notNow: 'Ahora no',
         watchBrowser: 'Ver navegador',
         watchAndroid: 'Ver emulador de Android',
+        reconnecting: 'Reconectando…',
         chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
             `${kind === 'android' ? 'Emulador de Android en uso' : 'Navegador en uso'}${title ? `, ${title}` : ''}. Ver en directo`,
     },

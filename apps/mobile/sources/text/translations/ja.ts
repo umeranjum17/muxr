@@ -31,6 +31,7 @@ export const ja: TranslationStructure = {
         notNow: '後で',
         watchBrowser: 'ブラウザを見る',
         watchAndroid: 'Android エミュレータを見る',
+        reconnecting: '再接続中…',
         chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
             `${kind === 'android' ? 'Android エミュレータを使用中' : 'ブラウザを使用中'}${title ? `, ${title}` : ''}. ライブで見る`,
     },

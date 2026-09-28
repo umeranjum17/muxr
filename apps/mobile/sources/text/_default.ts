@@ -45,6 +45,7 @@ export const en = {
         notNow: 'Not now',
         watchBrowser: 'Watch browser',
         watchAndroid: 'Watch Android emulator',
+        reconnecting: 'Reconnecting…',
         chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
             `${kind === 'android' ? 'Android emulator in use' : 'Browser in use'}${title ? `, ${title}` : ''}. Watch live`,
     },

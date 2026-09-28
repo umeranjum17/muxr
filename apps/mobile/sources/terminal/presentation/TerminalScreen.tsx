@@ -86,7 +86,7 @@ import { agentCommands, destructiveCommand, type AgentCommand } from '../domain/
 import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
 import { PREVIEW_DOCK, previewDocks, requestDesktop, type DesktopOrigin } from '@/desktop/request';
-import { PreviewChip, PreviewTooltip, usePreviewTooltip } from '@/desktop/preview';
+import { PreviewChip, PreviewTooltip, usePreviewGate } from '@/desktop/preview';
 import { FindOutputSheet } from './FindOutputSheet';
 import { PendingChoices } from './PendingChoices';
 import { useTerminalQuickReplies } from '@/plugins/ui';
@@ -282,18 +282,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         Keyboard.dismiss();
         router.setParams({ desktop: '0' });
     }, []);
-    // An agent's browser or emulator the host can show. Native iOS has no live
-    // view to open yet, so it announces nothing.
-    const preview = session?.metadata?.preview;
-    const previewShown = preview !== undefined && desktopAvailable && Platform.OS !== 'ios' && !authorityLoading;
-    const previewTooltip = usePreviewTooltip(props.id, previewShown ? preview : undefined);
     const [previewChipBox, setPreviewChipBox] = React.useState<{ x: number; width: number }>();
     const [headerRowBottom, setHeaderRowBottom] = React.useState(0);
-    // Opens Computer until the live view can take this pane's own screen as its target.
-    const openPreview = React.useCallback(() => {
-        previewTooltip.dismiss();
-        openDesktop();
-    }, [openDesktop, previewTooltip.dismiss]);
     // View commands keep a permanent route in Pane actions.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
     // `raise` is the settled keyboard raise this measure was taken at.
@@ -483,6 +473,20 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         const timer = setTimeout(() => setShownStatus(status), STATUS_GRACE_MS);
         return () => clearTimeout(timer);
     }, [status]);
+
+    // An agent's browser or emulator the host can show. Native iOS has no live
+    // view to open yet, so it announces nothing.
+    const preview = usePreviewGate(props.id, session?.metadata?.preview, {
+        showable: desktopAvailable && Platform.OS !== 'ios' && !authorityLoading,
+        granted: canControl,
+        live: shownStatus === 'live',
+    });
+    // Opens Computer until the live view can take this pane's own screen as its target.
+    const openPreview = React.useCallback(() => {
+        if (!preview.openable) return;
+        preview.tooltip.dismiss();
+        openDesktop();
+    }, [openDesktop, preview.openable, preview.tooltip.dismiss]);
 
     // 'connecting' is the one status nothing is watching. The renderer opens
     // the channel only once it reports a grid, so a surface that never reports
@@ -1358,10 +1362,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             {headerLifecycleLabel !== undefined && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: headerStatus.color }} />
                                 {/* A narrow header gives the chip the word's room; the dot and the label keep it. */}
-                                {!(previewShown && windowWidth < 340) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
+                                {!(preview.shown !== undefined && windowWidth < 340) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
                             </View>}
                         </Pressable>
-                        <PreviewChip preview={previewShown ? preview : undefined} labelled={previewTooltip.open} onPress={openPreview} onLayout={setPreviewChipBox} />
+                        <PreviewChip preview={preview.shown} live={preview.live} openable={preview.openable} labelled={preview.openable && preview.tooltip.open} onPress={openPreview} onLayout={setPreviewChipBox} />
                         {/* Position in the tab and the way into the pane overview:
                             borderless and tiny; loading shows as such, never as 0/0.
                             At one pane it says nothing, and what the overview
@@ -1825,11 +1829,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         </React.Suspense>
                     </View>}
                     {previewChipBox !== undefined && <PreviewTooltip
-                        preview={previewShown && previewTooltip.open && !desktopVisible && !actionsOpen ? preview : undefined}
+                        preview={preview.openable && preview.tooltip.open && !desktopVisible && !actionsOpen ? preview.shown : undefined}
                         anchor={{ centre: previewChipBox.x + previewChipBox.width / 2, top: headerRowBottom }}
                         screenWidth={windowWidth}
                         onWatch={openPreview}
-                        onDismiss={previewTooltip.dismiss}
+                        onDismiss={preview.tooltip.dismiss}
                     />}
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} />
                     <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
@@ -1879,11 +1883,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
-                                    {previewShown && <Pressable onPress={openPreview} accessibilityRole="button" accessibilityLabel={t(preview.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser')}
-                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                        <Ionicons name={preview.kind === 'android' ? 'logo-android' : 'globe-outline'} size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t(preview.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser')}</Text>
-                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    {preview.row && <Pressable onPress={openPreview} disabled={!preview.openable} accessibilityRole="button"
+                                        accessibilityLabel={t(preview.openable ? (preview.row.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser') : 'preview.reconnecting')}
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: preview.openable ? 1 : 0.5 })}>
+                                        <Ionicons name={preview.row.kind === 'android' ? 'logo-android' : 'globe-outline'} size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t(preview.openable ? (preview.row.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser') : 'preview.reconnecting')}</Text>
+                                        {preview.openable && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
                                     </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>

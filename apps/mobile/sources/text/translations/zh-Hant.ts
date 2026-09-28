@@ -30,6 +30,7 @@ export const zhHant: TranslationStructure = {
         notNow: '稍後',
         watchBrowser: '觀看瀏覽器',
         watchAndroid: '觀看 Android 模擬器',
+        reconnecting: '重新連線中…',
         chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
             `${kind === 'android' ? 'Android 模擬器使用中' : '瀏覽器使用中'}${title ? `, ${title}` : ''}. 即時觀看`,
     },

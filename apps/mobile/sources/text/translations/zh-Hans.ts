@@ -30,6 +30,7 @@ export const zhHans: TranslationStructure = {
         notNow: '稍后',
         watchBrowser: '观看浏览器',
         watchAndroid: '观看 Android 模拟器',
+        reconnecting: '重新连接中…',
         chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
             `${kind === 'android' ? 'Android 模拟器使用中' : '浏览器使用中'}${title ? `, ${title}` : ''}. 实时观看`,
     },

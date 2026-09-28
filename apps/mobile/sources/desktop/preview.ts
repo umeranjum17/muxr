@@ -3,4 +3,4 @@
  * from the feature's index, so the terminal header can show it without
  * loading the desktop surface.
  */
-export { PreviewChip, PreviewTooltip, usePreviewTooltip } from './presentation/PreviewChip';
+export { PreviewChip, PreviewTooltip, usePreviewGate } from './presentation/PreviewChip';

@@ -25,7 +25,7 @@ const EASE_OUT = Easing.out(Easing.cubic);
 const introduced = new Set<string>();
 
 /** Whether the tooltip for this pane's current browser or emulator is up. */
-export function usePreviewTooltip(sessionId: string, preview: PreviewPresence | undefined): { open: boolean; dismiss: () => void } {
+function usePreviewTooltip(sessionId: string, preview: PreviewPresence | undefined): { open: boolean; dismiss: () => void } {
     const key = preview === undefined ? undefined : `${sessionId}\n${preview.since}`;
     const [open, setOpen] = React.useState<string>();
     React.useEffect(() => {
@@ -40,6 +40,52 @@ export function usePreviewTooltip(sessionId: string, preview: PreviewPresence | 
     }, [open]);
     const dismiss = React.useCallback(() => setOpen(undefined), []);
     return { open: open !== undefined && open === key, dismiss };
+}
+
+/** How long the pane's channel may stay down before a stale presence stops being announced. */
+export const PREVIEW_DROP_MS = 20_000;
+
+/**
+ * Everything the pane needs to present a preview, decided once. Presence
+ * survives a reconnect shorter than the drop; the dot and Watch wait for a
+ * channel that vouches for the host; a view-only device sees presence with no
+ * way in; the host taking the window back takes the chip away.
+ */
+export function usePreviewGate(sessionId: string, preview: PreviewPresence | undefined, flags: {
+    /** This surface may announce a preview at all: platform, availability, authority settled. */
+    showable: boolean;
+    /** The device holds the control grant. */
+    granted: boolean;
+    /** The pane's channel reports live. */
+    live: boolean;
+}): {
+    /** What the header chip shows; undefined takes the chip away. */
+    shown: PreviewPresence | undefined;
+    /** The channel vouches for the host: the dot shows and the ink is full. */
+    live: boolean;
+    /** Watch may open the view now. */
+    openable: boolean;
+    /** The pane-actions row's presence; undefined hides it. */
+    row: PreviewPresence | undefined;
+    tooltip: { open: boolean; dismiss: () => void };
+} {
+    const [lost, setLost] = React.useState(false);
+    const since = preview?.since;
+    React.useEffect(() => {
+        if (since === undefined || !flags.showable || flags.live) { setLost(false); return; }
+        const timer = setTimeout(() => setLost(true), PREVIEW_DROP_MS);
+        return () => clearTimeout(timer);
+    }, [since, flags.showable, flags.live]);
+    const shown = flags.showable && preview !== undefined && !lost;
+    const openable = shown && flags.granted && flags.live;
+    const tooltip = usePreviewTooltip(sessionId, openable ? preview : undefined);
+    return {
+        shown: shown ? preview : undefined,
+        live: shown && flags.live,
+        openable,
+        row: shown && flags.granted ? preview : undefined,
+        tooltip,
+    };
 }
 
 /**
@@ -74,6 +120,10 @@ function kindCopy(kind: PreviewPresence['kind']) {
 export const PreviewChip = React.memo((props: {
     /** Absent once the window is gone; the chip then fades out. */
     preview: PreviewPresence | undefined;
+    /** The channel vouches for the host: the dot shows and the ink is full. */
+    live: boolean;
+    /** Watch may open the view now. */
+    openable: boolean;
     /** Tooltip up: the chip names its kind beside the mark. */
     labelled: boolean;
     onPress: () => void;
@@ -101,7 +151,7 @@ export const PreviewChip = React.memo((props: {
         <Animated.View style={chip} onLayout={(event) => props.onLayout({ x: event.nativeEvent.layout.x, width: event.nativeEvent.layout.width })}>
             <Pressable
                 onPress={props.onPress}
-                disabled={props.preview === undefined}
+                disabled={props.preview === undefined || !props.openable}
                 accessibilityRole="button"
                 accessibilityLabel={t('preview.chipAccessibility', { kind: held.kind, title: held.title })}
                 hitSlop={{ top: 4, bottom: 4 }}
@@ -113,6 +163,7 @@ export const PreviewChip = React.memo((props: {
                     paddingRight: 8,
                     marginHorizontal: 2,
                     borderRadius: 999,
+                    opacity: props.live ? 1 : 0.5,
                     backgroundColor: theme.colors.terminalChrome[pressed ? 'clusterPressed' : 'cluster'],
                 })}
             >
@@ -121,7 +172,7 @@ export const PreviewChip = React.memo((props: {
                     <Text numberOfLines={1} style={{ marginLeft: 5, color: theme.colors.text, fontSize: 11, fontWeight: '600' }}>{copy.chip}</Text>
                 </Animated.View>
                 {/* Steady, never pulsing: presence, not an alarm. */}
-                <View style={{ marginLeft: 5, width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.status.connected }} />
+                {props.live && <View style={{ marginLeft: 5, width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.status.connected }} />}
             </Pressable>
         </Animated.View>
     );
