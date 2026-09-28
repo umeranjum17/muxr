@@ -103,8 +103,8 @@ export class PaneScreens {
     private readonly stateDirectory: string;
     private readonly onDiagnostic: (line: string) => void;
     private readonly screens = new Map<string, LiveScreen>();
-    /** Numbers promised to allocations still starting, before they can be registered. */
-    private readonly pending = new Set<number>();
+    /** Screens still starting, from the moment their server exists to registration. */
+    private readonly pending = new Map<number, LiveScreen>();
     private readonly boundPaneByDisplay = new Map<string, string>();
     private readonly listeners = new Set<(paneId: string, windows: ScreenWindow[]) => void>();
     /** Undefined until the first keeper proves it works; false disables screens. */
@@ -136,28 +136,35 @@ export class PaneScreens {
         const keeper = this.keeperCommand();
         if (keeper === undefined) return undefined;
 
-        const number = firstFreeDisplayNumber(this.socketDirectory, FIRST_NUMBER, new Set([...this.numbers(), ...this.pending]));
-        this.pending.add(number);
+        const number = firstFreeDisplayNumber(this.socketDirectory, FIRST_NUMBER, new Set([...this.numbers(), ...this.pending.keys()]));
         // A directory no other allocation has ever used: a pane left over from a
         // previous host run, whose env still names this display number, can
         // never resolve its stale cookie onto this screen.
         const authorityDirectory = join(this.stateDirectory, randomBytes(12).toString('hex'));
-        mkdirSync(authorityDirectory, { recursive: true, mode: 0o700 });
-        const authorityFile = join(authorityDirectory, 'Xauthority');
-        writeFileSync(authorityFile, authorityEntry(number, randomBytes(16)), { mode: 0o600 });
-        const display = `:${number}`;
-        const server = spawn(xvfb, [display, '-screen', '0', SCREEN_SIZE, '-nolisten', 'tcp', '-auth', authorityFile], { env: this.env, stdio: 'ignore' });
-        const screen: LiveScreen = { display, number, authorityDirectory, env: screenEnv(display, authorityFile), server, keeperBuffer: '', windows: [] };
+        let screen: LiveScreen;
         try {
-            await waitForDisplaySocket(this.socketDirectory, number, START_TIMEOUT_MS, () => server.exitCode === null);
+            mkdirSync(authorityDirectory, { recursive: true, mode: 0o700 });
+            const authorityFile = join(authorityDirectory, 'Xauthority');
+            writeFileSync(authorityFile, authorityEntry(number, randomBytes(16)), { mode: 0o600 });
+            const display = `:${number}`;
+            const server = spawn(xvfb, [display, '-screen', '0', SCREEN_SIZE, '-nolisten', 'tcp', '-auth', authorityFile], { env: this.env, stdio: 'ignore' });
+            screen = { display, number, authorityDirectory, env: screenEnv(display, authorityFile), server, keeperBuffer: '', windows: [] };
+        } catch {
+            rmSync(authorityDirectory, { recursive: true, force: true });
+            this.onDiagnostic('a pane screen could not be prepared; this pane has none');
+            return undefined;
+        }
+        this.pending.set(number, screen);
+        try {
+            await waitForDisplaySocket(this.socketDirectory, number, START_TIMEOUT_MS, () => screen.server.exitCode === null);
         } catch {
             this.discard(screen);
             this.onDiagnostic(`a pane screen on :${number} did not start`);
             return undefined;
         }
 
-        const child = spawn(keeper.command, [...keeper.args, '--display', display], {
-            env: { ...this.env, DISPLAY: display, XAUTHORITY: authorityFile, WAYLAND_DISPLAY: '' },
+        const child = spawn(keeper.command, [...keeper.args, '--display', screen.display], {
+            env: { ...this.env, DISPLAY: screen.display, XAUTHORITY: screen.env.XAUTHORITY, WAYLAND_DISPLAY: '' },
             stdio: ['ignore', 'pipe', 'ignore'],
         });
         screen.keeper = child;
@@ -166,7 +173,7 @@ export class PaneScreens {
         child.once('exit', () => {
             // A keeper that stops later is a lost report, not a lost screen: the
             // agent keeps working on it. Never kill a display because of it.
-            if (this.screens.has(display)) this.onDiagnostic(`the keeper for :${number} stopped`);
+            if (this.screens.has(screen.display)) this.onDiagnostic(`the keeper for :${number} stopped`);
         });
         if (this.keeperWorks !== true && !await this.keeperStays(child)) {
             this.keeperWorks = false;
@@ -175,9 +182,9 @@ export class PaneScreens {
             return undefined;
         }
         this.keeperWorks = true;
-        this.screens.set(display, screen);
-        this.pending.delete(number);
-        return { display, env: screen.env };
+        this.screens.set(screen.display, screen);
+        this.pending.delete(screen.number);
+        return { display: screen.display, env: screen.env };
     }
 
     /** Tie an allocated screen to the pane Herdr created for it. */
@@ -249,9 +256,9 @@ export class PaneScreens {
         return () => this.listeners.delete(listener);
     }
 
-    /** Kill every screen, its keeper and its socket. */
+    /** Kill every screen, its keeper and its socket — registered or still starting. */
     stop(): void {
-        for (const live of [...this.screens.values()]) this.discard(live);
+        for (const live of [...this.screens.values(), ...this.pending.values()]) this.discard(live);
         this.boundPaneByDisplay.clear();
     }
 
