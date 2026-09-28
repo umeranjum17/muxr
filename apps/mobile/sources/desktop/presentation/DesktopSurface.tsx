@@ -91,8 +91,8 @@ const PREVIEW_KEYS: Record<PreviewKind, readonly { label: string; icon: Icon; na
 const DISC = 40;
 const TOOLBAR = DISC + 16;
 
-/** Growing out of the chip that opened it. */
-const GROW_SPRING = { damping: 26, stiffness: 260 };
+/** Growing out of the chip that opened it. Mass is explicit: Reanimated 4's default of 4 overshoots by a quarter. */
+const GROW_SPRING = { damping: 26, stiffness: 260, mass: 1 };
 
 /** Expo reports a blocked browser clipboard read as ERR_NO_PERMISSION. */
 function describeClipboardError(error: unknown, fallback: string): string {
@@ -359,7 +359,8 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     }, [from, frame, grow, reduceMotion]);
     const growStyle = useAnimatedStyle(() => {
         if (from === undefined || frame === null) return from === undefined ? {} : { opacity: 0 };
-        const p = grow.value;
+        // A full-screen view must never grow past the screen, however the spring settles.
+        const p = Math.min(1, grow.value);
         if (reduceMotion) return { opacity: p };
         const start = Math.max(from.width / frame.width, from.height / frame.height);
         return {
