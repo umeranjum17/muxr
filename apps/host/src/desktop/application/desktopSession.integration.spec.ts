@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DesktopSessions } from '../infrastructure/desktopSessions.js';
+import { PreviewDesktops, PreviewPresenceTracker } from './previewPresence.js';
 
 /**
  * The whole host-side desktop path, against a stub engine.
@@ -707,6 +708,121 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
             await expect(desktop.poll(first.desktopId, 0)).rejects.toMatchObject({ code: 'session' });
         } finally {
             await desktop.closeAll();
+        }
+    }, 20_000);
+
+    it('opens a session target on its own screen, and refuses what has none', async () => {
+        const computer = stubEngine();
+        const pane = stubEngine();
+        const desktop = sessionsFor(computer);
+        const seenEnvironments: NodeJS.ProcessEnv[] = [];
+        // One screened pane, one known session without a screen: the client
+        // names a session, never a display, and the host resolves it.
+        const preview = new PreviewDesktops({
+            screens: {
+                screenFor: (paneId) => paneId === 'pane-1'
+                    ? { display: ':121', env: { XAUTHORITY: '/tmp/preview-test-cookie' } }
+                    : undefined,
+                onWindows: () => () => undefined,
+            },
+            listSessions: async () => [
+                { id: 'sess-1', paneId: 'pane-1' },
+                { id: 'sess-2', paneId: 'pane-9' },
+            ],
+            makeDesktop: (environment) => {
+                seenEnvironments.push(environment);
+                return new DesktopSessions({ enginePath: process.execPath, engineArguments: [pane.path, pane.log] }, environment);
+            },
+        });
+        const owner = { connectionId: 'c1', deviceId: 'phone-1', isConnected: () => true };
+        try {
+            const target = await preview.openTarget('sess-1', { permissions: ['view'] }, owner);
+            expect(target.desktopId.startsWith('pv')).toBe(true);
+            expect(preview.owns(target.desktopId)).toBe(true);
+            // The pane's engine is told exactly its own screen.
+            expect(seenEnvironments).toEqual([{
+                MUXR_DESKTOP_SOURCE: 'x11',
+                MUXR_DESKTOP_X11_DISPLAY: ':121',
+                XAUTHORITY: '/tmp/preview-test-cookie',
+            }]);
+            const opens = pane.sent().map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> })
+                .filter((request) => request.method === 'session.open');
+            expect(opens).toHaveLength(1);
+            expect(opens[0]?.params.source).toEqual({ kind: 'x11', display: ':121' });
+            // Signaling after the open routes back to the owning instance.
+            await new Promise((resolve) => setTimeout(resolve, 60));
+            const polled = await preview.poll(target.desktopId, 0);
+            expect(polled.events.map((event) => event.kind)).toEqual(['offer', 'candidate']);
+            await preview.answer(target.desktopId, 'v=0 answer');
+            await preview.candidate(target.desktopId, 'candidate:2', '0', 0);
+
+            // Computer opens exactly as before: no target display leaks in.
+            const computerSession = await desktop.open({ permissions: ['view'] }, owner);
+            expect(preview.owns(computerSession.desktopId)).toBe(false);
+            const computerOpens = computer.sent().map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> })
+                .filter((request) => request.method === 'session.open');
+            expect(computerOpens).toHaveLength(1);
+            expect(computerOpens[0]?.params.source).toBeUndefined();
+            // A Computer handle never routes through the targets, and a
+            // target handle never routes through the Computer.
+            await expect(preview.answer(computerSession.desktopId, 'v=0 answer')).rejects.toMatchObject({ code: 'session' });
+            await expect(desktop.poll(target.desktopId, 0)).rejects.toMatchObject({ code: 'session' });
+
+            // Unknown or unscreened sessions are refused, never shown the desktop.
+            await expect(preview.openTarget('sess-9', { permissions: ['view'] }, owner)).rejects.toMatchObject({ code: 'permission-denied' });
+            await expect(preview.openTarget('sess-2', { permissions: ['view'] }, owner)).rejects.toMatchObject({ code: 'permission-denied' });
+
+            // Revoke ends both: the Computer session and the target session.
+            await desktop.revokeDevice('phone-1');
+            await preview.revokeDevice('phone-1');
+            const closes = (stub: { sent: () => string[] }) => stub.sent()
+                .map((line) => JSON.parse(line) as { method: string })
+                .filter((request) => request.method === 'session.close');
+            expect(closes(computer)).toHaveLength(1);
+            expect(closes(pane)).toHaveLength(1);
+            await expect(desktop.poll(computerSession.desktopId, 0)).rejects.toMatchObject({ code: 'session' });
+            await expect(preview.poll(target.desktopId, 0)).rejects.toMatchObject({ code: 'session' });
+        } finally {
+            await preview.closeAll();
+            await desktop.closeAll();
+        }
+    }, 20_000);
+
+    it('announces a mapped window only once it stays, and drops it after it closes', async () => {
+        const tracker = new PreviewPresenceTracker({ announceAfterMs: 20, withdrawAfterMs: 30 });
+        const changed: string[] = [];
+        tracker.onChange((paneId) => changed.push(paneId));
+        const chrome = [{ title: 'Pricing — Acme Store - Google Chrome', class: ['google-chrome', 'Google-chrome'], width: 1280, height: 800 }];
+        try {
+            expect(tracker.handleWindows('pane-1', [])).toBe(false);
+            // Mapped but too new: no chip yet.
+            expect(tracker.handleWindows('pane-1', chrome)).toBe(false);
+            expect(tracker.previewFor('pane-1')).toBeUndefined();
+            // The announce timer fires on its own: the change arrives as an event.
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            expect(tracker.handleWindows('pane-1', chrome)).toBe(false);
+            expect(tracker.previewFor('pane-1')).toMatchObject({ kind: 'browser', title: 'Pricing — Acme Store' });
+            expect(changed).toEqual(['pane-1']);
+            // A restart inside the grace period never flickers the chip.
+            expect(tracker.handleWindows('pane-1', [])).toBe(false);
+            expect(tracker.handleWindows('pane-1', chrome)).toBe(false);
+            expect(tracker.previewFor('pane-1')).toBeDefined();
+            // Really closed: the chip goes once the grace period passes.
+            expect(tracker.handleWindows('pane-1', [])).toBe(false);
+            await new Promise((resolve) => setTimeout(resolve, 45));
+            expect(tracker.previewFor('pane-1')).toBeUndefined();
+            expect(changed).toEqual(['pane-1', 'pane-1']);
+            // Too small to show, and tools that are not browsers, stay quiet.
+            expect(tracker.handleWindows('pane-2', [{ title: 'x', class: ['Google-chrome'], width: 100, height: 100 }])).toBe(false);
+            expect(tracker.handleWindows('pane-2', [{ title: 'term', class: ['Alacritty'], width: 800, height: 600 }])).toBe(false);
+            expect(tracker.previewFor('pane-2')).toBeUndefined();
+            // An emulator reports its AVD name, never an id.
+            expect(tracker.handleWindows('pane-3', [{ title: 'Android Emulator - Medium_Phone:5554', class: ['Emulator'], width: 400, height: 800 }])).toBe(false);
+            await new Promise((resolve) => setTimeout(resolve, 30));
+            expect(tracker.handleWindows('pane-3', [{ title: 'Android Emulator - Medium_Phone:5554', class: ['Emulator'], width: 400, height: 800 }])).toBe(false);
+            expect(tracker.previewFor('pane-3')).toMatchObject({ kind: 'android', title: 'Medium Phone' });
+        } finally {
+            tracker.stop();
         }
     }, 20_000);
 

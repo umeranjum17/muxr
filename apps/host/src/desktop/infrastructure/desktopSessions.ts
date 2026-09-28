@@ -159,6 +159,11 @@ export class DesktopSessions {
         this.virtualDisplay.stop();
     }
 
+    /** No sessions and nothing opening: the target reaper may drop this instance. */
+    get idle(): boolean {
+        return this.sessions.size === 0 && this.opening === 0;
+    }
+
     /** A server without a screen that this host can give one. */
     private startsOwnDisplay(): boolean {
         return screenless(this.environment, this.x11SocketDirectory) && this.virtualDisplay.installed();
@@ -520,8 +525,20 @@ export class DesktopSessions {
                     },
                     // The engine reaches this host's own screen with its cookie. A
                     // headless host may start that screen after the engine, so
-                    // the engine always carries it there.
-                    headless(this.environment) ? { ...process.env, XAUTHORITY: this.virtualDisplay.authorityFile } : process.env,
+                    // the engine always carries it there. A pane's engine instead
+                    // carries that pane's cookie and display, which is the only
+                    // way it can open the pane's private screen.
+                    {
+                        ...process.env,
+                        ...(this.environment.XAUTHORITY !== undefined && this.environment.XAUTHORITY !== ''
+                            ? { XAUTHORITY: this.environment.XAUTHORITY }
+                            : headless(this.environment)
+                                ? { XAUTHORITY: this.virtualDisplay.authorityFile }
+                                : {}),
+                        ...(this.environment.DISPLAY !== undefined && this.environment.DISPLAY !== ''
+                            ? { DISPLAY: this.environment.DISPLAY }
+                            : {}),
+                    },
                 );
                 this.client = client;
                 this.startFailure = null;

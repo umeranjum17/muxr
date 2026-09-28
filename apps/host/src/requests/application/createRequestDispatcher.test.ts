@@ -391,3 +391,57 @@ describe('artifact wire across app versions', () => {
         expect(listing).toMatchObject({ ok: true });
     });
 });
+
+describe('desktop target routing', () => {
+    it('sends a Watch tap at a session to its own screen, never the desktop', async () => {
+        const calls: string[] = [];
+        const opened = { desktopId: 'pv1', generation: 1, geometry: {}, source: {} };
+        const desktop = {
+            open: async () => { calls.push('desktop.open'); return { ...opened, desktopId: 'd1' }; },
+            answer: async () => { calls.push('desktop.answer'); return { accepted: true }; },
+        };
+        const previewDesktops = {
+            resolveTarget: async (sessionId: string) => {
+                if (sessionId !== 'sess-1') {
+                    const refused = new Error('that session has no screen to watch') as Error & { code: string };
+                    refused.code = 'permission-denied';
+                    throw refused;
+                }
+                return { paneId: 'pane-1', display: ':121' };
+            },
+            openTarget: async (sessionId: string) => {
+                await previewDesktops.resolveTarget(sessionId);
+                calls.push('preview.open');
+                return opened;
+            },
+            owns: (desktopId: string) => desktopId === 'pv1',
+            answer: async () => { calls.push('preview.answer'); return { accepted: true }; },
+        };
+        const source = { async list() { return [{ id: 'sess-1', paneId: 'pane-1' }]; } } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+            desktop: desktop as never,
+            previewDesktops: previewDesktops as never,
+        });
+
+        // A Watch tap names the session; it must open that pane's screen.
+        const targeted = await dispatch({
+            type: 'desktop.open', requestId: 'r1', params: { permissions: ['view'], target: { sessionId: 'sess-1' } },
+        } as never);
+        expect(targeted).toMatchObject({ ok: true, data: { desktopId: 'pv1' } });
+        // Computer opens exactly as before when no target is named.
+        const plain = await dispatch({ type: 'desktop.open', requestId: 'r2', params: { permissions: ['view'] } } as never);
+        expect(plain).toMatchObject({ ok: true, data: { desktopId: 'd1' } });
+        await dispatch({ type: 'desktop.answer', requestId: 'r3', params: { desktopId: 'pv1', sdp: 'x' } } as never);
+        await dispatch({ type: 'desktop.answer', requestId: 'r4', params: { desktopId: 'd1', sdp: 'x' } } as never);
+        // An unknown session is refused, never fallen back to the desktop.
+        const refused = await dispatch({
+            type: 'desktop.open', requestId: 'r5', params: { permissions: ['view'], target: { sessionId: 'nope' } },
+        } as never);
+        expect(refused).toMatchObject({ ok: false, code: 'permission-denied' });
+        expect(calls).toEqual(['preview.open', 'desktop.open', 'preview.answer', 'desktop.answer']);
+    });
+});
