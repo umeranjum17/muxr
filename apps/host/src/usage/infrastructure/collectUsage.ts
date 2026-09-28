@@ -162,24 +162,25 @@ async function ccusageRange(env: NodeJS.ProcessEnv, since: string): Promise<{ ra
     return { range: result };
 }
 
-let extras: { at: number; key: string; answer: Promise<{ range?: CcusageRange; failure?: string }>; settled?: { range?: CcusageRange; failure?: string } } | undefined;
+let extras: { at: number; key: string; answer: Promise<{ range?: CcusageRange; failure?: string }>; settled?: { at: number; range: CcusageRange } } | undefined;
 
 /** The daily backend's answer, only when an agent it alone measures is
  *  installed, reused for a while, and never waited on past `EXTRAS_WAIT_MS`. */
-async function extrasRange(env: NodeJS.ProcessEnv, since: string): Promise<{ range?: CcusageRange; failure?: string; counting?: true }> {
+async function extrasRange(env: NodeJS.ProcessEnv, since: string): Promise<{ range?: CcusageRange; failure?: string; counting?: true; settledAt?: number }> {
     if (![...CCUSAGE_AGENTS].some((agent) => installedAgent(agent, AGENT_COMMANDS[agent] ?? agent, env))) return {};
     const key = `${env.MUXR_CCUSAGE_BIN ?? ''}\u0000${since}`;
     if (extras === undefined || extras.key !== key || Date.now() - extras.at > EXTRAS_REUSE_MS) {
         const settled = extras?.settled;
         const next: NonNullable<typeof extras> = { at: Date.now(), key, answer: ccusageRange(env, since) };
-        void next.answer.then((answer) => { if (answer.range !== undefined) next.settled = answer; });
+        void next.answer.then((answer) => { if (answer.range !== undefined) next.settled = { at: Date.now(), range: answer.range }; });
         if (settled !== undefined) next.settled = settled;
         extras = next;
     }
     const current = extras;
     const answer = await Promise.race([current.answer, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), EXTRAS_WAIT_MS).unref(); })]);
-    if (answer !== undefined && (answer.range !== undefined || current.settled === undefined)) return answer;
-    return current.settled ?? { counting: true };
+    const settled = current.settled !== undefined && Date.now() - current.settled.at <= PLAN_LAST_KNOWN_MS ? current.settled : undefined;
+    if (answer !== undefined && (answer.range !== undefined || settled === undefined)) return answer;
+    return settled === undefined ? { counting: true } : { range: settled.range, settledAt: settled.at };
 }
 
 function readJson(path: string, maxBytes: number): { value: unknown; modified: number } | undefined {
@@ -812,6 +813,7 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     // vanishing from the card.
     const readings: PlanReadings = { ...stored };
     let readingsFrom = NOW.getTime();
+    if (extrasAnswer.settledAt !== undefined) readingsFrom = Math.min(readingsFrom, extrasAnswer.settledAt);
     const windowsOf = (id: PlanId, raw: unknown): UsageWindowVM[] => {
         const nowMs = Date.now();
         const vms = planWindows(id, raw, nowMs);

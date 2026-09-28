@@ -257,19 +257,25 @@ export class TokenLedger {
         const notBefore = now - (LEDGER_DAYS + 1) * DAY_MS;
         this.pruneSeen(localHour(notBefore).slice(0, 10));
         const listed = new Set<string>();
-        for (const harness of JSONL_HARNESSES) {
-            const roots = harness === 'claude' ? this.roots.claude ?? [] : [this.roots[harness]].filter((root): root is string => root !== undefined);
-            try {
-                for (const root of roots) {
-                    for (const path of jsonlFiles(root)) {
-                        listed.add(path);
-                        await this.readFile(harness, path, notBefore);
+        // A rewritten transcript clears every harness's count; the second
+        // round recounts them all, so this pass ends with a whole snapshot.
+        for (let round = 0; round < 2; round += 1) {
+            let rewritten = false;
+            for (const harness of JSONL_HARNESSES) {
+                const roots = harness === 'claude' ? this.roots.claude ?? [] : [this.roots[harness]].filter((root): root is string => root !== undefined);
+                try {
+                    for (const root of roots) {
+                        for (const path of jsonlFiles(root)) {
+                            listed.add(path);
+                            rewritten = (await this.readFile(harness, path, notBefore)) || rewritten;
+                        }
                     }
+                    delete this.failures[harness];
+                } catch {
+                    this.failures[harness] = 'Local activity could not be measured · check the session folder can be read';
                 }
-                delete this.failures[harness];
-            } catch {
-                this.failures[harness] = 'Local activity could not be measured · check the session folder can be read';
             }
+            if (!rewritten) break;
         }
         // A transcript that is gone takes its counts with it.
         for (const path of this.files.keys()) if (!listed.has(path)) this.files.delete(path);
@@ -280,13 +286,14 @@ export class TokenLedger {
         for (const day of this.seen.keys()) if (day < from) this.seen.delete(day);
     }
 
-    private async readFile(harness: Exclude<Harness, 'opencode'>, path: string, notBefore: number): Promise<void> {
+    private async readFile(harness: Exclude<Harness, 'opencode'>, path: string, notBefore: number): Promise<boolean> {
         let stat;
-        try { stat = statSync(path); } catch { return; }
+        try { stat = statSync(path); } catch { return false; }
         // Untouched since before the window: nothing in it can count.
-        if (stat.mtimeMs < notBefore) { this.files.delete(path); return; }
+        if (stat.mtimeMs < notBefore) { this.files.delete(path); return false; }
         let state = this.files.get(path);
-        if (state !== undefined && stat.size === state.size && stat.mtimeMs === state.mtimeMs) return;
+        if (state !== undefined && stat.size === state.size && stat.mtimeMs === state.mtimeMs) return false;
+        let rewritten = false;
         if (state !== undefined && stat.size < state.offset) {
             // Rewritten, not appended: what it held is unknown now, and its
             // identities may be claimed. Start the whole count again.
@@ -294,6 +301,7 @@ export class TokenLedger {
             this.files.clear();
             this.seen.clear();
             state = undefined;
+            rewritten = true;
         }
         state ??= { harness, size: 0, mtimeMs: 0, offset: 0, buckets: new Map() };
         this.files.set(path, state);
@@ -301,6 +309,7 @@ export class TokenLedger {
         if (end > state.offset) state.offset = await this.readRange(path, state, end, notBefore);
         state.size = stat.size;
         state.mtimeMs = stat.mtimeMs;
+        return rewritten;
     }
 
     /** Read whole lines from `state.offset` up to `end`; returns the new offset

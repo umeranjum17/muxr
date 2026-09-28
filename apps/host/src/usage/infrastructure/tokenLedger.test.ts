@@ -111,3 +111,21 @@ it('counts every harness store once, by route and model, and reads only what was
     await ledger.refresh();
     expect(tokens()['pi/zai/glm-flash']).toBe(5000);
 }, 20_000);
+
+it('recounts the whole machine within the pass that spots a rewritten transcript', async () => {
+    const env = machine();
+    const ledger = new TokenLedger(ledgerRoots(env));
+    await ledger.refresh();
+    // A crash or rotation can truncate a transcript and start it over; the
+    // recount must reach every harness, not only the ones read after it.
+    writeFileSync(join(env.HOME!, '.claude', 'projects', '-repo', 'first.jsonl'), line({
+        type: 'assistant', timestamp: at(5), requestId: 'req_2', message: {
+            id: 'msg_2', role: 'assistant', model: 'claude-sonnet-4', content: [{ type: 'text' }],
+            usage: { input_tokens: 20, output_tokens: 30, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+        },
+    }));
+    await ledger.refresh();
+    const rows = ledger.snapshot().rows;
+    expect(rows.find((row) => row.harness === 'pi')).toBeDefined();
+    expect(rows.some((row) => row.harness === 'claude' && row.input === 20)).toBe(true);
+});
