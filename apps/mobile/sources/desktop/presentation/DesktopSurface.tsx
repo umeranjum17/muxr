@@ -461,6 +461,13 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     React.useEffect(() => {
         if (live || snapshot.status === 'failed') setResuming(false);
     }, [live, snapshot.status]);
+    // The engine's own reconnect passes through opening again; while it does,
+    // the view still says what happened, not that it is starting.
+    const [dropped, setDropped] = React.useState(false);
+    React.useEffect(() => {
+        if (snapshot.status === 'reconnecting') setDropped(true);
+        else if (snapshot.status !== 'opening' && snapshot.status !== 'connecting') setDropped(false);
+    }, [snapshot.status]);
     React.useEffect(() => {
         if (!live) {
             disarm();
@@ -515,6 +522,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     const previewStatus = !preview ? null
         : !started && !closed ? { title: copy.name, detail: target?.title, spinner: false, action: { label: 'Watch', exit: false } }
         : resuming && !closed ? { title: copy.opening, spinner: true }
+        : dropped && !closed && (snapshot.status === 'opening' || snapshot.status === 'connecting') ? null
         : describePreviewOverlay(snapshot, kind, closed);
     const status: { title: string; detail?: string; command?: string; spinner: boolean; action?: string } = previewStatus !== null
         ? { ...previewStatus, action: previewStatus.action?.label }
@@ -538,7 +546,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     const rise = compact ? (DESKTOP_KEY_ROW_HEIGHT - BUTTON) / 2 : DESKTOP_KEY_ROW_HEIGHT + ABOVE_KEYS;
     const clearance = compact ? (DESKTOP_KEY_ROW_HEIGHT + BUTTON) / 2 + PICTURE_GAP / 2 : rise + BUTTON + PICTURE_GAP;
     const statusLabel = live ? desktopCopy.liveLabel : snapshot.status === 'reconnecting' ? desktopCopy.reconnectingTitle : status.spinner ? desktopCopy.connectingLabel : null;
-    const reconnecting = snapshot.status === 'reconnecting';
+    const reconnecting = snapshot.status === 'reconnecting' || (preview && dropped && !live);
     const previewStatusLine: { label: string; color: string; spinner?: boolean } | null = !preview ? null
         : resuming && !closed ? { label: desktopCopy.connectingLabel, color: theme.colors.textSecondary, spinner: true }
         : closed || snapshot.status === 'ended' ? { label: previewCopy.closedLabel, color: theme.colors.textSecondary }
@@ -983,3 +991,4 @@ const styles = StyleSheet.create({
     disabled: { opacity: 0.4 },
     pressed: { opacity: 0.6 },
 });
+
