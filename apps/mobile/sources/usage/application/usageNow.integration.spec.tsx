@@ -72,6 +72,15 @@ vi.mock('react-native', () => ({
     View: 'View',
 }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
+vi.mock('react-native-reanimated', () => ({
+    default: { View: 'Animated.View' },
+    Easing: { bezier: () => undefined, inOut: () => undefined, quad: undefined },
+    useAnimatedStyle: () => ({}),
+    useReducedMotion: () => true,
+    useSharedValue: (value: unknown) => ({ value }),
+    withDelay: (_delay: number, value: unknown) => value,
+    withTiming: (value: unknown) => value,
+}));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('@/components/haptics', () => ({ hapticsSelection }));

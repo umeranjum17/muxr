@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Header } from '@/components/navigation/Header';
 import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import { Ionicons } from '@expo/vector-icons';
-import type { UsageReport } from '@muxr/contract';
+import type { UsageLimitsWindow, UsageReport } from '@muxr/contract';
 import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type PluginScreenChartNode, type PluginScreenLimitsNode } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { hapticsSelection } from '@/components/haptics';
@@ -14,6 +14,7 @@ import { cardStyle, Notice, SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { ScreenChart, ScreenLimits } from '@/plugins/ui';
+import { ActivitySections } from './ActivitySections';
 import { t } from '@/text';
 import { useForegroundRefresh } from '../application/useForegroundRefresh';
 import { forcedReadWait } from '../application/forcedRead';
@@ -172,6 +173,15 @@ export function UsageScreen() {
         loadIfDue(provider);
     }, [display, provider, busy, loadIfDue]);
 
+    // A first count still reading this computer's sessions lands within a
+    // minute: ask again shortly rather than at the next freshness window.
+    const counting = report?.activity?.state === 'counting';
+    React.useEffect(() => {
+        if (!counting || busy) return;
+        const timer = setTimeout(() => { if (!inFlight.current) void load(provider, Date.now(), false); }, 5_000);
+        return () => clearTimeout(timer);
+    }, [counting, busy, provider, load]);
+
     // A read still running when the screen goes cannot paint into it, and its
     // claim goes with it: no answer is coming for it.
     React.useEffect(() => () => {
@@ -306,6 +316,14 @@ export function UsageScreen() {
                                     </Pressable>
                                     : <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginTop: 12 }}>{t('plugins.rightNow.collecting')}</Text>}
                             </View>
+                            : report.activity !== undefined
+                            ? <View style={{ opacity: failed || busy ? 0.55 : 1 }}>
+                                {/* A tab speaks for its own plan only: a harness with none
+                                    (Pi, OMP) shows its providers' limits on their routes. */}
+                                {(report.limits.windows.length > 0 || report.limits.message !== undefined) && <ScreenLimits node={LIMITS_NODE} data={report} asOf={limitsAsOf} />}
+                                {failureText !== undefined && <Notice tone="danger" text={failureText} />}
+                                <ActivitySections activity={report.activity} tab={tabLabel(report)} limits={insightLimits(report)} costNote={costNote(report)} />
+                            </View>
                             : <View style={{ opacity: failed || busy ? 0.55 : 1 }}>
                             <ScreenLimits node={LIMITS_NODE} data={report} asOf={limitsAsOf} />
                             {failureText !== undefined && <Notice tone="danger" text={failureText} />}
@@ -338,6 +356,26 @@ export function UsageScreen() {
             </ScrollView>
         </>
     );
+}
+
+function tabLabel(report: UsageReport): string {
+    return report.providers.find((tab) => tab.id === report.provider)?.label ?? report.providerName;
+}
+
+/** The tab's own plan and every route's provider plan, for the pace insight. */
+function insightLimits(report: UsageReport): Array<{ plan: string; windows: UsageLimitsWindow[] }> {
+    const own = report.limits.windows.length === 0 ? [] : [{ plan: report.limits.plan ?? tabLabel(report), windows: report.limits.windows }];
+    const routes = (report.activity?.routes ?? []).flatMap((route) => (route.windows === undefined ? [] : [{ plan: route.plan ?? route.label, windows: route.windows }]));
+    return [...own, ...routes];
+}
+
+/** Whose dollar figures these are, in the tab's own terms. */
+function costNote(report: UsageReport): string {
+    const tab = tabLabel(report);
+    if (report.provider === 'zai') return 'Plan traffic is priced by the plan, so no dollar figure is shown.';
+    if (report.activity?.costBasis === 'estimated') return `${tab} records no cost, so these are list-price estimates.`;
+    if (report.activity?.costBasis === 'recorded') return `Costs are as ${tab} records them.`;
+    return 'Costs are what each agent records, or list-price estimates where it records none.';
 }
 
 /** The wall-clock moment a retained reading was true, as the failure line
@@ -381,6 +419,7 @@ function reportFrom(figures: UsageFigures, provider: string, stale = false): Usa
         ...(activity?.activityNotice === undefined ? {} : { activityNotice: activity.activityNotice }),
         ...(activity?.noProvidersTitle === undefined ? {} : { noProvidersTitle: activity.noProvidersTitle }),
         ...(activity?.noProviders === undefined ? {} : { noProviders: activity.noProviders }),
+        ...(activity?.detail === undefined ? {} : { activity: activity.detail }),
     };
 }
 
