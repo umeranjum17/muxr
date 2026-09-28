@@ -100,10 +100,11 @@ exist.
 
 **The host owns**: the translation (herdr socket ⇄ app contract), stable session
 ids (herdr pane ids change on cross-workspace moves), the attention/inbox
-derivation, plugin RPC execution, attachment files on disk, push triggers, and the
-on-demand desktop engine process it starts and stops for one authorized session. It
-manages no agent processes and keeps no lifecycle ledger — a closed pane simply
-disappears from the app.
+derivation, plugin RPC execution, attachment files on disk, push triggers, the
+preview presence it measures from a pane's own screen, and the on-demand desktop
+engine processes it starts and stops — the computer's screen for one authorized
+viewer, or a pane's screen for an agent preview. It manages no agent processes
+and keeps no lifecycle ledger — a closed pane simply disappears from the app.
 
 **The relay core owns**: blind `@byokit/relay` link routing, push registration,
 shared-relay machine enrollment and readiness/web serving. The host owns pairing
@@ -199,8 +200,10 @@ Beyond the session basics, the host exposes herdr's topology to the app:
 - `session.start` with `kinds[]` — squad mode: one tab per kind, same workspace,
   started together.
 - `SessionInfo` carries `workspaceId`/`tabId`/`workspaceLabel`, `terminalTitle`
-  (OSC title breadcrumb), and worktree provenance; `session.updated` events push
-  changes so cards and rows refresh live.
+  (OSC title breadcrumb), worktree provenance, and `preview` when the agent is
+  showing a watchable browser or emulator on its pane's own screen;
+  `session.updated` events push changes, presence included, so cards and rows
+  refresh live.
 
 ## Shared Artifacts and changes
 
