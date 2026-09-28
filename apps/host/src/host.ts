@@ -9,7 +9,7 @@
 import { type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@muxr/contract';
 import { deviceTableCanMutate, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
-import { DesktopSessions } from './desktop/index.js';
+import { DesktopSessions, type PaneScreens } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -43,6 +43,12 @@ export interface HostOptions {
     desktopEnginePath?: string;
     /** Existing host state root for local desktop portal grants. */
     stateRoot?: string;
+    /**
+     * The private screens agent panes run on. The session source is built
+     * before this host is (it needs them to allocate a pane's screen), so it is
+     * handed to both and the host owns the teardown.
+     */
+    paneScreens?: PaneScreens;
 }
 
 export interface Host {
@@ -194,6 +200,7 @@ export function startHost(options: HostOptions): Host {
             unsubscribeMachine?.();
             await desktop.closeAll();
             desktop.stopVirtualDisplay();
+            options.paneScreens?.stop();
             await source.dispose();
         },
     };

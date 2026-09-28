@@ -5,6 +5,7 @@ import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
+import { PaneScreens } from './desktop/index.js';
 import { startHost } from './host.js';
 import { LinkPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
@@ -399,6 +400,11 @@ async function main(): Promise<void> {
     }
     const domain = createAgentWatchStores({ dataDir });
     const routes = new AgentRouteStore(dataDir);
+    // One private screen per agent pane. Built here because the session source
+    // allocates a pane's screen, and the host is what stops them all.
+    const paneScreens = new PaneScreens({
+        onDiagnostic: (line) => process.stderr.write(`pane screen: ${line}\n`),
+    });
     const herdrSocketPath = env('HERDR_SOCKET_PATH');
     let source;
     if (useFake) {
@@ -407,6 +413,7 @@ async function main(): Promise<void> {
     } else {
         source = await createHerdrSessionSource({
             dataDir,
+            screens: paneScreens,
             // A test harness points the host at its own Herdr; unset means the desk's.
             ...(herdrSocketPath === undefined ? {} : { socketPath: herdrSocketPath }),
             attention: domain.attention,
@@ -483,6 +490,7 @@ async function main(): Promise<void> {
         source,
         domain,
         terminals,
+        paneScreens,
         ...(peerRuntime === undefined ? {} : { peerRuntime }),
         ...(diagnostics === undefined ? {} : { diagnostics }),
         hostVersion,

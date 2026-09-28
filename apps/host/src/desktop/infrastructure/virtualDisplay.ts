@@ -1,40 +1,16 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { accessSync, constants, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { authorityEntry, firstFreeDisplayNumber, onPath, removeDisplayFiles, waitForDisplaySocket } from './x11Display.js';
 
 const XVFB = 'Xvfb';
 /** A light desktop session to run on it, when the machine has one installed. */
 const SESSION = 'startxfce4';
 const FIRST_NUMBER = 90;
 const START_TIMEOUT_MS = 5000;
-
-function onPath(name: string, env: NodeJS.ProcessEnv): string | undefined {
-    for (const directory of (env.PATH ?? '').split(':')) {
-        if (directory === '') continue;
-        const candidate = join(directory, name);
-        try {
-            accessSync(candidate, constants.X_OK);
-            return candidate;
-        } catch {
-            // Not here.
-        }
-    }
-    return undefined;
-}
-
-/** One MIT-MAGIC-COOKIE-1 entry for any host, in the Xauthority file format. */
-function authorityEntry(number: number, cookie: Buffer): Buffer {
-    const field = (value: Buffer) => {
-        const length = Buffer.alloc(2);
-        length.writeUInt16BE(value.length);
-        return Buffer.concat([length, value]);
-    };
-    const family = Buffer.alloc(2);
-    family.writeUInt16BE(0xffff);
-    return Buffer.concat([family, field(Buffer.alloc(0)), field(Buffer.from(String(number))), field(Buffer.from('MIT-MAGIC-COOKIE-1')), field(cookie)]);
-}
 
 /**
  * The screen this host starts for a machine that has none, such as a cloud
@@ -74,21 +50,17 @@ export class VirtualDisplay {
         this.stop();
         const xvfb = onPath(XVFB, this.env);
         if (xvfb === undefined) throw new Error('Xvfb is not installed');
-        let number = FIRST_NUMBER;
-        while (existsSync(join(this.socketDirectory, `X${number}`)) || existsSync(`/tmp/.X${number}-lock`)) number += 1;
+        const number = firstFreeDisplayNumber(this.socketDirectory, FIRST_NUMBER);
         mkdirSync(join(this.authorityFile, '..'), { recursive: true, mode: 0o700 });
         writeFileSync(this.authorityFile, authorityEntry(number, randomBytes(16)), { mode: 0o600 });
         const server = spawn(xvfb, [`:${number}`, '-screen', '0', '1920x1080x24', '-nolisten', 'tcp', '-auth', this.authorityFile], { env: this.env, stdio: 'ignore' });
         this.server = server;
         this.number = number;
-        const socket = join(this.socketDirectory, `X${number}`);
-        const deadline = Date.now() + START_TIMEOUT_MS;
-        while (!this.isSocket(socket)) {
-            if (!this.running() || Date.now() > deadline) {
-                this.stop();
-                throw new Error('the virtual screen did not start');
-            }
-            await new Promise((resolve) => setTimeout(resolve, 50));
+        try {
+            await waitForDisplaySocket(this.socketDirectory, number, START_TIMEOUT_MS, () => this.running());
+        } catch (error) {
+            this.stop();
+            throw error;
         }
         const desktop = onPath(SESSION, this.env);
         if (desktop !== undefined) {
@@ -108,20 +80,8 @@ export class VirtualDisplay {
         const server = this.server;
         this.server = undefined;
         if (server !== undefined && server.exitCode === null && server.signalCode === null) server.kill('SIGTERM');
-        // A server that was killed outright leaves its socket and lock behind,
-        // and the next start must not mistake them for a live display.
-        if (this.number !== undefined && server !== undefined) {
-            rmSync(join(this.socketDirectory, `X${this.number}`), { force: true });
-            rmSync(`/tmp/.X${this.number}-lock`, { force: true });
-        }
+        if (this.number !== undefined && server !== undefined) removeDisplayFiles(this.socketDirectory, this.number);
         this.number = undefined;
     }
-
-    private isSocket(path: string): boolean {
-        try {
-            return statSync(path).isSocket();
-        } catch {
-            return false;
-        }
-    }
 }
+
