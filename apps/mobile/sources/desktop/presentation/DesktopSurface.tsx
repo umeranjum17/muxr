@@ -234,6 +234,12 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
         claimDesktopRequest(getCachedConnectionSettings().machineId ?? '', sessionId, preview);
     }, [sessionId, preview]);
     const [started, setStarted] = React.useState(request.allowed);
+    // Stopped for the background and coming back: that is opening, not closed.
+    const [resuming, setResuming] = React.useState(false);
+    const startedRef = React.useRef(started);
+    startedRef.current = started;
+    const closedRef = React.useRef(closed);
+    closedRef.current = closed;
     // Control follows a deliberate tap. Whatever happens on its own — the
     // phone locking, the app going to the background, a reconnect — may bring
     // the picture back, but not the control: fingers that were unlocking the
@@ -282,15 +288,29 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     React.useEffect(() => setKeyboardOpen(keyboard.isVisible), [keyboard.isVisible]);
 
     React.useEffect(() => {
+        // Nobody watches an agent's browser from the background: its stream
+        // stops there and opens again, still only watching, on the way back.
+        let paused = false;
         const subscription = AppState.addEventListener('change', (state) => {
-            if (state === 'active') return;
+            if (state === 'active') {
+                if (paused && startedRef.current && !closedRef.current) void connect();
+                else setResuming(false);
+                paused = false;
+                return;
+            }
             disarm();
             armWhenLive.current = false;
             setKeyboardOpen(false);
             setMenu((open) => (open === 'clipboard' ? null : open));
+            if (preview && state === 'background' && !paused) {
+                paused = true;
+                setResuming(true);
+                releaseHeld();
+                void close('backgrounded');
+            }
         });
         return () => subscription.remove();
-    }, [disarm]);
+    }, [disarm, preview, connect, close, releaseHeld]);
 
     React.useEffect(() => {
         if (notice === null) return;
@@ -438,6 +458,9 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
 
     const live = snapshot.status === 'live';
     React.useEffect(() => {
+        if (live || snapshot.status === 'failed') setResuming(false);
+    }, [live, snapshot.status]);
+    React.useEffect(() => {
         if (!live) {
             disarm();
             if (snapshot.status === 'failed' || snapshot.status === 'ended' || snapshot.status === 'reconnecting') armWhenLive.current = false;
@@ -456,7 +479,8 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     // rather than for as long as the desktop is up.
     const explained = React.useRef(false);
     React.useEffect(() => {
-        if (!live || explained.current) return;
+        // An agent's browser says what a tap does on its own pill, and keeps its clipboard in the menu.
+        if (!live || explained.current || preview) return;
         explained.current = true;
         if (!openedBefore) {
             setOpenedBefore(true);
@@ -464,7 +488,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
         } else if (!clipboardAvailable) {
             say(desktopCopy.clipboardUnavailable);
         }
-    }, [live, openedBefore, setOpenedBefore, clipboardAvailable, say]);
+    }, [live, openedBefore, setOpenedBefore, clipboardAvailable, say, preview]);
 
     // An open still waiting after a moment is waiting on the computer's
     // screen-sharing prompt, whether or not a grant was saved (the portal may
@@ -489,6 +513,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     // An agent's browser the app put back on its own waits for Watch, like the desktop.
     const previewStatus = !preview ? null
         : !started && !closed ? { title: copy.name, detail: target?.title, spinner: false, action: { label: 'Watch', exit: false } }
+        : resuming && !closed ? { title: copy.opening, spinner: true }
         : describePreviewOverlay(snapshot, kind, closed);
     const status: { title: string; detail?: string; command?: string; spinner: boolean; action?: string } = previewStatus !== null
         ? { ...previewStatus, action: previewStatus.action?.label }
@@ -514,6 +539,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     const statusLabel = live ? desktopCopy.liveLabel : snapshot.status === 'reconnecting' ? desktopCopy.reconnectingTitle : status.spinner ? desktopCopy.connectingLabel : null;
     const reconnecting = snapshot.status === 'reconnecting';
     const previewStatusLine: { label: string; color: string; spinner?: boolean } | null = !preview ? null
+        : resuming && !closed ? { label: desktopCopy.connectingLabel, color: theme.colors.textSecondary, spinner: true }
         : closed || snapshot.status === 'ended' ? { label: previewCopy.closedLabel, color: theme.colors.textSecondary }
         : live && armed ? { label: previewCopy.controlLabel, color: theme.colors.status.working }
         : live ? { label: previewCopy.liveLabel, color: theme.colors.status.connected }
@@ -810,7 +836,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
 
                 {/* The agent's browser keeps its toolbar in view: the keys that
                     move it, the keyboard, and full screen. Dim until it is live. */}
-                {preview && !(viewOnly && !live) && (
+                {preview && !(viewOnly && !live) && previewStatus?.action?.exit !== true && (
                     <Animated.View pointerEvents="box-none" style={[styles.toolbar, { height: TOOLBAR + bottomInset, paddingBottom: bottomInset, backgroundColor: panelColor }, docked && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider }, controlsMotion]}>
                         {shownNotice !== null && (
                             <View pointerEvents="none" style={[styles.noticeLane, { bottom: TOOLBAR + bottomInset + 4 }]}>
