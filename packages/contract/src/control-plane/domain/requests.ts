@@ -248,8 +248,14 @@ export const DESKTOP_CONSENT_WAIT_MS = 110_000;
 
 export interface RequestMap extends PeerRequestMap {
     // --- live desktop -------------------------------------------------------
-    /** Whether this machine can show and drive its own desktop right now. */
-    'desktop.capabilities': { params: Record<string, never>; result: DesktopCapabilities };
+    /**
+     * Whether this machine can show and drive its own desktop right now. With a
+     * `target`, the same question about that session's own screen instead.
+     */
+    'desktop.capabilities': {
+        params: { target?: { sessionId: string } };
+        result: DesktopCapabilities;
+    };
     /**
      * Open one desktop session. The host owns the engine process and the
      * decision to start it; the caller only states what it needs. The returned
@@ -275,6 +281,14 @@ export interface RequestMap extends PeerRequestMap {
              * timeout still outlasts.
              */
             awaitConsent?: boolean;
+            /**
+             * Watch that session's own screen (the browser or emulator its agent
+             * is using) instead of this computer's desktop. The client names a
+             * session, never a display: the host resolves it and refuses an
+             * unknown or screen-less one with `permission-denied`. Absent means
+             * the desktop, exactly as before.
+             */
+            target?: { sessionId: string };
         };
         result: {
             desktopId: string;
@@ -682,13 +696,6 @@ export interface RequestMap extends PeerRequestMap {
         };
         result: { title: string; note: string; patch: string };
     };
-
-    // --- preview tunnel -----------------------------------------------------
-    /**
-     * Ask the host to join `channel` and forward it to `port`. Native takeover
-     * callers send a per-preview key through this encrypted request; local
-     * development may omit it when the relay is trusted.
-     */
 
     // --- worktrees ----------------------------------------------------------
     /**
