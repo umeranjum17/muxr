@@ -1785,4 +1785,43 @@ describe('the usage screen read path', () => {
         expect(card().props.asOf).toBeUndefined();
         expect(card().parent.props.style.opacity).toBe(1);
     });
+
+    it('shows each route\'s cost for the span shown, and nothing for a route that could not be priced', async () => {
+        // The figure beside a route's tokens belongs to the span on screen,
+        // and a route whose harness recorded no cost stays silent rather than
+        // reading as free.
+        request.mockResolvedValue({
+            ...report('pi', 0),
+            activity: {
+                state: 'measured' as const,
+                hourly: [],
+                days: ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07']
+                    .map((date, index) => ({ date, input: index === 6 ? 4_000_000 : 0, output: 0, cacheRead: 0, cacheWrite: 0 })),
+                models: [],
+                routes: [
+                    { id: 'openai-codex', label: 'OpenAI Codex', glyph: 'codex', today: 4_000_000, week: 21_100_000_000, month: 30_000_000_000, weekCost: 950, monthCost: 1_900 },
+                    { id: 'google', label: 'Gemini', glyph: 'gemini', today: 0, week: 5_000_000, month: 5_000_000 },
+                ],
+            },
+        });
+        const routeRow = (label: string): string => {
+            const row = screen.root.findAll((node: any) => typeof node.props?.accessibilityLabel === 'string' && node.props.accessibilityLabel.startsWith(`${label}:`))[0];
+            if (row === undefined) throw new Error(`no route row for ${label}`);
+            return row.props.accessibilityLabel;
+        };
+        const screen = renderScreen();
+        await tick();
+        expect(routeRow('OpenAI Codex')).toBe('OpenAI Codex: 21.1B tokens, $950, 100 percent');
+        expect(routeRow('Gemini')).toBe('Gemini: 5M tokens, 0 percent');
+        expect(screenText(screen)).toContain('· $950');
+
+        // The month span carries the month's own cost, never the week's.
+        press(screen, '30 days');
+        await tick();
+        expect(routeRow('OpenAI Codex')).toBe('OpenAI Codex: 30B tokens, $1,900, 100 percent');
+        expect(routeRow('Gemini')).toBe('Gemini: 5M tokens, 0 percent');
+
+        // A route with no recorded cost earns no dollar figure on either span.
+        expect(screenText(screen)).not.toContain('$0');
+    });
 });

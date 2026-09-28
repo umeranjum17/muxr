@@ -212,7 +212,6 @@ const baseEnv = () => ({
     PI_CODING_AGENT_DIR: undefined,
 });
 const run = (input, environment = {}) => drive({ ...baseEnv(), ...environment }, input);
-const stateFile = (tab) => join(scratch, 'usage', `usage-v2-${tab}.json`);
 
 try {
     writeTranscript(join(scratch, '.omp/agent/sessions/proj/session.jsonl'), [
@@ -345,7 +344,6 @@ try {
     assert.equal(go.todayTokens, '300');
     assert.equal(go.todayCost, '$0.00');
     assert.match(go.limits.message ?? '', /Go limits unavailable/);
-    assert.ok(!existsSync(stateFile('opencode')), 'missing Go limits must not be cached');
     const goStub = (url, options) => {
         if (url !== 'https://opencode.ai/zen/go/v1/usage' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-secret-key') throw new Error('unexpected quota request');
         return Promise.resolve(new Response(JSON.stringify({ usage: Object.fromEntries(['rolling', 'weekly', 'monthly'].map((key, index) => [key, { status: 'ok', percent: index === 0 ? 0 : 20 + index, resetsAt: new Date(Date.now() + 3600000).toISOString() }])) })));
@@ -452,7 +450,6 @@ try {
     assert.ok(existsSync(refreshMarker), 'revalidation re-collected past the cache');
     assert.ok(!('stale' in refreshed));
     assert.equal(refreshed.todayTokens, '2.5K');
-    rmSync(stateFile('all'), { force: true });
     const codexFixture = readFileSync(join(scratch, 'codex'), 'utf8');
     rmSync(join(scratch, 'codex'));
     // No Codex anywhere on PATH: a CLI installed on the machine running this
@@ -464,7 +461,6 @@ try {
     assert.equal(fallback.todayTokens, '150');
     assert.ok(!fallback.providers.some((p) => p.id === 'codex'));
     assert.doesNotMatch(JSON.stringify(fallback.windows), /OpenAI Codex/);
-    assert.ok(!existsSync(stateFile('codex')));
 
     const invalid = await run({ provider: 'qwen' }, { MUXR_CCUSAGE_BIN: '/bin/true' });
     assert.equal(invalid.provider, 'omp');

@@ -379,17 +379,21 @@ function RoutesCard({ activity, span, tab }: { activity: UsageActivity; span: Sp
             <View style={[cardStyle(theme), { paddingHorizontal: 16, paddingVertical: 4 }]}>
                 {routes.map((route, index) => {
                     const share = all === 0 ? 0 : value(route) / all;
+                    const cost = span === 7 ? route.weekCost : route.monthCost;
                     const model = activity.models.find((candidate) => candidate.route === route.label);
                     const limit = tightest(route.windows);
                     const tone = limit === undefined ? undefined : leftTone(limit);
                     return (
                         <View key={route.id} style={{ paddingVertical: 12, borderTopWidth: index === 0 ? 0 : StyleSheet.hairlineWidth, borderTopColor: theme.colors.divider }}
-                            accessible accessibilityLabel={[`${route.label}: ${compactTokens(value(route))} tokens, ${Math.round(share * 100)} percent`,
+                            accessible accessibilityLabel={[`${route.label}: ${compactTokens(value(route))} tokens${cost === undefined ? '' : `, ${compactMoney(cost)}`}, ${Math.round(share * 100)} percent`,
                                 limit === undefined ? undefined : `${route.plan ?? route.label} ${limit.label} ${100 - Math.round(limit.used)} percent left${limit.resetsIn === undefined ? '' : `, resets in ${limit.resetsIn}`}`].filter(Boolean).join('. ')}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                                 <AgentGlyph name={route.glyph ?? route.label} size={16} color={theme.colors.textSecondary} />
                                 <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 14, ...Typography.default('semiBold') }}>{route.label}</Text>
-                                <Text style={{ color: theme.colors.text, fontSize: 13, ...Typography.mono('semiBold') }}>{compactTokens(value(route))}</Text>
+                                <Text style={{ color: theme.colors.text, fontSize: 13, ...Typography.mono('semiBold') }}>
+                                    {compactTokens(value(route))}
+                                    {cost !== undefined && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, letterSpacing: 0, ...Typography.mono('regular') }}>{`  · ${compactMoney(cost)}`}</Text>}
+                                </Text>
                                 <Text style={{ width: 38, textAlign: 'right', color: theme.colors.textSecondary, fontSize: 12, ...Typography.mono('regular') }}>{`${Math.round(share * 100)}%`}</Text>
                             </View>
                             <Meter ratio={share} emphasis={0.85} style={{ marginTop: 7, marginLeft: 24 }} />

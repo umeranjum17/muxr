@@ -159,7 +159,10 @@ export function tabActivity(input: TabActivityInput): UsageActivity {
             const identity = routeIdentity(row.route);
             const route = routes.get(row.route) ?? { id: row.route, label: identity.label, ...(identity.glyph === undefined ? {} : { glyph: identity.glyph }), today: 0, week: 0, month: 0 };
             route.today += period.today; route.week += period.week; route.month += period.month;
-            if (date >= weekFrom && (!row.unpriced || row.cost > 0)) route.weekCost = (route.weekCost ?? 0) + row.cost;
+            if (!row.unpriced || row.cost > 0) {
+                if (date >= weekFrom) route.weekCost = (route.weekCost ?? 0) + row.cost;
+                route.monthCost = (route.monthCost ?? 0) + row.cost;
+            }
             routes.set(row.route, route);
         }
     }

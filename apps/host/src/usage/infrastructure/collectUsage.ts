@@ -170,13 +170,15 @@ async function extrasRange(env: NodeJS.ProcessEnv, since: string): Promise<{ ran
     if (![...CCUSAGE_AGENTS].some((agent) => installedAgent(agent, AGENT_COMMANDS[agent] ?? agent, env))) return {};
     const key = `${env.MUXR_CCUSAGE_BIN ?? ''}\u0000${since}`;
     if (extras === undefined || extras.key !== key || Date.now() - extras.at > EXTRAS_REUSE_MS) {
+        const settled = extras?.settled;
         const next: NonNullable<typeof extras> = { at: Date.now(), key, answer: ccusageRange(env, since) };
         void next.answer.then((answer) => { next.settled = answer; });
+        if (settled !== undefined) next.settled = settled;
         extras = next;
     }
     const current = extras;
     const answer = await Promise.race([current.answer, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), EXTRAS_WAIT_MS).unref(); })]);
-    return answer ?? { counting: true };
+    return answer ?? current.settled ?? { counting: true };
 }
 
 function readJson(path: string, maxBytes: number): { value: unknown; modified: number } | undefined {
@@ -723,7 +725,8 @@ async function collection(input: CollectUsageInput, env: NodeJS.ProcessEnv): Pro
         const cached = completed.get(key);
         // A collection taken while the first count ran is not reused once the
         // count has landed: the tab asking again is asking for it.
-        const counted = cached?.counting === true && ledgerFor(ledgerRoots(env)).ready;
+        const counted = (cached?.counting === true && ledgerFor(ledgerRoots(env)).ready)
+            || (cached?.extrasCounting === true && extras?.settled !== undefined);
         if (cached !== undefined && !counted && NOW.getTime() - cached.at < PLAN_MIN_READ_MS) return { raw: cached, now: NOW.getTime() };
     }
     if (pending === undefined) {

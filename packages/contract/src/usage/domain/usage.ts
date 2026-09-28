@@ -112,6 +112,7 @@ export interface UsageActivityRoute {
     week: number;
     month: number;
     weekCost?: number;
+    monthCost?: number;
     /** The provider's own plan, never the harness's: an aggregator has none. */
     plan?: string;
     windows?: UsageLimitsWindow[];
