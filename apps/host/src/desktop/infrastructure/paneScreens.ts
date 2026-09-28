@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,6 +30,10 @@ const SCREEN_SIZE = '1280x800x24';
 const START_TIMEOUT_MS = 5000;
 /** How long the keeper must stay up before this host trusts it is installed. */
 const KEEPER_PROBE_MS = 500;
+/** How long the engine gets to answer the mode probe before it counts as unanswerable. */
+const MODE_PROBE_TIMEOUT_MS = 2000;
+/** The engine's display-keeper mode, listed in its own usage when it has one. */
+const KEEPER_MODE = 'keep';
 /**
  * Headed by default, off Wayland, and painting while occluded: the owner's own
  * browser flags force Wayland, and a background renderer throttles to ~2.5 fps
@@ -76,7 +80,7 @@ interface LiveScreen extends PaneScreen {
     /** A JSON line can arrive split across two reads. */
     keeperBuffer: string;
     windows: ScreenWindow[];
-    paneId?: string;
+    paneId?: string | undefined;
     /** When this screen was tied to its pane, so a stale tree cannot retire it. */
     boundAt?: number;
 }
@@ -90,11 +94,29 @@ function screenEnv(display: string, authorityFile: string): Record<string, strin
         // keeps a headed browser off the owner's real desktop.
         WAYLAND_DISPLAY: '',
         XDG_SESSION_TYPE: 'x11',
-        // agent-browser reads both: it launches headed by default and forwards
-        // these args (the off-Wayland, keep-painting flags the screen needs).
+        // agent-browser reads these itself: headed launch plus the args it forwards.
         AGENT_BROWSER_HEADED: '1',
         AGENT_BROWSER_ARGS,
     };
+}
+
+/**
+ * Whether the installed engine's own usage lists the display keeper: its
+ * `--help` output is the capability report. A later @desklink/host pin bump
+ * can replace this probe with the package's startDisplayKeeper export.
+ */
+async function engineHasKeeperMode(command: string): Promise<boolean> {
+    try {
+        const usage = await new Promise<string>((resolve, reject) => {
+            execFile(command, ['--help'], { encoding: 'utf8', timeout: MODE_PROBE_TIMEOUT_MS }, (error, stdout) => {
+                if (error !== null) reject(error);
+                else resolve(stdout);
+            });
+        });
+        return /^\s*desklink-host\s+keep\s.*--display/m.test(usage);
+    } catch {
+        return false;
+    }
 }
 
 export class PaneScreens {
@@ -109,6 +131,8 @@ export class PaneScreens {
     private readonly listeners = new Set<(paneId: string, windows: ScreenWindow[]) => void>();
     /** Undefined until the first keeper proves it works; false disables screens. */
     private keeperWorks: boolean | undefined;
+    /** The engine's keeper command, decided once per host from its own reported modes. */
+    private keeperProbe: Promise<{ command: string; args: string[] } | undefined> | undefined;
 
     constructor(options: PaneScreensOptions = {}) {
         this.env = options.env ?? process.env;
@@ -133,7 +157,7 @@ export class PaneScreens {
         }
         const xvfb = onPath(XVFB, this.env);
         if (xvfb === undefined) return undefined;
-        const keeper = this.keeperCommand();
+        const keeper = await this.keeperCommand();
         if (keeper === undefined) return undefined;
 
         const number = firstFreeDisplayNumber(this.socketDirectory, FIRST_NUMBER, new Set([...this.numbers(), ...this.pending.keys()]));
@@ -266,12 +290,20 @@ export class PaneScreens {
         return [...this.screens.values()].map((screen) => screen.number);
     }
 
-    private keeperCommand(): { command: string; args: string[] } | undefined {
+    private async keeperCommand(): Promise<{ command: string; args: string[] } | undefined> {
         if (this.keeperWorks === false) return undefined;
+        this.keeperProbe ??= this.probeKeeper();
+        return this.keeperProbe;
+    }
+
+    /** Asked once per host: the engine's own usage must list the keeper mode. */
+    private async probeKeeper(): Promise<{ command: string; args: string[] } | undefined> {
         const resolved = resolveEngine(this.env.MUXR_DESKLINK_ENGINE);
-        // The keeper is the pinned engine's own mode, so the display it fills
-        // and the windows it reports come from one process per screen.
-        return resolved === null ? undefined : { command: resolved.command, args: ['keep'] };
+        if (resolved !== null && await engineHasKeeperMode(resolved.command)) {
+            return { command: resolved.command, args: [...resolved.args.filter((arg) => arg !== 'serve'), KEEPER_MODE] };
+        }
+        this.onDiagnostic('pane screens unavailable: installed desktop engine has no keeper');
+        return undefined;
     }
 
     /** Resolves true once the keeper has outlived the probe. */
@@ -307,6 +339,7 @@ export class PaneScreens {
         this.screens.delete(screen.display);
         this.boundPaneByDisplay.delete(screen.display);
         this.pending.delete(screen.number);
+        screen.paneId = undefined;
         if (screen.keeper !== undefined && screen.keeper.exitCode === null) screen.keeper.kill('SIGTERM');
         if (screen.server.exitCode === null && screen.server.signalCode === null) screen.server.kill('SIGTERM');
         removeDisplayFiles(this.socketDirectory, screen.number);

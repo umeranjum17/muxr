@@ -23,14 +23,18 @@ server.listen(process.env.MUXR_TEST_SOCKET_DIR + '/X' + number);
 setInterval(() => {}, 1000);
 `;
 const KEEPER_STUB = `#!${process.execPath}
+if (process.argv[2] === '--help') {
+    process.stdout.write('USAGE:\\n  desklink-host serve            speak the local control protocol on stdin/stdout\\n  desklink-host keep --display :N   fill that display and report its windows\\n');
+    process.exit(0);
+}
 const windows = [{ id: 1, title: 'Probe - Chromium', class: ['Chromium'], pid: 4321, width: 1280, height: 800 }];
 process.stdout.write(JSON.stringify({ windows }) + '\\n');
 setInterval(() => {}, 1000);
 `;
-/** The installed engine without a keeper mode: it exits before it can report a window. */
+/** The installed 0.1.1 engine: its own usage lists no keeper mode. */
 const NO_KEEPER_STUB = `#!${process.execPath}
-process.stderr.write('unknown subcommand\\n');
-process.exit(2);
+process.stdout.write('USAGE:\\n  desklink-host serve            speak the local control protocol on stdin/stdout\\n  desklink-host capabilities     print what this machine can do right now\\n  desklink-host capture-probe [seconds] [display]\\n                                 capture frames and report the stream\\n  desklink-host setup-input      explain the one-time input-access step (changes nothing)\\n  desklink-host version\\n');
+process.exit(0);
 `;
 
 function stub(directory: string, name: string, source: string): string {
@@ -97,15 +101,19 @@ describe('a private screen per agent pane', () => {
             expect(screens.windowsFor('w1:p1')).toEqual([]);
             await waitFor(() => !existsSync(socket));
 
-            // An engine without the keeper mode gives the pane today's behaviour.
+            // The installed 0.1.1 engine lists no keeper mode: no screen, and the
+            // one status line, said once however many panes ask.
+            const diagnostics: string[] = [];
             const withoutKeeper = new PaneScreens({
                 env: { ...process.env, PATH: bin, MUXR_DESKLINK_ENGINE: noKeeper, MUXR_TEST_SOCKET_DIR: sockets },
                 socketDirectory: sockets,
                 stateDirectory: join(root, 'state2'),
-                onDiagnostic: () => {},
+                onDiagnostic: (line) => diagnostics.push(line),
             });
             try {
                 expect(await withoutKeeper.allocate()).toBeUndefined();
+                expect(await withoutKeeper.allocate()).toBeUndefined();
+                expect(diagnostics).toEqual(['pane screens unavailable: installed desktop engine has no keeper']);
             } finally {
                 withoutKeeper.stop();
             }
