@@ -108,7 +108,7 @@ const PRICES: Array<[RegExp, [number, number, number, number]]> = [
     [/opus/i, [5, 25, 6.25, 0.5]],
     [/sonnet/i, [3, 15, 3.75, 0.3]],
     [/haiku/i, [1, 5, 1.25, 0.1]],
-    [/mini/i, [0.25, 2, 0, 0.025]],
+    [/(?:^|[-_./])mini(?:[-_./]|$)/i, [0.25, 2, 0, 0.025]],
     [/gpt-5|gpt-6|codex|^o\d/i, [1.25, 10, 0, 0.125]],
 ];
 

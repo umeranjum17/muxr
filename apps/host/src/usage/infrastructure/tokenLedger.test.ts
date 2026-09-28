@@ -23,7 +23,7 @@ function machine(): NodeJS.ProcessEnv {
         message: { role: 'assistant', provider, model, usage: { input, output: 5, cacheRead: 100, cacheWrite: 0, totalTokens: input + 105, ...(cost === undefined ? {} : { cost: { total: cost } }) } },
     });
     const prompt = line({ type: 'message', id: 'u', timestamp: at(31), message: { role: 'user', content: [{ type: 'text', text: 'a prompt the ledger must never read' }] } });
-    writeFileSync(join(pi, 'parent.jsonl'), prompt + piTurn('p1', 'openai-codex', 'gpt-sol', 895, 0.5) + piTurn('p2', 'zai', 'glm-flash', 1895));
+    writeFileSync(join(pi, 'parent.jsonl'), prompt + piTurn('p1', 'openai-codex', 'gpt-sol', 895, 0.5) + piTurn('p2', 'zai', 'glm-flash', 1895) + piTurn('pg', 'google', 'gemini-2.5-pro', 500));
     // A fork copies its parent's turns verbatim before its own.
     writeFileSync(join(pi, 'fork.jsonl'), piTurn('p1', 'openai-codex', 'gpt-sol', 895, 0.5) + piTurn('f1', 'openai-codex', 'gpt-sol', 95, 0.1));
 
@@ -85,6 +85,7 @@ it('counts every harness store once, by route and model, and reads only what was
         // The forked copy of p1 is not counted twice.
         'pi/openai-codex/gpt-sol': 1000 + 200,
         'pi/zai/glm-flash': 2000,
+        'pi/google/gemini-2.5-pro': 500 + 105,
         'omp/anthropic/claude-sonnet-4': 500,
         // One response, not three lines' worth.
         'claude/anthropic/claude-sonnet-4': 1000,
@@ -99,6 +100,7 @@ it('counts every harness store once, by route and model, and reads only what was
     // Claude and Codex record no cost: theirs is estimated at list prices.
     expect(rows.find((row) => row.harness === 'claude')?.estimated).toBe(true);
     expect(cost('claude')).toBeGreaterThan(0);
+    expect(rows.find((row) => row.model === 'gemini-2.5-pro')).toMatchObject({ cost: 0, unpriced: true });
 
     // A turn appended to a live transcript lands; the rest is not reread.
     const home = env.HOME!;

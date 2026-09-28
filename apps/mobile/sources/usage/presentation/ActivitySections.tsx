@@ -137,7 +137,7 @@ function TodayCard({ activity }: { activity: UsageActivity }) {
     const today = activity.days[activity.days.length - 1] ?? { date: '', input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     const total = dayTotal(today);
     const ratio = todayVersusUsual(activity);
-    const cost = costLabel(today.cost, today.unpriced === true || (today.cost === undefined && total > 0));
+    const cost = costLabel(today.cost, today.unpriced === true);
     const hourly = activity.hourly;
     const peak = Math.max(1, ...hourly);
     const now = hourly.length - 1;
@@ -280,7 +280,7 @@ function TrendCard({ activity, span, onSpan }: { activity: UsageActivity; span: 
     const height = 92;
     const averageAt = range.average / peak;
     const rangeCost = costLabel(range.cost, range.partial);
-    const selectedCost = selected === undefined ? undefined : costLabel(selected.cost, selected.unpriced === true || (selected.cost === undefined && dayTotal(selected) > 0));
+    const selectedCost = selected === undefined ? undefined : costLabel(selected.cost, selected.unpriced === true);
     return (
         <View style={{ marginBottom: 14 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
