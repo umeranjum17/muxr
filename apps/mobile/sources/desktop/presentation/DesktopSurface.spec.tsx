@@ -100,7 +100,7 @@ import { requestDesktop } from '../request';
 import { DesktopSurface } from './DesktopSurface';
 
 type Rendered = {
-    props: { onPress(): void; style: unknown; keyboardClearance: number; pointerEvents?: string };
+    props: { onPress(): void; style: unknown; keyboardClearance: number; pointerEvents?: string; disabled?: boolean; accessibilityRole?: string };
     children: (Rendered | string)[];
     parent: Rendered;
     findAllByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered[];
@@ -496,5 +496,48 @@ it("watches an agent's browser, takes control only on a tap, and says when it cl
 
     await press('Back to the conversation');
     expect(onExit).toHaveBeenCalled();
+    await TestRenderer.act(async () => view.unmount());
+});
+
+it('lets a watch-paired phone see the browser but never drive it', async () => {
+    available = true;
+    keyboardVisible = false;
+    session.snapshot.status = 'live';
+    inputEnabled = false;
+    hostRequests.length = 0;
+    session.connect.mockClear();
+    session.close.mockClear();
+    const onExit = vi.fn();
+    let view!: ReturnType<typeof TestRenderer.create>;
+    const root = () => view.root as Rendered;
+    const has = (label: string) => root().findAllByProps({ accessibilityLabel: label }).length > 0;
+
+    requestDesktop('computer', 'P', true);
+    await TestRenderer.act(async () => { view = TestRenderer.create(<DesktopSurface sessionId="P" onExit={onExit} target={{ sessionId: 'P', kind: 'browser', title: 'Pricing', viewOnly: true }} />); });
+    expect(session.connect).toHaveBeenCalledTimes(1);
+    // The host is asked for this session's screen, and the phone gets no clipboard: it can see, not use.
+    expect(hostRequests).toContainEqual(['desktop.capabilities', { target: { sessionId: 'P' } }]);
+    const cover = root().findAllByProps({ accessibilityLabel: 'View only' }).at(-1)!;
+    expect(cover.props.accessibilityRole).toBe('text');
+    expect(cover.props.disabled).toBe(true);
+    expect(inputEnabled).toBe(false);
+    expect(has('Hand back')).toBe(false);
+    // The toolbar reads as out of service, and there is no keyboard to open.
+    expect(root().findAllByProps({ accessibilityLabel: 'Back' }).at(-1)!.props.disabled).toBe(true);
+    expect(has('Keyboard')).toBe(false);
+    await TestRenderer.act(async () => root().findAllByProps({ accessibilityLabel: 'Browser actions' }).at(-1)!.props.onPress());
+    expect(has('Clipboard')).toBe(false);
+    expect(has('Close')).toBe(true);
+    await TestRenderer.act(async () => root().findAllByProps({ accessibilityLabel: 'Close menu' }).at(-1)!.props.onPress());
+
+    // Sent to the background the stream stops; coming back it resumes, still without control.
+    await TestRenderer.act(async () => { for (const listener of appState) listener('background'); });
+    expect(session.close).toHaveBeenCalledWith('backgrounded');
+    session.connect.mockClear();
+    await TestRenderer.act(async () => { for (const listener of appState) listener('active'); });
+    expect(session.connect).toHaveBeenCalledTimes(1);
+    expect(inputEnabled).toBe(false);
+    expect(has('View only')).toBe(true);
+
     await TestRenderer.act(async () => view.unmount());
 });
