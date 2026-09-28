@@ -172,13 +172,14 @@ async function extrasRange(env: NodeJS.ProcessEnv, since: string): Promise<{ ran
     if (extras === undefined || extras.key !== key || Date.now() - extras.at > EXTRAS_REUSE_MS) {
         const settled = extras?.settled;
         const next: NonNullable<typeof extras> = { at: Date.now(), key, answer: ccusageRange(env, since) };
-        void next.answer.then((answer) => { next.settled = answer; });
+        void next.answer.then((answer) => { if (answer.range !== undefined) next.settled = answer; });
         if (settled !== undefined) next.settled = settled;
         extras = next;
     }
     const current = extras;
     const answer = await Promise.race([current.answer, new Promise<undefined>((resolve) => { setTimeout(() => resolve(undefined), EXTRAS_WAIT_MS).unref(); })]);
-    return answer ?? current.settled ?? { counting: true };
+    if (answer !== undefined && (answer.range !== undefined || current.settled === undefined)) return answer;
+    return current.settled ?? { counting: true };
 }
 
 function readJson(path: string, maxBytes: number): { value: unknown; modified: number } | undefined {

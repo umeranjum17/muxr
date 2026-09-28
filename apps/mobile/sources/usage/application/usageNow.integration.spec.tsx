@@ -1786,10 +1786,11 @@ describe('the usage screen read path', () => {
         expect(card().parent.props.style.opacity).toBe(1);
     });
 
-    it('shows each route\'s cost for the span shown, and nothing for a route that could not be priced', async () => {
-        // The figure beside a route's tokens belongs to the span on screen,
-        // and a route whose harness recorded no cost stays silent rather than
-        // reading as free.
+    it('shows each route\'s cost for the span shown, marking a floor, and nothing for a route that could not be priced', async () => {
+        // The figure beside a route's tokens belongs to the span on screen, a
+        // cost the harness could not fully price reads as the floor it is,
+        // and a route with no recorded cost stays silent rather than reading
+        // as free.
         request.mockResolvedValue({
             ...report('pi', 0),
             activity: {
@@ -1800,6 +1801,7 @@ describe('the usage screen read path', () => {
                 models: [],
                 routes: [
                     { id: 'openai-codex', label: 'OpenAI Codex', glyph: 'codex', today: 4_000_000, week: 21_100_000_000, month: 30_000_000_000, weekCost: 950, monthCost: 1_900 },
+                    { id: 'anthropic', label: 'Anthropic', glyph: 'claude', today: 0, week: 2_000_000, month: 2_000_000, weekCost: 40, monthCost: 40, weekUnpriced: true, monthUnpriced: true },
                     { id: 'google', label: 'Gemini', glyph: 'gemini', today: 0, week: 5_000_000, month: 5_000_000 },
                 ],
             },
@@ -1812,13 +1814,16 @@ describe('the usage screen read path', () => {
         const screen = renderScreen();
         await tick();
         expect(routeRow('OpenAI Codex')).toBe('OpenAI Codex: 21.1B tokens, $950, 100 percent');
+        expect(routeRow('Anthropic')).toBe('Anthropic: 2M tokens, ≥ $40.00, 0 percent');
         expect(routeRow('Gemini')).toBe('Gemini: 5M tokens, 0 percent');
         expect(screenText(screen)).toContain('· $950');
+        expect(screenText(screen)).toContain('≥ $40.00');
 
         // The month span carries the month's own cost, never the week's.
         press(screen, '30 days');
         await tick();
         expect(routeRow('OpenAI Codex')).toBe('OpenAI Codex: 30B tokens, $1,900, 100 percent');
+        expect(routeRow('Anthropic')).toBe('Anthropic: 2M tokens, ≥ $40.00, 0 percent');
         expect(routeRow('Gemini')).toBe('Gemini: 5M tokens, 0 percent');
 
         // A route with no recorded cost earns no dollar figure on either span.

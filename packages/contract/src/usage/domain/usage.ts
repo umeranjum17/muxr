@@ -113,6 +113,9 @@ export interface UsageActivityRoute {
     month: number;
     weekCost?: number;
     monthCost?: number;
+    /** Some of that span's tokens could not be priced: that span's cost is a floor. */
+    weekUnpriced?: true;
+    monthUnpriced?: true;
     /** The provider's own plan, never the harness's: an aggregator has none. */
     plan?: string;
     windows?: UsageLimitsWindow[];

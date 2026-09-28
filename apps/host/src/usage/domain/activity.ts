@@ -163,6 +163,10 @@ export function tabActivity(input: TabActivityInput): UsageActivity {
                 if (date >= weekFrom) route.weekCost = (route.weekCost ?? 0) + row.cost;
                 route.monthCost = (route.monthCost ?? 0) + row.cost;
             }
+            if (row.unpriced) {
+                if (date >= weekFrom) route.weekUnpriced = true;
+                route.monthUnpriced = true;
+            }
             routes.set(row.route, route);
         }
     }
