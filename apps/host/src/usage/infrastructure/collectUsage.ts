@@ -401,7 +401,7 @@ function extrasRows(result: CcusageRange | undefined, periods: Set<string>): Led
                 };
                 if (total(counts) === 0) continue;
                 counted += total(counts);
-                const cost = typeof model.cost === 'number' && Number.isFinite(model.cost) ? Math.max(0, model.cost) : undefined;
+                const cost = typeof model.cost === 'number' && Number.isFinite(model.cost) && model.cost > 0 ? model.cost : undefined;
                 rows.push({
                     ...base, model: String(model.modelName ?? 'unknown').replace(/[^\x20-\x7e]+/g, ' ').trim().slice(0, 48) || 'unknown',
                     ...counts, cost: cost ?? 0, unpriced: cost === undefined, estimated: cost !== undefined,
@@ -411,7 +411,7 @@ function extrasRows(result: CcusageRange | undefined, periods: Set<string>): Led
             // models do not account for is the rest, not nothing.
             const rest = safeCount(row.totalTokens) - counted;
             if (rest > 0) {
-                const cost = counted === 0 && typeof row.totalCost === 'number' && Number.isFinite(row.totalCost) ? Math.max(0, row.totalCost) : undefined;
+                const cost = counted === 0 && typeof row.totalCost === 'number' && Number.isFinite(row.totalCost) && row.totalCost > 0 ? row.totalCost : undefined;
                 rows.push({ ...base, model: 'other models', input: rest, output: 0, cacheRead: 0, cacheWrite: 0, cost: cost ?? 0, unpriced: cost === undefined, estimated: cost !== undefined });
             }
         }

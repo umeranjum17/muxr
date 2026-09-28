@@ -342,7 +342,8 @@ try {
     assert.equal(recent.modelSeries[0]?.label, 'fixture-omp');
     const go = await run({ provider: 'opencode' });
     assert.equal(go.todayTokens, '300');
-    assert.equal(go.todayCost, '$0.00');
+    // OpenCode recorded 0 for real tokens: not priced, never '$0.00'.
+    assert.equal(go.todayCost, '—');
     assert.match(go.limits.message ?? '', /Go limits unavailable/);
     const goStub = (url, options) => {
         if (url !== 'https://opencode.ai/zen/go/v1/usage' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-secret-key') throw new Error('unexpected quota request');
@@ -619,7 +620,8 @@ try {
         assert.equal(omp.todayCost, '$0.00');
         assert.deepEqual(omp.modelSeries, []);
         assert.equal(omp.weekTokens, '4.0K');
-        assert.equal(omp.weekCost, '$0.00');
+        // Those 4K tokens were recorded at 0: not priced, never '$0.00'.
+        assert.equal(omp.weekCost, '—');
         assert.equal(omp.weekSeries.at(-2)?.value, 4000);
         // A stale row could only surface through measured activity.
         assert.doesNotMatch(JSON.stringify([omp.modelSeries, omp.weekSeries, omp.weekTokens, omp.weekCost, omp.todayTokens, omp.todayCost]),

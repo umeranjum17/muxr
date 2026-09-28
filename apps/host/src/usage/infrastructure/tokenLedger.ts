@@ -366,8 +366,13 @@ export class TokenLedger {
             if (seen.has(key)) return;
             seen.add(key);
         }
-        const recorded = record.cost !== undefined;
-        const cost = recorded ? record.cost : listPrice(record.model, record);
+        // A recorded zero on real tokens is a harness that could not price
+        // them (a subscription bridge, a plan provider), not free usage: it
+        // stays unpriced, and no list price is guessed in its place.
+        const recorded = record.cost !== undefined && record.cost > 0;
+        let cost = record.cost;
+        if (record.cost === 0) cost = undefined;
+        else if (!recorded) cost = listPrice(record.model, record);
         const key = `${record.route}\u0000${record.model}\u0000${hour}`;
         let row = state.buckets.get(key);
         if (row === undefined) {
@@ -419,7 +424,7 @@ export class TokenLedger {
 // the answer to one row per hour, route and model.
 const OPENCODE_SQL = `SELECT strftime('%Y-%m-%dT%H', at / 1000, 'unixepoch', 'localtime') AS hour, route, model,
   sum(input) AS input, sum(output) AS output, sum(cacheRead) AS cacheRead, sum(cacheWrite) AS cacheWrite,
-  sum(cost) AS cost, count(cost) AS priced, count(*) AS messages, max(at) AS latest
+  sum(cost) AS cost, count(nullif(cost, 0)) AS priced, count(*) AS messages, max(at) AS latest
 FROM (SELECT coalesce(json_extract(data, '$.time.completed'), json_extract(data, '$.time.created'), time_created) AS at,
     json_extract(data, '$.providerID') AS route, json_extract(data, '$.modelID') AS model,
     coalesce(json_extract(data, '$.tokens.input'), 0) AS input, coalesce(json_extract(data, '$.tokens.output'), 0) + coalesce(json_extract(data, '$.tokens.reasoning'), 0) AS output,

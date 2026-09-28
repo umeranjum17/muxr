@@ -164,11 +164,13 @@ it('answers the card and every Usage tab from one collection, and never lends a 
     const sessions = join(env.PI_AGENT_DIR!, 'sessions', '--project--');
     mkdirSync(sessions, { recursive: true });
     const at = new Date(Date.now() - 60_000).toISOString();
-    const turn = (id: string, provider: string, model: string, input: number) => JSON.stringify({
+    const turn = (id: string, provider: string, model: string, input: number, cost = 0.01) => JSON.stringify({
         type: 'message', id, timestamp: at,
-        message: { role: 'assistant', provider, model, usage: { input, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: input + 10, cost: { total: 0.01 } } },
+        message: { role: 'assistant', provider, model, usage: { input, output: 10, cacheRead: 0, cacheWrite: 0, totalTokens: input + 10, cost: { total: cost } } },
     });
-    writeFileSync(join(sessions, 'a.jsonl'), `${turn('1', 'zai', 'glm-flash', 990)}\n${turn('2', 'anthropic', 'claude-sonnet', 190)}\n`);
+    // The subscription bridge records a cost of 0 on real tokens: it could
+    // not price them, which is not the same as free.
+    writeFileSync(join(sessions, 'a.jsonl'), `${turn('1', 'zai', 'glm-flash', 990)}\n${turn('2', 'anthropic', 'claude-sonnet', 190)}\n${turn('3', 'claude-bridge', 'claude-opus', 90, 0)}\n`);
     const { collectUsage } = await import('./collectUsage.js');
     const { usageNow } = await import('./usageNow.js');
 
@@ -183,16 +185,22 @@ it('answers the card and every Usage tab from one collection, and never lends a 
     expect(reads).toBe(2);
     expect(card.capturedAt).toBe(report.capturedAt);
     expect(report.provider).toBe('pi');
-    expect(report.todayTokens).toBe('1.2K');
+    expect(report.todayTokens).toBe('1.3K');
     // No borrowed plan: the card still shows the machine's tightest window,
     // while Pi's own limits are empty and each route speaks for its provider.
     expect(card.limits.windows).toHaveLength(1);
     expect(report.limits.windows).toEqual([]);
     expect(report.limits.plan).toBeUndefined();
     const routes = report.activity?.routes ?? [];
-    expect(routes.map(({ id, today }) => [id, today])).toEqual([['zai', 1000], ['anthropic', 200]]);
+    expect(routes.map(({ id, today }) => [id, today])).toEqual([['zai', 1000], ['anthropic', 200], ['claude-bridge', 100]]);
     expect(routes[0]?.plan).toBe('Z.ai plan');
     expect(routes[1]?.windows).toBeUndefined();
+    // Tokens with a recorded zero carry no dollar figure at all, never $0.00,
+    // and no list price is guessed for them; priced routes keep theirs.
+    expect(routes[1]?.weekCost).toBeCloseTo(0.01);
+    expect(routes[2]?.weekCost).toBeUndefined();
+    expect(routes[2]?.weekUnpriced).toBe(true);
+    expect(report.activity?.days.at(-1)?.unpriced).toBe(true);
 
     // The Z.ai plan tab sees the traffic that spent it, and who sent it.
     const zai = await collectUsage({ provider: 'zai' }, env);

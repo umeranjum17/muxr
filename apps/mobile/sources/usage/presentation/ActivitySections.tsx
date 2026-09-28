@@ -18,6 +18,8 @@ const COST_BASIS: Record<NonNullable<UsageActivity['costBasis']>, string> = {
     mixed: 'recorded + estimated',
 };
 
+const NOT_PRICED = 'Not priced';
+
 function costLabel(cost: number | undefined, partial: boolean): string | undefined {
     if (cost === undefined) return undefined;
     return `${partial ? '≥ ' : ''}${compactMoney(cost)}`;
@@ -146,7 +148,8 @@ function TodayCard({ activity }: { activity: UsageActivity }) {
     if (ratio !== undefined && ratio >= 1.1) comparison = `${ratio >= 2 ? `${Number(ratio.toFixed(1))}×` : `${Math.round((ratio - 1) * 100)}% above`} your usual day`;
     else if (ratio !== undefined && ratio <= 0.9) comparison = `${Math.round(ratio * 100)}% of your usual day so far`;
     else if (ratio !== undefined) comparison = 'In line with your usual day';
-    const summary = [`Today ${compactTokens(total)} tokens`, cost === undefined ? undefined : `${cost} ${COST_BASIS[activity.costBasis ?? 'recorded']}`, comparison,
+    const priced = cost === undefined ? undefined : `${cost} ${COST_BASIS[activity.costBasis ?? 'recorded']}`;
+    const summary = [`Today ${compactTokens(total)} tokens`, total > 0 ? priced ?? NOT_PRICED : undefined, comparison,
         hourly.length > 0 && total > 0 ? `busiest hour ${hourLabel(busiest)}` : undefined].filter(Boolean).join(', ');
     return (
         <View style={{ marginBottom: 14 }}>
@@ -166,6 +169,10 @@ function TodayCard({ activity }: { activity: UsageActivity }) {
                             </View>
                         )}
                     </View>
+                    {/* Tokens nobody priced are not free: they say so, never $0.00. */}
+                    {cost === undefined && total > 0 && (
+                        <Text style={{ paddingTop: 8, color: theme.colors.textSecondary, fontSize: 12.5, lineHeight: 17 }}>{NOT_PRICED}</Text>
+                    )}
                     {cost !== undefined && (
                         <View style={{ alignItems: 'flex-end', paddingTop: 6 }}>
                             <Text style={{ color: theme.colors.text, fontSize: 15, lineHeight: 20, ...Typography.mono('semiBold') }}>{cost}</Text>
@@ -331,6 +338,7 @@ function TrendCard({ activity, span, onSpan }: { activity: UsageActivity; span: 
                     <Figure label={`${span} days`} value={compactTokens(range.total)} />
                     <Figure label="Daily average" value={compactTokens(range.average)} dashed />
                     {rangeCost !== undefined && <Figure label="Cost" value={rangeCost} />}
+                    {rangeCost === undefined && range.total > 0 && <Figure label="Cost" value={NOT_PRICED} />}
                 </View>
             </View>
         </View>
