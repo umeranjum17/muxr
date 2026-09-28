@@ -93,9 +93,18 @@ const PROMPT_READY_TIMEOUT_MS = 30_000;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 
-/** Provider-neutral hint inherited by every pane muxr creates through Herdr. */
+const SCREEN_BROWSER = 'Browser: this pane has its own screen that the user can watch live in muxr and take over.';
+const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
+const BROWSER_GUIDANCE = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
+const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.";
+
+/**
+ * Provider-neutral hint inherited by every pane muxr creates through Herdr.
+ * The default names no private screen: only a pane this host actually gave one
+ * may claim it (paneEnvironment upgrades the sentence for that pane).
+ */
 export const MUXR_AGENT_ENV = {
-    MUXR_AGENT_CAPABILITIES: "Browser: this pane has its own screen that the user can watch live in muxr and take over. Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11. Check `muxr preview status` before acting in the browser; pause while it says human. Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.",
+    MUXR_AGENT_CAPABILITIES: `${DESKTOP_BROWSER}${BROWSER_GUIDANCE}${ARTIFACT_GUIDANCE}`,
 } as const;
 
 /**
@@ -103,7 +112,11 @@ export const MUXR_AGENT_ENV = {
  * host could make one. A pane without a screen behaves exactly as before.
  */
 function paneEnvironment(screen: PaneScreen | undefined): Record<string, string> {
-    return { ...MUXR_AGENT_ENV, ...screen?.env };
+    return {
+        ...MUXR_AGENT_ENV,
+        ...(screen === undefined ? {} : { MUXR_AGENT_CAPABILITIES: `${SCREEN_BROWSER}${BROWSER_GUIDANCE}${ARTIFACT_GUIDANCE}` }),
+        ...screen?.env,
+    };
 }
 
 /** How long to watch a started Herdr action before reporting it as merely started. */
@@ -1940,7 +1953,7 @@ export async function createHerdrSessionSource(
             };
         };
 
-        const screen = await screens?.allocate();
+        const screen = kind === 'shell' ? undefined : await screens?.allocate();
         let cwd = startOptions.cwd;
         let workspaceId: string | undefined;
         try {
@@ -2962,7 +2975,7 @@ export async function createHerdrSessionSource(
             kind?: string;
         }): Promise<{ paneId: string; sessionId?: string }> {
             const record = await resolvePane(splitOptions.sessionId);
-            const screen = await screens?.allocate();
+            const screen = splitOptions.kind === undefined ? undefined : await screens?.allocate();
             let result: { pane?: { pane_id?: string } };
             try {
                 result = await client.call<{ pane?: { pane_id?: string } }>('pane.split', {
@@ -3236,7 +3249,7 @@ export async function createHerdrSessionSource(
             const cwd = cwdForSession(sessionId);
             if (workspaceId === undefined || cwd === undefined) throw new Error('herdr: session has no workspace');
             const requestedLabel = options.label?.trim();
-            const screen = await screens?.allocate();
+            const screen = options.kind === undefined ? undefined : await screens?.allocate();
             let tab: { tab?: { tab_id: string }; root_pane?: { pane_id: string } };
             try {
                 tab = await client.call<{ tab?: { tab_id: string }; root_pane?: { pane_id: string } }>(

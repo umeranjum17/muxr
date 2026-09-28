@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveEngine } from '@desklink/host';
@@ -69,6 +69,8 @@ export interface PaneScreensOptions {
 
 interface LiveScreen extends PaneScreen {
     number: number;
+    /** The cookie's own directory, removed with the screen so no stale env can read it. */
+    authorityDirectory: string;
     server: ChildProcess;
     keeper?: ChildProcess;
     /** A JSON line can arrive split across two reads. */
@@ -88,6 +90,8 @@ function screenEnv(display: string, authorityFile: string): Record<string, strin
         // keeps a headed browser off the owner's real desktop.
         WAYLAND_DISPLAY: '',
         XDG_SESSION_TYPE: 'x11',
+        // agent-browser reads both: it launches headed by default and forwards
+        // these args (the off-Wayland, keep-painting flags the screen needs).
         AGENT_BROWSER_HEADED: '1',
         AGENT_BROWSER_ARGS,
     };
@@ -99,6 +103,8 @@ export class PaneScreens {
     private readonly stateDirectory: string;
     private readonly onDiagnostic: (line: string) => void;
     private readonly screens = new Map<string, LiveScreen>();
+    /** Numbers promised to allocations still starting, before they can be registered. */
+    private readonly pending = new Set<number>();
     private readonly boundPaneByDisplay = new Map<string, string>();
     private readonly listeners = new Set<(paneId: string, windows: ScreenWindow[]) => void>();
     /** Undefined until the first keeper proves it works; false disables screens. */
@@ -121,7 +127,7 @@ export class PaneScreens {
      */
     async allocate(): Promise<PaneScreen | undefined> {
         if (process.platform !== 'linux') return undefined;
-        if (this.screens.size >= MAX_PANE_SCREENS) {
+        if (this.screens.size + this.pending.size >= MAX_PANE_SCREENS) {
             this.onDiagnostic(`all ${MAX_PANE_SCREENS} pane screens are in use; this pane has none`);
             return undefined;
         }
@@ -130,13 +136,18 @@ export class PaneScreens {
         const keeper = this.keeperCommand();
         if (keeper === undefined) return undefined;
 
-        const number = firstFreeDisplayNumber(this.socketDirectory, FIRST_NUMBER, new Set(this.numbers()));
-        const authorityFile = join(this.stateDirectory, String(number), 'Xauthority');
-        mkdirSync(join(this.stateDirectory, String(number)), { recursive: true, mode: 0o700 });
+        const number = firstFreeDisplayNumber(this.socketDirectory, FIRST_NUMBER, new Set([...this.numbers(), ...this.pending]));
+        this.pending.add(number);
+        // A directory no other allocation has ever used: a pane left over from a
+        // previous host run, whose env still names this display number, can
+        // never resolve its stale cookie onto this screen.
+        const authorityDirectory = join(this.stateDirectory, randomBytes(12).toString('hex'));
+        mkdirSync(authorityDirectory, { recursive: true, mode: 0o700 });
+        const authorityFile = join(authorityDirectory, 'Xauthority');
         writeFileSync(authorityFile, authorityEntry(number, randomBytes(16)), { mode: 0o600 });
         const display = `:${number}`;
         const server = spawn(xvfb, [display, '-screen', '0', SCREEN_SIZE, '-nolisten', 'tcp', '-auth', authorityFile], { env: this.env, stdio: 'ignore' });
-        const screen: LiveScreen = { display, number, env: screenEnv(display, authorityFile), server, keeperBuffer: '', windows: [] };
+        const screen: LiveScreen = { display, number, authorityDirectory, env: screenEnv(display, authorityFile), server, keeperBuffer: '', windows: [] };
         try {
             await waitForDisplaySocket(this.socketDirectory, number, START_TIMEOUT_MS, () => server.exitCode === null);
         } catch {
@@ -165,6 +176,7 @@ export class PaneScreens {
         }
         this.keeperWorks = true;
         this.screens.set(display, screen);
+        this.pending.delete(number);
         return { display, env: screen.env };
     }
 
@@ -287,8 +299,10 @@ export class PaneScreens {
     private discard(screen: LiveScreen): void {
         this.screens.delete(screen.display);
         this.boundPaneByDisplay.delete(screen.display);
+        this.pending.delete(screen.number);
         if (screen.keeper !== undefined && screen.keeper.exitCode === null) screen.keeper.kill('SIGTERM');
         if (screen.server.exitCode === null && screen.server.signalCode === null) screen.server.kill('SIGTERM');
         removeDisplayFiles(this.socketDirectory, screen.number);
+        rmSync(screen.authorityDirectory, { recursive: true, force: true });
     }
 }

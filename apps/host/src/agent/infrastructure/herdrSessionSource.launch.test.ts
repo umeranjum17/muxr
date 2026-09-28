@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { HerdrTreeWorkspace } from '@muxr/contract';
+import type { PaneScreens } from '../../desktop/index.js';
 import { createHerdrSessionSource, boundedWorkspaceTokens, MUXR_AGENT_ENV } from './herdrSessionSource.js';
 
 /**
@@ -182,7 +183,8 @@ describe('phone launch before herdr detects the agent', () => {
             await source.refreshHerdr();
             expect(herdr.agents[0]).toEqual({ pane_id: 'w1:p1', name: expect.stringMatching(/^pp_/), agent_status: 'idle' });
             expect(herdr.tabs[0]).toMatchObject({ env: MUXR_AGENT_ENV });
-            expect(herdr.tabs[0]).toMatchObject({ env: { MUXR_AGENT_CAPABILITIES: expect.stringContaining('this pane has its own screen') } });
+            expect(herdr.tabs[0]).toMatchObject({ env: { MUXR_AGENT_CAPABILITIES: expect.stringContaining("that desktop's browser") } });
+            expect(MUXR_AGENT_ENV.MUXR_AGENT_CAPABILITIES).not.toContain('this pane has its own screen');
             expect(MUXR_AGENT_ENV.MUXR_AGENT_CAPABILITIES).toContain('Run browsers headed');
             expect(MUXR_AGENT_ENV.MUXR_AGENT_CAPABILITIES).not.toContain('browser-takeover');
             expect(MUXR_AGENT_ENV.MUXR_AGENT_CAPABILITIES).toContain('muxr share <path>');
@@ -217,6 +219,51 @@ describe('phone launch before herdr detects the agent', () => {
         } finally {
             unsubscribe();
             vi.restoreAllMocks();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});
+
+describe('a private screen belongs to an agent pane, not a shell pane', () => {
+    it('gives an agent launch a screen and a shell pane none', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-screen-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const allocated: string[] = [];
+        const screens = {
+            allocate: async () => {
+                allocated.push(':110');
+                return { display: ':110', env: { DISPLAY: ':110', XAUTHORITY: join(dir, 'auth') } };
+            },
+            bind: () => {},
+            releaseScreen: () => {},
+            release: () => {},
+            releaseMissing: () => {},
+            stop: () => {},
+        } as unknown as PaneScreens;
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+            screens,
+        });
+        try {
+            const shell = await source.start({ cwd, kind: 'shell' });
+            if (!('info' in shell)) throw new Error('shell rejected');
+            expect(allocated).toEqual([]);
+            const shellEnv = (herdr.tabs[0] as { env?: Record<string, string> }).env;
+            expect(shellEnv?.DISPLAY).toBeUndefined();
+
+            const agent = await source.start({ cwd, kind: 'claude' });
+            if (!('info' in agent)) throw new Error('launch rejected');
+            expect(allocated).toEqual([':110']);
+            const agentEnv = (herdr.tabs[1] as { env?: Record<string, string> }).env;
+            expect(agentEnv?.DISPLAY).toBe(':110');
+            expect(agentEnv?.MUXR_AGENT_CAPABILITIES).toContain('this pane has its own screen');
+        } finally {
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });
