@@ -892,6 +892,8 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     };
 }
 
+const EMPTY_DAY = { date: '', input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
 const COUNTING_NOTICE = 'Counting local activity · the first count reads this computer\u2019s sessions and takes about a minute';
 
 /** One tab's measured activity: counted, still counting, or unavailable with
@@ -906,7 +908,8 @@ function activityFor(raw: RawCollection, provider: string): UsageActivity {
     const tabRows = provider === 'zai'
         ? raw.rows.filter((row) => rowPlan(row.harness, row.route, raw.anthropicSubscription) === 'zai')
         : raw.rows.filter((row) => row.harness === provider);
-    const failure = ledgerTab ? raw.failures[provider === 'zai' ? 'pi' : provider] : raw.extrasFailure;
+    const failureOf = provider === 'zai' ? 'pi' : provider;
+    const failure = ledgerTab ? raw.failures[failureOf] : raw.extrasFailure;
     if (failure !== undefined && tabRows.length === 0) return { state: 'unavailable', reason: failure, ...empty };
     const ownPlan = Object.hasOwn(PLAN_PROVIDERS, provider) ? provider as PlanId : undefined;
     const plans: Partial<Record<PlanId, PlanLimits>> = {};
@@ -974,8 +977,8 @@ function project(raw: RawCollection, selected: string, nowMs: number): UsageRepo
             : {}),
         ...(activity?.reason === undefined ? {} : { activityNotice: activity.reason }),
         ...(activity === undefined ? {} : { activity }),
-        todayTokens: measured ? tokens(today === undefined ? 0 : total(today)) ?? '—' : '—',
-        todayCost: measured ? costOf(today === undefined ? [] : [today]) : '—',
+        todayTokens: measured ? tokens(total(today ?? EMPTY_DAY)) ?? '—' : '—',
+        todayCost: measured ? costOf([today ?? EMPTY_DAY]) : '—',
         modelSeries: measured
             ? activity.models.filter((model) => model.today > 0).sort((a, b) => b.today - a.today).map((model): UsageSeriesPoint => ({
                 label: model.model.slice(0, 40), value: model.today, valueLabel: tokens(model.today) ?? '0',

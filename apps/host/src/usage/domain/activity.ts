@@ -117,6 +117,13 @@ export interface TabActivityInput {
     anthropicSubscription: boolean;
 }
 
+function basisOf(recorded: boolean, estimated: boolean): Pick<UsageActivity, 'costBasis'> {
+    if (recorded && estimated) return { costBasis: 'mixed' };
+    if (estimated) return { costBasis: 'estimated' };
+    if (recorded) return { costBasis: 'recorded' };
+    return {};
+}
+
 export function tabActivity(input: TabActivityInput): UsageActivity {
     const { rows, dates, nowHour } = input;
     const today = dates[dates.length - 1]!;
@@ -162,7 +169,7 @@ export function tabActivity(input: TabActivityInput): UsageActivity {
         hourly,
         days,
         models: [...models.values()].filter((model) => model.month > 0).sort((a, b) => b.month - a.month).slice(0, 8),
-        ...(recorded || estimated ? { costBasis: recorded && estimated ? 'mixed' as const : estimated ? 'estimated' as const : 'recorded' as const } : {}),
+        ...basisOf(recorded, estimated),
         ...(latest > 0 ? { lastActiveAt: new Date(latest).toISOString() } : {}),
     };
     if (input.routes) {

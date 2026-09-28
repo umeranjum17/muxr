@@ -17,8 +17,9 @@ function machine(): NodeJS.ProcessEnv {
 
     const pi = join(home, '.pi', 'agent', 'sessions', '--repo--');
     mkdirSync(pi, { recursive: true });
+    const turnAt = at(30);
     const piTurn = (id: string, provider: string, model: string, input: number, cost?: number) => line({
-        type: 'message', id, timestamp: at(30),
+        type: 'message', id, timestamp: turnAt,
         message: { role: 'assistant', provider, model, usage: { input, output: 5, cacheRead: 100, cacheWrite: 0, totalTokens: input + 105, ...(cost === undefined ? {} : { cost: { total: cost } }) } },
     });
     const prompt = line({ type: 'message', id: 'u', timestamp: at(31), message: { role: 'user', content: [{ type: 'text', text: 'a prompt the ledger must never read' }] } });
@@ -32,8 +33,9 @@ function machine(): NodeJS.ProcessEnv {
 
     const claude = join(home, '.claude', 'projects', '-repo');
     mkdirSync(claude, { recursive: true });
+    const claudeAt = at(20);
     const claudeLine = (block: string) => line({
-        type: 'assistant', timestamp: at(20), requestId: 'req_1', message: {
+        type: 'assistant', timestamp: claudeAt, requestId: 'req_1', message: {
             id: 'msg_1', role: 'assistant', model: 'claude-sonnet-4', content: [{ type: block }],
             usage: { input_tokens: 10, output_tokens: 90, cache_read_input_tokens: 900, cache_creation_input_tokens: 0 },
         },
@@ -44,8 +46,9 @@ function machine(): NodeJS.ProcessEnv {
 
     const codex = join(home, '.codex', 'sessions', '2026', '09', '28');
     mkdirSync(codex, { recursive: true });
+    const countAt = at(10);
     const count = (total: number, last: { input_tokens: number; cached_input_tokens: number; output_tokens: number }) => line({
-        timestamp: at(10), type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { total_tokens: total }, last_token_usage: { ...last, total_tokens: last.input_tokens + last.output_tokens } } },
+        timestamp: countAt, type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { total_tokens: total }, last_token_usage: { ...last, total_tokens: last.input_tokens + last.output_tokens } } },
     });
     writeFileSync(join(codex, 'rollout.jsonl'),
         line({ timestamp: at(12), type: 'session_meta', payload: { model_provider: 'openai' } })
