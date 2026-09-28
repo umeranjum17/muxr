@@ -107,6 +107,7 @@ type Rendered = {
     findByProps(props: { accessibilityLabel?: string; accessibilityRole?: string; accessibilityLiveRegion?: string }): Rendered;
     findByType(type: string): Rendered;
     findAllByType(type: string): Rendered[];
+    findAll(predicate: (node: Rendered) => boolean): Rendered[];
 };
 
 it('captures only after a tap in this run, and takes control only after a deliberate tap', async () => {
@@ -467,7 +468,7 @@ it("watches an agent's browser, takes control only on a tap, and says when it cl
     await show({ title: 'Checkout' });
     expect(has('Browser, Checkout, Live')).toBe(true);
     await show({ closed: true, title: 'Checkout' });
-    expect(root().findAll((node) => (node.children as unknown[]).includes('The browser closed')).length).toBeGreaterThan(0);
+    expect(root().findAll((node) => node.children.includes('The browser closed')).length).toBeGreaterThan(0);
     expect(has('Tap to take control')).toBe(false);
     await press('Back to the conversation');
     expect(onExit).toHaveBeenCalled();
