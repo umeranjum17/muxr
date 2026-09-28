@@ -482,6 +482,18 @@ it("watches an agent's browser, takes control only on a tap, and says when it cl
     await show({ closed: true, title: 'Checkout' });
     expect(root().findAll((node) => node.children.includes('The browser closed')).length).toBeGreaterThan(0);
     expect(has('Tap to take control')).toBe(false);
+
+    // The agent is back with another window: watching resumes on its own, still without control.
+    session.snapshot.status = 'ended';
+    session.connect.mockClear();
+    await show({ title: 'Docs' });
+    expect(session.connect).toHaveBeenCalledTimes(1);
+    expect(inputEnabled).toBe(false);
+    session.snapshot.status = 'live';
+    await show({ title: 'Docs' });
+    expect(has('Browser, Docs, Live')).toBe(true);
+    expect(has('Tap to take control')).toBe(true);
+
     await press('Back to the conversation');
     expect(onExit).toHaveBeenCalled();
     await TestRenderer.act(async () => view.unmount());

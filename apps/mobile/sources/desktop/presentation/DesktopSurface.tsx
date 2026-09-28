@@ -277,12 +277,22 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
     }, [sessionId, preview]);
 
     // The agent is done with its window: nothing is left to show or to hold.
+    // Its window back means the view follows it, still only watching.
+    const hadClosed = React.useRef(false);
     React.useEffect(() => {
-        if (!closed) return;
-        disarm();
-        releaseHeld();
-        void close('the target closed');
-    }, [closed, close, releaseHeld, disarm]);
+        if (closed) {
+            hadClosed.current = true;
+            disarm();
+            releaseHeld();
+            void close('the target closed');
+            return;
+        }
+        if (!hadClosed.current || !startedRef.current) return;
+        hadClosed.current = false;
+        // A stream already up or on its way, the engine's own reconnect included, needs no second open.
+        if (snapshot.status === 'live' || snapshot.status === 'opening' || snapshot.status === 'connecting' || snapshot.status === 'reconnecting') return;
+        void connect();
+    }, [closed, snapshot.status, connect, close, releaseHeld, disarm]);
 
     const retry = React.useCallback(() => {
         armWhenLive.current = false;
