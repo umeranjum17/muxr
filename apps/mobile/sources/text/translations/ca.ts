@@ -19,6 +19,18 @@ export const ca: TranslationStructure = {
         title: 'Ús',
     },
 
+    preview: {
+        chipBrowser: 'Navegador',
+        chipAndroid: 'Emulador',
+        introBrowser: 'El teu agent ha obert un navegador',
+        introAndroid: 'El teu agent ha iniciat un emulador d\'Android',
+        watch: 'Mira',
+        notNow: 'Ara no',
+        watchBrowser: 'Mira el navegador',
+        watchAndroid: 'Mira l\'emulador d\'Android',
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
+            `${kind === 'android' ? 'Emulador d\'Android en ús' : 'Navegador en ús'}${title ? `, ${title}` : ''}. Mira en directe`,
+    },
 
     tabs: {
         // Tab navigation labels

@@ -19,6 +19,18 @@ export const pt: TranslationStructure = {
         title: 'Uso',
     },
 
+    preview: {
+        chipBrowser: 'Navegador',
+        chipAndroid: 'Emulador',
+        introBrowser: 'O seu agente abriu um navegador',
+        introAndroid: 'O seu agente iniciou um emulador Android',
+        watch: 'Ver',
+        notNow: 'Agora não',
+        watchBrowser: 'Ver navegador',
+        watchAndroid: 'Ver emulador Android',
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
+            `${kind === 'android' ? 'Emulador Android em uso' : 'Navegador em uso'}${title ? `, ${title}` : ''}. Ver ao vivo`,
+    },
 
     tabs: {
         // Tab navigation labels

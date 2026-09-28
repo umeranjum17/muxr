@@ -22,6 +22,18 @@ export const ja: TranslationStructure = {
         title: '使用状況',
     },
 
+    preview: {
+        chipBrowser: 'ブラウザ',
+        chipAndroid: 'エミュレータ',
+        introBrowser: 'エージェントがブラウザを開きました',
+        introAndroid: 'エージェントが Android エミュレータを起動しました',
+        watch: '見る',
+        notNow: '後で',
+        watchBrowser: 'ブラウザを見る',
+        watchAndroid: 'Android エミュレータを見る',
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
+            `${kind === 'android' ? 'Android エミュレータを使用中' : 'ブラウザを使用中'}${title ? `, ${title}` : ''}. ライブで見る`,
+    },
 
     tabs: {
         // Tab navigation labels

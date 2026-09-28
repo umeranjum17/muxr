@@ -21,6 +21,18 @@ export const zhHans: TranslationStructure = {
         title: '用量',
     },
 
+    preview: {
+        chipBrowser: '浏览器',
+        chipAndroid: '模拟器',
+        introBrowser: '你的代理打开了浏览器',
+        introAndroid: '你的代理启动了 Android 模拟器',
+        watch: '观看',
+        notNow: '稍后',
+        watchBrowser: '观看浏览器',
+        watchAndroid: '观看 Android 模拟器',
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
+            `${kind === 'android' ? 'Android 模拟器使用中' : '浏览器使用中'}${title ? `, ${title}` : ''}. 实时观看`,
+    },
 
     tabs: {
         // Tab navigation labels

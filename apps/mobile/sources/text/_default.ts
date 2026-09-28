@@ -35,6 +35,20 @@ export const en = {
         title: 'Usage',
     },
 
+    preview: {
+        // Presence of an agent's browser or emulator in the terminal header
+        chipBrowser: 'Browser',
+        chipAndroid: 'Emulator',
+        introBrowser: 'Your agent opened a browser',
+        introAndroid: 'Your agent started an Android emulator',
+        watch: 'Watch',
+        notNow: 'Not now',
+        watchBrowser: 'Watch browser',
+        watchAndroid: 'Watch Android emulator',
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
+            `${kind === 'android' ? 'Android emulator in use' : 'Browser in use'}${title ? `, ${title}` : ''}. Watch live`,
+    },
+
     plugins: {
         openFromHome: 'Open a plugin from Home.',
         unavailable: 'This plugin is disabled or unavailable.',

@@ -30,6 +30,18 @@ export const ru: TranslationStructure = {
         title: 'Использование',
     },
 
+    preview: {
+        chipBrowser: 'Браузер',
+        chipAndroid: 'Эмулятор',
+        introBrowser: 'Агент открыл браузер',
+        introAndroid: 'Агент запустил эмулятор Android',
+        watch: 'Смотреть',
+        notNow: 'Не сейчас',
+        watchBrowser: 'Смотреть браузер',
+        watchAndroid: 'Смотреть эмулятор Android',
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
+            `${kind === 'android' ? 'Эмулятор Android используется' : 'Браузер используется'}${title ? `, ${title}` : ''}. Смотреть вживую`,
+    },
 
     tabs: {
         // Tab navigation labels
