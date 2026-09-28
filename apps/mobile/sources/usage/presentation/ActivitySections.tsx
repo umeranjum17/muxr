@@ -52,7 +52,8 @@ export function ActivitySections({ activity, tab, limits, costNote }: {
     costNote?: string;
 }) {
     const { theme } = useUnistyles();
-    const [span, setSpan] = React.useState<Span>(7);
+    // A tab idle all week opens on the month, where its figures are.
+    const [span, setSpan] = React.useState<Span>(() => (activity.state === 'measured' && rangeSummary(activity, 7).total === 0 ? 30 : 7));
     if (activity.state === 'counting') return <CountingCard reason={activity.reason} />;
     if (activity.state === 'unavailable') {
         return (
@@ -69,7 +70,7 @@ export function ActivitySections({ activity, tab, limits, costNote }: {
         <View>
             <TodayCard activity={activity} />
             {insights.length > 0 && <InsightsCard insights={insights} />}
-            <TrendCard activity={activity} span={span} onSpan={setSpan} />
+            {rangeSummary(activity, 30).total > 0 && <TrendCard activity={activity} span={span} onSpan={setSpan} />}
             {activity.sources !== undefined && activity.sources.length > 0 && <SourcesCard sources={activity.sources} />}
             {activity.routes !== undefined && activity.routes.length > 0 && <RoutesCard activity={activity} span={span} tab={tab} />}
             {activity.models.length > 0 && <ModelsCard activity={activity} span={span} />}
@@ -161,7 +162,7 @@ function TodayCard({ activity }: { activity: UsageActivity }) {
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
                                 {ratio !== undefined && ratio >= 1.1 && <Ionicons name="arrow-up" size={12} color={theme.colors.textSecondary} />}
                                 {ratio !== undefined && ratio <= 0.9 && <Ionicons name="arrow-down" size={12} color={theme.colors.textSecondary} />}
-                                <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 12.5, lineHeight: 17 }}>{comparison}</Text>
+                                <Text style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 12.5, lineHeight: 17 }}>{comparison}</Text>
                             </View>
                         )}
                     </View>
@@ -172,7 +173,7 @@ function TodayCard({ activity }: { activity: UsageActivity }) {
                         </View>
                     )}
                 </View>
-                {hourly.length > 0 && (
+                {hourly.length > 0 && total > 0 && (
                     <View style={{ marginTop: 14 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 56, gap: 2 }}>
                             {Array.from({ length: 24 }, (_, hour) => (
@@ -214,11 +215,13 @@ function TokenSplit({ split, total }: { split: UsageTokenCounts; total: number }
                     <View key={key} style={{ flexGrow: split[key] / total, flexBasis: 0, minWidth: 2, backgroundColor: withAlpha(theme.colors.accent, alpha) }} />
                 ))}
             </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: 6, marginTop: 8 }}>
+            {/* Each entry takes its own width and wraps: a narrow phone gets
+                more rows instead of ellipsized figures. */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: 6, columnGap: 14, marginTop: 8 }}>
                 {SPLIT.map(({ key, label, alpha }) => (
-                    <View key={key} style={{ width: '50%', flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <View key={key} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: withAlpha(theme.colors.accent, alpha), borderWidth: alpha < 0.3 ? StyleSheet.hairlineWidth : 0, borderColor: theme.colors.divider }} />
-                        <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.textSecondary, fontSize: 12 }}>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
                             {label} <Text style={{ color: theme.colors.text, ...Typography.mono('regular') }}>{compactTokens(split[key])}</Text>
                         </Text>
                     </View>
@@ -314,7 +317,8 @@ function TrendCard({ activity, span, onSpan }: { activity: UsageActivity; span: 
                 <View style={{ flexDirection: 'row', marginTop: 5, gap: span === 7 ? 8 : 2 }}>
                     {range.days.map((day, index) => {
                         const date = dateOf(day.date);
-                        const show = span === 7 || index % 7 === 0 || index === range.days.length - 1;
+                        const last = index === range.days.length - 1;
+                        const show = span === 7 || last || (index % 7 === 0 && index < range.days.length - 4);
                         const label = span === 7 ? WEEKDAYS[date.getDay()]!.slice(0, 1) : `${date.getDate()}`;
                         return (
                             <Text key={day.date} numberOfLines={1} style={{ flex: 1, textAlign: 'center', overflow: 'visible', color: day.date === selected?.date ? theme.colors.text : theme.colors.textSecondary, fontSize: 10.5, ...Typography.mono('regular') }}>
@@ -368,7 +372,7 @@ function RoutesCard({ activity, span, tab }: { activity: UsageActivity; span: Sp
     if (routes.length === 0) return null;
     return (
         <View style={{ marginBottom: 14 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', columnGap: 12, rowGap: 2, marginBottom: 10 }}>
                 <SectionLabel>By provider</SectionLabel>
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>{`${tab} has no plan of its own`}</Text>
             </View>
@@ -415,7 +419,7 @@ function SourcesCard({ sources }: { sources: NonNullable<UsageActivity['sources'
     const all = sources.reduce((sum, source) => sum + source.week, 0);
     return (
         <View style={{ marginBottom: 14 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', columnGap: 12, rowGap: 2, marginBottom: 10 }}>
                 <SectionLabel>Who used this plan</SectionLabel>
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>7 days</Text>
             </View>
@@ -447,7 +451,7 @@ function ModelsCard({ activity, span }: { activity: UsageActivity; span: Span })
     const peak = Math.max(1, value(models[0]!));
     return (
         <View style={{ marginBottom: 14 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', justifyContent: 'space-between', columnGap: 12, rowGap: 2, marginBottom: 10 }}>
                 <SectionLabel>Top models</SectionLabel>
                 <Text style={{ color: theme.colors.textSecondary, fontSize: 11.5, ...Typography.mono('regular') }}>{`${span} days`}</Text>
             </View>

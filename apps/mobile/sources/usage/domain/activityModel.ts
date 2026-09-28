@@ -101,7 +101,7 @@ export function activityInsights(input: {
     if (spent !== undefined) {
         insights.push({ icon: 'hourglass-outline', tone: 'danger', text: `${spent.plan}’s ${spent.window.label.toLowerCase()} limit is used up${spent.window.resetsIn === undefined ? '' : ` · resets in ${spent.window.resetsIn}`}` });
     } else if (soonest !== undefined) {
-        insights.push({ icon: 'hourglass-outline', tone: soonest.ms < 3_600_000 ? 'danger' : 'warning', text: `At this pace ${soonest.plan}’s ${soonest.window.label.toLowerCase()} limit runs out ${when(soonest.ms, now)}${soonest.window.resetsIn === undefined ? '' : `, ${soonest.window.resetsIn} before it resets`}` });
+        insights.push({ icon: 'hourglass-outline', tone: soonest.ms < 3_600_000 ? 'danger' : 'warning', text: `At this pace ${soonest.plan}’s ${soonest.window.label.toLowerCase()} limit runs out ${when(soonest.ms, now)}${soonest.window.resetsIn === undefined ? '' : ` · it resets in ${soonest.window.resetsIn}`}` });
     }
 
     const week = rangeSummary(activity, 7);
@@ -118,7 +118,9 @@ export function activityInsights(input: {
     const sourcesTotal = sources.reduce((sum, source) => sum + source.week, 0);
     const lead = sources[0];
     if (lead !== undefined && sourcesTotal > 0 && lead.label !== tab) {
-        insights.push({ icon: 'people-outline', text: `${lead.label} sent ${Math.round(lead.week / sourcesTotal * 100)}% of this plan’s traffic this week` });
+        const share = lead.week / sourcesTotal;
+        const amount = share >= 0.995 && sources.length > 1 ? 'nearly all' : `${Math.round(share * 100)}%`;
+        insights.push({ icon: 'people-outline', text: `${lead.label} sent ${amount} of this plan’s traffic this week` });
     }
     const today = activity.days[activity.days.length - 1];
     const todayTotal = today === undefined ? 0 : dayTotal(today);
@@ -126,7 +128,9 @@ export function activityInsights(input: {
     const topModel = [...activity.models].sort((a, b) => (useToday ? b.today - a.today : b.week - a.week))[0];
     const topTokens = useToday ? topModel?.today ?? 0 : topModel?.week ?? 0;
     const modelShare = topTokens / (useToday ? todayTotal : week.total);
-    if (topModel !== undefined && modelShare > 0) {
+    // One model is no finding: the models card already says so.
+    const busyModels = activity.models.filter((model) => (useToday ? model.today : model.week) > 0).length;
+    if (topModel !== undefined && modelShare > 0 && busyModels > 1) {
         const period = useToday ? 'today’s' : 'this week’s';
         const via = topModel.route === undefined ? '' : ` via ${topModel.route}`;
         insights.push({ icon: 'git-branch-outline', text: `${Math.round(modelShare * 100)}% of ${period} tokens went to ${topModel.model}${via}` });

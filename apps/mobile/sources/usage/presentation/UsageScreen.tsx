@@ -365,7 +365,8 @@ function tabLabel(report: UsageReport): string {
 /** The tab's own plan and every route's provider plan, for the pace insight. */
 function insightLimits(report: UsageReport): Array<{ plan: string; windows: UsageLimitsWindow[] }> {
     const own = report.limits.windows.length === 0 ? [] : [{ plan: report.limits.plan ?? tabLabel(report), windows: report.limits.windows }];
-    const routes = (report.activity?.routes ?? []).flatMap((route) => (route.windows === undefined ? [] : [{ plan: route.plan ?? route.label, windows: route.windows }]));
+    // Only a provider this tab is spending now can run out because of it.
+    const routes = (report.activity?.routes ?? []).flatMap((route) => (route.windows === undefined || route.week === 0 ? [] : [{ plan: route.plan ?? route.label, windows: route.windows }]));
     return [...own, ...routes];
 }
 
