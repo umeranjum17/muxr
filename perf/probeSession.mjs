@@ -13,7 +13,7 @@ import { startFakeStack } from './lib/fakeStack.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
 import { pairIosPhone, iosConnectionProof } from './lib/iosWarm.mjs';
 import { command, IosControls } from './lib/iosSignals.mjs';
-import { bundledPlusAddons, codeAddonDir } from './lib/addons.mjs';
+import { bundledPlusAddons, filesProductDriver, filesProductFlags } from './lib/addons.mjs';
 import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, scenarioDescriptor, scenarioSummary } from './lib/scenario.mjs';
 
 const args = process.argv.slice(2);
@@ -113,16 +113,19 @@ async function prepareFixture() {
     await scope.run('git', ['-C', cwd, '-c', 'user.name=Perf Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '-qm', 'Seed deterministic load document'], { timeout: 20_000 });
     const context = JSON.stringify({ sessions: [{ cwd }] });
     const env = { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: context };
-    const repos = JSON.parse((await scope.run(process.execPath, [join(codeAddonDir(), 'files.mjs'), 'repos'], { cwd: process.cwd(), env, timeout: 10_000 })).stdout);
-    if (!repos.repos?.some((entry) => resolve(entry.root) === resolve(cwd))) throw new Error('real Files plugin did not resolve the fixture repository');
-    const listed = JSON.parse((await scope.run(process.execPath, [join(codeAddonDir(), 'files.mjs'), 'list'], { cwd: process.cwd(), env, input: JSON.stringify({ cwd, root: cwd }) })).stdout);
-    if (!listed.tree?.some((entry) => entry.name === DOCUMENT_FIXTURE)) throw new Error('real Files plugin did not list the canonical fixture');
-    const read = JSON.parse((await scope.run(process.execPath, [join(codeAddonDir(), 'files.mjs'), 'read'], { cwd: process.cwd(), env, input: JSON.stringify({ cwd, root: cwd, path: DOCUMENT_FIXTURE }) })).stdout);
+    // Files is host product code: the fixture identity is proven through the
+    // same module the host serves, not a plugin checkout.
+    const product = (method, input) => scope.run(process.execPath, [...filesProductFlags(), filesProductDriver(), method], { cwd: process.cwd(), env, input: JSON.stringify(input), timeout: 10_000 });
+    const repos = JSON.parse((await product('repos', { cwd })).stdout);
+    if (!repos.repos?.some((entry) => resolve(entry.root) === resolve(cwd))) throw new Error('host Files product code did not resolve the fixture repository');
+    const listed = JSON.parse((await product('list', { cwd, root: cwd })).stdout);
+    if (!listed.tree?.some((entry) => entry.name === DOCUMENT_FIXTURE)) throw new Error('host Files product code did not list the canonical fixture');
+    const read = JSON.parse((await product('read', { cwd, root: cwd, path: DOCUMENT_FIXTURE })).stdout);
     const contract = documentContract();
     const served = Buffer.from(read.body ?? '');
     const expected = Buffer.from(documentPayload()).subarray(0, contract.servedBytes);
     const servedSha256 = createHash('sha256').update(served).digest('hex');
-    if (read.name !== DOCUMENT_FIXTURE || served.compare(expected) !== 0 || served.length !== contract.servedBytes || served.toString('utf8').split('\n').filter(Boolean).length !== contract.servedLines || servedSha256 !== contract.servedSha256) throw new Error('real Files plugin served bytes or lines differ from scenario');
+    if (read.name !== DOCUMENT_FIXTURE || served.compare(expected) !== 0 || served.length !== contract.servedBytes || served.toString('utf8').split('\n').filter(Boolean).length !== contract.servedLines || servedSha256 !== contract.servedSha256) throw new Error('host Files product code served bytes or lines differ from scenario');
     return { cwd: resolve(cwd), gitRevision: await git(['rev-parse', 'HEAD'], cwd), gitTree: await git(['rev-parse', 'HEAD^{tree}'], cwd), name: DOCUMENT_FIXTURE, payloadSha256: contract.sha256, servedSha256, servedBytes: served.length, servedLines: contract.servedLines };
 }
 

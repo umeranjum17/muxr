@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { codeAddonDir } from './addons.mjs';
+import { filesProductDriver, filesProductFlags } from './addons.mjs';
 import { PNG } from 'pngjs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -46,12 +46,9 @@ const session = (overrides = {}) => {
 
 // One compact flow through the exported gates. It intentionally uses no device,
 // build, install, pairing, emulator, or simulator.
-// The served-bytes leg shells out to the real muxr.code add-on, so without its
-// checkout the flow skips loudly with the remedy in the reason (never a quiet
-// pass). The gate is the same filesystem probe the test itself uses, not an
-// environment name or a CI flag.
-const codeAddonAvailability = () => { try { codeAddonDir(); } catch (error) { return error.message; } };
-test('warm probe fails closed across identity, ownership, fixture, movement, sampling, deadline, and envelope', { skip: codeAddonAvailability() }, async () => {
+// The served-bytes leg drives the host's Files product code through the same
+// driver the device probes use, so it always runs with no add-on checkout.
+test('warm probe fails closed across identity, ownership, fixture, movement, sampling, deadline, and envelope', async () => {
     assert.throws(() => validateDeadline(180), /<=110/);
     const base = session();
     assert.deepEqual(scenarioDescriptor().load, { panes: 100, agents: 30, titleChurnHz: 2, terminalBytesPerSecond: 4096 });
@@ -84,8 +81,8 @@ test('warm probe fails closed across identity, ownership, fixture, movement, sam
     execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: fixtureRoot });
     execFileSync('git', ['add', '--', 'perf-document.md'], { cwd: fixtureRoot });
     execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture'], { cwd: fixtureRoot });
-    const served = JSON.parse(execFileSync(process.execPath, [join(codeAddonDir(), 'files.mjs'), 'read'], { cwd: root, env: { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: JSON.stringify({ sessions: [{ cwd: fixtureRoot }] }) }, input: JSON.stringify({ cwd: fixtureRoot, root: fixtureRoot, path: 'perf-document.md' }), encoding: 'utf8' })).body;
-    assert.equal(digest(Buffer.from(served)), documentContract().servedSha256, 'the real plugin did not serve the canonical bytes');
+    const served = JSON.parse(execFileSync(process.execPath, [...filesProductFlags(), filesProductDriver(), 'read'], { cwd: root, env: { ...process.env, MUXR_PLUGIN_CONTEXT_JSON: JSON.stringify({ sessions: [{ cwd: fixtureRoot }] }) }, input: JSON.stringify({ cwd: fixtureRoot, root: fixtureRoot, path: 'perf-document.md' }), encoding: 'utf8' })).body;
+    assert.equal(digest(Buffer.from(served)), documentContract().servedSha256, 'host Files product code did not serve the canonical bytes');
     assert.equal(validateFixtureProof({ name: 'perf-document.md', payloadSha256: documentContract().sha256, gitRevision: 'real', gitTree: 'real', servedSha256: digest(Buffer.from(served)), servedBytes: Buffer.byteLength(served), servedLines: served.split('\n').filter(Boolean).length }, documentContract()), undefined);
     assert.match(provenanceMismatch({ source: { sourceSha256: digest('bad'), mobileSha256: digest('mobile'), dirty: false }, harness: base.candidate.harness }, current), /sourceSha256/);
     assert.match(provenanceMismatch({ source: { sourceSha256: digest('source'), mobileSha256: digest('bad'), dirty: false }, harness: base.candidate.harness }, current), /mobileSha256/);

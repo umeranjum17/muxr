@@ -257,11 +257,17 @@ const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
  * drew a second dictate mic beside the app's own in every composer, and
  * panes/control surfaces must not present as disableable plugins. Realtime voice
  * is product code now too, so its retired registrations are retracted here the
- * same way, and so is the in-app Browser that Computer replaced.
+ * same way, and so is the in-app Browser that Computer replaced. Files and
+ * prompt attachments folded back in as product code next: their GitHub-era
+ * registrations retire the same way (the code and attachments ids below).
+ * They were never bundled, so setup's LEGACY_BUNDLED_PLUGIN_IDS must not gain
+ * them — setup only unlinks registrations muxr itself installed, and these
+ * were installed by their owners. Nothing is unlinked; the app just stops
+ * depending on them.
  * User-authored plugins under their own ids are unaffected.
  * Keep in step with LEGACY_BUNDLED_PLUGIN_IDS in scripts/setup/infrastructure/herdr.mjs.
  */
-const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status', 'muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai', 'muxr.voice-codex', 'muxr.browser']);
+const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status', 'muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai', 'muxr.voice-codex', 'muxr.browser', 'muxr.code', 'muxr.attachments']);
 function fromPackagedRoot(plugin: HerdrPlugin): HerdrPlugin {
     const root = PACKAGED_BUNDLED_ROOTS.get(plugin.plugin_id);
     return root === undefined ? plugin : { ...plugin, plugin_root: root };

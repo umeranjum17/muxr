@@ -35,6 +35,9 @@ if (plugins.length > 0) {
 const retiredIds = [
     'muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status',
     'muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai', 'muxr.voice-codex',
+    // Files and prompt attachments folded back in as product code: their
+    // GitHub-era registrations retire the same way (ignored, never unlinked).
+    'muxr.code', 'muxr.attachments',
 ];
 const bundledIds = [...retiredIds,
     ...plugins.flatMap((name) => {
