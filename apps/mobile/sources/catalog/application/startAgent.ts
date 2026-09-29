@@ -48,6 +48,6 @@ export async function startAgent(command: StartAgentCommand, ports: StartAgentPo
         if (ports.missingDirectory(message)) {
             return { ok: false, reason: 'missing-directory', directory: command.directory };
         }
-        return { ok: false, reason: 'rejected', message: 'Agent could not start. Try again.' };
+        return { ok: false, reason: 'rejected', message };
     }
 }

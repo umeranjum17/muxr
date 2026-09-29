@@ -11,7 +11,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import http from 'node:http';
-import { access, chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -45,6 +45,7 @@ async function startServer() {
     server = spawn(process.execPath, [join(import.meta.dirname, 'server.mjs')], {
         env: {
             ...process.env,
+            MUXR_HOME: root,
             MUXR_NAMING_PORT: '0',
             HERDR_BIN: fakeHerdr,
             MUXR_NAMING_SESSION: 'lab',
@@ -92,6 +93,20 @@ const post = async (port, body, extraHeaders = headers()) => {
         method: 'POST',
         headers: extraHeaders,
         body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+};
+
+const previewHeaders = (paneId = 'w2:p5') => ({
+    authorization: 'Bearer check-token',
+    origin: 'muxr://agent',
+    'x-herdr-session': 'lab',
+    'x-muxr-pane-id': paneId,
+});
+
+const previewGet = async (port, paneId, extraHeaders) => {
+    const res = await fetch(`http://127.0.0.1:${port}/api/preview-status?pane_id=${encodeURIComponent(paneId)}`, {
+        headers: extraHeaders ?? previewHeaders(paneId),
     });
     return { status: res.status, body: await res.json() };
 };
@@ -177,6 +192,49 @@ try {
 
     const duplicate = await post(port, namedBody);
     check('duplicate naming remains idempotent', duplicate.status === 200 && duplicate.body.ok === true, JSON.stringify(duplicate.body));
+
+    // Preview status reads the host's human lease, never Herdr.
+    const leaseFile = join(root, 'preview', 'lease.json');
+    await mkdir(join(root, 'preview'), { recursive: true });
+    const writeLease = (panes) => writeFile(leaseFile, `${JSON.stringify({ version: 1, panes })}\n`);
+    const absent = await previewGet(port, 'w2:p5');
+    check('missing lease file reads as none', absent.status === 200 && absent.body.controller === 'none', JSON.stringify(absent.body));
+    await writeLease({ 'w2:p5': { controller: 'human', expiresAt: Date.now() + 30_000 } });
+    const held = await previewGet(port, 'w2:p5');
+    check('live human lease reads as human', held.status === 200 && held.body.controller === 'human', JSON.stringify(held.body));
+    const otherPane = await previewGet(port, 'w2:p6', previewHeaders('w2:p6'));
+    check('a lease for another pane reads as none here', otherPane.status === 200 && otherPane.body.controller === 'none', JSON.stringify(otherPane.body));
+    await writeLease({ 'w2:p5': { controller: 'human', expiresAt: Date.now() - 1_000 } });
+    const expired = await previewGet(port, 'w2:p5');
+    check('expired lease reads as none without the host', expired.status === 200 && expired.body.controller === 'none', JSON.stringify(expired.body));
+    await writeFile(leaseFile, 'not json\n');
+    const corrupt = await previewGet(port, 'w2:p5');
+    check('corrupt lease reads as none, never a failure', corrupt.status === 200 && corrupt.body.controller === 'none', JSON.stringify(corrupt.body));
+    const previewUnauthorized = await previewGet(port, 'w2:p5', { origin: 'muxr://agent' });
+    check('preview status without the local capability is unauthorized', previewUnauthorized.status === 401, JSON.stringify(previewUnauthorized));
+    const previewForeign = await previewGet(port, 'w2:p6', previewHeaders('w2:p5'));
+    check('preview status for another pane is forbidden', previewForeign.status === 403, JSON.stringify(previewForeign));
+    const previewMalformed = await previewGet(port, 'not-a-herdr-target');
+    check('malformed preview pane is rejected', previewMalformed.status === 400, JSON.stringify(previewMalformed));
+
+    await writeLease({ 'w2:p5': { controller: 'human', expiresAt: Date.now() + 30_000 } });
+    const statusEnv = { ...process.env, HERDR_PANE_ID: 'w2:p5', HERDR_SESSION: 'lab', MUXR_NAMING_PORT: String(port), MUXR_NAMING_AUTH_FILE: authFile };
+    const cli = (args, env = statusEnv) => spawnSync(process.execPath, [join(import.meta.dirname, '..', 'cli.mjs'), 'preview', ...args], {
+        encoding: 'utf8',
+        timeout: 30_000,
+        env,
+    });
+    const human = cli(['status']);
+    check('CLI prints the word an agent pauses on', human.status === 0 && human.stdout.trim() === 'human', `${human.stdout}${human.stderr}`);
+    const humanJson = cli(['status', '--json']);
+    check('CLI --json prints the lease record', humanJson.status === 0 && humanJson.stdout.includes('"controller":"human"'), humanJson.stdout);
+    await writeLease({});
+    const none = cli(['status']);
+    check('CLI prints none when the pane is free', none.status === 0 && none.stdout.trim() === 'none', `${none.stdout}${none.stderr}`);
+    const noPane = cli(['status'], { ...statusEnv, HERDR_PANE_ID: '' });
+    check('CLI outside a pane refuses to guess an id', noPane.status === 1 && noPane.stderr.includes('HERDR_PANE_ID'), `${noPane.stdout}${noPane.stderr}`);
+    const badFlag = cli(['status', '--verbose']);
+    check('CLI rejects unknown flags with usage', badFlag.status === 1 && badFlag.stderr.includes('usage'), `${badFlag.stdout}${badFlag.stderr}`);
 
     await stopServer();
     port = await startServer();

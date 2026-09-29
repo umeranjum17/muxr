@@ -93,7 +93,7 @@ const PROMPT_READY_TIMEOUT_MS = 30_000;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 
-const SCREEN_BROWSER = 'Browser: this pane has its own screen that the user can watch live in muxr and take over.';
+const SCREEN_BROWSER = 'Browser: this pane has its own screen that the user can watch live in muxr and take over. Check `muxr preview status` before acting in the browser; pause while it says human.';
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
 const BROWSER_GUIDANCE = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
 const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.";
@@ -164,8 +164,13 @@ export async function reportHerdrActionFailure(
     if (typeof logId !== 'string' || logId === '') throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
     const deadline = Date.now() + reportMs;
     let sawRunning = false;
-    for (let wait = 25; Date.now() < deadline; wait = Math.min(wait * 2, 250)) {
+    // Always poll at least once: with a tiny budget the deadline can pass before
+    // the first check, which would report "unavailable" without ever asking Herdr
+    // and makes the outcome depend on scheduler timing instead of the log state.
+    let wait = 25;
+    do {
         await sleep(wait);
+        wait = Math.min(wait * 2, 250);
         let response: unknown;
         try {
             response = await client.call('plugin.log.list', { plugin_id: pluginId, limit: 50 });
@@ -187,7 +192,7 @@ export async function reportHerdrActionFailure(
             throw new Error(failure);
         }
         return;
-    }
+    } while (Date.now() < deadline);
     if (!sawRunning) throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
 }
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;

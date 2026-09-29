@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { createServer, type Server, type Socket } from 'node:net';
 import { describe, expect, it } from 'vitest';
 
-import { AndroidEmulatorWatcher, AndroidPresenceTracker, adbRunner } from './androidEmulators.js';
+import { AndroidEmulatorWatcher, AndroidPreviewTargets, AndroidPresenceTracker, adbRunner } from './androidEmulators.js';
+import { PreviewLeaseTracker, type PreviewLeaseSnapshot } from './previewLease.js';
 
 /**
  * The headless-emulator road, pane to pixels to control bytes.
@@ -335,4 +336,61 @@ describe('a headless emulator in an agent pane', () => {
             rmSync(root, { recursive: true, force: true });
         }
     }, 30_000);
+
+    it('marks the pane human while a control-scoped emulator target is live', async () => {
+        const saved: PreviewLeaseSnapshot[] = [];
+        const lease = new PreviewLeaseTracker({ idleMs: 60, persist: (snapshot) => saved.push(snapshot) });
+        const targets = new AndroidPreviewTargets({
+            mirrors: {
+                open: async () => ({
+                    session: {
+                        generation: 1,
+                        geometry: { source: { width: 540, height: 1200 }, encoded: { width: 540, height: 1200 }, origin: { x: 0, y: 0 } },
+                        source: { kind: 'encoded', width: 540, height: 1200, origin: { x: 0, y: 0 } },
+                    },
+                    width: 540,
+                    height: 1200,
+                }),
+                engineFor: () => ({ drainSignaling: () => [] }),
+                close: async () => undefined,
+                closeAll: async () => undefined,
+            } as never,
+            listSessions: async () => [{ id: 'sess-1', paneId: 'pane-1' }],
+            previewFor: (paneId) => paneId === 'pane-1' ? { kind: 'android', since: Date.now() } : undefined,
+            serialForPane: (paneId) => paneId === 'pane-1' ? 'emulator-5572' : undefined,
+            lease,
+        });
+        const lastSaved = () => saved[saved.length - 1]?.panes['pane-1'];
+        try {
+            const watcher = await targets.openTarget('sess-1', { permissions: ['view'] }, { deviceId: 'phone-1' });
+            expect(lease.controllerFor('pane-1')).toBeUndefined();
+            expect(lastSaved()).toBeUndefined();
+
+            const driver = await targets.openTarget('sess-1', { permissions: ['view', 'control'] }, { deviceId: 'phone-1' });
+            expect(lease.controllerFor('pane-1')).toBe('human');
+            expect(lastSaved()).toMatchObject({ controller: 'human' });
+
+            await targets.close(watcher.desktopId);
+            expect(lease.controllerFor('pane-1')).toBe('human');
+
+            await targets.poll(driver.desktopId, 0);
+            await new Promise((resolve) => setTimeout(resolve, 120));
+            expect(lease.controllerFor('pane-1')).toBeUndefined();
+            expect(lastSaved()).toBeUndefined();
+
+            const second = await targets.openTarget('sess-1', { permissions: ['view', 'control'] }, { deviceId: 'phone-1' });
+            expect(lease.controllerFor('pane-1')).toBe('human');
+            await targets.close(second.desktopId);
+            expect(lease.controllerFor('pane-1')).toBeUndefined();
+
+            const third = await targets.openTarget('sess-1', { permissions: ['view', 'control'] }, { deviceId: 'phone-1' });
+            expect(lease.controllerFor('pane-1')).toBe('human');
+            await targets.revokeDevice('phone-1');
+            expect(lease.controllerFor('pane-1')).toBeUndefined();
+            expect(lastSaved()).toBeUndefined();
+            await targets.close(third.desktopId);
+        } finally {
+            await targets.closeAll();
+        }
+    });
 });
