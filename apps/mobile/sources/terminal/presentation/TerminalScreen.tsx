@@ -119,6 +119,13 @@ const PANE_TABS_HEIGHT = 24;
 const SCROLL_ANSWER_MS = 1_000;
 /** Rows counted back in a program that scrolls itself, by pane route, across its streams. */
 const ALT_SCROLL_BACK = new Map<string, number>();
+/**
+ * Latest's margin past the rows counted back in a program that scrolls itself.
+ * Such a program can drop the first wheel report after a change of direction
+ * (Claude Code does, as a guard against trackpad jitter), which left Latest a
+ * row or three above the bottom it promised.
+ */
+const LATEST_MARGIN_ROWS = 10;
 
 /**
  * The session is one dark surface: the terminal paints dark whatever the app
@@ -345,11 +352,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     /**
      * The old counting behaviour, retained only for alternate-screen panes:
      * there herdr reports maxOffsetFromBottom 0 no matter what the finger did,
-     * so nothing else can know a program's own scroll position. A program that
-     * ignores wheel reports entirely (measured: Claude Code and opencode return
-     * no redraw to SGR wheel-up) will therefore show a control that cannot move
-     * it -- accepted as the lesser harm than stranding someone inside vim or
-     * less with mouse reporting on, which do respond to those reports.
+     * so nothing else can know a program's own scroll position. Claude Code,
+     * vim and less scroll themselves on the wheel reports the host turns a
+     * scroll into; a program that ignores them entirely will show a control
+     * that cannot move it -- accepted as the lesser harm than stranding
+     * someone inside one that does.
      */
     const altBack = React.useRef(0);
     const [showJump, setShowJump] = React.useState(false);
@@ -431,8 +438,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             if (scrollBack.current > 0) channel.scroll(-scrollBack.current);
             return;
         }
-        let remaining = altBack.current;
-        if (remaining <= 0) return;
+        if (altBack.current <= 0) return;
+        let remaining = altBack.current + LATEST_MARGIN_ROWS;
         while (remaining > 0) {
             const step = Math.min(remaining, 400);
             channel.scroll(-step);
