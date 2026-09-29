@@ -1,6 +1,6 @@
 import type { SessionSnapshot } from '@desklink/react-native';
 
-import { desktopCopy } from './desktopCopy';
+import { desktopCopy, previewCopy } from './desktopCopy';
 
 export interface DesktopOverlay {
     title: string;
@@ -80,6 +80,43 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
         spinner: true,
         canRetry: false,
     };
+}
+
+export type PreviewKind = 'browser' | 'android';
+
+export interface PreviewOverlay {
+    title: string;
+    detail?: string;
+    spinner: boolean;
+    /** Try again / Watch here reconnect; `exit` goes back to the conversation. */
+    action?: { label: string; exit: boolean };
+}
+
+const TAKEN = new Set(['replaced by a new session', 'another device opened this computer']);
+
+/**
+ * What the live view of an agent's browser or emulator says while it is not
+ * showing it, or null while the picture is up (live or reconnecting, which
+ * keep the last frame). A target the host no longer has is "closed": the
+ * agent finished with it, and the only way on is back.
+ */
+export function describePreviewOverlay(snapshot: SessionSnapshot, kind: PreviewKind, closed: boolean): PreviewOverlay | null {
+    const copy = previewCopy[kind];
+    const gone = { title: copy.closedTitle, detail: previewCopy.closedBody, spinner: false, action: { label: previewCopy.closedAction, exit: true } };
+    if (closed) return gone;
+    const failure = snapshot.failure?.message ?? '';
+    const unreachable = { title: copy.unreachableTitle, detail: previewCopy.unreachableBody, spinner: false, action: { label: 'Try again', exit: false } };
+    if (snapshot.status === 'failed') {
+        if (snapshot.failure?.code === 'transport') return unreachable;
+        return { title: copy.failedTitle, detail: previewCopy.failedBody, spinner: false, action: { label: 'Try again', exit: false } };
+    }
+    if (snapshot.status === 'ended') {
+        if (TAKEN.has(failure)) return { title: previewCopy.takenTitle, detail: previewCopy.takenBody, spinner: false, action: { label: previewCopy.takenAction, exit: false } };
+        if (failure === 'the connection to the phone was lost') return unreachable;
+        return gone;
+    }
+    if (snapshot.status === 'live' || snapshot.status === 'reconnecting') return null;
+    return { title: copy.opening, spinner: true };
 }
 
 const TEXT_REFUSED = new Map<string, string>([

@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Dimensions, Platform, Pressable, StyleSheet, useWindowDimensions, View, type ViewStyle } from 'react-native';
-import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, ReduceMotion, runOnJS, useAnimatedStyle, useReducedMotion, useSharedValue, withSpring, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect } from 'expo-router';
@@ -16,10 +16,11 @@ import { ui } from '@/components/ui';
 import { sync } from '@/catalog';
 import { useLocalSettingMutable, useMachine } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
-import { claimDesktopRequest, peekDesktopRequest, requestDesktop } from '../request';
+import { hapticsSelection } from '@/components/haptics';
+import { claimDesktopRequest, peekDesktopRequest, previewDocks, requestDesktop } from '../request';
 import { createDesktopSignaling } from '../application/desktopSignaling';
-import { desktopCopy } from '../model/desktopCopy';
-import { describeDesktopOverlay, describeInputRejection } from '../model/desktopOverlay';
+import { desktopCopy, previewCopy } from '../model/desktopCopy';
+import { describeDesktopOverlay, describeInputRejection, describePreviewOverlay, type PreviewKind } from '../model/desktopOverlay';
 import { DESKTOP_KEY_ROW_HEIGHT, DesktopKeyRow } from './DesktopKeyRow';
 
 /** Request smoother motion than the engine's default; still frames are not repeated. */
@@ -60,6 +61,39 @@ const GESTURES: readonly [gesture: string, effect: string][] = [
     ['Drag on the whole desktop', 'Move the pointer'],
 ];
 
+/** An agent's browser takes touch like a phone's own browser; an emulator like a phone. */
+const PREVIEW_GESTURES: Record<PreviewKind, readonly [gesture: string, effect: string][]> = {
+    browser: [['Tap', 'Click'], ['Double-tap', 'Double-click'], ['Hold', 'Right-click'], ['Drag', 'Scroll'], ['Pinch', 'Zoom']],
+    android: [['Tap', 'Tap'], ['Drag', 'Swipe'], ['Hold', 'Long press'], ['Pinch', 'Zoom']],
+};
+
+type Icon = React.ComponentProps<typeof Ionicons>['name'];
+
+/**
+ * The toolbar's keys, sent as key presses so they work in any browser, and
+ * in a windowed emulator through its own shortcuts (a headless one maps the
+ * same chords to device keys on the host).
+ */
+const PREVIEW_KEYS: Record<PreviewKind, readonly { label: string; icon: Icon; name?: string; character?: string; modifiers: string[] }[]> = {
+    browser: [
+        { label: 'Back', icon: 'chevron-back', name: 'ArrowLeft', modifiers: ['Alt'] },
+        { label: 'Forward', icon: 'chevron-forward', name: 'ArrowRight', modifiers: ['Alt'] },
+        { label: 'Reload', icon: 'refresh', name: 'F5', modifiers: [] },
+    ],
+    android: [
+        { label: 'Back', icon: 'caret-back-outline', name: 'Backspace', modifiers: ['Control'] },
+        { label: 'Home', icon: 'ellipse-outline', character: 'h', modifiers: ['Control'] },
+        { label: 'Recents', icon: 'square-outline', character: 'o', modifiers: ['Control'] },
+    ],
+};
+
+/** The toolbar's discs and the band they sit in, above the home indicator. */
+const DISC = 40;
+const TOOLBAR = DISC + 16;
+
+/** Growing out of the chip that opened it. Mass is explicit: Reanimated 4's default of 4 overshoots by a quarter. */
+const GROW_SPRING = { damping: 26, stiffness: 260, mass: 1 };
+
 /** Expo reports a blocked browser clipboard read as ERR_NO_PERMISSION. */
 function describeClipboardError(error: unknown, fallback: string): string {
     const refused = error as { code?: unknown } | null;
@@ -74,6 +108,12 @@ export interface DesktopSurfaceProps {
     title?: string;
     /** The conversation's mark, drawn before the title the way its own header draws it. */
     leading?: React.ReactNode;
+    /**
+     * Show the session's own screen, the browser or emulator its agent is
+     * using, instead of this computer's desktop. `closed` once the agent's
+     * window is gone; the title is the page's, or the emulator's device name.
+     */
+    target?: { sessionId: string; kind: PreviewKind; title?: string; closed?: boolean; viewOnly?: boolean };
 }
 
 /**
@@ -107,8 +147,30 @@ function useKeyboardMotion(): { height: SharedValue<number>; progress: SharedVal
  * phone keyboard lacks rides on it, the controls above that, and the picture
  * moves up to sit over all of them with the pointer still in sight.
  */
-export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSurfaceProps) {
+export function DesktopSurface(props: DesktopSurfaceProps) {
+    const { width } = useWindowDimensions();
+    const docked = props.target !== undefined && previewDocks(Platform.OS === 'web', width);
+    // Docked beside the conversation, the panel's chrome is the app's own
+    // theme; over the conversation it is the terminal's dark. One ScopedTheme
+    // element renders for both, so crossing the web width that docks swaps
+    // only its theme and the live view under it never remounts.
+    return (
+        <ScopedTheme {...(docked ? { reset: true } : { name: 'dark' as const })}>
+            <DesktopSurfaceBody {...props} docked={docked} />
+        </ScopedTheme>
+    );
+}
+
+function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked }: DesktopSurfaceProps & { docked: boolean }) {
     const { theme } = useUnistyles();
+    const preview = target !== undefined;
+    const kind: PreviewKind = target?.kind ?? 'browser';
+    const closed = target?.closed === true;
+    const targetSession = target?.sessionId;
+    // A phone paired to watch sees an agent's browser but never drives it.
+    const viewOnly = target?.viewOnly === true;
+    const viewOnlyRef = React.useRef(viewOnly);
+    viewOnlyRef.current = viewOnly;
     const [clipboardBusy, setClipboardBusy] = React.useState(false);
     const [notice, setNotice] = React.useState<{ text: string; ms: number } | null>(null);
     const [keyboardOpen, setKeyboardOpen] = React.useState(false);
@@ -139,17 +201,18 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
         // whose every use would fail. The picture's size is the engine's to
         // choose: the desktop's own pixels, so zooming stays sharp.
         authorize: React.useCallback(async () => {
-            const capabilities = await sync.request('desktop.capabilities', {}).catch(() => null);
-            const canClipboard = capabilities?.clipboard === true;
+            const scope = targetSession === undefined ? {} : { target: { sessionId: targetSession } };
+            const capabilities = await sync.request('desktop.capabilities', scope).catch(() => null);
+            const canClipboard = capabilities?.clipboard === true && !viewOnlyRef.current;
             setClipboardAvailable(canClipboard);
-            const permissions: DesktopPermission[] = canClipboard
-                ? ['view', 'control', 'clipboard']
+            const permissions: DesktopPermission[] = viewOnlyRef.current ? ['view']
+                : canClipboard ? ['view', 'control', 'clipboard']
                 : ['view', 'control'];
             return {
-                signaling: createDesktopSignaling({ permissions, maxFps: DESKTOP_FPS, onOpenSent: () => setOpenSentAt(Date.now()) }),
+                signaling: createDesktopSignaling({ permissions, maxFps: DESKTOP_FPS, onOpenSent: () => setOpenSentAt(Date.now()), ...scope }),
                 session: { permissions },
             };
-        }, []),
+        }, [targetSession]),
         onError: (failure) => say(failure.message),
         // Text the desktop refused is a notice, not a failure: the session
         // carries on, and the clipboard is the way round.
@@ -170,17 +233,29 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
 
     // Opening is a user action. A screen that is back without one (a link, or
     // the app restoring where it was) waits for a tap before it captures.
-    const [request] = React.useState(() => peekDesktopRequest(getCachedConnectionSettings().machineId ?? '', sessionId));
+    const [request] = React.useState(() => peekDesktopRequest(getCachedConnectionSettings().machineId ?? '', sessionId, preview));
     React.useEffect(() => {
-        claimDesktopRequest(getCachedConnectionSettings().machineId ?? '', sessionId);
-    }, [sessionId]);
+        claimDesktopRequest(getCachedConnectionSettings().machineId ?? '', sessionId, preview);
+    }, [sessionId, preview]);
     const [started, setStarted] = React.useState(request.allowed);
+    // Stopped for the background and coming back: that is opening, not closed.
+    const [resuming, setResuming] = React.useState(false);
+    const startedRef = React.useRef(started);
+    startedRef.current = started;
+    const closedRef = React.useRef(closed);
+    closedRef.current = closed;
     // Control follows a deliberate tap. Whatever happens on its own — the
     // phone locking, the app going to the background, a reconnect — may bring
     // the picture back, but not the control: fingers that were unlocking the
     // phone must not land on the desktop.
     const [armed, setArmed] = React.useState(false);
-    const armWhenLive = React.useRef(request.fresh);
+    // An agent's browser opens to watch: only a tap on it hands over control.
+    const armWhenLive = React.useRef(request.fresh && !preview);
+    const arm = React.useCallback(() => {
+        if (viewOnlyRef.current) return;
+        setInputEnabled(true);
+        setArmed(true);
+    }, [setInputEnabled]);
 
     React.useEffect(() => () => {
         disarm();
@@ -195,11 +270,29 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
     const start = React.useCallback(() => {
         // This tap is the desktop action too, for the rest of this run.
         const machineId = getCachedConnectionSettings().machineId ?? '';
-        requestDesktop(machineId, sessionId);
-        claimDesktopRequest(machineId, sessionId);
-        armWhenLive.current = true;
+        requestDesktop(machineId, sessionId, preview);
+        claimDesktopRequest(machineId, sessionId, preview);
+        armWhenLive.current = !preview;
         setStarted(true);
-    }, [sessionId]);
+    }, [sessionId, preview]);
+
+    // The agent is done with its window: nothing is left to show or to hold.
+    // Its window back means the view follows it, still only watching.
+    const hadClosed = React.useRef(false);
+    React.useEffect(() => {
+        if (closed) {
+            hadClosed.current = true;
+            disarm();
+            releaseHeld();
+            void close('the target closed');
+            return;
+        }
+        if (!hadClosed.current || !startedRef.current) return;
+        hadClosed.current = false;
+        // A stream already up or on its way, the engine's own reconnect included, needs no second open.
+        if (snapshot.status === 'live' || snapshot.status === 'opening' || snapshot.status === 'connecting' || snapshot.status === 'reconnecting') return;
+        void connect();
+    }, [closed, snapshot.status, connect, close, releaseHeld, disarm]);
 
     const retry = React.useCallback(() => {
         armWhenLive.current = false;
@@ -209,15 +302,29 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
     React.useEffect(() => setKeyboardOpen(keyboard.isVisible), [keyboard.isVisible]);
 
     React.useEffect(() => {
+        // Nobody watches an agent's browser from the background: its stream
+        // stops there and opens again, still only watching, on the way back.
+        let paused = false;
         const subscription = AppState.addEventListener('change', (state) => {
-            if (state === 'active') return;
+            if (state === 'active') {
+                if (paused && startedRef.current && !closedRef.current) void connect();
+                else setResuming(false);
+                paused = false;
+                return;
+            }
             disarm();
             armWhenLive.current = false;
             setKeyboardOpen(false);
             setMenu((open) => (open === 'clipboard' ? null : open));
+            if (preview && state === 'background' && !paused) {
+                paused = true;
+                setResuming(true);
+                releaseHeld();
+                void close('backgrounded');
+            }
         });
         return () => subscription.remove();
-    }, [disarm]);
+    }, [disarm, preview, connect, close, releaseHeld]);
 
     React.useEffect(() => {
         if (notice === null) return;
@@ -236,9 +343,59 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
             setKeyboardOpen(false);
             return;
         }
+        arm();
         session.showKeyboard();
         setKeyboardOpen(true);
-    }, [keyboardOpen, session]);
+    }, [keyboardOpen, session, arm]);
+
+    // A toolbar key is a deliberate tap, so it takes control as it presses.
+    const pressToolbarKey = React.useCallback(({ name, character, modifiers }: (typeof PREVIEW_KEYS)[PreviewKind][number]) => {
+        arm();
+        hapticsSelection();
+        const key = name === undefined ? { character } : { name };
+        session.send({ kind: 'key', ...key, modifiers, down: true });
+        session.send({ kind: 'key', ...key, modifiers, down: false });
+    }, [arm, session]);
+
+    // Opened from the chip, the view grows out of it, and goes back into it
+    // while the agent's window is still there to go back to.
+    const reduceMotion = useReducedMotion();
+    const from = docked ? undefined : request.from;
+    const grow = useSharedValue(from === undefined ? 1 : 0);
+    const rootRef = React.useRef<View>(null);
+    const [frame, setFrame] = React.useState<{ x: number; y: number; width: number; height: number } | null>(null);
+    const measureFrame = React.useCallback(() => {
+        rootRef.current?.measureInWindow((x, y, width, height) => setFrame({ x, y, width, height }));
+    }, []);
+    React.useEffect(() => {
+        if (from === undefined || frame === null || grow.value !== 0) return;
+        grow.value = reduceMotion ? withTiming(1, { duration: 120 }) : withSpring(1, GROW_SPRING);
+    }, [from, frame, grow, reduceMotion]);
+    const growStyle = useAnimatedStyle(() => {
+        if (from === undefined || frame === null) return from === undefined ? {} : { opacity: 0 };
+        // A full-screen view must never grow past the screen, however the spring settles.
+        const p = Math.min(1, grow.value);
+        if (reduceMotion) return { opacity: p };
+        const start = Math.max(from.width / frame.width, from.height / frame.height);
+        return {
+            opacity: Math.min(1, p * 2.5),
+            borderRadius: 16 * (1 - p),
+            transform: [
+                { translateX: (from.x + from.width / 2 - (frame.x + frame.width / 2)) * (1 - p) },
+                { translateY: (from.y + from.height / 2 - (frame.y + frame.height / 2)) * (1 - p) },
+                { scale: start + (1 - start) * p },
+            ],
+        };
+    });
+    const leave = React.useCallback(() => {
+        if (from === undefined || closed) {
+            onExit();
+            return;
+        }
+        grow.value = withTiming(0, { duration: reduceMotion ? 120 : 180 }, (done) => {
+            if (done) runOnJS(onExit)();
+        });
+    }, [from, closed, grow, reduceMotion, onExit]);
 
     // Landscape belongs to this screen while it is in front: leaving it by any
     // route, or another screen opening over it, hands the phone its own
@@ -308,13 +465,23 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
         if (Platform.OS !== 'android') return;
         const back = BackHandler.addEventListener('hardwareBackPress', () => {
             if (menu !== null) setMenu(null);
-            else onExit();
+            else leave();
             return true;
         });
         return () => back.remove();
-    }, [menu, onExit]);
+    }, [menu, leave]);
 
     const live = snapshot.status === 'live';
+    React.useEffect(() => {
+        if (live || snapshot.status === 'failed') setResuming(false);
+    }, [live, snapshot.status]);
+    // The engine's own reconnect passes through opening again; while it does,
+    // the view still says what happened, not that it is starting.
+    const [dropped, setDropped] = React.useState(false);
+    React.useEffect(() => {
+        if (snapshot.status === 'reconnecting') setDropped(true);
+        else if (snapshot.status !== 'opening' && snapshot.status !== 'connecting') setDropped(false);
+    }, [snapshot.status]);
     React.useEffect(() => {
         if (!live) {
             disarm();
@@ -334,7 +501,8 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
     // rather than for as long as the desktop is up.
     const explained = React.useRef(false);
     React.useEffect(() => {
-        if (!live || explained.current) return;
+        // An agent's browser says what a tap does on its own pill, and keeps its clipboard in the menu.
+        if (!live || explained.current || preview) return;
         explained.current = true;
         if (!openedBefore) {
             setOpenedBefore(true);
@@ -342,7 +510,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
         } else if (!clipboardAvailable) {
             say(desktopCopy.clipboardUnavailable);
         }
-    }, [live, openedBefore, setOpenedBefore, clipboardAvailable, say]);
+    }, [live, openedBefore, setOpenedBefore, clipboardAvailable, say, preview]);
 
     // An open still waiting after a moment is waiting on the computer's
     // screen-sharing prompt, whether or not a grant was saved (the portal may
@@ -363,9 +531,20 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
         ? Math.ceil((openSentAt + DESKTOP_CONSENT_WAIT_MS - now) / 1000)
         : null;
     const described = describeDesktopOverlay(snapshot, openedBefore, consentSecondsLeft);
-    const status = started
-        ? { ...described, action: described.canRetry ? 'Try again' : undefined }
-        : { title: desktopCopy.stoppedTitle, detail: desktopCopy.stoppedBody, command: undefined, spinner: false, action: desktopCopy.startAction };
+    const copy = previewCopy[kind];
+    // An agent's browser the app put back on its own waits for Watch, like the desktop.
+    const previewStatus = !preview ? null
+        : !started && !closed ? { title: copy.name, detail: target?.title, spinner: false, action: { label: 'Watch', exit: false } }
+        : resuming && !closed ? { title: copy.opening, spinner: true }
+        : dropped && !closed && (snapshot.status === 'opening' || snapshot.status === 'connecting') ? null
+        : describePreviewOverlay(snapshot, kind, closed);
+    const status: { title: string; detail?: string; command?: string; spinner: boolean; action?: string } = previewStatus !== null
+        ? { ...previewStatus, action: previewStatus.action?.label }
+        : started
+            ? { ...described, action: described.canRetry ? 'Try again' : undefined }
+            : { title: desktopCopy.stoppedTitle, detail: desktopCopy.stoppedBody, command: undefined, spinner: false, action: desktopCopy.startAction };
+    const overlayShown = preview ? previewStatus !== null : !live;
+    const onStatusAction = previewStatus?.action?.exit === true ? onExit : started ? retry : start;
     const shownNotice = live ? notice?.text ?? null : null;
     // The row stays while the keyboard is still on its way down, fading with it.
     const web = Platform.OS === 'web';
@@ -381,6 +560,27 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
     const rise = compact ? (DESKTOP_KEY_ROW_HEIGHT - BUTTON) / 2 : DESKTOP_KEY_ROW_HEIGHT + ABOVE_KEYS;
     const clearance = compact ? (DESKTOP_KEY_ROW_HEIGHT + BUTTON) / 2 + PICTURE_GAP / 2 : rise + BUTTON + PICTURE_GAP;
     const statusLabel = live ? desktopCopy.liveLabel : snapshot.status === 'reconnecting' ? desktopCopy.reconnectingTitle : status.spinner ? desktopCopy.connectingLabel : null;
+    const reconnecting = snapshot.status === 'reconnecting' || (preview && dropped && !live);
+    const previewStatusLine: { label: string; color: string; spinner?: boolean } | null = !preview ? null
+        : resuming && !closed ? { label: desktopCopy.connectingLabel, color: theme.colors.textSecondary, spinner: true }
+        : closed || snapshot.status === 'ended' ? { label: previewCopy.closedLabel, color: theme.colors.textSecondary }
+        : live && armed ? { label: previewCopy.controlLabel, color: theme.colors.status.working }
+        : live ? { label: previewCopy.liveLabel, color: theme.colors.status.connected }
+        : reconnecting ? { label: desktopCopy.reconnectingTitle.replace('…', ''), color: theme.colors.textSecondary, spinner: true }
+        : status.spinner ? { label: desktopCopy.connectingLabel, color: theme.colors.textSecondary, spinner: true }
+        : null;
+    // Docked in a light app, the letterbox is a quiet grey so the page's own colours read true.
+    const stageColor = docked && !theme.dark ? '#F5F5F5' : '#000';
+    const panelColor = docked ? theme.colors.surface : '#000';
+    const canFullScreen = Platform.OS === 'android' || (web && typeof document !== 'undefined' && document.fullscreenEnabled === true);
+    const toggleFullScreen = () => {
+        if (!web) {
+            toggleLandscape();
+            return;
+        }
+        if (document.fullscreenElement) void document.exitFullscreen();
+        else void document.documentElement.requestFullscreen();
+    };
 
     // The key row rides on the keyboard and fades in as it rises; the
     // controls rise over it by the same measure, so the keyboard, the row,
@@ -458,16 +658,52 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
             {options.selected === true && <Ionicons name="checkmark" size={17} color={theme.colors.text} />}
         </Pressable>
     );
+    const disc = (pressed: boolean, on = false): ViewStyle => ({
+        width: DISC,
+        height: DISC,
+        borderRadius: DISC / 2,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: docked
+            ? (pressed || on ? theme.colors.surfacePressed : theme.colors.surfaceHighest)
+            : (pressed || on ? theme.colors.terminalChrome.clusterPressed : theme.colors.terminalChrome.cluster),
+    });
     const headerMark = ({ pressed }: { pressed: boolean }) => [styles.headerButton, pressed && styles.pressed];
     const popIn = FadeIn.duration(140).reduceMotion(ReduceMotion.System);
     const popOut = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
 
     return (
-        <View style={styles.screen}>
+        <Animated.View ref={rootRef} onLayout={measureFrame} style={[styles.screen, { backgroundColor: panelColor }, from !== undefined && styles.clipped, growStyle]}>
+            {/* An agent's browser: what it is, the page it is on, whether it
+                is live, and the less-used actions. Docked, it closes in place. */}
+            {headerShown && preview && <View style={[styles.header, docked && [styles.dockedHeader, { backgroundColor: panelColor, borderColor: theme.colors.divider }]]}>
+                {!docked && <Pressable onPress={leave} accessibilityRole="button" accessibilityLabel="Back to the conversation" hitSlop={12} style={headerMark}>
+                    <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
+                </Pressable>}
+                <View style={styles.title} accessible accessibilityRole="header" accessibilityLabel={`${copy.name}${target?.title ? `, ${target.title}` : ''}${previewStatusLine === null ? '' : `, ${previewStatusLine.label}`}`}>
+                    <Ionicons name={kind === 'android' ? 'logo-android' : 'globe-outline'} size={14} color={theme.colors.textSecondary} />
+                    <Text numberOfLines={1} style={[styles.titleText, styles.previewName, { color: theme.colors.text }]}>{copy.name}</Text>
+                    {target?.title !== undefined && <Text numberOfLines={1} style={[styles.titleText, styles.previewTitle, { color: theme.colors.textSecondary }]}>{target.title}</Text>}
+                </View>
+                {previewStatusLine !== null && (
+                    <Animated.View key={previewStatusLine.label} entering={popIn} style={styles.statusLine}>
+                        {previewStatusLine.spinner === true
+                            ? <ActivityIndicator size={10} color={previewStatusLine.color} />
+                            : <View style={[styles.statusDot, { backgroundColor: previewStatusLine.color }]} />}
+                        <Text numberOfLines={1} style={[styles.statusText, { color: previewStatusLine.color }]}>{previewStatusLine.label}</Text>
+                    </Animated.View>
+                )}
+                <Pressable onPress={() => toggleMenu('more')} accessibilityRole="button" accessibilityLabel={`${copy.name} actions`} accessibilityState={{ expanded: menu === 'more' }} hitSlop={8} style={headerMark}>
+                    <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
+                </Pressable>
+                {docked && <Pressable onPress={onExit} accessibilityRole="button" accessibilityLabel={`Close the ${copy.name.toLowerCase()}`} hitSlop={8} style={headerMark}>
+                    <Ionicons name="close" size={20} color={theme.colors.text} />
+                </Pressable>}
+            </View>}
             {/* The conversation's own header line, so opening the desktop
                 changes what is under it and nothing above: back, the
                 conversation, help, and the less-used actions. */}
-            {headerShown && <View style={styles.header}>
+            {headerShown && !preview && <View style={styles.header}>
                 <Pressable onPress={onExit} accessibilityRole="button" accessibilityLabel="Back to the conversation" hitSlop={12} style={headerMark}>
                     <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                 </Pressable>
@@ -486,15 +722,45 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
             </View>}
 
             <View style={styles.body}>
-                <DesktopView sessionId={session.nativeId} style={styles.surface} accessibilityLabel={`${computerName} desktop`} keyboardClearance={clearance} />
+                <DesktopView
+                    sessionId={session.nativeId}
+                    style={[styles.surface, preview && { backgroundColor: stageColor, marginBottom: TOOLBAR + bottomInset }]}
+                    accessibilityLabel={preview ? copy.stage : `${computerName} desktop`}
+                    keyboardClearance={clearance}
+                    // ponytail: typed spread until the touch-profile desklink release is pinned; older builds keep desktop gestures.
+                    {...({ gestures: !preview ? 'desktop' : kind === 'android' ? 'device' : 'browser' } as object)}
+                />
+
+                {/* Reconnecting keeps the last frame, dimmed, and says so above it. */}
+                {preview && reconnecting && (
+                    <Animated.View entering={popIn} exiting={popOut} pointerEvents="none" style={[StyleSheet.absoluteFill, styles.dim]}>
+                        <View style={[styles.pill, styles.topPill, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }]}>
+                            <ActivityIndicator size="small" color={theme.colors.text} />
+                            <Text accessibilityLiveRegion="polite" style={[styles.armLabel, { color: theme.colors.text }]}>{desktopCopy.reconnectingTitle}</Text>
+                        </View>
+                    </Animated.View>
+                )}
+
+                {/* Driving the agent's browser: the agent holds off until it is handed back. */}
+                {preview && live && armed && (
+                    <Animated.View entering={popIn} exiting={popOut} pointerEvents="box-none" style={styles.topLane}>
+                        <View style={[styles.pill, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }]}>
+                            <View style={[styles.statusDot, { backgroundColor: theme.colors.status.working }]} />
+                            <Text accessibilityLiveRegion="polite" style={[styles.armLabel, { color: theme.colors.text }]}>{previewCopy.controlTitle}</Text>
+                            <Pressable onPress={disarm} accessibilityRole="button" accessibilityLabel={previewCopy.handBack} hitSlop={8} style={({ pressed }) => [styles.handBack, { backgroundColor: theme.colors.button.primary.background }, pressed && styles.pressed]}>
+                                <Text style={[styles.handBackLabel, { color: theme.colors.button.primary.tint }]}>{previewCopy.handBack}</Text>
+                            </Pressable>
+                        </View>
+                    </Animated.View>
+                )}
 
                 {/* The start is quiet — a small spinner and one line on the
                     surface's own black — and it fades as the first picture
                     comes up out of that black beneath it. It has no fill of
                     its own: a fill over a video surface hides the picture
                     until the fill is gone, which reads as a cut. */}
-                {!live && (
-                    <Animated.View exiting={FadeOut.duration(250).reduceMotion(ReduceMotion.System)} style={styles.overlay}>
+                {overlayShown && (
+                    <Animated.View exiting={FadeOut.duration(250).reduceMotion(ReduceMotion.System)} style={[styles.overlay, preview && { bottom: TOOLBAR + bottomInset }]}>
                         {status.spinner && <ActivityIndicator size="small" color={theme.colors.textSecondary} />}
                         <Text style={[styles.overlayTitle, { color: theme.colors.text }]}>{status.title}</Text>
                         {status.detail !== undefined && (
@@ -513,7 +779,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
                         )}
                         {status.action !== undefined && (
                             <Pressable
-                                onPress={started ? retry : start}
+                                onPress={onStatusAction}
                                 accessibilityRole="button"
                                 accessibilityLabel={status.action}
                                 style={({ pressed }) => [styles.action, { backgroundColor: theme.colors.button.primary.background }, pressed && styles.pressed]}
@@ -526,24 +792,25 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
 
                 {/* Back without a tap: the picture shows, control waits for
                     one. The tap that turns it on is not sent to the desktop. */}
-                {live && !armed && (
+                {live && !armed && !closed && (
                     <Pressable
-                        onPress={() => { setInputEnabled(true); setArmed(true); }}
-                        accessibilityRole="button"
-                        accessibilityLabel={desktopCopy.armTitle}
-                        accessibilityHint={desktopCopy.armHint}
-                        style={[styles.armCover, { paddingBottom: insets.bottom + REST_GAP }]}
+                        onPress={arm}
+                        disabled={viewOnly}
+                        accessibilityRole={viewOnly ? 'text' : 'button'}
+                        accessibilityLabel={viewOnly ? previewCopy.viewOnlyTitle : preview ? previewCopy.armTitle : desktopCopy.armTitle}
+                        accessibilityHint={viewOnly ? copy.viewOnlyBody : preview ? previewCopy.armHint : desktopCopy.armHint}
+                        style={[styles.armCover, { paddingBottom: insets.bottom + REST_GAP + (preview ? TOOLBAR : 0) }]}
                     >
                         <Animated.View entering={popIn} pointerEvents="none" style={[styles.armPill, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }]}>
-                            <Ionicons name="hand-left-outline" size={16} color={theme.colors.text} />
-                            <Text style={[styles.armLabel, { color: theme.colors.text }]}>{desktopCopy.armTitle}</Text>
+                            <Ionicons name={viewOnly ? 'eye-outline' : 'hand-left-outline'} size={16} color={theme.colors.text} />
+                            <Text style={[styles.armLabel, { color: theme.colors.text }]}>{viewOnly ? previewCopy.viewOnlyTitle : preview ? previewCopy.armTitle : desktopCopy.armTitle}</Text>
                         </Animated.View>
                     </Pressable>
                 )}
 
                 {compactKeyboard && (
                     <View pointerEvents="box-none" style={styles.compactHeader}>
-                        <Pressable onPress={onExit} accessibilityRole="button" accessibilityLabel="Back to the conversation" style={({ pressed }) => control(pressed)}>
+                        <Pressable onPress={leave} accessibilityRole="button" accessibilityLabel="Back to the conversation" style={({ pressed }) => control(pressed)}>
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
                         <Pressable onPress={() => toggleMenu('more')} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} style={({ pressed }) => control(pressed, menu === 'more')}>
@@ -556,7 +823,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
 
                 {menu === 'help' && popupReady && (
                     <Animated.View entering={popIn} exiting={popOut} style={[card, styles.topCard, { width: Math.min(windowWidth - 16, 320) }]}>
-                        {GESTURES.map(([gesture, effect]) => (
+                        {(preview ? PREVIEW_GESTURES[kind] : GESTURES).map(([gesture, effect]) => (
                             <View key={gesture} style={[styles.helpRow, compact && styles.compactHelpRow]} accessible accessibilityLabel={`${gesture}: ${effect}`}>
                                 <Text style={[styles.helpGesture, { color: theme.colors.textSecondary }]}>{gesture}</Text>
                                 <Text style={[styles.helpEffect, { color: theme.colors.text }]}>{effect}</Text>
@@ -568,9 +835,10 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
                 {menu === 'more' && popupReady && (
                     <Animated.View entering={popIn} exiting={popOut} style={[card, styles.topCard]}>
                         {menuRow('Gestures', 'help-circle-outline', () => toggleMenu('help'))}
+                        {preview && live && clipboardAvailable && menuRow('Clipboard', 'clipboard-outline', () => { arm(); setMenu('clipboard'); })}
                         {live && menuRow('Fit to screen', 'scan-outline', session.fitToView)}
-                        {(live || landscape) && Platform.OS === 'android' && menuRow('Landscape', 'phone-landscape-outline', toggleLandscape, { selected: landscape })}
-                        {menuRow('Disconnect', 'power-outline', onExit)}
+                        {!preview && (live || landscape) && Platform.OS === 'android' && menuRow('Landscape', 'phone-landscape-outline', toggleLandscape, { selected: landscape })}
+                        {menuRow(preview ? 'Close' : 'Disconnect', preview ? 'close-outline' : 'power-outline', preview ? leave : onExit)}
                     </Animated.View>
                 )}
 
@@ -589,7 +857,42 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
                     </Animated.View>
                 )}
 
-                {controlling && (
+                {/* The agent's browser keeps its toolbar in view: the keys that
+                    move it, the keyboard, and full screen. Dim until it is live. */}
+                {preview && !(viewOnly && !live) && previewStatus?.action?.exit !== true && (
+                    <Animated.View pointerEvents="box-none" style={[styles.toolbar, { height: TOOLBAR + bottomInset, paddingBottom: bottomInset, backgroundColor: panelColor }, docked && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider }, controlsMotion]}>
+                        {shownNotice !== null && (
+                            <View pointerEvents="none" style={[styles.noticeLane, { bottom: TOOLBAR + bottomInset + 4 }]}>
+                                <View style={[styles.notice, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }]}>
+                                    <Text accessibilityLiveRegion="polite" numberOfLines={3} style={[styles.noticeText, { color: theme.colors.text }]}>{shownNotice}</Text>
+                                </View>
+                            </View>
+                        )}
+                        {PREVIEW_KEYS[kind].map((key) => (
+                            <Pressable key={key.label} onPress={() => pressToolbarKey(key)} disabled={!live || viewOnly} accessibilityRole="button" accessibilityLabel={key.label} style={({ pressed }) => [disc(pressed), (!live || viewOnly) && styles.disabled]}>
+                                <Ionicons name={key.icon} size={18} color={theme.colors.text} />
+                            </Pressable>
+                        ))}
+                        <View style={[styles.separator, { backgroundColor: theme.colors.divider }]} />
+                        {kind === 'android' && (
+                            <Pressable onPress={() => pressToolbarKey({ label: 'Rotate', icon: 'sync-outline', name: 'ArrowLeft', modifiers: ['Control'] })} disabled={!live || viewOnly} accessibilityRole="button" accessibilityLabel="Rotate" style={({ pressed }) => [disc(pressed), (!live || viewOnly) && styles.disabled]}>
+                                <Ionicons name="sync-outline" size={18} color={theme.colors.text} />
+                            </Pressable>
+                        )}
+                        {!viewOnly && (
+                            <Pressable onPress={toggleKeyboard} disabled={!live} accessibilityRole="button" accessibilityLabel={keyboardOpen ? 'Hide keyboard' : 'Keyboard'} accessibilityState={{ selected: keyboardOpen }} style={({ pressed }) => [disc(pressed, keyboardOpen), !live && styles.disabled]}>
+                                <MaterialCommunityIcons name={keyboardOpen ? 'keyboard-close-outline' : 'keyboard-outline'} size={20} color={theme.colors.text} />
+                            </Pressable>
+                        )}
+                        {kind === 'browser' && canFullScreen && (
+                            <Pressable onPress={toggleFullScreen} disabled={!live} accessibilityRole="button" accessibilityLabel="Full screen" accessibilityState={{ selected: landscape }} style={({ pressed }) => [disc(pressed, landscape), !live && styles.disabled]}>
+                                <Ionicons name="expand-outline" size={17} color={theme.colors.text} />
+                            </Pressable>
+                        )}
+                    </Animated.View>
+                )}
+
+                {controlling && !preview && (
                     <Animated.View pointerEvents="box-none" style={[styles.controls, { bottom: bottomInset + REST_GAP }, controlsMotion]}>
                         {shownNotice !== null && (
                             <View pointerEvents="none" style={styles.noticeLane}>
@@ -612,7 +915,7 @@ export function DesktopSurface({ sessionId, onExit, title, leading }: DesktopSur
                     </Animated.View>
                 )}
             </View>
-        </View>
+        </Animated.View>
     );
 }
 
@@ -684,6 +987,22 @@ const styles = StyleSheet.create({
     armCover: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, alignItems: 'center', justifyContent: 'flex-end' },
     armPill: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 22, borderWidth: StyleSheet.hairlineWidth },
     armLabel: { ...Typography.default(), fontSize: 14 },
+    clipped: { overflow: 'hidden' },
+    dockedHeader: { minHeight: 44, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth },
+    previewName: { flexShrink: 0, opacity: 1 },
+    previewTitle: { fontWeight: '400', opacity: 1 },
+    statusLine: { flexDirection: 'row', alignItems: 'center', gap: 5, flexShrink: 0, paddingHorizontal: 4 },
+    statusDot: { width: 6, height: 6, borderRadius: 3 },
+    statusText: { ...Typography.default(), fontSize: 11, fontWeight: '500' },
+    dim: { backgroundColor: 'rgba(0, 0, 0, 0.55)' },
+    pill: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 36, paddingLeft: 14, paddingRight: 6, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 18, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+    topPill: { position: 'absolute', top: 12, alignSelf: 'center', paddingRight: 14 },
+    topLane: { position: 'absolute', top: 12, left: 0, right: 0, alignItems: 'center' },
+    handBack: { height: 26, borderRadius: 13, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
+    handBackLabel: { ...Typography.default('semiBold'), fontSize: 12 },
+    toolbar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 12 },
+    separator: { width: StyleSheet.hairlineWidth, height: 22, marginHorizontal: 2 },
     disabled: { opacity: 0.4 },
     pressed: { opacity: 0.6 },
 });
+

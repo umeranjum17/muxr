@@ -41,3 +41,40 @@ export const desktopCopy = {
     textTooLarge: 'That is too much to type at once.',
     textUsePaste: 'Use Paste from Phone.',
 } as const;
+
+/** The agent's own browser or emulator, watched live: one wording per kind. */
+export const previewCopy = {
+    browser: {
+        name: 'Browser',
+        opening: "Opening your agent's browser…",
+        closedTitle: 'The browser closed',
+        unreachableTitle: "Can't show the browser from here",
+        failedTitle: "Couldn't open the browser",
+        viewOnlyBody: 'This phone was paired to watch. It can see the browser but not use it.',
+        stage: "Live view of your agent's browser",
+    },
+    android: {
+        name: 'Android emulator',
+        opening: 'Opening the emulator…',
+        closedTitle: 'The emulator closed',
+        unreachableTitle: "Can't show the emulator from here",
+        failedTitle: "Couldn't open the emulator",
+        viewOnlyBody: 'This phone was paired to watch. It can see the emulator but not use it.',
+        stage: "Live view of your agent's Android emulator",
+    },
+    closedBody: 'Your agent finished with it.',
+    closedAction: 'Back to the conversation',
+    unreachableBody: 'Live view needs this phone to reach your computer directly or over Tailscale.',
+    takenTitle: 'Open on another device',
+    takenBody: 'Only one device can watch at a time.',
+    takenAction: 'Watch here',
+    failedBody: 'The computer did not start the live view.',
+    armTitle: 'Tap to take control',
+    armHint: 'Lets you use it. This tap is not sent.',
+    controlTitle: 'Your agent is waiting',
+    handBack: 'Hand back',
+    viewOnlyTitle: 'View only',
+    liveLabel: 'Live',
+    controlLabel: 'You’re in control',
+    closedLabel: 'Closed',
+} as const;

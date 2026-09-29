@@ -27,6 +27,8 @@ export interface OpenDesktopOptions {
     maxHeight?: number;
     bitrateKbps?: number;
     maxFps?: number;
+    /** The session whose own screen to show (its agent's browser or emulator); absent is the desktop. */
+    target?: { sessionId: string };
     /** Called as `desktop.open` is sent: from here the host may wait on consent. */
     onOpenSent?: () => void;
 }
@@ -168,6 +170,7 @@ export function createDesktopSignaling(options: OpenDesktopOptions): Signaling {
                         ...(options.maxHeight === undefined ? {} : { maxHeight: options.maxHeight }),
                         ...(options.bitrateKbps === undefined ? {} : { bitrateKbps: options.bitrateKbps }),
                         ...(options.maxFps === undefined ? {} : { maxFps: options.maxFps }),
+                        ...(options.target === undefined ? {} : { target: options.target }),
                     }, OPEN_TIMEOUT_MS);
                     desktopId = opened.desktopId;
                     pending.length = 0;
