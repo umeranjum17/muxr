@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { delimiter, dirname, join, resolve } from 'node:path';
@@ -83,6 +83,20 @@ function linkCli() {
 
 const command = process.argv[2];
 const argv = commands.get(command);
+/**
+ * One-shot panes vanish the moment their command exits, hiding the output.
+ * In a pane (a real terminal on both sides; actions have none) hold the pane
+ * open until the person presses Enter, then exit with the CLI's own status.
+ */
+function holdPaneOpen() {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) return;
+    process.stdout.write('Press Enter to close.\n');
+    const key = Buffer.alloc(1);
+    try {
+        while (readSync(0, key, 0, 1) > 0 && key[0] !== 0x0a) {}
+    } catch { /* stdin went away; close anyway */ }
+}
+
 if (cli === undefined) {
     process.stderr.write('muxr CLI not found next to this plugin; reinstall it with `herdr plugin install`\n');
     process.exitCode = 1;
@@ -103,5 +117,6 @@ if (cli === undefined) {
         ? spawnSync(executable, argv, { stdio: 'inherit', env })
         : spawnSync(process.execPath, [cli, ...argv], { stdio: 'inherit', env });
     if (result.error) process.stderr.write(`${result.error.message}\n`);
+    holdPaneOpen();
     process.exitCode = result.status ?? 1;
 }
