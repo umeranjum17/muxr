@@ -612,14 +612,20 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'plans.add': async (params) => {
             const { record, created } = preparePlanSignIn(process.env, params.provider, params.accountId);
-            const started = useCaseData(await startAgent({
-                exists: existsSync,
-                create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
-                start: (command) => source.start(command),
-            }, { cwd: homedir(), ...planSignInLaunch(record) }));
-            if (!('info' in started)) throw new Error(`Couldn't open ${PLAN_LABELS[record.provider]} sign-in. Try again.`);
-            rememberSignInTab(record.id, started.info.paneId ?? started.info.id, created);
-            return { accountId: record.id, sessionId: started.info.id };
+            try {
+                const started = useCaseData(await startAgent({
+                    exists: existsSync,
+                    create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
+                    start: (command) => source.start(command),
+                }, { cwd: homedir(), ...planSignInLaunch(record) }));
+                if (!('info' in started)) throw new Error(`Couldn't open ${PLAN_LABELS[record.provider]} sign-in. Try again.`);
+                await closeSignInTab(record.id);
+                rememberSignInTab(record.id, started.info.paneId ?? started.info.id, created);
+                return { accountId: record.id, sessionId: started.info.id };
+            } catch (error) {
+                if (created) removePlanAccount(process.env, record.id);
+                throw error;
+            }
         },
         'plans.status': async (params) => {
             const status = await planAccountStatus(process.env, params.accountId);
