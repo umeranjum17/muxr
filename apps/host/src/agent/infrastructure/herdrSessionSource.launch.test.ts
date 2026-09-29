@@ -502,7 +502,12 @@ describe('realtime prompt boundary', () => {
             // The route never resolved, so nothing could have been sent.
             await expect(source.prompt({ sessionId: 'pp_missing', text: 'hello' }))
                 .rejects.toMatchObject({ code: 'prompt-not-sent' });
-            await expect(source.prompt({ sessionId: started.info.id, text: 'hello' })).resolves.toBeUndefined();
+            // The kit gates the prompt on its own tree, which re-bootstraps off the
+            // detection event; wait for that pass before asserting the queued prompt.
+            await vi.waitFor(() =>
+                expect(source.prompt({ sessionId: started.info.id, text: 'hello' })).resolves.toBeUndefined(),
+                { timeout: 3_000 },
+            );
 
             // The receipt was accepted, so a failed confirmation read is ambiguous.
             herdr.state.failSnapshotAfterPrompt = true;
@@ -612,9 +617,11 @@ describe('source close lets the process exit', () => {
             hostHttpPort: 0,
         });
         // The hang: agentWatch arms one guard timer per session, up to an
-        // hour out. Track that exact delay directly: launch confirmation
-        // polls (200 ms sleeps, 60 s budgets, 70 s kit call timeouts) come
-        // and go, but nothing else ever arms a 65 s timer.
+        // hour out. Track that exact delay directly, plus the kit's own
+        // in-flight agent.wait client timeout (timeout_ms + 5 s), which lands
+        // on the same 65 s while the delayed reply is pending: launch
+        // confirmation polls (200 ms sleeps, 60 s budgets) come and go, but
+        // nothing else ever arms a 65 s timer. close() releases both.
         const guards = new Set<number>();
         const hook = createHook({
             init(asyncId, type, _trigger, resource) {
@@ -634,7 +641,7 @@ describe('source close lets the process exit', () => {
             // the guard and the assertions cannot race its settlement.
             herdr.state.delayAgentWaitMs = 300;
             await source.agentWatch({ sessionId: started.info.id, timeoutMs: 60_000 });
-            expect(guards.size).toBe(1);
+            expect(guards.size).toBe(2);
             await source.close();
             await source.close();
             await source.dispose();

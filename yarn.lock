@@ -849,18 +849,18 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
-"@byokit/herdr@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.0.tgz#2ebf5aae3a28ba6c38463acf5a10737b3313a3dc"
-  integrity sha512-qZM8qqfQGKkq4dndHi2XqoMrxleXJgh/gIdu5V+gzeJzx+YViIF1hKVjnbENrqWDwQYP+4yi/5Ex0yqQb2RP4Q==
+"@byokit/herdr@0.1.1":
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.1.tgz#f6123cb29a646fe5453c1f1098632f69179d866e"
+  integrity sha512-F9HTnZuyYv0er6a6301zx+6NNuR3t6lPiyF1cpxw6XgMOyug8DwDlS/Kl6zmNUEarf7fZfAsXtEaZxB4CT9Vug==
   dependencies:
-    "@byokit/link" "0.3.1"
+    "@byokit/link" "0.3.2"
     "@byokit/reach" "0.2.0"
-    "@byokit/relay" "0.1.3"
+    "@byokit/relay" "0.2.0"
     "@byokit/seal" "0.1.0"
     ws "8.21.3"
 
-"@byokit/link@0.3.1", "@byokit/link@0.3.2":
+"@byokit/link@0.3.2":
   version "0.3.2"
   resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.3.2.tgz#3c76572c48db3a88547d009f2347e2d9ef8e612a"
   integrity sha512-RqZLsj7uWlffDjzXQqVLWq+028I1gmXgMwV9gUKRqMiObW0s4AKFqofpyMeK0TJXQS6/GBWP3N2p6gRhnPscfg==
@@ -880,12 +880,12 @@
     bonjour-service "^1.4.4"
     react-native-zeroconf "0.14.0"
 
-"@byokit/relay@0.1.3":
-  version "0.1.3"
-  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.1.3.tgz#ad762be59999c002b17d9f5c929c9286f1c99d1a"
-  integrity sha512-o6IQszojpr6w9mu2olqelG6otrVWv1F3XuB52mQFId64WkECaN+uB54rCwe1L69yOvNVatMqHESll4Lqzp798w==
+"@byokit/relay@0.2.0":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.2.0.tgz#96d6a99bdc6081507c12ef849ccbab9588bc98f5"
+  integrity sha512-YgUWXxnmTGV9JwZPm4bL6I4Ek1eJVsjTyd1i77XQyyYcDWYRYLHNHy62RMnKCQ88HUUjK25LiOKyC9x1trLN0g==
   dependencies:
-    "@byokit/link" "0.3.1"
+    "@byokit/link" "0.3.2"
     web-push "3.6.7"
     ws "8.21.3"
 

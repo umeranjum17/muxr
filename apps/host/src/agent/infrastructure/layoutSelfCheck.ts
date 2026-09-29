@@ -234,20 +234,9 @@ async function demo(): Promise<void> {
 
     const promptCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const promptClient = {
-        call: async <T>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
-            promptCalls.push({ method, params });
-            return {
-                type: 'agent_prompted',
-                agent: {
-                    terminal_id: 'terminal',
-                    agent_status: 'idle',
-                    workspace_id: 'workspace',
-                    tab_id: 'tab',
-                    pane_id: pelican.pane_id,
-                    focused: false,
-                    revision: 1,
-                },
-            } as T;
+        prompt: async (target: { paneId: string }, text: string) => {
+            promptCalls.push({ method: 'agent.prompt', params: { target: target.paneId, text } });
+            return { paneId: pelican.pane_id, terminalId: 'terminal', revision: 1, status: 'idle' as const };
         },
     };
     let notReady = false;
@@ -330,7 +319,11 @@ async function demo(): Promise<void> {
             if (method.endsWith('.close')) return {};
             throw new Error(`herdr: method_not_found: ${method}`);
         },
-        subscribe: () => () => undefined,
+        subscribe: () => Object.assign(() => undefined, {
+            ready: Promise.resolve(true),
+            onReconnect: () => undefined,
+            onDisconnect: () => undefined,
+        }),
         close: () => undefined,
     };
     const explicitCloseKit = new HerdrKit({
@@ -507,26 +500,15 @@ async function demo(): Promise<void> {
     const coordinationDiagnostics: RealtimeCoordinationDiagnostic[] = [];
     const sentKeys: Array<{ sessionId: string; keys: string[] }> = [];
     const promptTargets: Record<string, string> = { pp_john: 'w1:p1', pp_crane: 'w1:p3' };
+    // The kit owns receipt validation, so the fake answers with the kit's own
+    // verdict: a receipt for the wrong pane or a malformed one is a throw.
     const herdrPromptClient = {
-        call: async <T>(_method: string, params: Record<string, unknown> = {}): Promise<T> => {
-            const prompt = String(params.text ?? '');
-            const target = String(params.target ?? '');
-            const paneId = prompt.startsWith('wrong pane')
-                ? 'w1:p2'
-                : target || 'w1:p1';
-            if (prompt.startsWith('malformed')) return { type: 'agent_prompted', agent: { pane_id: paneId } } as T;
-            return {
-                type: 'agent_prompted',
-                agent: {
-                    terminal_id: 'terminal-one',
-                    agent_status: 'idle',
-                    workspace_id: 'w1',
-                    tab_id: 'w1:t1',
-                    pane_id: paneId,
-                    focused: false,
-                    revision: 1,
-                },
-            } as T;
+        prompt: async (target: { paneId: string }, text: string) => {
+            const paneId = text.startsWith('wrong pane') ? 'w1:p2' : target.paneId || 'w1:p1';
+            if (text.startsWith('malformed') || paneId !== target.paneId) {
+                throw new Error('Herdr did not queue the prompt.');
+            }
+            return { paneId, terminalId: 'terminal-one', revision: 1, status: 'idle' as const };
         },
     };
     const coordinatorAgents = [
