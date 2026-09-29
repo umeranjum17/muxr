@@ -12,7 +12,7 @@ import { buildSharedArtifactTimeline, planArtifactHeal, sharedArtifactDisplayNam
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { ArtifactGallery, ArtifactThumbnail, type GalleryImage } from '@/components/ArtifactGallery';
 import { RichArtifactPreview } from '@/components/artifact/RichArtifactPreview';
-import { agentLabels, agentNameLine, herdrPaneForSession, isShellLabels } from '@/herd';
+import { agentLabels, herdrPaneForSession, isShellLabels } from '@/herd';
 import { decodeBase64 } from '@/encryption/base64';
 import { artifactKind } from '@/utils/artifactKind';
 import type { ArtifactAction } from '@/utils/artifactPreview';
@@ -186,7 +186,7 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
         download(artifact);
     }, [download, galleryIndexByKey]);
 
-    const contextTitle = agentNameLine(labels) || 'Session';
+    const contextTitle = labels.title || 'Session';
     const contextSubtitle = listing === undefined ? 'Shared history' : listing.total === 1 ? '1 shared artifact' : `${listing.total} shared artifacts`;
 
     const renderArtifact = (row: Extract<TimelineRow, { type: 'artifact' }>) => {

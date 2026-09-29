@@ -15,7 +15,7 @@ import type { HerdrTreeWorkspace } from '@muxr/contract';
 import { sync } from '@/catalog/sync';
 import { TerminalPreview } from '@/terminal/ui';
 import { AgentGlyph } from '@/components/AgentGlyph';
-import { agentLabels, agentNameLine, agentStatusColor, isShellLabels, navigateToSession } from '@/herd';
+import { agentLabels, agentWhoLine, agentStatusColor, isShellLabels, navigateToSession } from '@/herd';
 
 export default React.memo(function WorkspaceScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -101,7 +101,7 @@ export default React.memo(function WorkspaceScreen() {
                                             </View>
                                         );
                                     }
-                                    const paneIdentity = shell ? 'Terminal' : agentNameLine(labels);
+                                    const paneIdentity = shell ? 'Terminal' : agentWhoLine(labels);
                                     return (
                                         <Pressable
                                             key={pane.paneId}

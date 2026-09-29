@@ -3,7 +3,7 @@ import { selectLiveTerminalCards } from '../application/liveTerminalOrder';
 import { describe, expect, it, vi } from 'vitest';
 import { agentCounts, buildSpaceRows, defaultExpandedSpaces, displayedWorkspaceNames, effectiveExpandedSpaces, middleTruncate, parentOf, spaceExpansionDefaults, workspaceCloseMessage, workspaceName, workspaceNames, workspacePath } from './herdTree';
 import type { HerdrTreePane as ContractPane, HerdrTreeTab, HerdrTreeWorkspace as ContractWorkspace } from '@muxr/contract';
-import { agentIdentityLine, agentKindLabel, agentLabels, agentNameLine, isShellLabels } from './agentPresentation';
+import { agentKindLabel, agentLabels, agentWhoLine, isShellLabels } from './agentPresentation';
 import { paneMapTiles } from './paneMap';
 
 const pane = (id: string, agentKind?: string, extra: Partial<ContractPane> = {}): ContractPane => ({ paneId: id, tabId: 't1', agentStatus: 'idle', promptable: false, focused: false, agentKind, ...extra });
@@ -50,37 +50,22 @@ describe('visible herd tree flow', () => {
         expect(buildSpaceRows(workspaces, new Set(['w1']), 'maria')).toHaveLength(1);
         expect(buildSpaceRows(workspaces, new Set(['w1']), 'beta')).toEqual([]);
         const labels = agentLabels(agent);
-        expect({ primary: labels.title, task: labels.taskTitle, kind: labels.agentKind })
-            .toEqual({ primary: 'Maria', task: 'Review monitoring stability', kind: 'pi' });
-        expect(labels.taskTitle).not.toContain(labels.agentName);
-        expect(agentNameLine(labels)).toBe('Review monitoring stability · pi');
-        expect(agentIdentityLine(labels)).toBe('Review monitoring stability · pi');
-        expect(agentLabels(pane('p-review', 'codex', { agentName: 'opus-review' }))).toMatchObject({
-            taskTitle: 'opus-review',
-            agentName: 'opus-review',
-            agentKind: 'codex',
-        });
-        expect(agentNameLine(agentLabels(pane('p-review', 'codex', { agentName: 'opus-review' })))).toBe('codex');
-        expect(agentNameLine(agentLabels(pane('p-fox', 'pi', { agentName: 'fox', taskTitle: 'Cursor Local Fast On' })))).toBe('Cursor Local Fast On · pi');
+        expect({ primary: labels.title, who: agentWhoLine(labels), kind: labels.agentKind })
+            .toEqual({ primary: 'Review monitoring stability', who: 'pi · Maria', kind: 'pi' });
         expect(agentKindLabel('opencode')).toBe('OpenCode');
         expect(agentKindLabel('pi')).toBe('Pi');
-        expect(agentLabels(pane('p-unnamed', 'opencode'))).toMatchObject({
-            taskTitle: 'Unnamed agent',
-            agentName: 'Unnamed agent',
-            agentKind: 'opencode',
-        });
-        expect(agentLabels(shell)).toMatchObject({ taskTitle: 'tmp', agentName: 'Shell' });
+        expect(agentLabels(pane('p-unnamed', 'opencode'))).toMatchObject({ title: 'Unnamed agent', agentName: 'Unnamed agent' });
+        expect(agentLabels(shell)).toMatchObject({ title: 'tmp', agentName: 'Shell' });
         const titledShell = agentLabels(pane('p-titled-shell', undefined, { taskTitle: 'vim ~/.bashrc' }));
-        expect(titledShell).toMatchObject({ taskTitle: 'vim ~/.bashrc', agentName: 'Shell' });
+        expect(titledShell).toMatchObject({ title: 'vim ~/.bashrc', agentName: 'Shell' });
         expect(isShellLabels(titledShell)).toBe(true);
         const namedShell = pane('p-named', undefined, { sessionId: 'shell-route', label: 'Release browser', terminalTitle: 'umer@host:~/repo', cwd: '/repo' });
-        expect(agentLabels(namedShell)).toMatchObject({ taskTitle: 'Release browser', agentName: 'Shell' });
-        expect(agentNameLine(agentLabels(namedShell))).toBe('Shell');
+        expect(agentLabels(namedShell)).toMatchObject({ title: 'Release browser', agentName: 'Shell' });
+        expect(agentWhoLine(agentLabels(namedShell))).toBe('Shell');
         delete namedShell.label;
-        expect(agentLabels(namedShell).taskTitle).toBe('umer@host:~/repo');
+        expect(agentLabels(namedShell).title).toBe('umer@host:~/repo');
         const liveCards = selectLiveTerminalCards([], herdPanes([], [ws('w-shell', 'repo', [tab('t-shell', 'Tools', [namedShell])])]));
         expect(liveCards).toEqual([]);
-        expect(agentLabels({ ...agent, terminalTitle: 'Animated working title' }).taskTitle).toBe('Review monitoring stability');
         expect(isShellLabels(labels)).toBe(false);
         expect(buildSpaceRows([ws('w2', 'repo-b', [tab('1', undefined, [shell])])], new Set(), '')[0])
             .toMatchObject({ agentCount: 0, expanded: false });

@@ -1,11 +1,12 @@
-import { type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@muxr/contract';
+import { agentTask, type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@muxr/contract';
 import { compactAge } from '../../utils/compactAge';
 import { lifecycleStateSince } from './recentActivity';
 
 export interface AgentLabels {
-    /** What every surface leads with, so a row and the screen it opens agree. */
+    /** What every surface leads with: the task, else the agent's name. */
     title: string;
-    taskTitle: string;
+    /** What the agent is working on, when anything Herdr supplies says so. */
+    task?: string;
     agentName: string;
     agentKind?: string;
     provider?: string;
@@ -100,24 +101,30 @@ const UNNAMED_AGENT = 'Unnamed agent';
 /**
  * One-to-one live Herdr DTO presentation. Only absent-value placeholders are local.
  *
- * Which Herdr field leads: an agent's name (Herdr's agent name), then its task
- * title (title metadata, else the pane label), then the terminal's own window
- * title. That last one is whatever the program set, often just its working
- * directory, so it only stands in when Herdr supplies nothing better. A shell
- * has no agent name and leads with its pane label, else that window title
- * (`user@host:path`).
+ * An agent leads with what it is working on (`agentTask`: its pane label, its
+ * own window title, Herdr title metadata, or the host's task-workspace
+ * fallback already folded into `taskTitle`), else its Herdr name. Who runs it
+ * goes on the line under that. A shell has no agent name and leads with its
+ * pane label, else its window title (`user@host:path`).
  */
 export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
     const named = pane?.agentName?.trim();
     const kind = pane?.agentKind?.trim();
     const hasAgent = named !== undefined && named !== '' || kind !== undefined && kind !== '';
     const agentName = named || (hasAgent ? UNNAMED_AGENT : 'Shell');
-    const task = pane?.taskTitle?.trim() || pane?.label?.trim();
+    const task = hasAgent ? agentTask({
+        label: pane?.label,
+        terminalTitle: pane?.terminalTitle,
+        title: pane?.taskTitle,
+        agentName: named,
+        agentKind: kind,
+        cwd: pane?.cwd,
+    }) : undefined;
     const shellTitle = pane?.label?.trim() || pane?.terminalTitle?.trim() || pane?.taskTitle?.trim()
         || pane?.cwd?.replace(/\/+$/, '').split('/').pop() || 'Shell';
     return {
-        title: hasAgent ? named || task || pane?.terminalTitle?.trim() || agentName : shellTitle,
-        taskTitle: hasAgent ? task || agentName : shellTitle,
+        title: hasAgent ? task ?? (named || pane?.terminalTitle?.trim() || agentName) : shellTitle,
+        ...(task === undefined ? {} : { task }),
         agentName,
         ...(pane?.agentKind === undefined ? {} : { agentKind: pane.agentKind }),
         ...(pane?.provider === undefined ? {} : { provider: pane.provider }),
@@ -130,56 +137,31 @@ export function isShellLabels(labels: AgentLabels): boolean {
     return labels.agentKind === undefined && labels.agentName === 'Shell';
 }
 
-function uniqueLabels(values: readonly (string | undefined)[]): string[] {
-    const seen = new Set<string>();
-    return values.flatMap((value) => {
-        const label = value?.trim();
-        if (label === undefined || label === '') return [];
-        const key = remember(`key\u0000${label}`, () => label.normalize('NFKC').toLowerCase());
-        if (seen.has(key)) return [];
-        seen.add(key);
-        return [label];
-    });
-}
-
-/** `label` unless the title already says it. */
-function besideTitle(labels: AgentLabels, label: string): string | undefined {
-    const value = label.trim();
-    if (value === '' || sameLabel(value, labels.title)) return undefined;
-    return value;
-}
-
 function agentKindSlug(kind?: string): string | undefined {
     const value = kind?.trim();
     if (value === undefined || value === '') return undefined;
     return value.toLowerCase();
 }
 
+/** The agent's name beside a title that leads with its task; nothing when the title already is the name. */
+export function agentBesideName(labels: AgentLabels): string | undefined {
+    if (isShellLabels(labels) || labels.task === undefined || labels.agentName === UNNAMED_AGENT) return undefined;
+    return sameLabel(labels.agentName, labels.title) ? undefined : labels.agentName;
+}
+
 /**
- * The line under the title: whatever of task, kind and name the title does not
- * already say, e.g. `Fix login redirect · pi · gpt-5` under `lima`.
+ * Who is doing it, the line under the title: `pi · zulu-2`, or `pi` when the
+ * title is the name. `withName` keeps the name for a title that leads with neither.
  */
-export function agentNameLine(labels: AgentLabels): string {
+export function agentWhoLine(labels: AgentLabels, withName = false): string {
     if (isShellLabels(labels)) return 'Shell';
-    const kind = agentKindSlug(labels.agentKind);
-    const name = labels.agentName === UNNAMED_AGENT ? undefined : besideTitle(labels, labels.agentName);
-    const identity = kind !== undefined && name !== undefined ? `${kind}/${name}` : kind ?? name;
-    return uniqueLabels([besideTitle(labels, labels.taskTitle), identity, labels.displayAgent ?? labels.provider, labels.model]).join(' · ');
+    const name = withName && labels.agentName !== UNNAMED_AGENT ? labels.agentName : agentBesideName(labels);
+    return [agentKindSlug(labels.agentKind), name].filter((part) => part !== undefined).join(' · ');
 }
 
-/** The task title, when the title leads with something else: a header's second word. */
-export function agentTaskLine(labels: AgentLabels): string | undefined {
-    return isShellLabels(labels) ? undefined : besideTitle(labels, labels.taskTitle);
-}
-
-/** What runs the agent, without its name, e.g. `pi · gpt-5`: for a row that already leads with the name. */
-export function agentKindLine(labels: AgentLabels): string {
-    if (isShellLabels(labels)) return 'Shell';
-    return uniqueLabels([agentKindSlug(labels.agentKind), labels.displayAgent ?? labels.provider, labels.model]).join(' · ');
-}
-
-export function agentIdentityLine(labels: AgentLabels): string {
-    return agentNameLine(labels);
+/** The line under the title with the agent's state: `pi · zulu-2 · Working`. */
+export function agentWhoStateLine(labels: AgentLabels, state: string): string {
+    return [agentWhoLine(labels), state].filter((part) => part !== '').join(' · ');
 }
 
 /** Under this a turn's age says nothing; past it, how long it has run is the point. */
@@ -194,7 +176,7 @@ export function agentStateLabel(status: AgentLifecycle, changedAt?: number, now 
 
 export function agentAccessibilityLabel(labels: AgentLabels, status: AgentLifecycle, changedAt?: number, now = Date.now()): string {
     const state = agentStateLabel(status, changedAt, now);
-    return [labels.title, state, agentIdentityLine(labels)]
+    return [labels.title, state, agentWhoLine(labels)]
         .filter((value): value is string => value !== undefined && value !== '')
         .join('. ');
 }
