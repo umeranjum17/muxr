@@ -220,7 +220,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     const closeSignInTab = async (accountId: string): Promise<{ created: boolean } | undefined> => {
         const tab = takeSignInTab(accountId);
         if (tab === undefined) return undefined;
-        const session = (await source.list()).find((candidate) => candidate.paneId === tab.paneId);
+        const session = (await source.list()).find((candidate) => candidate.paneId === tab.paneId || candidate.id === tab.paneId);
         if (session !== undefined) {
             const first = await source.stop(session.id, {}).catch(() => undefined);
             if (first?.status === 'confirmationRequired' && first.scope === 'tab') {
@@ -618,7 +618,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 start: (command) => source.start(command),
             }, { cwd: homedir(), ...planSignInLaunch(record) }));
             if (!('info' in started)) throw new Error(`Couldn't open ${PLAN_LABELS[record.provider]} sign-in. Try again.`);
-            rememberSignInTab(record.id, started.info.paneId ?? '', created);
+            rememberSignInTab(record.id, started.info.paneId ?? started.info.id, created);
             return { accountId: record.id, sessionId: started.info.id };
         },
         'plans.status': async (params) => {

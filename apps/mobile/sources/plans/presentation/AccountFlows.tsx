@@ -127,6 +127,8 @@ export function SignInBanner({ bottom }: { bottom: number }) {
     const router = useRouter();
     const pending = useFlows((state) => state.pending);
     const path = usePathname();
+    const pathRef = React.useRef(path);
+    pathRef.current = path;
     const here = pending !== null && decodeURIComponent(path) === `/session/${pending.sessionId}`;
 
     React.useEffect(() => {
@@ -137,8 +139,9 @@ export function SignInBanner({ bottom }: { bottom: number }) {
             if (stopped) return;
             if (account?.signedIn) {
                 // The host has closed the tab: step back off it, then name the account.
+                const sessionPath = `/session/${pending.sessionId}`;
                 useFlows.setState({ pending: null, naming: { account, again: pending.again } });
-                if (router.canGoBack()) router.back();
+                if (decodeURIComponent(pathRef.current) === sessionPath && router.canGoBack()) router.back();
                 void refreshPlans();
                 return;
             }
