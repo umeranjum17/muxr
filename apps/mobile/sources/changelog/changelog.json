@@ -1,6 +1,46 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.2",
+            "title": "Watch your agents work, and a terminal that scrolls",
+            "summary": "See an agent's browser or emulator live from its session, tune the terminal's colours, and scroll Claude Code panes with your finger. Update the phone app and computer together.",
+            "features": [
+                {
+                    "title": "Watch an agent's browser or emulator",
+                    "detail": "When an agent drives a browser or an Android emulator, the session header shows it and you can open a live view, and take control when you need to."
+                },
+                {
+                    "title": "Terminal colours and pane map",
+                    "detail": "Tune terminal colours from Settings, and open a map of the session's panes from its header."
+                },
+                {
+                    "title": "Every agent leads with its task",
+                    "detail": "Agent rows and headers show what each agent is working on first, with its name beneath."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Claude Code panes scroll",
+                    "detail": "Claude Code panes now follow your finger when you drag or fling, a drag is no longer swallowed, and Latest reaches the very bottom even after the agent has been streaming."
+                },
+                {
+                    "title": "Clearer computer errors",
+                    "detail": "When the computer refuses a request, the app shows the reason instead of a generic failure."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Play Internal candidate",
+                    "status": "not-run",
+                    "detail": "Emulator and phone acceptance of this build has not run yet."
+                }
+            ],
+            "knownLimits": [
+                "Computer needs the computer on the matching muxr version; update both together.",
+                "A self-hosted computer and relay are required."
+            ]
+        },
+        {
             "appVersion": "0.2.1",
             "title": "A new private link to your computer",
             "summary": "muxr now pairs directly with a computer and relay you or someone you trust operates. Update both the phone app and computer, then pair once again; older pairings cannot connect after this change.",
