@@ -1,3 +1,4 @@
+import { createHook } from 'node:async_hooks';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -578,4 +579,51 @@ describe('isolated pi agent home', () => {
             rmSync(dir, { recursive: true, force: true });
         }
     }, 20_000);
+});
+
+describe('source close lets the process exit', () => {
+    it('clears watch guard timers and closes idempotently', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-close-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        // The hang: agentWatch arms one guard timer per session, up to an
+        // hour out. Track that exact delay directly: launch confirmation
+        // polls (200 ms sleeps, 60 s budgets, 70 s kit call timeouts) come
+        // and go, but nothing else ever arms a 65 s timer.
+        const guards = new Set<number>();
+        const hook = createHook({
+            init(asyncId, type, _trigger, resource) {
+                if (type === 'Timeout'
+                    && (resource as { _idleTimeout?: unknown })._idleTimeout === 65_000) {
+                    guards.add(asyncId);
+                }
+            },
+            destroy(asyncId) { guards.delete(asyncId); },
+        });
+        hook.enable();
+        try {
+            const started = await source.start({ cwd, kind: 'claude' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            await source.agentWatch({ sessionId: started.info.id, timeoutMs: 60_000 });
+            expect(guards.size).toBe(1);
+            await source.close();
+            await source.close();
+            await source.dispose();
+            // async_hooks destroy delivery rides the loop, not the microtask
+            // queue, so yield before asserting the cleared guard is gone.
+            await new Promise((resolve) => setImmediate(resolve));
+            expect(guards.size).toBe(0);
+        } finally {
+            hook.disable();
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
 });

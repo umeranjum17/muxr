@@ -239,4 +239,7 @@ export interface SessionSource {
     /** A client just connected: re-push state that only ships on change. */
     resendCumulativeState?(): void;
     dispose(): Promise<void>;
+    /** Lab-script spelling of dispose: closing the source releases every
+     *  socket, subscription and timer it owns so the process can exit. */
+    close(): Promise<void>;
 }

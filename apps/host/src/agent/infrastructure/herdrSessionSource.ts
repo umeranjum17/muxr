@@ -796,6 +796,8 @@ export async function createHerdrSessionSource(
     /** One in-flight agent.watch per session; re-arming replaces the old one. */
     const watches = new Map<string, ReturnType<typeof setTimeout>>();
     let pluginPollTimer: NodeJS.Timeout | undefined;
+    /** dispose/close run once: the host shutdown path and a lab script may both close. */
+    let disposed = false;
     let pluginDigests: Map<string, string> | undefined;
     let pluginEnabled = new Map<string, boolean>();
 
@@ -2721,7 +2723,7 @@ export async function createHerdrSessionSource(
         }
     }
 
-    return {
+    const source: SessionSource = {
         async refreshHerdr(): Promise<void> {
             await refreshSnapshot();
             emitAllStates();
@@ -3768,8 +3770,14 @@ export async function createHerdrSessionSource(
         },
 
         async dispose(): Promise<void> {
+            if (disposed) return;
+            disposed = true;
             if (resnapshotTimer !== undefined) clearTimeout(resnapshotTimer);
             if (pluginPollTimer !== undefined) clearInterval(pluginPollTimer);
+            // agentWatch arms one guard timer per session, up to an hour out:
+            // without this a script that only watched never exits.
+            for (const guard of watches.values()) clearTimeout(guard);
+            watches.clear();
             pluginStreams?.closeAll();
             await codingCoordinator?.close();
             stopArtifactRetention();
@@ -3782,5 +3790,10 @@ export async function createHerdrSessionSource(
             await client.close();
             await routes.flush();
         },
+
+        async close(): Promise<void> {
+            await source.dispose();
+        },
     };
+    return source;
 }
