@@ -124,6 +124,7 @@ export function startHost(options: HostOptions): Host {
     // a phone tap starts the scrcpy mirror lazily. No watcher means no chip.
     const androidWatcher = new AndroidEmulatorWatcher({
         listSessions: () => source.list(),
+        lease: previewLease,
     });
     androidWatcher.start();
     // An emulator chip wins over a screen chip; a pane never shows both.
