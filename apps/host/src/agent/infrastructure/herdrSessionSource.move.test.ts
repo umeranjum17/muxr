@@ -175,6 +175,12 @@ function fakeHerdr(dir: string, cwd: string) {
     };
 }
 
+function moveOn(source: Awaited<ReturnType<typeof createHerdrSessionSource>>) {
+    const move = source.movePlanAccount;
+    if (!move) throw new Error('plan-account moves are not implemented');
+    return move.bind(source);
+}
+
 async function launchOn(
     source: Awaited<ReturnType<typeof createHerdrSessionSource>>,
     cwd: string,
@@ -200,7 +206,7 @@ describe('a plan-account move whose new-account start fails', () => {
             const sessionId = await launchOn(source, cwd, '/orig/claude');
 
             herdr.state.failNextStart = true;
-            const error = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' })
+            const error = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' })
                 .then(() => { throw new Error('move should have failed'); })
                 .catch((cause: unknown) => cause);
             expect(error).toMatchObject({ code: 'plan-move-start-failed', sessionId });
@@ -248,7 +254,7 @@ describe('a plan-account move whose new-account start fails', () => {
             const sessionId = (await source.list())[0]!.id;
 
             herdr.state.republishSession = 'claude-2';
-            const moved = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' });
+            const moved = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' });
             expect(moved.sessionId).not.toBe(sessionId);
             expect(herdr.sendTexts.filter((sent) => sent.pane_id === 'p1')).toHaveLength(0);
 
@@ -283,7 +289,7 @@ describe('a plan-account move whose new-account start fails', () => {
 
             herdr.state.failNextStart = true;
             herdr.state.failSecondSplit = true;
-            const error = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' })
+            const error = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' })
                 .then(() => { throw new Error('move should have failed'); })
                 .catch((cause: unknown) => cause);
             const shell = (error as { sessionId?: unknown }).sessionId;
@@ -315,7 +321,7 @@ describe('a plan-account move whose new-account start fails', () => {
             const sessionId = await launchOn(source, cwd, '/orig/claude');
 
             herdr.state.failCloseFor.add('p2');
-            const error = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' })
+            const error = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' })
                 .then(() => { throw new Error('move should have failed'); })
                 .catch((cause: unknown) => cause);
             expect(error).toMatchObject({ code: 'plan-move-close-failed' });
@@ -348,7 +354,7 @@ describe('a plan-account move whose new-account start fails', () => {
 
             herdr.state.failNextStart = true;
             herdr.state.failCloseFor.add('p3');
-            const error = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' })
+            const error = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' })
                 .then(() => { throw new Error('move should have failed'); })
                 .catch((cause: unknown) => cause);
             const shell = (error as { sessionId?: unknown }).sessionId;
@@ -381,7 +387,7 @@ describe('a plan-account move whose new-account start fails', () => {
             const sessionId = (await source.list())[0]!.id;
 
             herdr.state.failNextStart = true;
-            const error = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' })
+            const error = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' })
                 .then(() => { throw new Error('move should have failed'); })
                 .catch((cause: unknown) => cause);
             const shell = (error as { sessionId?: unknown }).sessionId;
