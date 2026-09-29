@@ -49,6 +49,6 @@ export async function startAgent(command: StartAgentCommand): Promise<StartAgent
         if (command.createCwd !== true && message.includes(MISSING_CWD_ERROR_PREFIX)) {
             return { ok: false, reason: 'needs-directory' };
         }
-        return { ok: false, reason: 'failed', message: 'Agent could not start. Try again.' };
+        return { ok: false, reason: 'failed', message };
     }
 }
