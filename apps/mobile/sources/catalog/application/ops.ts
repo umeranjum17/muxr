@@ -336,6 +336,40 @@ export function changesWorktrees(sessionId: string) {
     return sync.request('changes.worktrees', { sessionId });
 }
 
+// --- files + git history (host product code; the session cwd is host-injected) ---
+
+export function filesRepos() {
+    return sync.request('files.repos', {});
+}
+
+export function filesList(sessionId: string, opts: { root?: string; path?: string } = {}) {
+    return sync.request('files.list', {
+        sessionId,
+        ...(opts.root === undefined ? {} : { root: opts.root }),
+        ...(opts.path === undefined ? {} : { path: opts.path }),
+    });
+}
+
+export function filesRead(sessionId: string, opts: { root?: string; path?: string } = {}) {
+    return sync.request('files.read', {
+        sessionId,
+        ...(opts.root === undefined ? {} : { root: opts.root }),
+        ...(opts.path === undefined ? {} : { path: opts.path }),
+    });
+}
+
+export function historyLog(sessionId: string) {
+    return sync.request('history.log', { sessionId });
+}
+
+export function historyShow(sessionId: string, sha?: string) {
+    return sync.request('history.show', { sessionId, ...(sha === undefined ? {} : { sha }) });
+}
+
+export function promptAttachmentsList(sessionId: string) {
+    return sync.request('promptAttachments.list', { sessionId });
+}
+
 export async function changesPatch(
     sessionId: string,
     file: { path: string; kind?: 'working' | 'staged' | 'branch' | 'untracked'; head?: string; base?: string },
