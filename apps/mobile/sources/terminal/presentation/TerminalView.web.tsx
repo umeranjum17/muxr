@@ -23,6 +23,8 @@ import {
 } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { FONT_STEPS, TERMINAL_FONTS, clampFontIndex, nearestFontIndex } from '../domain/fontSteps';
+import { TERMINAL_ANSI_SLOTS, type TerminalColorOverrides } from '../domain/terminalColors';
+import { useTerminalColors } from './useTerminalColors';
 import { useLocalSetting, useLocalSettingMutable } from '@/catalog/store';
 import { openExternalUrl } from '@/utils/openExternalUrl';
 
@@ -100,10 +102,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const swipe = React.useRef(swipeFingers);
     swipe.current = swipeFingers;
     const fontFamily = TERMINAL_FONTS[useLocalSetting('terminalFont')].family;
-    const face = React.useRef({ fontSize, fontFamily });
-    face.current = { fontSize, fontFamily };
+    const { colors, overrides } = useTerminalColors();
+    const theme = React.useMemo(() => xtermTheme(colors.background, overrides), [colors.background, overrides]);
+    const face = React.useRef({ fontSize, fontFamily, theme });
+    face.current = { fontSize, fontFamily, theme };
     const restyle = React.useRef<(() => void) | undefined>(undefined);
-    React.useEffect(() => { restyle.current?.(); }, [fontSize, fontFamily]);
+    React.useEffect(() => { restyle.current?.(); }, [fontSize, fontFamily, theme]);
 
     React.useEffect(() => {
         const element = hostRef.current as unknown as HTMLElement | null;
@@ -115,7 +119,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             allowProposedApi: true,
             fontSize: face.current.fontSize,
             fontFamily: face.current.fontFamily,
-            theme: { background: '#0c0c0b' },
+            theme: face.current.theme,
             convertEol: false,
             scrollback: 5000,
             cursorBlink: true,
@@ -325,6 +329,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         restyle.current = () => {
             term.options.fontSize = face.current.fontSize;
             term.options.fontFamily = face.current.fontFamily;
+            term.options.theme = face.current.theme;
             resize();
         };
 
@@ -548,8 +553,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     return (
         // position: relative anchors the copy chip to the terminal, not the
         // screen.
-        <View style={styles.root}>
-            <View ref={hostRef} style={{ flex: 1, backgroundColor: '#0c0c0b' }} />
+        <View style={[styles.root, { backgroundColor: colors.background }]}>
+            <View ref={hostRef} style={{ flex: 1, backgroundColor: colors.background }} />
             {linkCopied && (
                 <View style={styles.linkCopiedChip} pointerEvents="none" accessibilityLiveRegion="polite">
                     <Text style={styles.linkCopiedText}>Link copied</Text>
@@ -559,10 +564,27 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     );
 });
 
+const XTERM_ANSI_KEYS = [
+    'black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white',
+    'brightBlack', 'brightRed', 'brightGreen', 'brightYellow', 'brightBlue', 'brightMagenta', 'brightCyan', 'brightWhite',
+] as const;
+
+/** Only the slots Settings changed; xterm keeps its own for the rest. */
+function xtermTheme(background: string, overrides: TerminalColorOverrides): Record<string, string> {
+    const theme: Record<string, string> = { background };
+    if (overrides.foreground !== undefined) theme.foreground = overrides.foreground;
+    if (overrides.cursor !== undefined) theme.cursor = overrides.cursor;
+    if (overrides.selection !== undefined) theme.selectionBackground = overrides.selection;
+    TERMINAL_ANSI_SLOTS.forEach((slot, index) => {
+        const color = overrides[slot];
+        if (color !== undefined) theme[XTERM_ANSI_KEYS[index]!] = color;
+    });
+    return theme;
+}
+
 const styles = StyleSheet.create({
     root: {
         flex: 1,
-        backgroundColor: '#0c0c0b',
         // Anchors the copy chip (position: absolute) to the terminal.
         position: 'relative',
     },

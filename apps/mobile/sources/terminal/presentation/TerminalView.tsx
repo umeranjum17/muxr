@@ -39,7 +39,8 @@ import { openTerminalLink } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
 import { createTerminalWritePump, type TerminalWritePump } from '../application/terminalWritePump';
 import { openExternalUrl } from '@/utils/openExternalUrl';
-import { terminalCanvas } from '@/theme';
+import { TERMINAL_ANSI_SLOTS } from '../domain/terminalColors';
+import { useTerminalColors } from './useTerminalColors';
 
 export interface TerminalViewProps {
     sessionId: string;
@@ -86,6 +87,17 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const focused = useIsFocused();
     const [viewport, setViewport] = React.useState({ width: 0, height: 0 });
     const terminalKeyboardDisabled = useLocalSetting('terminalKeyboardDisabled');
+    // Only the slots Settings changed reach ghostty; the rest stay its own.
+    const { colors, overrides } = useTerminalColors();
+    const theme = React.useMemo(() => ({
+        background: colors.background,
+        foreground: overrides.foreground,
+        cursorColor: overrides.cursor,
+        selectionBackground: overrides.selection,
+        palette: TERMINAL_ANSI_SLOTS.some((slot) => overrides[slot] !== undefined)
+            ? TERMINAL_ANSI_SLOTS.map((slot) => overrides[slot] ?? null)
+            : undefined,
+    }), [colors.background, overrides]);
     const termRef = React.useRef<TerminalViewRef>(null);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
     const firstFrameCallback = React.useRef(props.onFirstFrameWritten);
@@ -357,7 +369,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 scrollGate.beginGesture();
                 scrollOriginRef.current = { x: Math.max(0, nativeEvent.locationX), y: Math.max(0, nativeEvent.locationY), ...viewport };
             }}
-            style={{ flex: 1, backgroundColor: terminalCanvas, overflow: 'hidden' }}>
+            style={{ flex: 1, backgroundColor: colors.background, overflow: 'hidden' }}>
             {/* The native surface renders as a plain android.view.View and does
                 not publish its own class name, so this wrapper -- which is
                 exactly the terminal's box -- carries the surface's name. */}
@@ -367,7 +379,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 style={{ flex: 1 }}
                 autoShowKeyboard={!terminalKeyboardDisabled}
                 fontSize={FONT_STEPS[safeFontIndex]}
-                theme={{ background: terminalCanvas }}
+                theme={theme}
                 onInput={({ nativeEvent }) => {
                     if (nativeEvent.data) channelRef.current?.sendBytes(nativeEvent.data);
                     else if (nativeEvent.text) channelRef.current?.sendText(nativeEvent.text);

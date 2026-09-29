@@ -13,3 +13,4 @@ export * from './domain/toolCommand';
 export * from './domain/toolDisplay';
 export * from './domain/toolErrorParser';
 export * from './domain/turnChanges';
+export * from './domain/terminalColors';
