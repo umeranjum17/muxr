@@ -443,6 +443,84 @@ describe('desktop target routing', () => {
         } as never);
         expect(refused).toMatchObject({ ok: false, code: 'permission-denied' });
         expect(calls).toEqual(['preview.open', 'desktop.open', 'preview.answer', 'desktop.answer']);
+describe('plan account launch and move', () => {
+    const home = mkdtempSync(join(tmpdir(), 'muxr-plans-dispatch-'));
+    const savedHome = process.env.HOME;
+    const savedMuxrHome = process.env.MUXR_HOME;
+    process.env.HOME = home;
+    process.env.MUXR_HOME = join(home, 'muxr');
+
+    it('starts on the stored account env, and refuses unknown ids, squads and kind mismatches', async () => {
+        const { savePlanAccounts } = await import('../../plans/planStore.js');
+        const folder = join(home, 'muxr', 'plans', 'claude', 'work');
+        const { mkdirSync } = await import('node:fs');
+        mkdirSync(folder, { recursive: true });
+        savePlanAccounts(process.env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }]);
+        const starts: unknown[] = [];
+        const source = {
+            async start(options: unknown) {
+                starts.push(options);
+                return { info: { id: 's1' }, acceptance: { outcome: 'accepted', state: 'starting', agentName: 'n' } };
+            },
+        } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+        const cwd = mkdtempSync(join(tmpdir(), 'muxr-plan-start-'));
+
+        const ok = await dispatch({ type: 'session.start', requestId: 'p1', params: { cwd, kind: 'claude', planAccount: 'pa_work' } } as never);
+        expect(ok).toMatchObject({ ok: true });
+        expect(starts[0]).toMatchObject({ planEnv: { CLAUDE_CONFIG_DIR: folder } });
+
+        const unknown = await dispatch({ type: 'session.start', requestId: 'p2', params: { cwd, planAccount: 'nope' } } as never);
+        expect(unknown).toMatchObject({ ok: false, code: 'unknown-plan-account' });
+
+        const squad = await dispatch({ type: 'session.start', requestId: 'p3', params: { cwd, kinds: ['claude'], planAccount: 'pa_work' } } as never);
+        expect(squad).toMatchObject({ ok: false, code: 'plan-squad-unsupported' });
+
+        const mismatch = await dispatch({ type: 'session.start', requestId: 'p4', params: { cwd, kind: 'codex', planAccount: 'pa_work' } } as never);
+        expect(mismatch).toMatchObject({ ok: false, code: 'plan-kind-mismatch' });
+        expect(starts).toHaveLength(1);
+
+        process.env.HOME = savedHome;
+        if (savedMuxrHome === undefined) delete process.env.MUXR_HOME;
+        else process.env.MUXR_HOME = savedMuxrHome;
+    });
+
+    it('moves through the session source and names the account when the start fails', async () => {
+        const { savePlanAccounts } = await import('../../plans/planStore.js');
+        const home2 = mkdtempSync(join(tmpdir(), 'muxr-plans-move-'));
+        const keepHome = process.env.HOME;
+        const keepMuxr = process.env.MUXR_HOME;
+        process.env.HOME = home2;
+        process.env.MUXR_HOME = join(home2, 'muxr');
+        try {
+            savePlanAccounts(process.env, [{ id: 'pa_w', provider: 'codex', name: 'Work', folder: join(home2, 'c'), found: false }]);
+            const moves: unknown[] = [];
+            const source = {
+                async movePlanAccount(options: unknown) {
+                    moves.push(options);
+                    return { sessionId: 'moved' };
+                },
+            } as unknown as SessionSource;
+            const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+            const moved = await dispatch({ type: 'plans.move', requestId: 'm1', params: { sessionId: 's1', accountId: 'pa_w' } });
+            expect(moved).toMatchObject({ ok: true, data: { sessionId: 'moved' } });
+            expect(moves[0]).toMatchObject({ sessionId: 's1', provider: 'codex' });
+
+            const failing = {
+                async movePlanAccount() {
+                    throw Object.assign(new Error('The agent did not start on the new account.'), { code: 'plan-move-start-failed' });
+                },
+            } as unknown as SessionSource;
+            const { dispatch: dispatchFailing } = createRequestDispatcher({ source: failing, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+            const failed = await dispatchFailing({ type: 'plans.move', requestId: 'm2', params: { sessionId: 's1', accountId: 'pa_w' } });
+            expect(failed).toMatchObject({ ok: false });
+            expect(String((failed as { error: string }).error)).toContain("Couldn't start on Work");
+        } finally {
+            if (keepHome === undefined) delete process.env.HOME;
+            else process.env.HOME = keepHome;
+            if (keepMuxr === undefined) delete process.env.MUXR_HOME;
+            else process.env.MUXR_HOME = keepMuxr;
+        }
     });
 });
 

@@ -98,6 +98,22 @@ const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open page
 const BROWSER_GUIDANCE = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
 const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.";
 
+/** Which agent kinds one provider's sign-in can run: Claude's folder serves
+ *  Claude Code and Pi on a Claude model; Codex's serves Codex and Pi. */
+const PLAN_ACCOUNT_KINDS: Record<string, string[]> = { claude: ['claude', 'pi'], codex: ['codex', 'pi'] };
+
+/** Resume the same conversation on the new account: the new sign-in has
+ *  nothing cached, so it reads the conversation once from the start. */
+function planResumeArgs(kind: string, ref: HerdrAgentSessionRef): string[] {
+    if (kind === 'claude' && ref.kind === 'id') return ['--resume', ref.value];
+    if (kind === 'codex' && ref.kind === 'id') return ['resume', ref.value];
+    if (kind === 'pi' && ref.kind === 'path') return ['--session', ref.value];
+    throw Object.assign(
+        new Error('Only Claude, Codex and Pi conversations can move between accounts.'),
+        { code: 'plan-move-unsupported' },
+    );
+}
+
 /**
  * Provider-neutral hint inherited by every pane muxr creates through Herdr.
  * The default names no private screen: only a pane this host actually gave one
@@ -1527,14 +1543,14 @@ export async function createHerdrSessionSource(
         return launched;
     }
 
-    async function startManagedAgent(paneId: string, kind: string, launchName: string): Promise<void> {
+    async function startManagedAgent(paneId: string, kind: string, launchName: string, args?: string[]): Promise<void> {
         const deadline = Date.now() + 5_000;
         let lastError: unknown;
         while (Date.now() < deadline) {
             try {
                 const started = await client.call<{ agent?: AgentRecord }>(
                     'agent.start',
-                    { name: launchName, kind, pane_id: paneId, timeout_ms: 60_000 },
+                    { name: launchName, kind, pane_id: paneId, timeout_ms: 60_000, ...(args === undefined ? {} : { args }) },
                     70_000,
                 );
                 recordStartedAgent(paneId, kind, launchName, started.agent);
@@ -1546,6 +1562,31 @@ export async function createHerdrSessionSource(
             }
         }
         throw lastError instanceof Error ? lastError : new Error('herdr agent.start failed');
+    }
+
+    /** The rc caveat: a login shell may override the env Herdr was given. A
+     *  move refuses rather than starts on the wrong sign-in. */
+    async function checkPaneEnv(paneId: string, name: string, expected: string): Promise<boolean> {
+        const marker = `MUXR_PLAN_CHECK_${randomBytes(4).toString('hex')}`;
+        try {
+            await client.call('pane.send_text', { pane_id: paneId, text: `echo ${marker}=$${name}\n` });
+        } catch {
+            return false;
+        }
+        const deadline = Date.now() + 15_000;
+        for (;;) {
+            try {
+                const result = await client.call<{ read?: { text?: string } }>('pane.read', {
+                    pane_id: paneId, source: 'recent', lines: 40, format: 'text', strip_ansi: true,
+                });
+                const text = result.read?.text ?? '';
+                if (text.includes(`${marker}=${expected}`)) return true;
+                // The shell answered with a different folder: the rc overrides us.
+                if (text.includes(`${marker}=`)) return false;
+            } catch { /* a pane that cannot be read cannot be verified */ }
+            if (Date.now() >= deadline) return false;
+            await sleep(500);
+        }
     }
 
     function bindListedPane(paneId: string): CurrentSession | undefined {
@@ -1927,7 +1968,9 @@ export async function createHerdrSessionSource(
             tab = await client.call('tab.create', {
                 workspace_id: workspaceId,
                 cwd,
-                env: paneEnvironment(screen),
+                // A plan account rides on the new pane only: without one this
+                // is byte-for-byte today's launch.
+                env: { ...paneEnvironment(screen), ...startOptions.planEnv },
                 ...(requestedLabel === undefined ? {} : { label: requestedLabel }),
                 focus: false,
             });
@@ -2963,6 +3006,80 @@ export async function createHerdrSessionSource(
                 forgetLaunch(newPaneId);
                 return { paneId: newPaneId };
             }
+        },
+
+        /** Move a running agent onto another sign-in: split with that
+         *  account's env, check it arrived, close the old pane so two
+         *  accounts never write one conversation, then resume it. The route
+         *  store is keyed by conversation, so the resumed agent usually keeps
+         *  its session; otherwise the result names the new one to follow. */
+        async movePlanAccount(moveOptions: { sessionId: string; provider: string; folder: string }): Promise<{ sessionId: string }> {
+            const kinds = PLAN_ACCOUNT_KINDS[moveOptions.provider] ?? [];
+            const record = await resolvePane(moveOptions.sessionId);
+            const kind = record.agent?.agent ?? undefined;
+            if (kind === undefined || kind === null || !kinds.includes(kind)) {
+                throw Object.assign(
+                    new Error('Only Claude, Codex and Pi conversations can move between accounts.'),
+                    { code: 'plan-move-unsupported' },
+                );
+            }
+            const conversation = agentSession(record.agent);
+            if (conversation === undefined || isMuxrLaunchSession(conversation)) {
+                throw Object.assign(
+                    new Error('The agent has no conversation to move yet. Wait for it to start, then try again.'),
+                    { code: 'plan-move-too-early' },
+                );
+            }
+            const args = planResumeArgs(kind, conversation);
+            const accountEnv = moveOptions.provider === 'claude'
+                ? { CLAUDE_CONFIG_DIR: moveOptions.folder }
+                : { CODEX_HOME: moveOptions.folder };
+            const screen = await screens?.allocate();
+            let split: { pane?: { pane_id?: string } };
+            try {
+                split = await client.call<{ pane?: { pane_id?: string } }>('pane.split', {
+                    direction: 'right',
+                    target_pane_id: record.paneId,
+                    env: { ...paneEnvironment(screen), ...accountEnv },
+                    focus: false,
+                });
+            } catch (error) {
+                screens?.releaseScreen(screen);
+                throw error;
+            }
+            const newPaneId = split.pane?.pane_id;
+            if (newPaneId === undefined) {
+                screens?.releaseScreen(screen);
+                throw new Error('herdr: pane.split returned no pane');
+            }
+            screens?.bind(screen, newPaneId);
+            const varName = moveOptions.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
+            if (!await checkPaneEnv(newPaneId, varName, moveOptions.folder)) {
+                await client.call('pane.close', { pane_id: newPaneId }).catch(() => undefined);
+                screens?.releaseScreen(screen);
+                throw Object.assign(
+                    new Error(`The account did not reach the new pane: a shell startup file may override ${varName}.`),
+                    { code: 'plan-move-env-mismatch' },
+                );
+            }
+            await client.call('pane.close', { pane_id: record.paneId }).catch(() => undefined);
+            forgetClosedSession(record.sessionId, record.paneId);
+            await tagSpawn(newPaneId, record.sessionId);
+            const launchName = `pp_${randomBytes(8).toString('hex')}`;
+            seedLaunchPane(newPaneId, { pane_id: newPaneId });
+            rememberLaunch(newPaneId, kind, launchName);
+            try {
+                await startManagedAgent(newPaneId, kind, launchName, args);
+            } catch (error) {
+                forgetLaunch(newPaneId);
+                throw Object.assign(
+                    new Error('The agent did not start on the new account. The tab stays as a shell: try again or go back.'),
+                    { code: 'plan-move-start-failed', cause: error },
+                );
+            }
+            const found = bindListedPane(newPaneId) ?? await waitForListedAgent(newPaneId, 5_000);
+            void confirmLaunch(newPaneId, kind, found.sessionId);
+            return { sessionId: found.sessionId };
         },
 
         async paneRead(readOptions: {

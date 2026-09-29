@@ -11,11 +11,14 @@ export function peerStartUsesUnapprovedOptions(params: {
     createCwd?: unknown;
     worktree?: unknown;
     kinds?: unknown;
+    /** A peer machine may never pick this host's sign-in. */
+    planAccount?: unknown;
 }): boolean {
     if (params.parentSessionId !== undefined) return true;
     if (params.createCwd !== undefined) return true;
     if (params.worktree !== undefined) return true;
     if (params.kinds !== undefined) return true;
+    if (params.planAccount !== undefined) return true;
     return false;
 }
 

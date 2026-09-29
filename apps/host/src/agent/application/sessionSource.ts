@@ -91,6 +91,15 @@ export interface SessionStopOptions {
     confirmedScope?: CloseScope;
 }
 
+/** Move a running agent onto another sign-in of a provider it already uses.
+ *  The host splits with that account's env, resumes the same conversation,
+ *  and closes the old pane so two accounts never write one conversation. */
+export interface PlanMoveOptions {
+    sessionId: string;
+    provider: string;
+    folder: string;
+}
+
 export interface SessionSaveAttachmentsOptions {
     sessionId: string;
     attachments: PromptAttachment[];
@@ -208,6 +217,7 @@ export interface SessionSource {
         reason?: string;
     }>;
     stop(sessionId: string, options: SessionStopOptions): Promise<CloseResult>;
+    movePlanAccount?(options: PlanMoveOptions): Promise<{ sessionId: string }>;
     abort(sessionId: string): Promise<void>;
     reload(sessionId: string): Promise<void>;
     prompt(options: SessionPromptOptions): Promise<void>;

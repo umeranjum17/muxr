@@ -41,7 +41,8 @@ import {
 } from '../../voice/index.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
-import { listPlans, removePlanAccount, renamePlanAccount } from '../../plans/plansApi.js';
+import { listPlans, removePlanAccount, renamePlanAccount, resolvePlanRecord } from '../../plans/plansApi.js';
+import { PLAN_LABELS } from '../../plans/planStore.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { PreviewDesktops, androidCapabilities, withAndroidPreview, withPreview, type AndroidPreviewTargets } from '../../desktop/index.js';
@@ -200,17 +201,34 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         }),
         'session.start': async (params) => {
             const { peerMutation: _peerMutation, planAccount, ...start } = params;
-            if (planAccount !== undefined) {
+            if (planAccount !== undefined && (start.kinds !== undefined || start.members !== undefined)) {
                 throw Object.assign(
-                    new Error('This host cannot start on a plan account yet; update the host before choosing one.'),
-                    { code: 'host-contract-mismatch' },
+                    new Error('A squad cannot start on one plan account. Start its agents separately.'),
+                    { code: 'plan-squad-unsupported' },
                 );
+            }
+            const record = planAccount === undefined ? undefined : resolvePlanRecord(process.env, planAccount);
+            if (record !== undefined) {
+                const kinds = record.provider === 'claude' ? ['claude', 'pi'] : ['codex', 'pi'];
+                if (start.kind !== undefined && !kinds.includes(start.kind)) {
+                    throw Object.assign(
+                        new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${start.kind} one.`),
+                        { code: 'plan-kind-mismatch' },
+                    );
+                }
             }
             return useCaseData(await startAgent({
                 exists: existsSync,
                 create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
                 start: (command) => source.start(command),
-            }, start));
+            }, {
+                ...start,
+                ...(record === undefined ? {} : {
+                    planEnv: record.provider === 'claude'
+                        ? { CLAUDE_CONFIG_DIR: record.folder }
+                        : { CODEX_HOME: record.folder },
+                }),
+            }));
         },
         'session.open': async (params) => useCaseData(await openAgent(source, params)),
         'herdr.tree': async () => source.herdrTree(),
@@ -472,11 +490,27 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plans.list': () => listPlans(process.env),
         'plans.rename': async (params) => renamePlanAccount(process.env, params.accountId, params.name),
         'plans.remove': async (params) => removePlanAccount(process.env, params.accountId),
-        'plans.move': () => {
-            throw Object.assign(
-                new Error('This host cannot move between plan accounts yet; update the host first.'),
-                { code: 'host-contract-mismatch' },
-            );
+        'plans.move': async (params) => {
+            const record = resolvePlanRecord(process.env, params.accountId);
+            if (source.movePlanAccount === undefined) {
+                throw Object.assign(
+                    new Error('This host cannot move between plan accounts yet; update the host first.'),
+                    { code: 'host-contract-mismatch' },
+                );
+            }
+            try {
+                return await source.movePlanAccount({
+                    sessionId: params.sessionId,
+                    provider: record.provider,
+                    folder: record.folder,
+                });
+            } catch (error) {
+                if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
+                    const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
+                    throw new Error(`Couldn't start on ${name}. Try again or go back.`);
+                }
+                throw error;
+            }
         },
         'voice.status': () => voiceStatus(),
         'voice.provider.list': () => voiceProviderList(),
