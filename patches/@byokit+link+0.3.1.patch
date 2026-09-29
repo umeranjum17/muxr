@@ -1,8 +1,8 @@
 diff --git a/node_modules/@byokit/link/dist/device.js b/node_modules/@byokit/link/dist/device.js
-index 0848fec..1f53e09 100644
+index 0848fec..359223c 100644
 --- a/node_modules/@byokit/link/dist/device.js
 +++ b/node_modules/@byokit/link/dist/device.js
-@@ -313,10 +313,16 @@ export class DeviceLink {
+@@ -313,10 +313,17 @@ export class DeviceLink {
      /** A half-open socket (the phone changed networks) looks alive forever; a ping it never answers shows it isn't. */
      ping(l) {
          const every = this.o.pingMs ?? 20_000;
@@ -13,22 +13,19 @@ index 0848fec..1f53e09 100644
 -            if (Date.now() - this.heard > 2 * every) {
 +            const now = Date.now();
 +            // A tick that fires long after it was due means this device's timers were frozen (an app in the
-+            // background, a hidden tab), not that the host went quiet: no ping went out, so none came back. Ask
-+            // again and judge the answer to that ping instead of closing a socket that may be perfectly healthy.
-+            const late = now - due > every / 2;
-+            if (!late && now - this.heard > 2 * every) {
++            // background, a hidden tab), not that the host went quiet: no ping went out, so none came back. Count
++            // the silence from now; a socket that is really dead still misses the pings that follow.
++            if (now - due > every / 2)
++                this.heard = now;
++            else if (now - this.heard > 2 * every) {
                  l.close();
                  return this.lost();
              }
-@@ -324,7 +330,10 @@ export class DeviceLink {
+@@ -324,6 +331,7 @@ export class DeviceLink {
                  l.send({ t: 'ping', n: ++this.pingId });
              }
              catch { }
--            later(every, tick);
-+            // After a late tick the socket has a short, fixed time to answer before the check above runs on it.
-+            const next = late ? Math.min(every, 10_000) : every;
-+            due = now + next;
-+            later(next, tick);
++            due = now + every;
+             later(every, tick);
          };
          later(every, tick);
-     }
