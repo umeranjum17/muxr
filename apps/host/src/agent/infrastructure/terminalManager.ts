@@ -9,7 +9,7 @@
  */
 
 import type { TerminalSession } from '@byokit/herdr';
-import { type TerminalScrollStateFrame } from '@muxr/contract';
+import { type TerminalScrollStateFrame } from '@trymuxr/contract';
 import { type TerminalPipe } from '../../machine/index.js';
 
 export interface TerminalOpenOptions {

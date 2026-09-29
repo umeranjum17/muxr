@@ -17,16 +17,14 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 import { DeviceLink, hostId, keyPair as linkKeyPair, pairWithOffer, type DeviceGrant } from '@byokit/link';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { waitForRelay } from './waitForRelay.mjs';
-import { linkPair, machineLinkUrl, readSelfhostState } from '../../setup/index.mjs';
-import { machineIdentity } from '../../setup/index.mjs';
-import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/linkPairing.js';
+import { cliMain, hostMain, hostRoot, relayMain, waitForRelay } from './host.js';
+import { linkPair, machineIdentity, machineLinkUrl, readSelfhostState } from './hostSetup.js';
+import type { StoredHostedGrant } from '../../apps/mobile/sources/pairing/application/linkPairing.js';
 
 interface Phone { os: 'android' | 'ios'; secure: Map<string, string>; local: Map<string, string> }
 
 vi.mock('expo-device', () => ({ isDevice: true }));
 
-const repoRoot = join(import.meta.dirname, '../../..');
 const children = new Set<ChildProcess>();
 const scratch: string[] = [];
 const PENDING_LINK_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
@@ -39,7 +37,7 @@ const labEnv = (home: string): NodeJS.ProcessEnv => {
 };
 
 function launch(args: string[], env: NodeJS.ProcessEnv): ChildProcess & { output: () => string } {
-    const child = spawn(process.execPath, args, { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, args, { cwd: hostRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout!.on('data', (chunk) => { out += chunk; });
     child.stderr!.on('data', (chunk) => { out += chunk; });
@@ -79,7 +77,7 @@ class Machine {
         const restarting = this.id !== '';
         const storedPort = restarting ? JSON.parse(readFileSync(join(this.home, 'selfhost.json'), 'utf8')).relayPort as number : 0;
         for (let attempt = 0; ; attempt++) {
-            const relay = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
+            const relay = launch([relayMain], {
                 ...labEnv(this.home),
                 MUXR_RELAY_PORT: String(storedPort),
                 MUXR_RELAY_HOST: '127.0.0.1',
@@ -112,7 +110,7 @@ class Machine {
                 mintSecret: JSON.parse(readFileSync(join(this.home, 'relay', 'mint-secret'), 'utf8')),
             }, null, 2)}\n`, { mode: 0o600 });
         }
-        const host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { ...labEnv(this.home), MUXR_MODE: 'selfhost' });
+        const host = launch([hostMain, '--fake'], { ...labEnv(this.home), MUXR_MODE: 'selfhost' });
         this.host = host;
         await until(() => (existsSync(join(this.home, 'host', 'pair.sock')) ? true : undefined), `${this.name} pairing socket (${host.output()})`);
     }
@@ -123,7 +121,7 @@ class Machine {
     }
 
     cli(args: string[]): ChildProcess & { output: () => string } {
-        return launch([join(repoRoot, 'scripts/cli.mjs'), ...args], labEnv(this.home));
+        return launch([cliMain, ...args], labEnv(this.home));
     }
 
     async run(args: string[]): Promise<string> {
@@ -181,7 +179,7 @@ async function launchApp(phone: Phone) {
             removeItem: async (key: string) => { phone.local.delete(key); },
         },
     }));
-    const hosted = await import('../../../apps/mobile/sources/pairing/application/linkPairing.js');
+    const hosted = await import('../../apps/mobile/sources/pairing/application/linkPairing.js');
     return {
         ...hosted,
         /** The machine link the way the session layer dials it: derived from the stored grant. */

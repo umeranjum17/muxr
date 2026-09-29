@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import { DeviceLink, LinkError, hostId, type DeviceGrant as LinkGrant, type LinkStatus } from '@byokit/link';
-import { nextRequestId, type HostFrame, type RequestParams, type RequestResult } from '@muxr/contract';
-import { verifyDeviceGrant, type KeyPair, type SealedDeviceGrant } from '@muxr/crypto';
+import { nextRequestId, type HostFrame, type RequestParams, type RequestResult } from '@trymuxr/contract';
+import { verifyDeviceGrant, type KeyPair, type SealedDeviceGrant } from '@trymuxr/crypto';
 import type { StoredPeerRelationship } from './store.js';
 
 export type PeerClientRequestType = 'machines.list' | 'session.list' | 'herdr.tree' | 'herdr.agentKinds'

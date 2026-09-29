@@ -5,7 +5,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import type { Theme } from '@/theme';
 import { formatLastSeen, formatPathRelativeToHome } from '../domain/sessionIdentity';
 import { agentLabels, agentWhoLine } from '../domain/agentPresentation';
-import type { HerdrTreePane } from '@muxr/contract';
+import type { HerdrTreePane } from '@trymuxr/contract';
 
 export type SessionState = 'disconnected' | 'thinking' | 'waiting' | 'permission_required';
 

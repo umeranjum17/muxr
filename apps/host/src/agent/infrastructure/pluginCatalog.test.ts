@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcReplayKey, runPluginProcess, type HerdrPlugin } from './pluginCatalog.js';
 import { buildPluginPublicContext } from '../application/pluginPublicContext.js';
 import { herdrActionFailure, reportHerdrActionFailure } from './herdrSessionSource.js';
-import { MAX_RPC_RESULT_STRING_BYTES, boundRpcDisplay, parseManifest, parsePluginAction, pluginCompatibilityError } from '@muxr/contract';
+import { MAX_RPC_RESULT_STRING_BYTES, boundRpcDisplay, parseManifest, parsePluginAction, pluginCompatibilityError } from '@trymuxr/contract';
 
 function plugin(root: string, actions: HerdrPlugin['actions'] = []): HerdrPlugin {
     return {
@@ -259,7 +259,7 @@ describe('plugin catalog flow', () => {
         await catalog.refresh([plugin(root)]);
         const loaded = catalog.list(() => true)[0]!;
         const screen = catalog.manifest(loaded.pluginId, loaded.manifestHash!).contributions
-            .find((contribution): contribution is import('@muxr/contract').PluginScreenContribution =>
+            .find((contribution): contribution is import('@trymuxr/contract').PluginScreenContribution =>
                 'type' in contribution && contribution.type === 'screen')!;
         expect(screen.children.map((node) => node.type)).toEqual([
             'text', 'row', 'metric', 'badge', 'progress', 'divider', 'empty', 'section', 'list',

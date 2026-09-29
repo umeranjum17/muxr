@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as React from 'react';
 import TestRenderer from 'react-test-renderer';
-import type { LifecycleEvent } from '@muxr/contract';
+import type { LifecycleEvent } from '@trymuxr/contract';
 
 const act = TestRenderer.act;
 

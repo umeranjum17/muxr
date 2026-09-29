@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { MMKV } from 'react-native-mmkv';
-import type { RequestResult } from '@muxr/contract';
+import type { RequestResult } from '@trymuxr/contract';
 import { sync } from '@/catalog/sync';
 import { getCachedConnectionSettings } from '@/connection';
 import { Modal } from '@/modal';

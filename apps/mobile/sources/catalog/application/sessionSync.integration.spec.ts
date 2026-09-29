@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent } from '@muxr/contract';
+import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent } from '@trymuxr/contract';
 import type { Session } from '../domain/sessionTypes';
 import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, nativeLifecycleNotificationState, sortHerd } from '@/herd/model';
-import { normalizeRequestFailure, requestRequiresE2ee } from '@muxr/contract';
+import { normalizeRequestFailure, requestRequiresE2ee } from '@trymuxr/contract';
 import { buildSpaceRows, workspaceName, workspaceNames } from '@/herd/model';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 import { herdPanes } from '../../herd/domain/herd';

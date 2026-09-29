@@ -1,4 +1,4 @@
-import { peerCapabilityForRequest, type ClientRequest, type RequestResponse } from '@muxr/contract';
+import { peerCapabilityForRequest, type ClientRequest, type RequestResponse } from '@trymuxr/contract';
 import { peerGrantAllowsRequest, peerRequestRequiresMutationReceipt, peerStartUsesUnapprovedOptions, type PeerDeviceContext } from '../domain/startPolicy.js';
 
 export type AdmitPeerRequestResult = RequestResponse;

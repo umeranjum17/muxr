@@ -1,4 +1,4 @@
-import type { DesktopPermission, DesktopSurfaceGeometry } from '@muxr/contract';
+import type { DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
 
 /**
  * One open desktop session, as the host tracks it.

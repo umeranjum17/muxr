@@ -11,7 +11,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
-import type { HerdrTreeWorkspace } from '@muxr/contract';
+import type { HerdrTreeWorkspace } from '@trymuxr/contract';
 import { sync } from '@/catalog/sync';
 import { TerminalPreview } from '@/terminal/ui';
 import { AgentGlyph } from '@/components/AgentGlyph';

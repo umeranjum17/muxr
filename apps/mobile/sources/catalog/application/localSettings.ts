@@ -1,4 +1,4 @@
-import { LIFECYCLE_NOTIFICATION_LEVELS } from '@muxr/contract';
+import { LIFECYCLE_NOTIFICATION_LEVELS } from '@trymuxr/contract';
 import * as z from 'zod';
 import { DEFAULT_FONT_INDEX, FONT_STEPS, TERMINAL_FONTS, type TerminalFont } from '../../terminal/domain/fontSteps';
 import { TERMINAL_KEY_ROW_LIMIT } from '../../terminal/domain/keyRow';

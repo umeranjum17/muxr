@@ -23,7 +23,7 @@ import { useActivityAcknowledgements } from '../application/useActivityAcknowled
 import { agentLabels, agentWhoLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
 import { showPaneActions } from '../application/renameInHerdr';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
-import type { LifecycleEvent } from '@muxr/contract';
+import type { LifecycleEvent } from '@trymuxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { SectionLabel } from '@/components/ui';
 import { TerminalPreview } from '@/terminal/ui';

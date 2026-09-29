@@ -4,7 +4,7 @@ import {
     type LifecycleCatalog,
     type LifecycleEvent,
     type LifecycleNotificationLevel,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import {
     MAX_VOICE_IDENTITY_LENGTH,
     isTrustedVoiceScopeKey,

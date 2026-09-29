@@ -4,7 +4,7 @@ import { PolarChart, Pie } from 'victory-native';
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import Animated, { Easing, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
-import type { PluginScreenChartNode, PluginScreenTone } from '@muxr/contract';
+import type { PluginScreenChartNode, PluginScreenTone } from '@trymuxr/contract';
 import type { Theme } from '@/theme';
 import { toneColor } from '../domain/pluginTone';
 import { bindText, resolvePath } from '../domain/screenModel';

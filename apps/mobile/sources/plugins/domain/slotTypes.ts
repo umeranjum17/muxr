@@ -1,4 +1,4 @@
-import { NATIVE_SLOT_CONTEXT_KEYS, type PluginNativeSlot } from '@muxr/contract';
+import { NATIVE_SLOT_CONTEXT_KEYS, type PluginNativeSlot } from '@trymuxr/contract';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
 export interface SessionMenuItem {

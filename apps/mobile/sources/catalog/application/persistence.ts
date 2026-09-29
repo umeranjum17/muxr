@@ -4,7 +4,7 @@ import { LocalSettings, localSettingsDefaults, localSettingsParse } from './loca
 import { Profile, profileDefaults, profileParse } from '../domain/profile';
 import { AGENT_KINDS } from '../domain/agentKinds';
 import type { Session } from '../domain/sessionTypes';
-import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
+import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import { agentLabels, isShellLabels } from '@/herd/labels';
 type PermissionModeKey = string;
 

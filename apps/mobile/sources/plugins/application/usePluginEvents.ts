@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { lifecycleEventAgentName, PLUGIN_CALL_CLIENT_TIMEOUT_MS, type LifecycleEvent, type PluginEventTrigger, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
+import { lifecycleEventAgentName, PLUGIN_CALL_CLIENT_TIMEOUT_MS, type LifecycleEvent, type PluginEventTrigger, type PluginManifestV1, type PluginSummary } from '@trymuxr/contract';
 import { sync } from '@/catalog/sync';
 import { storage } from '@/catalog/store';
 import { realtimeWatching } from '@/conversation/session';

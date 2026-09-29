@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { sync } from '@/catalog/sync';
-import { type HerdrTreeWorkspace } from '@muxr/contract';
+import { type HerdrTreeWorkspace } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { StatusDot } from '@/components/StatusDot';
 import { Switch } from '@/components/Switch';

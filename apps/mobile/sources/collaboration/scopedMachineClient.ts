@@ -1,4 +1,4 @@
-import type { PeerRequestMap, PeerRequestType } from '@muxr/contract';
+import type { PeerRequestMap, PeerRequestType } from '@trymuxr/contract';
 import { MuxrRequestError } from '@/pairing';
 import { LinkFirstClient } from '@/pairing/client';
 import type { StoredHostedGrant } from '@/pairing/e2ee';

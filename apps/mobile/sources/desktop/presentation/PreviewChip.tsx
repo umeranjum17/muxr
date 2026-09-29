@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
-import type { SessionInfo } from '@muxr/contract';
+import type { SessionInfo } from '@trymuxr/contract';
 
 import { t } from '@/text';
 import type { DesktopOrigin } from '../request';

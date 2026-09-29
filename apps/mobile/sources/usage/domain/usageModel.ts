@@ -1,4 +1,4 @@
-import type { UsageConnectedProvider, UsageLimitsWindow, UsageVitals } from '@muxr/contract';
+import type { UsageConnectedProvider, UsageLimitsWindow, UsageVitals } from '@trymuxr/contract';
 import { compactAge } from '@/utils/compactAge';
 
 /** The Right now vitals line's figures: rounded shares, a one-decimal load

@@ -15,12 +15,12 @@ import {
     type PeerRequestType,
     type RequestParams,
     type RequestResult,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import {
     generateKeyPair,
     generateSigningKeyPair,
     verifyDeviceGrant,
-} from '@muxr/crypto';
+} from '@trymuxr/crypto';
 import { LinkEndpoint, type MachineCryptoAdapter, type MachineCryptoState, type MachineRotationGrant } from '../../machine/index.js';
 import { startRelay } from '@muxr/relay';
 import { createRequestDispatcher } from '../../requests/index.js';

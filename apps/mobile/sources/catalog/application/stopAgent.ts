@@ -1,4 +1,4 @@
-import type { CloseResult, CloseScope } from '@muxr/contract';
+import type { CloseResult, CloseScope } from '@trymuxr/contract';
 
 export type StopAgentCommand = {
     agentRoute: string;

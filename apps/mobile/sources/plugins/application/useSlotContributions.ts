@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { PluginNativeContribution, PluginNativeSlot, PluginScreenContribution } from '@muxr/contract';
+import type { PluginNativeContribution, PluginNativeSlot, PluginScreenContribution } from '@trymuxr/contract';
 import { useSocketStatus } from '@/catalog/store';
 import { pluginSnapshot, refreshPlugins, subscribePlugins } from './pluginStore';
 

@@ -1,4 +1,4 @@
-import type { UsageConnectedProvider, UsageLimitsPayload, UsageNow, UsageReport, UsageSeriesPoint, UsageVitals } from '@muxr/contract';
+import type { UsageConnectedProvider, UsageLimitsPayload, UsageNow, UsageReport, UsageSeriesPoint, UsageVitals } from '@trymuxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 
 /** How long a collected reading stays good enough to show as it is, on both

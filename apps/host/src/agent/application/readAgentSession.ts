@@ -1,4 +1,4 @@
-import type { SessionStatus } from '@muxr/contract';
+import type { SessionStatus } from '@trymuxr/contract';
 import type { SessionSource } from './sessionSource.js';
 
 export type ReadAgentSessionCommand =

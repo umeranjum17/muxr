@@ -12,7 +12,7 @@ import {
     type RequestResult,
     type RequestType,
     type SessionEvent,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import { deriveLinkGrant } from './linkGrant';
 import { sshRelayUrl, stopSshTunnel, SshConnectionError } from '@/connection/sshTunnel';
 import type { SshTarget } from '@/connection';

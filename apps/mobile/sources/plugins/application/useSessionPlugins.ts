@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { PluginSummary, PluginToolbarButton } from '@muxr/contract';
+import type { PluginSummary, PluginToolbarButton } from '@trymuxr/contract';
 
 import { useSocketStatus } from '@/catalog/store';
 import { pluginSnapshot, refreshPlugins, subscribePlugins } from './pluginStore';

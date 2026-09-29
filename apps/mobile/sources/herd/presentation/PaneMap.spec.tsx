@@ -33,7 +33,7 @@ vi.mock('@/catalog/application/persistence', () => ({ loadSettings: () => ({ set
 
 // This resolves the mocked modules, so it must stay below the vi.mock calls.
 import { PaneMap } from './PaneMap';
-import type { HerdrTreePane, HerdrTreeTab } from '@muxr/contract';
+import type { HerdrTreePane, HerdrTreeTab } from '@trymuxr/contract';
 
 function pane(paneId: string, title: string): HerdrTreePane {
     return {

@@ -1,4 +1,4 @@
-import { capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
+import { capUtf8Bytes, sanitizeDisplayText } from '@trymuxr/contract';
 
 export interface RuntimeTreeItem {
     name: string;

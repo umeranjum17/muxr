@@ -1,5 +1,5 @@
 import nacl from 'tweetnacl';
-import { inspectPeerGrantConstraints, parseDeviceKind, type DeviceKind, type PeerCapability } from '@muxr/contract/peer';
+import { inspectPeerGrantConstraints, parseDeviceKind, type DeviceKind, type PeerCapability } from '@trymuxr/contract/peer';
 import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from '../infrastructure/encoding.js';
 import { grantAuthority, grantHasExpired, parseDeviceAuthority, peerConstraintMessage, type DeviceAuthority, type DeviceGrant, type SealedDeviceGrant } from '../domain/deviceGrant.js';
 import { signDetached, verifyDetached } from '../infrastructure/identity.js';

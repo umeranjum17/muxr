@@ -3,7 +3,7 @@
  * Omitted kind on disk means native. Display labels never authorize.
  */
 
-import type { PeerCapability } from '@muxr/contract';
+import type { PeerCapability } from '@trymuxr/contract';
 import type { MachineCryptoState, MachineDeviceRecord } from './crypto.js';
 
 export type DeviceKindName = 'native' | 'browser' | 'peer';

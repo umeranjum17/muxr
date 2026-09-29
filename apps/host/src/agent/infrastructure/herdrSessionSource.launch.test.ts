@@ -3,7 +3,7 @@ import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import type { HerdrTreeWorkspace } from '@muxr/contract';
+import type { HerdrTreeWorkspace } from '@trymuxr/contract';
 import type { PaneScreens } from '../../desktop/index.js';
 import { createHerdrSessionSource, boundedWorkspaceTokens, MUXR_AGENT_ENV } from './herdrSessionSource.js';
 

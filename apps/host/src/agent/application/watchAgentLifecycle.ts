@@ -1,4 +1,4 @@
-import type { WatchSettlement } from '@muxr/contract';
+import type { WatchSettlement } from '@trymuxr/contract';
 import type { SessionSource } from './sessionSource.js';
 
 export type WatchAgentLifecycleCommand = {

@@ -5,7 +5,7 @@
  * collection answers instantly; a cold one gets a bounded wait -- `collecting` -- so the
  * vitals below are never withheld.
  */
-import type { UsageNow, UsageReport } from '@muxr/contract';
+import type { UsageNow, UsageReport } from '@trymuxr/contract';
 import { NOT_CONNECTED_MESSAGE, tightestWindow } from '../domain/usageWindows.js';
 import { collectPlans, lastKnownPlans } from './collectUsage.js';
 import { vitalsFigures } from './vitals.js';

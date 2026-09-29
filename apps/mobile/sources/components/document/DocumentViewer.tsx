@@ -34,7 +34,7 @@ import { useMonoCharWidth } from '@/components/code/monoMetrics';
 import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
 import { toneColor } from '@/plugins/domain/pluginTone';
 import { FONT_STEPS } from '@/terminal/domain/fontSteps';
-import { type PluginScreenTone } from '@muxr/contract';
+import { type PluginScreenTone } from '@trymuxr/contract';
 import { hapticsLight } from '@/components/haptics';
 import { t } from '@/text';
 import { useRouter } from 'expo-router';

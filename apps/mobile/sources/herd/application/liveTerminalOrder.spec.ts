@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { LifecycleEvent } from '@muxr/contract';
+import type { LifecycleEvent } from '@trymuxr/contract';
 import type { Session } from '@/catalog';
 import type { HerdPane } from '../domain/herd';
 import { agentAccessibilityLabel, agentLabels, agentStateLabel, liveCardState } from '../domain/agentPresentation';

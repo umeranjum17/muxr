@@ -1,4 +1,4 @@
-import { lifecycleEventAgentName, type AgentLifecycle, type LifecycleEvent } from '@muxr/contract';
+import { lifecycleEventAgentName, type AgentLifecycle, type LifecycleEvent } from '@trymuxr/contract';
 
 export interface RecentActivityRow {
     eventId: string;

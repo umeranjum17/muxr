@@ -6,7 +6,7 @@
  */
 import type {
     UsageActivity, UsageActivityDay, UsageActivityModel, UsageActivityRoute, UsageActivitySource, UsageLimitsWindow,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 
 export type Harness = 'pi' | 'omp' | 'claude' | 'codex' | 'opencode';
 

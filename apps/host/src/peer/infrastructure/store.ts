@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { isPeerCapabilities, type PeerAuthorityMetadata, type PeerCapability, type PeerClientRequest, type PeerRelationship, type SignedPeerDescriptor } from '@muxr/contract';
-import type { KeyPair, SealedDeviceGrant } from '@muxr/crypto';
+import { isPeerCapabilities, type PeerAuthorityMetadata, type PeerCapability, type PeerClientRequest, type PeerRelationship, type SignedPeerDescriptor } from '@trymuxr/contract';
+import type { KeyPair, SealedDeviceGrant } from '@trymuxr/crypto';
 import { atomicWriteJson } from '../../platform/atomicWriteJson.js';
 
 export interface StoredPreparation {

@@ -1,4 +1,4 @@
-import type { AgentLifecycle, LifecycleReasonCode } from '@muxr/contract';
+import type { AgentLifecycle, LifecycleReasonCode } from '@trymuxr/contract';
 
 export function lifecycleReasonForObservation(
     state: AgentLifecycle,

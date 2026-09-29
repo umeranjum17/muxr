@@ -6,7 +6,7 @@ import {
     type HerdrTreeWorkspace,
     type LifecycleEvent,
     type LifecycleNotificationLevel,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import type { Session } from '@/catalog';
 import { agentLabels, HERD_STATUS_LABELS } from './agentPresentation';
 

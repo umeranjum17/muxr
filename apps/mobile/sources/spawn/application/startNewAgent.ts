@@ -7,7 +7,7 @@
 import { router } from 'expo-router';
 import { Modal } from '@/modal';
 import { navigateToSession } from '@/herd';
-import type { HerdrTreeWorkspace } from '@muxr/contract';
+import type { HerdrTreeWorkspace } from '@trymuxr/contract';
 import type { AgentCatalogOption } from '@/catalog';
 import { SpawnRequest } from '../domain/SpawnRequest';
 import { startAgent } from './StartAgent';

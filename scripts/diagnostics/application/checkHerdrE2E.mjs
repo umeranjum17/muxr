@@ -2,7 +2,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { nextRequestId, newTerminalChannel } from '@muxr/contract';
+import { nextRequestId, newTerminalChannel } from '@trymuxr/contract';
 import { linkHerdrLab } from './linkHerdrLab.mjs';
 import { requestLab } from './linkLabClient.mjs';
 import { isolatePiAgentDir, releasePiAgentDir } from './isolatePiAgentDir.mjs';

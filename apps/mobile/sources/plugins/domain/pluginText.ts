@@ -1,4 +1,4 @@
-import { resolvePluginText as resolveForLanguage, type PluginText } from '@muxr/contract';
+import { resolvePluginText as resolveForLanguage, type PluginText } from '@trymuxr/contract';
 import { getCurrentLanguageTag } from '@/text';
 
 /** Resolve manifest copy with the phone's current language preference. */

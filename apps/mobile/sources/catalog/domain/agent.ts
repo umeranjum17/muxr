@@ -1,4 +1,4 @@
-import { isSessionIdle, type SessionInfo, type SessionStatus } from '@muxr/contract';
+import { isSessionIdle, type SessionInfo, type SessionStatus } from '@trymuxr/contract';
 import deepEqual from 'fast-deep-equal';
 import type { Session } from './sessionTypes';
 import {

@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, isAbsolute, join } from 'node:path';
 
-import type { ChangesBadge, ChangesBrowse, ChangesFile, ChangesScope, ChangesWorktree } from '@muxr/contract';
+import type { ChangesBadge, ChangesBrowse, ChangesFile, ChangesScope, ChangesWorktree } from '@trymuxr/contract';
 
 export interface ChangesInput {
     sessionId: string;

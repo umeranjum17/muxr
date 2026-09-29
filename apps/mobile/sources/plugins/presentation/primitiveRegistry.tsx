@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { PRIMITIVE_SPECS, type PluginPrimitive } from '@muxr/contract';
+import { PRIMITIVE_SPECS, type PluginPrimitive } from '@trymuxr/contract';
 import type { PrimitiveProps } from '../domain/primitiveTypes';
 import { CapabilityButton } from './primitives/CapabilityButton';
 import { CollectionView } from './primitives/CollectionView';

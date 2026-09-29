@@ -17,7 +17,7 @@ import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, w
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import type { Theme } from '@/theme';
-import type { PluginScreenTone } from '@muxr/contract';
+import type { PluginScreenTone } from '@trymuxr/contract';
 import { toneColor } from '@/plugins/domain/pluginTone';
 
 export const ui = {

@@ -1,4 +1,4 @@
-import type { PluginNativeContribution, PluginNativeSlot } from '@muxr/contract';
+import type { PluginNativeContribution, PluginNativeSlot } from '@trymuxr/contract';
 import type { PluginSlotContexts } from './slotTypes';
 
 export type PrimitiveProps = {

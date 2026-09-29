@@ -32,4 +32,4 @@ Run `muxr self-host --tailscale-direct` to use the previous direct-tailnet addre
 node scripts/diagnostics/application/checkTailscaleIngress.mjs
 ```
 
-The first check uses a fake Tailscale CLI and verifies MagicDNS selection, loopback relay bind, Serve invocation, occupied-handler refusal, and direct fallback. Link pairing authority is covered by `scripts/diagnostics/application/linkPairing.integration.test.ts`.
+The first check uses a fake Tailscale CLI and verifies MagicDNS selection, loopback relay bind, Serve invocation, occupied-handler refusal, and direct fallback. Link pairing authority is covered by `tests/cross-side/linkPairing.integration.test.ts`.

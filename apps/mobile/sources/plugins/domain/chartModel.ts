@@ -1,4 +1,4 @@
-import { MAX_CHART_LABEL_BYTES, MAX_CHART_SERIES, capUtf8Bytes, sanitizeDisplayText, type PluginScreenTone } from '@muxr/contract';
+import { MAX_CHART_LABEL_BYTES, MAX_CHART_SERIES, capUtf8Bytes, sanitizeDisplayText, type PluginScreenTone } from '@trymuxr/contract';
 
 export interface PluginChartItem {
     label: string;

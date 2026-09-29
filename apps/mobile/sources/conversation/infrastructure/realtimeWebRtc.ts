@@ -1,6 +1,6 @@
 import { AppState, type AppStateStatus } from 'react-native';
 import type { MediaStream, MediaStreamTrack } from 'react-native-webrtc';
-import { MAX_REALTIME_SDP_BYTES, MAX_REALTIME_WEBRTC_DATA_BYTES } from '@muxr/contract';
+import { MAX_REALTIME_SDP_BYTES, MAX_REALTIME_WEBRTC_DATA_BYTES } from '@trymuxr/contract';
 import {
     isVoiceServiceReady,
     releaseVoiceAudio,

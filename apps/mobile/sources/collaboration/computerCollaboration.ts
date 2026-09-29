@@ -9,7 +9,7 @@ import {
     type PeerRequestMap,
     type PeerRequestType,
     type SignedPeerDescriptor,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import { Collaboration } from './Collaboration';
 
 const STORAGE_KEY = 'muxr.computer-collaboration.v1';

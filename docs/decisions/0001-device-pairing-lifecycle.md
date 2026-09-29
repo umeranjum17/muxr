@@ -24,7 +24,7 @@ A paired phone reaches day 30 while its machine is healthy; both sides discard t
 
 ## Validation
 
-The current link pairing and revocation flows are exercised in `scripts/diagnostics/application/linkPairing.integration.test.ts` and `pairedDevices.integration.test.ts`.
+The current link pairing and revocation flows are exercised in `tests/cross-side/linkPairing.integration.test.ts` and `tests/cross-side/pairedDevices.integration.test.ts`.
 
 ## Rollback and reopen trigger
 

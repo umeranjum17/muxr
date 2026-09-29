@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
+import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@trymuxr/contract';
 import { Modal } from '@/modal';
 import { sync } from '@/catalog/sync';
 import { OptionSheet } from '@/components/OptionSheet';

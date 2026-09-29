@@ -50,7 +50,7 @@ to end:
 yarn probe
 ```
 
-Focused package loop after `@muxr/contract` / `@muxr/crypto` edits:
+Focused package loop after `@trymuxr/contract` / `@trymuxr/crypto` edits:
 
 ```bash
 yarn typecheck
@@ -86,7 +86,7 @@ packages/crypto/src/e2ee/{domain,application,infrastructure}
 fetch, React, or sockets. Infrastructure may import same-module domain.
 Application may import same-module domain and infrastructure. A module
 imports another module only through that module's `index.ts`. Contract never
-imports crypto. E2EE imports `@muxr/contract/peer`, `/control-plane`, and
+imports crypto. E2EE imports `@trymuxr/contract/peer`, `/control-plane`, and
 `/shared`, not the contract barrel. Apps import package barrels or module
 entries; they must not import `domain/`, `application/`, or `infrastructure/`
 paths. `packages/checkArchitecture.mjs` rejects the reverse, and rejects new

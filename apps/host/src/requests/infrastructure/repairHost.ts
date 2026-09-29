@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { RequestParams, RequestResult } from '@muxr/contract';
+import type { RequestParams, RequestResult } from '@trymuxr/contract';
 
 /** Resolve only the running installation, never a client path or shell command. */
 export async function repairHost(params: RequestParams<'host.update'>, owner: string): Promise<RequestResult<'host.update'>> {

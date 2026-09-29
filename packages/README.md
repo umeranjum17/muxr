@@ -1,12 +1,14 @@
 # packages
 
-`@muxr/contract` exists so host, mobile, relay, and plugins use one implementation of cross-process wire shapes, admission and limit rules, and invariant vocabulary. It is the compatibility boundary between processes, not a general utility package. Apps import its public barrel or a focused entry point such as `@muxr/contract/herd`; they do not import module internals.
+`@trymuxr/contract` exists so host, mobile, relay, and plugins use one implementation of cross-process wire shapes, admission and limit rules, and invariant vocabulary. It is the compatibility boundary between processes, not a general utility package. Apps import its public barrel or a focused entry point such as `@trymuxr/contract/herd`; they do not import module internals.
 
-Code belongs in `@muxr/contract` when multiple processes must agree on its exact shape or rule: client/host frames and request maps, boundary admission, shared limits, and vocabulary whose meaning must not drift. Mobile parsing or presentation, host adapters, single-consumer transport DTOs, storage models, crypto implementation, and convenience helpers do not belong here.
+Code belongs in `@trymuxr/contract` when multiple processes must agree on its exact shape or rule: client/host frames and request maps, boundary admission, shared limits, and vocabulary whose meaning must not drift. Mobile parsing or presentation, host adapters, single-consumer transport DTOs, storage models, crypto implementation, and convenience helpers do not belong here.
 
 The name is deliberate. **Contract** says callers depend on an enforced cross-process agreement. **Shared** would invite unrelated reusable code, **core** would imply a central dependency bucket, and **protocol** would be too narrow for admission, limits, and invariant vocabulary that are not byte-level protocol.
 
-`@muxr/crypto` retains pairing-code and peer/device grant proofs. `@byokit/link` owns the encrypted session transport; the relay never receives plaintext.
+`@trymuxr/crypto` retains pairing-code and peer/device grant proofs. `@byokit/link` owns the encrypted session transport; the relay never receives plaintext.
+
+Both are published to npm, and the host, the app and crypto pin their exact version, so the host can later leave this repository and keep using them. Keep them free of workspace-only imports: a package may import only its own `src` and the dependencies in its `package.json`. [RELEASING.md](../docs/RELEASING.md#shared-contract-and-crypto-packages) covers how to publish them.
 
 `@desklink/host` and `@desklink/react-native`, the remote-desktop engine and its
 React Native client, are not here: they live in

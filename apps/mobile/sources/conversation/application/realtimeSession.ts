@@ -1,4 +1,4 @@
-import { realtimePcm16ByteLength, type RealtimeHostFrame } from '@muxr/contract';
+import { realtimePcm16ByteLength, type RealtimeHostFrame } from '@trymuxr/contract';
 import { reportEnergy, resetEnergy } from './audioEnergy';
 import { refreshPluginStreamSnapshot, type PluginStream } from '@/plugins/openPluginStream';
 import { captureVoiceStreamSnapshot, openVoiceStream } from './openVoiceStream';

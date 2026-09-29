@@ -1,4 +1,4 @@
-import { realtimePcm16ByteLength, type RealtimeControlAction } from '@muxr/contract';
+import { realtimePcm16ByteLength, type RealtimeControlAction } from '@trymuxr/contract';
 import {
     clearRealtimePcm, finishRealtimePcm, isRealtimePcmDrained, playRealtimePcm, releaseVoiceAudio,
     routeVoiceAudio, startRealtimePcm, stopRealtimePcm,

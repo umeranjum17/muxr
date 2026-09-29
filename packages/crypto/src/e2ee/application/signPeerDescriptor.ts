@@ -1,5 +1,5 @@
 import nacl from 'tweetnacl';
-import type { PeerDescriptorClaims, SignedPeerDescriptor } from '@muxr/contract/peer';
+import type { PeerDescriptorClaims, SignedPeerDescriptor } from '@trymuxr/contract/peer';
 import { encodeUtf8, fromBase64, toBase64 } from '../infrastructure/encoding.js';
 import { signDetached, verifyDetached } from '../infrastructure/identity.js';
 import { toKeyBytes } from '../infrastructure/keys.js';

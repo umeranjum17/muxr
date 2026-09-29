@@ -16,7 +16,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import type { LandWorktreeResult } from '@muxr/contract';
+import type { LandWorktreeResult } from '@trymuxr/contract';
 
 interface GitOut {
     stdout: string;

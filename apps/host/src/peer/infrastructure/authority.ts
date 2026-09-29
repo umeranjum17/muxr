@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { PeerAuthorityMetadata, PeerCapability } from '@muxr/contract';
+import type { PeerAuthorityMetadata, PeerCapability } from '@trymuxr/contract';
 import type { MachineRotationGrant } from '../../machine/index.js';
 
 export interface PeerAuthority {

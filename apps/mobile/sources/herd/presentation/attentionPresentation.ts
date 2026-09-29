@@ -1,5 +1,5 @@
 import type { Ionicons } from '@expo/vector-icons';
-import type { AttentionReason } from '@muxr/contract';
+import type { AttentionReason } from '@trymuxr/contract';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 

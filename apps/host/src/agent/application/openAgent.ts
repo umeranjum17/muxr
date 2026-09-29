@@ -1,4 +1,4 @@
-import type { SessionSnapshot } from '@muxr/contract';
+import type { SessionSnapshot } from '@trymuxr/contract';
 import type { SessionOpenOptions, SessionSource } from './sessionSource.js';
 
 export type OpenAgentCommand = SessionOpenOptions;

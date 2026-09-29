@@ -1,4 +1,4 @@
-import type { AgentLifecycle, HerdrTreePane } from '@muxr/contract';
+import type { AgentLifecycle, HerdrTreePane } from '@trymuxr/contract';
 
 export const DIALOG_GUARD_TITLE = 'Dialog waiting';
 export const DIALOG_GUARD_MESSAGE = 'A dialog is waiting — answer it first, then send.';

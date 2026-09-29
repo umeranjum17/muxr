@@ -1,4 +1,4 @@
-import { capUtf8Bytes, sanitizeDisplayText, type PluginAction, type PluginScreenTone } from '@muxr/contract';
+import { capUtf8Bytes, sanitizeDisplayText, type PluginAction, type PluginScreenTone } from '@trymuxr/contract';
 
 export interface PluginTreeAction {
     id: string;

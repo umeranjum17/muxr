@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import type { SessionArtifactMetadata } from '@muxr/contract';
+import type { SessionArtifactMetadata } from '@trymuxr/contract';
 import { ArtifactWatcher, scanPane, scanPaneWithAttribution } from './artifactWatcher.js';
 
 const PIXEL_B64 =

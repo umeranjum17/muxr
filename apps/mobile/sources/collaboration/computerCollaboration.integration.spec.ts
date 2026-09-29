@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { PeerRelationship, PeerRequestMap, PeerRequestType, SignedPeerDescriptor } from '@muxr/contract';
+import type { PeerRelationship, PeerRequestMap, PeerRequestType, SignedPeerDescriptor } from '@trymuxr/contract';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 vi.mock('@react-native-async-storage/async-storage', () => ({

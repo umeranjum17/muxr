@@ -1,4 +1,4 @@
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type RequestParams, type RequestResult } from '@muxr/contract';
+import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type RequestParams, type RequestResult } from '@trymuxr/contract';
 import { sync } from '@/catalog/sync';
 
 /**

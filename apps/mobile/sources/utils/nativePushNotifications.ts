@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import type { LifecycleNotificationLevel } from '@muxr/contract';
+import type { LifecycleNotificationLevel } from '@trymuxr/contract';
 import type { AuthCredentials } from '@/account';
 import { activeSessionClient } from '@/connection/sessionClientRef';
 import { clearRegisteredPushToken, loadRegisteredPushToken, saveRegisteredPushToken } from '@/catalog/application/persistence';

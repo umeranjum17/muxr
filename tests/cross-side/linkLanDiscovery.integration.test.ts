@@ -24,8 +24,8 @@ vi.mock('@byokit/reach', () => ({
     },
 }));
 
-import { startRelay } from '../../../apps/relay/src/relay.js';
-import { discoveredRelay } from '../../../apps/mobile/sources/pairing/application/relayLocator.js';
+import { startRelay } from './host.js';
+import { discoveredRelay } from '../../apps/mobile/sources/pairing/application/relayLocator.js';
 
 describe('LAN discovery through byokit reach', () => {
     it('publishes the dial URL, machine and mode in the mDNS record, and unpublishes on close', async () => {

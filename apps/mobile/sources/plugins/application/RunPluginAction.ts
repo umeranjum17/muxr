@@ -1,5 +1,5 @@
 import { randomUUID } from 'expo-crypto';
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, parsePluginAction, type PluginAction, type PluginManifestV1, type PluginSource, type RequestParams } from '@muxr/contract';
+import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, parsePluginAction, type PluginAction, type PluginManifestV1, type PluginSource, type RequestParams } from '@trymuxr/contract';
 import { sync } from '@/catalog/sync';
 import { capabilityFor } from './capabilityRegistry';
 import { pluginHref } from '../domain/pluginHref';

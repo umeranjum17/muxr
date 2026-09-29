@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import type { LifecycleNotificationLevel } from '@muxr/contract';
+import type { LifecycleNotificationLevel } from '@trymuxr/contract';
 import type { PushState } from '@/utils/pushNotifications';
 
 /** Which agent events alert, in the words a settings row shows beneath its title. */

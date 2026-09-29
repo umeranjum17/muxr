@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
-import type { UsageActivityDay, UsageNow, UsageReport } from '@muxr/contract';
+import type { UsageActivityDay, UsageNow, UsageReport } from '@trymuxr/contract';
 import { FRESH_MS, lastKnownPlan, noteAsked, rememberShown, shownUsage, withNow, withReport } from './freshnessWindow';
 
 /**

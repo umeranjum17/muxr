@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { isPeerCapabilities, type PeerCapability, type PeerClientRequest, type PeerRequestResult } from '@muxr/contract';
-import { verifySignedPeerDescriptor } from '@muxr/crypto';
+import { isPeerCapabilities, type PeerCapability, type PeerClientRequest, type PeerRequestResult } from '@trymuxr/contract';
+import { verifySignedPeerDescriptor } from '@trymuxr/crypto';
 import { DeviceGrant, type MachineCryptoState } from '../../machine/index.js';
 import type { StoredPendingAuthorization, StoredPeerRelationship } from '../infrastructure/store.js';
 

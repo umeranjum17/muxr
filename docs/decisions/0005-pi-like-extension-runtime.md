@@ -191,7 +191,7 @@ The first executable slice must prove one UI-only example and one combined exten
 7. disable/unlink both packages and prove their UI disappears after reconnect;
 8. run typecheck, the flow tests, contract checks, host/package smoke, and the full suite.
 
-Manifest validation is one shared pure parser exported from `@muxr/contract` (used by the host catalog and `muxr plugin check` alike), so the CLI cannot drift from runtime acceptance; it covers every bundled manifest and the same rejection cases as the runtime.
+Manifest validation is one shared pure parser exported from `@trymuxr/contract` (used by the host catalog and `muxr plugin check` alike), so the CLI cannot drift from runtime acceptance; it covers every bundled manifest and the same rejection cases as the runtime.
 
 ## Amendment 2026-08-15
 

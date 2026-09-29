@@ -56,7 +56,7 @@ for (const tree of SRC_TREES) {
         const domainFile = /\/domain\//.test(file);
         const infraFile = /\/infrastructure\//.test(file);
         const applicationFile = /\/application\//.test(file);
-        if (rel.includes('/contract/') && /from ['"]@muxr\/crypto/.test(text)) {
+        if (rel.includes('/contract/') && /from ['"]@trymuxr\/crypto/.test(text)) {
             failures.push(`${rel}: contract must not import crypto`);
         }
         text.split('\n').forEach((line, index) => {
@@ -121,6 +121,21 @@ for (const [a, targets] of edges) {
 }
 if (pairs.size > 0) {
     failures.push(`module import cycles: ${[...pairs].sort().join(', ')}`);
+}
+
+// A consumer pins the shared packages at their exact version. Yarn links the
+// workspace only while that pin matches; a stale pin would quietly install
+// the published copy instead of the code beside it.
+const shared = new Map(['contract', 'crypto'].map((dir) => {
+    const manifest = JSON.parse(readFileSync(join(ROOT, dir, 'package.json'), 'utf8'));
+    return [manifest.name, manifest.version];
+}));
+for (const consumer of ['packages/crypto', 'apps/host', 'apps/mobile']) {
+    const manifest = JSON.parse(readFileSync(join(ROOT, '..', consumer, 'package.json'), 'utf8'));
+    for (const [name, version] of shared) {
+        const pinned = manifest.dependencies?.[name];
+        if (pinned !== undefined && pinned !== version) failures.push(`${consumer}/package.json: ${name} must pin ${version}, not ${pinned}`);
+    }
 }
 
 if (failures.length > 0) {

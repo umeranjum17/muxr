@@ -1,4 +1,4 @@
-import { MISSING_CWD_ERROR_PREFIX, type RequestParams } from '@muxr/contract';
+import { MISSING_CWD_ERROR_PREFIX, type RequestParams } from '@trymuxr/contract';
 import { sync } from '@/catalog/sync';
 import { refreshUntilSessionVisible } from '@/catalog/ops';
 import {

@@ -4,7 +4,7 @@ import type {
     PeerMessageSender,
     PeerRequestResult,
     SessionInfo,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import { createPeerClient, type PeerClientTransport, type PeerConnectionDiagnostic } from '../infrastructure/client.js';
 import { PeerStore, type StoredPeerRelationship, type StoredSemanticMutation } from '../infrastructure/store.js';
 

@@ -1,4 +1,4 @@
-import type { LifecycleNotificationLevel, PeerCapability } from '@muxr/contract';
+import type { LifecycleNotificationLevel, PeerCapability } from '@trymuxr/contract';
 
 export interface HostedMachineKeys {
     machineId: string;

@@ -8,7 +8,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect } from 'expo-router';
 import { DesktopView, observeWebKeyboardMotion, useDesktopSession } from '@desklink/react-native';
-import { DESKTOP_CONSENT_WAIT_MS } from '@muxr/contract';
+import { DESKTOP_CONSENT_WAIT_MS } from '@trymuxr/contract';
 
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';

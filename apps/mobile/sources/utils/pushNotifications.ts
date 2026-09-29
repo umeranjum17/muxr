@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import type { LifecycleNotificationLevel } from '@muxr/contract';
+import type { LifecycleNotificationLevel } from '@trymuxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { activeSessionClient } from '@/connection/sessionClientRef';
 import { storage } from '@/catalog/store';

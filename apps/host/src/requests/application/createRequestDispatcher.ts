@@ -10,8 +10,8 @@ import type {
     RequestResponse,
     RequestResult,
     RequestType,
-} from '@muxr/contract';
-import { machineHello, sanitizeRequestErrorMessage } from '@muxr/contract';
+} from '@trymuxr/contract';
+import { machineHello, sanitizeRequestErrorMessage } from '@trymuxr/contract';
 import type { AgentWatchStores, SessionSource, TerminalManager } from '../../agent/index.js';
 import { changesBrowse, changesList, changesPatch, changesWorktrees } from '../../agent/index.js';
 import {

@@ -3,7 +3,7 @@
  *  phone drops that one figure and still shows memory, load and uptime. */
 import { statfsSync } from 'node:fs';
 import { freemem, loadavg, totalmem, uptime } from 'node:os';
-import type { UsageVitals } from '@muxr/contract';
+import type { UsageVitals } from '@trymuxr/contract';
 
 export function vitalsFigures(): UsageVitals {
     const memoryTotal = totalmem();

@@ -14,7 +14,7 @@
  * never masquerade as host output.
  */
 
-import { newTerminalChannel, nextRequestId } from '@muxr/contract';
+import { newTerminalChannel, nextRequestId } from '@trymuxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';

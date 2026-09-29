@@ -5,7 +5,7 @@ import {
     type PluginStreamCapability,
     type RealtimeClientFrame,
     type RealtimeHostFrame,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
 import { getCachedHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
 import { sync } from '@/catalog/sync';

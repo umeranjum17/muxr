@@ -10,7 +10,7 @@
  * never disagree. One verdict rule governs the card and each window row.
  */
 
-import type { UsageLimitsPayload, UsageLimitsWindow } from '@muxr/contract';
+import type { UsageLimitsPayload, UsageLimitsWindow } from '@trymuxr/contract';
 import { resetClock, WINDOW_MINUTES } from './rateLimits.js';
 
 const clampPct = (value: number): number => Math.max(0, Math.min(100, value));

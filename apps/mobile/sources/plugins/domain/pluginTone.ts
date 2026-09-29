@@ -1,4 +1,4 @@
-import type { PluginScreenTone } from '@muxr/contract';
+import type { PluginScreenTone } from '@trymuxr/contract';
 import type { Theme } from '@/theme';
 
 /**

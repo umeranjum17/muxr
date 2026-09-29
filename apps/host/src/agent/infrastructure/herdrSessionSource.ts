@@ -30,8 +30,8 @@ import type {
     SessionSnapshot,
     SessionStartResult,
     SessionStatus,
-} from '@muxr/contract';
-import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@muxr/contract';
+} from '@trymuxr/contract';
+import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@trymuxr/contract';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
@@ -75,7 +75,7 @@ import type { PaneScreen, PaneScreens } from '../../desktop/index.js';
 /** Diagnostics and env identity for the product-owned realtime voice runtime. */
 const VOICE_STREAM_ID = 'voice';
 import type { PeerBroker } from '../../peer/index.js';
-import { MAX_RPC_CONCURRENCY, MAX_RPC_INPUT_BYTES, MAX_RPC_PER_DEVICE, MAX_RPC_PER_PLUGIN, type PluginContextRequest } from '@muxr/contract';
+import { MAX_RPC_CONCURRENCY, MAX_RPC_INPUT_BYTES, MAX_RPC_PER_DEVICE, MAX_RPC_PER_PLUGIN, type PluginContextRequest } from '@trymuxr/contract';
 import { buildPluginPublicContext, type PublicContextSource } from '../application/pluginPublicContext.js';
 import {
     collectKinds,

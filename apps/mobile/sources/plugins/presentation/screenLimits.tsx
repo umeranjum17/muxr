@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
-import type { PluginScreenLimitsNode, PluginScreenTone } from '@muxr/contract';
+import type { PluginScreenLimitsNode, PluginScreenTone } from '@trymuxr/contract';
 import { asLimitsPayload, runOutMs, type PluginLimitsPayload, type PluginLimitsWindow } from '../domain/limitsModel';
 import { resolvePath, bindText } from '../domain/screenModel';
 import { resolvePluginText } from '../domain/pluginText';

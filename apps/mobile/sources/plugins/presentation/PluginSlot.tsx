@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { PRIMITIVE_SPECS, type PluginNativeSlot, type PluginPrimitiveSpec } from '@muxr/contract';
+import { PRIMITIVE_SPECS, type PluginNativeSlot, type PluginPrimitiveSpec } from '@trymuxr/contract';
 import type { PluginSlotContexts } from '../domain/slotTypes';
 import { DeclarativeScreen } from './DeclarativeScreen';
 import { renderPrimitive } from './primitiveRegistry';

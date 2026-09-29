@@ -4,7 +4,7 @@
 
 import { machineBash } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
-import type { LandWorktreeResult } from '@muxr/contract';
+import type { LandWorktreeResult } from '@trymuxr/contract';
 
 /** Relative path prefix where worktrees are stored inside a repo */
 export const WORKTREE_DIR = '.dev/worktree';

@@ -5,7 +5,7 @@ import {
     generateKeyPair,
     type DeviceGrant,
     type KeyPair,
-} from '@muxr/crypto';
+} from '@trymuxr/crypto';
 import {
     claimLinkPairing,
     linkOfferName,

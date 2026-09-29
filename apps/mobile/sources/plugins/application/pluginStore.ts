@@ -1,4 +1,4 @@
-import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
+import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type PluginSummary } from '@trymuxr/contract';
 import { registerPluginInvalidationHandler, sync } from '@/catalog/sync';
 import bakedShortcuts from '../bundledShortcuts.json';
 import { resolvePluginText } from '../domain/pluginText';
