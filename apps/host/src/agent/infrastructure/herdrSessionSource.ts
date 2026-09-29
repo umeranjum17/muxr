@@ -50,7 +50,7 @@ import type {
     SessionStopOptions,
 } from '../application/sessionSource.js';
 import { KitHerdrClient, type HerdrCaller } from './herdrKitClient.js';
-import type { AgentStatus, HerdrKit } from '@byokit/herdr';
+import type { AgentStatus } from '@byokit/herdr';
 import {
     AgentRouteStore,
     herdrAgentSessionKey,
@@ -452,11 +452,34 @@ export interface RouteTarget {
     paneId: string;
 }
 export async function promptHerdrAgent(
-    prompter: Pick<HerdrKit, 'prompt'>,
+    client: HerdrCaller,
     target: RouteTarget,
     text: string,
 ): Promise<void> {
-    await prompter.prompt({ paneId: target.paneId }, text);
+    // Stays on the raw call: HerdrKit.prompt (through 0.1.1) gates on the
+    // kit's own tree, whose merged records can stick at status-unknown or
+    // launchPending-true for a live idle agent, refusing prompts the server
+    // would accept. See the PR body kit gap.
+    const receipt = await client.call<unknown>('agent.prompt', { target: target.paneId, text });
+    const result = typeof receipt === 'object' && receipt !== null && !Array.isArray(receipt)
+        ? receipt as Record<string, unknown>
+        : undefined;
+    const agent = typeof result?.agent === 'object' && result.agent !== null && !Array.isArray(result.agent)
+        ? result.agent as Record<string, unknown>
+        : undefined;
+    if (result?.type !== 'agent_prompted'
+        || typeof agent?.terminal_id !== 'string'
+        || typeof agent.agent_status !== 'string'
+        || typeof agent.workspace_id !== 'string'
+        || typeof agent.tab_id !== 'string'
+        || typeof agent.pane_id !== 'string'
+        || typeof agent.focused !== 'boolean'
+        || typeof agent.revision !== 'number'
+        || !Number.isSafeInteger(agent.revision)
+        || agent.revision < 0
+        || agent.pane_id !== target.paneId) {
+        throw new Error('Herdr did not queue the prompt.');
+    }
 }
 
 function agentRouteError(code: 'agent-unavailable' | 'agent-not-ready' | 'agent-route-ambiguous' | 'herdr-unavailable'): Error {
@@ -485,13 +508,13 @@ export function herdrAgentIsPromptable(
 }
 
 export async function promptPromptableHerdrAgent(
-    prompter: Pick<HerdrKit, 'prompt'>,
+    client: HerdrCaller,
     target: RouteTarget,
     promptable: boolean,
     text: string,
 ): Promise<void> {
     if (!promptable) throw agentRouteError('agent-not-ready');
-    await promptHerdrAgent(prompter, target, text);
+    await promptHerdrAgent(client, target, text);
 }
 
 function herdrFailureCode(error: unknown): string | undefined {
@@ -2243,7 +2266,7 @@ export async function createHerdrSessionSource(
             throw promptNotSent(error);
         }
         const generation = sessionGenerationKey(session);
-        await promptHerdrAgent(client.kit, session, text);
+        await promptHerdrAgent(client, session, text);
         let current: CurrentSession;
         try {
             current = await resolvePane(sessionId);
