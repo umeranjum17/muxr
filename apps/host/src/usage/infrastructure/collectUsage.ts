@@ -503,11 +503,13 @@ function accountFingerprint(id: PlanId, value: string): string {
  *  it was read from, one provider at a time: switching one account never costs
  *  another provider its reading, and a changed PATH or time zone costs none. */
 function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
-    const codexAuth = readJson(join(env.CODEX_HOME || join(env.HOME?.trim() || homedir(), '.codex'), 'auth.json'), 64 * 1024)?.value;
+    const codexHome = env.CODEX_HOME || join(env.HOME?.trim() || homedir(), '.codex');
+    const codexAuth = readJson(join(codexHome, 'auth.json'), 64 * 1024)?.value;
     const tokens = isRecord(codexAuth) && isRecord(codexAuth.tokens) ? codexAuth.tokens : undefined;
     // The account id is stable across Codex's own token rotation; a login
-    // without one (an API key) is the one account this CODEX_HOME has.
-    const codex = typeof tokens?.account_id === 'string' ? tokens.account_id : 'codex-home';
+    // without one (an API key) is fingerprinted by its folder instead, so
+    // each sign-in keeps its own reading.
+    const codex = typeof tokens?.account_id === 'string' ? tokens.account_id : `codex-home\u0000${codexHome}`;
     const accounts: Partial<Record<PlanId, string>> = {};
     const selected: Partial<Record<PlanId, unknown>> = {
         claude: claudeAuth(env)?.account, codex,

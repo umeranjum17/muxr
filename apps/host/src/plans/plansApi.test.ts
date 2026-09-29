@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv } from './plansApi.js';
-import { savePlanAccounts } from './planStore.js';
+import { loadPlanAccounts, savePlanAccounts } from './planStore.js';
 
 let root = '';
 let env: NodeJS.ProcessEnv;
@@ -29,6 +29,7 @@ read -r line
 base="\${CODEX_HOME##*/}"
 if [[ "$line" == *rateLimits* ]]; then
   if [[ "$base" == *-out ]]; then echo '{"id":2,"result":{"rateLimitsByLimitId":{}}}';
+  elif [[ "$base" == tight ]]; then echo "{\\"id\\":2,\\"result\\":{\\"rateLimitsByLimitId\\":{\\"plan\\":{\\"limitName\\":\\"Codex\\",\\"primary\\":{\\"usedPercent\\":90,\\"windowDurationMins\\":10080,\\"resetsAt\\":1893456000}}}}}";
   else echo "{\\"id\\":2,\\"result\\":{\\"rateLimitsByLimitId\\":{\\"plan\\":{\\"limitName\\":\\"Codex\\",\\"primary\\":{\\"usedPercent\\":25,\\"windowDurationMins\\":10080,\\"resetsAt\\":1893456000}}}}}"; fi
 elif [[ "$base" == *-out ]]; then echo '{"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}';
 else echo "{\\"id\\":2,\\"result\\":{\\"account\\":{\\"email\\":\\"$base@example.com\\"},\\"requiresOpenaiAuth\\":false}}"; fi
@@ -207,6 +208,40 @@ it('shows the Auto terms note until acknowledged, then remembers', async () => {
     const after = await listPlans(env);
     expect(after.autoTermsAcknowledged).toBe(true);
     expect(after.autoTermsNote).toBe(AUTO_TERMS_NOTE);
+});
+
+it('registers both found sign-ins without dropping either', async () => {
+    foundClaude();
+    const codexHome = join(root, '.codex');
+    mkdirSync(codexHome, { recursive: true });
+    const claudeSecond = addedClaude('work');
+    const codexSecond = join(root, 'muxr', 'plans', 'codex', 'other');
+    mkdirSync(codexSecond, { recursive: true });
+    savePlanAccounts(env, [
+        { id: 'pa_work', provider: 'claude', name: '', folder: claudeSecond, found: false },
+        { id: 'pa_x', provider: 'codex', name: 'Other', folder: codexSecond, found: false },
+    ]);
+    await listPlans(env);
+    expect(loadPlanAccounts(env).map((record) => record.id).sort())
+        .toEqual(['found-claude', 'found-codex', 'pa_work', 'pa_x']);
+    await listPlans(env);
+    expect(loadPlanAccounts(env).map((record) => record.id).sort())
+        .toEqual(['found-claude', 'found-codex', 'pa_work', 'pa_x']);
+});
+
+it('keeps separate readings for API-key codex sign-ins without account ids', async () => {
+    const homeA = join(root, '.codex');
+    mkdirSync(homeA, { recursive: true });
+    writeFileSync(join(homeA, 'auth.json'), JSON.stringify({ tokens: { access_token: 'a' } }));
+    const homeB = join(root, 'muxr', 'plans', 'codex', 'tight');
+    mkdirSync(homeB, { recursive: true });
+    writeFileSync(join(homeB, 'auth.json'), JSON.stringify({ tokens: { access_token: 'b' } }));
+    savePlanAccounts(env, [{ id: 'pa_b', provider: 'codex', name: 'Tight', folder: homeB, found: false }]);
+    const listed = await listPlans(env);
+    expect(listed.providers.map((entry) => entry.provider)).toEqual(['codex']);
+    expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
+    const relisted = await listPlans(env);
+    expect(relisted.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
 });
 
 it('auto skips signed-out accounts and names the earliest refill when all are out', async () => {

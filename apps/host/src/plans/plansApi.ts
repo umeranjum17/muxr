@@ -57,16 +57,10 @@ function identify(
  *  whose entry is created on first sight so a rename has somewhere to land. */
 async function providerRooms(
     provider: PlanProvider,
+    records: PlanAccountRecord[],
     env: NodeJS.ProcessEnv,
     deps: PlansDeps,
 ): Promise<{ accounts: PlanAccount[]; rooms: { id: string; name: string; signedIn: boolean; windows: UsageWindowVM[] }[] }> {
-    const stored = loadPlanAccounts(env).filter((record) => record.provider === provider);
-    const found = defaultPlanFolder(provider, env);
-    let records = stored;
-    if (existsSync(found) && !stored.some((record) => record.folder === found)) {
-        records = [{ id: `found-${provider}`, provider, name: '', folder: found, found: true }, ...stored];
-        savePlanAccounts(env, [...records, ...loadPlanAccounts(env).filter((record) => record.provider !== provider)]);
-    }
     const folderVar = provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
     const reads = await Promise.all(records.map(async (record) => {
         const identity = await identify(provider, record.folder, env, deps);
@@ -102,8 +96,19 @@ export async function listPlans(
     env: NodeJS.ProcessEnv = process.env,
     deps: PlansDeps = {},
 ): Promise<{ providers: PlanProviderAccounts[]; autoTermsAcknowledged: boolean; autoTermsNote: string }> {
-    const reads = await Promise.all(PLAN_PROVIDERS.map(async (provider) => {
-        const { accounts, rooms } = await providerRooms(provider, env, deps);
+    const stored = loadPlanAccounts(env);
+    const perProvider = new Map(PLAN_PROVIDERS.map((provider) => {
+        const own = stored.filter((record) => record.provider === provider);
+        const found = defaultPlanFolder(provider, env);
+        const records = existsSync(found) && !own.some((record) => record.folder === found)
+            ? [{ id: `found-${provider}`, provider, name: '', folder: found, found: true }, ...own]
+            : own;
+        return [provider, records] as const;
+    }));
+    const merged = PLAN_PROVIDERS.flatMap((provider) => perProvider.get(provider) ?? []);
+    if (merged.length !== stored.length) savePlanAccounts(env, merged);
+    const reads = await Promise.all(PLAN_PROVIDERS.map(async (provider): Promise<PlanProviderAccounts | undefined> => {
+        const { accounts, rooms } = await providerRooms(provider, perProvider.get(provider) ?? [], env, deps);
         if (accounts.length < 2) return undefined;
         const auto = choosePlanAccount(rooms, PLAN_LABELS[provider]);
         return {

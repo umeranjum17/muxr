@@ -27,7 +27,7 @@ function fakeHerdr(dir: string, cwd: string) {
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
-    const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), echoOnlyReads: 0 };
+    const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), echoOnlyReads: 0, answerFolder: undefined as string | undefined };
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
     const sendTexts: Array<{ pane_id: unknown; text: unknown }> = [];
@@ -103,9 +103,11 @@ function fakeHerdr(dir: string, cwd: string) {
                             ? undefined
                             : output.split('\n').reverse().find((entry) => entry.startsWith('echo '));
                         const parsed = /echo (\S+)=\$(\S+)/.exec(echo ?? '');
+                        const evaluated = state.answerFolder
+                            ?? String((pane?.env as Record<string, string> ?? {})[parsed?.[2] ?? ''] ?? '');
                         const text = parsed === null
                             ? output
-                            : `${output}\n${parsed[1]}=${String((pane?.env as Record<string, string> ?? {})[parsed[2]!] ?? '')}\n`;
+                            : `${output}\n${parsed[1]}=${evaluated}\n`;
                         reply = { id, result: { read: { text } } };
                         break;
                     }
@@ -272,6 +274,39 @@ describe('a plan-account move whose new-account start fails', () => {
             await expect(source.open({ sessionId })).rejects.toMatchObject({ code: 'agent-unavailable' });
             await new Promise((resolve) => setTimeout(resolve, 500));
             expect((await source.open({ sessionId: moved.sessionId })).info.id).toBe(moved.sessionId);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('refuses the new pane when the shell resolves a longer folder', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-move-prefix-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            await source.refreshHerdr();
+            const sessionId = (await source.list())[0]!.id;
+
+            herdr.state.answerFolder = '/new/claude-backup';
+            const error = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' })
+                .then(() => { throw new Error('move should have refused'); })
+                .catch((cause: unknown) => cause);
+            expect(error).toMatchObject({ code: 'plan-move-env-mismatch' });
+
+            expect(herdr.agents.some((agent) => agent.pane_id === 'p1')).toBe(true);
+            expect(herdr.calls.some((call) => call.method === 'agent.start' && call.detail === 'p2')).toBe(false);
+            expect(herdr.panes.some((pane) => pane.pane_id === 'p2')).toBe(false);
+
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            expect((await source.open({ sessionId })).info.id).toBe(sessionId);
         } finally {
             await source.dispose();
             herdr.close();
