@@ -281,6 +281,7 @@ describe('a private screen belongs to an agent pane, not a shell pane', () => {
             const agentEnv = (herdr.tabs[1] as { env?: Record<string, string> }).env;
             expect(agentEnv?.DISPLAY).toBe(':110');
             expect(agentEnv?.MUXR_AGENT_CAPABILITIES).toContain('this pane has its own screen');
+            expect(agentEnv?.MUXR_AGENT_CAPABILITIES).toContain('muxr preview status');
         } finally {
             await source.dispose();
             herdr.close();
@@ -338,6 +339,7 @@ describe('a restored layout gives its agent panes screens', () => {
             const shellEnv = herdr.panes.find((pane) => pane.pane_id === 'w1:p3')?.env as Record<string, string> | undefined;
             expect(agentEnv?.DISPLAY).toBe(':110');
             expect(agentEnv?.MUXR_AGENT_CAPABILITIES).toContain('this pane has its own screen');
+            expect(agentEnv?.MUXR_AGENT_CAPABILITIES).toContain('muxr preview status');
             expect(shellEnv?.DISPLAY).toBeUndefined();
         } finally {
             await source.dispose();

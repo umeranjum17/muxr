@@ -93,7 +93,7 @@ const PROMPT_READY_TIMEOUT_MS = 30_000;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 
-const SCREEN_BROWSER = 'Browser: this pane has its own screen that the user can watch live in muxr and take over.';
+const SCREEN_BROWSER = 'Browser: this pane has its own screen that the user can watch live in muxr and take over. Check `muxr preview status` before acting in the browser; pause while it says human.';
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
 const BROWSER_GUIDANCE = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
 const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.";

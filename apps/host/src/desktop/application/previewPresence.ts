@@ -2,6 +2,7 @@ import { EngineRefused } from '@desklink/host';
 import type { DesktopCapabilities, DesktopEvent, PreviewPresence, SessionInfo } from '@muxr/contract';
 
 import { DesktopSessions, type DesktopEngineOptions } from '../infrastructure/desktopSessions.js';
+import { PreviewLeaseTracker } from './previewLease.js';
 
 /**
  * Presence + target sessions for an agent's own screen (P1.3).
@@ -263,12 +264,22 @@ export function withPreview(
 type DesktopOpenRequest = Parameters<DesktopSessions['open']>[0];
 type DesktopOwner = Parameters<DesktopSessions['open']>[1];
 
+/** A target session opened with control scope: its human holds the pane's lease. */
+function controlsTarget(request: DesktopOpenRequest): boolean {
+    return request.permissions.includes('control');
+}
+
 export interface PreviewDesktopsOptions {
     screens: PreviewScreens | undefined;
     listSessions: () => Promise<Array<{ id: string; paneId?: string }>>;
     makeDesktop: (environment: NodeJS.ProcessEnv) => DesktopSessions;
     /** How long a pane's engine wrapper idles with no sessions before it is dropped. */
     idleMs?: number;
+    /**
+     * Who is driving a pane's screen. Absent (tests, screenless hosts) means
+     * target sessions route exactly as before, with no lease tracked.
+     */
+    lease?: PreviewLeaseTracker;
 }
 
 const TARGET_ID_PREFIX = 'pv';
@@ -285,8 +296,9 @@ export class PreviewDesktops {
     private readonly listSessions: () => Promise<Array<{ id: string; paneId?: string }>>;
     private readonly makeDesktop: (environment: NodeJS.ProcessEnv) => DesktopSessions;
     private readonly idleMs: number;
+    private readonly lease: PreviewLeaseTracker | undefined;
     private readonly panes = new Map<string, { desktop: DesktopSessions; lastUsed: number }>();
-    private readonly targets = new Map<string, { desktop: DesktopSessions; desktopId: string; ownerDeviceId?: string }>();
+    private readonly targets = new Map<string, { desktop: DesktopSessions; desktopId: string; paneId: string; controlling: boolean; ownerDeviceId?: string }>();
     private counter = 0;
     private readonly reaper: ReturnType<typeof setInterval>;
 
@@ -295,6 +307,7 @@ export class PreviewDesktops {
         this.listSessions = options.listSessions;
         this.makeDesktop = options.makeDesktop;
         this.idleMs = options.idleMs ?? DEFAULT_TARGET_IDLE_MS;
+        this.lease = options.lease;
         this.reaper = setInterval(() => {
             void this.reap().catch(() => undefined);
         }, this.idleMs);
@@ -322,8 +335,13 @@ export class PreviewDesktops {
         this.targets.set(desktopId, {
             desktop: entry.desktop,
             desktopId: opened.desktopId,
+            paneId,
+            controlling: controlsTarget(request),
             ...(owner?.deviceId === undefined ? {} : { ownerDeviceId: owner.deviceId }),
         });
+        // The first control message marks the human lease; a view-only open
+        // never does, so watching alone stays silent for the agent.
+        if (controlsTarget(request)) this.lease?.markControl(paneId, desktopId, owner?.deviceId);
         return { desktopId, generation: opened.generation, geometry: opened.geometry, source: opened.source };
     }
 
@@ -357,7 +375,7 @@ export class PreviewDesktops {
         return entry;
     }
 
-    private require(desktopId: string): { desktop: DesktopSessions; desktopId: string } {
+    private require(desktopId: string): { desktop: DesktopSessions; desktopId: string; paneId: string; controlling: boolean } {
         const target = this.targets.get(desktopId);
         if (target === undefined) throw new EngineRefused('session', 'that desktop session is not open');
         return target;
@@ -365,7 +383,11 @@ export class PreviewDesktops {
 
     async answer(desktopId: string, sdp: string, connectionId?: string, deviceId?: string): Promise<{ accepted: boolean }> {
         const target = this.require(desktopId);
-        return target.desktop.answer(target.desktopId, sdp, connectionId, deviceId);
+        const accepted = await target.desktop.answer(target.desktopId, sdp, connectionId, deviceId);
+        // A routed message on a controlling session is the human still there:
+        // it pushes the idle expiry out. View-only sessions never refresh.
+        if (target.controlling) this.lease?.refresh(target.paneId);
+        return accepted;
     }
 
     async candidate(
@@ -377,7 +399,9 @@ export class PreviewDesktops {
         deviceId?: string,
     ): Promise<{ accepted: boolean }> {
         const target = this.require(desktopId);
-        return target.desktop.candidate(target.desktopId, candidate, sdpMid, sdpMLineIndex, connectionId, deviceId);
+        const accepted = await target.desktop.candidate(target.desktopId, candidate, sdpMid, sdpMLineIndex, connectionId, deviceId);
+        if (target.controlling) this.lease?.refresh(target.paneId);
+        return accepted;
     }
 
     async poll(
@@ -387,13 +411,18 @@ export class PreviewDesktops {
         deviceId?: string,
     ): Promise<{ cursor: number; events: DesktopEvent[] }> {
         const target = this.require(desktopId);
-        return target.desktop.poll(target.desktopId, cursor, connectionId, deviceId);
+        const polled = await target.desktop.poll(target.desktopId, cursor, connectionId, deviceId);
+        if (target.controlling) this.lease?.refresh(target.paneId);
+        return polled;
     }
 
     async close(desktopId: string, connectionId?: string, deviceId?: string): Promise<{ closed: boolean }> {
         const target = this.targets.get(desktopId);
         if (target === undefined) return { closed: true };
+        // Hand-back (or leaving the view): the claim drops even when the
+        // engine close itself fails, so the agent is never stuck paused.
         this.targets.delete(desktopId);
+        this.lease?.release(desktopId);
         return target.desktop.close(target.desktopId, connectionId, deviceId);
     }
 
@@ -407,12 +436,16 @@ export class PreviewDesktops {
         for (const [desktopId, target] of [...this.targets]) {
             if (target.ownerDeviceId === deviceId) this.targets.delete(desktopId);
         }
+        // Revocation clears the lease at once: a distrusted phone must not
+        // hold the agent paused for the rest of the idle window.
+        this.lease?.revokeDevice(deviceId);
     }
 
     /** Close every target session; called when the host stops. */
     async closeAll(): Promise<void> {
         clearInterval(this.reaper);
         this.targets.clear();
+        this.lease?.stop();
         for (const [paneId, entry] of [...this.panes]) {
             this.panes.delete(paneId);
             await entry.desktop.closeAll();
