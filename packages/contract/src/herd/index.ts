@@ -52,6 +52,9 @@ export {
     CLOSE_SCOPES,
 } from './domain/sessionState.js';
 
+export type { AgentTaskSources } from './domain/agentTask.js';
+export { agentTask } from './domain/agentTask.js';
+
 export type { SessionEvent, SessionEventBody, SessionEventType } from './domain/sessionEvent.js';
 export { SESSION_EVENT_TYPES } from './domain/sessionEvent.js';
 

@@ -39,8 +39,8 @@ The current Herdr `agent.name`. Every surface renders it directly; muxr never al
 _Avoid_: label, display label, pane title, cached name
 
 **Task Title**:
-The current Herdr Agent title for the live generation. Every surface renders it directly; muxr never derives it from navigation labels or restores a prior generation's title.
-_Avoid_: cached title, terminal title, name
+What an Agent is working on right now, picked by `agentTask` from what Herdr supplies for the live generation: the pane label, the harness's own window title, Herdr title metadata, or a sole-agent task workspace label. A source that only names the folder, repo, program or agent never counts. It leads every surface; muxr never restores a prior generation's title.
+_Avoid_: cached title, name
 
 **Agent Kind**:
 The current Herdr Agent provider (`pi`, `claude`, `codex`). Separate from Agent Name and Task Title. A phone-launched Agent carries the requested kind until Herdr detects the process or the launch window expires.
