@@ -1,8 +1,10 @@
 import * as React from 'react';
-import { Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { Keyboard, Modal as SheetModal, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useLocalSettingMutable } from '@/catalog/store';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
@@ -10,7 +12,6 @@ import { ItemList } from '@/components/ItemList';
 import { hapticsSelection } from '@/components/haptics';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-import { BaseModal } from '@/modal/components/BaseModal';
 import {
     READABLE_CONTRAST,
     TERMINAL_ANSI_SLOTS,
@@ -69,7 +70,7 @@ function TerminalColorsPreview({ colors, selectionOverridden }: { colors: Termin
                 <Run color={ansi(1)}>  modified:</Run> src/index.ts
             </Text>
             <Text style={[styles.previewLine, { color: colors.foreground }]} numberOfLines={1}>
-                <Run color={ansi(10)}>✓ 12 passed</Run>{' '}<Run color={ansi(9)}>✗ 1 failed</Run>{' '}<Run color={ansi(3)}>2 skipped</Run>
+                <Run color={ansi(10)}>✓ 12 pass</Run>{' '}<Run color={ansi(9)}>✗ 1 fail</Run>{' '}<Run color={ansi(3)}>2 skip</Run>
             </Text>
             <Text style={[styles.previewLine, { color: colors.foreground }]} numberOfLines={1}>
                 <Run color={ansi(12)}>docs/</Run>{' '}<Run color={ansi(5)}>build.sh</Run>{' '}<Run color={ansi(6)}>README</Run>{' '}<Run color={ansi(8)}># notes</Run>
@@ -170,17 +171,6 @@ const THUMB = 26;
 // Plain object: unistyles only styles the components it compiles, not the gradient.
 const TRACK_FILL = { height: 18, borderRadius: 9 };
 
-/** The sheet sits above the keyboard, so its header must fit what is left. */
-function useKeyboardHeight(): number {
-    const [keyboard, setKeyboard] = React.useState(0);
-    React.useEffect(() => {
-        const shown = Keyboard.addListener('keyboardDidShow', (event) => setKeyboard(event.endCoordinates.height));
-        const hidden = Keyboard.addListener('keyboardDidHide', () => setKeyboard(0));
-        return () => { shown.remove(); hidden.remove(); };
-    }, []);
-    return keyboard;
-}
-
 /**
  * Picks one slot's colour: drag hue, saturation and brightness, type a hex
  * code, or take a colour already in the palette. Nothing is saved until Done;
@@ -194,8 +184,8 @@ function ColorEditor({ slot, colors, overridden, onDone, onClose }: {
     onClose: () => void;
 }) {
     const { theme } = useUnistyles();
-    const { width, height } = useWindowDimensions();
-    const keyboard = useKeyboardHeight();
+    const { width } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
     const initial = colors[slot];
     const [hsv, setHsv] = React.useState(() => hexToHsv(initial));
     const [isDefault, setIsDefault] = React.useState(!overridden);
@@ -206,6 +196,10 @@ function ColorEditor({ slot, colors, overridden, onDone, onClose }: {
         setDraft(text);
         const parsed = normalizeHex(text);
         if (parsed !== null) { setHsv(hexToHsv(parsed)); setIsDefault(false); }
+        // A full code is the end of typing: drop the keyboard so the colour
+        // shows and the first tap on Done lands (while the keyboard is up,
+        // Android spends that tap taking focus off the field).
+        if (/^#?[0-9a-f]{6}$/i.test(text.trim())) Keyboard.dismiss();
     };
     const draftValid = normalizeHex(draft) !== null;
     const name = terminalColorName(slot);
@@ -225,94 +219,105 @@ function ColorEditor({ slot, colors, overridden, onDone, onClose }: {
     };
 
     return (
-        <BaseModal visible onClose={onClose} align="bottom" animationType="slide">
-            <View style={[styles.sheet, { width: Math.min(width, 480), maxHeight: height - 48 - keyboard }]} accessibilityViewIsModal>
-                <View style={styles.sheetHeader}>
-                    <Text style={styles.sheetTitle} accessibilityRole="header">{name}</Text>
-                    <Pressable accessibilityRole="button" accessibilityLabel="Cancel" hitSlop={10} onPress={onClose}>
-                        <Text style={[styles.sheetAction, { color: theme.colors.textSecondary }]}>Cancel</Text>
-                    </Pressable>
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={isDefault ? `Use the default for ${name}` : `Use ${hex} for ${name}`}
-                        accessibilityState={{ disabled: !draftValid }}
-                        disabled={!draftValid}
-                        hitSlop={10}
-                        onPress={() => { hapticsSelection(); onDone(isDefault ? null : hex); }}
-                    >
-                        <Text style={[styles.sheetAction, { color: draftValid ? theme.colors.textLink : theme.colors.textSecondary, ...Typography.default('semiBold') }]}>Done</Text>
-                    </Pressable>
-                </View>
-                <ScrollView bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetBody}>
-                    <View style={styles.compare}>
-                        <View style={[styles.compareSample, { backgroundColor: invertedDefault ? colors.foreground : sample.background }]}>
-                            <Text style={[styles.compareText, { color: invertedDefault ? colors.background : sample.color }]} numberOfLines={1}>{slot === 'cursor' ? '$ ' : 'Sample text'}</Text>
-                            {slot === 'cursor' && <View style={[styles.compareCursor, { backgroundColor: hex }]} />}
-                        </View>
-                        <View style={styles.compareSwatches} accessibilityLabel={`Was ${initial}, now ${hex}`} accessible>
-                            <Swatch color={initial} size={22} />
-                            <Ionicons name="arrow-forward" size={14} color={theme.colors.textSecondary} />
-                            <Swatch color={hex} size={22} />
-                        </View>
-                    </View>
-                    {invertedDefault ? (
-                        <Text style={[styles.ratio, { color: theme.colors.textSecondary }]}>The default swaps text and background</Text>
-                    ) : (
-                        <Text style={[styles.ratio, { color: ratio < READABLE_CONTRAST ? theme.colors.box.warning.text : theme.colors.textSecondary }]}>
-                            {ratio < READABLE_CONTRAST ? 'Low contrast' : 'Contrast'} {formatRatio(ratio)} against {slot === 'background' || slot === 'selection' ? 'text' : 'background'}
-                        </Text>
-                    )}
-                    {CHANNELS.map((channel) => <ChannelSlider key={channel.key} hsv={hsv} channel={channel} onChange={pick} />)}
-                    <View style={styles.hexRow}>
-                        <Text style={styles.channelLabel}>Hex</Text>
-                        <TextInput
-                            value={draft}
-                            onChangeText={typed}
-                            onBlur={() => setDraft(hex)}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                            maxLength={7}
-                            accessibilityLabel={`${name} hex code`}
-                            accessibilityHint="Six hex digits, like #1e90ff"
-                            placeholder="#rrggbb"
-                            placeholderTextColor={theme.colors.textSecondary}
-                            style={[styles.hexInput, { color: theme.colors.text, borderColor: draftValid ? theme.colors.divider : theme.colors.box.error.border }]}
-                        />
-                    </View>
-                    <Text style={styles.channelLabel}>From the palette</Text>
-                    <View style={styles.suggestions}>
+        // Its own modal rather than BaseModal: BaseModal's height-based
+        // avoidance stayed shrunk on Android after Back hid the keyboard,
+        // pushing Done under the status bar.
+        <SheetModal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+            <KeyboardAvoidingView
+                behavior="padding"
+                style={[styles.sheetRoot, { paddingTop: insets.top + 24 }]}
+            >
+                <Pressable accessibilityRole="button" accessibilityLabel="Close" style={styles.scrim} onPress={onClose} />
+                <View style={[styles.sheet, { width: Math.min(width, 480), paddingBottom: insets.bottom }]} accessibilityViewIsModal>
+                    <View style={styles.sheetHeader}>
+                        <Text style={styles.sheetTitle} accessibilityRole="header">{name}</Text>
+                        <Pressable accessibilityRole="button" accessibilityLabel="Cancel" hitSlop={10} onPress={onClose}>
+                            <Text style={[styles.sheetAction, { color: theme.colors.textSecondary }]}>Cancel</Text>
+                        </Pressable>
                         <Pressable
                             accessibilityRole="button"
-                            accessibilityLabel={`Default, ${slot === 'selection' && NATIVE_INVERTED_SELECTION ? 'swaps text and background' : defaultHex}`}
-                            accessibilityState={{ selected: isDefault }}
-                            hitSlop={4}
-                            onPress={useDefault}
-                            style={[styles.suggestion, isDefault && { borderColor: theme.colors.textLink }]}
+                            accessibilityLabel={isDefault ? `Use the default for ${name}` : `Use ${hex} for ${name}`}
+                            accessibilityState={{ disabled: !draftValid }}
+                            disabled={!draftValid}
+                            hitSlop={10}
+                        onPress={() => { hapticsSelection(); onDone(isDefault ? null : hex); }}
                         >
-                            <Swatch
-                                color={slot === 'selection' && NATIVE_INVERTED_SELECTION ? TERMINAL_COLOR_DEFAULTS.foreground : defaultHex}
-                                inverted={slot === 'selection' && NATIVE_INVERTED_SELECTION ? TERMINAL_COLOR_DEFAULTS.background : undefined}
-                                size={26}
-                            />
-                            <Text style={styles.suggestionLabel}>Default</Text>
+                            <Text style={[styles.sheetAction, { color: draftValid ? theme.colors.textLink : theme.colors.textSecondary, ...Typography.default('semiBold') }]}>Done</Text>
                         </Pressable>
-                        {suggestions.map((color) => (
-                            <Pressable
-                                key={color}
-                                accessibilityRole="button"
-                                accessibilityLabel={color}
-                                accessibilityState={{ selected: !isDefault && color === hex }}
-                                hitSlop={4}
-                                onPress={() => { hapticsSelection(); pick(hexToHsv(color)); }}
-                                style={[styles.suggestion, !isDefault && color === hex && { borderColor: theme.colors.textLink }]}
-                            >
-                                <Swatch color={color} size={26} />
-                            </Pressable>
-                        ))}
                     </View>
-                </ScrollView>
-            </View>
-        </BaseModal>
+                    <ScrollView bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetBody}>
+                        <View style={styles.compare}>
+                            <View style={[styles.compareSample, { backgroundColor: invertedDefault ? colors.foreground : sample.background }]}>
+                                <Text style={[styles.compareText, { color: invertedDefault ? colors.background : sample.color }]} numberOfLines={1}>{slot === 'cursor' ? '$ ' : 'Sample text'}</Text>
+                                {slot === 'cursor' && <View style={[styles.compareCursor, { backgroundColor: hex }]} />}
+                            </View>
+                            <View style={styles.compareSwatches} accessibilityLabel={`Was ${initial}, now ${hex}`} accessible>
+                                <Swatch color={initial} size={22} />
+                                <Ionicons name="arrow-forward" size={14} color={theme.colors.textSecondary} />
+                                <Swatch color={hex} size={22} />
+                            </View>
+                        </View>
+                        {invertedDefault ? (
+                            <Text style={[styles.ratio, { color: theme.colors.textSecondary }]}>The default swaps text and background</Text>
+                        ) : (
+                            <Text style={[styles.ratio, { color: ratio < READABLE_CONTRAST ? theme.colors.box.warning.text : theme.colors.textSecondary }]}>
+                                {ratio < READABLE_CONTRAST ? 'Low contrast' : 'Contrast'} {formatRatio(ratio)} against {slot === 'background' || slot === 'selection' ? 'text' : 'background'}
+                            </Text>
+                        )}
+                        {CHANNELS.map((channel) => <ChannelSlider key={channel.key} hsv={hsv} channel={channel} onChange={pick} />)}
+                        <View style={styles.hexRow}>
+                            <Text style={styles.channelLabel}>Hex</Text>
+                            <TextInput
+                                value={draft}
+                                onChangeText={typed}
+                                onBlur={() => setDraft(hex)}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                maxLength={7}
+                                returnKeyType="done"
+                                onSubmitEditing={() => { if (draftValid) onDone(isDefault ? null : hex); }}
+                                accessibilityLabel={`${name} hex code`}
+                                accessibilityHint="Six hex digits, like #1e90ff"
+                                placeholder="#rrggbb"
+                                placeholderTextColor={theme.colors.textSecondary}
+                                style={[styles.hexInput, { color: theme.colors.text, borderColor: draftValid ? theme.colors.divider : theme.colors.box.error.border }]}
+                            />
+                        </View>
+                        <Text style={styles.channelLabel}>From the palette</Text>
+                        <View style={styles.suggestions}>
+                            <Pressable
+                                accessibilityRole="button"
+                                accessibilityLabel={`Default, ${slot === 'selection' && NATIVE_INVERTED_SELECTION ? 'swaps text and background' : defaultHex}`}
+                                accessibilityState={{ selected: isDefault }}
+                                hitSlop={4}
+                                onPress={useDefault}
+                                style={[styles.suggestion, isDefault && { borderColor: theme.colors.textLink }]}
+                            >
+                                <Swatch
+                                    color={slot === 'selection' && NATIVE_INVERTED_SELECTION ? TERMINAL_COLOR_DEFAULTS.foreground : defaultHex}
+                                    inverted={slot === 'selection' && NATIVE_INVERTED_SELECTION ? TERMINAL_COLOR_DEFAULTS.background : undefined}
+                                    size={26}
+                                />
+                                <Text style={styles.suggestionLabel}>Default</Text>
+                            </Pressable>
+                            {suggestions.map((color) => (
+                                <Pressable
+                                    key={color}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={color}
+                                    accessibilityState={{ selected: !isDefault && color === hex }}
+                                    hitSlop={4}
+                                    onPress={() => { hapticsSelection(); pick(hexToHsv(color)); }}
+                                    style={[styles.suggestion, !isDefault && color === hex && { borderColor: theme.colors.textLink }]}
+                                >
+                                    <Swatch color={color} size={26} />
+                                </Pressable>
+                            ))}
+                        </View>
+                    </ScrollView>
+                </View>
+            </KeyboardAvoidingView>
+        </SheetModal>
     );
 }
 
@@ -446,7 +451,10 @@ const styles = StyleSheet.create((theme) => ({
     paletteCell: { flex: 1, aspectRatio: 1, maxWidth: 44 },
     paletteSwatch: { flex: 1, borderRadius: 8, borderWidth: 1 },
     paletteDot: { position: 'absolute', top: -3, right: -3, width: 9, height: 9, borderRadius: 4.5, borderWidth: 1.5, borderColor: theme.colors.surface },
+    sheetRoot: { flex: 1, justifyContent: 'flex-end', alignItems: 'center' },
+    scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0, 0, 0, 0.42)' },
     sheet: {
+        flexShrink: 1,
         backgroundColor: theme.colors.surface,
         borderTopLeftRadius: 22,
         borderTopRightRadius: 22,
@@ -482,7 +490,8 @@ const styles = StyleSheet.create((theme) => ({
         elevation: 3,
     },
     hexRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    hexInput: { ...Typography.mono(), flex: 1, fontSize: 16, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: Platform.select({ ios: 10, default: 8 }) },
+    // A background of its own drops Android's EditText underline inside the box.
+    hexInput: { ...Typography.mono(), flex: 1, backgroundColor: 'transparent', fontSize: 16, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: Platform.select({ ios: 10, default: 8 }) },
     suggestions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     suggestion: { alignItems: 'center', gap: 2, padding: 3, borderRadius: 10, borderWidth: 2, borderColor: 'transparent' },
     suggestionLabel: { ...Typography.default(), fontSize: 10, color: theme.colors.textSecondary },
