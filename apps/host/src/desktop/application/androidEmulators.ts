@@ -10,6 +10,7 @@ import { EngineClient, EngineRefused, resolveEngine } from '@desklink/host';
 import type { DesktopEvent, DesktopPermission, DesktopSurfaceGeometry, PreviewPresence, SessionInfo } from '@muxr/contract';
 
 import { onPath } from '../infrastructure/x11Display.js';
+import type { PreviewLeaseTracker } from './previewLease.js';
 import type { ScrcpyVideoEvent } from './scrcpy.js';
 import {
     ANDROID_ACTION_DOWN,
@@ -1148,6 +1149,7 @@ export interface AndroidTargetsOptions {
     previewFor: (paneId: string) => PreviewPresence | undefined;
     /** The adb-confirmed serial behind an announced pane; the map is the grant. */
     serialForPane: (paneId: string) => string | undefined;
+    lease?: PreviewLeaseTracker;
 }
 
 const ANDROID_TARGET_PREFIX = 'av';
@@ -1164,7 +1166,8 @@ export class AndroidPreviewTargets {
     private readonly listSessions: () => Promise<Array<{ id: string; paneId?: string }>>;
     private readonly previewFor: (paneId: string) => PreviewPresence | undefined;
     private readonly serialForPane: (paneId: string) => string | undefined;
-    private readonly serialByTarget = new Map<string, { serial: string; ownerDeviceId?: string }>();
+    private readonly lease: PreviewLeaseTracker | undefined;
+    private readonly serialByTarget = new Map<string, { serial: string; paneId: string; controlling: boolean; ownerDeviceId?: string }>();
     private readonly connectedLinkDevices = new Set<string>();
     private readonly disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private counter = 0;
@@ -1174,6 +1177,7 @@ export class AndroidPreviewTargets {
         this.listSessions = options.listSessions;
         this.previewFor = options.previewFor;
         this.serialForPane = options.serialForPane;
+        this.lease = options.lease;
     }
 
     /** The pane's emulator for a session, or a refusal when it cannot be shown. */
@@ -1197,14 +1201,18 @@ export class AndroidPreviewTargets {
         request: { permissions: DesktopPermission[]; maxFps?: number; loopbackTcp?: boolean },
         owner?: { deviceId?: string },
     ): Promise<{ desktopId: string; generation: number; geometry: DesktopSurfaceGeometry; source: EncodedEngineSession['source'] }> {
-        const { serial } = await this.resolveTarget(sessionId);
+        const { paneId, serial } = await this.resolveTarget(sessionId);
         const { session } = await this.mirrors.open(serial, request);
         this.counter += 1;
         const desktopId = `${ANDROID_TARGET_PREFIX}${this.counter.toString(36)}`;
+        const controlling = request.permissions.includes('control');
         this.serialByTarget.set(desktopId, {
             serial,
+            paneId,
+            controlling,
             ...(owner?.deviceId === undefined ? {} : { ownerDeviceId: owner.deviceId }),
         });
+        if (controlling) this.lease?.markControl(paneId, desktopId, owner?.deviceId);
         return { desktopId, generation: session.generation, geometry: session.geometry, source: session.source };
     }
 
@@ -1213,7 +1221,7 @@ export class AndroidPreviewTargets {
         return desktopId.startsWith(ANDROID_TARGET_PREFIX) && this.serialByTarget.has(desktopId);
     }
 
-    private requiredTarget(desktopId: string, connectionId?: string, deviceId?: string): { serial: string; ownerDeviceId?: string } {
+    private requiredTarget(desktopId: string, connectionId?: string, deviceId?: string): { serial: string; paneId: string; controlling: boolean; ownerDeviceId?: string } {
         const target = this.serialByTarget.get(desktopId);
         if (target === undefined) throw new EngineRefused('session', 'that desktop session is not open');
         if (connectionId !== undefined && (deviceId === undefined || target.ownerDeviceId !== deviceId)) {
@@ -1230,11 +1238,17 @@ export class AndroidPreviewTargets {
     }
 
     async answer(desktopId: string, sdp: string, connectionId?: string, deviceId?: string): Promise<{ accepted: boolean }> {
-        return this.require(desktopId, connectionId, deviceId).answer(sdp);
+        const accepted = await this.require(desktopId, connectionId, deviceId).answer(sdp);
+        const target = this.serialByTarget.get(desktopId);
+        if (target?.controlling === true) this.lease?.refresh(target.paneId);
+        return accepted;
     }
 
     async candidate(desktopId: string, candidate: string, sdpMid: string | null, sdpMLineIndex: number | null, connectionId?: string, deviceId?: string): Promise<{ accepted: boolean }> {
-        return this.require(desktopId, connectionId, deviceId).candidate(candidate, sdpMid, sdpMLineIndex);
+        const accepted = await this.require(desktopId, connectionId, deviceId).candidate(candidate, sdpMid, sdpMLineIndex);
+        const target = this.serialByTarget.get(desktopId);
+        if (target?.controlling === true) this.lease?.refresh(target.paneId);
+        return accepted;
     }
 
     async poll(desktopId: string, cursor: number, connectionId?: string, deviceId?: string): Promise<{ cursor: number; events: DesktopEvent[] }> {
@@ -1269,9 +1283,11 @@ export class AndroidPreviewTargets {
             ? backlog.events.slice(cursor - oldest)
             : backlog.events.slice();
         const answer = { cursor: backlog.appended, events };
+        if (target.controlling) this.lease?.refresh(target.paneId);
         if (events.some((event) => event.kind === 'revoked')) {
             this.serialByTarget.delete(desktopId);
             this.backlog.delete(desktopId);
+            this.lease?.release(desktopId);
             await this.dropMirrorIfIdle(target.serial);
         }
         return answer;
@@ -1285,6 +1301,7 @@ export class AndroidPreviewTargets {
         }
         this.serialByTarget.delete(desktopId);
         this.backlog.delete(desktopId);
+        this.lease?.release(desktopId);
         // The last viewer takes the mirror down: no watcher, no engine.
         await this.dropMirrorIfIdle(target.serial);
         return { closed: true };
@@ -1322,6 +1339,7 @@ export class AndroidPreviewTargets {
             this.backlog.delete(desktopId);
             await this.dropMirrorIfIdle(target.serial);
         }
+        this.lease?.revokeDevice(deviceId);
     }
 
     async closeAll(): Promise<void> {
@@ -1367,6 +1385,7 @@ export interface AndroidWatcherOptions {
     enginePath?: string;
     scanMs?: number;
     onDiagnostic?: (line: string) => void;
+    lease?: PreviewLeaseTracker;
 }
 
 const WATCH_SCAN_MS = 2000;
@@ -1403,6 +1422,7 @@ export class AndroidEmulatorWatcher {
             previewFor: (paneId) => this.tracker.previewFor(paneId),
             // Only ever names emulators confirmed over adb for a live pane.
             serialForPane: (paneId) => this.serialByPane.get(paneId),
+            ...(options.lease === undefined ? {} : { lease: options.lease }),
         });
     }
 

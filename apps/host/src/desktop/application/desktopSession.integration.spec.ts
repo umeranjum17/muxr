@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { DesktopSessions } from '../infrastructure/desktopSessions.js';
 import { PreviewDesktops, PreviewPresenceTracker } from './previewPresence.js';
+import { PreviewLeaseTracker, type PreviewLeaseSnapshot } from './previewLease.js';
 
 /**
  * The whole host-side desktop path, against a stub engine.
@@ -790,6 +791,68 @@ createServer().listen(${JSON.stringify(sockets)} + '/X' + number);
         } finally {
             await preview.closeAll();
             await desktop.closeAll();
+        }
+    }, 20_000);
+
+    it('marks the pane human while a control-scoped target is live, and clears it after', async () => {
+        const pane = stubEngine();
+        const saved: PreviewLeaseSnapshot[] = [];
+        const lease = new PreviewLeaseTracker({ idleMs: 60, persist: (snapshot) => saved.push(snapshot) });
+        // The same target plumbing as the open above, plus the lease: the
+        // phone drives through target opens, and the agent reads the pane.
+        const preview = new PreviewDesktops({
+            screens: {
+                screenFor: (paneId) => paneId === 'pane-1'
+                    ? { display: ':121', env: {} }
+                    : undefined,
+                onWindows: () => () => undefined,
+            },
+            listSessions: async () => [{ id: 'sess-1', paneId: 'pane-1' }],
+            makeDesktop: (environment) => new DesktopSessions({ enginePath: process.execPath, engineArguments: [pane.path, pane.log] }, environment),
+            lease,
+        });
+        const owner = { connectionId: 'c1', deviceId: 'phone-1', isConnected: () => true };
+        const lastSaved = () => saved[saved.length - 1]?.panes['pane-1'];
+        try {
+            // Watching alone stays silent for the agent.
+            const watcher = await preview.openTarget('sess-1', { permissions: ['view'] }, owner);
+            expect(lease.controllerFor('pane-1')).toBeUndefined();
+            expect(lastSaved()).toBeUndefined();
+
+            // The first control message marks the pane, durably for the CLI.
+            const driver = await preview.openTarget('sess-1', { permissions: ['view', 'control'] }, owner);
+            expect(lease.controllerFor('pane-1')).toBe('human');
+            expect(lastSaved()).toMatchObject({ controller: 'human' });
+            expect(lastSaved()?.expiresAt).toBeGreaterThan(Date.now());
+
+            // Closing the view-only session is not hand-back: the claim stays.
+            await preview.close(watcher.desktopId);
+            expect(lease.controllerFor('pane-1')).toBe('human');
+
+            // A routed message is the human still there; silence past the
+            // idle window clears the pane without any close arriving.
+            await preview.poll(driver.desktopId, 0);
+            await new Promise((resolve) => setTimeout(resolve, 120));
+            expect(lease.controllerFor('pane-1')).toBeUndefined();
+            expect(lastSaved()).toBeUndefined();
+
+            // Hand-back (closing the controlling session) clears at once, so
+            // the agent resumes without waiting out the idle window.
+            const second = await preview.openTarget('sess-1', { permissions: ['view', 'control'] }, owner);
+            expect(lease.controllerFor('pane-1')).toBe('human');
+            await preview.close(second.desktopId);
+            expect(lease.controllerFor('pane-1')).toBeUndefined();
+            expect(lastSaved()).toBeUndefined();
+
+            // Revocation clears at once too: a distrusted phone holds nothing.
+            const third = await preview.openTarget('sess-1', { permissions: ['view', 'control'] }, owner);
+            expect(lease.controllerFor('pane-1')).toBe('human');
+            await preview.revokeDevice('phone-1');
+            expect(lease.controllerFor('pane-1')).toBeUndefined();
+            expect(lastSaved()).toBeUndefined();
+            await preview.close(third.desktopId);
+        } finally {
+            await preview.closeAll();
         }
     }, 20_000);
 

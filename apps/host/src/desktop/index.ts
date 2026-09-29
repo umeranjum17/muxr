@@ -1,6 +1,15 @@
 /** Public API of the host's desktop feature. Import this, not internals. */
 export { DesktopSessions, type DesktopEngineOptions } from './infrastructure/desktopSessions.js';
 export { nextDesktopId, type DesktopSessionRecord } from './domain/desktopSession.js';
+export {
+    PreviewLeaseTracker,
+    filePreviewLeaseSink,
+    PREVIEW_LEASE_FILENAME,
+    PREVIEW_LEASE_IDLE_MS,
+    type PreviewLeaseController,
+    type PreviewLeaseSnapshot,
+    type PreviewLeaseTrackerOptions,
+} from './application/previewLease.js';
 export { PaneScreens, type PaneScreen, type ScreenWindow } from './infrastructure/paneScreens.js';
 export {
     PreviewDesktops,
