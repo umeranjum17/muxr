@@ -20,7 +20,7 @@ import {
     type LiveTerminalOrderCard,
 } from '../application/liveTerminalOrder';
 import { useActivityAcknowledgements } from '../application/useActivityAcknowledgements';
-import { agentLabels, agentNameLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
+import { agentLabels, agentWhoLine, herdrPaneForSession, isShellLabels, liveCardState } from '../domain/agentPresentation';
 import { showPaneActions } from '../application/renameInHerdr';
 import { unseenActivityRows, type RecentActivityRow } from '../domain/recentActivity';
 import type { LifecycleEvent } from '@muxr/contract';
@@ -132,7 +132,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
                     <View style={stylesheet.footerCopy}>
                         <Text numberOfLines={1} style={stylesheet.title}>{labels.title}</Text>
-                        <Text numberOfLines={1} style={stylesheet.identity}>{agentNameLine(labels)}</Text>
+                        <Text numberOfLines={1} style={stylesheet.identity}>{agentWhoLine(labels)}</Text>
                     </View>
                     <View style={stylesheet.status}>
                         <Text numberOfLines={1} style={[stylesheet.statusText, { color: dot.color }]}>

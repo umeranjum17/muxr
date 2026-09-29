@@ -20,7 +20,7 @@ import { AgentGlyph } from '@/components/AgentGlyph';
 import { hapticsSelection } from '@/components/haptics';
 import { Typography } from '@/constants/Typography';
 import { useLocalSetting } from '@/catalog/store';
-import { agentLabels, agentStatusColor, HERD_STATUS_LABELS, isShellLabels, type LiveTerminalOrderCard } from '@/herd';
+import { agentBesideName, agentLabels, agentStatusColor, HERD_STATUS_LABELS, isShellLabels, type LiveTerminalOrderCard } from '@/herd';
 import { refreshPaneSnapshot, usePaneSnapshot } from '../application/paneSnapshots';
 import { terminalColumns } from '../application/recentOutput';
 import { openTerminalAhead, terminalGrid } from '../application/terminalAhead';
@@ -117,10 +117,11 @@ const PaneSnapshot = React.memo(({ sessionId, fontSize }: { sessionId: string; f
     );
 });
 
-/** The page beside this one: the agent's screen, and whose it is. */
+/** The page beside this one: the agent's screen, what it is doing and whose it is. */
 const PeerPage = React.memo(({ card, fontSize }: { card: LiveTerminalOrderCard; fontSize: number }) => {
     const { theme } = useUnistyles();
     const labels = agentLabels(card);
+    const name = agentBesideName(labels);
     const status = agentStatusColor(card.agentStatus, theme);
     const statusLabel = card.agentStatus === 'idle' || card.agentStatus === 'unknown' ? undefined : HERD_STATUS_LABELS[card.agentStatus];
     return (
@@ -129,6 +130,7 @@ const PeerPage = React.memo(({ card, fontSize }: { card: LiveTerminalOrderCard; 
             <View style={[styles.identity, { backgroundColor: theme.colors.surfaceHigh, borderColor: theme.colors.divider }]}>
                 <AgentGlyph name={isShellLabels(labels) ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />
                 <Text numberOfLines={1} style={[styles.identityTitle, { color: theme.colors.text }]}>{labels.title}</Text>
+                {name !== undefined && <Text numberOfLines={1} style={[styles.identityName, { color: theme.colors.textSecondary }]}>{name}</Text>}
                 {statusLabel !== undefined && <View style={[styles.identityDot, { backgroundColor: status.color }]} />}
             </View>
         </>
@@ -365,5 +367,6 @@ const styles = StyleSheet.create({
         borderWidth: 1,
     },
     identityTitle: { flexShrink: 1, fontSize: 12, fontWeight: '500' },
+    identityName: { flexShrink: 0, maxWidth: '40%', fontSize: 12 },
     identityDot: { width: 6, height: 6, borderRadius: 3 },
 });
