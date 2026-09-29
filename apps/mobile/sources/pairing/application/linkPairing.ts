@@ -2,7 +2,6 @@ import { probeDiscoveredRelay } from '../infrastructure/linkGrant';
 import { cachedGrant, clearGrants, deleteGrant, loadGrants, storeGrant } from '../infrastructure/grantStore';
 import { assertSupportedOffer, pairingDeviceName } from '../infrastructure/pairingPlatform';
 import {
-    generateKeyPair,
     type DeviceGrant,
     type KeyPair,
 } from '@trymuxr/crypto';
@@ -13,7 +12,7 @@ import {
     pairingFailure,
     provenLinkGrant,
 } from '../infrastructure/linkPairClient';
-import { clearPairingSecrets, deletePendingPair, readDeviceKey, readPendingPair, writeDeviceKey, writePendingPair, type PendingLinkPair } from '../infrastructure/hostedSecretStore';
+import { clearPairingSecrets, deletePendingPair, readPendingPair, writePendingPair, type PendingLinkPair } from '../infrastructure/hostedSecretStore';
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
 import { restoreConnection } from './restoreConnection';
 
@@ -28,26 +27,6 @@ export interface StoredHostedGrant extends DeviceGrant {
     machineName?: string;
     /** 'selfhost' when paired against a user-run relay (no account, no control plane). */
     source?: 'selfhost';
-}
-
-let deviceCache: KeyPair | undefined;
-let devicePending: Promise<KeyPair> | undefined;
-
-export async function getOrCreateHostedDeviceKey(): Promise<KeyPair> {
-    if (deviceCache !== undefined) return deviceCache;
-    devicePending ??= (async () => {
-        const stored = await readDeviceKey();
-        if (stored !== undefined) {
-            deviceCache = stored;
-            return stored;
-        }
-        const created = generateKeyPair();
-        await writeDeviceKey(created);
-        deviceCache = created;
-        return created;
-    })();
-    try { return await devicePending; }
-    catch (cause) { devicePending = undefined; throw cause; }
 }
 
 export async function loadHostedGrant(machineId: string): Promise<StoredHostedGrant | undefined> {
@@ -164,6 +143,4 @@ export async function clearHostedE2ee(): Promise<void> {
     await clearArtifactDownloads();
     (await import('@/catalog')).clearHomeSnapshot();
     await Promise.all([clearPairingSecrets(), clearGrants()]);
-    deviceCache = undefined;
-    devicePending = undefined;
 }

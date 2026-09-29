@@ -14,7 +14,6 @@ import { CommandScope, useCommandScope } from './lib/commands.mjs';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, SCENARIO_VERSION } from './lib/scenario.mjs';
 import { IosControls, appPid, command, crashFiles, hostLoad, processSample, reduceSamples, sha256, simctl, sleep, unavailable } from './lib/iosSignals.mjs';
-import { pairIosPhone } from './lib/iosWarm.mjs';
 
 
 export const PHASES = [
@@ -68,8 +67,7 @@ async function sampleWindow(seconds, destination){
     return {measuredSeconds:(Date.now()-start)/1000,...reduceSamples(destination)};
 }
 async function pair(){
-    const result = await pairIosPhone({ stack, udid, bundle, ui });
-    report.pairingTransport = result.transport;
+    throw new Error('iOS pairing needs migration to the link-offer ceremony (short-code pairIosPhone removed)');
 }
 
 async function terminal(){await ui.waitFor(/^Control$|^Enter$|^Show terminal controls$/);}

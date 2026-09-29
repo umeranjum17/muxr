@@ -70,10 +70,6 @@ vi.mock('@/connection', () => ({
     loadConnectionSettingsAsync: async () => harness.connection,
 }));
 vi.mock('@/pairing/e2ee', () => ({
-    getOrCreateHostedDeviceKey: vi.fn(async () => ({
-        publicKey: 'device-public',
-        secretKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-    })),
     getCachedHostedGrant: () => harness.grant,
     loadHostedGrant: async () => harness.grant,
     refreshHostedGrant: async () => harness.grant,
