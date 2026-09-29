@@ -178,7 +178,7 @@ export class TerminalManager {
             await session.ready;
         } catch (error) {
             removeEarlyTap();
-            session.close();
+            try { session.close(); } catch { /* already dead */ }
             socket.close();
             const message = error instanceof Error ? error.message : String(error);
             process.stderr.write(`terminal: could not start herdr terminal session on ${paneId}: ${message}\n`);
@@ -189,7 +189,7 @@ export class TerminalManager {
             assertActive();
         } catch (error) {
             removeEarlyTap();
-            session.close();
+            try { session.close(); } catch { /* already dead */ }
             socket.close();
             throw error;
         }
@@ -250,11 +250,16 @@ export class TerminalManager {
                 finish(reason);
             }
             // Graceful release first so Herdr hands the pane back, then SIGTERM
-            // on a timer in case the release never lands. A send after the
-            // child died is a no-op inside the kit, never a throw.
-            if (!childExited) session.send(JSON.stringify({ type: 'terminal.release' }));
+            // on a timer in case the release never lands.
+            try {
+                if (!childExited) session.send(JSON.stringify({ type: 'terminal.release' }));
+            } catch {
+                /* stream already gone */
+            }
             if (!childExited) {
-                const killTimer = setTimeout(() => session.close(), TERMINAL_RELEASE_MS);
+                const killTimer = setTimeout(() => {
+                    try { session.close(); } catch { /* already dead */ }
+                }, TERMINAL_RELEASE_MS);
                 killTimer.unref?.();
             }
         };
@@ -385,7 +390,11 @@ export class TerminalManager {
         socket.onEnd(() => {
             const remote = !finished;
             finish();
-            if (remote && !childExited) session.close();
+            try {
+                if (remote && !childExited) session.close();
+            } catch {
+                /* already dead */
+            }
         });
 
         return { paneId };
