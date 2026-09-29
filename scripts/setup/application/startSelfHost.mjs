@@ -31,7 +31,8 @@ import { mintDeviceGrant } from './pairDevice.mjs';
 
 export async function startSelfHost(args = []) {
     let pendingIngress;
-    const port = Number(flagValue(args, '--port') ?? 8792);
+    // Flag, then environment, then the default port.
+    const port = Number(flagValue(args, '--port') ?? (Number(process.env.MUXR_RELAY_PORT) || 8792));
     const relayOnly = args.includes('--relay-only');
     const managedRelay = args.includes('--managed-relay');
     const hostOnly = args.includes('--host-only');

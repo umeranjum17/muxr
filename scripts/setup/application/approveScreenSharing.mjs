@@ -49,13 +49,15 @@ function asksBeforeSharing(env = process.env) {
 /**
  * The portal files an approval under the id of the app that asked, read from
  * its systemd unit: a terminal the desktop launched runs in an `app-…` unit and
- * carries the terminal's id, while the muxr service carries none. Asking from
- * a scope of our own files the approval where the service will look for it.
+ * carries the terminal's id, while the muxr service carries none. So does any
+ * other plain unit, such as the Herdr server a plugin pane runs under, but only
+ * by accident of its name; asking from a transient scope of our own always
+ * files the approval where the service will look for it.
  */
 function engineCommand(resolved) {
     let cgroup = '';
     try { cgroup = readFileSync('/proc/self/cgroup', 'utf8'); } catch { /* not systemd */ }
-    if (!cgroup.split('/').some((unit) => unit.startsWith('app-')) || !executable('systemd-run')) return resolved;
+    if (!cgroup.includes('/user@') || !executable('systemd-run')) return resolved;
     return { command: 'systemd-run', args: ['--user', '--scope', '--quiet', '--collect', '--', resolved.command, ...resolved.args] };
 }
 

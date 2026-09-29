@@ -15,7 +15,9 @@ import {
     daemonIsRunning,
     daemonMode,
     enableBrowserHosting,
+    githubPluginSource,
     hasPendingRemoteConnect,
+    herdrBin,
     heading,
     hostSharedRelay,
     inspectSetup,
@@ -23,6 +25,7 @@ import {
     listMachines,
     manageMachines,
     pairDevice,
+    panePackManagingThisCli,
     approveScreenSharing,
     prompt,
     revokeDevice,
@@ -324,8 +327,13 @@ async function runUninstall(args = []) {
         if (confirmed !== 'yes') return 0;
     }
 
+    // Read before uninstalling: afterwards muxr no longer knows its install.
+    const herdr = herdrBin();
+    let managedPack;
+    try { managedPack = herdr === undefined ? undefined : panePackManagingThisCli(herdr); } catch { /* not Herdr-managed */ }
     const code = await uninstallMuxr(args);
     if (code !== 0) return code;
+    if (managedPack !== undefined) return removeManagedPack(herdr, managedPack, assumeYes);
     const global = globalCliPrefix();
     if (global === undefined) return 0;
     const removePackage = assumeYes || await select('Remove the muxr CLI package too?', [
@@ -340,6 +348,26 @@ async function runUninstall(args = []) {
         return 1;
     }
     process.stdout.write('@trymuxr/cli was removed. Reinstall later with `npm install -g --ignore-scripts @trymuxr/cli`.\n');
+    return 0;
+}
+
+/**
+ * The last of three layers when Herdr installed muxr: services and state are
+ * gone, so the Herdr checkout that holds this CLI can go too.
+ */
+async function removeManagedPack(herdr, plugin, assumeYes) {
+    const remove = assumeYes || await select(`Remove the ${plugin.plugin_id} Herdr plugin too?`, [
+        { value: true, title: 'Remove the Herdr plugin', description: 'finish the full uninstall' },
+        { value: false, title: 'Keep the plugin installed', description: 'its setup pane starts fresh setup' },
+    ]);
+    if (remove !== true) return 0;
+    process.stdout.write(`\nRemoving the ${plugin.plugin_id} Herdr plugin…\n`);
+    const removed = spawnSync(herdr, ['plugin', 'uninstall', plugin.plugin_id], { stdio: 'inherit' });
+    if (removed.status !== 0) {
+        process.stderr.write(`Runtime state was removed, but Herdr could not remove the plugin. Run \`herdr plugin uninstall ${plugin.plugin_id}\`.\n`);
+        return 1;
+    }
+    process.stdout.write(`The plugin was removed. Reinstall later with \`herdr plugin install ${githubPluginSource(plugin)}\`.\n`);
     return 0;
 }
 

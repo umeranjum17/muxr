@@ -288,7 +288,7 @@ async function serveRootFor(found, port) {
 
 async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
     const requestedPort = value(args, '--port');
-    const plannedPort = requestedPort === undefined ? current?.relayPort || 8792 : Number(requestedPort);
+    const plannedPort = requestedPort === undefined ? current?.relayPort || Number(process.env.MUXR_RELAY_PORT) || 8792 : Number(requestedPort);
     const serveRoot = await serveRootFor(found, plannedPort);
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
@@ -629,7 +629,7 @@ export async function hostSharedRelay() {
     process.stdout.write('\n');
     let port;
     while (port === undefined) {
-        const entered = await prompt('Relay port', String(current?.relayPort ?? 8792));
+        const entered = await prompt('Relay port', String(current?.relayPort || Number(process.env.MUXR_RELAY_PORT) || 8792));
         if (entered === undefined) return cancelRelaySetup();
         const parsed = Number(entered);
         if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) port = parsed;
