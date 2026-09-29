@@ -75,7 +75,11 @@ can run from the packed CLI. It declares these external runtime packages:
 There are currently no third-party packages inlined into `host.js` and no
 native binaries in the npm artifact itself; the native executables arrive as
 the optional platform packages above, which `THIRD_PARTY_LICENSES.json` lists
-with the package that brings them in.
+with the package that brings them in. The one file exception is the vendored
+`resources/scrcpy/scrcpy-server-v4.0` (Genymobile scrcpy, Apache-2.0, pinned
+SHA-256): a Dalvik jar the host pushes onto a task-owned emulator at preview
+time. It never executes on the host, so it is data, not a native binary in
+the artifact, and its notice lives in `NOTICE` with its hash beside it.
 
 ## Mobile artifact
 
