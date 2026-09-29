@@ -26,7 +26,7 @@ import { terminalColumns } from '../application/recentOutput';
 import { openTerminalAhead, terminalGrid } from '../application/terminalAhead';
 import { FONT_STEPS, clampFontIndex } from '../domain/fontSteps';
 import { reflowScreen } from '../domain/reflowScreen';
-import { terminalCanvas } from '@/theme';
+import { useTerminalColors } from './useTerminalColors';
 
 /** The screen's own edges stay with the system's back gesture. */
 const EDGE_INSET = 24;
@@ -106,10 +106,12 @@ const PaneSnapshot = React.memo(({ sessionId, fontSize }: { sessionId: string; f
     const grid = terminalGrid();
     const lines = React.useMemo(() => reflowScreen(text ?? '', grid?.cols ?? 0).slice(-(grid?.rows ?? 0)), [grid, text]);
     const lineHeight = fontSize * LINE_HEIGHT;
+    const { colors, overrides } = useTerminalColors();
+    const color = overrides.foreground ?? TERMINAL_INK;
     return (
-        <View pointerEvents="none" style={styles.snapshot}>
+        <View pointerEvents="none" style={[styles.snapshot, { backgroundColor: colors.background }]}>
             {lines.map((line, index) => (
-                <Text key={index} numberOfLines={1} ellipsizeMode="clip" style={[styles.line, { fontSize, lineHeight }]}>
+                <Text key={index} numberOfLines={1} ellipsizeMode="clip" style={[styles.line, { fontSize, lineHeight, color }]}>
                     {line === '' ? ' ' : line}
                 </Text>
             ))}
@@ -347,11 +349,9 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'flex-end',
         overflow: 'hidden',
-        backgroundColor: terminalCanvas,
     },
     line: {
         ...Typography.mono(),
-        color: TERMINAL_INK,
     },
     identity: {
         position: 'absolute',

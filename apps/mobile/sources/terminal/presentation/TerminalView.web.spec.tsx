@@ -14,6 +14,7 @@ const link = vi.hoisted(() => ({
 }));
 
 vi.mock('react-native', () => ({ View: 'View', Text: 'Text', StyleSheet: { create: (styles: unknown) => styles } }));
+vi.mock('@/theme', () => ({ terminalColorDefaults: { background: '#0c0c0b', foreground: '#fff', cursor: '#fff', selection: '#555', ansi: [] } }));
 vi.mock('@xterm/xterm', () => ({
     Terminal: class {
         get cols() { return link.grid.cols; }
