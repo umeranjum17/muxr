@@ -28,6 +28,9 @@ const herdrBin = process.env.HERDR_BIN?.trim() || 'herdr';
 // Lab isolation: when set, every Herdr call gets a trailing --session <name>.
 const herdrSession = process.env.MUXR_NAMING_SESSION?.trim() || undefined;
 const muxrHome = process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr');
+// The host's human-lease file, written beside the naming token directory.
+// A reader-side expiry check keeps a dead host from pinning a pane as human.
+const previewLeaseFile = join(muxrHome, 'preview', 'lease.json');
 const authFile = process.env.MUXR_NAMING_AUTH_FILE?.trim() || join(muxrHome, 'naming', 'token');
 let boundPort = port;
 
@@ -258,6 +261,28 @@ async function handleNaming(req, res) {
     responseForOperations(res, results, errors);
 }
 
+async function handlePreviewStatus(req, res, url) {
+    const paneId = url.searchParams.get('pane_id');
+    if (paneId === null || !isPaneId(paneId)) {
+        req.resume();
+        return badRequest(res, 'pane_id is not a supported Herdr pane target');
+    }
+    if (!authorized(req)) return unauthorized(res);
+    if (req.headers['x-muxr-pane-id'] !== paneId) return json(res, 403, { ok: false, error: 'request is not authorized for this pane' });
+    let controller = 'none';
+    try {
+        const snapshot = JSON.parse(await readFile(previewLeaseFile, 'utf8'));
+        const entry = snapshot?.panes?.[paneId];
+        if (entry?.controller === 'human' && typeof entry.expiresAt === 'number' && entry.expiresAt > Date.now()) {
+            controller = 'human';
+        }
+    } catch {
+        // Absent, corrupt, or unreadable reads as none: status must work
+        // with no host running, never fail an agent that only asks.
+    }
+    json(res, 200, { ok: true, controller });
+}
+
 const authToken = await loadAuthToken();
 const server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0];
@@ -267,6 +292,13 @@ const server = createServer((req, res) => {
     }
     if (req.method === 'POST' && path === '/api/naming') {
         void handleNaming(req, res).catch((error) => {
+            log(`request failed: ${error instanceof Error ? error.message : String(error)}`);
+            if (!res.headersSent) json(res, 500, { ok: false, error: 'internal error' });
+        });
+        return;
+    }
+    if (req.method === 'GET' && path === '/api/preview-status') {
+        void handlePreviewStatus(req, res, new URL(req.url ?? '/', 'http://127.0.0.1')).catch((error) => {
             log(`request failed: ${error instanceof Error ? error.message : String(error)}`);
             if (!res.headersSent) json(res, 500, { ok: false, error: 'internal error' });
         });
