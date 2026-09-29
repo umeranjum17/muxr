@@ -13,6 +13,7 @@ import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
 import { inspectTailscaleServeRoot, runTailscale, selfhostPath, tailscaleBin } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
+import { relayPortFromEnv } from '../infrastructure/runtime.mjs';
 
 function command(name, args = []) {
     const result = spawnSync(name, args, { encoding: 'utf8', timeout: 15_000 });
@@ -288,7 +289,14 @@ async function serveRootFor(found, port) {
 
 async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
     const requestedPort = value(args, '--port');
-    const plannedPort = requestedPort === undefined ? current?.relayPort || Number(process.env.MUXR_RELAY_PORT) || 8792 : Number(requestedPort);
+    let envPort;
+    try {
+        envPort = relayPortFromEnv();
+    } catch (cause) {
+        process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
+        return 1;
+    }
+    const plannedPort = requestedPort === undefined ? current?.relayPort ?? envPort ?? 8792 : Number(requestedPort);
     const serveRoot = await serveRootFor(found, plannedPort);
     let mode = requestedMode;
     if (mode === 'selfhost') mode = undefined;
@@ -628,8 +636,15 @@ export async function hostSharedRelay() {
     status('relay', 'agent hosts dial out to it — the only choice is how they reach it', 'ok');
     process.stdout.write('\n');
     let port;
+    let envPort;
+    try {
+        envPort = relayPortFromEnv();
+    } catch (cause) {
+        process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
+        return 1;
+    }
     while (port === undefined) {
-        const entered = await prompt('Relay port', String(current?.relayPort || Number(process.env.MUXR_RELAY_PORT) || 8792));
+        const entered = await prompt('Relay port', String(current?.relayPort ?? envPort ?? 8792));
         if (entered === undefined) return cancelRelaySetup();
         const parsed = Number(entered);
         if (Number.isInteger(parsed) && parsed >= 1024 && parsed <= 65535) port = parsed;
