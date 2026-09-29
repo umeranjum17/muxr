@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { delimiter, dirname, join, resolve } from 'node:path';
@@ -88,13 +88,16 @@ const argv = commands.get(command);
  * In a pane (a real terminal on both sides; actions have none) hold the pane
  * open until the person presses Enter, then exit with the CLI's own status.
  */
-function holdPaneOpen() {
+async function holdPaneOpen() {
     if (!process.stdin.isTTY || !process.stdout.isTTY) return;
     process.stdout.write('Press Enter to close.\n');
-    const key = Buffer.alloc(1);
-    try {
-        while (readSync(0, key, 0, 1) > 0 && key[0] !== 0x0a) {}
-    } catch { /* stdin went away; close anyway */ }
+    // Herdr hands the pane a non-blocking terminal, so a synchronous read
+    // returns at once; wait for the line (or end of input) asynchronously.
+    await new Promise((resolve) => {
+        process.stdin.once('data', resolve);
+        process.stdin.once('end', resolve);
+    });
+    process.stdin.pause();
 }
 
 if (cli === undefined) {
@@ -117,6 +120,6 @@ if (cli === undefined) {
         ? spawnSync(executable, argv, { stdio: 'inherit', env })
         : spawnSync(process.execPath, [cli, ...argv], { stdio: 'inherit', env });
     if (result.error) process.stderr.write(`${result.error.message}\n`);
-    holdPaneOpen();
+    await holdPaneOpen();
     process.exitCode = result.status ?? 1;
 }
