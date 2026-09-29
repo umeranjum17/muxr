@@ -19,10 +19,13 @@ import { DesktopSessions, type DesktopEngineOptions } from '../infrastructure/de
  * every target open is refused, which is the honest answer.
  */
 
-/** One top-level window the keeper sees on a pane's screen. */
+/** One top-level window the keeper sees on a pane's screen.
+ *
+ * The 0.2.0 keeper reports `class` as one string (or null), not an array:
+ * accept both, because the wire owns the shape, not this interface. */
 export interface PreviewScreenWindow {
-    title?: string;
-    class?: string[];
+    title?: string | null;
+    class?: string[] | string | null;
     pid?: number;
     width?: number;
     height?: number;
@@ -59,9 +62,9 @@ const BROWSER_TITLE_SUFFIXES = [
 ];
 
 /** WM_CLASS → what the phone can show. Anything else is ignored in v1. */
-export function previewKindForClass(classes: readonly string[] | undefined): PreviewPresence['kind'] | undefined {
-    if (classes === undefined) return undefined;
-    const joined = classes.join(' ');
+export function previewKindForClass(classes: readonly string[] | string | undefined | null): PreviewPresence['kind'] | undefined {
+    if (classes === undefined || classes === null) return undefined;
+    const joined = typeof classes === 'string' ? classes : classes.join(' ');
     if (ANDROID_CLASS.test(joined)) return 'android';
     if (BROWSER_CLASS.test(joined)) return 'browser';
     return undefined;
@@ -71,8 +74,8 @@ export function previewKindForClass(classes: readonly string[] | undefined): Pre
  * A chip subtitle, never an id: the page title without its browser suffix, or
  * the AVD name for an emulator (`Android Emulator - <AVD>[:<port>]`).
  */
-export function cleanPreviewTitle(title: string | undefined, kind: PreviewPresence['kind']): string | undefined {
-    if (title === undefined) return undefined;
+export function cleanPreviewTitle(title: string | undefined | null, kind: PreviewPresence['kind']): string | undefined {
+    if (title === undefined || title === null) return undefined;
     let cleaned = title;
     if (kind === 'browser') {
         for (const suffix of BROWSER_TITLE_SUFFIXES) {
