@@ -9,7 +9,7 @@
 import { type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@muxr/contract';
 import { deviceTableCanMutate, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
-import { DesktopSessions, PreviewDesktops, PreviewPresenceTracker, withPreview, type PaneScreens } from './desktop/index.js';
+import { AndroidEmulatorWatcher, DesktopSessions, PreviewDesktops, PreviewPresenceTracker, withPreview, type PaneScreens } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -106,6 +106,14 @@ export function startHost(options: HostOptions): Host {
         listSessions: () => source.list(),
         makeDesktop: (environment) => new DesktopSessions(desktopEngineOptions, environment),
     });
+    // Headless emulators, watched over adb: discovery announces presence and
+    // a phone tap starts the scrcpy mirror lazily. No watcher means no chip.
+    const androidWatcher = new AndroidEmulatorWatcher({
+        listSessions: () => source.list(),
+    });
+    androidWatcher.start();
+    // An emulator chip wins over a screen chip; a pane never shows both.
+    const combinedPreviewFor = (paneId: string) => androidWatcher.previewFor(paneId) ?? previewForPane(paneId);
     const dispatcher = createRequestDispatcher({
         source,
         domain,
@@ -121,6 +129,8 @@ export function startHost(options: HostOptions): Host {
         desktop,
         previewDesktops,
         previewForPane,
+        androidTargets: androidWatcher.targets,
+        androidPreviewForPane: androidWatcher.previewFor,
         isDesktopConnectionActive: (id: string) => activeDesktopConnections.has(id),
         ...hostedDispatcherOptions,
     });
@@ -157,7 +167,7 @@ export function startHost(options: HostOptions): Host {
                 || options.hostedE2ee?.deviceCapabilities?.[peerRecipient]?.includes('list') === true;
             if (!peerMayList) return undefined;
             const listed = await listAgents(source, {});
-            return listed.ok ? { type: 'session.list', sessions: withPreview(listed.data, previewForPane) } : undefined;
+            return listed.ok ? { type: 'session.list', sessions: withPreview(listed.data, combinedPreviewFor) } : undefined;
         }
 
         let response;
@@ -196,10 +206,11 @@ export function startHost(options: HostOptions): Host {
     const unsubscribeMachine = source.subscribeMachine?.((frame) => broadcast(frame));
     // Presence is pushed, not polled: a changed chip reaches the phone as the
     // session's own update, the same frame a rename travels in. It skips
-    // `forward` on purpose — a browser opening is not unread activity.
+    // `forward` on purpose — a browser opening or an emulator starting is
+    // not unread activity.
     const pushPresence = (paneId: string): void => {
         void source.list().then((sessions) => {
-            const preview = previewForPane(paneId);
+            const preview = combinedPreviewFor(paneId);
             for (const session of sessions) {
                 if (session.paneId !== paneId) continue;
                 const event: SessionEvent = {
@@ -214,6 +225,7 @@ export function startHost(options: HostOptions): Host {
     // Announce and withdraw timers fire outside any keeper event, so the push
     // subscribes to announced changes rather than one call's return value.
     const unsubscribePresence = previewPresence.onChange(pushPresence);
+    const unsubscribeAndroid = androidWatcher.onChange(pushPresence);
     const unsubscribePreview = options.paneScreens?.onWindows((paneId, windows) => {
         previewPresence.handleWindows(paneId, windows);
     });
@@ -232,11 +244,13 @@ export function startHost(options: HostOptions): Host {
         setLinkDeviceConnection: (deviceId, active) => {
             desktop.setLinkDeviceConnected(deviceId, active);
             previewDesktops.setLinkDeviceConnected(deviceId, active);
+            androidWatcher.targets.setLinkDeviceConnected(deviceId, active);
         },
         closeDeviceDesktopSessions: async (deviceId, removed) => {
             await desktop.revokeDevice(deviceId, removed);
             // A removed device loses every target session too.
             await previewDesktops.revokeDevice(deviceId);
+            await androidWatcher.targets.revokeDevice(deviceId);
         },
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
         refreshLinkEnrolment,
@@ -245,8 +259,11 @@ export function startHost(options: HostOptions): Host {
             unsubscribeMachine?.();
             unsubscribePreview?.();
             unsubscribePresence();
+            unsubscribeAndroid();
             previewPresence.stop();
+            androidWatcher.stop();
             await previewDesktops.closeAll();
+            await androidWatcher.targets.closeAll();
             await desktop.closeAll();
             desktop.stopVirtualDisplay();
             options.paneScreens?.stop();
