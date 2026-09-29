@@ -210,7 +210,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             const record = planAccount === undefined ? undefined : resolvePlanRecord(process.env, planAccount);
             if (record !== undefined) {
                 const kinds = record.provider === 'claude' ? ['claude', 'pi'] : ['codex', 'pi'];
-                if (start.kind !== undefined && !kinds.includes(start.kind)) {
+                // A shell pane may host anything, so the env rides along;
+                // a concrete agent of another provider is a real mismatch.
+                if (start.kind !== undefined && start.kind !== 'shell' && !kinds.includes(start.kind)) {
                     throw Object.assign(
                         new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${start.kind} one.`),
                         { code: 'plan-kind-mismatch' },
