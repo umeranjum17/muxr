@@ -121,12 +121,15 @@ const SCROLL_ANSWER_MS = 1_000;
 /** Rows counted back in a program that scrolls itself, by pane route, across its streams. */
 const ALT_SCROLL_BACK = new Map<string, number>();
 /**
- * Latest's margin past the rows counted back in a program that scrolls itself.
- * Such a program can drop the first wheel report after a change of direction
- * (Claude Code does, as a guard against trackpad jitter), which left Latest a
- * row or three above the bottom it promised.
+ * Latest's reach past the rows counted back in a program that scrolls itself.
+ * The count is only what the phone asked for: output an agent writes while it
+ * is read back lands below, and such a program can drop the first wheel report
+ * after a change of direction (Claude Code does, as a guard against trackpad
+ * jitter). Either left Latest short of the bottom it promised. The host stops
+ * turning the wheel once the program stops repainting, so the reach costs
+ * nothing at the bottom.
  */
-const LATEST_MARGIN_ROWS = 10;
+const LATEST_REACH_ROWS = 2_000;
 
 /**
  * The session is one dark surface: the terminal paints dark whatever the app
@@ -442,7 +445,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             return;
         }
         if (altBack.current <= 0) return;
-        let remaining = altBack.current + LATEST_MARGIN_ROWS;
+        let remaining = altBack.current + LATEST_REACH_ROWS;
         while (remaining > 0) {
             const step = Math.min(remaining, 400);
             channel.scroll(-step);

@@ -80,6 +80,25 @@ const SCROLL_STATE_SETTLE_MS = 90;
  */
 const WHEEL_TICK_MS = 2;
 const MAX_WHEEL_ROWS = 10_000;
+/**
+ * A program may read reports that close in as one fast spin and accelerate
+ * them: Claude Code moves one row for each of the first four under 40 ms
+ * apart, then up to 6 rows a report, until a gap of 40 ms resets it. So the
+ * wheel turns in bursts of four with a rest between them, which keeps a drag
+ * or a fling under the finger (about 90 rows a second) in every program.
+ * Only a request that far outruns that -- Latest -- turns without resting.
+ */
+const WHEEL_BURST = 4;
+const WHEEL_REST_MS = 45;
+const WHEEL_RUSH_ROWS = 100;
+/**
+ * A program that stops repainting while its wheel turns has reached the end
+ * it was turned toward: the rest of the rows owed would only keep a working
+ * agent's wheel spinning at its live edge. Latest asks for more rows than it
+ * counted -- output keeps arriving while the phone reads back -- and relies on
+ * this to stop at the bottom.
+ */
+const WHEEL_STILL_MS = 500;
 
 /** Herdr's initial screen is a full repaint record, not merely the first line. */
 function isInitialScreenRecord(line: string): boolean {
@@ -217,6 +236,9 @@ export class TerminalManager {
         let wheelRows = 0;
         let wheelAt: Pick<ScrollInput, 'column' | 'row'> = {};
         let wheelTimer: ReturnType<typeof setTimeout> | undefined;
+        let paintedAt = 0;
+        let wheelBurst = 0;
+        let wheelSentAt = 0;
         let childExited = false;
         void session.exited.then(() => { childExited = true; });
         let removeInputRef: () => void = () => undefined;
@@ -290,10 +312,16 @@ export class TerminalManager {
                 const lines = Number(scroll?.lines);
                 if (scroll !== undefined && attachment.herdrOwnsScroll === false && (scroll.direction === 'up' || scroll.direction === 'down')
                     && Number.isInteger(lines) && lines > 0) {
-                    const owed = wheelRows + (scroll.direction === 'up' ? lines : -lines);
+                    const rows = scroll.direction === 'up' ? lines : -lines;
+                    // A finger that turns back wants the new way now, not
+                    // after the rest of the old way is paid off.
+                    const owed = Math.sign(wheelRows) === -Math.sign(rows) ? rows : wheelRows + rows;
                     wheelRows = Math.max(-MAX_WHEEL_ROWS, Math.min(MAX_WHEEL_ROWS, owed));
                     wheelAt = { column: scroll.column, row: scroll.row };
-                    if (wheelTimer === undefined) turnWheel();
+                    if (wheelTimer === undefined) {
+                        paintedAt = Date.now();
+                        turnWheel();
+                    }
                 } else {
                     // A key goes to the program at its live edge; the rest of a
                     // fling must not carry it back up afterwards.
@@ -313,6 +341,18 @@ export class TerminalManager {
         const turnWheel = (): void => {
             wheelTimer = undefined;
             if (finished || wheelRows === 0 || childExited) return;
+            if (!pumping && Date.now() - paintedAt > WHEEL_STILL_MS) {
+                wheelRows = 0;
+                return;
+            }
+            const now = Date.now();
+            if (now - wheelSentAt >= WHEEL_REST_MS) wheelBurst = 0;
+            if (wheelBurst >= WHEEL_BURST && Math.abs(wheelRows) <= WHEEL_RUSH_ROWS) {
+                wheelTimer = setTimeout(turnWheel, WHEEL_REST_MS - (now - wheelSentAt));
+                return;
+            }
+            wheelBurst += 1;
+            wheelSentAt = now;
             const up = wheelRows > 0;
             wheelRows += up ? -1 : 1;
             try {
@@ -356,6 +396,7 @@ export class TerminalManager {
         };
         removeFrameRef = session.onFrame((line) => {
             if (finished) return;
+            paintedAt = Date.now();
             session.pause();
             pending.push(line);
             void pumpLines().catch(() => attachment.close());
