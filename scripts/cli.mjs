@@ -51,6 +51,7 @@ import { dumpDiagnostics, readDiagnostics } from './diagnostics/index.mjs';
 import { runMuxrConfig } from './setup/presentation/configInit.mjs';
 import { updateCli } from './release/index.mjs';
 import { nameAgent } from './naming/client.mjs';
+import { previewStatus } from './preview/client.mjs';
 import { share } from './terminal/share.mjs';
 import { artifacts } from './terminal/artifacts.mjs';
 
@@ -86,6 +87,7 @@ Agent instructions
   muxr --skill | muxr skill       print the compact muxr agent skill
   muxr skill <topic>              load one reference only when needed
   muxr name [--workspace ...]     name the current Herdr workspace/pane and report attribution
+  muxr preview status [--json]    check whether the phone is driving this pane's browser or emulator
   muxr share <path>               save a file to this pane's Shared Artifacts timeline
   muxr artifacts [status|prune]   show what Shared Artifacts retention removed, or clear old history
 
@@ -105,6 +107,7 @@ const COMMAND_HELP = {
     plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
     'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
     name: `muxr name [--workspace LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]\n\nName the current Herdr workspace and pane through muxr's authenticated local naming facade.\nThe pane identity comes from HERDR_PANE_ID; names and metadata are passed verbatim within bounds.\n`,
+    preview: `muxr preview status [--json]\n\nAsk whether the phone is driving this pane's browser or emulator right now.\nPrints human while a person holds control (pause browser input), none otherwise.\nThe pane identity comes from HERDR_PANE_ID; a pane can only read its own lease.\n`,
     share: `muxr share <path> [--pane <pane-id>]\n\nSave a file to the given pane's durable Shared Artifacts timeline.\nUses HERDR_PANE_ID when --pane is omitted. Name collisions get a numeric suffix.\n`,
     artifacts: `muxr artifacts [status]\nmuxr artifacts prune [--dry-run] [--yes]\n\nThe host sweeps Shared Artifacts daily and never touches files that predate retention.\nstatus prints the policy and the last sweep's removals. prune applies the same policy\nto the history that was already there: it deletes files, so it shows the plan first\nand --yes skips the question.\n`,
     'plugin create': `muxr plugin create <name>\n\nCreate a minimal three-file settings-screen plugin with a collision-resistant local id.\n`,
@@ -124,7 +127,7 @@ const COMMAND_HELP = {
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
     uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
     update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release. --to VERSION selects an exact published version; changing channels or downgrading remains explicit. Interactive terminals ask before installing; --yes updates without prompting.\n`,
-    skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|desktop-browser|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
+    skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|agent-browser-preview|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
     peers: `muxr peers list [--machine <name>]\nmuxr peers read --machine <name> [--agent <name>] [--lines <n>]\nmuxr peers status --machine <name> [--agent <name>]\nmuxr peers watch --machine <name> [--agent <name>] [--timeout-ms <n>]\nmuxr peers prompt --machine <name> [--agent <name>] --text <prompt>\n\nUse established computer collaboration with Machine Names and Agent Names only. Output is JSON. Raw shell, takeover, and destructive actions are never granted.\n`,
     connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-browser-view|--pair-both]\nmuxr connect --resume\n`,
     machines: `muxr machines enroll\nmuxr machines list\nmuxr machines revoke <number|name>\n`,
@@ -203,7 +206,7 @@ const SKILL_TOPICS = {
     onboarding: 'onboarding.md',
     herdr: 'herdr.md',
     collaboration: 'collaboration.md',
-    'desktop-browser': 'desktop-browser.md',
+    'agent-browser-preview': 'agent-browser-preview.md',
     plugins: 'plugins.md',
 };
 
@@ -499,6 +502,14 @@ async function dispatch(command, args = []) {
     if (command === 'name') {
         try { return await nameAgent(args); }
         catch (error) { process.stderr.write(`muxr name: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+    }
+    if (command === 'preview') {
+        if (args[0] === 'status') {
+            try { return await previewStatus(args.slice(1)); }
+            catch (error) { process.stderr.write(`muxr preview status: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
+        }
+        process.stderr.write('usage: muxr preview status [--json]\n');
+        return 1;
     }
     if (command === 'pair') return pairDevice(args);
     if (command === 'desktop') {
