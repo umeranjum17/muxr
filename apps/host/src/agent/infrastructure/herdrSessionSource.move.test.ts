@@ -98,9 +98,10 @@ function fakeHerdr(dir: string, cwd: string) {
                         // at a live agent reaches the agent as chat, never the shell.
                         if (state.echoOnlyReads > 0) {
                             state.echoOnlyReads -= 1;
-                            const text = state.promptPrefixedEcho
-                                ? output.split('\n').map((entry) => entry.startsWith('echo ') ? `$ ${entry}` : entry).join('\n')
-                                : output;
+                            let text = output;
+                            if (state.promptPrefixedEcho) {
+                                text = output.split('\n').map((entry) => entry.startsWith('echo ') ? `$ ${entry}` : entry).join('\n');
+                            }
                             reply = { id, result: { read: { text } } };
                             break;
                         }
