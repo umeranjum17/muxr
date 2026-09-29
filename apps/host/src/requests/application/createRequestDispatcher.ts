@@ -11,6 +11,7 @@ import type {
     RequestResult,
     RequestType,
 } from '@muxr/contract';
+import { sanitizeRequestErrorMessage } from '@muxr/contract';
 import type { AgentWatchStores, SessionSource, TerminalManager } from '../../agent/index.js';
 import { changesBrowse, changesList, changesPatch, changesWorktrees } from '../../agent/index.js';
 import {
@@ -129,9 +130,8 @@ function ok(requestId: string, data: unknown): RequestResponse {
 }
 
 function fail(requestId: string, error: unknown, code?: string): RequestResponse {
-    if (error instanceof Error) return { type: 'result', requestId, ok: false, error: error.message, ...(code === undefined ? {} : { code }) };
-    if (typeof error === 'string') return { type: 'result', requestId, ok: false, error, ...(code === undefined ? {} : { code }) };
-    return { type: 'result', requestId, ok: false, error: String(error), ...(code === undefined ? {} : { code }) };
+    const raw = error instanceof Error ? error.message : typeof error === 'string' ? error : String(error);
+    return { type: 'result', requestId, ok: false, error: sanitizeRequestErrorMessage(raw), code: code ?? 'host-error' };
 }
 
 function fromCaught(requestId: string, error: unknown): RequestResponse {

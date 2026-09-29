@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { MISSING_CWD_ERROR_PREFIX } from '@muxr/contract';
+import { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure } from '@muxr/contract';
 import { createRequestDispatcher } from './createRequestDispatcher.js';
 import { createFakeSessionSource, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
@@ -514,5 +514,45 @@ describe('android emulator target routing', () => {
             'android.answer', 'android.candidate', 'android.poll', 'android.close',
             'desktop.answer',
         ]);
+    });
+});
+
+describe('host error propagation to the phone', () => {
+    it('returns a thrown handler failure as a typed error the phone decodes to the same message', async () => {
+        const source = {
+            async paneSplit() { throw new Error('that pane is gone; refresh and try again'); },
+        } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        });
+        const reply = await dispatch({
+            type: 'pane.split', requestId: 'e1', params: { sessionId: 's1' },
+        } as never) as { ok: boolean; error: string; code?: string };
+        expect(reply.ok).toBe(false);
+        expect(reply.code).toBe('host-error');
+        // The phone's shared decode path (linkFirstClient unwrap) resolves to this message.
+        const decoded = normalizeRequestFailure('pane.split', reply.error, reply.code);
+        expect(decoded.message).toContain('that pane is gone');
+    });
+
+    it('redacts secrets from a thrown failure instead of forwarding them', async () => {
+        const source = {
+            async paneSplit() { throw new Error('login failed with token=abc123-secret'); },
+        } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        });
+        const reply = await dispatch({
+            type: 'pane.split', requestId: 'e2', params: { sessionId: 's1' },
+        } as never) as { ok: boolean; error: string };
+        expect(reply.ok).toBe(false);
+        expect(reply.error).not.toContain('abc123-secret');
+        expect(reply.error).toContain('[redacted]');
     });
 });

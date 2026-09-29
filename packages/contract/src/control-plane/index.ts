@@ -27,7 +27,7 @@ export type {
     WatchSettlement,
     LayoutSnapshot,
 } from './domain/requests.js';
-export { DESKTOP_CONSENT_WAIT_MS, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee } from './domain/requests.js';
+export { DESKTOP_CONSENT_WAIT_MS, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee, sanitizeRequestErrorMessage } from './domain/requests.js';
 
 export type { ClientFrame, PluginsInvalidatedFrame, HostFrame } from './domain/envelope.js';
 export {

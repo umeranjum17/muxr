@@ -847,6 +847,16 @@ export function requestRequiresE2ee(type: string): boolean {
     return type.startsWith('peer.') || E2EE_REQUEST_TYPES.has(type);
 }
 
+/** Host-side errors cross to the phone verbatim, so strip what must never leave the host. */
+export function sanitizeRequestErrorMessage(error: string): string {
+    const collapsed = error.replace(/\s+/g, ' ').trim();
+    if (collapsed === '') return 'The host could not complete this request.';
+    const redacted = collapsed
+        .replace(/(bearer|token|secret|password|api[-_]?key)(?:\s*[:=]\s*|\s+)\S+/gi, '$1: [redacted]')
+        .replace(/\b(sk-[A-Za-z0-9_-]{8,}|xox[bpas]-[A-Za-z0-9-]+)\b/g, '[redacted]');
+    return redacted.length > 500 ? `${redacted.slice(0, 500)}\u2026` : redacted;
+}
+
 export function normalizeRequestFailure(
     type: string,
     error: string,
