@@ -30,7 +30,7 @@ const { AvatarBrutalist } = await import('@/components/AvatarBrutalist');
 
 /** Rendered colours and shape for one avatar; the observable output of the component. */
 function rendered(id: string, monochrome = false) {
-    let renderer: TestRenderer.ReactTestRenderer | undefined;
+    let renderer: any;
     act(() => {
         renderer = TestRenderer.create(<AvatarBrutalist id={id} monochrome={monochrome} />);
     });
