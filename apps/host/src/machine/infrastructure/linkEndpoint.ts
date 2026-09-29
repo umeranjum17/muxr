@@ -273,6 +273,9 @@ export class LinkEndpoint {
 
     start(): void {
         this.client = this.connectRelay();
+        // Removals found before the relay client existed waited for it.
+        const crypto = this.currentCrypto();
+        if (crypto !== undefined) void this.sync(crypto);
         this.updateDeviceConnections();
         // ponytail: poll the public online snapshot; switch to connection events if byokit adds them.
         this.connectionTimer = setInterval(() => this.updateDeviceConnections(), 500);
@@ -393,7 +396,18 @@ export class LinkEndpoint {
     }
 
     async rejectPairedDevice(grantId: string): Promise<void> {
+        await this.revoke(grantId);
+    }
+
+    /** Removes a device: the link grant now, and through RelayClient.revoke its
+     *  push subscriptions on the relay. That relay half queues while the relay is
+     *  offline, so removal, teardown and pairing rollback never wait on it; the
+     *  local grant is gone first, which makes the kit's own link revoke a no-op. */
+    private async revoke(grantId: string): Promise<void> {
         await this.host.revoke(grantId);
+        this.client?.revoke(grantId).catch((error: unknown) => {
+            process.stderr.write(`link: relay unsubscribe failed: ${error instanceof Error ? error.message : String(error)}\n`);
+        });
     }
 
     broadcast(frame: HostFrame): void {
@@ -426,7 +440,11 @@ export class LinkEndpoint {
             // A role-only change keeps the pairing: the phone reconnects under
             // the new grant without being told it was removed.
             if (device === undefined || !sameKey) {
-                await this.host.revoke(grant.id);
+                // A removal also drops the device's push subscriptions on the
+                // relay, so it waits for start(): no device reaches this host
+                // before the relay client dials, and trusted() already refuses it.
+                if (this.client === undefined) continue;
+                await this.revoke(grant.id);
                 if (deviceId !== undefined) {
                     this.deviceConnections.delete(deviceId);
                     this.onDeviceConnection?.(deviceId, false);
