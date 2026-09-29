@@ -238,7 +238,7 @@ try {
     // Default tab: the busiest measured provider leads, and its own windows ride
     // the same view model as the limits card.
     const output = await run({ provider: 'claude' });
-    // Only integrated providers earn tabs: measured activity this week or a
+    // Only integrated providers earn tabs: measured activity this month or a
     // connected plan/account. The fixture installs many idle CLIs; none of
     // them may mint a tab.
     // Claude, OMP and OpenCode come from their own stores; the backend's rows
