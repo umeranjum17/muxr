@@ -22,7 +22,7 @@ If that section is missing, run `herdr --skill` and follow its output.
   than blocking the current agent session.
 - Name your own workspace and pane at task start — use the canonical
   `muxr name --workspace LABEL --pane TITLE --provider PROVIDER --model MODEL`
-  facade from the muxr skill. It binds to the current Herdr pane.
+  command from the muxr skill. It binds to the current Herdr pane.
 
 ## Packaged-reference behavior
 
