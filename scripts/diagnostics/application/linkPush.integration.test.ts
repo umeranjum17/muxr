@@ -48,6 +48,7 @@ describe('push rides the byokit link relay', () => {
             linkPush: { fetch: capturedFetch },
             config: { dataDir, advertiseMdns: false },
         });
+        let liveEndpoint: { close(): void } | undefined;
         try {
             const mint = JSON.parse(readFileSync(join(dataDir, 'mint-secret'), 'utf8')) as string;
             const machineSecret = randomBytes(32);
@@ -97,6 +98,7 @@ describe('push rides the byokit link relay', () => {
                 canView: () => false,
             });
             let endpoint = (await openEndpoint())!;
+            liveEndpoint = endpoint;
             expect(endpoint).toBeDefined();
             // The relay socket dials only on start() (the host main wiring does the same).
             endpoint.start();
@@ -158,6 +160,7 @@ describe('push rides the byokit link relay', () => {
             link.stop();
             endpoint.close();
             endpoint = (await openEndpoint())!;
+            liveEndpoint = endpoint;
             endpoint.start();
             await until(() => (endpointStatuses.at(-1) === 'online' ? true : undefined), `restarted relay online: ${endpointStatuses.join(',')}`);
             expect(endpoint.enrolledKey('dev_push_1')).toBeDefined();
@@ -250,6 +253,7 @@ describe('push rides the byokit link relay', () => {
             }
             revokedLink.stop();
         } finally {
+            liveEndpoint?.close();
             await relay.close();
             rmSync(dataDir, { recursive: true, force: true });
         }
