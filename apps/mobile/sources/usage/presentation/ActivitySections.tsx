@@ -44,7 +44,7 @@ function dayName(iso: string, today: string): string {
  * over 7 or 30 days, where it went and which models did the work. Figures are
  * the host's; every word and every mark is drawn here.
  */
-export function ActivitySections({ activity, tab, limits, costNote }: {
+export function ActivitySections({ activity, tab, limits, costNote, planPriced }: {
     activity: UsageActivity;
     /** The tab's display name, for sentences. */
     tab: string;
@@ -52,6 +52,8 @@ export function ActivitySections({ activity, tab, limits, costNote }: {
     limits: Array<{ plan: string; windows: UsageLimitsWindow[] }>;
     /** Shown under the figures: whose costs these are. */
     costNote?: string;
+    /** The tab's tokens are priced by its plan: no dollar figure here, not even 'Not priced'. */
+    planPriced?: boolean;
 }) {
     const { theme } = useUnistyles();
     // A tab idle all week opens on the month, where its figures are.
@@ -70,9 +72,9 @@ export function ActivitySections({ activity, tab, limits, costNote }: {
     const insights = activityInsights({ activity, tab, limits });
     return (
         <View>
-            <TodayCard activity={activity} />
+            <TodayCard activity={activity} planPriced={planPriced} />
             {insights.length > 0 && <InsightsCard insights={insights} />}
-            {rangeSummary(activity, 30).total > 0 && <TrendCard activity={activity} span={span} onSpan={setSpan} />}
+            {rangeSummary(activity, 30).total > 0 && <TrendCard activity={activity} span={span} onSpan={setSpan} planPriced={planPriced} />}
             {activity.sources !== undefined && activity.sources.length > 0 && <SourcesCard sources={activity.sources} />}
             {activity.routes !== undefined && activity.routes.length > 0 && <RoutesCard activity={activity} span={span} tab={tab} />}
             {activity.models.length > 0 && <ModelsCard activity={activity} span={span} />}
@@ -134,7 +136,7 @@ const SPLIT: Array<{ key: keyof UsageTokenCounts; label: string; alpha: number }
     { key: 'cacheRead', label: 'Cache read', alpha: 0.2 },
 ];
 
-function TodayCard({ activity }: { activity: UsageActivity }) {
+function TodayCard({ activity, planPriced }: { activity: UsageActivity; planPriced?: boolean }) {
     const { theme } = useUnistyles();
     const today = activity.days[activity.days.length - 1] ?? { date: '', input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
     const total = dayTotal(today);
@@ -149,7 +151,10 @@ function TodayCard({ activity }: { activity: UsageActivity }) {
     else if (ratio !== undefined && ratio <= 0.9) comparison = `${Math.round(ratio * 100)}% of your usual day so far`;
     else if (ratio !== undefined) comparison = 'In line with your usual day';
     const priced = cost === undefined ? undefined : `${cost} ${COST_BASIS[activity.costBasis ?? 'recorded']}`;
-    const summary = [`Today ${compactTokens(total)} tokens`, total > 0 ? priced ?? NOT_PRICED : undefined, comparison,
+    // 'Not priced' is for costs nobody knows; a tab whose plan prices its
+    // traffic says nothing here -- its footnote is the one explanation.
+    const notPriced = cost === undefined && total > 0 && !planPriced ? NOT_PRICED : undefined;
+    const summary = [`Today ${compactTokens(total)} tokens`, total > 0 ? priced ?? notPriced : undefined, comparison,
         hourly.length > 0 && total > 0 ? `busiest hour ${hourLabel(busiest)}` : undefined].filter(Boolean).join(', ');
     return (
         <View style={{ marginBottom: 14 }}>
@@ -170,8 +175,8 @@ function TodayCard({ activity }: { activity: UsageActivity }) {
                         )}
                     </View>
                     {/* Tokens nobody priced are not free: they say so, never $0.00. */}
-                    {cost === undefined && total > 0 && (
-                        <Text style={{ paddingTop: 8, color: theme.colors.textSecondary, fontSize: 12.5, lineHeight: 17 }}>{NOT_PRICED}</Text>
+                    {notPriced !== undefined && (
+                        <Text style={{ paddingTop: 8, color: theme.colors.textSecondary, fontSize: 12.5, lineHeight: 17 }}>{notPriced}</Text>
                     )}
                     {cost !== undefined && (
                         <View style={{ alignItems: 'flex-end', paddingTop: 6 }}>
@@ -277,7 +282,7 @@ function SpanControl({ span, onSpan }: { span: Span; onSpan: (span: Span) => voi
     );
 }
 
-function TrendCard({ activity, span, onSpan }: { activity: UsageActivity; span: Span; onSpan: (span: Span) => void }) {
+function TrendCard({ activity, span, onSpan, planPriced }: { activity: UsageActivity; span: Span; onSpan: (span: Span) => void; planPriced?: boolean }) {
     const { theme } = useUnistyles();
     const range = rangeSummary(activity, span);
     const today = activity.days[activity.days.length - 1]?.date ?? '';
@@ -338,7 +343,7 @@ function TrendCard({ activity, span, onSpan }: { activity: UsageActivity; span: 
                     <Figure label={`${span} days`} value={compactTokens(range.total)} />
                     <Figure label="Daily average" value={compactTokens(range.average)} dashed />
                     {rangeCost !== undefined && <Figure label="Cost" value={rangeCost} />}
-                    {rangeCost === undefined && range.total > 0 && <Figure label="Cost" value={NOT_PRICED} />}
+                    {rangeCost === undefined && range.total > 0 && !planPriced && <Figure label="Cost" value={NOT_PRICED} />}
                 </View>
             </View>
         </View>

@@ -1829,4 +1829,45 @@ describe('the usage screen read path', () => {
         // A route with no recorded cost earns no dollar figure on either span.
         expect(screenText(screen)).not.toContain('$0');
     });
+
+    it('speaks no dollar figure on a plan-priced tab, whose footnote stays the one explanation', async () => {
+        // The Z.ai tab's costs are withheld because its plan prices the
+        // traffic: its cards show tokens alone -- neither '$' nor 'Not priced'
+        // -- while a tab whose costs are genuinely unknown still says so.
+        const flatText = (renderer: any): string => renderer.root.findAllByType('Text')
+            .map((node: any) => Array.isArray(node.props.children)
+                ? node.props.children.filter((child: any) => typeof child === 'string').join('')
+                : node.props.children)
+            .filter((text: any) => typeof text === 'string').join(' ');
+        const days = ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07']
+            .map((date, index) => ({ date, input: index === 6 ? 4_000_000 : 900_000, output: 0, cacheRead: 0, cacheWrite: 0 }));
+        request.mockResolvedValue({
+            ...report('zai', 0),
+            providers: [{ id: 'zai', label: 'Z.ai', glyph: 'zai' }],
+            providerName: 'Z.ai',
+            activity: { state: 'measured' as const, hourly: [100, 200], days, models: [] },
+        });
+        const screen = renderScreen();
+        await tick();
+        expect(flatText(screen)).toContain('Plan traffic is priced by the plan, so no dollar figure is shown.');
+        expect(flatText(screen)).not.toContain('Not priced');
+        expect(flatText(screen)).not.toContain('$');
+        expect(flatText(screen)).not.toContain('Cost');
+        const today = screen.root.findAll((node: any) => node.props?.accessibilityRole === 'summary')[0];
+        expect(today.props.accessibilityLabel).toContain('Today 4M tokens');
+        expect(today.props.accessibilityLabel).not.toContain('Not priced');
+
+        // The same cards keep the honest label where cost is genuinely
+        // unknown: another machine's tab, whose retained window this test's
+        // first read does not hold open.
+        connection.machineId = 'machine-plan-unknown';
+        request.mockResolvedValue({
+            ...report('pi', 0),
+            activity: { state: 'measured' as const, hourly: [100, 200], days: days.map((day) => ({ ...day, unpriced: true as const })), models: [] },
+        });
+        const other = renderScreen();
+        await tick();
+        expect(flatText(other)).toContain('Not priced');
+        expect(flatText(other)).toContain('Cost');
+    });
 });
