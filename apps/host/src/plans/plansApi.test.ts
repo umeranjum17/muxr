@@ -1,0 +1,119 @@
+/**
+ * P1 flow: the accounts store plus `plans.list` over throwaway folders and
+ * stub tools. No real account, no credential reads: one folder's credentials
+ * are chmod 000 and the list still works.
+ */
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, expect, it } from 'vitest';
+import { listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv } from './plansApi.js';
+import { savePlanAccounts } from './planStore.js';
+
+let root = '';
+let env: NodeJS.ProcessEnv;
+
+function stubBin(): string {
+    const bin = join(root, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'claude'), `#!/bin/bash
+base="\${CLAUDE_CONFIG_DIR##*/}"
+if [[ "$base" == *-out ]]; then echo '{"loggedIn":false,"authMethod":"none"}';
+else echo "{\\"loggedIn\\":true,\\"email\\":\\"$base@example.com\\",\\"plan\\":\\"Pro\\"}"; fi
+`);
+    writeFileSync(join(bin, 'codex'), `#!/bin/bash
+read -r line
+echo '{"id":1,"result":{}}'
+read -r line
+base="\${CODEX_HOME##*/}"
+if [[ "$base" == *-out ]]; then echo '{"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}';
+else echo "{\\"id\\":2,\\"result\\":{\\"account\\":{\\"email\\":\\"$base@example.com\\"},\\"requiresOpenaiAuth\\":false}}"; fi
+`);
+    chmodSync(join(bin, 'claude'), 0o755);
+    chmodSync(join(bin, 'codex'), 0o755);
+    return bin;
+}
+
+beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'muxr-plans-'));
+    const bin = stubBin();
+    env = {
+        ...process.env,
+        HOME: root,
+        MUXR_HOME: join(root, 'muxr'),
+        PATH: `${bin}${process.env.PATH === undefined ? '' : `:${process.env.PATH}`}`,
+    };
+});
+
+afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+});
+
+function foundClaude(name = '.claude'): string {
+    const folder = join(root, name);
+    mkdirSync(folder, { recursive: true });
+    return folder;
+}
+
+function addedClaude(name: string): string {
+    const folder = join(root, 'muxr', 'plans', 'claude', name);
+    mkdirSync(folder, { recursive: true });
+    return folder;
+}
+
+it('hides the feature with one account and lists two with names and emails', async () => {
+    foundClaude();
+    expect(await listPlans(env)).toEqual({ providers: [] });
+
+    const second = addedClaude('work');
+    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
+    const listed = await listPlans(env);
+    expect(listed.providers.map((entry) => entry.provider)).toEqual(['claude']);
+    const accounts = listed.providers[0]!.accounts;
+    expect(accounts.map((account) => account.signedIn)).toEqual([true, true]);
+    expect(accounts.map((account) => account.email)).toEqual(['.claude@example.com', 'work@example.com']);
+    expect(accounts[0]).toMatchObject({ foundOnComputer: true });
+    expect(accounts[1]).toMatchObject({ name: 'Work' });
+});
+
+it('reports a signed-out account without choosing it and never reads credentials', async () => {
+    const folder = foundClaude();
+    writeFileSync(join(folder, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'secret', accountUuid: 'u' } }));
+    chmodSync(join(folder, '.credentials.json'), 0);
+    const second = addedClaude('personal-out');
+    savePlanAccounts(env, [{ id: 'pa_out', provider: 'claude', name: '', folder: second, found: false }]);
+    const listed = await listPlans(env);
+    expect(listed.providers).toHaveLength(1);
+    expect(listed.providers[0]!.accounts.map((account) => account.signedIn)).toEqual([true, false]);
+});
+
+it('renames, resolves launch env, and removes without touching found folders', async () => {
+    const found = foundClaude();
+    const added = addedClaude('work');
+    savePlanAccounts(env, [
+        { id: 'found-claude', provider: 'claude', name: '', folder: found, found: true },
+        { id: 'pa_work', provider: 'claude', name: '', folder: added, found: false },
+    ]);
+    const renamed = await renamePlanAccount(env, 'pa_work', 'Work');
+    expect(renamed.account.name).toBe('Work');
+    expect(resolvePlanEnv(env, 'pa_work')).toEqual({ CLAUDE_CONFIG_DIR: added });
+    await expect(renamePlanAccount(env, 'pa_work', '')).rejects.toMatchObject({ code: 'invalid-plan-name' });
+    expect(() => resolvePlanEnv(env, 'nope')).toThrowError(/Unknown account/);
+
+    expect(removePlanAccount(env, 'pa_work')).toEqual({ deletedFolder: true });
+    expect(existsSync(added)).toBe(false);
+    expect(removePlanAccount(env, 'found-claude')).toEqual({ deletedFolder: false });
+    expect(existsSync(found)).toBe(true);
+    expect(await listPlans(env)).toEqual({ providers: [] });
+});
+
+it('lists two codex sign-ins through the stub app-server', async () => {
+    const home = join(root, '.codex');
+    mkdirSync(home, { recursive: true });
+    const second = join(root, 'muxr', 'plans', 'codex', 'other');
+    mkdirSync(second, { recursive: true });
+    savePlanAccounts(env, [{ id: 'pa_x', provider: 'codex', name: 'Other', folder: second, found: false }]);
+    const listed = await listPlans(env);
+    expect(listed.providers.map((entry) => entry.provider)).toEqual(['codex']);
+    expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual(['.codex@example.com', 'other@example.com']);
+});

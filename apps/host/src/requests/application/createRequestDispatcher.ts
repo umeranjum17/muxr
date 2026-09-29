@@ -41,6 +41,7 @@ import {
 } from '../../voice/index.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
+import { listPlans, removePlanAccount, renamePlanAccount } from '../../plans/plansApi.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { PreviewDesktops, androidCapabilities, withAndroidPreview, withPreview, type AndroidPreviewTargets } from '../../desktop/index.js';
@@ -91,6 +92,8 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'machine.hello',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
     'usage.report', 'usage.now',
+    // Plan account names and emails are readable; changing them is a mutation.
+    'plans.list',
     // Voice readiness is readable by every grant; changing a provider or its
     // key is a mutation and stays out of this set. The spoken report sentence
     // is derived without touching host state, so it stays readable too.
@@ -196,7 +199,13 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(params.base === undefined ? {} : { base: params.base }),
         }),
         'session.start': async (params) => {
-            const { peerMutation: _peerMutation, ...start } = params;
+            const { peerMutation: _peerMutation, planAccount, ...start } = params;
+            if (planAccount !== undefined) {
+                throw Object.assign(
+                    new Error('This host cannot start on a plan account yet; update the host before choosing one.'),
+                    { code: 'host-contract-mismatch' },
+                );
+            }
             return useCaseData(await startAgent({
                 exists: existsSync,
                 create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
@@ -460,6 +469,15 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(params.refresh === undefined ? {} : { refresh: params.refresh }),
         }),
         'usage.now': (params) => usageNow(process.env, { ...(params.refresh === undefined ? {} : { refresh: params.refresh }) }),
+        'plans.list': () => listPlans(process.env),
+        'plans.rename': async (params) => renamePlanAccount(process.env, params.accountId, params.name),
+        'plans.remove': async (params) => removePlanAccount(process.env, params.accountId),
+        'plans.move': () => {
+            throw Object.assign(
+                new Error('This host cannot move between plan accounts yet; update the host first.'),
+                { code: 'host-contract-mismatch' },
+            );
+        },
         'voice.status': () => voiceStatus(),
         'voice.provider.list': () => voiceProviderList(),
         'voice.provider.set': (params) => voiceProviderSet(params.providerId),

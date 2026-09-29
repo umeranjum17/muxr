@@ -47,6 +47,10 @@ export interface SessionStartOptions {
     kind?: string;
     label?: string;
     taskTitle?: string;
+    /** Internal (never on the peer wire): a Plan Account id resolved by the dispatcher into `planEnv`. */
+    planAccount?: string;
+    /** Internal launch env for that account: merged into the new pane's env. Absent means today's launch. */
+    planEnv?: Record<string, string>;
     worktree?: { branch?: string; base?: string };
     /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
     kinds?: string[];
