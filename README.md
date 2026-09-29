@@ -179,7 +179,7 @@ Then install the mobile companion:
 
 Save the channel's checksum next to the downloaded APK as `SHA256SUMS`, verify it with `sha256sum --ignore-missing -c SHA256SUMS`, then run `muxr`. Each channel publishes its own checksum, so verify against the channel you downloaded from. Setup shows six routes with their requirements, recommends a ready route, and changes nothing until **Apply setup**. Scan the one-use QR from the phone when it is ready.
 
-The GitHub release behind the current stable build is [muxr 0.2.0](https://github.com/umeranjum17/muxr/releases/latest) ([all releases](https://github.com/umeranjum17/muxr/releases)). Asset file names carry the version and build number, so download them from the release page rather than a bookmarked URL. At the time of writing the release ships `muxr-0.2.0-377.apk` (171 MB), `muxr-0.2.0-377.aab` (133 MB), and `trymuxr-cli-0.2.0.tgz` (16 MB); `release-manifest.json` on the same page lists the sha256 of every asset.
+The GitHub releases page ([latest stable release](https://github.com/umeranjum17/muxr/releases/latest), [all releases](https://github.com/umeranjum17/muxr/releases)) publishes the APK, AAB, and CLI assets behind the current stable build. Asset file names carry the version and build number, so download them from the release page rather than a bookmarked URL. At the time of writing that is muxr 0.2.0, shipping `muxr-0.2.0-377.apk` (171 MB), `muxr-0.2.0-377.aab` (133 MB), and `trymuxr-cli-0.2.0.tgz` (16 MB); `release-manifest.json` on the same page lists the sha256 of every asset.
 
 [Read the step-by-step quickstart →](https://trymuxr.com/docs/quickstart)
 
