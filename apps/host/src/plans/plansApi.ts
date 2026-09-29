@@ -66,9 +66,7 @@ async function providerRooms(
         savePlanAccounts(env, [...records, ...loadPlanAccounts(env).filter((record) => record.provider !== provider)]);
     }
     const folderVar = provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
-    const accounts: PlanAccount[] = [];
-    const rooms: { id: string; name: string; signedIn: boolean; windows: UsageWindowVM[] }[] = [];
-    for (const record of records) {
+    const reads = await Promise.all(records.map(async (record) => {
         const identity = await identify(provider, record.folder, env, deps);
         const name = record.name.trim() === '' ? suggestPlanName(identity.email, provider) : record.name;
         // Room left from the same reader Usage uses, pointed at this sign-in.
@@ -76,22 +74,24 @@ async function providerRooms(
             ? await planAccountWindows(provider, { ...env, [folderVar]: record.folder })
             : [];
         const tight = tightestRoomWindow(windows);
-        accounts.push({
-            id: record.id,
-            provider,
-            name,
-            ...(identity.email === undefined ? {} : { email: identity.email }),
-            ...(identity.plan === undefined ? {} : { plan: identity.plan }),
-            ...(record.found ? { foundOnComputer: true as const } : {}),
-            signedIn: identity.signedIn,
-            ...(tight === undefined ? {} : {
-                roomLeftPercent: Math.round(tight.percentRemaining),
-                roomLabel: roomLabelFor(tight),
-            }),
-        });
-        rooms.push({ id: record.id, name, signedIn: identity.signedIn, windows });
-    }
-    return { accounts, rooms };
+        return {
+            account: {
+                id: record.id,
+                provider,
+                name,
+                ...(identity.email === undefined ? {} : { email: identity.email }),
+                ...(identity.plan === undefined ? {} : { plan: identity.plan }),
+                ...(record.found ? { foundOnComputer: true as const } : {}),
+                signedIn: identity.signedIn,
+                ...(tight === undefined ? {} : {
+                    roomLeftPercent: Math.round(tight.percentRemaining),
+                    roomLabel: roomLabelFor(tight),
+                }),
+            } as PlanAccount,
+            room: { id: record.id, name, signedIn: identity.signedIn, windows },
+        };
+    }));
+    return { accounts: reads.map((read) => read.account), rooms: reads.map((read) => read.room) };
 }
 
 export async function listPlans(

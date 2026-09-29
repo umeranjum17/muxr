@@ -167,3 +167,35 @@ it('auto skips signed-out accounts and names the earliest refill when all are ou
     expect(provider.auto.accountId).toBe('found-claude');
     expect(provider.auto.reason).toMatch(/out of room/);
 });
+
+it('reads stalled accounts concurrently instead of one after another', async () => {
+    foundClaude();
+    const second = addedClaude('work');
+    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
+    const started: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const run = async (_command: string, _args: string[], runEnv: NodeJS.ProcessEnv) => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        started.push(String(runEnv.CLAUDE_CONFIG_DIR));
+        try {
+            await gate;
+        } finally {
+            inFlight -= 1;
+        }
+        return { stdout: '{"loggedIn":false}' };
+    };
+    const pending = listPlans(env, { run });
+    const deadline = Date.now() + 2_000;
+    while (started.length < 2 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    release();
+    const listed = await pending;
+    expect(maxInFlight).toBe(2);
+    expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual([undefined, undefined]);
+    expect(listed.providers[0]!.accounts.map((account) => account.signedIn)).toEqual([false, false]);
+});

@@ -443,6 +443,9 @@ describe('desktop target routing', () => {
         } as never);
         expect(refused).toMatchObject({ ok: false, code: 'permission-denied' });
         expect(calls).toEqual(['preview.open', 'desktop.open', 'preview.answer', 'desktop.answer']);
+    });
+});
+
 describe('plan account launch and move', () => {
     const home = mkdtempSync(join(tmpdir(), 'muxr-plans-dispatch-'));
     const savedHome = process.env.HOME;
@@ -483,6 +486,43 @@ describe('plan account launch and move', () => {
         process.env.HOME = savedHome;
         if (savedMuxrHome === undefined) delete process.env.MUXR_HOME;
         else process.env.MUXR_HOME = savedMuxrHome;
+    });
+
+    it('drops client-supplied planEnv so only the stored account env reaches the pane', async () => {
+        const { savePlanAccounts } = await import('../../plans/planStore.js');
+        const home3 = mkdtempSync(join(tmpdir(), 'muxr-plans-env-'));
+        const keepHome = process.env.HOME;
+        const keepMuxr = process.env.MUXR_HOME;
+        process.env.HOME = home3;
+        process.env.MUXR_HOME = join(home3, 'muxr');
+        try {
+            const { mkdirSync } = await import('node:fs');
+            const folder = join(home3, 'muxr', 'plans', 'claude', 'work');
+            mkdirSync(folder, { recursive: true });
+            savePlanAccounts(process.env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }]);
+            const starts: unknown[] = [];
+            const source = {
+                async start(options: unknown) {
+                    starts.push(options);
+                    return { info: { id: 's1' }, acceptance: { outcome: 'accepted', state: 'starting', agentName: 'n' } };
+                },
+            } as unknown as SessionSource;
+            const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+            const cwd = mkdtempSync(join(tmpdir(), 'muxr-plan-env-start-'));
+
+            const bare = await dispatch({ type: 'session.start', requestId: 'e1', params: { cwd, kind: 'claude', planEnv: { PATH: '/evil', CLAUDE_CONFIG_DIR: '/evil' } } } as never);
+            expect(bare).toMatchObject({ ok: true });
+            expect(starts[0]).not.toHaveProperty('planEnv');
+
+            const ok = await dispatch({ type: 'session.start', requestId: 'e2', params: { cwd, kind: 'claude', planAccount: 'pa_work', planEnv: { CLAUDE_CONFIG_DIR: '/evil' } } } as never);
+            expect(ok).toMatchObject({ ok: true });
+            expect(starts[1]).toMatchObject({ planEnv: { CLAUDE_CONFIG_DIR: folder } });
+        } finally {
+            if (keepHome === undefined) delete process.env.HOME;
+            else process.env.HOME = keepHome;
+            if (keepMuxr === undefined) delete process.env.MUXR_HOME;
+            else process.env.MUXR_HOME = keepMuxr;
+        }
     });
 
     it('moves through the session source and names the account when the start fails', async () => {
