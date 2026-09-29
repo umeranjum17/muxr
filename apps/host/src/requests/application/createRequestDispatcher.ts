@@ -41,8 +41,7 @@ import {
 } from '../../voice/index.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
-import { listPlans, removePlanAccount, renamePlanAccount, resolvePlanRecord } from '../../plans/plansApi.js';
-import { PLAN_LABELS } from '../../plans/planStore.js';
+import { PLAN_LABELS, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanRecord } from '../../plans/index.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { PreviewDesktops, androidCapabilities, withAndroidPreview, withPreview, type AndroidPreviewTargets } from '../../desktop/index.js';
@@ -225,11 +224,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 start: (command) => source.start(command),
             }, {
                 ...start,
-                ...(record === undefined ? {} : {
-                    planEnv: record.provider === 'claude'
-                        ? { CLAUDE_CONFIG_DIR: record.folder }
-                        : { CODEX_HOME: record.folder },
-                }),
+                ...(record === undefined ? {} : { planEnv: planLaunchEnv(record) }),
             }));
         },
         'session.open': async (params) => useCaseData(await openAgent(source, params)),

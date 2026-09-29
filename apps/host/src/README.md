@@ -14,6 +14,7 @@ src/
   requests/{application,infrastructure}/
   diagnostics/{infrastructure}/
   desktop/{domain,application,infrastructure}/
+  plans/                          plan accounts: store, identity, auto, list/move surface
 ```
 
 Each module exposes `index.ts`. Other modules import that file, not internals.
@@ -26,7 +27,9 @@ Use cases: [USE_CASES.md](./USE_CASES.md).
 
 **Device Grant** (`machine/domain`): omitted kind means native. Peer grants observe. Browser without an explicit authority observes. A peer fleet is capped at 16. Observer browser/native grants cannot mutate; peers take the peer admission path instead. Tables overlay runtime keys; display metadata is not in the key.
 
-**Peer start surface** (`peer/domain`): a peer cannot start with parent/worktree/kinds/createCwd, and cwd must sit inside approved roots. Prompt/start/watch require a mutation receipt.
+**Peer start surface** (`peer/domain`): a peer cannot start with parent/worktree/kinds/createCwd/planAccount, and cwd must sit inside approved roots. Prompt/start/watch require a mutation receipt.
+
+**Plan Account** (`plans/`): records hold name, provider and folder only — never credential contents; identity comes from the tools' own status commands. Below two accounts per provider `plans.list` omits the provider and `session.start` carries nothing new. A move resumes the same conversation after verifying the env arrived; two accounts never write one conversation.
 
 ## Layers
 
