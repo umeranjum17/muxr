@@ -234,6 +234,8 @@ export async function startFakeHerdr(options) {
     }
 
     const methods = {
+        // The kit pings for the protocol version on connect, like real Herdr.
+        'ping': () => ({ protocol: 22 }),
         'session.snapshot': () => ({ snapshot: snapshotOf(live) }),
         'plugin.list': () => ({ plugins }),
         'plugin.action.invoke': (params) => {
