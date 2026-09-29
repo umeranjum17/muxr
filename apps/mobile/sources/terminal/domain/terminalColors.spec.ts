@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { localSettingsParse } from '../../catalog/application/localSettings';
 import { cleanTerminalColorOverrides, resolveTerminalColors, terminalColorsFrom } from './terminalColors';
 
 // Persisted Settings as the renderer receives them: useTerminalColors feeds
@@ -40,5 +41,17 @@ describe('terminal color overrides', () => {
         for (const value of Object.values(colors)) {
             expect(value).toMatch(/^#[0-9a-f]{6}$/);
         }
+    });
+
+    it('keeps valid overrides when one persisted slot is corrupt', () => {
+        // One corrupt slot must not wipe the others at load: the settings
+        // schema carries every entry through, and cleaning drops only the bad one.
+        const loaded = localSettingsParse({
+            terminalColors: { background: '#102030', ansi1: '#ff5555', selection: 12345 },
+        });
+        expect(cleanTerminalColorOverrides(loaded.terminalColors)).toEqual({
+            background: '#102030',
+            ansi1: '#ff5555',
+        });
     });
 });
