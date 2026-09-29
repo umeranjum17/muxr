@@ -27,7 +27,7 @@ function fakeHerdr(dir: string, cwd: string) {
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
-    const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), echoOnlyReads: 0, answerFolder: undefined as string | undefined };
+    const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), echoOnlyReads: 0, answerFolder: undefined as string | undefined, promptPrefixedEcho: false };
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
     const sendTexts: Array<{ pane_id: unknown; text: unknown }> = [];
@@ -95,7 +95,10 @@ function fakeHerdr(dir: string, cwd: string) {
                         // at a live agent reaches the agent as chat, never the shell.
                         if (state.echoOnlyReads > 0) {
                             state.echoOnlyReads -= 1;
-                            reply = { id, result: { read: { text: output } } };
+                            const text = state.promptPrefixedEcho
+                                ? output.split('\n').map((entry) => entry.startsWith('echo ') ? `$ ${entry}` : entry).join('\n')
+                                : output;
+                            reply = { id, result: { read: { text } } };
                             break;
                         }
                         const liveAgent = agents.some((agent) => agent.pane_id === p.pane_id);
@@ -464,6 +467,32 @@ describe('a plan-account move whose new-account start fails', () => {
             const sessionId = (await source.list())[0]!.id;
 
             herdr.state.echoOnlyReads = 1;
+            const moved = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' });
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            expect((await source.open({ sessionId: moved.sessionId })).info.id).toBe(moved.sessionId);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('waits past a prompt-prefixed echo instead of refusing on the first fast poll', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-move-prompt-echo-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            await source.refreshHerdr();
+            const sessionId = (await source.list())[0]!.id;
+
+            herdr.state.echoOnlyReads = 1;
+            herdr.state.promptPrefixedEcho = true;
             const moved = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' });
             await new Promise((resolve) => setTimeout(resolve, 500));
             expect((await source.open({ sessionId: moved.sessionId })).info.id).toBe(moved.sessionId);

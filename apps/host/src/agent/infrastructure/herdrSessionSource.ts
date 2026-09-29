@@ -1597,12 +1597,9 @@ export async function createHerdrSessionSource(
                 });
                 const readings = (result.read?.text ?? '')
                     .split('\n')
-                    .filter((entry) => !entry.trimStart().startsWith('echo '))
-                    .map((entry) => {
-                        const at = entry.indexOf(`${marker}=`);
-                        return at < 0 ? undefined : entry.slice(at + marker.length + 1).trim();
-                    })
-                    .filter((value) => value !== undefined);
+                    .map((entry) => entry.trim())
+                    .filter((entry) => entry.startsWith(`${marker}=`))
+                    .map((entry) => entry.slice(marker.length + 1));
                 if (readings.includes(expected)) return true;
                 // The shell answered with a different folder: the rc overrides us.
                 if (readings.length > 0) return false;
