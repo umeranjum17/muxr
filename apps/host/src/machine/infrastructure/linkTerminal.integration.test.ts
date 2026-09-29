@@ -24,10 +24,15 @@ const b64 = (value: Uint8Array | string): string => Buffer.from(value).toString(
 /** @trymuxr/crypto keys are base64 strings; byokit wants base64url bytes. */
 const toB64url = (valueBase64: string): string => Buffer.from(valueBase64, 'base64').toString('base64url');
 
-/** The pane: paints a full screen, echoes input, repaints on resize and on each scroll it is handed. */
+/**
+ * The pane: paints a full screen, echoes input, repaints on resize, and scrolls
+ * like a full-screen program -- it repaints on a wheel report only while there
+ * is transcript left that way (100 rows), and logs every report it is handed.
+ */
 function writeFakeHerdr(dir: string): string {
     const bin = join(dir, 'fake-herdr.mjs');
     writeFileSync(bin, `#!/usr/bin/env node
+import { appendFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 const pane = args[3];
 const option = (name) => { const i = args.indexOf(name); return i === -1 ? undefined : Number(args[i + 1]); };
@@ -37,6 +42,8 @@ const b64 = (s) => Buffer.from(s).toString('base64');
 const send = (frame) => process.stdout.write(JSON.stringify(frame) + '\\n');
 send({ type: 'terminal.frame', full: true, bytes: b64(\`SCREEN \${pane} \${cols}x\${rows}\`) });
 let buffer = '';
+let back = 0;
+const wheelLog = ${JSON.stringify(join(dir, 'wheel.log'))};
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
     buffer += chunk;
@@ -53,6 +60,10 @@ process.stdin.on('data', (chunk) => {
             rows = frame.rows;
             send({ type: 'terminal.frame', bytes: b64(\`SCREEN \${pane} \${cols}x\${rows}\`) });
         } else if (frame.type === 'terminal.scroll') {
+            appendFileSync(wheelLog, frame.direction + ' ' + Date.now() + '\\n');
+            const moved = frame.direction === 'up' ? Math.min(100, back + frame.lines) : Math.max(0, back - frame.lines);
+            if (moved === back) continue;
+            back = moved;
             send({ type: 'terminal.frame', bytes: b64(\`SCROLL \${frame.direction} \${frame.lines}\`) });
         } else if (frame.type === 'terminal.release') {
             process.exit(0);
@@ -352,6 +363,40 @@ process.stdin.on('data', (chunk) => {
         const reports: string[] = [];
         while (reports.length < 30) reports.push(await nextFrameBytes('wheel report'));
         expect(reports).toEqual(Array.from({ length: 30 }, () => 'SCROLL up 1'));
+        const wheelLog = (): Array<[string, number]> => readFileSync(join(dir, 'wheel.log'), 'utf8').split('\n').filter(Boolean)
+            .map((line) => { const [direction, at] = line.split(' '); return [direction!, Number(at)]; });
+        // ...in bursts of four with a rest after each, so Claude Code does not
+        // read them as one fast spin and multiply the drag.
+        const drag = wheelLog().map(([, at]) => at);
+        for (let i = 4; i < drag.length; i += 4) expect(drag[i]! - drag[i - 4]!).toBeGreaterThanOrEqual(40);
+
+        // Latest reaches past the rows it counted, because output lands below
+        // while the phone reads back. The wheel stops where the pane stops
+        // repainting instead of turning out the whole reach at the bottom.
+        const wheel = (): string[] => wheelLog().map(([direction]) => direction);
+        const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+        await stream.write(`${JSON.stringify({ type: 'terminal.scroll', direction: 'down', lines: 2_030, column: 10, row: 6 })}\n`);
+        const back: string[] = [];
+        while (back.length < 30) back.push(await nextFrameBytes('wheel back to the bottom'));
+        expect(back).toEqual(Array.from({ length: 30 }, () => 'SCROLL down 1'));
+        await sleep(1_500);
+        const settled = wheel().length;
+        await sleep(500);
+        expect(wheel().length).toBe(settled);
+        expect(settled).toBeLessThan(1_000);
+
+        // A finger that turns back is followed at once, not after the rows
+        // still owed the other way.
+        const turnedAt = wheel().length;
+        await stream.write(`${JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 60, column: 10, row: 6 })}\n`);
+        expect(await nextFrameBytes('wheel turning up')).toBe('SCROLL up 1');
+        await stream.write(`${JSON.stringify({ type: 'terminal.scroll', direction: 'down', lines: 5, column: 10, row: 6 })}\n`);
+        while (await nextFrameBytes('wheel turned back') !== 'SCROLL down 1') { /* the ups already sent */ }
+        await sleep(300);
+        const turn = wheel().slice(turnedAt);
+        const turnedBack = turn.indexOf('down');
+        expect(turnedBack).toBeLessThan(60);
+        expect(turn.slice(turnedBack)).toEqual(Array.from({ length: 5 }, () => 'down'));
 
         // Voice frames traverse the host stream adapter over the byokit link.
         const voice = await link.stream('voice', { channel: 'rs_linkvoice1234', sessionId: 's1' });
