@@ -5,10 +5,11 @@
  * fan-out, a connected flag, id-based status-watch readiness) so every
  * `client.call(m, p, t)` site rides the kit without edits.
  *
- * Adopt mode cannot take env/path until the kit's K6 lands, so `herdr.cli`
- * through the kit inherits the kit's fixed adopt env; the socket path needs
- * no env because `bin` is spawned with it directly.
+ * Adopt-mode spawns take the host PATH plus the identity vars Herdr reads
+ * through the kit's env/path options; the socket path needs no env because
+ * `bin` is spawned with it directly.
  */
+import { homedir } from 'node:os';
 import { HerdrKit } from '@byokit/herdr';
 
 export interface HerdrEvent {
@@ -44,10 +45,22 @@ export class KitHerdrClient implements HerdrCaller {
         private readonly socketPath: string,
         private readonly onReconnect: () => void,
     ) {
+        // Adopt-mode spawns (CLI, terminal) need the host's PATH (mise shims,
+        // hostedtoolcache) plus the identity vars Herdr itself reads. The kit
+        // merges `env` over its fixed adopt base and joins `path` for PATH.
+        const kitEnv: Record<string, string> = {
+            HOME: homedir(),
+            ...(process.env.HERDR_CLIENT_SOCKET_PATH === undefined
+                ? {}
+                : { HERDR_CLIENT_SOCKET_PATH: process.env.HERDR_CLIENT_SOCKET_PATH }),
+            ...(process.env.HERDR_SESSION === undefined ? {} : { HERDR_SESSION: process.env.HERDR_SESSION }),
+        };
         this.kit = new HerdrKit({
             mode: 'adopt',
             bin,
             socketPath,
+            env: kitEnv,
+            path: (process.env.PATH ?? '').split(':').filter((dir) => dir !== ''),
             onState: (state) => {
                 const ready = state.phase === 'ready';
                 this.connected = ready;
@@ -56,6 +69,13 @@ export class KitHerdrClient implements HerdrCaller {
                 if (ready && this.started) this.onReconnect();
             },
         });
+    }
+
+    /** Only a down server is worth retrying: a version mismatch or a rejected
+     * subscription fails closed with its message instead of stacking attempts. */
+    private static isDownError(error: unknown): boolean {
+        const message = error instanceof Error ? error.message : String(error);
+        return /socket unavailable|socket closed|request timed out|ECONNREFUSED|ENOENT|EACCES|connect E|not connected/i.test(message);
     }
 
     async start(): Promise<void> {
@@ -67,6 +87,7 @@ export class KitHerdrClient implements HerdrCaller {
                 return;
             } catch (cause) {
                 lastError = cause;
+                if (!KitHerdrClient.isDownError(cause)) throw cause;
                 const delay = START_RETRY_DELAYS_MS[attempt];
                 if (delay === undefined) break;
                 await new Promise((resolve) => setTimeout(resolve, delay));

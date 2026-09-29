@@ -2820,6 +2820,11 @@ export async function createHerdrSessionSource(
             return kinds.filter(executableOnPath);
         },
 
+        /** Open a kit terminal session on a pane; the kit owns the binary and env. */
+        herdrTerminal(paneId: string, opts: { mode: 'control' | 'observe'; cols: number; rows: number }) {
+            return client.kit.terminal(paneId, opts);
+        },
+
         /** Full herdr power without a shell: each argument stays one argument. */
         async herdrCli(args: string[], timeoutMs?: number): Promise<{
             stdout: string; stderr: string; exitCode: number | null; timedOut: boolean;

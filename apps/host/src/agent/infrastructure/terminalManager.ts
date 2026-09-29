@@ -1,6 +1,6 @@
 /**
- * Terminal manager: one `herdr terminal session control` subprocess per
- * attached channel, piped to the relay channel socket verbatim.
+ * Terminal manager: one HerdrKit terminal session per attached channel, piped
+ * to the relay channel socket verbatim.
  *
  * The frames on the socket ARE herdr's own NDJSON terminal protocol -- the only
  * host-generated frame is `terminal.ready`. Control mode is taken with
@@ -8,16 +8,23 @@
  * the next desk attach.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import type { TerminalSession } from '@byokit/herdr';
 import { type TerminalScrollStateFrame } from '@muxr/contract';
 import { type TerminalPipe } from '../../machine/index.js';
+
+export interface TerminalOpenOptions {
+    mode: 'control' | 'observe';
+    cols: number;
+    rows: number;
+}
 
 export interface TerminalManagerOptions {
     resolvePane: (sessionId: string) => Promise<string>;
     focusSession: (sessionId: string, assertActive?: () => void) => Promise<void>;
     /** Herdr's own viewport position for a pane. Omitted, the phone is told nothing. */
     readPaneScroll?: (paneId: string) => Promise<{ offsetFromBottom: number; maxOffsetFromBottom: number }>;
-    herdrBin?: string;
+    /** Opens the kit terminal session; the kit owns the herdr binary and env. */
+    openTerminal: (paneId: string, opts: TerminalOpenOptions) => TerminalSession;
 }
 
 interface Attachment {
@@ -27,7 +34,7 @@ interface Attachment {
     mode: 'control' | 'observe';
     deviceId?: string;
     assertAuthorized?: () => void;
-    process: ChildProcess;
+    session: TerminalSession;
     socket: TerminalPipe;
     cols: number;
     rows: number;
@@ -54,7 +61,7 @@ export type TerminalAttachParams = {
     assertAuthorized?: () => void;
 };
 
-const STDERR_TAIL_BYTES = 4 * 1024;
+const TERMINAL_RELEASE_MS = 250;
 // Herdr's terminal client turns an expired handshake read timeout into an I/O
 // framing error, printed with the platform's EAGAIN wording. Before a real
 // frame that means the transport never came up -- the pane itself is untouched.
@@ -150,64 +157,39 @@ export class TerminalManager {
         const socket = params.socket;
 
         assertActive();
-        const herdr = this.options.herdrBin ?? 'herdr';
         // Observe renders the pane without touching it: no takeover, no real-PTY
         // resize -- that is what makes the home screen's live preview cards free.
         const observe = mode === 'observe';
-        const child = spawn(
-            herdr,
-            [
-                'terminal',
-                'session',
-                observe ? 'observe' : 'control',
-                paneId,
-                ...(observe ? [] : ['--takeover']),
-                '--cols',
-                String(params.cols),
-                '--rows',
-                String(params.rows),
-            ],
-            { stdio: ['pipe', 'pipe', 'pipe'] },
-        );
-        // A bounded tail is the only way to tell a failed handshake from a pane
-        // that really ended; it stays on host stderr and never reaches the phone.
-        let stderrTail = '';
-        const errors = child.stderr;
-        const stderrDrained: Promise<void> = errors === null || errors === undefined
-            ? Promise.resolve()
-            : new Promise<void>((resolve) => {
-                errors.on('data', (chunk: Buffer) => {
-                    process.stderr.write(chunk);
-                    stderrTail = (stderrTail + chunk.toString('utf8')).slice(-STDERR_TAIL_BYTES);
-                });
-                errors.once('end', resolve);
-                errors.once('close', resolve);
-                errors.once('error', () => resolve());
-            });
-        // spawn() reports ENOENT asynchronously. Do not acknowledge the attach
-        // request until Herdr actually starts: otherwise the reason is lost
-        // before the phone joins and a permanent PATH fault looks like endless
-        // network reconnecting.
-        await new Promise<void>((resolve, reject) => {
-            const cleanup = (): void => {
-                child.off('spawn', onSpawn);
-                child.off('error', onError);
-            };
-            const onSpawn = (): void => { cleanup(); resolve(); };
-            const onError = (error: Error): void => {
-                cleanup();
-                socket.close();
-                process.stderr.write(`terminal: could not start ${herdr}: ${error.message}\n`);
-                reject(Object.assign(new Error(`terminal: could not start Herdr: ${error.message}`), { code: 'unavailable' }));
-            };
-            child.once('spawn', onSpawn);
-            child.once('error', onError);
+        const session = this.options.openTerminal(paneId, { mode, cols: params.cols, rows: params.rows });
+        // Tap before the handshake: `ready` fires on the first frame, which
+        // would otherwise arrive with nobody subscribed and be lost. Frames
+        // queue behind pause() until the pump below starts draining.
+        const early: string[] = [];
+        const removeEarlyTap = session.onFrame((line) => {
+            session.pause();
+            early.push(line);
         });
+        // The kit rejects `ready` when the spawn fails or the stream ends
+        // before its first frame (its tail is the bounded handshake record).
+        // Do not acknowledge the attach until Herdr actually starts: otherwise
+        // the reason is lost before the phone joins and a permanent PATH fault
+        // looks like endless network reconnecting.
+        try {
+            await session.ready;
+        } catch (error) {
+            removeEarlyTap();
+            session.close();
+            socket.close();
+            const message = error instanceof Error ? error.message : String(error);
+            process.stderr.write(`terminal: could not start herdr terminal session on ${paneId}: ${message}\n`);
+            throw Object.assign(new Error(`terminal: could not start Herdr: ${message}`), { code: 'unavailable' });
+        }
 
         try {
             assertActive();
         } catch (error) {
-            child.kill();
+            removeEarlyTap();
+            session.close();
             socket.close();
             throw error;
         }
@@ -219,7 +201,7 @@ export class TerminalManager {
             mode,
             ...(params.deviceId === undefined ? {} : { deviceId: params.deviceId }),
             ...(params.assertAuthorized === undefined ? {} : { assertAuthorized: params.assertAuthorized }),
-            process: child,
+            session,
             socket,
             cols: params.cols,
             rows: params.rows,
@@ -235,9 +217,13 @@ export class TerminalManager {
         let wheelRows = 0;
         let wheelAt: Pick<ScrollInput, 'column' | 'row'> = {};
         let wheelTimer: ReturnType<typeof setTimeout> | undefined;
+        let childExited = false;
+        void session.exited.then(() => { childExited = true; });
         let removeInputRef: () => void = () => undefined;
+        let removeFrameRef: () => void = () => undefined;
         const removeInput = (): void => {
             removeInputRef();
+            removeFrameRef();
         };
         const finish = (reason?: string): void => {
             if (finished) return;
@@ -263,15 +249,13 @@ export class TerminalManager {
             } else {
                 finish(reason);
             }
-            try {
-                if (child.exitCode === null) child.stdin?.write(`${JSON.stringify({ type: 'terminal.release' })}\n`);
-            } catch {
-                /* stream already gone */
-            }
-            try {
-                if (child.exitCode === null) child.kill();
-            } catch {
-                /* already dead */
+            // Graceful release first so Herdr hands the pane back, then SIGTERM
+            // on a timer in case the release never lands. A send after the
+            // child died is a no-op inside the kit, never a throw.
+            if (!childExited) session.send(JSON.stringify({ type: 'terminal.release' }));
+            if (!childExited) {
+                const killTimer = setTimeout(() => session.close(), TERMINAL_RELEASE_MS);
+                killTimer.unref?.();
             }
         };
 
@@ -293,10 +277,8 @@ export class TerminalManager {
             attachment.close(`herdr stream input failed: ${error.message}`);
         };
         const onInput = (text: string): void => {
-            if (finished || this.attachments.get(params.channel) !== attachment || child.exitCode !== null) return;
+            if (finished || this.attachments.get(params.channel) !== attachment || childExited) return;
             if (!this.authorized(attachment)) return;
-            const input = child.stdin;
-            if (input === null || input.destroyed || !input.writable) return;
             if (text.trim().length === 0) return;
             try {
                 const scroll = scrollInput(text);
@@ -311,7 +293,7 @@ export class TerminalManager {
                     // A key goes to the program at its live edge; the rest of a
                     // fling must not carry it back up afterwards.
                     if (scroll === undefined) wheelRows = 0;
-                    input.write(`${text}\n`);
+                    session.send(text);
                 }
                 // Whatever a scroll turns out to move -- Herdr's own
                 // scrollback, a program's wheel handler, or nothing at all --
@@ -325,38 +307,36 @@ export class TerminalManager {
         };
         const turnWheel = (): void => {
             wheelTimer = undefined;
-            const input = child.stdin;
-            if (finished || wheelRows === 0 || input === null || input.destroyed || !input.writable) return;
+            if (finished || wheelRows === 0 || childExited) return;
             const up = wheelRows > 0;
             wheelRows += up ? -1 : 1;
             try {
-                input.write(`${JSON.stringify({ type: 'terminal.scroll', direction: up ? 'up' : 'down', lines: 1, ...wheelAt })}\n`);
+                session.send(JSON.stringify({ type: 'terminal.scroll', direction: up ? 'up' : 'down', lines: 1, ...wheelAt }));
             } catch (error) {
                 onInputError(error instanceof Error ? error : new Error(String(error)));
                 return;
             }
             if (wheelRows !== 0) wheelTimer = setTimeout(turnWheel, WHEEL_TICK_MS);
         };
-        // Writable failures such as EPIPE are asynchronous; try/catch around
-        // write() cannot intercept them. Without an error owner Node terminates
-        // the entire host, dropping every session and triggering a reconnect loop.
-        child.stdin?.on('error', onInputError);
 
         // Await each link write before reading more from Herdr. LinkStream's
         // credit window alone cannot bound memory if we enqueue writes without
-        // awaiting them while a phone stops reading.
-        let buffer = '';
-        child.stdout?.on('data', (chunk: Buffer) => {
-            if (finished) return;
-            child.stdout?.pause();
-            buffer += chunk.toString('utf8');
-            void (async () => {
-                for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
-                    const line = buffer.slice(0, end);
-                    buffer = buffer.slice(end + 1);
+        // awaiting them while a phone stops reading. Pausing stops the kit
+        // reading stdout, so the pipe fills and Herdr blocks instead of the
+        // host queueing a whole stream for a slow phone.
+        const pending: string[] = [];
+        let pumping = false;
+        const pumpLines = async (): Promise<void> => {
+            if (pumping) return;
+            pumping = true;
+            try {
+                while (true) {
                     if (finished) return;
+                    const line = pending.shift();
+                    if (line === undefined) break;
                     if (line.trim().length === 0) continue;
                     await this.sendToPhone(attachment, line);
+                    if (finished) return;
                     if (attachment.scrollOffsetFromBottom > 0) this.scheduleScrollState(attachment);
                     // Only a real full repaint is the initial screen. A closed record
                     // or a stray diagnostic line must not count.
@@ -364,8 +344,21 @@ export class TerminalManager {
                     attachment.initialFrameReceived = true;
                     this.scheduleScrollState(attachment);
                 }
-            })().then(() => { if (!finished) child.stdout?.resume(); }, () => attachment.close());
+            } finally {
+                pumping = false;
+            }
+            if (!finished) session.resume();
+        };
+        removeFrameRef = session.onFrame((line) => {
+            if (finished) return;
+            session.pause();
+            pending.push(line);
+            void pumpLines().catch(() => attachment.close());
         });
+        // Handshake frames first, in order; the pump below owns pause from here.
+        removeEarlyTap();
+        for (const line of early.splice(0)) pending.push(line);
+        void pumpLines().catch(() => attachment.close());
 
         // Client input is written to the control stream's stdin verbatim.
         // Observe streams are read-only; drop input silently.
@@ -373,36 +366,26 @@ export class TerminalManager {
             removeInputRef = socket.onLine(onInput);
         }
 
-        child.on('exit', (code) => {
-            // Classification waits for stderr, but input must stop now: the
-            // stream it would be written to is already gone.
+        void session.exited.then(({ code, stderrTail }) => {
+            // Input must stop now: the stream it would be written to is gone.
+            // A send after the child died is a no-op inside the kit.
             removeInput();
-            // stderr can still be draining: classify only once it has, otherwise
-            // the very line that identifies a transient failure arrives too late.
-            void stderrDrained.then(() => {
-                if (finished) return;
-                if (!attachment.initialFrameReceived && TRANSIENT_TRANSPORT.test(stderrTail)) {
-                    // The pane survived; only this transport died. Retire it
-                    // silently so the phone's ordinary socket-close reattach
-                    // recovers instead of treating the terminal as ended.
-                    process.stderr.write(`terminal: herdr transport failed before the first frame on ${paneId}; retiring for reattach\n`);
-                    finish();
-                    socket.close();
-                    return;
-                }
-                finish(`herdr stream exited (${code ?? 'signal'})`);
-            });
-        });
-        // An unspawnable herdr binary (PATH drift, upgrade window) must not take
-        // the whole host down with an unhandled 'error' event.
-        child.on('error', (error) => {
-            process.stderr.write(`terminal: could not start ${herdr}: ${error.message}\n`);
-            finish(`herdr stream failed: ${error.message}`);
+            if (finished) return;
+            if (!attachment.initialFrameReceived && TRANSIENT_TRANSPORT.test(stderrTail)) {
+                // The pane survived; only this transport died. Retire it
+                // silently so the phone's ordinary socket-close reattach
+                // recovers instead of treating the terminal as ended.
+                process.stderr.write(`terminal: herdr transport failed before the first frame on ${paneId}; retiring for reattach\n`);
+                finish();
+                socket.close();
+                return;
+            }
+            finish(`herdr stream exited (${code ?? 'signal'})`);
         });
         socket.onEnd(() => {
             const remote = !finished;
             finish();
-            if (remote && child.exitCode === null) child.kill();
+            if (remote && !childExited) session.close();
         });
 
         return { paneId };

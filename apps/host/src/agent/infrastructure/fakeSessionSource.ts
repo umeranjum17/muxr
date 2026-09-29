@@ -125,6 +125,10 @@ export function createFakeSessionSource(): SessionSource {
             return { stdout: '', stderr: 'fake source has no herdr CLI', exitCode: null, timedOut: false };
         },
 
+        herdrTerminal() {
+            throw new Error('fake source has no herdr terminal');
+        },
+
         async installedAgentKinds(kinds) {
             return kinds.filter((kind) => kind === 'pi');
         },

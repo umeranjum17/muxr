@@ -478,7 +478,7 @@ async function main(): Promise<void> {
         },
         focusSession: (sessionId, assertActive) => source.paneFocus(sessionId, assertActive),
         readPaneScroll: (paneId) => source.paneScroll(paneId),
-        ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
+        openTerminal: (paneId, opts) => source.herdrTerminal(paneId, opts),
     });
 
     const host = startHost({

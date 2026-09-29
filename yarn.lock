@@ -849,9 +849,10 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
-"@byokit/herdr@file:vendor/byokit-herdr-0.1.0-a75548c.tgz":
-  version "0.1.0"
-  resolved "file:vendor/byokit-herdr-0.1.0-a75548c.tgz#d243ba1bf1507357359297f5b0f28d6b7565a93e"
+"@byokit/herdr@0.1.0-next.dbe7142":
+  version "0.1.0-next.dbe7142"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.0-next.dbe7142.tgz#bba3749c22e4f9e52e66104d5270dbbbe1f222f3"
+  integrity sha512-cceVBSAD8pwZ/MsPUZNmP1cpur7MDv8WvP+MG2Xg47UBCkPMb7lnYdbp0nlH84J7cX19Sb5eB665Wepl4VrsdQ==
   dependencies:
     "@byokit/link" "0.3.1"
     "@byokit/reach" "0.2.0"
