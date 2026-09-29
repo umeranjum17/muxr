@@ -1688,10 +1688,11 @@ export async function createHerdrSessionSource(
         }
         switch (kind) {
             case 'pane.updated': {
-                const paneId = typeof event.pane_id === 'string' ? event.pane_id : pane?.pane_id;
+                // No immediate emit: a working agent animates its terminal title
+                // several times a second, and each tick changes taskTitle, so an
+                // immediate emit would push a session.updated per tick. The
+                // debounced snapshot below coalesces them to ~500ms cadence.
                 scheduleResnapshot();
-                const session = paneId === undefined ? undefined : currentSessionByPane(paneId);
-                if (session !== undefined) emitState(session.sessionId);
                 return;
             }
             case 'pane.agent.status.changed':
