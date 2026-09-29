@@ -19,6 +19,7 @@ function stubBin(): string {
     writeFileSync(join(bin, 'claude'), `#!/bin/bash
 base="\${CLAUDE_CONFIG_DIR##*/}"
 if [[ "$base" == *-out ]]; then echo '{"loggedIn":false,"authMethod":"none"}';
+elif [[ "$base" == weird ]]; then echo '{"loggedIn":true,"email":"weird@example.com","subscriptionId":"sub_abc","subscriptionStatus":"active"}';
 else echo "{\\"loggedIn\\":true,\\"email\\":\\"$base@example.com\\",\\"plan\\":\\"Pro\\"}"; fi
 `);
     writeFileSync(join(bin, 'codex'), `#!/bin/bash
@@ -88,6 +89,16 @@ it('reports a signed-out account without choosing it and never reads credentials
     const listed = await listPlans(env);
     expect(listed.providers).toHaveLength(1);
     expect(listed.providers[0]!.accounts.map((account) => account.signedIn)).toEqual([true, false]);
+});
+
+it('never shows an internal id or status as the plan', async () => {
+    foundClaude();
+    const weird = addedClaude('weird');
+    savePlanAccounts(env, [{ id: 'pa_weird', provider: 'claude', name: '', folder: weird, found: false }]);
+    const accounts = (await listPlans(env)).providers[0]!.accounts;
+    expect(accounts.map((account) => account.email)).toEqual(['.claude@example.com', 'weird@example.com']);
+    expect(accounts[0]).toMatchObject({ plan: 'Pro' });
+    expect(accounts[1]).not.toHaveProperty('plan');
 });
 
 it('renames, resolves launch env, and removes without touching found folders', async () => {

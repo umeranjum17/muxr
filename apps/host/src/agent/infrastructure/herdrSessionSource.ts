@@ -1596,12 +1596,12 @@ export async function createHerdrSessionSource(
         }
     }
 
-    async function readPaneEnv(paneId: string, name: string): Promise<string | undefined> {
+    async function readPaneEnv(paneId: string, name: string): Promise<string | null> {
         const marker = `MUXR_PLAN_ORIGIN_${randomBytes(4).toString('hex')}`;
         try {
             await client.call('pane.send_text', { pane_id: paneId, text: `echo ${marker}=$${name}\n` });
         } catch {
-            return undefined;
+            return null;
         }
         const deadline = Date.now() + 5_000;
         for (;;) {
@@ -1610,14 +1610,11 @@ export async function createHerdrSessionSource(
                     pane_id: paneId, source: 'recent', lines: 20, format: 'text', strip_ansi: true,
                 });
                 const line = (result.read?.text ?? '').split('\n').find((entry) => entry.startsWith(`${marker}=`));
-                if (line !== undefined) {
-                    const value = line.slice(line.indexOf(`${marker}=`) + marker.length + 1).trim();
-                    return value === '' ? undefined : value;
-                }
+                if (line !== undefined) return line.slice(line.indexOf(`${marker}=`) + marker.length + 1).trim();
             } catch {
-                return undefined;
+                return null;
             }
-            if (Date.now() >= deadline) return undefined;
+            if (Date.now() >= deadline) return null;
             await sleep(250);
         }
     }
@@ -1629,7 +1626,8 @@ export async function createHerdrSessionSource(
         kind: string;
         args: string[];
         varName: string;
-        originalFolder: string | undefined;
+        originalFolder: string | null;
+        started: boolean;
         cause: unknown;
     }): Promise<Error> {
         const failed = (message: string, sessionId?: string): Error =>
@@ -1638,6 +1636,29 @@ export async function createHerdrSessionSource(
                 cause: rollback.cause,
                 ...(sessionId === undefined ? {} : { sessionId }),
             });
+        const releaseMoveRoute = (): void => {
+            moveRetainedRoutes.delete(rollback.sessionId);
+            paneByAgentRoute.delete(rollback.sessionId);
+            routes.remove(rollback.sessionId);
+            removeRouteState(rollback.sessionId);
+        };
+        const keepPaneSession = async (): Promise<{ sessionId: string; listed: boolean } | undefined> => {
+            if (!rollback.started) forgetLaunch(rollback.paneId);
+            await refreshSnapshot().catch(() => undefined);
+            const listed = bindListedPane(rollback.paneId);
+            if (listed === undefined) forgetLaunch(rollback.paneId);
+            else void confirmLaunch(rollback.paneId, rollback.kind, listed.sessionId);
+            const sessionId = listed?.sessionId ?? currentSession(shellRoute(rollback.paneId))?.sessionId;
+            return sessionId === undefined ? undefined : { sessionId, listed: listed !== undefined };
+        };
+        if (rollback.originalFolder === null) {
+            releaseMoveRoute();
+            const live = await keepPaneSession();
+            if (live === undefined) return failed('The move did not complete and no live session remains. Go back and start again.');
+            return live.listed
+                ? failed('The move did not complete. The new account is running here: try again or go back.', live.sessionId)
+                : failed('The move did not complete, and the original sign-in could not be confirmed, so the conversation was not resumed there. The tab stays as a shell: try again or go back.', live.sessionId);
+        }
         forgetLaunch(rollback.paneId);
         const screen = await screens?.allocate();
         let split: { pane?: { pane_id?: string } } | undefined;
@@ -1647,22 +1668,25 @@ export async function createHerdrSessionSource(
                 target_pane_id: rollback.paneId,
                 env: {
                     ...paneEnvironment(screen),
-                    ...(rollback.originalFolder === undefined ? {} : { [rollback.varName]: rollback.originalFolder }),
+                    ...(rollback.originalFolder ? { [rollback.varName]: rollback.originalFolder } : {}),
                 },
                 focus: false,
             });
         } catch {
             split = undefined;
         }
-        await client.call('pane.close', { pane_id: rollback.paneId }).catch(() => undefined);
-        screens?.releaseScreen(rollback.screen);
         const rollbackPaneId = split?.pane?.pane_id;
         if (rollbackPaneId === undefined) {
             screens?.releaseScreen(screen);
-            moveRetainedRoutes.delete(rollback.sessionId);
-            forgetClosedSession(rollback.sessionId, rollback.paneId);
-            return failed('The agent did not start on the new account, and the move could not be undone. Go back and start again.');
+            releaseMoveRoute();
+            const live = await keepPaneSession();
+            if (live === undefined) return failed('The agent did not start on the new account, and the move could not be undone. Go back and start again.');
+            return live.listed
+                ? failed('The agent did not start on the new account, and the move could not be undone. The new account is running here: try again or go back.', live.sessionId)
+                : failed('The agent did not start on the new account, and the move could not be undone. The tab stays as a shell: try again or go back.', live.sessionId);
         }
+        await client.call('pane.close', { pane_id: rollback.paneId }).catch(() => undefined);
+        screens?.releaseScreen(rollback.screen);
         screens?.bind(screen, rollbackPaneId);
         await tagSpawn(rollbackPaneId, rollback.sessionId);
         const launchName = `pp_${randomBytes(8).toString('hex')}`;
@@ -1683,7 +1707,7 @@ export async function createHerdrSessionSource(
         void confirmLaunch(rollbackPaneId, rollback.kind, found.sessionId);
         moveRetainedRoutes.delete(rollback.sessionId);
         if (found.sessionId !== rollback.sessionId) forgetClosedSession(rollback.sessionId, rollback.paneId);
-        return failed('The agent did not start on the new account. It is back on the original account: try again or go back.', found.sessionId);
+        return failed('The new account did not take over. It is back on the original account: try again or go back.', found.sessionId);
     }
 
     function bindListedPane(paneId: string): CurrentSession | undefined {
@@ -3171,8 +3195,12 @@ export async function createHerdrSessionSource(
             const launchName = `pp_${randomBytes(8).toString('hex')}`;
             seedLaunchPane(newPaneId, { pane_id: newPaneId });
             rememberLaunch(newPaneId, kind, launchName);
+            let found: { sessionId: string };
+            let started = false;
             try {
                 await startManagedAgent(newPaneId, kind, launchName, args);
+                started = true;
+                found = bindListedPane(newPaneId) ?? await waitForListedAgent(newPaneId, 5_000);
             } catch (error) {
                 throw await rollbackPlanMove({
                     sessionId: record.sessionId,
@@ -3182,16 +3210,9 @@ export async function createHerdrSessionSource(
                     args,
                     varName,
                     originalFolder,
+                    started,
                     cause: error,
                 });
-            }
-            let found;
-            try {
-                found = bindListedPane(newPaneId) ?? await waitForListedAgent(newPaneId, 5_000);
-            } catch (error) {
-                moveRetainedRoutes.delete(record.sessionId);
-                forgetClosedSession(record.sessionId, record.paneId);
-                throw error;
             }
             void confirmLaunch(newPaneId, kind, found.sessionId);
             moveRetainedRoutes.delete(record.sessionId);

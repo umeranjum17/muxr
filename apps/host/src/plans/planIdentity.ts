@@ -48,13 +48,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** First short string under a key matching `match`, down a few levels. The
  *  tools' exact status shapes drift; the email and plan hide under obvious names. */
-function findString(value: unknown, match: RegExp, depth = 0): string | undefined {
+function findString(value: unknown, match: RegExp, depth = 0, skip?: RegExp): string | undefined {
     if (depth > 4) return undefined;
     if (typeof value === 'string') return undefined;
     if (Array.isArray(value)) {
         if (value.length > 32) return undefined;
         for (const entry of value) {
-            const found = findString(entry, match, depth + 1);
+            const found = findString(entry, match, depth + 1, skip);
             if (found !== undefined) return found;
         }
         return undefined;
@@ -63,11 +63,12 @@ function findString(value: unknown, match: RegExp, depth = 0): string | undefine
     const keys = Object.keys(value);
     if (keys.length > 64) return undefined;
     for (const key of keys) {
+        if (skip?.test(key)) continue;
         const entry = value[key];
         if (match.test(key) && typeof entry === 'string' && entry !== '' && entry.length <= 320) return entry;
     }
     for (const key of keys) {
-        const found = findString(value[key], match, depth + 1);
+        const found = findString(value[key], match, depth + 1, skip);
         if (found !== undefined) return found;
     }
     return undefined;
@@ -96,7 +97,7 @@ export async function claudeIdentity(
     const email = findString(status, /email/i);
     if (email !== undefined) identity.email = email;
     const plan = findString(status, /^(plan|subscription|tier|subscriptionType|planName)$/i)
-        ?? findString(status, /plan|subscription/i);
+        ?? findString(status, /plan|subscription/i, 0, /id|status|at$/i);
     if (plan !== undefined) identity.plan = plan;
     return identity;
 }
@@ -167,7 +168,7 @@ export async function codexIdentity(
     const identity: PlanIdentity = { signedIn: true };
     const email = findString(account, /email/i);
     if (email !== undefined) identity.email = email;
-    const plan = findString(account, /plan|subscription|tier/i);
+    const plan = findString(account, /plan|subscription|tier/i, 0, /id|status|at$/i);
     if (plan !== undefined) identity.plan = plan;
     return identity;
 }
