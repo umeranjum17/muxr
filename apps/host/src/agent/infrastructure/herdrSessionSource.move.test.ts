@@ -27,7 +27,7 @@ function fakeHerdr(dir: string, cwd: string) {
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
-    const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>() };
+    const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), echoOnlyReads: 0 };
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
     const sendTexts: Array<{ pane_id: unknown; text: unknown }> = [];
@@ -93,6 +93,11 @@ function fakeHerdr(dir: string, cwd: string) {
                         const output = ((pane?.output ?? []) as string[]).join('');
                         // Production only evaluates shell input on shell panes: text typed
                         // at a live agent reaches the agent as chat, never the shell.
+                        if (state.echoOnlyReads > 0) {
+                            state.echoOnlyReads -= 1;
+                            reply = { id, result: { read: { text: output } } };
+                            break;
+                        }
                         const liveAgent = agents.some((agent) => agent.pane_id === p.pane_id);
                         const echo = liveAgent
                             ? undefined
@@ -402,6 +407,31 @@ describe('a plan-account move whose new-account start fails', () => {
             expect(herdr.splits).toHaveLength(1);
             expect((await source.list()).map((session) => session.id)).toEqual([shell]);
             expect((await source.open({ sessionId: shell as string })).info.id).toBe(shell);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('waits past the typed echo instead of refusing on the first fast poll', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-move-echo-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            await source.refreshHerdr();
+            const sessionId = (await source.list())[0]!.id;
+
+            herdr.state.echoOnlyReads = 1;
+            const moved = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' });
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            expect((await source.open({ sessionId: moved.sessionId })).info.id).toBe(moved.sessionId);
         } finally {
             await source.dispose();
             herdr.close();

@@ -1595,10 +1595,13 @@ export async function createHerdrSessionSource(
                 const result = await client.call<{ read?: { text?: string } }>('pane.read', {
                     pane_id: paneId, source: 'recent', lines: 40, format: 'text', strip_ansi: true,
                 });
-                const text = result.read?.text ?? '';
-                if (text.includes(`${marker}=${expected}`)) return true;
+                const answer = (result.read?.text ?? '')
+                    .split('\n')
+                    .filter((entry) => !entry.trimStart().startsWith('echo '))
+                    .join('\n');
+                if (answer.includes(`${marker}=${expected}`)) return true;
                 // The shell answered with a different folder: the rc overrides us.
-                if (text.includes(`${marker}=`)) return false;
+                if (answer.includes(`${marker}=`)) return false;
             } catch { /* a pane that cannot be read cannot be verified */ }
             if (Date.now() >= deadline) return false;
             await sleep(500);
