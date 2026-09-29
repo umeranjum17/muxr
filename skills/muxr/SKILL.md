@@ -74,10 +74,11 @@ work.
 
 ## Self-naming
 
-At task start, name the current Herdr workspace and pane through muxr's
-provider-neutral local facade. `HERDR_PANE_ID` is the existing Herdr pane
-identity; muxr supplies the local authorization and resolves workspace
-membership from Herdr. Names stay verbatim within bounded input limits.
+At task start, name the current Herdr workspace and pane with muxr's
+provider-neutral command. `HERDR_PANE_ID` is the existing Herdr pane
+identity; `muxr name` resolves workspace membership from Herdr and renames
+through the Herdr CLI, so no muxr host needs to be running. Names stay
+verbatim within bounded input limits.
 
 ```sh
 muxr name --workspace 'short-task-slug' \

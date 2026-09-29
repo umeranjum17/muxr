@@ -367,7 +367,7 @@ async function removeManagedPack(herdr, plugin, assumeYes) {
         process.stderr.write(`Runtime state was removed, but Herdr could not remove the plugin. Run \`herdr plugin uninstall ${plugin.plugin_id}\`.\n`);
         return 1;
     }
-    process.stdout.write(`The plugin was removed. Reinstall later with \`herdr plugin install ${githubPluginSource(plugin)}\`.\n`);
+    process.stdout.write(`The plugin was removed. Reinstall later with \`herdr plugin install ${githubPluginSource(plugin)} --ref ${plugin.source.requested_ref || 'vX.Y.Z'}\`.\n`);
     return 0;
 }
 
