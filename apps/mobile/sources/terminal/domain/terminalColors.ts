@@ -43,16 +43,15 @@ export function normalizeHex(value: string): string | null {
 
 /**
  * Stored overrides, read defensively: an unknown slot or a malformed colour is
- * dropped rather than reaching the renderer, and a value equal to the default
- * is no override at all.
+ * dropped rather than reaching the renderer.
  */
-export function cleanTerminalColorOverrides(stored: unknown, defaults?: TerminalColors): TerminalColorOverrides {
+export function cleanTerminalColorOverrides(stored: unknown): TerminalColorOverrides {
     if (stored === null || typeof stored !== 'object') return {};
     const clean: TerminalColorOverrides = {};
     for (const slot of TERMINAL_COLOR_SLOTS) {
         const raw = (stored as Record<string, unknown>)[slot];
         const hex = typeof raw === 'string' ? normalizeHex(raw) : null;
-        if (hex !== null && hex !== defaults?.[slot]) clean[slot] = hex;
+        if (hex !== null) clean[slot] = hex;
     }
     return clean;
 }

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
+import { Keyboard, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -44,6 +44,10 @@ function selectionLook(colors: TerminalColors, overridden: boolean): { backgroun
     return { background: colors.selection, color: colors.foreground };
 }
 
+function Run({ color, children }: { color: string; children: string }) {
+    return <Text style={{ color }}>{children}</Text>;
+}
+
 /**
  * A few lines of ordinary terminal output drawn in the chosen colours, so a
  * change reads the way it will in a real session before leaving Settings.
@@ -51,7 +55,6 @@ function selectionLook(colors: TerminalColors, overridden: boolean): { backgroun
 function TerminalColorsPreview({ colors, selectionOverridden }: { colors: TerminalColors; selectionOverridden: boolean }) {
     const ansi = (index: number) => colors[TERMINAL_ANSI_SLOTS[index]!];
     const selection = selectionLook(colors, selectionOverridden);
-    const Run = ({ color, children }: { color: string; children: string }) => <Text style={{ color }}>{children}</Text>;
     return (
         <View
             accessible
@@ -73,7 +76,7 @@ function TerminalColorsPreview({ colors, selectionOverridden }: { colors: Termin
             </Text>
             <Text style={[styles.previewLine, { color: colors.foreground }]} numberOfLines={1}>
                 $ <Text style={{ backgroundColor: selection.background, color: selection.color }}>npm test</Text>
-                {' '}<Text style={{ backgroundColor: colors.cursor, color: colors.background }}> </Text>
+                {' '}<Text style={{ color: colors.cursor }}>█</Text>
             </Text>
             <View style={styles.previewStrip}>
                 {TERMINAL_ANSI_SLOTS.map((slot) => (
@@ -128,7 +131,9 @@ function ChannelSlider({ hsv, channel, onChange }: { hsv: Hsv; channel: typeof C
     const value = hsv[channel.key];
     const fraction = Math.min(1, Math.max(0, value / channel.max));
     const set = (next: number) => onChange({ ...hsv, [channel.key]: Math.min(channel.max, Math.max(0, next)) });
-    const fromTouch = (x: number) => { if (width > 0) set((x / width) * channel.max); };
+    // The thumb's centre travels THUMB/2 in from each end, so a touch on the
+    // thumb itself lands on the value it already shows.
+    const fromTouch = (x: number) => { if (width > THUMB) set(((x - THUMB / 2) / (width - THUMB)) * channel.max); };
     const stops: readonly [string, string, ...string[]] = channel.key === 'h'
         ? HUE_STOPS
         : channel.key === 's'
@@ -154,7 +159,7 @@ function ChannelSlider({ hsv, channel, onChange }: { hsv: Hsv; channel: typeof C
                 onResponderMove={({ nativeEvent }) => fromTouch(nativeEvent.locationX)}
                 style={styles.track}
             >
-                <LinearGradient pointerEvents="none" colors={stops} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.trackFill} />
+                <LinearGradient pointerEvents="none" colors={stops} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={TRACK_FILL} />
                 <View pointerEvents="none" style={[styles.thumb, { left: fraction * Math.max(0, width - THUMB) }]} />
             </View>
         </View>
@@ -162,42 +167,66 @@ function ChannelSlider({ hsv, channel, onChange }: { hsv: Hsv; channel: typeof C
 }
 
 const THUMB = 26;
+// Plain object: unistyles only styles the components it compiles, not the gradient.
+const TRACK_FILL = { height: 18, borderRadius: 9 };
+
+/** The sheet sits above the keyboard, so its header must fit what is left. */
+function useKeyboardHeight(): number {
+    const [keyboard, setKeyboard] = React.useState(0);
+    React.useEffect(() => {
+        const shown = Keyboard.addListener('keyboardDidShow', (event) => setKeyboard(event.endCoordinates.height));
+        const hidden = Keyboard.addListener('keyboardDidHide', () => setKeyboard(0));
+        return () => { shown.remove(); hidden.remove(); };
+    }, []);
+    return keyboard;
+}
 
 /**
  * Picks one slot's colour: drag hue, saturation and brightness, type a hex
- * code, or take a colour already in the palette. Nothing is saved until Done.
+ * code, or take a colour already in the palette. Nothing is saved until Done;
+ * Done after Default hands the slot back to the renderer (null).
  */
-function ColorEditor({ slot, colors, onDone, onClose }: {
+function ColorEditor({ slot, colors, overridden, onDone, onClose }: {
     slot: TerminalColorSlot;
     colors: TerminalColors;
-    onDone: (hex: string) => void;
+    overridden: boolean;
+    onDone: (hex: string | null) => void;
     onClose: () => void;
 }) {
     const { theme } = useUnistyles();
     const { width, height } = useWindowDimensions();
+    const keyboard = useKeyboardHeight();
     const initial = colors[slot];
     const [hsv, setHsv] = React.useState(() => hexToHsv(initial));
+    const [isDefault, setIsDefault] = React.useState(!overridden);
     const hex = hsvToHex(hsv);
     const [draft, setDraft] = React.useState(hex);
-    const pick = (next: Hsv) => { setHsv(next); setDraft(hsvToHex(next)); };
+    const pick = (next: Hsv) => { setHsv(next); setDraft(hsvToHex(next)); setIsDefault(false); };
     const typed = (text: string) => {
         setDraft(text);
         const parsed = normalizeHex(text);
-        if (parsed !== null) setHsv(hexToHsv(parsed));
+        if (parsed !== null) { setHsv(hexToHsv(parsed)); setIsDefault(false); }
     };
     const draftValid = normalizeHex(draft) !== null;
     const name = terminalColorName(slot);
     const partner = contrastPartner(slot, colors);
     const ratio = contrastRatio(hex, partner);
+    const invertedDefault = slot === 'selection' && isDefault && NATIVE_INVERTED_SELECTION;
     const sample = slot === 'background'
         ? { background: hex, color: colors.foreground }
         : slot === 'selection' ? { background: hex, color: colors.foreground } : { background: colors.background, color: hex };
     const defaultHex = TERMINAL_COLOR_DEFAULTS[slot];
-    const suggestions = [...new Set([defaultHex, ...TERMINAL_ANSI_SLOTS.map((s) => colors[s]), colors.foreground, colors.background])];
+    const suggestions = [...new Set([...TERMINAL_ANSI_SLOTS.map((s) => colors[s]), colors.foreground, colors.background])];
+    const useDefault = () => {
+        hapticsSelection();
+        setHsv(hexToHsv(defaultHex));
+        setDraft(defaultHex);
+        setIsDefault(true);
+    };
 
     return (
         <BaseModal visible onClose={onClose} align="bottom" animationType="slide">
-            <View style={[styles.sheet, { width: Math.min(width, 480), maxHeight: height - 48 }]} accessibilityViewIsModal>
+            <View style={[styles.sheet, { width: Math.min(width, 480), maxHeight: height - 48 - keyboard }]} accessibilityViewIsModal>
                 <View style={styles.sheetHeader}>
                     <Text style={styles.sheetTitle} accessibilityRole="header">{name}</Text>
                     <Pressable accessibilityRole="button" accessibilityLabel="Cancel" hitSlop={10} onPress={onClose}>
@@ -205,17 +234,19 @@ function ColorEditor({ slot, colors, onDone, onClose }: {
                     </Pressable>
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`Use ${hex} for ${name}`}
+                        accessibilityLabel={isDefault ? `Use the default for ${name}` : `Use ${hex} for ${name}`}
+                        accessibilityState={{ disabled: !draftValid }}
+                        disabled={!draftValid}
                         hitSlop={10}
-                        onPress={() => { hapticsSelection(); onDone(hex); }}
+                        onPress={() => { hapticsSelection(); onDone(isDefault ? null : hex); }}
                     >
-                        <Text style={[styles.sheetAction, { color: theme.colors.textLink, ...Typography.default('semiBold') }]}>Done</Text>
+                        <Text style={[styles.sheetAction, { color: draftValid ? theme.colors.textLink : theme.colors.textSecondary, ...Typography.default('semiBold') }]}>Done</Text>
                     </Pressable>
                 </View>
                 <ScrollView bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetBody}>
                     <View style={styles.compare}>
-                        <View style={[styles.compareSample, { backgroundColor: sample.background }]}>
-                            <Text style={[styles.compareText, { color: sample.color }]} numberOfLines={1}>{slot === 'cursor' ? '$ ' : 'Sample text'}</Text>
+                        <View style={[styles.compareSample, { backgroundColor: invertedDefault ? colors.foreground : sample.background }]}>
+                            <Text style={[styles.compareText, { color: invertedDefault ? colors.background : sample.color }]} numberOfLines={1}>{slot === 'cursor' ? '$ ' : 'Sample text'}</Text>
                             {slot === 'cursor' && <View style={[styles.compareCursor, { backgroundColor: hex }]} />}
                         </View>
                         <View style={styles.compareSwatches} accessibilityLabel={`Was ${initial}, now ${hex}`} accessible>
@@ -224,9 +255,13 @@ function ColorEditor({ slot, colors, onDone, onClose }: {
                             <Swatch color={hex} size={22} />
                         </View>
                     </View>
-                    <Text style={[styles.ratio, { color: ratio < READABLE_CONTRAST ? theme.colors.box.warning.text : theme.colors.textSecondary }]}>
-                        {ratio < READABLE_CONTRAST ? 'Low contrast' : 'Contrast'} {formatRatio(ratio)} against {slot === 'background' || slot === 'selection' ? 'text' : 'background'}
-                    </Text>
+                    {invertedDefault ? (
+                        <Text style={[styles.ratio, { color: theme.colors.textSecondary }]}>The default swaps text and background</Text>
+                    ) : (
+                        <Text style={[styles.ratio, { color: ratio < READABLE_CONTRAST ? theme.colors.box.warning.text : theme.colors.textSecondary }]}>
+                            {ratio < READABLE_CONTRAST ? 'Low contrast' : 'Contrast'} {formatRatio(ratio)} against {slot === 'background' || slot === 'selection' ? 'text' : 'background'}
+                        </Text>
+                    )}
                     {CHANNELS.map((channel) => <ChannelSlider key={channel.key} hsv={hsv} channel={channel} onChange={pick} />)}
                     <View style={styles.hexRow}>
                         <Text style={styles.channelLabel}>Hex</Text>
@@ -246,18 +281,32 @@ function ColorEditor({ slot, colors, onDone, onClose }: {
                     </View>
                     <Text style={styles.channelLabel}>From the palette</Text>
                     <View style={styles.suggestions}>
-                        {suggestions.map((color, index) => (
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Default, ${slot === 'selection' && NATIVE_INVERTED_SELECTION ? 'swaps text and background' : defaultHex}`}
+                            accessibilityState={{ selected: isDefault }}
+                            hitSlop={4}
+                            onPress={useDefault}
+                            style={[styles.suggestion, isDefault && { borderColor: theme.colors.textLink }]}
+                        >
+                            <Swatch
+                                color={slot === 'selection' && NATIVE_INVERTED_SELECTION ? TERMINAL_COLOR_DEFAULTS.foreground : defaultHex}
+                                inverted={slot === 'selection' && NATIVE_INVERTED_SELECTION ? TERMINAL_COLOR_DEFAULTS.background : undefined}
+                                size={26}
+                            />
+                            <Text style={styles.suggestionLabel}>Default</Text>
+                        </Pressable>
+                        {suggestions.map((color) => (
                             <Pressable
                                 key={color}
                                 accessibilityRole="button"
-                                accessibilityLabel={index === 0 ? `Default, ${color}` : color}
-                                accessibilityState={{ selected: color === hex }}
+                                accessibilityLabel={color}
+                                accessibilityState={{ selected: !isDefault && color === hex }}
                                 hitSlop={4}
                                 onPress={() => { hapticsSelection(); pick(hexToHsv(color)); }}
-                                style={[styles.suggestion, color === hex && { borderColor: theme.colors.textLink }]}
+                                style={[styles.suggestion, !isDefault && color === hex && { borderColor: theme.colors.textLink }]}
                             >
                                 <Swatch color={color} size={26} />
-                                {index === 0 && <Text style={styles.suggestionLabel}>Default</Text>}
                             </Pressable>
                         ))}
                     </View>
@@ -275,9 +324,11 @@ export function TerminalColorsSettings() {
     const changed = Object.keys(overrides).length;
     const textRatio = contrastRatio(colors.foreground, colors.background);
 
-    const save = (slot: TerminalColorSlot, hex: string) => {
+    // An explicit pick is kept even when it matches the default: the phone's
+    // default selection is a swap, not a colour, so white is a real choice.
+    const save = (slot: TerminalColorSlot, hex: string | null) => {
         const next = { ...overrides } as Record<string, string>;
-        if (hex === TERMINAL_COLOR_DEFAULTS[slot]) delete next[slot];
+        if (hex === null) delete next[slot];
         else next[slot] = hex;
         setStored(next);
     };
@@ -362,6 +413,7 @@ export function TerminalColorsSettings() {
                     key={editing}
                     slot={editing}
                     colors={colors}
+                    overridden={overrides[editing] !== undefined}
                     onDone={(hex) => { save(editing, hex); setEditing(null); }}
                     onClose={() => setEditing(null)}
                 />
@@ -415,7 +467,6 @@ const styles = StyleSheet.create((theme) => ({
     channel: { gap: 6 },
     channelLabel: { ...Typography.default(), fontSize: 13, color: theme.colors.textSecondary },
     track: { height: 30, justifyContent: 'center' },
-    trackFill: { height: 18, borderRadius: 9 },
     thumb: {
         position: 'absolute',
         width: THUMB,

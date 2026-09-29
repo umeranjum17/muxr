@@ -13,7 +13,7 @@ export const TERMINAL_COLOR_DEFAULTS = terminalColorsFrom(terminalColorDefaults)
 export function useTerminalColors() {
     const stored = useLocalSetting('terminalColors');
     return React.useMemo(() => {
-        const overrides = cleanTerminalColorOverrides(stored, TERMINAL_COLOR_DEFAULTS);
+        const overrides = cleanTerminalColorOverrides(stored);
         return { overrides, colors: resolveTerminalColors(TERMINAL_COLOR_DEFAULTS, overrides) };
     }, [stored]);
 }
