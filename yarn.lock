@@ -860,10 +860,10 @@
     "@byokit/seal" "0.1.0"
     ws "8.21.3"
 
-"@byokit/link@0.3.1":
-  version "0.3.1"
-  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.3.1.tgz#275e9f5f6e409053d6aaaadf7f74c70e82c9e31d"
-  integrity sha512-w+DQvnBaXMlribR7LY8vM8otNJ0Oqx59+pcevrjbxTzdzLgo7zDM6kJ5SroSzrdouzhMklgIdVhyofa2gNPKQw==
+"@byokit/link@0.3.1", "@byokit/link@0.3.2":
+  version "0.3.2"
+  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.3.2.tgz#3c76572c48db3a88547d009f2347e2d9ef8e612a"
+  integrity sha512-RqZLsj7uWlffDjzXQqVLWq+028I1gmXgMwV9gUKRqMiObW0s4AKFqofpyMeK0TJXQS6/GBWP3N2p6gRhnPscfg==
   dependencies:
     "@noble/ciphers" "2.4.0"
     b4a "1.9.0"
