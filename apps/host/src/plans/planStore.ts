@@ -6,7 +6,7 @@
  * own status command (see `planIdentity.ts`); muxr never opens a credential
  * file to learn who an account is.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -88,10 +88,16 @@ export function loadPlanAccounts(env: NodeJS.ProcessEnv): PlanAccountRecord[] {
     }
 }
 
+function writeAtomically(path: string, body: string): void {
+    const temporary = `${path}.${process.pid}.tmp`;
+    writeFileSync(temporary, body, { mode: 0o600 });
+    renameSync(temporary, path);
+}
+
 export function savePlanAccounts(env: NodeJS.ProcessEnv, accounts: PlanAccountRecord[]): void {
     const path = storePath(env);
     mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
-    writeFileSync(path, JSON.stringify({ version: 1, accounts } satisfies StoreFile), { mode: 0o600 });
+    writeAtomically(path, JSON.stringify({ version: 1, accounts } satisfies StoreFile));
 }
 
 export function newPlanAccountId(): string {
@@ -115,7 +121,7 @@ export function autoTermsAcknowledged(env: NodeJS.ProcessEnv): boolean {
 export function acknowledgeAutoTerms(env: NodeJS.ProcessEnv): void {
     const path = autoTermsPath(env);
     mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
-    writeFileSync(path, JSON.stringify({ acknowledged: true }), { mode: 0o600 });
+    writeAtomically(path, JSON.stringify({ acknowledged: true }));
 }
 
 /** Folders muxr itself created live under its own plans dir; only those may ever be deleted. */

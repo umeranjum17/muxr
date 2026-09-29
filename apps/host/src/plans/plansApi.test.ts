@@ -6,9 +6,21 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv } from './plansApi.js';
-import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
+import { autoTermsAcknowledged, loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
+
+const mockState = vi.hoisted(() => ({ failRename: false }));
+vi.mock('node:fs', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('node:fs')>();
+    return {
+        ...actual,
+        renameSync: (...args: Parameters<typeof actual.renameSync>) => {
+            if (mockState.failRename) throw new Error('crash before rename');
+            return actual.renameSync(...args);
+        },
+    };
+});
 
 let root = '';
 let env: NodeJS.ProcessEnv;
@@ -297,4 +309,18 @@ it('reads stalled accounts concurrently instead of one after another', async () 
     expect(maxInFlight).toBe(2);
     expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual([undefined, undefined]);
     expect(listed.providers[0]!.accounts.map((account) => account.signedIn)).toEqual([false, false]);
+});
+
+it('keeps the previous store when a crash lands mid-write', () => {
+    const second = addedClaude('work');
+    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
+    mockState.failRename = true;
+    try {
+        expect(() => savePlanAccounts(env, [])).toThrow();
+        expect(loadPlanAccounts(env).map((record) => record.id)).toEqual(['pa_work']);
+        expect(() => acknowledgeAutoTerms(env)).toThrow();
+        expect(autoTermsAcknowledged(env)).toBe(false);
+    } finally {
+        mockState.failRename = false;
+    }
 });
