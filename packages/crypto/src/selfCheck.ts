@@ -7,9 +7,6 @@ import {
     createSignedPeerDescriptor,
     generateKeyPair,
     generateSigningKeyPair,
-    openPairingCodePayload,
-    pairingCodeHash,
-    sealPairingCodePayload,
     signDetached,
     verifyDetached,
     verifyDeviceGrant,
@@ -17,20 +14,7 @@ import {
     grantAuthority,
     grantIsPeer,
     grantHasExpired,
-    parsePairingCode,
 } from './index.js';
-
-// --- short pairing-code payload ---------------------------------------------
-
-const pairingCode = '7KDM4-QXP7N';
-const pairingPayload = JSON.stringify({ pairSecret: 'high-entropy-secret', relay: 'wss://relay.example' });
-const pairingCiphertext = sealPairingCodePayload(pairingPayload, pairingCode);
-assert.ok(!pairingCiphertext.includes('high-entropy-secret'), 'relay-stored code payload hides the pairing secret');
-assert.ok(!pairingCodeHash(pairingCode).includes('7KDM4'), 'relay lookup does not contain the human code');
-assert.equal(openPairingCodePayload(pairingCiphertext, pairingCode), pairingPayload, 'pairing code opens its payload');
-assert.ok(parsePairingCode(pairingCode).ok, 'pairing code parser accepts the spoken form');
-assert.ok(!parsePairingCode('nope').ok, 'pairing code parser rejects an expected bad code');
-assert.throws(() => openPairingCodePayload(pairingCiphertext, '8KDM4-QXP7N'), /authentication/, 'wrong pairing code fails closed');
 
 const dataRoot = nacl.randomBytes(32);
 
@@ -153,4 +137,4 @@ function tamperBase64(value: string): string {
     return value.slice(0, at) + (value[at] === 'A' ? 'B' : 'A') + value.slice(at + 1);
 }
 
-process.stdout.write('PASS: crypto selfCheck (pairing code, signed grants, peer descriptors)\n');
+process.stdout.write('PASS: crypto selfCheck (signed grants, peer descriptors)\n');

@@ -16,7 +16,6 @@ import {
 import { homedir, hostname, networkInterfaces, platform as hostPlatform } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import { cryptoModuleUrl } from './paths.mjs';
 import {
     BROWSER_GRANT_TTL_MS,
     DURABLE_GRANT_EXPIRES_AT,
@@ -74,25 +73,6 @@ export const platform = () => env('MUXR_PLATFORM') || hostPlatform();
 export const hash = (text) => createHash('sha256').update(text).digest('hex');
 export const timestamp = () => new Date().toISOString().replaceAll(/[:.]/g, '-');
 export const base64 = (bytes) => Buffer.from(bytes).toString('base64');
-export const {
-    PAIRING_CODE_ALPHABET,
-    formatPairingCode,
-    pairingCodeHash,
-    sealPairingCodePayload,
-} = await import(cryptoModuleUrl());
-
-export function newPairingCode() {
-    let code = '';
-    const ceiling = Math.floor(256 / PAIRING_CODE_ALPHABET.length) * PAIRING_CODE_ALPHABET.length;
-    while (code.length < 10) {
-        for (const value of randomBytes(16)) {
-            if (value < ceiling) code += PAIRING_CODE_ALPHABET[value % PAIRING_CODE_ALPHABET.length];
-            if (code.length === 10) break;
-        }
-    }
-    return formatPairingCode(code);
-}
-
 export function ensurePrivateDir(path) {
     mkdirSync(path, { recursive: true, mode: 0o700 });
     chmodSync(path, 0o700);

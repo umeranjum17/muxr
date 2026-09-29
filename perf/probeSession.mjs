@@ -11,7 +11,6 @@ import { acquireOwnerLock, processStartIdentity } from './lib/surfaceProbe.mjs';
 import { acquirePhoneKeeper } from './lib/phoneKeeper.mjs';
 import { startFakeStack } from './lib/fakeStack.mjs';
 import { pairPhone } from './lib/pairPhone.mjs';
-import { pairIosPhone, iosConnectionProof } from './lib/iosWarm.mjs';
 import { command, IosControls } from './lib/iosSignals.mjs';
 import { bundledPlusAddons, filesProductDriver, filesProductFlags } from './lib/addons.mjs';
 import { documentContract, documentPayload, DOCUMENT_FIXTURE, LOAD, scenarioDescriptor, scenarioSummary } from './lib/scenario.mjs';
@@ -173,9 +172,7 @@ async function main() {
         const root = initialNodes.find((node) => node.type === 'Application' && node.frame?.width > 0 && node.frame?.height > 0) ?? initialNodes.find((node) => node.frame?.x === 0 && node.frame?.y === 0 && node.frame?.width > 0 && node.frame?.height > 0);
         if (!root) throw new Error('iOS AX root geometry is unavailable');
         ui.setGeometry(root.frame.width, root.frame.height);
-        paired = await pairIosPhone({ stack, udid, bundle, ui });
-        const proof = await iosConnectionProof(ui, [...stack.world.agents.map((row) => row.name), ...stack.world.panes.map((row) => row.label)]);
-        if (!proof.connected || proof.fixture === undefined) throw new Error('iOS app did not show the connected herd and fixture identity');
+        throw new Error('iOS pairing needs migration to the link-offer ceremony (short-code pairIosPhone removed)');
     }
     const world = { world: stack.world, fixturePanes: stack.fixturePanes };
     const pids = { relay: stack.pids.relay, host: stack.pids.host, herdr: stack.herdrPid };

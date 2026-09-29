@@ -14,7 +14,6 @@ A package module exists only when the packages own the behavior. Product operati
 | Parse a plugin manifest | [`parsePluginManifest`](./contract/src/plugins/application/parsePluginManifest.ts) | Plugin Identity, manifest graph | host plugin catalog, mobile `parseManifest` |
 | Bound the realtime public Agent map | [`boundRealtimePublicContext`](./contract/src/realtime/application/boundRealtimePublicContext.ts) | Agent Route, Agent Name | `apps/host/src/herdr/pluginStreamManager.ts`, `herdrSessionSource.ts` |
 | Interpret a worktree landing | [`interpretWorktreeLanding`](./contract/src/worktree/application/interpretWorktreeLanding.ts) | Worktree Landing | `apps/host/src/requests/landWorktree.ts`, `apps/mobile/sources/spawn/application/worktree.ts` |
-| Handle pairing codes | [`pairMachine`](./crypto/src/e2ee/application/pairMachine.ts) | Pairing Code | `scripts/setup/infrastructure/runtime.mjs` |
 | Grant or verify device authority | [`deviceGrant`](./crypto/src/e2ee/application/deviceGrant.ts) | Device Grant | host peer authority (`verifyDeviceGrant`) |
 | Sign a peer descriptor | [`signPeerDescriptor`](./crypto/src/e2ee/application/signPeerDescriptor.ts) | Signed Peer Descriptor | host peer prepare/install |
 | Install a peer bundle | [`installPeerBundle`](./crypto/src/e2ee/application/installPeerBundle.ts) | Device Grant, Peer Descriptor | `peer.install` in `apps/host/src/peer/runtime.ts` |
@@ -44,4 +43,4 @@ Account and enrollment control-plane URLs remain HTTP infrastructure; product st
 
 Each package use case is one file named for the operation. It takes a small command or value object, talks only to same-module domain and infrastructure (or another module's `index.ts`), and returns an explicit result (`Outcome`, a decision union, or a sealed payload). No React, sockets, CLI flags, or native modules.
 
-Throwing aliases (`parseClientFrame`, `parseManifest`, `normalizePairingCode`, `verifyDeviceGrant`) stay for existing adapters. New code should call the named use case.
+Throwing aliases (`parseClientFrame`, `parseManifest`, `verifyDeviceGrant`) stay for existing adapters. New code should call the named use case.
