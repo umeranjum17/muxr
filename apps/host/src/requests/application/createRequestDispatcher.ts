@@ -199,7 +199,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(params.base === undefined ? {} : { base: params.base }),
         }),
         'session.start': async (params) => {
-            const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, ...start } = params;
+            const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, ...start } =
+                params as typeof params & { planEnv?: unknown };
             if (planAccount !== undefined && (start.kinds !== undefined || start.members !== undefined)) {
                 throw Object.assign(
                     new Error('A squad cannot start on one plan account. Start its agents separately.'),
