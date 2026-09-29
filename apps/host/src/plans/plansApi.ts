@@ -10,6 +10,8 @@ import type { PlanAccount, PlanProviderAccounts } from '@muxr/contract';
 import { planAccountWindows, type UsageWindowVM } from '../usage/index.js';
 import { choosePlanAccount, roomLabelFor, tightestRoomWindow } from './planAuto.js';
 import {
+    acknowledgeAutoTerms as recordAutoTermsAcknowledged,
+    autoTermsAcknowledged,
     defaultPlanFolder,
     deletePlanFolder,
     isMuxrPlanFolder,
@@ -94,23 +96,30 @@ async function providerRooms(
     return { accounts: reads.map((read) => read.account), rooms: reads.map((read) => read.room) };
 }
 
+export const AUTO_TERMS_NOTE = 'Auto may use either of a provider\'s accounts.';
+
 export async function listPlans(
     env: NodeJS.ProcessEnv = process.env,
     deps: PlansDeps = {},
-): Promise<{ providers: PlanProviderAccounts[] }> {
-    const providers: PlanProviderAccounts[] = [];
-    for (const provider of PLAN_PROVIDERS) {
+): Promise<{ providers: PlanProviderAccounts[]; autoTermsAcknowledged: boolean; autoTermsNote: string }> {
+    const reads = await Promise.all(PLAN_PROVIDERS.map(async (provider) => {
         const { accounts, rooms } = await providerRooms(provider, env, deps);
-        if (accounts.length < 2) continue;
+        if (accounts.length < 2) return undefined;
         const auto = choosePlanAccount(rooms, PLAN_LABELS[provider]);
-        providers.push({
+        return {
             provider,
             label: PLAN_LABELS[provider],
             accounts,
             auto: auto.accountId === undefined ? { reason: auto.reason } : { accountId: auto.accountId, reason: auto.reason },
-        });
-    }
-    return { providers };
+        };
+    }));
+    const providers = reads.filter((entry): entry is PlanProviderAccounts => entry !== undefined);
+    return { providers, autoTermsAcknowledged: autoTermsAcknowledged(env), autoTermsNote: AUTO_TERMS_NOTE };
+}
+
+export function acknowledgeAutoTerms(env: NodeJS.ProcessEnv = process.env): { acknowledged: true } {
+    recordAutoTermsAcknowledged(env);
+    return { acknowledged: true };
 }
 
 function describe(record: PlanAccountRecord, identity: PlanIdentity): PlanAccount {

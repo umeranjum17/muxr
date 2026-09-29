@@ -7,7 +7,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv } from './plansApi.js';
+import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv } from './plansApi.js';
 import { savePlanAccounts } from './planStore.js';
 
 let root = '';
@@ -67,11 +67,13 @@ function addedClaude(name: string): string {
 
 it('hides the feature with one account and lists two with names and emails', async () => {
     foundClaude();
-    expect(await listPlans(env)).toEqual({ providers: [] });
+    expect(await listPlans(env)).toEqual({ providers: [], autoTermsAcknowledged: false, autoTermsNote: AUTO_TERMS_NOTE });
 
     const second = addedClaude('work');
     savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
     const listed = await listPlans(env);
+    expect(listed.autoTermsAcknowledged).toBe(false);
+    expect(listed.autoTermsNote).toBe(AUTO_TERMS_NOTE);
     expect(listed.providers.map((entry) => entry.provider)).toEqual(['claude']);
     const accounts = listed.providers[0]!.accounts;
     expect(accounts.map((account) => account.signedIn)).toEqual([true, true]);
@@ -118,7 +120,7 @@ it('renames, resolves launch env, and removes without touching found folders', a
     expect(existsSync(added)).toBe(false);
     expect(removePlanAccount(env, 'found-claude')).toEqual({ deletedFolder: false });
     expect(existsSync(found)).toBe(true);
-    expect(await listPlans(env)).toEqual({ providers: [] });
+    expect(await listPlans(env)).toEqual({ providers: [], autoTermsAcknowledged: false, autoTermsNote: AUTO_TERMS_NOTE });
 });
 
 it('lists two codex sign-ins through the stub app-server', async () => {
@@ -155,6 +157,56 @@ it('auto picks the roomier account and says which in one line', async () => {
     expect(provider.accounts.map((account) => account.roomLeftPercent)).toEqual([30, 60]);
     expect(provider.auto.accountId).toBe('pa_work');
     expect(provider.auto.reason).toBe('Right now that\'s Work: 60% left this week');
+});
+
+it('reads one stalled provider without waiting on the other', async () => {
+    foundClaude();
+    const secondClaude = addedClaude('work');
+    const codexHome = join(root, '.codex');
+    mkdirSync(codexHome, { recursive: true });
+    const secondCodex = join(root, 'muxr', 'plans', 'codex', 'other');
+    mkdirSync(secondCodex, { recursive: true });
+    savePlanAccounts(env, [
+        { id: 'pa_work', provider: 'claude', name: '', folder: secondClaude, found: false },
+        { id: 'pa_x', provider: 'codex', name: 'Other', folder: secondCodex, found: false },
+    ]);
+    const started: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const run = async () => {
+        started.push('claude');
+        await gate;
+        return { stdout: '{"loggedIn":false}' };
+    };
+    const codexRead = async () => {
+        started.push('codex');
+        await gate;
+        return { account: null };
+    };
+    const pending = listPlans(env, { run, codexRead });
+    const deadline = Date.now() + 2_000;
+    while (!(started.includes('claude') && started.includes('codex')) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const overlapping = [...started];
+    release();
+    const listed = await pending;
+    expect(overlapping).toContain('claude');
+    expect(overlapping).toContain('codex');
+    expect(listed.providers.map((entry) => entry.provider)).toEqual(['claude', 'codex']);
+});
+
+it('shows the Auto terms note until acknowledged, then remembers', async () => {
+    foundClaude();
+    const second = addedClaude('work');
+    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
+    const before = await listPlans(env);
+    expect(before.autoTermsAcknowledged).toBe(false);
+    expect(before.autoTermsNote).toBe(AUTO_TERMS_NOTE);
+    expect(acknowledgeAutoTerms(env)).toEqual({ acknowledged: true });
+    const after = await listPlans(env);
+    expect(after.autoTermsAcknowledged).toBe(true);
+    expect(after.autoTermsNote).toBe(AUTO_TERMS_NOTE);
 });
 
 it('auto skips signed-out accounts and names the earliest refill when all are out', async () => {

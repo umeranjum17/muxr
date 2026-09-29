@@ -562,6 +562,28 @@ describe('plan account launch and move', () => {
             else process.env.MUXR_HOME = keepMuxr;
         }
     });
+
+    it('records the Auto terms acknowledgment the one-time note needs', async () => {
+        const { autoTermsAcknowledged } = await import('../../plans/planStore.js');
+        const home3 = mkdtempSync(join(tmpdir(), 'muxr-plans-terms-'));
+        const keepHome = process.env.HOME;
+        const keepMuxr = process.env.MUXR_HOME;
+        process.env.HOME = home3;
+        process.env.MUXR_HOME = join(home3, 'muxr');
+        try {
+            const source = {} as unknown as SessionSource;
+            const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+            expect(autoTermsAcknowledged(process.env)).toBe(false);
+            const acked = await dispatch({ type: 'plans.acknowledgeAutoTerms', requestId: 't1', params: {} });
+            expect(acked).toMatchObject({ ok: true, data: { acknowledged: true } });
+            expect(autoTermsAcknowledged(process.env)).toBe(true);
+        } finally {
+            if (keepHome === undefined) delete process.env.HOME;
+            else process.env.HOME = keepHome;
+            if (keepMuxr === undefined) delete process.env.MUXR_HOME;
+            else process.env.MUXR_HOME = keepMuxr;
+        }
+    });
 });
 
 describe('android emulator target routing', () => {

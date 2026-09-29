@@ -41,7 +41,7 @@ import {
 } from '../../voice/index.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
-import { PLAN_LABELS, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanRecord } from '../../plans/index.js';
+import { PLAN_LABELS, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanRecord } from '../../plans/index.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { PreviewDesktops, androidCapabilities, withAndroidPreview, withPreview, type AndroidPreviewTargets } from '../../desktop/index.js';
@@ -486,6 +486,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         }),
         'usage.now': (params) => usageNow(process.env, { ...(params.refresh === undefined ? {} : { refresh: params.refresh }) }),
         'plans.list': () => listPlans(process.env),
+        'plans.acknowledgeAutoTerms': async () => acknowledgeAutoTerms(process.env),
         'plans.rename': async (params) => renamePlanAccount(process.env, params.accountId, params.name),
         'plans.remove': async (params) => removePlanAccount(process.env, params.accountId),
         'plans.move': async (params) => {

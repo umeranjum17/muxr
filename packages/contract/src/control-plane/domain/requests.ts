@@ -758,8 +758,10 @@ export interface RequestMap extends PeerRequestMap {
     // `PlanAccount`). Providers with fewer than two known accounts are omitted,
     // so a one-account machine sees nothing new. An older host has no handler
     // and answers host-contract-mismatch, which the app treats as no accounts.
-    /** Every provider with two or more known sign-ins, with room hints when read. */
-    'plans.list': { params: Record<string, never>; result: { providers: PlanProviderAccounts[] } };
+    /** Every provider with two or more known sign-ins, with room hints when read. `autoTermsNote` is the one-time Auto note the app shows until acknowledged. */
+    'plans.list': { params: Record<string, never>; result: { providers: PlanProviderAccounts[]; autoTermsAcknowledged: boolean; autoTermsNote: string } };
+    /** Record that the one-time Auto terms note was shown, so it never repeats on this host. */
+    'plans.acknowledgeAutoTerms': { params: Record<string, never>; result: { acknowledged: true } };
     /** Rename one known account. The name is the person's own words, never a number. */
     'plans.rename': { params: { accountId: string; name: string }; result: { account: PlanAccount } };
     /**

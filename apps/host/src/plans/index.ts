@@ -18,4 +18,4 @@ export { runPlanCommand, claudeIdentity, codexIdentity } from './planIdentity.js
 export type { PlanRoomAccount, PlanAutoChoice } from './planAuto.js';
 export { tightestRoomWindow, roomLabelFor, choosePlanAccount } from './planAuto.js';
 export type { PlansDeps } from './plansApi.js';
-export { suggestPlanName, listPlans, resolvePlanRecord, resolvePlanEnv, renamePlanAccount, removePlanAccount } from './plansApi.js';
+export { AUTO_TERMS_NOTE, suggestPlanName, listPlans, acknowledgeAutoTerms, resolvePlanRecord, resolvePlanEnv, renamePlanAccount, removePlanAccount } from './plansApi.js';

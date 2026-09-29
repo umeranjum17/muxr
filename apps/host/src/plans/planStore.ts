@@ -98,6 +98,26 @@ export function newPlanAccountId(): string {
     return `pa_${randomBytes(9).toString('hex')}`;
 }
 
+function autoTermsPath(env: NodeJS.ProcessEnv): string {
+    return join(plansDir(env), 'auto-terms-v1.json');
+}
+
+export function autoTermsAcknowledged(env: NodeJS.ProcessEnv): boolean {
+    try {
+        const parsed: unknown = JSON.parse(readFileSync(autoTermsPath(env), 'utf8'));
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+            && (parsed as { acknowledged?: unknown }).acknowledged === true;
+    } catch {
+        return false;
+    }
+}
+
+export function acknowledgeAutoTerms(env: NodeJS.ProcessEnv): void {
+    const path = autoTermsPath(env);
+    mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
+    writeFileSync(path, JSON.stringify({ acknowledged: true }), { mode: 0o600 });
+}
+
 /** Folders muxr itself created live under its own plans dir; only those may ever be deleted. */
 export function isMuxrPlanFolder(folder: string, env: NodeJS.ProcessEnv): boolean {
     const root = resolve(plansDir(env));
