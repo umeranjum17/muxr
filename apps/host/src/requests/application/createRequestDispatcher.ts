@@ -5,6 +5,7 @@ import type {
     PeerClientRequest,
     PeerRequestType,
     PluginManifestV1,
+    PreviewPresence,
     RequestMap,
     RequestResponse,
     RequestResult,
@@ -42,6 +43,7 @@ import { listDir } from '../infrastructure/listDir.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
+import { PreviewDesktops, withPreview } from '../../desktop/index.js';
 import type { DesktopSessions } from '../../desktop/index.js';
 
 export interface RequestDispatcherOptions {
@@ -61,6 +63,10 @@ export interface RequestDispatcherOptions {
     getDeviceContext?: (deviceId: string) => PeerDeviceContext | undefined;
     /** The live-desktop owner. Absent means this host cannot show a desktop. */
     desktop?: DesktopSessions;
+    /** Target sessions for an agent's own screen; absent means targets are refused. */
+    previewDesktops?: PreviewDesktops;
+    /** Announced presence by pane, for stamping session lists. */
+    previewForPane?: (paneId: string) => PreviewPresence | undefined;
     isDesktopConnectionActive?: (connectionId: string) => boolean;
 }
 
@@ -96,6 +102,11 @@ export function viewOnlyRequestAllowed(request: ClientRequest, source: SessionSo
 function desktopOrThrow(options: RequestDispatcherOptions): DesktopSessions {
     if (options.desktop === undefined) throw new Error('This host has no desktop engine.');
     return options.desktop;
+}
+
+function previewOrThrow(options: RequestDispatcherOptions): PreviewDesktops {
+    if (options.previewDesktops === undefined) throw new Error('This host has no agent screens to watch.');
+    return options.previewDesktops;
 }
 
 function isPluginExecutionRequest(request: ClientRequest): request is PluginExecutionRequest {
@@ -153,9 +164,11 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     };
 
     const handlers: { [K in NonPeerRequestType]: Handler<K> } = {
-        'session.list': async (params) => useCaseData(
-            await listAgents(source, params.cwd === undefined ? {} : { cwd: params.cwd }),
-        ),
+        'session.list': async (params) => {
+            const listed = await listAgents(source, params.cwd === undefined ? {} : { cwd: params.cwd });
+            if (!listed.ok || options.previewForPane === undefined) return useCaseData(listed);
+            return withPreview(listed.data, options.previewForPane);
+        },
         'changes.list': async (params) => changesList(await changesInput(params.sessionId, params.root)),
         'changes.browse': async (params) => changesBrowse({
             ...(await changesInput(params.sessionId, params.root)),
@@ -196,17 +209,39 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plugin.call': () => { throw new Error('authenticated device context required'); },
         'plugin.stream': () => { throw new Error('authenticated device context required'); },
         'host.update': (params, context) => repairHost(params, context.deviceId),
-        'desktop.capabilities': async () => {
+        'desktop.capabilities': async (params) => {
+            if (params.target !== undefined) {
+                // A named screen must resolve before anything is reported about
+                // it, and the answer is that screen's, never the desktop's; an
+                // unknown or unscreened session is refused, never the desktop.
+                return previewOrThrow(options).capabilitiesFor(params.target.sessionId);
+            }
             if (options.desktop === undefined) {
                 return { available: false, unavailableReason: 'This host has no desktop engine.', input: false, clipboard: false };
             }
             return options.desktop.capabilities();
         },
         'desktop.open': async (params, context) => {
+            const connectionId = context.connectionId;
+            const owner = connectionId === undefined ? undefined : {
+                connectionId,
+                deviceId: context.deviceId,
+                isConnected: () => options.isDesktopConnectionActive?.(connectionId) === true,
+            };
+            if (params.target !== undefined) {
+                return previewOrThrow(options).openTarget(params.target.sessionId, {
+                    permissions: params.permissions,
+                    ...(params.maxWidth === undefined ? {} : { maxWidth: params.maxWidth }),
+                    ...(params.maxHeight === undefined ? {} : { maxHeight: params.maxHeight }),
+                    ...(params.bitrateKbps === undefined ? {} : { bitrateKbps: params.bitrateKbps }),
+                    ...(params.maxFps === undefined ? {} : { maxFps: params.maxFps }),
+                    ...(params.loopbackTcp === true ? { loopbackTcp: true } : {}),
+                    ...(params.awaitConsent === true ? { awaitConsent: true } : {}),
+                }, owner);
+            }
             if (options.desktop === undefined) {
                 throw new Error('This host has no desktop engine.');
             }
-            const connectionId = context.connectionId;
             return options.desktop.open({
                 permissions: params.permissions,
                 ...(params.maxWidth === undefined ? {} : { maxWidth: params.maxWidth }),
@@ -215,23 +250,46 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 ...(params.maxFps === undefined ? {} : { maxFps: params.maxFps }),
                 ...(params.loopbackTcp === true ? { loopbackTcp: true } : {}),
                 ...(params.awaitConsent === true ? { awaitConsent: true } : {}),
-            }, connectionId === undefined ? undefined : {
-                connectionId,
-                deviceId: context.deviceId,
-                isConnected: () => options.isDesktopConnectionActive?.(connectionId) === true,
-            });
+            }, owner);
         },
-        'desktop.answer': async (params, context) => desktopOrThrow(options).answer(params.desktopId, params.sdp, context.connectionId, context.deviceId),
-        'desktop.candidate': async (params, context) => desktopOrThrow(options).candidate(
-            params.desktopId,
-            params.candidate,
-            params.sdpMid ?? null,
-            params.sdpMLineIndex ?? null,
-            context.connectionId,
-            context.deviceId,
-        ),
-        'desktop.poll': async (params, context) => desktopOrThrow(options).poll(params.desktopId, params.cursor, context.connectionId, context.deviceId),
-        'desktop.close': async (params, context) => desktopOrThrow(options).close(params.desktopId, context.connectionId, context.deviceId),
+        'desktop.answer': async (params, context) => {
+            if (options.previewDesktops?.owns(params.desktopId) === true) {
+                return options.previewDesktops.answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
+            }
+            return desktopOrThrow(options).answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
+        },
+        'desktop.candidate': async (params, context) => {
+            if (options.previewDesktops?.owns(params.desktopId) === true) {
+                return options.previewDesktops.candidate(
+                    params.desktopId,
+                    params.candidate,
+                    params.sdpMid ?? null,
+                    params.sdpMLineIndex ?? null,
+                    context.connectionId,
+                    context.deviceId,
+                );
+            }
+            return desktopOrThrow(options).candidate(
+                params.desktopId,
+                params.candidate,
+                params.sdpMid ?? null,
+                params.sdpMLineIndex ?? null,
+                context.connectionId,
+                context.deviceId,
+            );
+        },
+        'desktop.poll': async (params, context) => {
+            if (options.previewDesktops?.owns(params.desktopId) === true) {
+                return options.previewDesktops.poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
+            }
+            return desktopOrThrow(options).poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
+        },
+        'desktop.close': async (params, context) => {
+            if (options.previewDesktops?.owns(params.desktopId) === true) {
+                return options.previewDesktops.close(params.desktopId, context.connectionId, context.deviceId);
+            }
+            return desktopOrThrow(options).close(params.desktopId, context.connectionId, context.deviceId);
+        },
         'herdr.cli': async (params) => {
             const result = await runHerdrCli(params.args, params.timeoutMs);
             await source.refreshHerdr();

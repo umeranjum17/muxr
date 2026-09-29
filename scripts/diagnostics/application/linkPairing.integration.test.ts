@@ -155,15 +155,18 @@ async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>): P
     options = { ...options, signal: controller.signal };
     const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { out += String(chunk); return true; });
     const pairing = runComputerPairing(readSelfhostState(), options).finally(() => spy.mockRestore());
-    const offer = await until(() => /(?:https?:\/\/[^\s]+\/pair#)?byokit-link:1:[A-Za-z0-9_-]+/.exec(out)?.[0], 'pairing offer on screen');
-    return {
-        pairing,
-        offer,
-        abort: async () => {
-            controller.abort();
-            await pairing.catch(() => undefined);
-        },
+    // The machine runs one pairing at a time and frees its slot only when the
+    // pairing's socket closes. A test whose offer never appears must cancel
+    // its pairing, or it wedges that slot against every later pairing in the
+    // file (CI once turned one slow offer into eight failures and zero
+    // enrolled devices).
+    const stop = async (): Promise<void> => {
+        controller.abort();
+        await pairing.catch(() => undefined);
     };
+    const offer = await until(() => /(?:https?:\/\/[^\s]+\/pair#)?byokit-link:1:[A-Za-z0-9_-]+/.exec(out)?.[0], 'pairing offer on screen', 30_000)
+        .catch(async (error: unknown) => { await stop(); throw error; });
+    return { pairing, offer, abort: stop };
 }
 
 function machineGrant(stored: StoredHostedGrant): DeviceGrant {
@@ -325,7 +328,7 @@ describe('native pairing over the byokit link', () => {
             await expect(client.request('machines.list', {})).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Desk' })]));
             client.close();
         } finally { phone.platform = 'android'; }
-    });
+    }, 90_000);
 
     it('pairs over a forwarded link when the advertised relay is unreachable', async () => {
         const { pairing, offer } = await showPairingQr({ approve: () => true });
@@ -336,7 +339,7 @@ describe('native pairing over the byokit link', () => {
         await pairing;
         expect(stored.credential).toBe('');
         expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
-    });
+    }, 90_000);
 
     it('keeps the phone grant if the verified reply is lost after the computer commits', async () => {
         const machineId = readSelfhostState().machine.id;

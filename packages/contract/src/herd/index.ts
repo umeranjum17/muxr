@@ -14,6 +14,7 @@ export type {
     SessionChangeFile,
     SessionContextUsage,
     SessionInfo,
+    PreviewPresence,
     HerdrTreePane,
     HerdrTreeTab,
     HerdrTreeWorkspace,
