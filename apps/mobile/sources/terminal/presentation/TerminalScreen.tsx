@@ -613,9 +613,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const navigateToSession = useNavigateToSession();
     const tabStripRef = React.useRef<ScrollView>(null);
     const activeChipX = React.useRef(0);
-    // The plugin tree sheet still mounts from the session header: the pane
-    // overview answers "where am I", the overlay answers "what is around
-    // me". Different header controls open each one.
+    // The header title and the n/N counter both open the pane overview (the
+    // tab's real split); the workspace tree, and any plugin overlay beside
+    // it, opens one tap further, from that sheet's Spaces.
     const [treeOpen, setTreeOpen] = React.useState(false);
     // A sheet or editor owns the screen; no floating control remains beneath it.
     React.useEffect(() => {
@@ -626,7 +626,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // on every keystroke in the composer above it.
     const keySlot = React.useMemo(() => <DeclarativeTerminalKeySlot channel={channel} />, [channel]);
     const editKeys = React.useCallback(() => openControls('keys'), [openControls]);
-    const overlayContributions = useSlotContributions('session.overlay');
     // The composer slot is one icon, and an unlabelled icon dropped into a list
     // of labelled rows reads as something broken rather than something offered.
     // The contribution already names itself for assistive tech; the row shows
@@ -635,11 +634,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const composerSlotLabel = composerContributions.length === 1 && composerContributions[0]?.type === 'native' && composerContributions[0].accessibilityLabel !== undefined
         ? resolvePluginText(composerContributions[0].accessibilityLabel)
         : undefined;
-    // The workspace tree is product and always opens from the header;
-    // third-party overlays mount beside it when they contribute.
-    const overlayLabel = overlayContributions[0]?.type === 'native' && overlayContributions[0].title !== undefined
-        ? resolvePluginText(overlayContributions[0].title)
-        : 'Workspace';
     // A tab tap goes straight to a pane; a tab with nothing to open yet asks
     // the tree again instead of guessing.
     const openTab = React.useCallback((tab: HerdrTreeTab) => {
@@ -1354,7 +1348,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
-                        <Pressable onPress={() => setTreeOpen(true)} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentWhoLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. ${overlayLabel}` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
+                        <Pressable onPress={() => { setActionsOpen(false); setOverviewOpen(true); }} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentWhoLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. Open panes` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
                             {identityKnown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
                             {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{contextTitle}</Text>}
                             {/* Whose task it is, after the task: the same order as the
@@ -1842,7 +1836,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         onWatch={() => watchPreview()}
                         onDismiss={preview.tooltip.dismiss}
                     />}
-                    <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} />
+                    <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} onOpenSpaces={() => setTreeOpen(true)} />
                     <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
                     <PluginSlot
                         slot="session.overlay"

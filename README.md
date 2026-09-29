@@ -70,7 +70,7 @@ The workspace's panes as one live tree: each tab is a card with its panes under 
 
 ### Arrange panes like the desk
 
-The pane counter in an agent's header tells you where you are in the tab, and tapping it lays the tab out as the desk has it — the same splits your computer shows, with the open pane outlined. Tap a tile to switch panes, or split Right or Below to make room, all without leaving the phone.
+The pane counter in an agent's header tells you where you are in the tab, and tapping it — or the header title — lays the tab out as the desk has it — the same splits your computer shows, with the open pane outlined. Tap a tile to switch panes, or split Right or Below to make room, all without leaving the phone.
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/pane-sheet.webp" type="image/webp"><img src="docs/assets/readme/pane-sheet.jpg" alt="A tab's split as tiles, one tall pane beside two stacked ones, the open pane outlined, with Right and Below split buttons" width="300" /></picture>
