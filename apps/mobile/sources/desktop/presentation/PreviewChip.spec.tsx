@@ -33,13 +33,12 @@ vi.mock('@/text', async () => {
 
 type Presence = { kind: 'browser' | 'android'; title?: string; since: number };
 
-let granted = true;
 let live = true;
 let preview: Presence | undefined;
 const watched = vi.fn();
 
 const Harness = () => {
-    const gate = usePreviewGate('flow', preview, { showable: true, granted, live });
+    const gate = usePreviewGate('flow', preview, { showable: true, live });
     return (<>
         <PreviewChip preview={gate.shown} live={gate.live} openable={gate.openable}
             labelled={gate.openable && gate.tooltip.open} onPress={watched} onLayout={() => undefined} />
@@ -109,15 +108,6 @@ it('keeps a stale chip honest when the link drops, and takes it away when the dr
     expect(chip().props.disabled).toBe(false);
     expect(dot()).toHaveLength(1);
 
-    // A view-only device sees presence, but no way in and no announcement.
-    granted = false;
-    preview = { kind: 'browser', title: 'Docs', since: 9_000 };
-    await update();
-    await TestRenderer.act(async () => { vi.advanceTimersByTime(300); });
-    const quiet = () => root().findByProps({ accessibilityLabel: 'Browser in use, Docs. Watch live' });
-    expect(quiet().props.disabled).toBe(true);
-    expect(quiet().findAllByType('View')).toHaveLength(1);
-    expect(root().findAllByProps({ accessibilityLabel: 'Watch' })).toHaveLength(0);
     await TestRenderer.act(async () => { view.unmount(); });
     vi.useRealTimers();
 });

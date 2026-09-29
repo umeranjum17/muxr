@@ -282,7 +282,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         Keyboard.dismiss();
         router.setParams({ desktop: '0' });
     }, []);
-    const [previewChipBox, setPreviewChipBox] = React.useState<{ x: number; width: number }>();
+    const [previewChipBox, setPreviewChipBox] = React.useState<DesktopOrigin>();
     const [headerRowBottom, setHeaderRowBottom] = React.useState(0);
     // View commands keep a permanent route in Pane actions.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
@@ -478,15 +478,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     // view to open yet, so it announces nothing.
     const preview = usePreviewGate(props.id, session?.metadata?.preview, {
         showable: desktopAvailable && Platform.OS !== 'ios' && !authorityLoading,
-        granted: canControl,
         live: shownStatus === 'live',
     });
-    // Opens Computer until the live view can take this pane's own screen as its target.
-    const openPreview = React.useCallback(() => {
+    // Every way in grows the live view out of the chip, wherever the tap was.
+    const watchPreview = React.useCallback((from?: DesktopOrigin) => {
         if (!preview.openable) return;
         preview.tooltip.dismiss();
-        openDesktop();
-    }, [openDesktop, preview.openable, preview.tooltip.dismiss]);
+        openPreview(from ?? previewChipBox);
+    }, [openPreview, preview.openable, preview.tooltip.dismiss, previewChipBox]);
 
     // 'connecting' is the one status nothing is watching. The renderer opens
     // the channel only once it reports a grid, so a surface that never reports
@@ -1365,7 +1364,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 {!(preview.shown !== undefined && windowWidth < 340) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
                             </View>}
                         </Pressable>
-                        <PreviewChip preview={preview.shown} live={preview.live} openable={preview.openable} labelled={preview.openable && preview.tooltip.open} onPress={openPreview} onLayout={setPreviewChipBox} />
+                        <PreviewChip preview={preview.shown} live={preview.live} openable={preview.openable} labelled={preview.openable && preview.tooltip.open} onPress={watchPreview} onLayout={setPreviewChipBox} />
                         {/* Position in the tab and the way into the pane overview:
                             borderless and tiny; loading shows as such, never as 0/0.
                             At one pane it says nothing, and what the overview
@@ -1832,7 +1831,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         preview={preview.openable && preview.tooltip.open && !desktopVisible && !actionsOpen ? preview.shown : undefined}
                         anchor={{ centre: previewChipBox.x + previewChipBox.width / 2, top: headerRowBottom }}
                         screenWidth={windowWidth}
-                        onWatch={openPreview}
+                        onWatch={() => watchPreview()}
                         onDismiss={preview.tooltip.dismiss}
                     />}
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} />
@@ -1883,7 +1882,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
-                                    {preview.row && <Pressable onPress={openPreview} disabled={!preview.openable} accessibilityRole="button"
+                                    {preview.row && <Pressable onPress={() => watchPreview()} disabled={!preview.openable} accessibilityRole="button"
                                         accessibilityLabel={t(preview.openable ? (preview.row.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser') : 'preview.reconnecting')}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: preview.openable ? 1 : 0.5 })}>
                                         <Ionicons name={preview.row.kind === 'android' ? 'logo-android' : 'globe-outline'} size={18} color={theme.colors.textSecondary} />

@@ -6,6 +6,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import type { SessionInfo } from '@muxr/contract';
 
 import { t } from '@/text';
+import type { DesktopOrigin } from '../request';
 
 /**
  * Presence of an agent's browser or emulator in the terminal header: a mark
@@ -48,14 +49,13 @@ export const PREVIEW_DROP_MS = 20_000;
 /**
  * Everything the pane needs to present a preview, decided once. Presence
  * survives a reconnect shorter than the drop; the dot and Watch wait for a
- * channel that vouches for the host; a view-only device sees presence with no
- * way in; the host taking the window back takes the chip away.
+ * channel that vouches for the host; the host taking the window back takes
+ * the chip away. A view-only device watches too: the live view keeps it from
+ * taking control.
  */
 export function usePreviewGate(sessionId: string, preview: PreviewPresence | undefined, flags: {
     /** This surface may announce a preview at all: platform, availability, authority settled. */
     showable: boolean;
-    /** The device holds the control grant. */
-    granted: boolean;
     /** The pane's channel reports live. */
     live: boolean;
 }): {
@@ -77,13 +77,13 @@ export function usePreviewGate(sessionId: string, preview: PreviewPresence | und
         return () => clearTimeout(timer);
     }, [since, flags.showable, flags.live]);
     const shown = flags.showable && preview !== undefined && !lost;
-    const openable = shown && flags.granted && flags.live;
+    const openable = shown && flags.live;
     const tooltip = usePreviewTooltip(sessionId, openable ? preview : undefined);
     return {
         shown: shown ? preview : undefined,
         live: shown && flags.live,
         openable,
-        row: shown && flags.granted ? preview : undefined,
+        row: shown ? preview : undefined,
         tooltip,
     };
 }
@@ -126,9 +126,13 @@ export const PreviewChip = React.memo((props: {
     openable: boolean;
     /** Tooltip up: the chip names its kind beside the mark. */
     labelled: boolean;
-    onPress: () => void;
-    onLayout: (box: { x: number; width: number }) => void;
+    /** Given the chip's rect in the window, so the view can grow out of it. */
+    onPress: (from: DesktopOrigin | undefined) => void;
+    /** The chip's rect in the window, whenever it lays out. */
+    onLayout: (box: DesktopOrigin) => void;
 }) => {
+    const box = React.useRef<View>(null);
+    const measure = (then: (from: DesktopOrigin) => void) => box.current?.measureInWindow((x, y, width, height) => then({ x, y, width, height }));
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
     const { held, progress } = usePresence(props.preview, 160, 140);
@@ -148,9 +152,9 @@ export const PreviewChip = React.memo((props: {
     if (held === undefined) return null;
     const copy = kindCopy(held.kind);
     return (
-        <Animated.View style={chip} onLayout={(event) => props.onLayout({ x: event.nativeEvent.layout.x, width: event.nativeEvent.layout.width })}>
+        <Animated.View ref={box} style={chip} onLayout={() => measure(props.onLayout)}>
             <Pressable
-                onPress={props.onPress}
+                onPress={() => { if (box.current === null) props.onPress(undefined); else measure(props.onPress); }}
                 disabled={props.preview === undefined || !props.openable}
                 accessibilityRole="button"
                 accessibilityLabel={t('preview.chipAccessibility', { kind: held.kind, title: held.title })}
