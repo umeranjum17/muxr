@@ -1875,6 +1875,44 @@ describe('the usage screen read path', () => {
         expect(flatText(other)).toContain('Cost');
     });
 
+    it('opens each tab on its own span, so a tab idle this week is not shown the busy tab\'s empty week', async () => {
+        // Claude worked today; OpenCode last worked a fortnight ago. The span
+        // picked on one tab used to carry to the next, so OpenCode read as
+        // zero until its month was tapped.
+        const days = (busyToday: boolean) => Array.from({ length: 30 }, (_, index) => ({
+            date: `2026-08-${String(index + 1).padStart(2, '0')}`,
+            input: (busyToday ? index === 29 : index === 14) ? 5_000_000 : 0,
+            output: 0, cacheRead: 0, cacheWrite: 0, other: 0,
+        }));
+        request.mockImplementation((_method: string, params?: { provider?: string }) => {
+            const provider = params?.provider ?? 'claude';
+            return Promise.resolve({ ...report(provider, 0), activity: { state: 'measured' as const, hourly: [], days: days(provider === 'claude'), models: [] } });
+        });
+        const screen = renderScreen();
+        await tick();
+        const selectedSpan = () => screen.root.findAll((node: any) => node.props?.accessibilityRole === 'tab'
+            && node.props?.accessibilityState?.selected === true
+            && /^\d+ days$/.test(node.props?.accessibilityLabel ?? ''))[0]?.props.accessibilityLabel;
+
+        expect(selectedSpan()).toBe('7 days');
+        press(screen, 'OpenCode');
+        await tick();
+        expect(selectedSpan()).toBe('30 days');
+        expect(flatText(screen)).toContain('5M');
+
+        // A pick stays with its tab: the week chosen here is not Claude's.
+        press(screen, '7 days');
+        press(screen, 'Claude');
+        await tick();
+        press(screen, '30 days');
+        press(screen, 'OpenCode');
+        await tick();
+        expect(selectedSpan()).toBe('30 days');
+        press(screen, 'Claude');
+        await tick();
+        expect(selectedSpan()).toBe('7 days');
+    });
+
     it('names the day\'s unitemized tokens Other in the split, and only while there are any', async () => {
         // A kimi-style day: the source counted 60K and itemized 40K by model.
         // The 20K rest is its own kind in the legend -- not folded into Input
