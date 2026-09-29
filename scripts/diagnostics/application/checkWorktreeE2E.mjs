@@ -5,6 +5,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { linkHerdrLab } from './linkHerdrLab.mjs';
 import { requestLab } from './linkLabClient.mjs';
+import { isolatePiAgentDir, releasePiAgentDir } from './isolatePiAgentDir.mjs';
+
+// Real pi agents Herdr spawns for this check must never touch the user's real
+// ~/.pi/agent: point pi at a per-run temp agent dir, removed afterwards.
+const piAgent = isolatePiAgentDir();
 
 const root = mkdtempSync(join(tmpdir(), 'muxr-link-worktree-'));
 const repo = join(root, 'repo');
@@ -44,4 +49,5 @@ try {
     }
     if (checkoutRoot !== undefined) rmSync(checkoutRoot, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
+    releasePiAgentDir(piAgent);
 }
