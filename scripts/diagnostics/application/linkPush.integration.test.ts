@@ -223,7 +223,7 @@ describe('push rides the byokit link relay', () => {
             currentCrypto = { ...currentCrypto, devices: currentCrypto.devices.filter((entry) => entry.deviceId !== 'dev_push_2') };
             writeFileSync(statePath, JSON.stringify(currentCrypto));
             expect(await endpoint.sync(currentCrypto as never)).toBe(true);
-            expect(relayStore()).not.toContain('muxr-revoked-token');
+            await until(() => (relayStore().includes('muxr-revoked-token') ? undefined : true), 'relay drops the removed device\'s push address');
             await expect(revokedLink.request('push.subscribe', {
                 type: 'push.subscribe', requestId: 'rn-3', params: { token: 'ExponentPushToken[muxr-revoked-token]', level: 'all' },
             }, { timeoutMs: 2_000 })).rejects.toThrow();
