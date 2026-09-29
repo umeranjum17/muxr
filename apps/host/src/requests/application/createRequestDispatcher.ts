@@ -229,7 +229,6 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         }
         return tab;
     };
-    };
 
     const handlers: { [K in NonPeerRequestType]: Handler<K> } = {
         'session.list': async (params) => {

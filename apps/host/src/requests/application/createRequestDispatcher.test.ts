@@ -564,6 +564,64 @@ describe('plan account launch and move', () => {
         }
     });
 
+    it('keeps sign-in tabs closable: id fallback, stale-tab close, failed-launch cleanup', async () => {
+        const { loadPlanAccounts, savePlanAccounts } = await import('../../plans/planStore.js');
+        const home4 = mkdtempSync(join(tmpdir(), 'muxr-plans-signin-'));
+        const keepHome = process.env.HOME;
+        const keepMuxr = process.env.MUXR_HOME;
+        process.env.HOME = home4;
+        process.env.MUXR_HOME = join(home4, 'muxr');
+        try {
+            savePlanAccounts(process.env, [{ id: 'pa_s', provider: 'claude', name: 'Side', folder: join(home4, 'c'), found: false }]);
+            const sessions: Array<{ id: string; paneId: string }> = [];
+            const stopped: string[] = [];
+            let launches = 0;
+            const source = {
+                async start() {
+                    launches += 1;
+                    // The first launch reports no paneId at all, like a source that only knows the tab id.
+                    const info = launches === 1 ? { id: 'tab-1' } : { id: `tab-${launches}`, paneId: `w9:p${launches}` };
+                    sessions.push({ id: info.id, paneId: (info as { paneId?: string }).paneId ?? info.id });
+                    return { info };
+                },
+                async list() { return sessions.map((session) => ({ ...session })); },
+                async stop(id: string) {
+                    stopped.push(id);
+                    const at = sessions.findIndex((session) => session.id === id);
+                    if (at >= 0) sessions.splice(at, 1);
+                    return { status: 'closed' };
+                },
+            } as unknown as SessionSource;
+            const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+
+            // Pane-id fallback: the tab is still found by its session id and closed on cancel.
+            const added = await dispatch({ type: 'plans.add', requestId: 'a1', params: { provider: 'claude', accountId: 'pa_s' } });
+            expect(added).toMatchObject({ ok: true });
+            const cancelled = await dispatch({ type: 'plans.cancel', requestId: 'c1', params: { accountId: 'pa_s' } });
+            expect(stopped).toEqual(['tab-1']);
+            expect(cancelled).toMatchObject({ ok: true, data: { removed: false } });
+
+            // A second sign-in closes the still-open first tab before tracking the new one.
+            await dispatch({ type: 'plans.add', requestId: 'a2', params: { provider: 'claude', accountId: 'pa_s' } });
+            await dispatch({ type: 'plans.add', requestId: 'a3', params: { provider: 'claude', accountId: 'pa_s' } });
+            expect(stopped).toEqual(['tab-1', 'tab-2']);
+            await dispatch({ type: 'plans.cancel', requestId: 'c2', params: { accountId: 'pa_s' } });
+            expect(stopped).toEqual(['tab-1', 'tab-2', 'tab-3']);
+
+            // A launch that fails after creating the record leaves no phantom behind.
+            const failing = { async start() { throw new Error('herdr is down'); } } as unknown as SessionSource;
+            const { dispatch: dispatchFailing } = createRequestDispatcher({ source: failing, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+            const failed = await dispatchFailing({ type: 'plans.add', requestId: 'a4', params: { provider: 'claude' } });
+            expect(failed).toMatchObject({ ok: false });
+            expect(loadPlanAccounts(process.env).map((record) => record.id)).toEqual(['pa_s']);
+        } finally {
+            if (keepHome === undefined) delete process.env.HOME;
+            else process.env.HOME = keepHome;
+            if (keepMuxr === undefined) delete process.env.MUXR_HOME;
+            else process.env.MUXR_HOME = keepMuxr;
+        }
+    });
+
     it('records the Auto terms acknowledgment the one-time note needs', async () => {
         const { autoTermsAcknowledged } = await import('../../plans/planStore.js');
         const home3 = mkdtempSync(join(tmpdir(), 'muxr-plans-terms-'));
