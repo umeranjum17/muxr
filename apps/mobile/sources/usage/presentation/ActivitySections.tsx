@@ -56,8 +56,11 @@ export function ActivitySections({ activity, tab, limits, costNote, planPriced }
     planPriced?: boolean;
 }) {
     const { theme } = useUnistyles();
-    // A tab idle all week opens on the month, where its figures are.
-    const [span, setSpan] = React.useState<Span>(() => (activity.state === 'measured' && rangeSummary(activity, 7).total === 0 ? 30 : 7));
+    // A tab idle all week opens on the month, where its figures are. The span
+    // is the tab's own: the screen keys this by tab, so a pick never carries
+    // to another tab, and until one is made the default follows the figures.
+    const [picked, setSpan] = React.useState<Span>();
+    const span: Span = picked ?? (activity.state === 'measured' && rangeSummary(activity, 7).total === 0 ? 30 : 7);
     if (activity.state === 'counting') return <CountingCard reason={activity.reason} />;
     if (activity.state === 'unavailable') {
         return (

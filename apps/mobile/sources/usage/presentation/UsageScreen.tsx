@@ -322,7 +322,7 @@ export function UsageScreen() {
                                     (Pi, OMP) shows its providers' limits on their routes. */}
                                 {(report.limits.windows.length > 0 || report.limits.message !== undefined) && <ScreenLimits node={LIMITS_NODE} data={report} asOf={limitsAsOf} />}
                                 {failureText !== undefined && <Notice tone="danger" text={failureText} />}
-                                <ActivitySections activity={report.activity} tab={tabLabel(report)} limits={insightLimits(report)} costNote={costNote(report)} planPriced={report.provider === 'zai'} />
+                                <ActivitySections key={report.provider} activity={report.activity} tab={tabLabel(report)} limits={insightLimits(report)} costNote={costNote(report)} planPriced={report.provider === 'zai'} />
                             </View>
                             : <View style={{ opacity: failed || busy ? 0.55 : 1 }}>
                             <ScreenLimits node={LIMITS_NODE} data={report} asOf={limitsAsOf} />
