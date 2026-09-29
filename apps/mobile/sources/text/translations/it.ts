@@ -19,6 +19,19 @@ export const it: TranslationStructure = {
         title: 'Utilizzo',
     },
 
+    preview: {
+        chipBrowser: 'Browser',
+        chipAndroid: 'Emulatore',
+        introBrowser: 'Il tuo agente ha aperto un browser',
+        introAndroid: 'Il tuo agente ha avviato un emulatore Android',
+        watch: 'Guarda',
+        notNow: 'Non ora',
+        watchBrowser: 'Guarda il browser',
+        watchAndroid: 'Guarda l\'emulatore Android',
+        reconnecting: 'Riconnessione…',
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
+            `${kind === 'android' ? 'Emulatore Android in uso' : 'Browser in uso'}${title ? `, ${title}` : ''}. Guarda dal vivo`,
+    },
 
     tabs: {
         // Tab navigation labels
