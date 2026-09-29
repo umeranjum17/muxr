@@ -122,7 +122,7 @@ export function acknowledgeAutoTerms(env: NodeJS.ProcessEnv): void {
 export function isMuxrPlanFolder(folder: string, env: NodeJS.ProcessEnv): boolean {
     const root = resolve(plansDir(env));
     const candidate = resolve(folder);
-    return candidate === root || candidate.startsWith(`${root}/`);
+    return candidate.startsWith(`${root}/`);
 }
 
 /** Delete a muxr-created sign-in folder. Found folders are never passed here. */

@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv } from './plansApi.js';
-import { loadPlanAccounts, savePlanAccounts } from './planStore.js';
+import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
 
 let root = '';
 let env: NodeJS.ProcessEnv;
@@ -122,6 +122,18 @@ it('renames, resolves launch env, and removes without touching found folders', a
     expect(removePlanAccount(env, 'found-claude')).toEqual({ deletedFolder: false });
     expect(existsSync(found)).toBe(true);
     expect(await listPlans(env)).toEqual({ providers: [], autoTermsAcknowledged: false, autoTermsNote: AUTO_TERMS_NOTE });
+});
+
+it('never deletes the plans root itself when a record points at it', async () => {
+    const added = addedClaude('work');
+    savePlanAccounts(env, [
+        { id: 'pa_root', provider: 'claude', name: '', folder: plansDir(env), found: false },
+        { id: 'pa_work', provider: 'claude', name: '', folder: added, found: false },
+    ]);
+    expect(removePlanAccount(env, 'pa_root')).toEqual({ deletedFolder: false });
+    expect(existsSync(plansDir(env))).toBe(true);
+    expect(existsSync(added)).toBe(true);
+    expect(loadPlanAccounts(env).map((record) => record.id)).toEqual(['pa_work']);
 });
 
 it('lists two codex sign-ins through the stub app-server', async () => {
