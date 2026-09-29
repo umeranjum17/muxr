@@ -7,6 +7,8 @@
  */
 import { existsSync } from 'node:fs';
 import type { PlanAccount, PlanProviderAccounts } from '@muxr/contract';
+import { planAccountWindows, type UsageWindowVM } from '../usage/index.js';
+import { choosePlanAccount, roomLabelFor, tightestRoomWindow } from './planAuto.js';
 import {
     defaultPlanFolder,
     deletePlanFolder,
@@ -51,11 +53,11 @@ function identify(
 
 /** Every known sign-in for one provider: stored records plus the found one,
  *  whose entry is created on first sight so a rename has somewhere to land. */
-async function providerAccounts(
+async function providerRooms(
     provider: PlanProvider,
     env: NodeJS.ProcessEnv,
     deps: PlansDeps,
-): Promise<PlanAccount[]> {
+): Promise<{ accounts: PlanAccount[]; rooms: { id: string; name: string; signedIn: boolean; windows: UsageWindowVM[] }[] }> {
     const stored = loadPlanAccounts(env).filter((record) => record.provider === provider);
     const found = defaultPlanFolder(provider, env);
     let records = stored;
@@ -63,10 +65,17 @@ async function providerAccounts(
         records = [{ id: `found-${provider}`, provider, name: '', folder: found, found: true }, ...stored];
         savePlanAccounts(env, [...records, ...loadPlanAccounts(env).filter((record) => record.provider !== provider)]);
     }
+    const folderVar = provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
     const accounts: PlanAccount[] = [];
+    const rooms: { id: string; name: string; signedIn: boolean; windows: UsageWindowVM[] }[] = [];
     for (const record of records) {
         const identity = await identify(provider, record.folder, env, deps);
         const name = record.name.trim() === '' ? suggestPlanName(identity.email, provider) : record.name;
+        // Room left from the same reader Usage uses, pointed at this sign-in.
+        const windows = identity.signedIn
+            ? await planAccountWindows(provider, { ...env, [folderVar]: record.folder })
+            : [];
+        const tight = tightestRoomWindow(windows);
         accounts.push({
             id: record.id,
             provider,
@@ -75,9 +84,14 @@ async function providerAccounts(
             ...(identity.plan === undefined ? {} : { plan: identity.plan }),
             ...(record.found ? { foundOnComputer: true as const } : {}),
             signedIn: identity.signedIn,
+            ...(tight === undefined ? {} : {
+                roomLeftPercent: Math.round(tight.percentRemaining),
+                roomLabel: roomLabelFor(tight),
+            }),
         });
+        rooms.push({ id: record.id, name, signedIn: identity.signedIn, windows });
     }
-    return accounts;
+    return { accounts, rooms };
 }
 
 export async function listPlans(
@@ -86,9 +100,15 @@ export async function listPlans(
 ): Promise<{ providers: PlanProviderAccounts[] }> {
     const providers: PlanProviderAccounts[] = [];
     for (const provider of PLAN_PROVIDERS) {
-        const accounts = await providerAccounts(provider, env, deps);
+        const { accounts, rooms } = await providerRooms(provider, env, deps);
         if (accounts.length < 2) continue;
-        providers.push({ provider, label: PLAN_LABELS[provider], accounts });
+        const auto = choosePlanAccount(rooms, PLAN_LABELS[provider]);
+        providers.push({
+            provider,
+            label: PLAN_LABELS[provider],
+            accounts,
+            auto: auto.accountId === undefined ? { reason: auto.reason } : { accountId: auto.accountId, reason: auto.reason },
+        });
     }
     return { providers };
 }

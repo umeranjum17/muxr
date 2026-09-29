@@ -33,4 +33,6 @@ export interface PlanProviderAccounts {
     provider: string;
     label: string;
     accounts: PlanAccount[];
+    /** Auto's launch choice for this provider, with the one plain line saying why. */
+    auto: { accountId?: string; reason: string };
 }

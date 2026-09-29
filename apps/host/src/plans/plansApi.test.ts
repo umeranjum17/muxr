@@ -26,7 +26,10 @@ read -r line
 echo '{"id":1,"result":{}}'
 read -r line
 base="\${CODEX_HOME##*/}"
-if [[ "$base" == *-out ]]; then echo '{"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}';
+if [[ "$line" == *rateLimits* ]]; then
+  if [[ "$base" == *-out ]]; then echo '{"id":2,"result":{"rateLimitsByLimitId":{}}}';
+  else echo "{\\"id\\":2,\\"result\\":{\\"rateLimitsByLimitId\\":{\\"plan\\":{\\"limitName\\":\\"Codex\\",\\"primary\\":{\\"usedPercent\\":25,\\"windowDurationMins\\":10080,\\"resetsAt\\":1893456000}}}}}"; fi
+elif [[ "$base" == *-out ]]; then echo '{"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}';
 else echo "{\\"id\\":2,\\"result\\":{\\"account\\":{\\"email\\":\\"$base@example.com\\"},\\"requiresOpenaiAuth\\":false}}"; fi
 `);
     chmodSync(join(bin, 'claude'), 0o755);
@@ -116,4 +119,40 @@ it('lists two codex sign-ins through the stub app-server', async () => {
     const listed = await listPlans(env);
     expect(listed.providers.map((entry) => entry.provider)).toEqual(['codex']);
     expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual(['.codex@example.com', 'other@example.com']);
+    expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 75]);
+});
+
+/** P2: room left per account plus the Auto rule, from snapshots the same
+ *  reader Usage uses. Fake the ranking (swap the utilizations) and Auto
+ *  follows the roomier account. */
+function claudeSnapshot(folder: string, fiveHour: number, sevenDay: number): void {
+    const resets = new Date(Date.now() + 3_600_000).toISOString();
+    writeFileSync(join(folder, 'last-statusline-input.json'), JSON.stringify({
+        five_hour: { utilization: fiveHour, resets_at: resets },
+        seven_day: { utilization: sevenDay, resets_at: resets },
+    }));
+}
+
+it('auto picks the roomier account and says which in one line', async () => {
+    const found = foundClaude();
+    claudeSnapshot(found, 20, 70);
+    const second = addedClaude('work');
+    claudeSnapshot(second, 10, 40);
+    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
+    const listed = await listPlans(env);
+    const provider = listed.providers[0]!;
+    expect(provider.accounts.map((account) => account.roomLeftPercent)).toEqual([30, 60]);
+    expect(provider.auto.accountId).toBe('pa_work');
+    expect(provider.auto.reason).toBe('Right now that\'s Work: 60% left this week');
+});
+
+it('auto skips signed-out accounts and names the earliest refill when all are out', async () => {
+    const found = foundClaude();
+    claudeSnapshot(found, 100, 100);
+    const second = addedClaude('personal-out');
+    savePlanAccounts(env, [{ id: 'pa_out', provider: 'claude', name: '', folder: second, found: false }]);
+    const listed = await listPlans(env);
+    const provider = listed.providers[0]!;
+    expect(provider.auto.accountId).toBe('found-claude');
+    expect(provider.auto.reason).toMatch(/out of room/);
 });

@@ -51,8 +51,8 @@ it('keeps the aged Claude plan while its token expires and reads Claude Code ren
     // Two hours on, Claude Code has not run and its token has expired: the
     // reading from then stays on the card, aged, and nothing asks Anthropic.
     const plansFile = join(env.MUXR_HOME!, 'usage', 'plans-v1.json');
-    const saved = JSON.parse(readFileSync(plansFile, 'utf8')) as { plans: Record<string, { at: number }> };
-    for (const reading of Object.values(saved.plans)) reading.at -= 2 * 3_600_000;
+    const saved = JSON.parse(readFileSync(plansFile, 'utf8')) as { plans: Record<string, Record<string, { at: number }>> };
+    for (const byAccount of Object.values(saved.plans)) for (const reading of Object.values(byAccount)) reading.at -= 2 * 3_600_000;
     writeFileSync(plansFile, JSON.stringify(saved));
     save('claude-token', Date.now() - 1);
     const expired = await usageNow(env, { refresh: true });
