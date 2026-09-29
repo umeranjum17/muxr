@@ -24,6 +24,8 @@ export interface LinkClientOptions {
     hostedGrant?: StoredHostedGrant;
     ssh?: SshTarget;
     requestTimeoutMs?: number;
+    /** Heartbeat interval; the link's own default when unset. */
+    pingMs?: number;
     onPermanentError?: (message: string) => void;
 }
 
@@ -134,6 +136,7 @@ export class LinkFirstClient implements SessionClient {
         }
         this.link = new DeviceLink(grant, {
             timeoutMs: 5_000,
+            ...(this.options.pingMs === undefined ? {} : { pingMs: this.options.pingMs }),
             ...(this.options.ssh === undefined ? {} : { resolve: async (url: string) => {
                 try { return await sshRelayUrl(url, stored.machineId, this.options.ssh!); }
                 catch (error) {

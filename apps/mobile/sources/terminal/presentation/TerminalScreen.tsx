@@ -32,7 +32,7 @@ import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/session
 import { PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
 import type { HerdrTreeTab } from '@trymuxr/contract';
 import { TerminalView, type TerminalViewControls } from './TerminalView';
-import { AgentPager, arrivingBySwipe } from './AgentPager';
+import { AgentPager } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentBesideName, agentLabels, agentStatusColor, agentWhoLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, renameInHerdr, renamePane, resolveTabPane, showTabActions, tabLabel, useNavigateToSession } from '@/herd';
@@ -474,10 +474,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const nothingToSwipeTo = React.useCallback(() => showGestureHintRef.current(swipeScope === 'all' ? 'No other agent' : 'No other working or recently finished agent'), [swipeScope]);
 
     // What the pane shows, as opposed to what it knows. The status itself stays
-    // exact for everything that acts on it; only the announcement waits. A pane
-    // a swipe arrived at is already showing its screen, so its first connect
-    // waits out the same grace instead of announcing itself over the picture.
-    const [shownStatus, setShownStatus] = React.useState(() => (arrivingBySwipe(props.id) ? 'live' : status));
+    // exact for everything that acts on it; only the announcement waits, the
+    // first connect included: a pane that paints within the grace never flashes
+    // "connecting" at all, and one that does not still says so.
+    const [shownStatus, setShownStatus] = React.useState('live');
     React.useEffect(() => {
         if (status === 'live') { setShownStatus('live'); return; }
         const timer = setTimeout(() => setShownStatus(status), STATUS_GRACE_MS);

@@ -82,7 +82,7 @@ let arriving: string | null = null;
 let lastCellWidth = 0;
 
 /** Whether this pane's screen is being reached by a page turn, which already shows its picture. */
-export function arrivingBySwipe(sessionId: string): boolean {
+function arrivingBySwipe(sessionId: string): boolean {
     return arriving === sessionId;
 }
 
