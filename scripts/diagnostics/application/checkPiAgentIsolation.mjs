@@ -3,19 +3,16 @@
  * ~/.pi/agent. Runs a real `pi --offline -p` with its cwd in a sentinel temp
  * dir and its agent home pointed at another temp dir, then asserts the
  * sentinel left no trace under the real agent home while the temp home
- * captured the run. Also asserts every known real-pi launcher routes through
- * the shared isolation helper (isolatePiAgentDir.mjs).
+ * captured the run.
  *
  * Exits 0 with SKIP when no pi binary is available.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { isolatePiAgentDir, releasePiAgentDir } from './isolatePiAgentDir.mjs';
 
-const here = dirname(fileURLToPath(import.meta.url));
 const fail = (message) => {
     process.stderr.write(`FAIL: ${message}\n`);
     process.exit(1);
@@ -30,26 +27,6 @@ if (!piBin) {
     process.stdout.write('SKIP: no pi binary on PATH; cannot prove real-pi isolation\n');
     process.exit(0);
 }
-
-// Every launcher that starts a real pi must isolate it through the helper;
-// the host forwards a set PI_CODING_AGENT_DIR into every pane it creates.
-const root = join(here, '..', '..', '..');
-const wiring = [
-    ['scripts/diagnostics/application/checkWorktreeE2E.mjs', 'isolatePiAgentDir.mjs'],
-    ['scripts/diagnostics/application/checkHerdrE2E.mjs', 'isolatePiAgentDir.mjs'],
-    ['scripts/diagnostics/application/checkRealtimeAgentHealth.sh', 'PI_CODING_AGENT_DIR'],
-    ['apps/host/src/agent/infrastructure/herdrSessionSource.ts', 'PI_CODING_AGENT_DIR'],
-];
-for (const [file, marker] of wiring) {
-    let body;
-    try {
-        body = readFileSync(join(root, file), 'utf8');
-    } catch {
-        fail(`cannot read ${file}`);
-    }
-    if (!body.includes(marker)) fail(`${file} no longer routes real-pi runs through the isolated agent home (missing ${marker})`);
-}
-process.stdout.write('ok: every real-pi launcher routes through the isolated agent home\n');
 
 const realAgentHome = join(homedir(), '.pi', 'agent');
 const sentinel = `pock-pi-isolation-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;

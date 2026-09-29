@@ -48,7 +48,7 @@ export PI_CODING_AGENT_DIR="$PI_AGENT_TMP"
 
 # Every non-lifecycle Herdr call goes through the helper. Its fleet-state
 # tripwire fails teardown closed if the default session changed.
-trap '"$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || exit 1; rm -rf "$PI_AGENT_TMP"' EXIT
+trap 'rc=$?; "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION"; trc=$?; rm -rf "$PI_AGENT_TMP"; exit $(( rc || trc ))' EXIT
 "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
 h() { "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
 
