@@ -45,33 +45,40 @@ const leaks = () => [
 if (leaks().length > 0) fail(`sentinel already present under the real agent home: ${leaks().join(', ')}`);
 
 const isolation = isolatePiAgentDir();
+const cleanup = () => {
+    rmSync(sentinelCwd, { recursive: true, force: true });
+    releasePiAgentDir(isolation);
+};
 try {
     rmSync(sentinelCwd, { recursive: true, force: true });
     mkdirSync(sentinelCwd, { recursive: true });
     // --offline avoids startup network; -p exits after the run attempt (no API
     // key here), which is after pi writes its agent-home state for this cwd.
-    execFileSync(piBin, ['--offline', '-p', 'reply with exactly: hi'], {
-        cwd: sentinelCwd,
-        timeout: 90_000,
-        encoding: 'utf8',
-        env: { ...process.env, PI_CODING_AGENT_DIR: isolation.dir },
-        stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    try {
+        execFileSync(piBin, ['--offline', '-p', 'reply with exactly: hi'], {
+            cwd: sentinelCwd,
+            timeout: 90_000,
+            encoding: 'utf8',
+            env: { ...process.env, PI_CODING_AGENT_DIR: isolation.dir },
+            stdio: ['ignore', 'pipe', 'pipe'],
+        });
+    } catch (error) {
+        // Expected: no provider credential in the temp home, so the run itself
+        // fails. Startup file writes happen first; the assertions below decide.
+        const status = error?.status;
+        if (status === undefined || status === null) throw new Error(`pi did not run to its auth gate: ${error?.message}`);
+    }
+    const sessionCaptured = namesUnder(join(isolation.dir, 'sessions')).some((name) => name.includes(sentinel));
+    const homeTouched = existsSync(join(isolation.dir, 'auth.json')) || sessionCaptured;
+    if (!homeTouched) {
+        // The temp home must show the run happened, or this test proves nothing.
+        throw new Error('temp agent home captured no pi state for the sentinel run; isolation unproven');
+    }
+    const leaked = leaks();
+    if (leaked.length > 0) throw new Error(`real-pi run leaked under the real agent home: ${leaked.join(', ')}`);
+    process.stdout.write('PASS e2e: real-pi runs stay inside the isolated agent home\n');
+    cleanup();
 } catch (error) {
-    // Expected: no provider credential in the temp home, so the run itself
-    // fails. Startup file writes happen first; the assertions below decide.
-    const status = error?.status;
-    if (status === undefined || status === null) fail(`pi did not run to its auth gate: ${error?.message}`);
-} finally {
-    rmSync(sentinelCwd, { recursive: true, force: true });
+    cleanup();
+    fail(error?.message ?? String(error));
 }
-const sessionCaptured = namesUnder(join(isolation.dir, 'sessions')).some((name) => name.includes(sentinel));
-const homeTouched = existsSync(join(isolation.dir, 'auth.json')) || sessionCaptured;
-releasePiAgentDir(isolation);
-if (!homeTouched) {
-    // The temp home must show the run happened, or this test proves nothing.
-    fail('temp agent home captured no pi state for the sentinel run; isolation unproven');
-}
-const leaked = leaks();
-if (leaked.length > 0) fail(`real-pi run leaked under the real agent home: ${leaked.join(', ')}`);
-process.stdout.write('PASS e2e: real-pi runs stay inside the isolated agent home\n');
