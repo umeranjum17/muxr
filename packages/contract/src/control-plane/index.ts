@@ -29,8 +29,12 @@ export type {
 } from './domain/requests.js';
 export { DESKTOP_CONSENT_WAIT_MS, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure, requestRequiresE2ee, sanitizeRequestErrorMessage } from './domain/requests.js';
 
-export type { ClientFrame, PluginsInvalidatedFrame, HostFrame } from './domain/envelope.js';
+export type { ClientFrame, MachineHello, PluginsInvalidatedFrame, HostFrame, ProtocolCompatibility, ProtocolRange } from './domain/envelope.js';
 export {
+    checkHostProtocol,
+    CONTROL_PROTOCOL,
+    CONTROL_PROTOCOL_RANGE,
+    machineHello,
     decodePayload,
     encodePayload,
     isPluginsInvalidatedFrame,

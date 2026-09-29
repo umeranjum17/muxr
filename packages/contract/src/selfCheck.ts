@@ -2,7 +2,7 @@
  * Contract selfCheck: the wire carries the full event vocabulary, and every
  * declared type round-trips through the payload codec byte-identically.
  */
-import { admitClientFrame, decodePayload, encodePayload, isPluginsInvalidatedFrame, parseClientFrame, tryParseClientFrame } from './control-plane/index.js';
+import { admitClientFrame, checkHostProtocol, decodePayload, encodePayload, isPluginsInvalidatedFrame, machineHello, parseClientFrame, tryParseClientFrame, type HostFrame } from './control-plane/index.js';
 import { SESSION_EVENT_TYPES, type SessionEventBody } from './herd/index.js';
 import { admitPeerMutation, authorizePeerDispatch, deviceIsPeer, inspectPeerGrantConstraints, isPeerCapabilities, peerCapabilityForRequest, peerMayDispatch } from './peer/index.js';
 import { boundRealtimePublicContext, parseRealtimeClientFrame, parseRealtimeHostFrame, realtimePcm16ByteLength, MAX_REALTIME_PUBLIC_SESSIONS } from './realtime/index.js';
@@ -104,6 +104,18 @@ function demo(): void {
     assert(isPluginsInvalidatedFrame({ ...invalidated, pluginIds: [] }), 'empty informational plugin frame validates');
     assert(!isPluginsInvalidatedFrame({ ...invalidated, pluginIds: ['bad id'] }), 'invalid plugin id is rejected');
     assert(!isPluginsInvalidatedFrame({ ...invalidated, pluginIds: Array.from({ length: 33 }, () => 'example.muxr-ui') }), 'oversized plugin frame is rejected');
+    const hello = machineHello('machine', '0.2.1');
+    assert(checkHostProtocol(decodePayload<HostFrame>(encodePayload({ type: 'machine.hello', ...hello }))).ok, 'a current host is compatible');
+    const app = { min: 2, max: 3 };
+    assert(checkHostProtocol({ ...hello, protocol: 3, capabilityRange: { min: 1, max: 3 } }, app).ok, 'overlapping ranges are compatible');
+    const tooOld = checkHostProtocol({ ...hello, protocol: 1, capabilityRange: { min: 1, max: 1 } }, app);
+    assert(!tooOld.ok && tooOld.reason === 'host-too-old', 'a host below the app range is too old');
+    const tooNew = checkHostProtocol({ ...hello, protocol: 4, capabilityRange: { min: 4, max: 5 } }, app);
+    assert(!tooNew.ok && tooNew.reason === 'host-too-new', 'a host above the app range is too new');
+    assert(checkHostProtocol({ machineId: 'machine', hostVersion: '0.2.0' }).ok && checkHostProtocol(undefined).ok,
+        'a host without the field speaks the baseline protocol');
+    const baselineOnly = checkHostProtocol({ capabilityRange: { min: 'x' } }, app);
+    assert(!baselineOnly.ok && baselineOnly.reason === 'host-too-old', 'a malformed range falls back to the baseline');
     assert(isPeerCapabilities(['list', 'read', 'status', 'watch', 'prompt']), 'default peer capabilities validate');
     assert(peerCapabilityForRequest('session.prompt') === 'prompt', 'safe peer requests map to their signed capability');
     assert(peerCapabilityForRequest('session.start') === 'start', 'advanced peer start stays separate');
