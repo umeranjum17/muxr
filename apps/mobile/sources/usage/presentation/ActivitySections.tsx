@@ -134,11 +134,12 @@ const SPLIT: Array<{ key: keyof UsageTokenCounts; label: string; alpha: number }
     { key: 'output', label: 'Output', alpha: 0.72 },
     { key: 'cacheWrite', label: 'Cache write', alpha: 0.46 },
     { key: 'cacheRead', label: 'Cache read', alpha: 0.2 },
+    { key: 'other', label: 'Other', alpha: 0.1 },
 ];
 
 function TodayCard({ activity, planPriced }: { activity: UsageActivity; planPriced?: boolean }) {
     const { theme } = useUnistyles();
-    const today = activity.days[activity.days.length - 1] ?? { date: '', input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const today = activity.days[activity.days.length - 1] ?? { date: '', input: 0, output: 0, cacheRead: 0, cacheWrite: 0, other: 0 };
     const total = dayTotal(today);
     const ratio = todayVersusUsual(activity);
     const cost = costLabel(today.cost, today.unpriced === true);
@@ -220,17 +221,20 @@ function hourLabel(hour: number): string {
  *  reused -- one 6pt bar in four depths of the accent, and a legend. */
 function TokenSplit({ split, total }: { split: UsageTokenCounts; total: number }) {
     const { theme } = useUnistyles();
+    // The itemized kinds always speak; 'Other' names the source's unitemized
+    // rest, and only while there is any of it.
+    const kinds = SPLIT.filter(({ key }) => key !== 'other' || split[key] > 0);
     return (
         <View style={{ marginTop: 14 }}>
             <View style={{ flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden', gap: 1.5, backgroundColor: withAlpha(theme.colors.accent, 0.06) }}>
-                {SPLIT.map(({ key, alpha }) => split[key] > 0 && (
+                {kinds.map(({ key, alpha }) => split[key] > 0 && (
                     <View key={key} style={{ flexGrow: split[key] / total, flexBasis: 0, minWidth: 2, backgroundColor: withAlpha(theme.colors.accent, alpha) }} />
                 ))}
             </View>
             {/* Each entry takes its own width and wraps: a narrow phone gets
                 more rows instead of ellipsized figures. */}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: 6, columnGap: 14, marginTop: 8 }}>
-                {SPLIT.map(({ key, label, alpha }) => (
+                {kinds.map(({ key, label, alpha }) => (
                     <View key={key} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <View style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: withAlpha(theme.colors.accent, alpha), borderWidth: alpha < 0.3 ? StyleSheet.hairlineWidth : 0, borderColor: theme.colors.divider }} />
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>

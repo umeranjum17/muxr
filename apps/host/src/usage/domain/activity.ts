@@ -22,6 +22,8 @@ export interface LedgerRow {
     output: number;
     cacheRead: number;
     cacheWrite: number;
+    /** The source's own total minus what it itemized: the rest, not a guessed kind. */
+    other: number;
     /** USD over the records that could be priced. */
     cost: number;
     /** Some record in the bucket could not be priced. */
@@ -90,8 +92,8 @@ export function rowPlan(harness: string, route: string, anthropicSubscription: b
     return undefined;
 }
 
-export const total = (row: { input: number; output: number; cacheRead: number; cacheWrite: number }): number =>
-    row.input + row.output + row.cacheRead + row.cacheWrite;
+export const total = (row: { input: number; output: number; cacheRead: number; cacheWrite: number; other: number }): number =>
+    row.input + row.output + row.cacheRead + row.cacheWrite + row.other;
 
 export interface TabActivityInput {
     /** The tab's own rows. */
@@ -128,7 +130,7 @@ export function tabActivity(input: TabActivityInput): UsageActivity {
     const { rows, dates, nowHour } = input;
     const today = dates[dates.length - 1]!;
     const weekFrom = dates[Math.max(0, dates.length - 7)]!;
-    const byDate = new Map(dates.map((date) => [date, { date, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, priced: false, unpriced: false } as Omit<UsageActivityDay, 'unpriced'> & { cost: number; priced: boolean; unpriced: boolean }]));
+    const byDate = new Map(dates.map((date) => [date, { date, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, other: 0, cost: 0, priced: false, unpriced: false } as Omit<UsageActivityDay, 'unpriced'> & { cost: number; priced: boolean; unpriced: boolean }]));
     const hours = Number(nowHour.slice(11, 13));
     const hourly = input.hourly ? Array.from({ length: hours + 1 }, () => 0) : [];
     const models = new Map<string, UsageActivityModel>();
@@ -141,7 +143,7 @@ export function tabActivity(input: TabActivityInput): UsageActivity {
         const day = byDate.get(date);
         if (day === undefined) continue;
         const tokens = total(row);
-        day.input += row.input; day.output += row.output; day.cacheRead += row.cacheRead; day.cacheWrite += row.cacheWrite;
+        day.input += row.input; day.output += row.output; day.cacheRead += row.cacheRead; day.cacheWrite += row.cacheWrite; day.other += row.other;
         if (!row.unpriced || row.cost > 0) { day.cost += row.cost; day.priced = true; }
         if (row.unpriced) day.unpriced = true;
         if (row.estimated) estimated = true; else if (!row.unpriced) recorded = true;

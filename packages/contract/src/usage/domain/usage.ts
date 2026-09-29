@@ -79,6 +79,8 @@ export interface UsageTokenCounts {
     output: number;
     cacheRead: number;
     cacheWrite: number;
+    /** Tokens the source counted but did not itemize by kind: the rest, never a guessed kind. */
+    other: number;
 }
 
 /** One local day of measured activity. */

@@ -155,6 +155,23 @@ it('keeps an agent its tab and names the scan failure once its measured days age
     expect(aged.noProviders).toBeUndefined();
 }, 20_000);
 
+it('carries the daily backend\'s unitemized remainder as its own kind, never as input', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'muxr-usage-'));
+    const bin = join(home, 'bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'kimi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const backend = join(bin, 'ccusage-backend');
+    // A kimi-style day: 60K measured, 40K itemized by model. The rest is the
+    // day's truth too, but nobody said what kind it is.
+    writeFileSync(backend, `#!/bin/sh\nprintf '{"daily":[{"period":"%s","agents":[{"agent":"kimi","totalTokens":60000,"modelBreakdowns":[{"modelName":"kimi-k2","inputTokens":30000,"outputTokens":8000,"cacheReadTokens":2000,"cacheCreationTokens":0,"cost":0.5}]}]}]}' "$(date +%F)"; echo\n`, { mode: 0o755 });
+    const env: NodeJS.ProcessEnv = { HOME: home, PATH: bin, MUXR_HOME: join(home, 'muxr'), MUXR_CCUSAGE_BIN: backend };
+    const { collectUsage } = await import('./collectUsage.js');
+    const report = await collectUsage({ refresh: true }, env);
+    const day = report.activity?.days.at(-1);
+    expect(day).toMatchObject({ input: 30_000, output: 8_000, cacheRead: 2_000, cacheWrite: 0, other: 20_000 });
+    expect(report.todayTokens).toBe('60.0K');
+}, 20_000);
+
 it('answers the card and every Usage tab from one collection, and never lends a plan to an aggregator', async () => {
     const fetch = vi.fn(provider);
     vi.stubGlobal('fetch', fetch);

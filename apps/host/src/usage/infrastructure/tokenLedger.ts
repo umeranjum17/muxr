@@ -240,7 +240,7 @@ export class TokenLedger {
             const key = `${row.harness}\u0000${row.route}\u0000${row.model}\u0000${row.hour}`;
             const held = merged.get(key);
             if (held === undefined) { merged.set(key, { ...row }); return; }
-            held.input += row.input; held.output += row.output; held.cacheRead += row.cacheRead; held.cacheWrite += row.cacheWrite;
+            held.input += row.input; held.output += row.output; held.cacheRead += row.cacheRead; held.cacheWrite += row.cacheWrite; held.other += row.other;
             held.cost += row.cost; held.unpriced ||= row.unpriced; held.estimated ||= row.estimated; held.latest = Math.max(held.latest, row.latest);
         };
         for (const state of this.files.values()) for (const row of state.buckets.values()) add(row);
@@ -376,7 +376,7 @@ export class TokenLedger {
         const key = `${record.route}\u0000${record.model}\u0000${hour}`;
         let row = state.buckets.get(key);
         if (row === undefined) {
-            row = { harness: state.harness, route: record.route, model: record.model, hour, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, unpriced: false, estimated: false, latest: 0 };
+            row = { harness: state.harness, route: record.route, model: record.model, hour, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, other: 0, cost: 0, unpriced: false, estimated: false, latest: 0 };
             state.buckets.set(key, row);
         }
         row.input += record.input; row.output += record.output; row.cacheRead += record.cacheRead; row.cacheWrite += record.cacheWrite;
@@ -408,7 +408,7 @@ export class TokenLedger {
                 const priced = count(raw.priced);
                 return [{
                     harness: 'opencode', route: clean(raw.route, 'unknown'), model: clean(raw.model, 'unknown'), hour,
-                    input: count(raw.input), output: count(raw.output), cacheRead: count(raw.cacheRead), cacheWrite: count(raw.cacheWrite),
+                    input: count(raw.input), output: count(raw.output), cacheRead: count(raw.cacheRead), cacheWrite: count(raw.cacheWrite), other: 0,
                     cost: typeof raw.cost === 'number' && Number.isFinite(raw.cost) ? Math.max(0, raw.cost) : 0,
                     unpriced: priced < count(raw.messages), estimated: false,
                     latest: typeof raw.latest === 'number' && Number.isFinite(raw.latest) ? raw.latest : 0,

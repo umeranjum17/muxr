@@ -21,7 +21,7 @@ export function compactMoney(value: number): string {
     return `$${value.toFixed(2)}`;
 }
 
-export const dayTotal = (day: UsageTokenCounts): number => day.input + day.output + day.cacheRead + day.cacheWrite;
+export const dayTotal = (day: UsageTokenCounts): number => day.input + day.output + day.cacheRead + day.cacheWrite + day.other;
 
 export interface RangeSummary {
     days: UsageActivityDay[];
@@ -37,11 +37,11 @@ export interface RangeSummary {
 /** The last `span` days of a tab's thirty. */
 export function rangeSummary(activity: UsageActivity, span: 7 | 30): RangeSummary {
     const days = activity.days.slice(-span);
-    const split = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const split = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, other: 0 };
     let cost: number | undefined;
     let partial = false;
     for (const day of days) {
-        split.input += day.input; split.output += day.output; split.cacheRead += day.cacheRead; split.cacheWrite += day.cacheWrite;
+        split.input += day.input; split.output += day.output; split.cacheRead += day.cacheRead; split.cacheWrite += day.cacheWrite; split.other += day.other;
         if (day.cost !== undefined) cost = (cost ?? 0) + day.cost;
         if (day.unpriced === true || (day.cost === undefined && dayTotal(day) > 0)) partial = true;
     }

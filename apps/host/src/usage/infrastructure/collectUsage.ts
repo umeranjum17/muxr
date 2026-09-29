@@ -397,7 +397,7 @@ function extrasRows(result: CcusageRange | undefined, periods: Set<string>): Led
             for (const model of breakdowns.slice(0, 16)) {
                 const counts = {
                     input: safeCount(model.inputTokens), output: safeCount(model.outputTokens),
-                    cacheRead: safeCount(model.cacheReadTokens), cacheWrite: safeCount(model.cacheCreationTokens),
+                    cacheRead: safeCount(model.cacheReadTokens), cacheWrite: safeCount(model.cacheCreationTokens), other: 0,
                 };
                 if (total(counts) === 0) continue;
                 counted += total(counts);
@@ -412,7 +412,7 @@ function extrasRows(result: CcusageRange | undefined, periods: Set<string>): Led
             const rest = safeCount(row.totalTokens) - counted;
             if (rest > 0) {
                 const cost = counted === 0 && typeof row.totalCost === 'number' && Number.isFinite(row.totalCost) && row.totalCost > 0 ? row.totalCost : undefined;
-                rows.push({ ...base, model: 'other models', input: rest, output: 0, cacheRead: 0, cacheWrite: 0, cost: cost ?? 0, unpriced: cost === undefined, estimated: cost !== undefined });
+                rows.push({ ...base, model: 'other models', input: 0, output: 0, cacheRead: 0, cacheWrite: 0, other: rest, cost: cost ?? 0, unpriced: cost === undefined, estimated: cost !== undefined });
             }
         }
     }
@@ -900,7 +900,7 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     };
 }
 
-const EMPTY_DAY = { date: '', input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+const EMPTY_DAY = { date: '', input: 0, output: 0, cacheRead: 0, cacheWrite: 0, other: 0 };
 
 const COUNTING_NOTICE = 'Counting local activity · the first count reads this computer\u2019s sessions and takes about a minute';
 

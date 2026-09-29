@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
-import type { UsageNow, UsageReport } from '@muxr/contract';
+import type { UsageActivityDay, UsageNow, UsageReport } from '@muxr/contract';
 import { FRESH_MS, lastKnownPlan, noteAsked, rememberShown, shownUsage, withNow, withReport } from './freshnessWindow';
 
 /**
@@ -207,6 +207,15 @@ function pressRefresh(renderer: any, label = 'plugins.rightNow.refreshNow') {
 const screenText = (renderer: any): string => renderer.root.findAllByType('Text')
     .map((node: any) => (typeof node.props.children === 'string' ? node.props.children : ''))
     .join(' ');
+
+/** Like screenText, but a Text's string array children join in, and runs of
+ *  space collapse -- so a sentence its label and figure share reads as one. */
+const flatText = (renderer: any): string => renderer.root.findAllByType('Text')
+    .map((node: any) => Array.isArray(node.props.children)
+        ? node.props.children.filter((child: any) => typeof child === 'string').join('')
+        : node.props.children)
+    .filter((text: any) => typeof text === 'string').join(' ')
+    .replace(/\s+/g, ' ');
 
 /** Press any control by its label, for the card states that offer one. */
 function press(renderer: any, label: string) {
@@ -1797,7 +1806,7 @@ describe('the usage screen read path', () => {
                 state: 'measured' as const,
                 hourly: [],
                 days: ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07']
-                    .map((date, index) => ({ date, input: index === 6 ? 4_000_000 : 0, output: 0, cacheRead: 0, cacheWrite: 0 })),
+                    .map((date, index) => ({ date, input: index === 6 ? 4_000_000 : 0, output: 0, cacheRead: 0, cacheWrite: 0, other: 0 })),
                 models: [],
                 routes: [
                     { id: 'openai-codex', label: 'OpenAI Codex', glyph: 'codex', today: 4_000_000, week: 21_100_000_000, month: 30_000_000_000, weekCost: 950, monthCost: 1_900 },
@@ -1834,13 +1843,8 @@ describe('the usage screen read path', () => {
         // The Z.ai tab's costs are withheld because its plan prices the
         // traffic: its cards show tokens alone -- neither '$' nor 'Not priced'
         // -- while a tab whose costs are genuinely unknown still says so.
-        const flatText = (renderer: any): string => renderer.root.findAllByType('Text')
-            .map((node: any) => Array.isArray(node.props.children)
-                ? node.props.children.filter((child: any) => typeof child === 'string').join('')
-                : node.props.children)
-            .filter((text: any) => typeof text === 'string').join(' ');
         const days = ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07']
-            .map((date, index) => ({ date, input: index === 6 ? 4_000_000 : 900_000, output: 0, cacheRead: 0, cacheWrite: 0 }));
+            .map((date, index) => ({ date, input: index === 6 ? 4_000_000 : 900_000, output: 0, cacheRead: 0, cacheWrite: 0, other: 0 }));
         request.mockResolvedValue({
             ...report('zai', 0),
             providers: [{ id: 'zai', label: 'Z.ai', glyph: 'zai' }],
@@ -1869,5 +1873,30 @@ describe('the usage screen read path', () => {
         await tick();
         expect(flatText(other)).toContain('Not priced');
         expect(flatText(other)).toContain('Cost');
+    });
+
+    it('names the day\'s unitemized tokens Other in the split, and only while there are any', async () => {
+        // A kimi-style day: the source counted 60K and itemized 40K by model.
+        // The 20K rest is its own kind in the legend -- not folded into Input
+        // -- and stays only while there is any of it.
+        const day = (other: number): UsageActivityDay => ({ date: '2026-09-07', input: 40_000, output: 0, cacheRead: 0, cacheWrite: 0, other });
+        const kimi = (days: UsageActivityDay[]) => ({
+            ...report('kimi', 0),
+            providers: [{ id: 'kimi', label: 'Kimi', glyph: 'kimi' }],
+            providerName: 'Kimi',
+            activity: { state: 'measured' as const, hourly: [], days, models: [] },
+        });
+        request.mockResolvedValue(kimi([day(20_000)]));
+        const screen = renderScreen();
+        await tick();
+        expect(flatText(screen)).toContain('Input 40K');
+        expect(flatText(screen)).toContain('Other 20K');
+
+        connection.machineId = 'machine-split-itemized';
+        request.mockResolvedValue(kimi([day(0)]));
+        const plain = renderScreen();
+        await tick();
+        expect(flatText(plain)).toContain('Input 40K');
+        expect(flatText(plain)).not.toContain('Other');
     });
 });
