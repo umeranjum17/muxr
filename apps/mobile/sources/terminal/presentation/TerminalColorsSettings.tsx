@@ -196,10 +196,11 @@ function ColorEditor({ slot, colors, overridden, onDone, onClose }: {
         setDraft(text);
         const parsed = normalizeHex(text);
         if (parsed !== null) { setHsv(hexToHsv(parsed)); setIsDefault(false); }
-        // A full code is the end of typing: drop the keyboard so the colour
-        // shows and the first tap on Done lands (while the keyboard is up,
-        // Android spends that tap taking focus off the field).
-        if (/^#?[0-9a-f]{6}$/i.test(text.trim())) Keyboard.dismiss();
+        // A full code is the end of typing on a phone: drop the keyboard so the
+        // colour shows and the first tap on Done lands (while the keyboard is
+        // up, Android spends that tap taking focus off the field). The web
+        // keeps focus, so Enter still submits.
+        if (Platform.OS !== 'web' && /^#?[0-9a-f]{6}$/i.test(text.trim())) Keyboard.dismiss();
     };
     const draftValid = normalizeHex(draft) !== null;
     const name = terminalColorName(slot);
@@ -270,7 +271,7 @@ function ColorEditor({ slot, colors, overridden, onDone, onClose }: {
                             <TextInput
                                 value={draft}
                                 onChangeText={typed}
-                                onBlur={() => setDraft(hex)}
+                                onBlur={() => { if (normalizeHex(draft) === null) setDraft(hex); }}
                                 autoCapitalize="none"
                                 autoCorrect={false}
                                 maxLength={7}
