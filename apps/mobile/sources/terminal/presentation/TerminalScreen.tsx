@@ -86,6 +86,7 @@ import { agentCommands, destructiveCommand, type AgentCommand } from '../domain/
 import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
 import { PREVIEW_DOCK, previewDocks, requestDesktop, type DesktopOrigin } from '@/desktop/request';
+import { PreviewChip, PreviewTooltip, usePreviewGate } from '@/desktop/preview';
 import { FindOutputSheet } from './FindOutputSheet';
 import { PendingChoices } from './PendingChoices';
 import { useTerminalQuickReplies } from '@/plugins/ui';
@@ -119,6 +120,13 @@ const PANE_TABS_HEIGHT = 24;
 const SCROLL_ANSWER_MS = 1_000;
 /** Rows counted back in a program that scrolls itself, by pane route, across its streams. */
 const ALT_SCROLL_BACK = new Map<string, number>();
+/**
+ * Latest's margin past the rows counted back in a program that scrolls itself.
+ * Such a program can drop the first wheel report after a change of direction
+ * (Claude Code does, as a guard against trackpad jitter), which left Latest a
+ * row or three above the bottom it promised.
+ */
+const LATEST_MARGIN_ROWS = 10;
 
 /**
  * The session is one dark surface: the terminal paints dark whatever the app
@@ -281,6 +289,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         Keyboard.dismiss();
         router.setParams({ desktop: '0' });
     }, []);
+    const [previewChipBox, setPreviewChipBox] = React.useState<DesktopOrigin>();
+    const [headerRowBottom, setHeaderRowBottom] = React.useState(0);
     // View commands keep a permanent route in Pane actions.
     const [viewControls, setViewControls] = React.useState<TerminalViewControls>({ commands: [], dismissKeyboard: () => {} });
     // `raise` is the settled keyboard raise this measure was taken at.
@@ -345,11 +355,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     /**
      * The old counting behaviour, retained only for alternate-screen panes:
      * there herdr reports maxOffsetFromBottom 0 no matter what the finger did,
-     * so nothing else can know a program's own scroll position. A program that
-     * ignores wheel reports entirely (measured: Claude Code and opencode return
-     * no redraw to SGR wheel-up) will therefore show a control that cannot move
-     * it -- accepted as the lesser harm than stranding someone inside vim or
-     * less with mouse reporting on, which do respond to those reports.
+     * so nothing else can know a program's own scroll position. Claude Code,
+     * vim and less scroll themselves on the wheel reports the host turns a
+     * scroll into; a program that ignores them entirely will show a control
+     * that cannot move it -- accepted as the lesser harm than stranding
+     * someone inside one that does.
      */
     const altBack = React.useRef(0);
     const [showJump, setShowJump] = React.useState(false);
@@ -431,8 +441,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             if (scrollBack.current > 0) channel.scroll(-scrollBack.current);
             return;
         }
-        let remaining = altBack.current;
-        if (remaining <= 0) return;
+        if (altBack.current <= 0) return;
+        let remaining = altBack.current + LATEST_MARGIN_ROWS;
         while (remaining > 0) {
             const step = Math.min(remaining, 400);
             channel.scroll(-step);
@@ -470,6 +480,19 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         const timer = setTimeout(() => setShownStatus(status), STATUS_GRACE_MS);
         return () => clearTimeout(timer);
     }, [status]);
+
+    // An agent's browser or emulator the host can show. Native iOS has no live
+    // view to open yet, so it announces nothing.
+    const preview = usePreviewGate(props.id, session?.metadata?.preview, {
+        showable: desktopAvailable && Platform.OS !== 'ios' && !authorityLoading,
+        live: shownStatus === 'live',
+    });
+    // Every way in grows the live view out of the chip, wherever the tap was.
+    const watchPreview = React.useCallback((from?: DesktopOrigin) => {
+        if (!preview.openable) return;
+        preview.tooltip.dismiss();
+        openPreview(from ?? previewChipBox);
+    }, [openPreview, preview.openable, preview.tooltip.dismiss, previewChipBox]);
 
     // 'connecting' is the one status nothing is watching. The renderer opens
     // the channel only once it reports a grid, so a surface that never reports
@@ -1310,7 +1333,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         it and the footer one step to the chrome ink. */}
                     <Animated.View
                         aria-hidden={desktopVisible}
-                        onLayout={(event) => { if (!hasStatusRow) setHeaderBottom(event.nativeEvent.layout.y + event.nativeEvent.layout.height); }}
+                        onLayout={(event) => {
+                            const bottom = event.nativeEvent.layout.y + event.nativeEvent.layout.height;
+                            setHeaderRowBottom(bottom);
+                            if (!hasStatusRow) setHeaderBottom(bottom);
+                        }}
                         style={[{
                             flexDirection: 'row',
                             alignItems: 'center',
@@ -1340,9 +1367,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 shell is not "Offline". */}
                             {headerLifecycleLabel !== undefined && <View accessible={false} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                 <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: headerStatus.color }} />
-                                <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>
+                                {/* A narrow header gives the chip the word's room; the dot and the label keep it. */}
+                                {!(preview.shown !== undefined && windowWidth < 340) && <Text numberOfLines={1} style={{ color: headerStatus.color, fontSize: 11, fontWeight: '500' }}>{headerLifecycleLabel}</Text>}
                             </View>}
                         </Pressable>
+                        <PreviewChip preview={preview.shown} live={preview.live} openable={preview.openable} labelled={preview.openable && preview.tooltip.open} onPress={watchPreview} onLayout={setPreviewChipBox} />
                         {/* Position in the tab and the way into the pane overview:
                             borderless and tiny; loading shows as such, never as 0/0.
                             At one pane it says nothing, and what the overview
@@ -1805,6 +1834,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             />
                         </React.Suspense>
                     </View>}
+                    {previewChipBox !== undefined && <PreviewTooltip
+                        preview={preview.openable && preview.tooltip.open && !desktopVisible && !actionsOpen ? preview.shown : undefined}
+                        anchor={{ centre: previewChipBox.x + previewChipBox.width / 2, top: headerRowBottom }}
+                        screenWidth={windowWidth}
+                        onWatch={() => watchPreview()}
+                        onDismiss={preview.tooltip.dismiss}
+                    />}
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} />
                     <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
                     <PluginSlot
@@ -1852,6 +1888,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Ionicons name="desktop-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Computer</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+                                    </Pressable>}
+                                    {preview.row && <Pressable onPress={() => watchPreview()} disabled={!preview.openable} accessibilityRole="button"
+                                        accessibilityLabel={t(preview.openable ? (preview.row.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser') : 'preview.reconnecting')}
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: preview.openable ? 1 : 0.5 })}>
+                                        <Ionicons name={preview.row.kind === 'android' ? 'logo-android' : 'globe-outline'} size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t(preview.openable ? (preview.row.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser') : 'preview.reconnecting')}</Text>
+                                        {preview.openable && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
                                     </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
