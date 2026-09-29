@@ -44,7 +44,7 @@ same stream:
 agent process → PTY (kernel pipe, herdr holds it)
                   │
                   ├─→ herdr's emulator ──→ herdr desktop UI
-                  └─→ host runs `herdr terminal session control <pane>`
+                  └─→ kit terminal session per channel
                       (base64 ANSI frames) → byokit link stream via relay → phone
                       → Ghostty (native) or xterm.js (web) draws its own copy
 ```
@@ -137,7 +137,7 @@ removed grants, and web secure-store reset clear it.
 | Close worktree group | final explicit scope of `session.stop`, after its own confirmation | revalidate the parent workspace, then call Herdr `workspace.close`; Herdr has no separate group-close method |
 | status | `idle · working · blocked · done · unknown` | `pane.agent_status_changed` |
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
-| live view | terminal frames over a link stream | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |
+| live view | terminal frames over a link stream | kit `TerminalSession` (`control` with takeover / `observe` read-only previews) |
 
 Sessions started at the desk show up on the phone once Herdr publishes their
 agent session (often after the first turn). Detection alone is not a session:
