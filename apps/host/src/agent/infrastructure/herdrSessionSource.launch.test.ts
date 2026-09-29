@@ -482,7 +482,12 @@ describe('realtime prompt boundary', () => {
             // The route never resolved, so nothing could have been sent.
             await expect(source.prompt({ sessionId: 'pp_missing', text: 'hello' }))
                 .rejects.toMatchObject({ code: 'prompt-not-sent' });
-            await expect(source.prompt({ sessionId: started.info.id, text: 'hello' })).resolves.toBeUndefined();
+            // The kit gates the prompt on its own tree, which re-bootstraps off the
+            // detection event; wait for that pass before asserting the queued prompt.
+            await vi.waitFor(() =>
+                expect(source.prompt({ sessionId: started.info.id, text: 'hello' })).resolves.toBeUndefined(),
+                { timeout: 3_000 },
+            );
 
             // The receipt was accepted, so a failed confirmation read is ambiguous.
             herdr.state.failSnapshotAfterPrompt = true;

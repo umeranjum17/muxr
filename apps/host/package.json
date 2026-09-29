@@ -6,7 +6,7 @@
     "type": "module",
     "main": "./dist/main.js",
     "dependencies": {
-        "@byokit/herdr": "0.1.0-next.dbe7142",
+        "@byokit/herdr": "0.1.0",
         "@byokit/link": "0.3.1",
         "@byokit/relay": "0.1.3",
         "@desklink/host": "0.2.0",
