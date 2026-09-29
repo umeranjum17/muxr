@@ -6,9 +6,9 @@
     "type": "module",
     "main": "./dist/main.js",
     "dependencies": {
-        "@byokit/herdr": "0.1.1",
+        "@byokit/herdr": "0.1.2",
         "@byokit/link": "0.3.2",
-        "@byokit/relay": "0.2.0",
+        "@byokit/relay": "0.2.1",
         "@desklink/host": "0.2.0",
         "@trymuxr/contract": "0.1.0",
         "@trymuxr/crypto": "0.1.0",
