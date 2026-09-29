@@ -38,7 +38,8 @@ import {
     sessionInfoToSession,
 } from '../infrastructure/sessionMapping';
 import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
-import type { HerdrTreePane, SessionInfo } from '@muxr/contract';
+import { agentTask, type HerdrTreePane, type SessionInfo } from '@muxr/contract';
+import { agentLabels } from '@/herd/labels';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 // Its own entry, like wakeAndReport: it pulls in expo-notifications, which the barrel keeps out.
 import { alertAgent, dismissAgentAlert } from '@/watch/lifecycleAlert';
@@ -441,7 +442,9 @@ class MuxrSync {
                     storage.getState().markLifecyclePresented(event.eventId);
                     continue;
                 }
-                await alertAgent(event.sessionId, 'muxr', lifecycleNotificationCopy(event));
+                // What it was working on heads the alert, as on a relay push; who and what happened is the body.
+                const task = agentTask({ title: event.taskTitle, agentName: event.agentName, agentKind: event.agentKind });
+                await alertAgent(event.sessionId, task ?? 'muxr', lifecycleNotificationCopy(event));
                 storage.getState().markLifecyclePresented(event.eventId);
             } catch (error) {
                 console.error('lifecycle notification failed', error);
@@ -462,7 +465,8 @@ class MuxrSync {
         // second notification for every transition.
         if (Platform.OS === 'android') return;
         try {
-            await alertAgent(sessionId, currentAgentName(sessionId), body);
+            const pane = treePane(sessionId);
+            await alertAgent(sessionId, pane === undefined ? 'Agent' : agentLabels(pane).title, body);
         } catch (error) {
             console.error('session notification failed', sessionId, error);
         }

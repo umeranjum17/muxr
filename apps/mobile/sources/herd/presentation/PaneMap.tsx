@@ -17,7 +17,7 @@ import { AgentGlyph } from '@/components/AgentGlyph';
 import { Typography } from '@/constants/Typography';
 import { sync } from '@/catalog/sync';
 import { agentStatusColor } from '../application/sessionUtils';
-import { HERD_STATUS_LABELS, agentLabels, agentTaskLine, isShellLabels } from '../domain/agentPresentation';
+import { HERD_STATUS_LABELS, agentLabels, agentWhoLine, isShellLabels } from '../domain/agentPresentation';
 import { paneMapTiles, type PaneMapLayout } from '../domain/paneMap';
 
 /** The smallest a tile gets, so every pane stays a comfortable tap. */
@@ -30,11 +30,11 @@ export function shellPath(cwd: string | undefined): string | undefined {
     return cwd?.replace(/^\/(?:home|Users)\/[^/]+(?=\/|$)/, '~');
 }
 
-/** The line under a pane's name: its task, a shell's directory, what it is waiting for. */
+/** The line under a pane's title: who runs it, or a shell's directory. */
 export function paneTaskLine(pane: HerdrTreePane): string | undefined {
     const labels = agentLabels(pane);
     if (isShellLabels(labels)) return shellPath(pane.cwd);
-    return agentTaskLine(labels);
+    return agentWhoLine(labels);
 }
 
 /** The tab's split, fetched once per tab and pane set; `undefined` until it answers. */

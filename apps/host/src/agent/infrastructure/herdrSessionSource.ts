@@ -31,7 +31,7 @@ import type {
     SessionStartResult,
     SessionStatus,
 } from '@muxr/contract';
-import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@muxr/contract';
+import { ATTENTION_REASONS, HERDR_AGENT_NAME_MAX, agentTask, HERDR_NAME_MAX, capUtf8Bytes, realtimePluginPublicContext, sanitizeDisplayText } from '@muxr/contract';
 import { voiceRuntimeRoot } from '../../voice/index.js';
 import { closeAgent } from './agentClose.js';
 import { ARTIFACT_RETENTION_REPORT_FILE, startArtifactRetention } from './artifactRetention.js';
@@ -102,6 +102,13 @@ const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pa
  * Provider-neutral hint inherited by every pane muxr creates through Herdr.
  * The default names no private screen: only a pane this host actually gave one
  * may claim it (paneEnvironment upgrades the sentence for that pane).
+ *
+ * Test isolation pass-through: when the host itself runs with
+ * PI_CODING_AGENT_DIR set (diagnostics that launch a real pi point it at a
+ * per-run temp dir via scripts/diagnostics/application/isolatePiAgentDir.mjs),
+ * forward it so pi processes Herdr spawns for those panes never touch the
+ * user's real ~/.pi/agent. Unset in production, so production panes behave
+ * exactly as before.
  */
 export const MUXR_AGENT_ENV = {
     MUXR_AGENT_CAPABILITIES: `${DESKTOP_BROWSER}${BROWSER_GUIDANCE}${ARTIFACT_GUIDANCE}`,
@@ -112,10 +119,12 @@ export const MUXR_AGENT_ENV = {
  * host could make one. A pane without a screen behaves exactly as before.
  */
 function paneEnvironment(screen: PaneScreen | undefined): Record<string, string> {
+    const agentDir = process.env.PI_CODING_AGENT_DIR?.trim();
     return {
         ...MUXR_AGENT_ENV,
         ...(screen === undefined ? {} : { MUXR_AGENT_CAPABILITIES: `${SCREEN_BROWSER}${BROWSER_GUIDANCE}${ARTIFACT_GUIDANCE}` }),
         ...screen?.env,
+        ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
     };
 }
 
@@ -1090,9 +1099,21 @@ export async function createHerdrSessionSource(
         };
     }
 
-    /** Herdr boundary adapter: self-named pane labels are the title fallback. */
+    /** What the agent is working on, by the shared rule in `agentTask`. */
     function taskTitleForSession(session: CurrentSession): string | undefined {
-        return session.agent?.title ?? session.pane.label ?? undefined;
+        const workspaceId = session.agent?.workspace_id ?? session.pane.workspace_id;
+        // A task workspace's label names the task only while this agent is its one agent.
+        const soleAgent = workspaceId !== undefined
+            && [...agentsByPane.values()].filter((agent) => agent.workspace_id === workspaceId).length === 1;
+        return agentTask({
+            label: session.pane.label,
+            terminalTitle: session.pane.terminal_title_stripped,
+            title: session.agent?.title,
+            workspaceLabel: soleAgent ? workspacesById.get(workspaceId)?.label : undefined,
+            agentName: session.agent?.name,
+            agentKind: session.agent?.agent,
+            cwd: session.pane.foreground_cwd ?? session.pane.cwd,
+        });
     }
 
     function setLifecycle(paneId: string, agentStatus: string): void {
@@ -1242,10 +1263,10 @@ export async function createHerdrSessionSource(
         const agentKind = agentKindFor(session);
         const displayAgent = session.agent?.display_agent ?? session.pane.display_agent ?? undefined;
         const naming = boundedPaneNamingMetadata(session.pane.tokens);
-        // The terminal title is deliberately absent: a working agent animates it
-        // several times a second, and every client reads placement and identity
-        // from the fields above. It still travels on `herdr.tree`, at the tree's
-        // own cadence, for anything that wants to show it.
+        // The raw terminal title is deliberately absent: a working agent animates
+        // it several times a second. `taskTitle` reads only its stripped form,
+        // and only when it names the work; the whole title still travels on
+        // `herdr.tree`, at the tree's own cadence.
         const spawnedBy = session.pane.tokens?.spawned_by;
         const listedName = publicListedName(session.agent);
         return {

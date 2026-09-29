@@ -187,7 +187,12 @@ export function startHost(options: HostOptions): Host {
     }
 
     function forward(sessionId: string, body: SessionEventBody): void {
-        const event: SessionEvent = { ...body, seq: nextSeq(sessionId) };
+        // Herdr's own session frames know nothing of presence; without it the
+        // phone reads an agent's next state change as the browser closing.
+        const carried = body.type === 'session.created' || body.type === 'session.updated'
+            ? { ...body, session: withPreview([body.session], previewForPane)[0] ?? body.session }
+            : body;
+        const event: SessionEvent = { ...carried, seq: nextSeq(sessionId) };
         broadcast({ type: 'session.event', sessionId, event });
         if (body.type === 'session.removed') domain.unread.acknowledge(sessionId);
         else domain.unread.noteActivity(sessionId, '');
