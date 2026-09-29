@@ -46,11 +46,14 @@ const AGENT_BROWSER_ARGS = [
     '--force-device-scale-factor=1',
 ].join(',');
 
-/** One top-level window the keeper sees on a pane's screen. */
+/** One top-level window the keeper sees on a pane's screen.
+ *
+ * Shapes match the 0.2.0 keeper report (`class` is one string, `title`
+ * nullable); the presence tracker normalizes both. */
 export interface ScreenWindow {
     id?: number;
-    title?: string;
-    class?: string[];
+    title?: string | null;
+    class?: string[] | string | null;
     pid?: number;
     width?: number;
     height?: number;
