@@ -5,6 +5,11 @@ import { join } from 'node:path';
 import { nextRequestId, newTerminalChannel } from '@muxr/contract';
 import { linkHerdrLab } from './linkHerdrLab.mjs';
 import { requestLab } from './linkLabClient.mjs';
+import { isolatePiAgentDir, releasePiAgentDir } from './isolatePiAgentDir.mjs';
+
+// Real pi agents Herdr spawns for this check must never touch the user's real
+// ~/.pi/agent: point pi at a per-run temp agent dir, removed afterwards.
+const piAgent = isolatePiAgentDir();
 
 const root = mkdtempSync(join(tmpdir(), 'muxr-link-herdr-'));
 const workdir = join(root, 'cwd');
@@ -165,4 +170,5 @@ try {
         await lab.stop();
     }
     rmSync(root, { recursive: true, force: true });
+    releasePiAgentDir(piAgent);
 }

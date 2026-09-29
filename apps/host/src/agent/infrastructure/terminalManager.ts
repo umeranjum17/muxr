@@ -36,6 +36,8 @@ interface Attachment {
     scrollStateReading: boolean;
     scrollStateDirty: boolean;
     scrollOffsetFromBottom: number;
+    /** Whether Herdr holds scrollback here, as last read; unknown until then. */
+    herdrOwnsScroll?: boolean;
     close: (reason?: string) => void;
 }
 
@@ -60,6 +62,18 @@ const TRANSIENT_TRANSPORT = /resource temporarily unavailable \(os error 11\)|wo
 /** A fling's scrolls arrive in a run; only where it stopped is worth reading. */
 const SCROLL_STATE_SETTLE_MS = 90;
 
+/**
+ * Herdr hands a scroll on a pane with no scrollback of its own to the program
+ * as ONE wheel report whatever its line count (measured on 0.9.1), so a whole
+ * fling, or a jump to Latest, turned Claude Code's wheel by a single notch.
+ * Each row goes as its own report instead, one per tick: reports that reach a
+ * program in one write are largely lost (Claude Code moved 40-100 rows for any
+ * single burst of 20 to 240). The cap bounds how long a runaway request can
+ * keep the wheel turning.
+ */
+const WHEEL_TICK_MS = 2;
+const MAX_WHEEL_ROWS = 10_000;
+
 /** Herdr's initial screen is a full repaint record, not merely the first line. */
 function isInitialScreenRecord(line: string): boolean {
     try {
@@ -70,11 +84,14 @@ function isInitialScreenRecord(line: string): boolean {
     }
 }
 
-function isScrollInput(line: string): boolean {
+type ScrollInput = { direction?: unknown; lines?: unknown; column?: unknown; row?: unknown };
+
+function scrollInput(line: string): ScrollInput | undefined {
     try {
-        return (JSON.parse(line) as { type?: unknown }).type === 'terminal.scroll';
+        const frame = JSON.parse(line) as ScrollInput & { type?: unknown };
+        return frame.type === 'terminal.scroll' ? frame : undefined;
     } catch {
-        return false;
+        return undefined;
     }
 }
 
@@ -214,6 +231,10 @@ export class TerminalManager {
         };
 
         let finished = false;
+        // Rows still owed to a program's wheel, positive toward 'up'.
+        let wheelRows = 0;
+        let wheelAt: Pick<ScrollInput, 'column' | 'row'> = {};
+        let wheelTimer: ReturnType<typeof setTimeout> | undefined;
         let removeInputRef: () => void = () => undefined;
         const removeInput = (): void => {
             removeInputRef();
@@ -222,6 +243,9 @@ export class TerminalManager {
             if (finished) return;
             finished = true;
             removeInput();
+            clearTimeout(wheelTimer);
+            wheelTimer = undefined;
+            wheelRows = 0;
             if (attachment.scrollStateTimer !== undefined) clearTimeout(attachment.scrollStateTimer);
             delete attachment.scrollStateTimer;
             attachment.scrollStateDirty = false;
@@ -275,16 +299,43 @@ export class TerminalManager {
             if (input === null || input.destroyed || !input.writable) return;
             if (text.trim().length === 0) return;
             try {
-                input.write(`${text}\n`);
+                const scroll = scrollInput(text);
+                const lines = Number(scroll?.lines);
+                if (scroll !== undefined && attachment.herdrOwnsScroll === false && (scroll.direction === 'up' || scroll.direction === 'down')
+                    && Number.isInteger(lines) && lines > 0) {
+                    const owed = wheelRows + (scroll.direction === 'up' ? lines : -lines);
+                    wheelRows = Math.max(-MAX_WHEEL_ROWS, Math.min(MAX_WHEEL_ROWS, owed));
+                    wheelAt = { column: scroll.column, row: scroll.row };
+                    if (wheelTimer === undefined) turnWheel();
+                } else {
+                    // A key goes to the program at its live edge; the rest of a
+                    // fling must not carry it back up afterwards.
+                    if (scroll === undefined) wheelRows = 0;
+                    input.write(`${text}\n`);
+                }
                 // Whatever a scroll turns out to move -- Herdr's own
                 // scrollback, a program's wheel handler, or nothing at all --
                 // the phone is told where Herdr's viewport ended up. Without
                 // this, a scroll away from the live edge was reported only
                 // at the next attach.
-                if (isScrollInput(text)) this.scheduleScrollState(attachment);
+                if (scroll !== undefined) this.scheduleScrollState(attachment);
             } catch (error) {
                 onInputError(error instanceof Error ? error : new Error(String(error)));
             }
+        };
+        const turnWheel = (): void => {
+            wheelTimer = undefined;
+            const input = child.stdin;
+            if (finished || wheelRows === 0 || input === null || input.destroyed || !input.writable) return;
+            const up = wheelRows > 0;
+            wheelRows += up ? -1 : 1;
+            try {
+                input.write(`${JSON.stringify({ type: 'terminal.scroll', direction: up ? 'up' : 'down', lines: 1, ...wheelAt })}\n`);
+            } catch (error) {
+                onInputError(error instanceof Error ? error : new Error(String(error)));
+                return;
+            }
+            if (wheelRows !== 0) wheelTimer = setTimeout(turnWheel, WHEEL_TICK_MS);
         };
         // Writable failures such as EPIPE are asynchronous; try/catch around
         // write() cannot intercept them. Without an error owner Node terminates
@@ -382,6 +433,7 @@ export class TerminalManager {
         try {
             const scroll = await read(attachment.paneId);
             attachment.scrollOffsetFromBottom = scroll.offsetFromBottom;
+            attachment.herdrOwnsScroll = scroll.maxOffsetFromBottom > 0;
             await this.sendToPhone(attachment, JSON.stringify({
                 type: 'terminal.scroll-state',
                 offsetFromBottom: scroll.offsetFromBottom,

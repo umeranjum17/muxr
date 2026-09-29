@@ -33,6 +33,7 @@ const checks = [
     ['policy: terminal text face is bundled and monospaced', 'node', ['scripts/diagnostics/application/checkTerminalFont.mjs']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
+    ['unit: service commands stay in their MUXR_HOME scope', 'node', ['scripts/setup/serviceScope.selfcheck.mjs']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     // The load-test flows carry their own generous per-test budgets; the step
     // kill must stay well above them or it SIGKILLs a healthy run first.
@@ -55,6 +56,7 @@ const checks = [
     // where the guarded lab helper exists; it never touches the default fleet.
     ['e2e: realtime voice warmed-agent parity (isolated lab herdr)', 'bash', ['scripts/diagnostics/application/checkRealtimeAgentHealth.sh'], 'herdr-lab', 900000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/diagnostics/application/checkWorktreeE2E.mjs'], 'herdr'],
+    ['e2e: real-pi runs stay inside an isolated agent home', 'node', ['scripts/diagnostics/application/checkPiAgentIsolation.mjs']],
     ['package: curl installer wrapper', 'node', ['scripts/diagnostics/application/checkInstallScript.mjs']],
     // The lifecycle flow needs a packed tree, so the package smoke drives it
     // against its own snapshot instead of a second entry against the root.
@@ -86,6 +88,7 @@ const FAST = new Set([
     'unit: naming boundary (auth/target/failure/restart)',
     'unit: layout snapshot round-trip',
     'unit: setup domain (pairing/connection/crypto)',
+    'unit: service commands stay in their MUXR_HOME scope',
     'unit: all vitest flows',
     'unit: perf gate (gesture metrics, warm-probe gates, node --test)',
     'policy: host/relay architecture',
