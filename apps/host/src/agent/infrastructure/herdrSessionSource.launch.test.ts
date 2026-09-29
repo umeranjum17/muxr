@@ -1,8 +1,10 @@
 import { createHook } from 'node:async_hooks';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { HerdrTreeWorkspace } from '@trymuxr/contract';
 import type { PaneScreens } from '../../desktop/index.js';
@@ -28,7 +30,9 @@ function fakeHerdr(dir: string, cwd: string) {
         releaseSnapshot?: () => void;
         holdStatusAck: boolean;
         releaseStatusAck?: () => void;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false };
+        delayAgentWaitMs: number;
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0 };
+    const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
     const handleSnapshot = () => ({ snapshot: { workspaces, tabs, panes, agents } });
@@ -139,9 +143,22 @@ function fakeHerdr(dir: string, cwd: string) {
                     case 'agent.start':
                         reply = { id, result: handleAgentStart(p) };
                         break;
-                    case 'agent.wait':
+                    case 'agent.wait': {
                         reply = { id, result: handleAgentWait(p) };
+                        // The close test delays the reply past teardown: the
+                        // watch is still in flight when close() runs, so only
+                        // close() itself can release the guard.
+                        if (state.delayAgentWaitMs > 0) {
+                            const response = `${JSON.stringify(reply)}\n`;
+                            const timer = setTimeout(() => {
+                                pendingReplies.delete(timer);
+                                if (!socket.destroyed) socket.end(response);
+                            }, state.delayAgentWaitMs);
+                            pendingReplies.add(timer);
+                            continue;
+                        }
                         break;
+                    }
                     case 'agent.prompt':
                         reply = { id, result: handleAgentPrompt(p) };
                         break;
@@ -180,6 +197,8 @@ function fakeHerdr(dir: string, cwd: string) {
             return [...subscribers.values()].some((subscriptions) => wants(subscriptions, type, paneId));
         },
         close(): void {
+            for (const timer of pendingReplies) clearTimeout(timer);
+            pendingReplies.clear();
             for (const socket of subscribers.keys()) socket.destroy();
             server.close();
         },
@@ -610,14 +629,28 @@ describe('source close lets the process exit', () => {
         try {
             const started = await source.start({ cwd, kind: 'claude' });
             if (!('info' in started)) throw new Error('launch rejected');
+            // Delay the wait reply past teardown: the watch is still in
+            // flight when close() runs, so only close() itself can release
+            // the guard and the assertions cannot race its settlement.
+            herdr.state.delayAgentWaitMs = 300;
             await source.agentWatch({ sessionId: started.info.id, timeoutMs: 60_000 });
             expect(guards.size).toBe(1);
             await source.close();
             await source.close();
             await source.dispose();
             // async_hooks destroy delivery rides the loop, not the microtask
-            // queue, so yield before asserting the cleared guard is gone.
-            await new Promise((resolve) => setImmediate(resolve));
+            // queue; the reply still cannot land inside this budget, so a
+            // leaked guard stays to the deadline.
+            await source.close();
+            await source.close();
+            await source.dispose();
+            // async_hooks destroy delivery rides the loop, not the microtask
+            // queue; the reply still cannot land inside this budget, so a
+            // leaked guard stays to the deadline.
+            const deadline = Date.now() + 200;
+            while (guards.size !== 0 && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            }
             expect(guards.size).toBe(0);
         } finally {
             hook.disable();
@@ -625,5 +658,34 @@ describe('source close lets the process exit', () => {
             herdr.close();
             rmSync(dir, { recursive: true, force: true });
         }
+    }, 30_000);
+});
+
+describe('source close exits the process', () => {
+    it('a script watching against fake Herdr exits on its own after close()', async () => {
+        const root = fileURLToPath(new URL('../../../../../', import.meta.url));
+        const script = join(root, 'scripts', 'diagnostics', 'application', 'checkHerdrSourceClose.mjs');
+        // The script drives the compiled source: the suite typechecks (and so
+        // rebuilds dist) before vitest runs, but a bare vitest invocation can
+        // sit on a stale build -- fail loud instead of testing old code.
+        const src = fileURLToPath(new URL('./herdrSessionSource.ts', import.meta.url));
+        const dist = join(root, 'apps', 'host', 'dist', 'agent', 'infrastructure', 'herdrSessionSource.js');
+        expect(statSync(dist).mtimeMs).toBeGreaterThanOrEqual(statSync(src).mtimeMs);
+        const child = spawn(process.execPath, [script], { stdio: ['ignore', 'pipe', 'pipe'] });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (chunk) => { stdout += String(chunk); });
+        child.stderr.on('data', (chunk) => { stderr += String(chunk); });
+        const exit = await Promise.race([
+            new Promise<number | null>((resolve) => child.on('close', resolve)),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
+        ]);
+        if (exit === null) {
+            child.kill('SIGKILL');
+            throw new Error(`close script still alive after 20 s (a leftover handle wedges it): ${stderr.slice(-500)}`);
+        }
+        expect(stderr).toBe('');
+        expect(stdout).toContain('herdr-source-close: ok');
+        expect(exit).toBe(0);
     }, 30_000);
 });
