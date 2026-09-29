@@ -26,7 +26,7 @@ const capturedFetch: typeof fetch = async (url, init) => {
 };
 
 import { startRelay } from '../../../apps/relay/src/relay.js';
-import { LinkEndpoint } from '../../../apps/host/src/machine/infrastructure/linkEndpoint.js';
+import { fileRelayClientStore, LinkEndpoint } from '../../../apps/host/src/machine/infrastructure/linkEndpoint.js';
 
 const b64url = (value: Uint8Array | Buffer): string => Buffer.from(value).toString('base64url');
 const until = async <T>(produce: () => T | undefined, what: string, timeoutMs = 10_000): Promise<T> => {
@@ -48,6 +48,7 @@ describe('push rides the byokit link relay', () => {
             linkPush: { fetch: capturedFetch },
             config: { dataDir, advertiseMdns: false },
         });
+        let liveEndpoint: { close(): void } | undefined;
         try {
             const mint = JSON.parse(readFileSync(join(dataDir, 'mint-secret'), 'utf8')) as string;
             const machineSecret = randomBytes(32);
@@ -97,6 +98,7 @@ describe('push rides the byokit link relay', () => {
                 canView: () => false,
             });
             let endpoint = (await openEndpoint())!;
+            liveEndpoint = endpoint;
             expect(endpoint).toBeDefined();
             // The relay socket dials only on start() (the host main wiring does the same).
             endpoint.start();
@@ -158,6 +160,7 @@ describe('push rides the byokit link relay', () => {
             link.stop();
             endpoint.close();
             endpoint = (await openEndpoint())!;
+            liveEndpoint = endpoint;
             endpoint.start();
             await until(() => (endpointStatuses.at(-1) === 'online' ? true : undefined), `restarted relay online: ${endpointStatuses.join(',')}`);
             expect(endpoint.enrolledKey('dev_push_1')).toBeDefined();
@@ -250,7 +253,103 @@ describe('push rides the byokit link relay', () => {
             }
             revokedLink.stop();
         } finally {
+            liveEndpoint?.close();
             await relay.close();
+            rmSync(dataDir, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('a revoke queued while the relay is down unsubscribes after a host restart', async () => {
+        const dataDir = mkdtempSync(join(tmpdir(), 'muxr-link-revoke-restart-'));
+        const openRelay = () => startRelay({
+            port: 0,
+            host: '127.0.0.1',
+            linkPush: { fetch: capturedFetch },
+            config: { dataDir, advertiseMdns: false },
+        });
+        let relay = await openRelay();
+        try {
+            const mint = JSON.parse(readFileSync(join(dataDir, 'mint-secret'), 'utf8')) as string;
+            const machineSecret = randomBytes(32);
+            const machineKeys = keyPairFrom(machineSecret);
+            const deviceSecret = randomBytes(32);
+            const deviceKeys = keyPairFrom(deviceSecret);
+            const crypto = {
+                boxSecretKey: Buffer.from(machineSecret).toString('base64'),
+                boxPublicKey: Buffer.from(machineKeys.publicKey).toString('base64'),
+                devices: [{
+                    deviceId: 'dev_restart_1',
+                    devicePublicKey: Buffer.from(deviceKeys.publicKey).toString('base64'),
+                    authority: 'control',
+                    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+                }],
+            };
+            const statePath = join(dataDir, 'host-devices.json');
+            writeFileSync(statePath, JSON.stringify(crypto));
+            const readState = () => JSON.parse(readFileSync(statePath, 'utf8')) as typeof crypto;
+            const grantsPath = join(dataDir, 'host-grants.json');
+            writeFileSync(grantsPath, '[]');
+            const storePath = join(dataDir, 'link-revoked.json');
+            const openEndpoint = (port: number) => LinkEndpoint.open({
+                savePushLevel: () => {},
+                grants: {
+                    load: () => JSON.parse(readFileSync(grantsPath, 'utf8')) as never,
+                    save: (grants) => writeFileSync(grantsPath, JSON.stringify(grants)),
+                },
+                revokeStore: fileRelayClientStore(storePath),
+                relayUrl: `ws://127.0.0.1:${port}`,
+                ownerToken: mint,
+                machineId: 'machine-restart-test',
+                machineName: 'Desk',
+                crypto: crypto as never,
+                currentCrypto: () => readState() as never,
+                answer: async () => undefined,
+                canView: () => false,
+            });
+            const grant: DeviceGrant = {
+                v: 1,
+                secretKey: b64url(deviceSecret),
+                host: b64url(machineKeys.publicKey),
+                hostName: 'Desk',
+                urls: [`ws://127.0.0.1:${relay.port}/link/v1/${hostId(machineKeys.publicKey)}`],
+                device: { id: '', name: 'Phone', role: 'control' },
+            };
+            let endpoint = (await openEndpoint(relay.port))!;
+            endpoint.start();
+            const link = new DeviceLink(grant, {});
+            await link.request('push.subscribe', {
+                type: 'push.subscribe', requestId: 'rn-1', params: {
+                    token: 'ExponentPushToken[muxr-restart-token]',
+                    level: 'all',
+                },
+            }, { timeoutMs: 5_000 });
+            const relayStore = () => readFileSync(join(dataDir, 'link-relay.json'), 'utf8');
+            expect(relayStore()).toContain('muxr-restart-token');
+
+            // The relay goes down, then the device is removed: the local
+            // grant is gone at once while the unsubscribe waits in the file.
+            await relay.close();
+            const without = { ...readState(), devices: [] as typeof crypto.devices };
+            writeFileSync(statePath, JSON.stringify(without));
+            expect(await endpoint.sync(without as never)).toBe(true);
+            await until(() => {
+                try {
+                    const pending = JSON.parse(readFileSync(storePath, 'utf8')) as unknown;
+                    return Array.isArray(pending) && pending.length > 0 ? true : undefined;
+                } catch { return undefined; }
+            }, 'revoke persists the pending unsubscribe');
+            endpoint.close();
+            link.stop();
+
+            // A new host on the same store file finishes it once the relay answers.
+            relay = await openRelay();
+            endpoint = (await openEndpoint(relay.port))!;
+            endpoint.start();
+            await until(() => (relayStore().includes('muxr-restart-token') ? undefined : true),
+                'relay drops the token after the restarted host resends');
+            endpoint.close();
+        } finally {
+            await relay.close().catch(() => {});
             rmSync(dataDir, { recursive: true, force: true });
         }
     }, 30_000);

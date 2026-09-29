@@ -9,7 +9,7 @@ import { PaneScreens } from './desktop/index.js';
 import { startHost } from './host.js';
 import { LinkPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
-import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, hostPlatformLabel, LinkEndpoint } from './machine/index.js';
+import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
 import { muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
 import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
@@ -530,6 +530,10 @@ async function main(): Promise<void> {
                             else device.pushLevel = level;
                             writeSelfhostAuth(state);
                         },
+                        // Pending relay unsubscribes persist here, so removing a
+                        // device while the relay is down still stops its pushes
+                        // after the next host start.
+                        revokeStore: fileRelayClientStore(join(dataDir, 'link-revoked.json')),
                         grants: {
                             load: () => {
                                 const path = join(dataDir, 'link-grants.json');

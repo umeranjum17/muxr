@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/link';
-import { isExpoToken, RelayClient } from '@byokit/relay';
+import { isExpoToken, RelayClient, type RelayClientStore } from '@byokit/relay';
 import {
     lifecycleNotificationAllowed,
     parseClientFrame,
@@ -17,6 +19,33 @@ import { safeTaskTitle } from '../../platform/safeTaskTitle.js';
 /** How the host answers one device's frame: the same answer the relay transport sends back. */
 export type LinkAnswer = (frame: ClientFrame, deviceId: string, connectionId?: string) => Promise<HostFrame | undefined>;
 
+/** File-backed RelayClientStore: grant ids whose relay unsubscribe is still
+ *  unconfirmed. The kit saves before sending and resends on every connection,
+ *  so a host restart between revoke and the relay ack loses nothing. */
+export function fileRelayClientStore(path: string): RelayClientStore {
+    return {
+        load: () => {
+            if (!existsSync(path)) return undefined;
+            const info = lstatSync(path);
+            if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
+                throw new Error('link revoked-devices store must be an owner-only regular file');
+            }
+            const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+            if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === 'string')) {
+                throw new Error('link revoked-devices store is malformed');
+            }
+            return parsed;
+        },
+        save: (devices) => {
+            mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+            const temporary = `${path}.tmp-${process.pid}`;
+            writeFileSync(temporary, `${JSON.stringify(devices)}\n`, { mode: 0o600 });
+            chmodSync(temporary, 0o600);
+            renameSync(temporary, path);
+        },
+    };
+}
+
 export interface LinkEndpointOptions {
     /** The machine's relay socket URL, e.g. ws://127.0.0.1:8792/relay. */
     relayUrl: string;
@@ -32,6 +61,9 @@ export interface LinkEndpointOptions {
     currentCrypto: () => MachineCryptoState | undefined;
     savePushLevel: (deviceId: string, level: LifecycleNotificationLevel | undefined) => void;
     grants: GrantStore;
+    /** Pending relay unsubscribes, persisted so they survive a host restart.
+     *  Omit it and the kit keeps them in memory only. */
+    revokeStore?: RelayClientStore;
     answer: LinkAnswer;
     canView: (frame: ClientFrame) => boolean;
     /** Given, a control or observing device may carry a terminal pane over a link stream. */
@@ -263,6 +295,7 @@ export class LinkEndpoint {
             name: options.machineName,
             ...(enrol === undefined ? {} : { enrol }),
             ...(options.onStatus === undefined ? {} : { onStatus: options.onStatus }),
+            ...(options.revokeStore === undefined ? {} : { store: options.revokeStore }),
         }), options.machineId, options.onDeviceConnection, options.onDeviceRevoked);
         if (!await endpoint.sync(options.crypto)) {
             endpoint.close();

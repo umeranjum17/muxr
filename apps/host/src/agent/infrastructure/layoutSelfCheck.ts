@@ -330,7 +330,11 @@ async function demo(): Promise<void> {
             if (method.endsWith('.close')) return {};
             throw new Error(`herdr: method_not_found: ${method}`);
         },
-        subscribe: () => () => undefined,
+        subscribe: () => Object.assign(() => undefined, {
+            ready: Promise.resolve(true),
+            onReconnect: () => undefined,
+            onDisconnect: () => undefined,
+        }),
         close: () => undefined,
     };
     const explicitCloseKit = new HerdrKit({

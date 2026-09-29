@@ -50,6 +50,7 @@ import type {
     SessionStopOptions,
 } from '../application/sessionSource.js';
 import { KitHerdrClient, type HerdrCaller } from './herdrKitClient.js';
+import type { AgentStatus } from '@byokit/herdr';
 import {
     AgentRouteStore,
     herdrAgentSessionKey,
@@ -455,6 +456,10 @@ export async function promptHerdrAgent(
     target: RouteTarget,
     text: string,
 ): Promise<void> {
+    // Stays on the raw call: HerdrKit.prompt (through 0.1.1) gates on the
+    // kit's own tree, whose merged records can stick at status-unknown or
+    // launchPending-true for a live idle agent, refusing prompts the server
+    // would accept. See the PR body kit gap.
     const receipt = await client.call<unknown>('agent.prompt', { target: target.paneId, text });
     const result = typeof receipt === 'object' && receipt !== null && !Array.isArray(receipt)
         ? receipt as Record<string, unknown>
@@ -1600,10 +1605,8 @@ export async function createHerdrSessionSource(
         const deadline = Date.now() + 15_000;
         for (;;) {
             try {
-                const result = await client.call<{ read?: { text?: string } }>('pane.read', {
-                    pane_id: paneId, source: 'recent', lines: 40, format: 'text', strip_ansi: true,
-                });
-                const readings = (result.read?.text ?? '')
+                const result = await client.kit.read(paneId, { source: 'recent', lines: 40 });
+                const readings = (result.text ?? '')
                     .split('\n')
                     .map((entry) => entry.trim())
                     .filter((entry) => entry.startsWith(`${marker}=`))
@@ -1825,16 +1828,16 @@ export async function createHerdrSessionSource(
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
             const remaining = Math.max(1_000, deadline - Date.now());
-            const result = await client.call<{ agent?: AgentRecord }>(
-                'agent.wait',
-                { target: paneId, until: ['idle', 'working', 'blocked', 'done'], timeout_ms: remaining },
-                remaining + 10_000,
+            const waited = await client.kit.wait(
+                { paneId },
+                { until: ['idle', 'working', 'blocked', 'done'], timeoutMs: remaining },
             );
-            const agent = result.agent;
-            const status = agent?.agent_status;
+            await refreshSnapshot().catch(() => undefined);
+            const agent = agentsByPane.get(paneId);
+            const status = waited === 'unknown' ? agent?.agent_status : waited;
             const lifecycle: AgentLifecycle = status === 'idle' || status === 'working' || status === 'blocked'
                 || status === 'done' || status === 'failed' ? status : 'unknown';
-            if (agent !== undefined && herdrAgentIsPromptable(agent, lifecycle)) return;
+            if (herdrAgentIsPromptable(agent ?? {}, lifecycle)) return;
             await sleep(300);
         }
         throw new Error('herdr agent did not become interactive');
@@ -2288,14 +2291,11 @@ export async function createHerdrSessionSource(
         lines: number | undefined,
         ansi = false,
     ): Promise<{ text: string; truncated: boolean }> {
-        const result = await client.call<{ read?: { text?: string; truncated?: boolean } }>('pane.read', {
-            pane_id: record.paneId,
+        return await client.kit.read(record.paneId, {
             source,
             ...(lines === undefined ? {} : { lines }),
-            format: ansi ? 'ansi' : 'text',
-            strip_ansi: !ansi,
+            ansi,
         });
-        return { text: result.read?.text ?? '', truncated: result.read?.truncated === true };
     }
 
     async function readSessionOutput(sessionId: string, readOptions?: { lines: number }): Promise<{ text: string; truncated: boolean }> {
@@ -2320,12 +2320,9 @@ export async function createHerdrSessionSource(
     async function waitForAgent(sessionId: string, timeoutMs: number): Promise<{ status: string; detail: string; timedOut?: boolean }> {
         const record = await resolvePane(sessionId);
         try {
-            const result = await client.call<{ agent?: { agent_status?: string } }>(
-                'agent.wait',
-                { target: record.paneId, until: ['idle', 'done', 'blocked', 'failed'], timeout_ms: timeoutMs },
-                timeoutMs + 10_000,
-            );
-            const status = result.agent?.agent_status ?? 'settled';
+            // The kit's AgentStatus omits 'failed', but the server still matches it; the cast keeps the wire value.
+            const until = ['idle', 'done', 'blocked', 'failed'] as AgentStatus[];
+            const status = await client.kit.wait({ paneId: record.paneId }, { until, timeoutMs });
             return { status, detail: `${record.agent?.name ?? 'Agent'} is ${status}` };
         } catch (error) {
             const timedOut = (error instanceof Error ? error.message : String(error)).includes('timed out');
@@ -3301,19 +3298,14 @@ export async function createHerdrSessionSource(
             const guard = setTimeout(() => watches.delete(watchOptions.sessionId), timeoutMs + 5_000);
             watches.set(watchOptions.sessionId, guard);
 
-            void client
-                .call<{ agent?: { agent_status?: string } }>(
-                    'agent.wait',
-                    { target: record.paneId, until, timeout_ms: timeoutMs },
-                    timeoutMs + 10_000,
-                )
-                .then(async (result) => {
+            void client.kit
+                .wait({ paneId: record.paneId }, { until, timeoutMs })
+                .then(async (status) => {
                     await refreshSnapshot();
                     const watched = currentSession(watchOptions.sessionId);
                     const currentRef = agentSession(watched?.agent);
                     if (watched?.agent?.name === undefined || currentRef === undefined
                         || herdrAgentSessionKey(currentRef) !== herdrAgentSessionKey(watchedRef)) return;
-                    const status = result.agent?.agent_status ?? 'settled';
                     publish(watchOptions.sessionId, {
                         type: 'watch.settled',
                         status,
@@ -3344,12 +3336,10 @@ export async function createHerdrSessionSource(
             const record = await resolvePane(waitOptions.sessionId);
             const timeoutMs = Math.min(waitOptions.timeoutMs ?? DEFAULT_WATCH_MS, MAX_WATCH_MS);
             try {
-                const result = await client.call<{ agent?: { agent_status?: string } }>(
-                    'agent.wait',
-                    { target: record.paneId, until: waitOptions.until ?? ['idle', 'done', 'blocked'], timeout_ms: timeoutMs },
-                    timeoutMs + 10_000,
+                const status = await client.kit.wait(
+                    { paneId: record.paneId },
+                    { until: waitOptions.until ?? ['idle', 'done', 'blocked'], timeoutMs },
                 );
-                const status = result.agent?.agent_status ?? 'settled';
                 return { status, detail: `Agent is ${status}` };
             } catch (error) {
                 const timedOut = (error instanceof Error ? error.message : String(error)).includes('timed out');
