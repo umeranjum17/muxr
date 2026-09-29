@@ -308,6 +308,13 @@ describe('a headless emulator in an agent pane', () => {
                 const polled = await watcher.targets.poll(opened.desktopId, 0);
                 expect(polled.events[0]).toMatchObject({ kind: 'offer', sdp: 'v=0 offer' });
 
+                // Another device cannot drive this mirror: signaling with a
+                // connection but the wrong owner is refused, while the owner
+                // still flows.
+                await expect(watcher.targets.poll(opened.desktopId, 0, 'conn-x', 'phone-2'))
+                    .rejects.toThrow('belongs to another device');
+                await watcher.targets.poll(opened.desktopId, 0, 'conn-1', 'phone-1');
+
                 // Closing takes the mirror down: the forward is removed and
                 // the engine session closed.
                 await watcher.targets.close(opened.desktopId);

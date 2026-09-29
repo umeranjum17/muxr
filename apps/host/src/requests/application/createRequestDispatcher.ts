@@ -45,7 +45,6 @@ import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
 import { PreviewDesktops, androidCapabilities, withAndroidPreview, withPreview, type AndroidPreviewTargets } from '../../desktop/index.js';
 import type { DesktopSessions } from '../../desktop/index.js';
-import type { PreviewPresence } from '@muxr/contract';
 
 export interface RequestDispatcherOptions {
     source: SessionSource;
