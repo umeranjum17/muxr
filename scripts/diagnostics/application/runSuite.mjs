@@ -33,6 +33,7 @@ const checks = [
     ['policy: terminal text face is bundled and monospaced', 'node', ['scripts/diagnostics/application/checkTerminalFont.mjs']],
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
+    ['unit: service commands stay in their MUXR_HOME scope', 'node', ['scripts/setup/serviceScope.selfcheck.mjs']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     // The load-test flows carry their own generous per-test budgets; the step
     // kill must stay well above them or it SIGKILLs a healthy run first.
@@ -86,6 +87,7 @@ const FAST = new Set([
     'unit: naming boundary (auth/target/failure/restart)',
     'unit: layout snapshot round-trip',
     'unit: setup domain (pairing/connection/crypto)',
+    'unit: service commands stay in their MUXR_HOME scope',
     'unit: all vitest flows',
     'unit: perf gate (gesture metrics, warm-probe gates, node --test)',
     'policy: host/relay architecture',
