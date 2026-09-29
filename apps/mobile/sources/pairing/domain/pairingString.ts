@@ -207,6 +207,11 @@ export function hostedPairingAuthority(url: string): PairingAuthority {
     return pairingAuthorityOf(url);
 }
 
+export function linkOfferRole(value: string): 'control' | 'view' | undefined {
+    const role = linkOfferDisplay(value)?.role;
+    return role === 'control' || role === 'view' ? role : undefined;
+}
+
 export function hostedPairingDisplayName(url: string): string {
     return pairingDisplayNameOf(url);
 }

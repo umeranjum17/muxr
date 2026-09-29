@@ -5,7 +5,7 @@ import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
 import { linkPairMachineName, pairOverLink } from './linkPairing';
-import { looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
+import { linkOfferRole, looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
 import { deliverScannedPairingLink } from './deliverScannedPairing';
@@ -42,17 +42,15 @@ export function useHostedPairing() {
  * over the machine's own link both land.
  */
 export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>, options: { tunnelPort?: number } = {}): Promise<boolean> {
-    // Native pairings always grant control; browser pairings default to control
-    // (`muxr pair --browser`, view-only only with an explicit view flag), and the
-    // computer screen states the actual authority being approved.
     const device = pairingDeviceKind();
-    const detail = device === 'browser'
-        ? 'It receives the access shown on the pairing screen. Only continue if you just ran `muxr pair --browser` on that computer.'
-        : 'It can also read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr. Only continue if you just ran `muxr pair` on that computer.';
+    const role = linkOfferRole(scanned);
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
+    const confirmation = role === undefined
+        ? `${device === 'browser' ? 'This browser' : 'This phone'} will receive the access shown on the pairing screen. Only continue if you just ran ${device === 'browser' ? '`muxr pair --browser`' : '`muxr pair`'} on that computer.`
+        : consentWords({ hostName: machineName, role, device, detail: pairLinkDetail(device, role) });
     const approved = await Modal.confirm(
         `Pair with ${machineName}?`,
-        consentWords({ hostName: machineName, role: 'control', device, detail }),
+        confirmation,
         { confirmText: 'Pair' },
     );
     if (!approved) return false;
@@ -87,6 +85,17 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
     }
     await auth.login(paired.credential, paired.secretKey);
     return true;
+}
+
+function pairLinkDetail(device: 'phone' | 'browser', role: 'control' | 'view'): string {
+    if (role === 'view') {
+        return device === 'browser'
+            ? 'Only continue if you just ran `muxr pair --browser-view` on that computer.'
+            : 'Only continue if you just ran `muxr pair` on that computer.';
+    }
+    return device === 'browser'
+        ? 'It receives the access shown on the pairing screen. Only continue if you just ran `muxr pair --browser` on that computer.'
+        : 'It can also read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr. Only continue if you just ran `muxr pair` on that computer.';
 }
 
 /*
