@@ -54,7 +54,7 @@ export const LocalSettingsSchema = z.object({
     terminalPinchZoom: z.boolean().catch(true).describe('Whether pinching a terminal changes its text size'),
     // Only the colour slots this device changed; the terminal reads them
     // through cleanTerminalColorOverrides, which drops anything malformed.
-    terminalColors: z.record(z.string(), z.string()).catch({}).describe('Terminal colour overrides by slot (background, foreground, cursor, selection, ansi0-15)'),
+    terminalColors: z.record(z.string(), z.unknown()).catch({}).describe('Terminal colour overrides by slot (background, foreground, cursor, selection, ansi0-15)'),
     darkSurfaces: z.enum(['seamless', 'raised']).catch('seamless').describe('Whether dark-theme surfaces (cards, rows, sheets, bars, the terminal header and footer) blend into the near-black page or sit one step lighter'),
     desktopOpenedBefore: z.boolean().describe('Whether a desktop has opened on this device, which retires the screen-sharing approval hint'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
