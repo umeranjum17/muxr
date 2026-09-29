@@ -115,7 +115,7 @@ function assertUnifiedSkillOutput(output, { liveHerdr = true } = {}) {
         '# Onboarding: install, pair, self-host, maintain',
         '# Herdr orchestration',
         '# Cross-machine agent collaboration',
-        '# Desktop browser handoff through Computer',
+        '# Agent browser preview',
         '# muxr plugins: author, install, debug, override',
     ]) assert.match(output, new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
     assert.doesNotMatch(output, /browser-takeover|# Browser work the user can see and take over/);
