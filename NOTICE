@@ -112,3 +112,13 @@ Bricolage Grotesque — https://github.com/atelier-anchor/bricolage-grotesque
 Shipped as `BricolageGrotesque-Bold.ttf` for logo use.
 License text: `LICENSES/OFL-1.1.txt`.
 
+--------------------------------------------------------------------------------
+scrcpy (server) — https://github.com/Genymobile/scrcpy
+
+  Apache License 2.0
+  Copyright (C) 2018 Genymobile
+  Copyright (C) 2018-2026 Romain Vimont
+
+Vendored as `resources/scrcpy/scrcpy-server-v4.0` (pinned SHA-256 in
+`resources/scrcpy/scrcpy-server-v4.0.sha256`); pushed to a task-owned emulator
+at preview time, never run on the host. License text: `LICENSES/Apache-2.0.txt`.

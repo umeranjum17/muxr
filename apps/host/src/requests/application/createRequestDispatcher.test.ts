@@ -445,3 +445,74 @@ describe('desktop target routing', () => {
         expect(calls).toEqual(['preview.open', 'desktop.open', 'preview.answer', 'desktop.answer']);
     });
 });
+
+describe('android emulator target routing', () => {
+    it('stamps the emulator chip and routes a Watch tap at its mirror, never the desktop', async () => {
+        const calls: string[] = [];
+        const opened = { desktopId: 'av1', generation: 1, geometry: {}, source: {} };
+        const desktop = {
+            open: async () => { calls.push('desktop.open'); return { desktopId: 'd1', generation: 1, geometry: {}, source: {} }; },
+            answer: async () => { calls.push('desktop.answer'); return { accepted: true }; },
+        };
+        const androidTargets = {
+            resolveTarget: async (sessionId: string) => {
+                if (sessionId !== 'sess-1') {
+                    const refused = new Error('that session has no emulator to watch') as Error & { code: string };
+                    refused.code = 'permission-denied';
+                    throw refused;
+                }
+                return { paneId: 'pane-1', serial: 'emulator-5662' };
+            },
+            openTarget: async (sessionId: string) => {
+                await androidTargets.resolveTarget(sessionId);
+                calls.push('android.open');
+                return opened;
+            },
+            owns: (desktopId: string) => desktopId === 'av1',
+            answer: async () => { calls.push('android.answer'); return { accepted: true }; },
+            candidate: async () => { calls.push('android.candidate'); return { accepted: true }; },
+            poll: async () => { calls.push('android.poll'); return { cursor: 1, events: [] }; },
+            close: async () => { calls.push('android.close'); return { closed: true }; },
+        };
+        const source = { async list() { return [{ id: 'sess-1', paneId: 'pane-1' }]; } } as unknown as SessionSource;
+        const { dispatch } = createRequestDispatcher({
+            source: source as never,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+            desktop: desktop as never,
+            androidTargets: androidTargets as never,
+            androidPreviewForPane: (paneId: string) => paneId === 'pane-1'
+                ? { kind: 'android', title: 'Medium Phone', since: 1 }
+                : undefined,
+        });
+
+        // The chip rides the session list.
+        const listed = await dispatch({ type: 'session.list', requestId: 'r0', params: {} } as never);
+        expect(listed).toMatchObject({ ok: true, data: [{ id: 'sess-1', preview: { kind: 'android', title: 'Medium Phone' } }] });
+        // A Watch tap at the session opens its mirror.
+        const targeted = await dispatch({
+            type: 'desktop.open', requestId: 'r1', params: { permissions: ['view'], target: { sessionId: 'sess-1' } },
+        } as never);
+        expect(targeted).toMatchObject({ ok: true, data: { desktopId: 'av1' } });
+        // Computer opens exactly as before when no target is named.
+        const plain = await dispatch({ type: 'desktop.open', requestId: 'r2', params: { permissions: ['view'] } } as never);
+        expect(plain).toMatchObject({ ok: true, data: { desktopId: 'd1' } });
+        // Later signaling routes back to the mirror by its handle.
+        await dispatch({ type: 'desktop.answer', requestId: 'r3', params: { desktopId: 'av1', sdp: 'x' } } as never);
+        await dispatch({ type: 'desktop.candidate', requestId: 'r4', params: { desktopId: 'av1', candidate: 'c', sdpMid: '0', sdpMLineIndex: 0 } } as never);
+        await dispatch({ type: 'desktop.poll', requestId: 'r5', params: { desktopId: 'av1', cursor: 0 } } as never);
+        await dispatch({ type: 'desktop.close', requestId: 'r6', params: { desktopId: 'av1' } } as never);
+        await dispatch({ type: 'desktop.answer', requestId: 'r7', params: { desktopId: 'd1', sdp: 'x' } } as never);
+        // An unknown session is refused, never fallen back to the desktop.
+        const refused = await dispatch({
+            type: 'desktop.open', requestId: 'r8', params: { permissions: ['view'], target: { sessionId: 'nope' } },
+        } as never);
+        expect(refused).toMatchObject({ ok: false, code: 'permission-denied' });
+        expect(calls).toEqual([
+            'android.open', 'desktop.open',
+            'android.answer', 'android.candidate', 'android.poll', 'android.close',
+            'desktop.answer',
+        ]);
+    });
+});
