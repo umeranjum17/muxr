@@ -8,7 +8,7 @@ import { useHerdrTree, useSession, useSessionsLoaded, useSocketStatus } from '@/
 import { requestDraftInsertion } from '@/terminal/application/draftInsertion';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { Typography } from '@/constants/Typography';
-import { agentLabels, agentNameLine, herdrPaneForSession, isShellLabels } from '@/herd';
+import { agentLabels, agentWhoLine, herdrPaneForSession, isShellLabels } from '@/herd';
 
 const HISTORY_LINES = 2_000;
 
@@ -158,7 +158,7 @@ export default React.memo(() => {
                 <AgentGlyph name={glyphName} size={24} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 15, fontWeight: '600' }}>{labels.title}</Text>
-                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{agentNameLine(labels)} · pane scrollback</Text>
+                    <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{agentWhoLine(labels)} · pane scrollback</Text>
                 </View>
                 <Pressable onPress={load} disabled={loading || targetMissing} accessibilityRole="button" accessibilityLabel="Refresh conversation history" accessibilityState={{ disabled: loading || targetMissing }} hitSlop={8} style={{ padding: 6, opacity: loading || targetMissing ? 0.45 : 1 }}>
                     <Ionicons name="refresh" size={20} color={theme.colors.textSecondary} />

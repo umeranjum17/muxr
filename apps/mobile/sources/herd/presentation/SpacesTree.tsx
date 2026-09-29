@@ -19,7 +19,7 @@ import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
 import { agentCounts, buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
-import { agentIdentityLine, agentKindLine, agentLabels, agentNameLine, agentStateLabel, isShellLabels } from '../domain/agentPresentation';
+import { agentLabels, agentStateLabel, agentWhoLine, agentWhoStateLine, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
 import { SectionLabel } from '@/components/ui';
@@ -389,7 +389,7 @@ interface SpacesTreeProps {
     stale?: boolean;
 }
 
-/** One pane as a tree row: its kind's glyph, name, task line, status on the right edge. */
+/** One pane as a tree row: its kind's glyph, task (else name), who and state under it, status on the right edge. */
 export const AgentRow = React.memo(({
     pane,
     first,
@@ -400,6 +400,7 @@ export const AgentRow = React.memo(({
     canClose,
     unseenDone,
     subtitle: subtitleOverride,
+    spaceLabel,
 }: {
     pane: HerdrTreePane;
     first?: boolean;
@@ -411,16 +412,21 @@ export const AgentRow = React.memo(({
     unseenDone: boolean;
     /** Replaces the identity line, e.g. a shell's working directory. */
     subtitle?: string;
+    /** The card's own label: a task that only repeats it gives way to the agent's name. */
+    spaceLabel?: string;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
     const navigateToSession = useNavigateToSession();
     const dot = agentStatusColor(pane.agentStatus, theme);
-    const labels = agentLabels(pane);
+    const paneLabels = agentLabels(pane);
+    const labels = paneLabels.task !== undefined && paneLabels.task === spaceLabel?.trim()
+        ? { ...paneLabels, title: paneLabels.agentName, task: undefined }
+        : paneLabels;
     const sessionId = pane.sessionId;
     const shell = isShellLabels(labels);
     const title = labels.title;
-    const subtitle = subtitleOverride ?? agentIdentityLine(labels);
+    const subtitle = subtitleOverride ?? (shell ? agentWhoLine(labels) : agentWhoStateLine(labels, agentStateLabel(pane.agentStatus)));
     // One weight rule: bright means "has something for you". A finished
     // outcome you have not opened stays loud; settled-and-seen goes quiet.
     const quiet = (pane.agentStatus === 'done' || pane.agentStatus === 'idle') && !unseenDone;
@@ -455,8 +461,8 @@ export const AgentRow = React.memo(({
 });
 
 /**
- * A child's second line, in parts: its one agent's kind (or identity when
- * unnamed) and state, else a count, else what it is. Rendered with ' · ', spoken with ', '.
+ * A child's second line, in parts: who its one agent is and its state, else a
+ * count, else what it is. Rendered with ' · ', spoken with ', '.
  */
 function childLine2Parts(child: HerdChildSpace): string[] {
     const panes = child.workspace.tabs.flatMap((tab) => tab.panes);
@@ -466,16 +472,8 @@ function childLine2Parts(child: HerdChildSpace): string[] {
     if (agentPanes.length > 1) return [t('spacesTree.childAgents', { count: agentPanes.length })];
     const agent = agentPanes[0];
     if (agent === undefined) return [t('spacesTree.childEmpty')];
-    const labels = agentLabels(agent);
-    // A named agent already leads the row, so this line only says what runs it.
-    return [childAgentName(child) === undefined ? agentNameLine(labels) : agentKindLine(labels), agentStateLabel(agent.agentStatus)];
-}
-
-/** A child's one agent's Herdr name, verbatim, when Herdr has one. */
-function childAgentName(child: HerdChildSpace): string | undefined {
-    const agentPanes = child.workspace.tabs.flatMap((tab) => tab.panes).filter((pane) => pane.agentKind !== undefined);
-    if (agentPanes.length !== 1) return undefined;
-    return agentPanes[0]?.agentName?.trim() || undefined;
+    // The row leads with the task or the workspace, so this line names the agent.
+    return [agentWhoLine(agentLabels(agent), true), agentStateLabel(agent.agentStatus)];
 }
 
 /** A group-subheader status pill: colored dot + mono count, visual only (subheader label speaks it). */
@@ -656,8 +654,9 @@ const ChildRow = React.memo(({
     const singleAgent = agentPanes.length === 1 ? agentPanes[0] : undefined;
     const singleSessionId = singleAgent?.sessionId;
     const counts = agentCounts([child.workspace]);
-    const agentName = childAgentName(child);
-    const label = agentName === undefined ? name : `${agentName}, ${name}`;
+    // What its one agent is working on leads; the workspace label stands in without it.
+    const task = singleAgent === undefined ? undefined : agentLabels(singleAgent).task;
+    const label = task ?? name;
     const baseName = workspaceName(child.workspace);
     const suffix = name.startsWith(`${baseName} · `) ? name.slice(baseName.length) : undefined;
     const parts = childLine2Parts(child);
@@ -698,9 +697,7 @@ const ChildRow = React.memo(({
                     <AgentGlyph name={glyphName} size={GLYPH} />
                     <View style={styles.childText}>
                         <Text numberOfLines={1} style={[styles.childLabel, quiet && styles.childLabelQuiet]}>
-                            {agentName === undefined
-                                ? suffix === undefined ? name : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>
-                                : <>{agentName}<Text style={styles.nameSuffix}>{` · ${name}`}</Text></>}
+                            {task ?? (suffix === undefined ? name : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>)}
                         </Text>
                         <Text numberOfLines={1} style={styles.childLine2}>{line2}</Text>
                     </View>
@@ -861,6 +858,7 @@ const WorkspaceCard = React.memo(({
                     first={index === 0}
                     onLongPress={onLongPressPane}
                     onNavigatePane={onNavigatePane}
+                    spaceLabel={workspace.label}
                     compact={compact}
                     selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
                     canClose={canClose}

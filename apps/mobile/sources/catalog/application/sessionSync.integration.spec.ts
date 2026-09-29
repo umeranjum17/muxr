@@ -354,7 +354,7 @@ describe('session sync flow', () => {
         const working = stage('working');
         const pane = canonicalTree('working')[0].tabs[0].panes[0];
         const labels = agentLabels(pane);
-        expect({ primary: labels.taskTitle, secondary: labels.agentName, kind: labels.agentKind }).toEqual({
+        expect({ primary: labels.title, secondary: labels.agentName, kind: labels.agentKind }).toEqual({
             primary: 'Stabilizing realtime voice', secondary: 'Maria', kind: 'pi',
         });
         expect(working[0]).toMatchObject({ agentName: 'Maria', taskTitle: 'Stabilizing realtime voice' });
@@ -984,9 +984,9 @@ describe('session sync flow', () => {
         confirmed[0]!.tabs[0]!.panes.splice(0, 1);
         storage.getState().restoreHome('machine');
         expect(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes).toHaveLength(3);
-        expect(agentLabels(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[0]!).taskTitle).toBe('Build Home');
-        expect(agentLabels(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[1]!).taskTitle).toBe('fallback');
-        expect(agentLabels(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[2]!).taskTitle).toBe('Visible shell');
+        expect(agentLabels(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[0]!).title).toBe('Build Home');
+        expect(agentLabels(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[1]!).title).toBe('fallback');
+        expect(agentLabels(storage.getState().homeSnapshot!.workspaces[0]!.tabs[0]!.panes[2]!).title).toBe('Visible shell');
         expect(workspaceName(storage.getState().homeSnapshot!.workspaces[1]! as HerdrTreeWorkspace)).toBe('visible');
     });
 

@@ -120,14 +120,14 @@ describe('agent lifecycle presentation', () => {
             doing: '',
         }])).toEqual([]);
         const shellLabels = agentLabels();
-        expect(shellLabels).toMatchObject({ taskTitle: 'Shell', agentName: 'Shell' });
+        expect(shellLabels).toMatchObject({ title: 'Shell', agentName: 'Shell' });
         expect(agentAccessibilityLabel(shellLabels, 'unknown')).toBe('Shell. Offline. Shell');
 
         const pending = session('pending', 300, 'starting');
         pending.metadata!.agentKind = 'omp';
         Object.assign(pending.metadata!, { agentName: 'Stale Otter', taskTitle: 'Stale task' });
         expect(agentLabels()).toMatchObject({
-            taskTitle: 'Shell',
+            title: 'Shell',
             agentName: 'Shell',
         });
 
@@ -218,7 +218,7 @@ describe('agent lifecycle presentation', () => {
         }));
         const afterRelaunch = liveCardState(labels, reopened.agentStatus, reopened.id, displaced, now);
         expect(afterRelaunch.label).toBe('Done');
-        expect(afterRelaunch.accessibilityLabel).toBe('Otter. Done. Fix realtime voice · pi');
+        expect(afterRelaunch.accessibilityLabel).toBe('Fix realtime voice. Done. pi · Otter');
 
         const running: LifecycleEvent = {
             ...finished, eventId: 'running', state: 'working', at: new Date(now - 59_500).toISOString(),
@@ -227,10 +227,10 @@ describe('agent lifecycle presentation', () => {
         try {
             const beforeTick = liveCardState(labels, 'working', reopened.id, [running], now);
             expect(beforeTick.label).toBe('Working');
-            expect(beforeTick.accessibilityLabel).toBe('Otter. Working. Fix realtime voice · pi');
+            expect(beforeTick.accessibilityLabel).toBe('Fix realtime voice. Working. pi · Otter');
             const afterTick = liveCardState(labels, 'working', reopened.id, [running], now + 1_000);
             expect(afterTick.label).toBe('Working · 1m');
-            expect(afterTick.accessibilityLabel).toBe('Otter. Working · 1m. Fix realtime voice · pi');
+            expect(afterTick.accessibilityLabel).toBe('Fix realtime voice. Working · 1m. pi · Otter');
         } finally {
             clock.mockRestore();
         }

@@ -527,3 +527,41 @@ it('bounds workspace tokens: known keys only, capped count, sanitized capped val
     expect(boundedWorkspaceTokens(undefined)).toBeUndefined();
     expect(boundedWorkspaceTokens(['not', 'an', 'object'])).toBeUndefined();
 });
+
+describe('isolated pi agent home', () => {
+    it('forwards PI_CODING_AGENT_DIR into the pane env only when the host sets it', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-pi-agent-dir-'));
+        const previous = process.env.PI_CODING_AGENT_DIR;
+        const launchEnv = async (value: string | undefined) => {
+            if (value === undefined) delete process.env.PI_CODING_AGENT_DIR;
+            else process.env.PI_CODING_AGENT_DIR = value;
+            const runDir = mkdtempSync(join(dir, 'run-'));
+            const herdr = fakeHerdr(runDir, join(runDir, 'repo'));
+            const source = await createHerdrSessionSource({
+                socketPath: herdr.socketPath,
+                dataDir: join(runDir, 'data'),
+                artifactsDir: join(runDir, 'attachments'),
+                hostHttpPort: 0,
+            });
+            try {
+                const started = await source.start({ cwd: join(runDir, 'repo'), kind: 'pi' });
+                if (!('info' in started)) throw new Error('launch rejected');
+                return (herdr.tabs[0] as { env?: Record<string, string> }).env;
+            } finally {
+                await source.dispose();
+                herdr.close();
+            }
+        };
+        try {
+            // Diagnostics point this at a per-run temp dir so a real pi Herdr
+            // spawns never touches the user's real ~/.pi/agent.
+            expect(await launchEnv(join(dir, 'isolated-agent')))
+                .toMatchObject({ PI_CODING_AGENT_DIR: join(dir, 'isolated-agent') });
+            expect(await launchEnv(undefined)).not.toHaveProperty('PI_CODING_AGENT_DIR');
+        } finally {
+            if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+            else process.env.PI_CODING_AGENT_DIR = previous;
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 20_000);
+});

@@ -6,7 +6,7 @@ import { Text } from '@/components/StyledText';
 import { SectionLabel, cardStyle } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { t } from '@/text';
-import { agentNameLine, isShellLabels } from '../domain/agentPresentation';
+import { agentLabels, agentWhoLine, isShellLabels } from '../domain/agentPresentation';
 import { compactAge } from '@/utils/compactAge';
 import { recentActivityStatus, type RecentActivityRow } from '../domain/recentActivity';
 import { AgentGlyph } from '@/components/AgentGlyph';
@@ -62,14 +62,15 @@ export const RecentActivity = React.memo((props: {
             <View style={[styles.card, cardStyle(theme)]}>
                 {visible.map((row, index) => {
                     const color = row.status === 'done' ? theme.colors.status.done : theme.colors.status.error;
-                    const labels = {
-                        title: row.agentName ?? row.taskTitle,
+                    const labels = agentLabels({
+                        ...(row.agentName === undefined ? {} : { agentName: row.agentName }),
                         taskTitle: row.taskTitle,
-                        agentName: row.agentName ?? row.taskTitle,
                         ...(row.agentKind === undefined ? {} : { agentKind: row.agentKind }),
-                    };
+                        agentStatus: row.status,
+                        promptable: false,
+                    });
                     const shell = isShellLabels(labels);
-                    const identity = agentNameLine(labels);
+                    const identity = agentWhoLine(labels);
                     // The heading already says the state for blocked and done;
                     // only failed rows carry their status word (§3.6).
                     const word = row.status === 'failed' ? recentActivityStatus(row) : undefined;

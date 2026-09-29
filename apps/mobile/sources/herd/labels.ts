@@ -1,1 +1,1 @@
-export { agentLabels } from './domain/agentPresentation';
+export { agentLabels, isShellLabels } from './domain/agentPresentation';
