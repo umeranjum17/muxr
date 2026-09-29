@@ -1,6 +1,6 @@
 /**
- * The workspace sheet: the home tree in a sheet, opened from the session
- * header or the Panes screen. Every workspace with the current one expanded
+ * The workspace sheet: the home tree in a sheet, opened from the pane
+ * overview's Spaces or the Panes screen. Every workspace with the current one expanded
  * and the current pane selected; long-press closes like on home. Reads the shared live tree and
  * refreshes on open, no poller of its own.
  */
