@@ -637,6 +637,17 @@ export interface RequestMap extends PeerRequestMap {
         params: { sessionId: string; attachmentId: string; offset: number; length: number };
         result: { id: string; name: string; mimeType: string; size: number; at?: number; offset: number; data: string; sha256?: string } | null;
     };
+    // --- prompt attachments -------------------------------------------------
+    // Product-owned since the muxr.attachments plugin fold-in: the pill that
+    // lists the session pane's dump directory for attaching to a prompt. The
+    // host scans, the client renders; opening an item resolves through the
+    // artifact transports by content id, exactly like the plugin's items did.
+    // Read-only and metadata-only; the session cwd/pane are host-resolved
+    // from sessionId, so a client can never choose a dump directory.
+    'promptAttachments.list': {
+        params: { sessionId: string };
+        result: { items: PromptAttachmentItem[]; total: number };
+    };
 
     // --- unread -------------------------------------------------------------
     'unread.catalog': { params: Record<string, never>; result: UnreadCatalog };
@@ -704,6 +715,37 @@ export interface RequestMap extends PeerRequestMap {
             base?: string;
         };
         result: { title: string; note: string; patch: string };
+    };
+
+    // --- files + git history ------------------------------------------------
+    // Product-owned since the muxr.code plugin fold-in: the Files tree,
+    // bounded file previews, and git history. The host runs git, clients
+    // render. The session cwd is host-injected from sessionId; `root` may
+    // narrow to the session repository itself, never anywhere else.
+    /** Every repository open across the host's sessions. */
+    'files.repos': {
+        params: Record<string, never>;
+        result: { title: string; repos: FilesRepo[] };
+    };
+    /** One folder of the session repository's tracked tree, folders first. */
+    'files.list': {
+        params: { sessionId: string; root?: string; path?: string };
+        result: FilesListing;
+    };
+    /** Bounded text preview of one file inside the session repository. */
+    'files.read': {
+        params: { sessionId: string; root?: string; path?: string };
+        result: FilesPreview;
+    };
+    /** Recent commits of the session repository. */
+    'history.log': {
+        params: { sessionId: string };
+        result: HistoryLog;
+    };
+    /** One commit's patch, capped. */
+    'history.show': {
+        params: { sessionId: string; sha?: string };
+        result: HistoryCommitPatch;
     };
 
     // --- worktrees ----------------------------------------------------------
@@ -848,6 +890,73 @@ export interface ChangesWorktree {
     sessionCheckout: boolean;
     title: string;
     subtitle: string;
+}
+
+export interface FilesRepo {
+    root: string;
+    name: string;
+    path: string;
+}
+
+export interface FilesTreeNode {
+    name: string;
+    path: string;
+    kind: 'folder' | 'file';
+    hasChildren?: boolean;
+}
+
+export interface FilesListing {
+    root: string;
+    title: string;
+    count: string;
+    tree: FilesTreeNode[];
+    treeNote: string;
+}
+
+export interface FilesPreview {
+    name: string;
+    path: string;
+    body: string;
+    note: string;
+}
+
+export interface HistoryLogCommit {
+    sha: string;
+    short: string;
+    subject: string;
+    author: string;
+    date: string;
+    meta: string;
+    sessionId: string;
+}
+
+export interface HistoryLog {
+    title: string;
+    count: string;
+    commits: HistoryLogCommit[];
+}
+
+export interface HistoryCommitPatch {
+    subject: string;
+    meta: string;
+    patch: string;
+}
+
+export interface PromptAttachmentAction {
+    type: 'attachment';
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+}
+
+export interface PromptAttachmentItem {
+    id: string;
+    title: string;
+    subtitle: string;
+    icon: string;
+    at: number;
+    action: PromptAttachmentAction;
 }
 
 export type ClientRequest = {

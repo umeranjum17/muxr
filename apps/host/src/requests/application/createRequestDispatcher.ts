@@ -14,6 +14,9 @@ import type {
 import { machineHello, sanitizeRequestErrorMessage } from '@trymuxr/contract';
 import type { AgentWatchStores, SessionSource, TerminalManager } from '../../agent/index.js';
 import { changesBrowse, changesList, changesPatch, changesWorktrees } from '../../agent/index.js';
+import { filesList, filesRead, filesRepos } from '../../files/index.js';
+import { historyLog, historyShow } from '../../files/index.js';
+import { presentAttachmentItems } from '../../attachments/index.js';
 import {
     answerAgent,
     closeTerminal,
@@ -91,6 +94,8 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'attachment.list', 'attachment.fetch', 'attachment.read',
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'machine.hello',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
+    'files.repos', 'files.list', 'files.read', 'history.log', 'history.show',
+    'promptAttachments.list',
     'usage.report', 'usage.now',
     // Plan account names and emails are readable; changing them is a mutation.
     'plans.list',
@@ -169,6 +174,27 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         return { sessionId, cwd, ...(root === undefined ? {} : { root }) };
     };
 
+    const sessionCwds = (sessions: Awaited<ReturnType<SessionSource['list']>>): string[] =>
+        sessions.map((session) => session.cwd ?? '').filter((cwd) => cwd !== '');
+
+    /** Every repository open in some session; explicit files roots must be one of these. */
+    const openRepoRoots = async (): Promise<string[]> => {
+        const sessions = await source.list();
+        return filesRepos(sessionCwds(sessions)).repos.map((repo) => repo.root);
+    };
+
+    /**
+     * Like changesInput, but a session without a directory stays addressable:
+     * files/history calls with an explicit open root (or none) answer from
+     * the root or an empty state instead of throwing.
+     */
+    const filesInput = async (sessionId: string, root?: string): Promise<{ sessionId: string; cwd: string; root?: string }> => {
+        const sessions = await source.list();
+        const record = sessions.find((session) => session.id === sessionId);
+        if (record === undefined) throw new Error('Unknown session');
+        return { sessionId, cwd: record.cwd ?? '', ...(root === undefined ? {} : { root }) };
+    };
+
     const handlers: { [K in NonPeerRequestType]: Handler<K> } = {
         'session.list': async (params) => {
             const listed = await listAgents(source, params.cwd === undefined ? {} : { cwd: params.cwd });
@@ -198,6 +224,35 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(params.head === undefined ? {} : { head: params.head }),
             ...(params.base === undefined ? {} : { base: params.base }),
         }),
+        // Files tree, previews, and git history are product code: the host
+        // runs git, clients render. Same trust boundary as changes.* above.
+        'files.repos': async () => {
+            const sessions = await source.list();
+            return filesRepos(sessionCwds(sessions));
+        },
+        'files.list': async (params) => filesList({
+            ...(await filesInput(params.sessionId, params.root)),
+            ...(params.path === undefined ? {} : { path: params.path }),
+            allowedRoots: await openRepoRoots(),
+        }),
+        'files.read': async (params) => filesRead({
+            ...(await filesInput(params.sessionId, params.root)),
+            ...(params.path === undefined ? {} : { path: params.path }),
+            allowedRoots: await openRepoRoots(),
+        }),
+        'history.log': async (params) => historyLog(await filesInput(params.sessionId)),
+        'history.show': async (params) => historyShow({
+            ...(await filesInput(params.sessionId)),
+            ...(params.sha === undefined ? {} : { sha: params.sha }),
+        }),
+        // Prompt attachments are product code: the pill listing of the pane's
+        // dump directory. Pane resolution comes from the session record, so a
+        // client can never choose a dump directory; items open through the
+        // artifact transports by content id.
+        'promptAttachments.list': async (params) => {
+            const listing = await source.artifactList(params);
+            return presentAttachmentItems(listing.artifacts);
+        },
         'session.start': async (params) => {
             const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, ...start } =
                 params as typeof params & { planEnv?: unknown };

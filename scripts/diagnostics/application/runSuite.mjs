@@ -39,8 +39,9 @@ const checks = [
     // kill must stay well above them or it SIGKILLs a healthy run first.
     ['unit: all vitest flows', 'npx', ['vitest', 'run', '--root', '.'], undefined, 300000],
     // The perf/lib tests are node:test, not vitest (perf/** is excluded from
-    // the sweep above), so only this step runs them. Without the muxr.code
-    // add-on checkout the warm-probe flow skips loudly instead of passing.
+    // the sweep above), so only this step runs them. The warm-probe flow's
+    // served-bytes leg drives the host's Files product code, so it runs with
+    // no add-on checkout.
     ['unit: perf gate (gesture metrics, warm-probe gates, node --test)', 'node', ['--test', 'perf/lib/gestureMetrics.test.mjs', 'perf/lib/surfaceProbe.test.mjs']],
     ['policy: mobile architecture', 'npx', ['vitest', 'run', 'apps/mobile/sources/architecture.spec.ts', '--config', 'apps/mobile/vitest.config.ts']],
     ['policy: store/direct mobile commerce builds', 'node', ['scripts/diagnostics/application/checkMobileCommerceBuilds.mjs']],

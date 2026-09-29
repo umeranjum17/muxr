@@ -490,7 +490,7 @@ Every extension should explain:
 6. how to disable and unlink it;
 7. supported muxr UI and Herdr versions.
 
-`muxr plugin create` writes a minimal working plugin and is the fastest starting point; every plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons are also full examples you can read or install: `muxr plugin install umeranjum17/herdr-files` `muxr plugin install umeranjum17/herdr-attachments`.
+`muxr plugin create` writes a minimal working plugin and is the fastest starting point; every plugin uses the same validator and public manifest contract as yours. The Files and Attachments add-ons used to be the full worked examples here (`umeranjum17/herdr-files`, `umeranjum17/herdr-attachments`); they are host product code now, so there is nothing to install — the app's Files, Git history, and Prompt attachments rows work out of the box, and an existing install of either add-on is ignored, never unlinked.
 
 ## Lists of real things
 
@@ -510,7 +510,7 @@ with `{{item.x}}`. At most 32 entries render.
 A `row` with an `action` becomes tappable and opens another `navigation.content`
 screen in the same plugin. `params` values are bound the same way and are passed
 as the input to that screen's data RPC, so a detail screen can load exactly the
-record you tapped. The Files add-on (`umeranjum17/herdr-files`) is a complete worked example: list the
+record you tapped. The retired Files add-on (`umeranjum17/herdr-files`, now host product code) is a complete worked example of this shape: list the
 files in a repo, tap one, read it.
 
 ## Screen rows, tones and saved state

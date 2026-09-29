@@ -1,18 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { attachmentsAddonDir, codeAddonDir } from '../lib/addons.mjs';
 
 /** Usage and machine health are host product code, so the fake stack needs no
  *  status plugin fixture: the host's typed usage.report answers from this
- *  module's environment fixture alone. The remaining fixture plugins are the
- *  add-on checkouts the journeys walk (Files/Changes). */
+ *  module's environment fixture alone. Files and prompt attachments are host
+ *  product code too, so no add-on checkout is linked anymore. */
 export const usagePlugins = () => ({ root }) => {
     const dir = join(root, 'fixture-plugins');
     mkdirSync(dir, { recursive: true });
-    // Attachments left the bundle for its own repo: MUXR_ADDONS_ROOT or the Herdr install.
-    symlinkSync(attachmentsAddonDir(), join(dir, 'attachments'));
-    symlinkSync(codeAddonDir(), join(dir, 'code'));
     return dir;
 };
 
