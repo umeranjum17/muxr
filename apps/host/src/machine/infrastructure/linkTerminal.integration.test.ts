@@ -13,15 +13,15 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HerdrKit } from '@byokit/herdr';
 import { DeviceLink, hostId, keyPairFrom, type DeviceGrant, type LinkStatus } from '@byokit/link';
-import type { HostFrame } from '@muxr/contract';
-import { generateKeyPair, generateSigningKeyPair } from '@muxr/crypto';
+import type { HostFrame } from '@trymuxr/contract';
+import { generateKeyPair, generateSigningKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';
 import { PluginStreamManager, TerminalManager, type VoiceStreamTransport } from '../../agent/index.js';
 import { LinkEndpoint } from './linkEndpoint.js';
 import type { MachineCryptoState } from '../domain/crypto.js';
 
 const b64 = (value: Uint8Array | string): string => Buffer.from(value).toString('base64');
-/** @muxr/crypto keys are base64 strings; byokit wants base64url bytes. */
+/** @trymuxr/crypto keys are base64 strings; byokit wants base64url bytes. */
 const toB64url = (valueBase64: string): string => Buffer.from(valueBase64, 'base64').toString('base64url');
 
 /** The pane: paints a full screen, echoes input, repaints on resize and on each scroll it is handed. */

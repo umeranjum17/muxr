@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
+import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@trymuxr/contract';
 import { sync } from '@/catalog/sync';
 import { subscribePluginDataInvalidation } from '../application/pluginDataInvalidation';
 

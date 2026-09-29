@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ActivityIndicator } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
-import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type PluginSummary } from '@muxr/contract';
+import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type PluginSummary } from '@trymuxr/contract';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';

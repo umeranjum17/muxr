@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { RequestType } from '@muxr/contract';
+import type { RequestType } from '@trymuxr/contract';
 import { atomicWriteJson } from '../../platform/atomicWriteJson.js';
 
 const RETENTION_MS = 7 * 24 * 60 * 60_000;

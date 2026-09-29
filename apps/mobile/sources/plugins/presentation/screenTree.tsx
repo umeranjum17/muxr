@@ -4,7 +4,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { Easing, FadeIn, SlideInLeft, SlideInRight, runOnJS, useReducedMotion } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
-import type { PluginScreenRowAction, PluginScreenTreeNode, PluginText } from '@muxr/contract';
+import type { PluginScreenRowAction, PluginScreenTreeNode, PluginText } from '@trymuxr/contract';
 import { bindText, resolvePath } from '../domain/screenModel';
 import { resolvePluginText } from '../domain/pluginText';
 import { asScreenTree, type RuntimeTreeItem } from '../domain/screenTreeModel';

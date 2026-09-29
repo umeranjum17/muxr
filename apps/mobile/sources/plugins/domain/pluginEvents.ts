@@ -1,4 +1,4 @@
-import type { PluginEventTrigger } from '@muxr/contract';
+import type { PluginEventTrigger } from '@trymuxr/contract';
 
 /**
  * Which declared triggers this transition fires.

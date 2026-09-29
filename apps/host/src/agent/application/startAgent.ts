@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { MISSING_CWD_ERROR_PREFIX, startWasAccepted, type SessionStartResult } from '@muxr/contract';
+import { MISSING_CWD_ERROR_PREFIX, startWasAccepted, type SessionStartResult } from '@trymuxr/contract';
 import type { SessionStartOptions } from './sessionSource.js';
 
 /** Clients that never learned the machine's home directory send a literal `~`. */

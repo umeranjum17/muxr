@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { PLUGIN_CALL_KILL_GRACE_MS } from '@muxr/contract';
+import { PLUGIN_CALL_KILL_GRACE_MS } from '@trymuxr/contract';
 
 export class PluginApprovals {
     private values: Record<string, string> = {};

@@ -14,7 +14,7 @@ import {
     type SessionInfo,
     type SessionSnapshot,
     type SessionStatus,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import type {
     SessionListOptions,
     SessionOpenOptions,

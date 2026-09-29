@@ -32,7 +32,7 @@ import type { GitStatusFiles } from './gitStatusFiles';
 import type { ProjectFilesList } from './projectFiles';
 import type { UserProfile, RelationshipUpdatedEvent } from '../infrastructure/friendTypes';
 import type { FeedItem } from '../infrastructure/feedTypes';
-import type { AttentionEntry, AttentionReason, HerdrTreeWorkspace, LifecycleCatalog, LifecycleEvent } from '@muxr/contract';
+import type { AttentionEntry, AttentionReason, HerdrTreeWorkspace, LifecycleCatalog, LifecycleEvent } from '@trymuxr/contract';
 import { buildMessagesMap } from '../infrastructure/messageAdapter';
 import { getRigActivityIndicators, getRigIdentity } from '../infrastructure/rig';
 import { getSessionName, getSessionSubtitle, getSessionAvatarId, type SessionState } from '@/herd';

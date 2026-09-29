@@ -1,4 +1,4 @@
-import type { AgentLifecycle, LifecycleEvent, LifecycleReasonCode } from '@muxr/contract';
+import type { AgentLifecycle, LifecycleEvent, LifecycleReasonCode } from '@trymuxr/contract';
 import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
 
 export type ReportAgentOutcomeCommand = {

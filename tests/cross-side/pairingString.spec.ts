@@ -12,9 +12,9 @@
  */
 import { Host, keyPair } from '@byokit/link';
 import { describe, expect, it } from 'vitest';
-import { pairingIntent } from '../../../../../scripts/setup/domain/pairing';
-import { hostedPairingAuthority, looksLikeLinkOffer, looksLikePairingLink, parsePairingString } from './pairingString';
-import { redirectSystemPath } from '../../app/+native-intent';
+import { pairingIntent } from './host';
+import { hostedPairingAuthority, looksLikeLinkOffer, looksLikePairingLink, parsePairingString } from '@/pairing/domain/pairingString';
+import { redirectSystemPath } from '@/app/+native-intent';
 
 /** Every relay address `muxr setup` can end up printing a QR for. */
 const relays = [

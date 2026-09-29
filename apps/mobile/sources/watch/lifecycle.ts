@@ -1,5 +1,5 @@
-import type { SessionStatus } from '@muxr/contract';
-import { isSessionIdle } from '@muxr/contract';
+import type { SessionStatus } from '@trymuxr/contract';
+import { isSessionIdle } from '@trymuxr/contract';
 
 export type LifecycleState = NonNullable<SessionStatus['agentStatus']>;
 

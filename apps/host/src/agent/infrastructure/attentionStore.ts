@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { ATTENTION_REASONS, type AttentionCatalog, type AttentionEntry, type AttentionReason, attentionRank } from '@muxr/contract';
+import { ATTENTION_REASONS, type AttentionCatalog, type AttentionEntry, type AttentionReason, attentionRank } from '@trymuxr/contract';
 import { createPersistQueue, loadPersistedJson } from '../../platform/persistedJson.js';
 
 interface HeldReason {

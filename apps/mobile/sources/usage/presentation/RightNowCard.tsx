@@ -3,7 +3,7 @@ import { Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
-import type { UsageLimitsWindow } from '@muxr/contract';
+import type { UsageLimitsWindow } from '@trymuxr/contract';
 import type { UsageFigures } from '../application/freshnessWindow';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { withAlpha } from '@/components/ui';

@@ -1,4 +1,4 @@
-import type { PluginManifestV1, PluginSummary } from '@muxr/contract';
+import type { PluginManifestV1, PluginSummary } from '@trymuxr/contract';
 import type { SessionSource } from './sessionSource.js';
 
 export type RunPluginActionCommand =

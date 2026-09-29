@@ -1,5 +1,5 @@
-import { MAX_CHART_LABEL_BYTES, MAX_CHART_SERIES, capUtf8Bytes, sanitizeDisplayText } from '@muxr/contract';
-import type { UsageLimitsPayload, UsageLimitsVerdict, UsageLimitsWindow } from '@muxr/contract';
+import { MAX_CHART_LABEL_BYTES, MAX_CHART_SERIES, capUtf8Bytes, sanitizeDisplayText } from '@trymuxr/contract';
+import type { UsageLimitsPayload, UsageLimitsVerdict, UsageLimitsWindow } from '@trymuxr/contract';
 
 /** The limits vocabulary is the contract's own usage vocabulary; the parsers
  *  below bound it at the untrusted plugin boundary and are reused by typed

@@ -1,4 +1,4 @@
-import type { PluginPrimitive } from '@muxr/contract';
+import type { PluginPrimitive } from '@trymuxr/contract';
 
 const mounted = new Map<PluginPrimitive, number>();
 const waiters = new Map<PluginPrimitive, Set<(ready: boolean) => void>>();

@@ -1,5 +1,5 @@
-import type { PluginAction, PluginContribution, PluginManifestV1, PluginRpcCapability, PluginScreenButtonNode, PluginScreenContribution, PluginScreenNode, PluginScreenTone, PluginText, RequestParams } from '@muxr/contract';
-import { MAX_RPC_DISPLAY_BYTES, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@muxr/contract';
+import type { PluginAction, PluginContribution, PluginManifestV1, PluginRpcCapability, PluginScreenButtonNode, PluginScreenContribution, PluginScreenNode, PluginScreenTone, PluginText, RequestParams } from '@trymuxr/contract';
+import { MAX_RPC_DISPLAY_BYTES, capUtf8Bytes, defaultPluginText, sanitizeDisplayText } from '@trymuxr/contract';
 
 /** `{{data.dotted.path}}` bindings only; no expressions. Unresolved paths render empty. */
 const BINDING = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;

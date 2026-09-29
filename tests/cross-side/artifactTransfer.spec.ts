@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { create } from 'zustand';
-import { ArtifactWatcher } from '../../../host/src/agent/infrastructure/artifactWatcher';
+import { ArtifactWatcher } from './host';
 
 // The phone's side of the link: the host's own chunk reader answers every
 // artifact.read, and the test can drop the connection under it the way a
@@ -83,8 +83,8 @@ vi.mock('expo-sharing', () => ({ isAvailableAsync: async () => false, shareAsync
 vi.mock('@/../modules/artifact-open', () => ({ openWithSystem: () => false }));
 vi.mock('@/modal', () => ({ Modal: { alert: () => undefined } }));
 
-import { artifactTransferKey, transferArtifact, useArtifactTransfers, type TransferPlatform, type TransferSink } from './artifactTransfer';
-import { artifactDownloadKey } from './artifactDownloadKey';
+import { artifactTransferKey, transferArtifact, useArtifactTransfers, type TransferPlatform, type TransferSink } from '@/utils/artifactTransfer';
+import { artifactDownloadKey } from '@/utils/artifactDownloadKey';
 
 const root = mkdtempSync(join(tmpdir(), 'muxr-transfer-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -305,15 +305,15 @@ describe('progressive artifact download', () => {
                 const chunk = bytes.subarray(offset, offset + length);
                 return { id, size: bytes.length, at: artifact.at, offset, data: chunk.toString('base64'), sha256: createHash('sha256').update(chunk).digest('hex') };
             };
-            const web = await import('./downloadArtifact.web');
+            const web = await import('@/utils/downloadArtifact.web');
             await web.downloadArtifact('session-ready', artifact);
             expect(useArtifactTransfers.getState()[artifactTransferKey('session-ready', artifact)]).toMatchObject({ status: 'ready' });
             expect(clicks).toHaveLength(0);
             expect(files.size).toBe(1);
 
             vi.resetModules();
-            const reloaded = await import('./downloadArtifact.web');
-            const state = await import('./artifactTransfer');
+            const reloaded = await import('@/utils/downloadArtifact.web');
+            const state = await import('@/utils/artifactTransfer');
             await reloaded.sweepArtifactDownloads();
             expect(files.size).toBe(1);
             await reloaded.restoreReadyArtifact('session-ready', artifact);
@@ -351,14 +351,14 @@ describe('progressive artifact download', () => {
             expect([...files.values()].some((file) => Buffer.from(file.bytes).equals(bytes))).toBe(true);
             expect(await reloaded.readyToSave('session-ready', race)).toBe(false);
             vi.resetModules();
-            const swept = await import('./downloadArtifact.web');
+            const swept = await import('@/utils/downloadArtifact.web');
             await swept.sweepArtifactDownloads();
             expect(files.size).toBe(0);
 
             vi.resetModules();
             vi.stubGlobal('navigator', { storage: { getDirectory: async () => { throw new Error('No private storage'); } } });
-            const memoryWeb = await import('./downloadArtifact.web');
-            const memoryState = await import('./artifactTransfer');
+            const memoryWeb = await import('@/utils/downloadArtifact.web');
+            const memoryState = await import('@/utils/artifactTransfer');
             const memoryBytes = Buffer.from('memory-only download');
             const memoryArtifact = { ...artifact, id: createHash('sha256').update(memoryBytes).digest('hex'), name: 'memory.apk', size: memoryBytes.length };
             link.reader = async (_sessionId, id, offset, length) => {
@@ -382,8 +382,8 @@ describe('progressive artifact download', () => {
             document.visibilityState = 'hidden';
             await memoryWeb.downloadArtifact('session-memory', memoryArtifact);
             vi.resetModules();
-            const memoryReloaded = await import('./downloadArtifact.web');
-            const memoryReloadState = await import('./artifactTransfer');
+            const memoryReloaded = await import('@/utils/downloadArtifact.web');
+            const memoryReloadState = await import('@/utils/artifactTransfer');
             await memoryReloaded.sweepArtifactDownloads();
             await memoryReloaded.restoreReadyArtifact('session-memory', memoryArtifact);
             expect(memoryReloadState.useArtifactTransfers.getState()[memoryReloadState.artifactTransferKey('session-memory', memoryArtifact)]).toBeUndefined();

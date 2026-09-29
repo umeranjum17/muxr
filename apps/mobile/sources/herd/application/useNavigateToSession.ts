@@ -1,7 +1,7 @@
 import * as React from 'react';
 import type { Router } from 'expo-router';
 import { useRouter } from 'expo-router';
-import type { HerdrTreeTab } from '@muxr/contract';
+import type { HerdrTreeTab } from '@trymuxr/contract';
 import { focusAgent } from './FocusAgent';
 
 // The pane this device last opened in each tab, so a tab tap returns to it.

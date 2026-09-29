@@ -1,5 +1,5 @@
 import LiveAudioStream from 'react-native-live-audio-stream';
-import { REALTIME_INPUT_RATE, realtimePcm16ByteLength } from '@muxr/contract';
+import { REALTIME_INPUT_RATE, realtimePcm16ByteLength } from '@trymuxr/contract';
 import { chunkEnergy } from './audioEnergy';
 import {
     releaseVoiceAudio,

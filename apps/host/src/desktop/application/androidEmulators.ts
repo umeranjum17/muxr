@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { connect, createServer, type Server, type Socket } from 'node:net';
 
 import { EngineClient, EngineRefused, resolveEngine } from '@desklink/host';
-import type { DesktopEvent, DesktopPermission, DesktopSurfaceGeometry, PreviewPresence, SessionInfo } from '@muxr/contract';
+import type { DesktopEvent, DesktopPermission, DesktopSurfaceGeometry, PreviewPresence, SessionInfo } from '@trymuxr/contract';
 
 import { onPath } from '../infrastructure/x11Display.js';
 import type { PreviewLeaseTracker } from './previewLease.js';

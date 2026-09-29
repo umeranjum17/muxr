@@ -11,7 +11,7 @@ import { accessSync, chmodSync, constants, mkdirSync, readFileSync, renameSync, 
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import type { UsageActivity, UsageConnectedProvider, UsageReport, UsageSeriesPoint } from '@muxr/contract';
+import type { UsageActivity, UsageConnectedProvider, UsageReport, UsageSeriesPoint } from '@trymuxr/contract';
 import {
     claudeWindows, codexWindows, goWindows, limitsPayload,
     NOT_CONNECTED_MESSAGE, tightestWindow, zaiWindows,

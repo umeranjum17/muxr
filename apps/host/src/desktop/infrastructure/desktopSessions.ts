@@ -3,8 +3,8 @@ import { join } from 'node:path';
 
 import { EngineClient, EngineRefused, explainMissingEngine, resolveEngine } from '@desklink/host';
 import type { EngineCapabilities, SourceRequest } from '@desklink/host';
-import { DESKTOP_CONSENT_WAIT_MS } from '@muxr/contract';
-import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@muxr/contract';
+import { DESKTOP_CONSENT_WAIT_MS } from '@trymuxr/contract';
+import type { DesktopCapabilities, DesktopEvent, DesktopPermission, DesktopSurfaceGeometry } from '@trymuxr/contract';
 
 import { nextDesktopId, type DesktopSessionRecord } from '../domain/desktopSession.js';
 import { PortalGrant } from './portalGrant.js';

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAgentWatchStores } from '../application/watchStores.js';
-import type { SessionEventBody } from '@muxr/contract';
+import type { SessionEventBody } from '@trymuxr/contract';
 import { waitForPersistedRevision } from '../../platform/persistedJson.js';
 
 function assert(condition: boolean, message: string): asserts condition {

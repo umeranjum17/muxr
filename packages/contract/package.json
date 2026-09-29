@@ -1,8 +1,13 @@
 {
-    "name": "@muxr/contract",
-    "version": "0.0.0",
-    "private": true,
+    "name": "@trymuxr/contract",
+    "version": "0.1.0",
+    "description": "muxr wire contract shared by the host and the app",
     "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/umeranjum17/muxr.git",
+        "directory": "packages/contract"
+    },
     "type": "module",
     "main": "./dist/index.js",
     "types": "./dist/index.d.ts",
@@ -39,5 +44,14 @@
             "types": "./dist/shared/index.d.ts",
             "default": "./dist/shared/index.js"
         }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "prepack": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc --build --force"
+    },
+    "publishConfig": {
+        "access": "public"
     }
 }

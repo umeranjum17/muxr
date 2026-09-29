@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, unlinkSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname } from 'node:path';
-import { PEER_MUTATION_TTL_MS, type PeerRequestResult } from '@muxr/contract';
+import { PEER_MUTATION_TTL_MS, type PeerRequestResult } from '@trymuxr/contract';
 import { atomicWriteJson } from '../../platform/atomicWriteJson.js';
 import type { PeerRuntime } from '../application/runtime.js';
 import type { StoredPeerRelationship } from './store.js';
@@ -109,7 +109,7 @@ export function parsePeerBrokerRequest(value: unknown): PeerBrokerRequest {
     }
 }
 
-type SemanticBrokerRequest = Extract<import('@muxr/contract').PeerClientRequest, { type: 'peer.remote.watch' | 'peer.remote.prompt' }>;
+type SemanticBrokerRequest = Extract<import('@trymuxr/contract').PeerClientRequest, { type: 'peer.remote.watch' | 'peer.remote.prompt' }>;
 
 interface CapabilityState {
     sockets: Set<Socket>;
@@ -279,7 +279,7 @@ export class PeerBroker {
     private semanticRequest<T extends 'peer.remote.watch' | 'peer.remote.prompt'>(
         type: T,
         relationship: StoredPeerRelationship,
-        params: Omit<Extract<import('@muxr/contract').PeerClientRequest, { type: T }>['params'], 'relationshipId'>,
+        params: Omit<Extract<import('@trymuxr/contract').PeerClientRequest, { type: T }>['params'], 'relationshipId'>,
     ): Extract<SemanticBrokerRequest, { type: T }> {
         return {
             type,
@@ -291,7 +291,7 @@ export class PeerBroker {
     private remote<T extends 'peer.remote.list' | 'peer.remote.read' | 'peer.remote.status' | 'peer.remote.watch' | 'peer.remote.prompt'>(
         relationship: StoredPeerRelationship,
         type: T,
-        params: Omit<Extract<import('@muxr/contract').PeerClientRequest, { type: T }>['params'], 'relationshipId'>,
+        params: Omit<Extract<import('@trymuxr/contract').PeerClientRequest, { type: T }>['params'], 'relationshipId'>,
         signal?: AbortSignal,
     ): Promise<PeerRequestResult<T>> {
         if (signal?.aborted) return Promise.reject(Object.assign(new Error('peer broker capability revoked'), { name: 'AbortError' }));
@@ -299,7 +299,7 @@ export class PeerBroker {
             type,
             requestId: `broker-${randomUUID()}`,
             params: { relationshipId: relationship.relationshipId, ...params },
-        } as Extract<import('@muxr/contract').PeerClientRequest, { type: T }>, 'voice-broker', signal) as Promise<PeerRequestResult<T>>;
+        } as Extract<import('@trymuxr/contract').PeerClientRequest, { type: T }>, 'voice-broker', signal) as Promise<PeerRequestResult<T>>;
     }
 
     private accept(socket: Socket): void {

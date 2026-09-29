@@ -11,7 +11,7 @@ import { hapticsError, hapticsLight } from '@/components/haptics';
 import { Modal } from '@/modal';
 import { sync } from '@/catalog/sync';
 import { Typography } from '@/constants/Typography';
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
+import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@trymuxr/contract';
 import type { PrimitiveProps } from '../../domain/primitiveTypes'
 import { asPluginItemList, type PluginItemListAction, type PluginItemListItem, type PluginItemListModel } from '../../domain/itemListModel';
 import { dispatchPluginAction, validatePluginAction } from '../../application/pluginActions';

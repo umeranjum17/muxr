@@ -46,7 +46,7 @@ vi.mock('../application/useNavigateToSession', () => ({
 
 // These resolve the mocked modules, so they must stay below the vi.mock calls.
 import { PaneOverviewSheet } from './PaneOverviewSheet';
-import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
+import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 
 function pane(paneId: string, title: string): HerdrTreePane {
     return {

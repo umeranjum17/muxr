@@ -9,7 +9,7 @@ import {
     type ClientFrame,
     type HostFrame,
     type LifecycleNotificationLevel,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import { attachFailureCode, type LinkTerminalAttachParams, type LinkTerminalPort, type TerminalPipe } from '../domain/terminal.js';
 import type { MachineCryptoState, MachineDeviceRecord } from '../domain/crypto.js';
 import { safeTaskTitle } from '../../platform/safeTaskTitle.js';

@@ -94,7 +94,7 @@ await build({
 const bundledPackagePaths = new Set(
     Object.keys(result.metafile.inputs)
         .map((input) => packagePathFromInput(root, input))
-        .filter((path) => path !== undefined && !path.includes('node_modules/@muxr/')),
+        .filter((path) => path !== undefined && !/node_modules\/@(?:try)?muxr\//.test(path)),
 );
 const bundledDependencies = [...bundledPackagePaths]
     .sort()
@@ -199,8 +199,8 @@ if (!existsSync(join(out, 'plugin', 'domain', 'dist', 'index.js'))) {
     throw new Error('plugin domain was not compiled; run yarn build before packing');
 }
 const extensionSource = readFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), 'utf8');
-if (!extensionSource.includes("from '@muxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
-writeFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), extensionSource.replace("from '@muxr/contract'", "from '../../contract.mjs'"));
+if (!extensionSource.includes("from '@trymuxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
+writeFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), extensionSource.replace("from '@trymuxr/contract'", "from '../../contract.mjs'"));
 // The realtime voice adapters are product code, so they ship beside the host
 // bundle rather than as a Herdr add-on.
 cpSync(join(root, 'apps', 'host', 'dist', 'voice'), join(out, 'voice'), {

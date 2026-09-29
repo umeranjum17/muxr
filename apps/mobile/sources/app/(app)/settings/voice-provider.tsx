@@ -3,7 +3,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { useUnistyles } from 'react-native-unistyles';
-import type { VoiceProviderDescription, VoiceStatus } from '@muxr/contract';
+import type { VoiceProviderDescription, VoiceStatus } from '@trymuxr/contract';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';

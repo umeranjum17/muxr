@@ -15,8 +15,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hostId, unb64url } from '@byokit/link';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { waitForRelay } from './waitForRelay.mjs';
-import { linkPair, machineIdentity, readSelfhostState } from '../../setup/index.mjs';
+import { hostMain, hostRoot, relayMain, waitForRelay } from './host.js';
+import { linkPair, machineIdentity, readSelfhostState } from './hostSetup.js';
 import nacl from 'tweetnacl';
 
 const phone = { secure: new Map<string, string>(), local: new Map<string, string>() };
@@ -39,10 +39,9 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     },
 }));
 
-import { pairOverLink, type StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/linkPairing.js';
-import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
+import { pairOverLink, type StoredHostedGrant } from '../../apps/mobile/sources/pairing/application/linkPairing.js';
+import { LinkFirstClient } from '../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
 
-const repoRoot = join(import.meta.dirname, '../../..');
 const home = mkdtempSync(join(tmpdir(), 'muxr-link-shared-relay-'));
 process.env.MUXR_HOME = home;
 const children = new Set<ChildProcess>();
@@ -52,7 +51,7 @@ function launch(args: string[], extra: NodeJS.ProcessEnv = {}): ChildProcess & {
     for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'DATA_DIR']) delete env[`MUXR_${key}`];
     if (extra.MUXR_RELAY_PORT === undefined) delete env.MUXR_RELAY_PORT;
     if (extra.MUXR_MODE === undefined) delete env.MUXR_MODE;
-    const child = spawn(process.execPath, args, { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, args, { cwd: hostRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout!.on('data', (chunk) => { out += chunk; });
     child.stderr!.on('data', (chunk) => { out += chunk; });
@@ -91,7 +90,7 @@ let relay: ChildProcess | undefined;
 let host: (ChildProcess & { output: () => string }) | undefined;
 
 async function startRelay(): Promise<void> {
-    relay = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
+    relay = launch([relayMain], {
         MUXR_RELAY_PORT: '0',
         MUXR_RELAY_HOST: '127.0.0.1',
         MUXR_RELAY_DATA_DIR: join(home, 'relay'),
@@ -103,7 +102,7 @@ async function startRelay(): Promise<void> {
 }
 
 function startMachine(): void {
-    host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { MUXR_MODE: 'selfhost' });
+    host = launch([hostMain, '--fake'], { MUXR_MODE: 'selfhost' });
 }
 
 describe('a shared-relay machine joins the link through the owner enrolment', () => {

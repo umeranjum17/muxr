@@ -1,7 +1,7 @@
 /**
  * Session backend surface consumed by the request dispatcher.
  *
- * Pi-facing methods mirror `RequestMap` in `@muxr/contract`. Domain stores
+ * Pi-facing methods mirror `RequestMap` in `@trymuxr/contract`. Domain stores
  * (unread, attention) stay separate — the dispatcher wires them.
  */
 
@@ -24,7 +24,7 @@ import type {
     StreamingBehavior,
     PluginsInvalidatedFrame,
     WatchSettlement,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import type { TerminalSession } from '@byokit/herdr';
 
 export interface VoiceStreamTransport {

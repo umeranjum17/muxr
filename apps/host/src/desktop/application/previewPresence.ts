@@ -1,5 +1,5 @@
 import { EngineRefused } from '@desklink/host';
-import type { DesktopCapabilities, DesktopEvent, PreviewPresence, SessionInfo } from '@muxr/contract';
+import type { DesktopCapabilities, DesktopEvent, PreviewPresence, SessionInfo } from '@trymuxr/contract';
 
 import { DesktopSessions, type DesktopEngineOptions } from '../infrastructure/desktopSessions.js';
 import { PreviewLeaseTracker } from './previewLease.js';

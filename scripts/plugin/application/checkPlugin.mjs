@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { homedir, tmpdir } from 'node:os';
 
-import { MAX_PLUGIN_CONTEXT_BYTES, MAX_RPC_INPUT_BYTES, MAX_RPC_STDOUT_BYTES, boundRpcDisplay, parseManifestWithMeta } from '@muxr/contract';
+import { MAX_PLUGIN_CONTEXT_BYTES, MAX_RPC_INPUT_BYTES, MAX_RPC_STDOUT_BYTES, boundRpcDisplay, parseManifestWithMeta } from '@trymuxr/contract';
 import { isPluginId } from '../domain/dist/index.js';
 import {
     mobilePackageJson,
@@ -69,7 +69,7 @@ function localPluginId(target, canonical = target) {
 }
 
 // Validation is delegated to the single shared manifest parser from
-// @muxr/contract (packages/contract/src/manifest.ts), which is also what the
+// @trymuxr/contract (packages/contract/src/manifest.ts), which is also what the
 // host catalog runs, so `muxr plugin check` accepts and rejects exactly what
 // the runtime does. Unknown slots/types/nodes are skipped by the parser, not
 // fatal; known shapes with invalid fields throw.

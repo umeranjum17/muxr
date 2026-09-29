@@ -1,4 +1,4 @@
-import type { PeerMessageSender } from '@muxr/contract';
+import type { PeerMessageSender } from '@trymuxr/contract';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
@@ -11,7 +11,7 @@ import {
     type PeerRelationship,
     type PeerRequestResult,
     type RequestResponse,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import {
     createDeviceGrant,
     createSignedPeerDescriptor,
@@ -20,7 +20,7 @@ import {
     sealPeerInstallBundle,
     verifyDeviceGrant,
     type PeerInstallBundlePayload,
-} from '@muxr/crypto';
+} from '@trymuxr/crypto';
 import type { PeerAuthority } from '../infrastructure/authority.js';
 import type { PeerClientTransport, PeerConnectionDiagnostic } from '../infrastructure/client.js';
 import { OutboundPeerService } from './outboundPeerService.js';

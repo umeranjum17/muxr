@@ -3,7 +3,7 @@ import {
     PEER_MUTATION_CLOCK_SKEW_MS,
     PEER_MUTATION_MAX_TTL_MS,
     type PeerMutationMetadata,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import { PeerStore, type StoredPeerReceipt } from '../infrastructure/store.js';
 
 

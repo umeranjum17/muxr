@@ -12,7 +12,7 @@ import {
     type PromptAttachment,
     type SessionEvent,
     type SessionStatus,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import type { AttachmentPreview } from '../infrastructure/attachmentTypes';
 import { createArtifactWire, type ArtifactChunk, type ArtifactListing } from '../infrastructure/artifactWire';
@@ -38,7 +38,7 @@ import {
     sessionInfoToSession,
 } from '../infrastructure/sessionMapping';
 import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
-import { agentTask, type HerdrTreePane, type SessionInfo } from '@muxr/contract';
+import { agentTask, type HerdrTreePane, type SessionInfo } from '@trymuxr/contract';
 import { agentLabels } from '@/herd/labels';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 // Its own entry, like wakeAndReport: it pulls in expo-notifications, which the barrel keeps out.
@@ -780,11 +780,11 @@ class MuxrSync {
         return this.client?.pluginStream?.(args);
     }
 
-    async request<T extends import('@muxr/contract').RequestType>(
+    async request<T extends import('@trymuxr/contract').RequestType>(
         type: T,
-        params: import('@muxr/contract').RequestParams<T>,
+        params: import('@trymuxr/contract').RequestParams<T>,
         timeoutMs?: number,
-    ): Promise<import('@muxr/contract').RequestResult<T>> {
+    ): Promise<import('@trymuxr/contract').RequestResult<T>> {
         const started = Date.now();
         try {
             const client = this.ensureClient();
@@ -796,9 +796,9 @@ class MuxrSync {
             const request = () => client.request(type, params, timeoutMs);
             const data = type === 'plugin.call' || type === 'plugin.invoke'
                 ? await pluginExecutionGate.run(
-                    (params as import('@muxr/contract').RequestParams<'plugin.call'> | import('@muxr/contract').RequestParams<'plugin.invoke'>).pluginId,
+                    (params as import('@trymuxr/contract').RequestParams<'plugin.call'> | import('@trymuxr/contract').RequestParams<'plugin.invoke'>).pluginId,
                     request,
-                ) as import('@muxr/contract').RequestResult<T>
+                ) as import('@trymuxr/contract').RequestResult<T>
                 : type === 'pane.read'
                     ? await paneReadGate.run(request)
                     : await request();

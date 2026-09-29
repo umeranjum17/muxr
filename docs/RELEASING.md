@@ -78,6 +78,31 @@ Build numbers are reserved through the `release-build-numbers` Git branch. Fast-
 
 The CLI pins `@desklink/host` to the exact version in `apps/host/package.json`, and that package's optional platform package carries the prebuilt engine. Both are built and released from [umeranjum17/desklink](https://github.com/umeranjum17/desklink); no workflow here publishes them: follow [Building and packing a release](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md#building-and-packing-a-release) there to build, check and publish them by hand, platform package first. A candidate refuses to start, before it spends a build number, unless npm already serves the pinned host and every engine package it names (`node scripts/release/presentation/requireDesktopEngine.mjs`), and publication checks the same for the exact tarball it is about to publish. npm trusted publishing cannot make a package's first publication, so the first version of each goes out from a maintainer's login.
 
+### Shared contract and crypto packages
+
+`@trymuxr/contract` and `@trymuxr/crypto` (`packages/`) are published at their own versions, so that the host can leave this repository and still share them with the app. Inside the monorepo, the host, the app and `@trymuxr/crypto` pin the exact workspace version, and yarn links that version to the workspace. `packages/checkArchitecture.mjs` fails when a pin stops matching, because yarn would otherwise install the published copy in place of the workspace. The CLI bundles both packages, so publishing them is not a CLI release prerequisite.
+
+To release a new version:
+
+1. Bump `version` in the package and every pin to it (the check names each one).
+2. From a maintainer login, run:
+
+   ```bash
+   npm publish --workspace packages/contract --workspace packages/crypto
+   ```
+
+   `prepack` makes a clean build of each package. The package manifests set public access. Contract goes first because crypto depends on it. To preview what ships, run `npm pack --dry-run` with the same workspace flags.
+
+### Web bundle ownership
+
+The app owns the web bundle. The PWA is built from `apps/mobile` (`yarn web:export`) and carries the app's version. The host ships a copy of it as `web/` in `@trymuxr/cli`, and the relay serves that copy. Moving the bundle with the host would drag Expo and the app sources into the host's repository, and every UI change would then need a host release.
+
+While both live here, `pack.mjs` builds the bundle from the same commit, which acts as the pin. The served PWA is one more client version: the `machine.hello` protocol range admits it like the native app. When the host moves out:
+
+- the app publishes the export as an exact-version package that records its protocol range;
+- the host pins that package in place of `web:export`;
+- `pack.mjs` refuses a bundle whose range does not overlap the host's. A PWA can only be updated by updating the host, so a host that outgrows its bundle would strand web users.
+
 ## Public channel record
 
 Every successful publication points one channel at the release that now holds it, and then proves that every public surface agrees. Versioned releases stay immutable: nothing is retagged, no artifact is copied, and no second GitHub Release is created to act as a pointer.

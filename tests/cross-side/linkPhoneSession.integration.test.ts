@@ -6,13 +6,11 @@ vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { currentSta
 vi.mock('expo-device', () => ({ isDevice: false }));
 vi.mock('expo-secure-store', () => ({ getItemAsync: async () => null }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem: async () => null } }));
-import { generateKeyPair, generateSigningKeyPair } from '@muxr/crypto';
-import { machineHello, type MachineHello } from '@muxr/contract';
-import { startRelay } from '@muxr/relay';
-import { LinkEndpoint } from '../../../apps/host/src/machine/infrastructure/linkEndpoint.js';
-import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
-import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/linkPairing.js';
-import type { MachineCryptoState } from '../../../apps/host/src/machine/domain/crypto.js';
+import { generateKeyPair, generateSigningKeyPair } from '@trymuxr/crypto';
+import { machineHello, type MachineHello } from '@trymuxr/contract';
+import { LinkEndpoint, startRelay, type MachineCryptoState } from './host.js';
+import { LinkFirstClient } from '../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
+import type { StoredHostedGrant } from '../../apps/mobile/sources/pairing/application/linkPairing.js';
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => { while (cleanups.length) await cleanups.pop()!(); });

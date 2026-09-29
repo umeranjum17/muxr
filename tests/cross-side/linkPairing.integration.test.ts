@@ -28,13 +28,13 @@ import {
     type LinkStatus,
 } from '@byokit/link';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { waitForRelay } from './waitForRelay.mjs';
-import { machineIdentity } from '../../setup/index.mjs';
-import type { StoredHostedGrant } from '../../../apps/mobile/sources/pairing/application/linkPairing.js';
-import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
-import { claimLinkPairing } from '../../../apps/mobile/sources/pairing/infrastructure/linkPairClient.js';
-import { SESSION_EVENT_TYPES, type SessionEvent } from '@muxr/contract';
-import { parsePairingString } from '../../../apps/mobile/sources/pairing/domain/pairingString.js';
+import { cliMain, hostMain, hostRoot, pairingIntent, relayMain, waitForRelay } from './host.js';
+import { machineIdentity } from './hostSetup.js';
+import type { StoredHostedGrant } from '../../apps/mobile/sources/pairing/application/linkPairing.js';
+import { LinkFirstClient } from '../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
+import { claimLinkPairing } from '../../apps/mobile/sources/pairing/infrastructure/linkPairClient.js';
+import { SESSION_EVENT_TYPES, type SessionEvent } from '@trymuxr/contract';
+import { parsePairingString } from '../../apps/mobile/sources/pairing/domain/pairingString.js';
 
 const home = mkdtempSync(join(tmpdir(), 'muxr-link-pairing-'));
 process.env.MUXR_HOME = home;
@@ -52,7 +52,7 @@ vi.mock('expo-secure-store', () => ({
     setItemAsync: async (key: string, value: string) => { phone.secure.set(key, value); },
     deleteItemAsync: async (key: string) => { phone.secure.delete(key); },
 }));
-vi.mock('../../../apps/mobile/sources/pairing/infrastructure/webSecureStore.js', () => ({
+vi.mock('../../apps/mobile/sources/pairing/infrastructure/webSecureStore.js', () => ({
     getWebSecret: async (key: string) => phone.web.get(key) ?? null,
     setWebSecret: async (key: string, value: string) => { phone.web.set(key, value); },
     deleteWebSecret: async (key: string) => { phone.web.delete(key); },
@@ -66,17 +66,16 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
     },
 }));
 
-const { linkPair: runComputerPairing, pairingIntent, readSelfhostState } = await import('../../setup/index.mjs');
-const { pairOverLink: runPhonePairing, resumePendingHostedPairing, loadHostedGrant, reconnectViaDiscoveredRelay } = await import('../../../apps/mobile/sources/pairing/application/linkPairing.js');
-const { getCachedConnectionSettings, saveConnectionSettings } = await import('../../../apps/mobile/sources/connection/connectionSettings.js');
+const { linkPair: runComputerPairing, readSelfhostState } = await import('./hostSetup.js');
+const { pairOverLink: runPhonePairing, resumePendingHostedPairing, loadHostedGrant, reconnectViaDiscoveredRelay } = await import('../../apps/mobile/sources/pairing/application/linkPairing.js');
+const { getCachedConnectionSettings, saveConnectionSettings } = await import('../../apps/mobile/sources/connection/connectionSettings.js');
 
-const repoRoot = join(import.meta.dirname, '../../..');
 const PENDING_LINK_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
 
 function launch(args: string[], extra: NodeJS.ProcessEnv = {}): ChildProcess & { output: () => string } {
     const env: NodeJS.ProcessEnv = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1', ...extra };
     for (const key of ['RELAY_TOKEN', 'RELAY_URL', 'MACHINE_ID', 'RELAY_AUTH', 'DATA_DIR']) delete env[`MUXR_${key}`];
-    const child = spawn(process.execPath, args, { cwd: repoRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, args, { cwd: hostRoot, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout!.on('data', (chunk) => { out += chunk; });
     child.stderr!.on('data', (chunk) => { out += chunk; });
@@ -109,7 +108,7 @@ let relay: ChildProcess | undefined;
 let host: (ChildProcess & { output: () => string }) | undefined;
 
 async function startMachine(): Promise<void> {
-    const started = launch([join(repoRoot, 'apps/relay/dist/main.js')], {
+    const started = launch([relayMain], {
         MUXR_RELAY_PORT: String(port),
         MUXR_RELAY_HOST: '0.0.0.0',
         MUXR_RELAY_DATA_DIR: join(home, 'relay'),
@@ -132,7 +131,7 @@ async function startMachine(): Promise<void> {
             mintSecret: JSON.parse(readFileSync(join(home, 'relay', 'mint-secret'), 'utf8')),
         }, null, 2)}\n`, { mode: 0o600 });
     }
-    host = launch([join(repoRoot, 'apps/host/dist/main.js'), '--fake'], { MUXR_MODE: 'selfhost' });
+    host = launch([hostMain, '--fake'], { MUXR_MODE: 'selfhost' });
     const running = host;
     await until(() => (existsSync(join(home, 'host', 'pair.sock')) ? true : undefined), `host pairing socket (${running.output()})`);
 }
@@ -397,12 +396,12 @@ describe('native pairing over the byokit link', () => {
         const paired = state.machine.crypto.devices;
         expect(paired).toHaveLength(5);
         const target = paired[0]!;
-        const listing = launch([join(repoRoot, 'scripts/cli.mjs'), 'devices', 'list']);
+        const listing = launch([cliMain, 'devices', 'list']);
         await until(() => (listing.exitCode === null ? undefined : listing.exitCode), 'devices list finishes');
         expect(listing.exitCode).toBe(0);
         expect(listing.output()).toContain(target.name!);
 
-        const revoking = launch([join(repoRoot, 'scripts/cli.mjs'), 'devices', 'revoke', '1']);
+        const revoking = launch([cliMain, 'devices', 'revoke', '1']);
         await until(() => (revoking.exitCode === null ? undefined : revoking.exitCode), 'revoke finishes', 30_000);
         expect(revoking.exitCode, revoking.output()).toBe(0);
         await until(() => (readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === target.deviceId) ? undefined : true), 'record removed');

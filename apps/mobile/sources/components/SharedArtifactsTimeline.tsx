@@ -4,7 +4,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import type { RequestResult, SessionArtifact } from '@muxr/contract';
+import type { RequestResult, SessionArtifact } from '@trymuxr/contract';
 
 import { sync, registerArtifactUpdateHandler } from '@/catalog/sync';
 import { useHerdrTree } from '@/catalog/store';

@@ -1,7 +1,7 @@
 import { createConnection } from 'node:net';
 import WebSocket from 'ws';
 import { DeviceLink, pairWithOffer } from '@byokit/link';
-import { nextRequestId } from '@muxr/contract';
+import { nextRequestId } from '@trymuxr/contract';
 
 async function until(check, what, timeoutMs = 20_000) {
     const deadline = Date.now() + timeoutMs;

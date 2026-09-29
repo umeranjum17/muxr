@@ -6,7 +6,7 @@
  * plugin RPC; it is host behavior (session.stop calls it directly), so it
  * lives here as a plain host module. The ladder logic is unchanged.
  */
-import type { CloseResult, CloseScope } from '@muxr/contract';
+import type { CloseResult, CloseScope } from '@trymuxr/contract';
 
 export type HerdrCall = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 

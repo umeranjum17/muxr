@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentLifecycle } from '@muxr/contract';
+import type { AgentInfo, AgentLifecycle } from '@trymuxr/contract';
 import type { HerdPane } from '../domain/herd';
 import { agentLabels, isShellLabels } from '../domain/agentPresentation';
 import type { RecentActivityRow } from '../domain/recentActivity';

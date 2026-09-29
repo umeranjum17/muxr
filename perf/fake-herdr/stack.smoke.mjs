@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
-import { decodePayload, encodePayload, newTerminalChannel, nextRequestId, terminalSocketUrl } from '@muxr/contract';
+import { decodePayload, encodePayload, newTerminalChannel, nextRequestId, terminalSocketUrl } from '@trymuxr/contract';
 import { waitForRelay } from '../../scripts/diagnostics/application/waitForRelay.mjs';
 import { startFakeHerdr } from './server.mjs';
 

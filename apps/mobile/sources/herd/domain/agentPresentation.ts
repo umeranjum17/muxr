@@ -1,4 +1,4 @@
-import { agentTask, type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@muxr/contract';
+import { agentTask, type AgentInfo, type AgentLifecycle, type HerdrTreePane, type HerdrTreeTab, type HerdrTreeWorkspace, type LifecycleEvent } from '@trymuxr/contract';
 import { compactAge } from '../../utils/compactAge';
 import { lifecycleStateSince } from './recentActivity';
 

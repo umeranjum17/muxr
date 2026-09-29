@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, unlinkSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname, isAbsolute } from 'node:path';
-import { lifecycleEventAgentName, spokenMatches, type AgentInfo, type LifecycleEvent } from '@muxr/contract';
+import { lifecycleEventAgentName, spokenMatches, type AgentInfo, type LifecycleEvent } from '@trymuxr/contract';
 
 const MAX_REQUEST_BYTES = 32 * 1024;
 const MAX_PROVIDER_TEXT_BYTES = 8 * 1024;

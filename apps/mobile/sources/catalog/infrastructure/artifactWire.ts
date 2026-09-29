@@ -10,7 +10,7 @@
  * Delete this module's legacy half, the contract's deprecated request entries
  * and the host's matching aliases once no pre-rename build can still be paired.
  */
-import type { RequestParams, RequestResult, RequestType, SessionArtifactMetadata } from '@muxr/contract';
+import type { RequestParams, RequestResult, RequestType, SessionArtifactMetadata } from '@trymuxr/contract';
 
 /** The transport this wire speaks through; `sync.request` in the app. */
 export type ArtifactWireTransport = <T extends RequestType>(

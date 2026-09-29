@@ -30,7 +30,7 @@ import { resolveMessageModeMeta } from '@/catalog';
 import { recordAgentGate, recordTrackedRpc } from '@/catalog/diagnostics';
 import { permissionModeChip, resolveStatusBarGitBranch } from '../domain/sessionStatusBar';
 import { PaneOverviewSheet, SessionMetaLine, WorkspaceTreeSheet } from '@/herd/ui';
-import type { HerdrTreeTab } from '@muxr/contract';
+import type { HerdrTreeTab } from '@trymuxr/contract';
 import { TerminalView, type TerminalViewControls } from './TerminalView';
 import { AgentPager, arrivingBySwipe } from './AgentPager';
 import { AgentGlyph } from '@/components/AgentGlyph';

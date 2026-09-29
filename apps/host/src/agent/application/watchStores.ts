@@ -1,4 +1,4 @@
-import type { UnreadCatalog } from '@muxr/contract';
+import type { UnreadCatalog } from '@trymuxr/contract';
 import { createAttentionStore, type AttentionStore } from '../infrastructure/attentionStore.js';
 import { createUnreadStore } from '../infrastructure/unreadStore.js';
 import { createLifecycleStore, type LifecycleStore } from '../infrastructure/lifecycleStore.js';

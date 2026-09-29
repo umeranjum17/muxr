@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { AgentLifecycle, LifecycleCatalog, LifecycleEvent, LifecycleReasonCode } from '@muxr/contract';
+import type { AgentLifecycle, LifecycleCatalog, LifecycleEvent, LifecycleReasonCode } from '@trymuxr/contract';
 import { createPersistQueue, loadPersistedJson } from '../../platform/persistedJson.js';
 import { safeTaskTitle } from '../../platform/safeTaskTitle.js';
 

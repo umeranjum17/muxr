@@ -11,7 +11,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { StatusDot } from '@/components/StatusDot';
 import { Typography } from '@/constants/Typography';
 import { layout } from '@/components/layout';
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@muxr/contract';
+import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@trymuxr/contract';
 import type { PrimitiveProps } from '../../domain/primitiveTypes'
 import { asPluginCollection, type PluginCollectionGroup, type PluginCollectionItem } from '../../domain/collectionModel';
 import { dispatchPluginAction, validatePluginAction } from '../../application/pluginActions';

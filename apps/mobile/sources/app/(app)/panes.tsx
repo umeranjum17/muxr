@@ -12,7 +12,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
-import type { ApplicationLauncher, HerdrTreePane, HerdrTreeTab, HerdrTreeWorkspace } from '@muxr/contract';
+import type { ApplicationLauncher, HerdrTreePane, HerdrTreeTab, HerdrTreeWorkspace } from '@trymuxr/contract';
 import type { ModelMode } from '@/components/OptionSheet';
 import { sync } from '@/catalog/sync';
 import { useHerdrTree } from '@/catalog/store';

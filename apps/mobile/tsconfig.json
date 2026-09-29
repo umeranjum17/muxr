@@ -40,7 +40,8 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
-    "nativewind-env.d.ts"
+    "nativewind-env.d.ts",
+    "../../tests/cross-side/*.spec.ts"
   ],
   "exclude": [
     "sources/trash/**/*",

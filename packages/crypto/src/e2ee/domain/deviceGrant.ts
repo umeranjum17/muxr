@@ -1,5 +1,5 @@
-import { fail, ok, type Outcome } from '@muxr/contract/shared';
-import { deviceIsPeer, type DeviceKind, type PeerCapability, type PeerGrantConstraintError } from '@muxr/contract/peer';
+import { fail, ok, type Outcome } from '@trymuxr/contract/shared';
+import { deviceIsPeer, type DeviceKind, type PeerCapability, type PeerGrantConstraintError } from '@trymuxr/contract/peer';
 
 export type DeviceAuthority = 'control' | 'observe';
 

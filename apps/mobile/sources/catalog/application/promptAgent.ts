@@ -1,4 +1,4 @@
-import type { PromptAttachment } from '@muxr/contract';
+import type { PromptAttachment } from '@trymuxr/contract';
 
 export type PromptAgentCommand = {
     agentRoute: string;

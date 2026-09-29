@@ -11,7 +11,7 @@ import {
     type PluginContextRequest,
     type PluginPublicContext,
     type PluginPublicSessionContext,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 
 export interface PublicContextSource {
     sessions: Array<{

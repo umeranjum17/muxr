@@ -16,7 +16,7 @@ import {
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { sync } from '@/catalog/sync';
-import type { RequestResult } from '@muxr/contract';
+import type { RequestResult } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { basename, resolveListingTarget } from '@/utils/directoryPicker';
 

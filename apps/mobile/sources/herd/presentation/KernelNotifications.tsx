@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AppState, Platform } from 'react-native';
-import type { AgentLifecycle } from '@muxr/contract';
+import type { AgentLifecycle } from '@trymuxr/contract';
 import { useAuth } from '@/account/ui';
 import { useHerdrTree, useLifecycleCatalogAvailable, useLocalSetting, useLocalSettingMutable, useSessions, useSocketStatus } from '@/catalog/store';
 import {

@@ -4,7 +4,7 @@ import { closeSync, constants, lstatSync, openSync, readFileSync, realpathSync }
 import { open } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import type { PluginsInvalidatedFrame, PluginContextRequest, PluginManifestV1, PluginRpcMode, PluginSource, PluginSummary } from '@muxr/contract';
+import type { PluginsInvalidatedFrame, PluginContextRequest, PluginManifestV1, PluginRpcMode, PluginSource, PluginSummary } from '@trymuxr/contract';
 import {
     MAX_RPC_STDERR_BYTES,
     MAX_RPC_STDOUT_BYTES,
@@ -15,7 +15,7 @@ import {
     parseManifest,
     pluginCompatibilityError,
     sanitizeDisplayText,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 
 const MANIFEST_NAME = 'muxr-ui.json';
 const MAX_MANIFEST_BYTES = 64 * 1024;
@@ -271,7 +271,7 @@ async function loadPlugin(
         }
         // Cross-reference checks (data cards must be read mode, screen RPCs,
         // navigation targets, capabilities, duplicate ids) live in the shared
-        // parseManifest from @muxr/contract, so the CLI validates identically.
+        // parseManifest from @trymuxr/contract, so the CLI validates identically.
         // The approval hash binds the complete parsed raw manifest object --
         // including fields this host does not understand -- so ignored future
         // fields still rotate trust when they change. It deliberately excludes

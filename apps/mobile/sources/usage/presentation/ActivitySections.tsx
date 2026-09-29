@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
-import type { UsageActivity, UsageActivityDay, UsageLimitsWindow, UsageTokenCounts } from '@muxr/contract';
+import type { UsageActivity, UsageActivityDay, UsageLimitsWindow, UsageTokenCounts } from '@trymuxr/contract';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { cardStyle, Meter, Notice, SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';

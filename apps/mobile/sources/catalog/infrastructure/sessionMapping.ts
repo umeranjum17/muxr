@@ -1,4 +1,4 @@
-import type { MachineInfo, SessionInfo, SessionStatus } from '@muxr/contract';
+import type { MachineInfo, SessionInfo, SessionStatus } from '@trymuxr/contract';
 import type { Machine } from './storageTypes';
 import type { Session } from '../domain/sessionTypes';
 import { getCachedConnectionSettings } from '@/connection';

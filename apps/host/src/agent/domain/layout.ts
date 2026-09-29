@@ -3,7 +3,7 @@
  * Agent Kind and cwd so a layout can be reapplied after panes move.
  */
 
-import type { LayoutSnapshot } from '@muxr/contract';
+import type { LayoutSnapshot } from '@trymuxr/contract';
 
 export type HerdrLayoutNode =
     | { type: 'pane'; pane_id?: string; cwd?: string; env?: Record<string, string> }

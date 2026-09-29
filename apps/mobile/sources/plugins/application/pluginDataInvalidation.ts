@@ -1,4 +1,4 @@
-import type { PluginsInvalidatedFrame } from '@muxr/contract';
+import type { PluginsInvalidatedFrame } from '@trymuxr/contract';
 import { registerPluginInvalidationHandler } from '@/catalog/sync';
 
 type Listener = (frame: PluginsInvalidatedFrame) => void;

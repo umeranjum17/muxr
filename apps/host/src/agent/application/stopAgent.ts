@@ -1,4 +1,4 @@
-import { parseCloseScope, parsePublicAgentRoute, type CloseResult, type CloseScope } from '@muxr/contract';
+import { parseCloseScope, parsePublicAgentRoute, type CloseResult, type CloseScope } from '@trymuxr/contract';
 import type { SessionSource } from './sessionSource.js';
 
 export type StopAgentCommand =

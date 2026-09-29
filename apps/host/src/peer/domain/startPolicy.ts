@@ -1,4 +1,4 @@
-import type { ClientRequest, PeerCapability } from '@muxr/contract';
+import type { ClientRequest, PeerCapability } from '@trymuxr/contract';
 
 export interface PeerDeviceContext {
     kind: 'native' | 'browser' | 'peer';

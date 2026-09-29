@@ -5,7 +5,7 @@ import {
     type CloseScope,
     type RequestParams,
     type SessionStatus,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import { applyStatusToSession } from '../infrastructure/sessionMapping';
 import type { SessionAgentModesPatch } from '../domain/sessionTypes';
 import { startAgent } from './startAgent';

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { spokenMatches, type SessionInfo } from '@muxr/contract';
+import { spokenMatches, type SessionInfo } from '@trymuxr/contract';
 
 const DESTINATIONS = {
     home: '/',

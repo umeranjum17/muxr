@@ -10,7 +10,7 @@ import * as React from 'react';
 import { Pressable, View } from 'react-native';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
-import type { HerdrTreePane, HerdrTreeTab } from '@muxr/contract';
+import type { HerdrTreePane, HerdrTreeTab } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { StatusDot } from '@/components/StatusDot';
 import { AgentGlyph } from '@/components/AgentGlyph';

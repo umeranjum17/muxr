@@ -1,4 +1,4 @@
-import type { SessionInfo } from '@muxr/contract';
+import type { SessionInfo } from '@trymuxr/contract';
 import type { SessionListOptions, SessionSource } from './sessionSource.js';
 
 export type ListAgentsCommand = SessionListOptions;

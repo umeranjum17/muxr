@@ -1,5 +1,5 @@
 import nacl from 'tweetnacl';
-import { fail, ok, unwrapOrThrow, type Outcome } from '@muxr/contract/shared';
+import { fail, ok, unwrapOrThrow, type Outcome } from '@trymuxr/contract/shared';
 import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from '../infrastructure/encoding.js';
 
 const PAIRING_CODE_PREFIX = 'muxr:pair-code:v1:';

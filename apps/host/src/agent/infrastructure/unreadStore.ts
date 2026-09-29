@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import type { SessionUnreadEntry, UnreadCatalog } from '@muxr/contract';
+import type { SessionUnreadEntry, UnreadCatalog } from '@trymuxr/contract';
 import { createPersistQueue, loadPersistedJson } from '../../platform/persistedJson.js';
 
 interface UnreadRecord extends SessionUnreadEntry {

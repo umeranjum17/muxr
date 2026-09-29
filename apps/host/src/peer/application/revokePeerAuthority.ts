@@ -1,4 +1,4 @@
-import type { PeerClientRequest, PeerRequestResult } from '@muxr/contract';
+import type { PeerClientRequest, PeerRequestResult } from '@trymuxr/contract';
 import type { MachinePendingRotation } from '../../machine/index.js';
 import type { StoredPendingAuthorization, StoredPeerRelationship } from '../infrastructure/store.js';
 

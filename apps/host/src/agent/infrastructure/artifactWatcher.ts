@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { createReadStream, mkdirSync, readdirSync, watch, type FSWatcher, type Stats } from 'node:fs';
 import { open as openAsync, readdir, readFile, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import type { SessionArtifact, SessionArtifactMetadata } from '@muxr/contract';
+import type { SessionArtifact, SessionArtifactMetadata } from '@trymuxr/contract';
 
 export const MAX_ARTIFACTS = 50;
 /** Whole-file fetch is only the small healing path; larger files use chunks/download. */

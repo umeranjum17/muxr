@@ -10,7 +10,7 @@ import { useRouter } from 'expo-router';
 import { Typography } from '@/constants/Typography';
 import { Header } from '@/components/navigation/Header';
 import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
-import { parsePluginScreenParams } from '@muxr/contract';
+import { parsePluginScreenParams } from '@trymuxr/contract';
 import { t } from '@/text';
 
 const styles = StyleSheet.create((theme) => ({

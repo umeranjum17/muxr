@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import type { KeyPair } from '@muxr/crypto';
+import type { KeyPair } from '@trymuxr/crypto';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from './nativeSecretStore';
 import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from './webSecureStore';
 

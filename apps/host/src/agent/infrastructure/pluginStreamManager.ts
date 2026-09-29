@@ -20,7 +20,7 @@ import {
     type RealtimePluginOpenFrame,
     type RealtimePluginPublicContext,
     type RealtimeHostFrame,
-} from '@muxr/contract';
+} from '@trymuxr/contract';
 import type { PeerBroker } from '../../peer/index.js';
 import type { RealtimeCodingCoordinator, RealtimeCoordinatorAccess } from './realtimeCoordinator.js';
 import type { VoiceStreamTransport } from '../application/sessionSource.js';

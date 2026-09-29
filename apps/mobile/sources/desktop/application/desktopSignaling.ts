@@ -1,4 +1,4 @@
-import { DESKTOP_CONSENT_WAIT_MS, type DesktopEvent } from '@muxr/contract';
+import { DESKTOP_CONSENT_WAIT_MS, type DesktopEvent } from '@trymuxr/contract';
 import type { SessionEvent, Signaling } from '@desklink/react-native';
 
 import { sync } from '@/catalog';

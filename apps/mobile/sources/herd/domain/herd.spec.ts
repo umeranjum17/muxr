@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { HerdrTreeWorkspace } from '@muxr/contract';
+import type { HerdrTreeWorkspace } from '@trymuxr/contract';
 import { herdDigest, herdNotificationState, paneStatus, sortHerd } from './herd';
 import { agentBesideName, agentLabels, agentWhoLine } from './agentPresentation';
 import type { Session } from '@/catalog';

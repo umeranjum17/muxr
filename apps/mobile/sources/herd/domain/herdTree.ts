@@ -2,7 +2,7 @@
  * Pure helpers for the Herd tab's herdr-tree rendering (no react-native imports).
  */
 
-import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
+import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import { t } from '@/text';
 
 // A producer that drew its own tree into a flat list prefixes the label with

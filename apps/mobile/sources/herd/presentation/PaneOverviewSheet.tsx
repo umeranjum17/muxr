@@ -12,7 +12,7 @@ import * as React from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
-import type { HerdrTreePane } from '@muxr/contract';
+import type { HerdrTreePane } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Typography } from '@/constants/Typography';

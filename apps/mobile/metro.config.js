@@ -31,8 +31,6 @@ config.resolver.blockList = [
 // `r.__H` crashes. Pin to the CJS bundles so everyone shares state.
 const preactCjsPath = require.resolve('preact');
 const preactHooksCjsPath = require.resolve('preact/hooks');
-const contractEntry = path.resolve(workspaceRoot, "packages/contract/dist/index.js");
-const cryptoEntry = path.resolve(workspaceRoot, "packages/crypto/dist/index.js");
 
 const baseResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
@@ -42,14 +40,10 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (moduleName === 'preact/hooks') {
     return { filePath: preactHooksCjsPath, type: 'sourceFile' };
   }
-  if (moduleName === '@muxr/contract') {
-    return { filePath: contractEntry, type: 'sourceFile' };
-  }
-  if (moduleName.startsWith('@muxr/contract/')) {
-    return { filePath: path.resolve(workspaceRoot, 'packages/contract/dist', moduleName.slice('@muxr/contract/'.length), 'index.js'), type: 'sourceFile' };
-  }
-  if (moduleName === '@muxr/crypto') {
-    return { filePath: cryptoEntry, type: 'sourceFile' };
+  // The shared packages resolve like any installed dependency, so the app
+  // reads the pinned version whether it is the workspace or the registry.
+  if (moduleName.startsWith('@trymuxr/contract') || moduleName.startsWith('@trymuxr/crypto')) {
+    return { filePath: require.resolve(moduleName), type: 'sourceFile' };
   }
   if (baseResolveRequest) {
     return baseResolveRequest(context, moduleName, platform);

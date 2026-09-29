@@ -1,4 +1,4 @@
-import type { PluginAction } from '@muxr/contract';
+import type { PluginAction } from '@trymuxr/contract';
 import { decodeBase64 } from '@/encryption/base64';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';

@@ -2,7 +2,7 @@ import * as React from 'react';
 import { AppState, Linking, Platform } from 'react-native';
 import * as Application from 'expo-application';
 import * as Notifications from 'expo-notifications';
-import type { LifecycleNotificationLevel } from '@muxr/contract';
+import type { LifecycleNotificationLevel } from '@trymuxr/contract';
 import { Item } from '@/components/Item';
 import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';

@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, type HerdrRenameTarget, type HerdrTreePane } from '@muxr/contract';
+import { HERDR_AGENT_NAME_MAX, HERDR_NAME_MAX, type HerdrRenameTarget, type HerdrTreePane } from '@trymuxr/contract';
 import type { AlertButton } from '@/modal';
 import { Modal } from '@/modal';
 import { sync } from '@/catalog/sync';
