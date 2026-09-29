@@ -1828,17 +1828,16 @@ export async function createHerdrSessionSource(
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
             const remaining = Math.max(1_000, deadline - Date.now());
-            await client.kit.wait(
+            const waited = await client.kit.wait(
                 { paneId },
                 { until: ['idle', 'working', 'blocked', 'done'], timeoutMs: remaining },
             );
-            // The kit wait resolves with the status only, so readiness rereads the mirror.
             await refreshSnapshot().catch(() => undefined);
             const agent = agentsByPane.get(paneId);
-            const status = agent?.agent_status;
+            const status = waited === 'unknown' ? agent?.agent_status : waited;
             const lifecycle: AgentLifecycle = status === 'idle' || status === 'working' || status === 'blocked'
                 || status === 'done' || status === 'failed' ? status : 'unknown';
-            if (agent !== undefined && herdrAgentIsPromptable(agent, lifecycle)) return;
+            if (herdrAgentIsPromptable(agent ?? {}, lifecycle)) return;
             await sleep(300);
         }
         throw new Error('herdr agent did not become interactive');
