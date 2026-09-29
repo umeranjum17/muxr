@@ -34,16 +34,39 @@ function squash(value: string): string {
     return value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
+// Leading spinners and marks a harness puts in front (`✳`, `⠋`). Linear
+// scan: the flagged `^[^...]+` repetition is equivalent to skipping chars.
+function stripLeadingMarks(value: string): string {
+    let i = 0;
+    // By code point: a lone UTF-16 half never tests as a letter or number.
+    for (const ch of value) {
+        if (ch === '#' || ch === '(' || ch === '[' || ch === '"' || ch === "'" || ch === '\u201c' || /[\p{L}\p{N}]/u.test(ch)) break;
+        i += ch.length;
+    }
+    return value.slice(i);
+}
+
+// A trailing `(note)` that only names the program, folder or state, e.g.
+// `Fix login (pi)`. Linear: `lastIndexOf` instead of the flagged
+// `\s*\(([^)]*)\)$` repetition.
+function stripNoisySuffix(part: string, noise: ReadonlySet<string>): string {
+    if (!part.endsWith(')')) return part;
+    const open = part.lastIndexOf('(');
+    if (open === -1) return part;
+    const inner = part.slice(open + 1, -1);
+    if (inner.includes(')')) return part;
+    return noise.has(squash(inner)) ? part.slice(0, open).trimEnd() : part;
+}
+
 function meaningful(value: string | null | undefined, noise: ReadonlySet<string>): string | undefined {
     const trimmed = value?.trim();
     if (!trimmed) return undefined;
     // A shell prompt or a path: where the program sits, not what it does.
     if (/^[^\s@]+@[^\s:]+:/.test(trimmed) || /^[~/]/.test(trimmed)) return undefined;
-    // Spinners and marks a harness puts in front (`✳`, `⠋`).
-    const unmarked = trimmed.replace(/^[^\p{L}\p{N}#(["'“]+/u, '');
+    const unmarked = stripLeadingMarks(trimmed);
     const parts = unmarked.split(/\s+[-–—|·]\s+/);
     const kept = parts
-        .map((part) => part.replace(/\s*\(([^)]*)\)$/, (whole, inner: string) => noise.has(squash(inner)) ? '' : whole).trim())
+        .map((part) => stripNoisySuffix(part, noise).trim())
         .filter((part) => {
             const key = squash(part);
             return key.length > 1 && !noise.has(key);
@@ -52,8 +75,19 @@ function meaningful(value: string | null | undefined, noise: ReadonlySet<string>
     return kept.length === parts.length && kept.every((part, index) => part === parts[index]) ? unmarked : kept.join(' - ');
 }
 
+// The last non-empty `/`-separated segment. Linear split-and-scan instead of
+// the flagged `/\/+$/` repetition.
+function folderName(cwd: string | null | undefined): string | undefined {
+    if (!cwd) return undefined;
+    const parts = cwd.split('/');
+    for (let i = parts.length - 1; i >= 0; i -= 1) {
+        if (parts[i] !== '') return parts[i];
+    }
+    return undefined;
+}
+
 export function agentTask(sources: AgentTaskSources): string | undefined {
-    const folder = sources.cwd?.replace(/\/+$/, '').split('/').pop();
+    const folder = folderName(sources.cwd);
     const noise = new Set([...PROGRAM_NAMES, ...[folder, sources.agentName, sources.agentKind].flatMap((value) => value ? [squash(value)] : [])]);
     return meaningful(sources.label, noise)
         ?? meaningful(sources.terminalTitle, noise)
