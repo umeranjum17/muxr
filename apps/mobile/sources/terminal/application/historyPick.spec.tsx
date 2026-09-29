@@ -48,8 +48,8 @@ vi.mock('@/catalog/sync', () => ({
     sync: { request: () => Promise.resolve({ text: 'line one\nline two', truncated: false }) },
 }));
 vi.mock('@/herd', () => ({
-    agentLabels: () => ({ taskTitle: 'Fix the login bug', agentName: 'Claude' }),
-    agentNameLine: () => 'Claude',
+    agentLabels: () => ({ title: 'Fix the login bug', task: 'Fix the login bug', agentName: 'Claude' }),
+    agentWhoLine: () => 'Claude',
     herdrPaneForSession: () => ({ paneId: PANE }),
     isShellLabels: () => false,
 }));

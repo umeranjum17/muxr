@@ -4,8 +4,8 @@ import { LocalSettings, localSettingsDefaults, localSettingsParse } from './loca
 import { Profile, profileDefaults, profileParse } from '../domain/profile';
 import { AGENT_KINDS } from '../domain/agentKinds';
 import type { Session } from '../domain/sessionTypes';
-import type { HerdrTreeWorkspace } from '@muxr/contract';
-import { agentLabels } from '@/herd/labels';
+import type { HerdrTreePane, HerdrTreeWorkspace } from '@muxr/contract';
+import { agentLabels, isShellLabels } from '@/herd/labels';
 type PermissionModeKey = string;
 
 const mmkv = new MMKV();
@@ -286,6 +286,13 @@ export function loadHomeSnapshot(machineId: string): HomeSnapshot | null {
     }
 }
 
+/** What the pane leads with, kept so a cold launch draws the same row: an agent's task, a shell's title. */
+function snapshotTitle(pane: HerdrTreePane): { taskTitle?: string } {
+    const labels = agentLabels(pane);
+    const title = isShellLabels(labels) ? labels.title : labels.task;
+    return title === undefined ? {} : { taskTitle: title };
+}
+
 export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspace[], sessions: Session[], names: ReadonlyMap<string, string>, parents: ReadonlyMap<string, string>): void {
     mmkv.delete(OLD_HOME_SNAPSHOT_KEY);
     const snapshot: HomeSnapshot = {
@@ -309,7 +316,7 @@ export function saveHomeSnapshot(machineId: string, workspaces: HerdrTreeWorkspa
                     paneId: pane.paneId,
                     tabId: pane.tabId,
                     sessionId: pane.sessionId,
-                    taskTitle: agentLabels(pane).taskTitle,
+                    ...snapshotTitle(pane),
                     focused: pane.focused,
                     agentName: pane.agentName,
                     agentKind: pane.agentKind,
