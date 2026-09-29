@@ -7,7 +7,7 @@
  */
 import type { UsageNow, UsageReport } from '@muxr/contract';
 import { NOT_CONNECTED_MESSAGE, tightestWindow } from '../domain/usageWindows.js';
-import { collectUsage, lastKnownPlans } from './collectUsage.js';
+import { collectPlans, lastKnownPlans } from './collectUsage.js';
 import { vitalsFigures } from './vitals.js';
 
 /** Past this a cold collection answers without its limit window and the vitals
@@ -27,7 +27,7 @@ export async function usageNow(env: NodeJS.ProcessEnv = process.env, { refresh =
     let output: Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'> | undefined;
     // A forced read bypasses the recent shared collection; a normal read
     // joins one in flight or starts one when the last collection is stale.
-    const collection = collectUsage({ ...(refresh ? { refresh: true } : {}) }, env).catch(() => undefined);
+    const collection = collectPlans({ ...(refresh ? { refresh: true } : {}) }, env).catch(() => undefined);
     let known: ReturnType<typeof lastKnownPlans>;
     try { known = lastKnownPlans(env); } catch { known = undefined; }
     try {
