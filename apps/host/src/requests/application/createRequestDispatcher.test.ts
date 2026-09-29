@@ -696,3 +696,18 @@ describe('host error propagation to the phone', () => {
         expect(reply.error).toContain('[redacted]');
     });
 });
+
+describe('dispatcher close', () => {
+    it('cascades to the session source dispose', async () => {
+        let disposed = 0;
+        const source = { async dispose() { disposed += 1; } } as unknown as SessionSource;
+        const dispatcher = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        });
+        await dispatcher.close();
+        expect(disposed).toBe(1);
+    });
+});

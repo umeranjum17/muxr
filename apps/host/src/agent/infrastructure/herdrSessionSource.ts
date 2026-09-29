@@ -796,6 +796,8 @@ export async function createHerdrSessionSource(
     /** One in-flight agent.watch per session; re-arming replaces the old one. */
     const watches = new Map<string, ReturnType<typeof setTimeout>>();
     let pluginPollTimer: NodeJS.Timeout | undefined;
+    /** dispose/close run once: the host shutdown path and a lab script may both close. */
+    let disposed = false;
     let pluginDigests: Map<string, string> | undefined;
     let pluginEnabled = new Map<string, boolean>();
 
@@ -2721,7 +2723,7 @@ export async function createHerdrSessionSource(
         }
     }
 
-    return {
+    const source: SessionSource = {
         async refreshHerdr(): Promise<void> {
             await refreshSnapshot();
             emitAllStates();
@@ -3768,19 +3770,43 @@ export async function createHerdrSessionSource(
         },
 
         async dispose(): Promise<void> {
+            if (disposed) return;
+            disposed = true;
+            let firstError: unknown;
+            const settle = async (work: () => Promise<void> | void): Promise<void> => {
+                try {
+                    await work();
+                } catch (error) {
+                    firstError ??= error;
+                }
+            };
             if (resnapshotTimer !== undefined) clearTimeout(resnapshotTimer);
             if (pluginPollTimer !== undefined) clearInterval(pluginPollTimer);
-            pluginStreams?.closeAll();
-            await codingCoordinator?.close();
-            stopArtifactRetention();
-            artifacts.dispose();
-            artifactDownloadServer.dispose();
-            for (const close of statusWatches.values()) close();
-            statusWatches.clear();
-            for (const abort of voiceStreamAborts.values()) abort.abort();
-            voiceStreamAborts.clear();
-            await client.close();
-            await routes.flush();
+            // agentWatch arms one guard timer per session, up to an hour out:
+            // without this a script that only watched never exits.
+            for (const guard of watches.values()) clearTimeout(guard);
+            watches.clear();
+            await settle(() => pluginStreams?.closeAll());
+            await settle(() => codingCoordinator?.close());
+            await settle(() => stopArtifactRetention());
+            await settle(() => artifacts.dispose());
+            await settle(() => artifactDownloadServer.dispose());
+            await settle(() => {
+                for (const close of statusWatches.values()) close();
+                statusWatches.clear();
+            });
+            await settle(() => {
+                for (const abort of voiceStreamAborts.values()) abort.abort();
+                voiceStreamAborts.clear();
+            });
+            await settle(() => client.close());
+            await settle(() => routes.flush());
+            if (firstError !== undefined) throw firstError;
+        },
+
+        async close(): Promise<void> {
+            await source.dispose();
         },
     };
+    return source;
 }
