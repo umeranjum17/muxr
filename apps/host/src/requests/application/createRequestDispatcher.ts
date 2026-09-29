@@ -504,7 +504,11 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             } catch (error) {
                 if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
                     const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
-                    throw new Error(`Couldn't start on ${name}. Try again or go back.`);
+                    const sessionId = (error as { sessionId?: unknown }).sessionId;
+                    throw Object.assign(new Error(`Couldn't start on ${name}. Try again or go back.`), {
+                        code: 'plan-move-start-failed',
+                        ...(typeof sessionId === 'string' ? { sessionId } : {}),
+                    });
                 }
                 throw error;
             }
