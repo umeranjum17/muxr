@@ -11,7 +11,7 @@ import type {
     RequestResult,
     RequestType,
 } from '@muxr/contract';
-import { sanitizeRequestErrorMessage } from '@muxr/contract';
+import { machineHello, sanitizeRequestErrorMessage } from '@muxr/contract';
 import type { AgentWatchStores, SessionSource, TerminalManager } from '../../agent/index.js';
 import { changesBrowse, changesList, changesPatch, changesWorktrees } from '../../agent/index.js';
 import {
@@ -88,7 +88,7 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'artifact.list', 'artifact.fetch', 'artifact.read', 'unread.catalog',
     // The pre-rename spellings are the same read-only calls.
     'attachment.list', 'attachment.fetch', 'attachment.read',
-    'attention.catalog', 'lifecycle.catalog', 'machines.list',
+    'attention.catalog', 'lifecycle.catalog', 'machines.list', 'machine.hello',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
     'usage.report', 'usage.now',
     // Voice readiness is readable by every grant; changing a provider or its
@@ -452,6 +452,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(options.connectionMode === undefined ? {} : { connectionMode: options.connectionMode }),
             ...(options.pairedDeviceCount === undefined ? {} : { pairedDeviceCount: options.pairedDeviceCount() }),
         }).data,
+        'machine.hello': async () => machineHello(machineId, hostVersion),
         'machine.shell': (params) => runMachineShell(params.command, params.cwd),
         'machine.listDir': (params) => listDir(params.path),
         'usage.report': (params) => collectUsage({

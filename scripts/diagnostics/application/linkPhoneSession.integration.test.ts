@@ -7,6 +7,7 @@ vi.mock('expo-device', () => ({ isDevice: false }));
 vi.mock('expo-secure-store', () => ({ getItemAsync: async () => null }));
 vi.mock('@react-native-async-storage/async-storage', () => ({ default: { getItem: async () => null } }));
 import { generateKeyPair, generateSigningKeyPair } from '@muxr/crypto';
+import { machineHello, type MachineHello } from '@muxr/contract';
 import { startRelay } from '@muxr/relay';
 import { LinkEndpoint } from '../../../apps/host/src/machine/infrastructure/linkEndpoint.js';
 import { LinkFirstClient } from '../../../apps/mobile/sources/pairing/infrastructure/linkFirstClient.js';
@@ -25,7 +26,7 @@ async function until(check: () => boolean, reason: string, ms = 12_000): Promise
 }
 
 describe('browser session over byokit', () => {
-    it('shows one re-pair notice, then serves five agents and reconnects a browser over the live link', { timeout: 40_000 }, async () => {
+    it('shows one re-pair notice, then serves five agents, reconnects a browser and refuses a host it cannot speak to', { timeout: 40_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-browser-link-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
@@ -55,20 +56,22 @@ describe('browser session over byokit', () => {
         expect(notices).toEqual([expect.stringContaining('pair again')]);
         old.close();
 
-        const client = new LinkFirstClient({ hostedGrant: stored });
+        const client = new LinkFirstClient({ hostedGrant: stored, onPermanentError: (message) => notices.push(message) });
         cleanups.push(() => client.close());
         client.connect();
         await until(() => client.state === 'connecting', 'first dial');
         // The host registers after the first dial has already failed; a
         // disconnected-only retry would strand this browser on an online relay.
         await new Promise((resolve) => setTimeout(resolve, 800));
-        const openEndpoint = () => LinkEndpoint.open({
+        // The first host predates the handshake and cannot answer machine.hello.
+        const openEndpoint = (hello?: MachineHello) => LinkEndpoint.open({
             relayUrl,
             ownerToken: JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string,
             machineName: 'Desk', crypto, currentCrypto: () => crypto,
             savePushLevel: () => undefined,
             grants: { load: () => [], save: () => undefined },
             answer: async (frame) => {
+                if (frame.type === 'machine.hello' && hello !== undefined) return { type: 'result', requestId: frame.requestId, ok: true, data: hello };
                 if (frame.type === 'machines.list') return { type: 'result', requestId: frame.requestId, ok: true, data: [{ machineId: 'machine', name: 'Desk' }] };
                 if (frame.type === 'session.list') {
                     await new Promise((resolve) => setTimeout(resolve, 105));
@@ -89,9 +92,19 @@ describe('browser session over byokit', () => {
         expect(catalogs.every((sessions) => sessions.length === 5)).toBe(true);
         endpoint!.close();
         await until(() => client.state === 'connecting', 'link offline after host stop');
-        endpoint = await openEndpoint();
+        endpoint = await openEndpoint(machineHello('machine', '0.2.1'));
         endpoint!.start();
-        await until(() => client.state === 'open', 'browser reconnects to host');
+        await until(() => client.state === 'open', 'browser reconnects to a current host');
         expect((await client.request('session.list', {})).length).toBe(5);
+        expect(notices.some((notice) => notice.startsWith('Update needed'))).toBe(false);
+        endpoint!.close();
+        await until(() => client.state === 'connecting', 'link offline before the host update');
+
+        // A host that has moved past every protocol this app speaks.
+        endpoint = await openEndpoint({ ...machineHello('machine', '9.0.0'), protocol: 9, capabilityRange: { min: 9, max: 9 } });
+        endpoint!.start();
+        await until(() => client.state === 'stale', 'browser refuses the incompatible host');
+        expect(notices.at(-1)).toBe('Update needed: Your computer runs muxr 9.0.0, which is newer than this app supports. Update the app, then reconnect.');
+        await expect(client.request('session.list', {})).rejects.toThrow();
     });
 });

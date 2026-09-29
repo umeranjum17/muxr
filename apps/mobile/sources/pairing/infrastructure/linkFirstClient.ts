@@ -1,11 +1,13 @@
 import { DeviceLink, LINK_WORDS, LinkError, PublicLinkError, type LinkStatus } from '@byokit/link';
 import {
+    checkHostProtocol,
     isPluginsInvalidatedFrame,
     nextRequestId,
     normalizeRequestFailure,
     type ClientRequest,
     type HostFrame,
     type LifecycleNotificationLevel,
+    type MachineHello,
     type RequestParams,
     type RequestResult,
     type RequestType,
@@ -71,6 +73,13 @@ function linkRequestFailure(type: RequestType, error: string, code?: string): Mu
     return new MuxrRequestError(normalized.message, normalized.code);
 }
 
+function protocolMismatchMessage(reason: 'host-too-old' | 'host-too-new', hostVersion: string | undefined): string {
+    const computer = hostVersion !== undefined && /^\d+\.\d+\.\d+/.test(hostVersion) ? `muxr ${hostVersion}` : 'muxr';
+    return reason === 'host-too-old'
+        ? `Update needed: Your computer runs ${computer}, which is too old for this app. Update muxr on the computer, then reconnect.`
+        : `Update needed: Your computer runs ${computer}, which is newer than this app supports. Update the app, then reconnect.`;
+}
+
 function relayRoute(url: string): string {
     try {
         const host = new URL(url).hostname;
@@ -94,6 +103,7 @@ export class LinkFirstClient implements SessionClient {
     private retryAttempt = 0;
     private lastHealthCheck = 0;
     private healthGeneration = 0;
+    private handshake = 0;
     private lastPush: { token: string; level: LifecycleNotificationLevel } | undefined;
     private readonly stateListeners = new Set<(state: ConnectionState) => void>();
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
@@ -401,16 +411,11 @@ export class LinkFirstClient implements SessionClient {
 
     private onLinkStatus(status: LinkStatus): void {
         if (this.closed || this.link === undefined) return;
+        const handshake = ++this.handshake;
         if (status === 'online') {
             this.healthGeneration++;
             this.retryAttempt = 0;
-            this.online = true;
-            this.setState('open', true);
-            // The registration may have ridden the relay HTTP API while the link
-            // was down; re-register here so one device lives in one push store.
-            if (this.lastPush !== undefined) {
-                void this.registerPush(this.lastPush.token, this.lastPush.level).catch(() => undefined);
-            }
+            void this.admitHost(this.link, handshake);
             return;
         }
         if (status === 'removed') {
@@ -433,6 +438,28 @@ export class LinkFirstClient implements SessionClient {
         if (this.online) {
             this.online = false;
             this.setState('connecting', true);
+        }
+    }
+
+    /** The link is up; open it only to a host whose protocol this app speaks. */
+    private async admitHost(link: DeviceLink, handshake: number): Promise<void> {
+        let hello: MachineHello | undefined;
+        // A host that predates the handshake cannot answer: it speaks the baseline protocol.
+        try { hello = await this.request('machine.hello', {}, 5_000); } catch { hello = undefined; }
+        if (this.closed || this.link !== link || handshake !== this.handshake) return;
+        const compatibility = checkHostProtocol(hello);
+        if (!compatibility.ok) {
+            this.stopLink();
+            this.setState('stale', true);
+            this.options.onPermanentError?.(protocolMismatchMessage(compatibility.reason, hello?.hostVersion));
+            return;
+        }
+        this.online = true;
+        this.setState('open', true);
+        // The registration may have ridden the relay HTTP API while the link
+        // was down; re-register here so one device lives in one push store.
+        if (this.lastPush !== undefined) {
+            void this.registerPush(this.lastPush.token, this.lastPush.level).catch(() => undefined);
         }
     }
 

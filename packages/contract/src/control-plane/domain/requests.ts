@@ -40,6 +40,7 @@ import type {
     VoiceStatus,
 } from '../../voice/index.js';
 import type { LandWorktreeResult } from '../../worktree/index.js';
+import type { MachineHello } from './envelope.js';
 import type { AttentionCatalog, CloseResult, CloseScope, HerdrTreeWorkspace, LifecycleCatalog, SessionArtifactMetadata, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
 import type {
     PeerAuthorityMetadata,
@@ -643,6 +644,8 @@ export interface RequestMap extends PeerRequestMap {
 
     // --- machines -----------------------------------------------------------
     'machines.list': { params: Record<string, never>; result: MachineInfo[] };
+    /** The protocol handshake the app runs on every connect; older hosts lack it. */
+    'machine.hello': { params: Record<string, never>; result: MachineHello };
     /*
      * A shell that is not bound to a session: creating a git worktree has to
      * happen before the session that will live in it exists. Same trust
