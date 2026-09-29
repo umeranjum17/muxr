@@ -540,6 +540,7 @@ describe('plan account launch and move', () => {
                     moves.push(options);
                     return { sessionId: 'moved' };
                 },
+                async list() { return [{ id: 'moved', paneId: 'w1:p2' }]; },
             } as unknown as SessionSource;
             const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
             const moved = await dispatch({ type: 'plans.move', requestId: 'm1', params: { sessionId: 's1', accountId: 'pa_w' } });

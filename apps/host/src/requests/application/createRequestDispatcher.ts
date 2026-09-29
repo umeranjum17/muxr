@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import type {
     ClientRequest,
     PeerClientRequest,
@@ -44,7 +45,22 @@ import {
 } from '../../voice/index.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
-import { PLAN_LABELS, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanRecord } from '../../plans/index.js';
+import {
+    PLAN_LABELS,
+    acknowledgeAutoTerms,
+    listPlans,
+    planAccountStatus,
+    planLaunchEnv,
+    planPaneAccount,
+    planSignInLaunch,
+    preparePlanSignIn,
+    rememberPlanPane,
+    rememberSignInTab,
+    removePlanAccount,
+    takeSignInTab,
+    renamePlanAccount,
+    resolvePlanRecord,
+} from '../../plans/index.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { PreviewDesktops, androidCapabilities, withAndroidPreview, withPreview, type AndroidPreviewTargets } from '../../desktop/index.js';
@@ -98,7 +114,7 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'promptAttachments.list',
     'usage.report', 'usage.now',
     // Plan account names and emails are readable; changing them is a mutation.
-    'plans.list',
+    'plans.list', 'plans.agent',
     // Voice readiness is readable by every grant; changing a provider or its
     // key is a mutation and stays out of this set. The spoken report sentence
     // is derived without touching host state, so it stays readable too.
@@ -196,6 +212,25 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         return { sessionId, cwd: record.cwd ?? '', ...(root === undefined ? {} : { root }) };
     };
 
+    /** An agent's route can change once it settles; its pane is what a plan account rides on. */
+    const planPaneOf = async (sessionId: string): Promise<string> =>
+        (await source.list()).find((session) => session.id === sessionId)?.paneId ?? sessionId;
+
+    /** Close a sign-in tab muxr opened: its only pane, and the tab with it. */
+    const closeSignInTab = async (accountId: string): Promise<{ created: boolean } | undefined> => {
+        const tab = takeSignInTab(accountId);
+        if (tab === undefined) return undefined;
+        const session = (await source.list()).find((candidate) => candidate.paneId === tab.paneId);
+        if (session !== undefined) {
+            const first = await source.stop(session.id, {}).catch(() => undefined);
+            if (first?.status === 'confirmationRequired' && first.scope === 'tab') {
+                await source.stop(session.id, { confirmedScope: 'tab' }).catch(() => undefined);
+            }
+        }
+        return tab;
+    };
+    };
+
     const handlers: { [K in NonPeerRequestType]: Handler<K> } = {
         'session.list': async (params) => {
             const listed = await listAgents(source, params.cwd === undefined ? {} : { cwd: params.cwd });
@@ -275,7 +310,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     );
                 }
             }
-            return useCaseData(await startAgent({
+            const started = useCaseData(await startAgent({
                 exists: existsSync,
                 create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
                 start: (command) => source.start(command),
@@ -283,6 +318,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 ...start,
                 ...(record === undefined ? {} : { planEnv: planLaunchEnv(record) }),
             }));
+            if (record !== undefined && 'info' in started) rememberPlanPane(process.env, started.info.paneId ?? started.info.id, record.id);
+            return started;
         },
         'session.open': async (params) => useCaseData(await openAgent(source, params)),
         'herdr.tree': async () => source.herdrTree(),
@@ -554,11 +591,13 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 );
             }
             try {
-                return await source.movePlanAccount({
+                const moved = await source.movePlanAccount({
                     sessionId: params.sessionId,
                     provider: record.provider,
                     folder: record.folder,
                 });
+                rememberPlanPane(process.env, await planPaneOf(moved.sessionId), record.id);
+                return moved;
             } catch (error) {
                 if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
                     const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
@@ -571,6 +610,30 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 throw error;
             }
         },
+        'plans.add': async (params) => {
+            const { record, created } = preparePlanSignIn(process.env, params.provider, params.accountId);
+            const started = useCaseData(await startAgent({
+                exists: existsSync,
+                create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
+                start: (command) => source.start(command),
+            }, { cwd: homedir(), ...planSignInLaunch(record) }));
+            if (!('info' in started)) throw new Error(`Couldn't open ${PLAN_LABELS[record.provider]} sign-in. Try again.`);
+            rememberSignInTab(record.id, started.info.paneId ?? '', created);
+            return { accountId: record.id, sessionId: started.info.id };
+        },
+        'plans.status': async (params) => {
+            const status = await planAccountStatus(process.env, params.accountId);
+            // Signed in: the tool's tab has done its job, so muxr closes it.
+            if (status.account.signedIn) await closeSignInTab(params.accountId);
+            return status;
+        },
+        'plans.cancel': async (params) => {
+            const tab = await closeSignInTab(params.accountId);
+            if (tab?.created !== true) return { removed: false };
+            removePlanAccount(process.env, params.accountId);
+            return { removed: true };
+        },
+        'plans.agent': async (params) => planPaneAccount(process.env, await planPaneOf(params.sessionId)),
         'voice.status': () => voiceStatus(),
         'voice.provider.list': () => voiceProviderList(),
         'voice.provider.set': (params) => voiceProviderSet(params.providerId),

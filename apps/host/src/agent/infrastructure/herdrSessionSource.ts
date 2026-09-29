@@ -1569,7 +1569,8 @@ export async function createHerdrSessionSource(
         const deadline = Date.now() + 15_000;
         for (;;) {
             try {
-                const result = await client.kit.read(paneId, { source: 'recent', lines: 40 });
+                // Unwrapped: on a phone-width split the echoed folder path wraps.
+                const result = await client.kit.read(paneId, { source: 'recent_unwrapped', lines: 40 });
                 const readings = (result.text ?? '')
                     .split('\n')
                     .map((entry) => entry.trim())
@@ -2121,7 +2122,7 @@ export async function createHerdrSessionSource(
             });
             transition(session, 'starting', 'start-requested');
             emitState(session.sessionId);
-            void confirmLaunch(paneId, kind, session.sessionId);
+            if (startOptions.signIn !== true) void confirmLaunch(paneId, kind, session.sessionId);
             return snapshotFor(session, true);
         } catch (error) {
             planAccountByPane.delete(paneId);
@@ -3164,6 +3165,7 @@ export async function createHerdrSessionSource(
                     { code: 'plan-move-env-mismatch' },
                 );
             }
+            const name = record.agent?.name ?? undefined;
             moveRetainedRoutes.set(record.sessionId, conversation);
             try {
                 await client.call('pane.close', { pane_id: record.paneId });
@@ -3206,10 +3208,20 @@ export async function createHerdrSessionSource(
                     cause: error,
                 });
             }
-            void confirmLaunch(newPaneId, kind, found.sessionId);
+            // Herdr owns the name and took it along with the old pane; it
+            // accepts a rename only once the new agent's startup settles.
+            // Answer once it is back (or soon anyway), so "Moved" and the
+            // agent's own name reach the phone together.
+            const named = confirmLaunch(newPaneId, kind, found.sessionId).then(async () => {
+                if (name === undefined) return;
+                await renameInHerdr(client, 'agent', newPaneId, name).catch(() => undefined);
+                await refreshSnapshot();
+                emitAllStates();
+            }).catch(() => undefined);
             moveRetainedRoutes.delete(record.sessionId);
             planAccountByPane.set(newPaneId, moveOptions.folder);
             if (found.sessionId !== record.sessionId) forgetClosedSession(record.sessionId, record.paneId);
+            await Promise.race([named, sleep(8_000)]);
             return { sessionId: found.sessionId };
         },
 

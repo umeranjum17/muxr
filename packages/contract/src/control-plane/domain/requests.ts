@@ -818,6 +818,18 @@ export interface RequestMap extends PeerRequestMap {
      * which is the same session when its route rebinds and the new one otherwise.
      */
     'plans.move': { params: { sessionId: string; accountId: string }; result: { sessionId: string } };
+    /**
+     * Open the provider's own sign-in in a new tab: a fresh private folder for
+     * a new account, or the account's own folder to sign in again. The person
+     * signs in inside the real tool; the tab is the returned session.
+     */
+    'plans.add': { params: { provider: string; accountId?: string }; result: { accountId: string; sessionId: string } };
+    /** One account as its tool reports it now, polled while the person signs in. Once signed in, its sign-in tab closes. */
+    'plans.status': { params: { accountId: string }; result: { account: PlanAccount } };
+    /** Stop waiting for a sign-in: its tab closes, and a new account that never signed in is removed. */
+    'plans.cancel': { params: { accountId: string }; result: { removed: boolean } };
+    /** The account a running agent was started or moved on; absent means the computer's own sign-in. */
+    'plans.agent': { params: { sessionId: string }; result: { accountId?: string } };
 
     // --- realtime voice -------------------------------------------------------
     // Product-owned. The provider adapters are internal host modules, so these
