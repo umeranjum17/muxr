@@ -24,6 +24,7 @@
     "@byokit/link": "0.3.2",
     "@byokit/reach": "0.2.0",
     "@byokit/seal": "0.1.0",
+    "@byokit/ui-core": "0.3.0",
     "@trymuxr/contract": "0.1.0",
     "@trymuxr/crypto": "0.1.0",
     "@paralleldrive/cuid2": "^2.3.1",

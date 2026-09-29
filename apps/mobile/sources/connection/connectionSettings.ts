@@ -5,29 +5,6 @@ import { getWebSecret, setWebSecret } from '@/pairing/secrets';
 const STORAGE_KEY = 'muxr.connection.v1';
 const MAX_RECENT_CWDS = 5;
 
-function isTailscaleHost(hostname: string): boolean {
-    return hostname.endsWith('.ts.net')
-        || /^100\.(6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])\./.test(hostname);
-}
-
-function isPrivateLanHost(hostname: string): boolean {
-    return /^(localhost|127\.)/.test(hostname)
-        || /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname);
-}
-
-export function pairingTransport(relayUrl: string | undefined): string | undefined {
-    if (relayUrl === undefined) return undefined;
-    try {
-        const { hostname, protocol } = new URL(relayUrl);
-        if (isTailscaleHost(hostname)) return 'Tailscale';
-        if (hostname.endsWith('.trycloudflare.com')) return 'Cloudflare tunnel';
-        if ((protocol === 'ws:' || protocol === 'wss:') && isPrivateLanHost(hostname)) return 'Local or private network';
-        return 'Hosted VPS / custom relay';
-    } catch {
-        return undefined;
-    }
-}
-
 export interface SshTarget {
     /** Host running sshd; never a muxr machine name or display label. */
     host: string;

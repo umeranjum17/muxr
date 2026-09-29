@@ -37,7 +37,8 @@ import { MOBILE_GLASS_HEADER_HEIGHT } from '@/components/navigation/headerMetric
 import { useNewSessionDraft } from '@/spawn';
 import { useStartSessionFromDraft } from '@/spawn';
 import { listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
-import { getCachedConnectionSettings, pairingTransport, saveConnectionSettings } from '@/connection';
+import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
+import { describeRoute } from '@byokit/ui-core/route';
 import { useDeviceAuthority } from '@/pairing';
 import { useAuth } from '@/account/ui';
 import { useVisibleSessionListViewData } from '../application/useVisibleSessionListViewData';
@@ -191,7 +192,7 @@ const HeaderTitle = React.memo(({ large = false, homeRecovering = false }: { lar
     const machineOptions = React.useMemo<ModelMode[]>(() => pairedGrants.map((grant) => ({
         key: grant.machineId,
         name: grant.machineName || 'Paired computer',
-        description: grant.machineId === activeMachineId ? 'Active' : pairingTransport(grant.relayUrl),
+        description: grant.machineId === activeMachineId ? 'Active' : describeRoute(grant.relayUrl),
     })), [activeMachineId, pairedGrants]);
 
     const openMachinePicker = React.useCallback(async () => {

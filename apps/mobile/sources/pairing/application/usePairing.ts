@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { pairingConsentCopy } from '../infrastructure/pairingPlatform';
+import { consentWords, pairingView } from '@byokit/ui-core/link';
+import { pairingDeviceKind } from '../infrastructure/pairingPlatform';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
@@ -41,17 +42,25 @@ export function useHostedPairing() {
  * over the machine's own link both land.
  */
 export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>, options: { tunnelPort?: number } = {}): Promise<boolean> {
-    const copy = pairingConsentCopy();
+    // Native pairings always grant control; browser pairings default to control
+    // (`muxr pair --browser`, view-only only with an explicit view flag), and the
+    // computer screen states the actual authority being approved.
+    const device = pairingDeviceKind();
+    const detail = device === 'browser'
+        ? 'It receives the access shown on the pairing screen. Only continue if you just ran `muxr pair --browser` on that computer.'
+        : 'It can also read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr. Only continue if you just ran `muxr pair` on that computer.';
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
-    const approved = await Modal.confirm(`Pair with ${machineName}?`, copy.confirmation, { confirmText: 'Pair' });
+    const approved = await Modal.confirm(
+        `Pair with ${machineName}?`,
+        consentWords({ hostName: machineName, role: 'control', device, detail }),
+        { confirmText: 'Pair' },
+    );
     if (!approved) return false;
     const grant = await pairOverLink(scanned, {
         ...options,
         onWords: (words) => {
-            void Modal.alert(
-                'Compare the two words',
-                copy.comparison(words),
-            );
+            const view = pairingView({ phase: 'compare', hostName: machineName, words, device });
+            void Modal.alert(view.title, view.words);
         },
     });
     // Activation runs through the shared path so a pinned voice session and a

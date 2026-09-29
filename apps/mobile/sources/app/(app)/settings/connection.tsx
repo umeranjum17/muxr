@@ -14,7 +14,6 @@ import {
     executeSshCommand,
     getCachedConnectionSettings,
     loadConnectionSettingsAsync,
-    pairingTransport,
     parseSshFields,
     pinSshHostKey,
     saveConnectionSettings,
@@ -30,6 +29,7 @@ import {
     stopSshTunnel,
 } from '@/connection';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { describeRoute } from '@byokit/ui-core/route';
 import { t } from '@/text';
 import { Stack } from 'expo-router';
 import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
@@ -534,7 +534,7 @@ export default function ConnectionSettingsScreen() {
             unavailable: 'Nearby discovery is unavailable in this app build. Refresh the route with muxr setup on the computer, then pair by QR or string if needed.',
             failed: 'Nearby discovery failed. Check Wi-Fi and retry; muxr setup on the computer can refresh its route if the address changed.',
         };
-        const staleLanHint = status !== 'connected' && pairingTransport(initial.relayUrl) === 'Local or private network'
+        const staleLanHint = status !== 'connected' && describeRoute(initial.relayUrl) === 'Local or private network'
             ? ' The saved LAN address may have changed.' : '';
         const canRetryNearby = Platform.OS !== 'web' && !['disabled', 'unavailable'].includes(nearbyPhase);
         const transportPrivacy = initial.ssh !== undefined && sshSupported
@@ -546,7 +546,7 @@ export default function ConnectionSettingsScreen() {
         const browserRole = browserGrant?.authority === 'control' ? 'Control' : 'View only';
         const mode = machine?.metadata?.connectionMode;
         const knownRoute = mode === undefined ? undefined : routeNames[mode];
-        const route = knownRoute ?? pairingTransport(initial.relayUrl) ?? 'Unknown';
+        const route = knownRoute ?? describeRoute(initial.relayUrl) ?? 'Unknown';
         const routeDetail = mode !== undefined && routeDetails[mode] !== undefined
             ? routeDetails[mode]
             : 'The host has not reported its selected route; this label is inferred from the relay address.';
