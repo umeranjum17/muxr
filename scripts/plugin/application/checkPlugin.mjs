@@ -184,7 +184,7 @@ export function createPlugin(path) {
         `id = "${pluginId}"`,
         `name = ${JSON.stringify(title)}`,
         'version = "0.1.0"',
-        'min_herdr_version = "0.8.0"',
+        'min_herdr_version = "0.9.1"',
         `description = ${JSON.stringify(`${title} muxr plugin`)}`,
         'platforms = ["linux", "macos", "windows"]',
         '',

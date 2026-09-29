@@ -41,7 +41,7 @@ writeFileSync(fakeServerState, 'running\n');
 
 const fakeHerdr = `#!/bin/sh
 case "$*" in
-  "--version") echo "herdr 0.8.0" ;;
+  "--version") echo "herdr 0.9.1" ;;
   "status server --json")
     if [ "$FAKE_HERDR_HANG" = 1 ]; then exec /bin/sleep 5; fi
     if [ -f "$FAKE_HERDR_SERVER_STATE" ]; then echo '{"running":true}';

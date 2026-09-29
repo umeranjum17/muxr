@@ -49,7 +49,7 @@ import type {
     SessionStartOptions,
     SessionStopOptions,
 } from '../application/sessionSource.js';
-import { HerdrClient } from './socketClient.js';
+import { KitHerdrClient, type HerdrCaller } from './herdrKitClient.js';
 import {
     AgentRouteStore,
     herdrAgentSessionKey,
@@ -132,7 +132,7 @@ function paneEnvironment(screen: PaneScreen | undefined): Record<string, string>
 const HERDR_ACTION_REPORT_MS = 5_000;
 
 type HerdrCommandLog = { log_id: string; status: 'running' | 'succeeded' | 'failed'; stdout?: string; stderr?: string; error?: string };
-type HerdrActionLogClient = Pick<HerdrClient, 'call'>;
+type HerdrActionLogClient = HerdrCaller;
 const HERDR_ACTION_FAILED = 'plugin action failed';
 const HERDR_ACTION_STATUS_UNAVAILABLE = 'plugin action status unavailable';
 
@@ -344,6 +344,8 @@ interface ApplicationAction {
 
 export interface CreateHerdrSessionSourceOptions {
     socketPath?: string;
+    /** Resolved herdr binary the kit spawns for CLI and terminal verbs. */
+    herdrBin?: string;
     dataDir: string;
     attention?: AgentWatchStores['attention'];
     lifecycle?: AgentWatchStores['lifecycle'];
@@ -426,16 +428,8 @@ export interface RouteTarget {
     sessionId: string;
     paneId: string;
 }
-export async function sendKeysToLiveAgent(
-    client: Pick<HerdrClient, 'call'>,
-    target: RouteTarget,
-    keys: string[],
-): Promise<void> {
-    await client.call('agent.send_keys', { target: target.paneId, keys });
-}
-
 export async function promptHerdrAgent(
-    client: Pick<HerdrClient, 'call'>,
+    client: HerdrCaller,
     target: RouteTarget,
     text: string,
 ): Promise<void> {
@@ -487,7 +481,7 @@ export function herdrAgentIsPromptable(
 }
 
 export async function promptPromptableHerdrAgent(
-    client: Pick<HerdrClient, 'call'>,
+    client: HerdrCaller,
     target: RouteTarget,
     promptable: boolean,
     text: string,
@@ -507,91 +501,13 @@ function unavailable(kind: 'agent' | 'pane' | 'tab' | 'workspace'): Error {
     });
 }
 
-type LiveWorkspace = {
-    workspace_id: string;
-    tab_count?: number;
-    worktree?: {
-        repo_key?: string;
-        repo_name?: string;
-        is_linked_worktree?: boolean;
-    };
-};
-
-function isParentWorktreeGroup(workspace: LiveWorkspace, workspaces: readonly LiveWorkspace[]): boolean {
-    const worktree = workspace.worktree;
-    if (worktree?.is_linked_worktree !== false || worktree.repo_key === undefined) return false;
-    let size = 0;
-    for (const candidate of workspaces) {
-        if (candidate.worktree?.repo_key === worktree.repo_key) size += 1;
-    }
-    return size >= 2;
-}
-
-/** Close one pane only when live Herdr can preserve its tab and workspace. */
-export async function closeExactPane(
-    client: Pick<HerdrClient, 'call'>,
-    paneId: string,
-): Promise<void> {
-    let pane: { tab_id?: string } | undefined;
-    try {
-        pane = (await client.call<{ pane?: { tab_id?: string } }>('pane.get', { pane_id: paneId })).pane;
-    } catch (error) {
-        if (herdrFailureCode(error) === 'pane_not_found') throw unavailable('pane');
-        throw error;
-    }
-    if (pane?.tab_id === undefined) throw unavailable('pane');
-    let paneCount = 0;
-    try {
-        paneCount = (await client.call<{ tab?: { pane_count?: number } }>('tab.get', { tab_id: pane.tab_id })).tab?.pane_count ?? 0;
-    } catch (error) {
-        if (herdrFailureCode(error) === 'tab_not_found') throw unavailable('pane');
-        throw error;
-    }
-    if (paneCount <= 1) {
-        throw Object.assign(new Error('Closing this pane would also close its tab. Use Close tab instead.'), {
-            code: 'pane-close-would-widen',
-        });
-    }
-    await client.call('pane.close', { pane_id: paneId });
-}
-
-/** Close one tab only when live Herdr can preserve its workspace. */
-export async function closeExactTab(
-    client: Pick<HerdrClient, 'call'>,
-    tabId: string,
-): Promise<void> {
-    let tab: { workspace_id?: string } | undefined;
-    try {
-        tab = (await client.call<{ tab?: { workspace_id?: string } }>('tab.get', { tab_id: tabId })).tab;
-    } catch (error) {
-        if (herdrFailureCode(error) === 'tab_not_found') throw unavailable('tab');
-        throw error;
-    }
-    if (tab?.workspace_id === undefined) throw unavailable('tab');
-    let tabCount = 0;
-    try {
-        tabCount = (await client.call<{ workspace?: { tab_count?: number } }>('workspace.get', {
-            workspace_id: tab.workspace_id,
-        })).workspace?.tab_count ?? 0;
-    } catch (error) {
-        if (herdrFailureCode(error) === 'workspace_not_found') throw unavailable('tab');
-        throw error;
-    }
-    if (tabCount <= 1) {
-        throw Object.assign(new Error('Closing this tab would also close its workspace. Use Close workspace instead.'), {
-            code: 'tab-close-would-widen',
-        });
-    }
-    await client.call('tab.close', { tab_id: tabId });
-}
-
 /**
  * Rename one agent, pane, tab or workspace in Herdr, where every client and the
  * naming plugin read names from. Refuses an empty or over-long name without
  * calling Herdr; Herdr's own refusals come back in plain words.
  */
 export async function renameInHerdr(
-    client: Pick<HerdrClient, 'call'>,
+    client: HerdrCaller,
     target: HerdrRenameTarget,
     id: string,
     name: string,
@@ -623,30 +539,6 @@ export async function renameInHerdr(
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(code === undefined ? message : message.replace(/^herdr: [a-z0-9_]+: /i, ''), { cause: error });
     }
-}
-
-/** Close one workspace, refusing Herdr's implicit parent-worktree group widening. */
-export async function closeExactWorkspace(
-    client: Pick<HerdrClient, 'call'>,
-    workspaceId: string,
-): Promise<void> {
-    let workspace: LiveWorkspace | undefined;
-    try {
-        workspace = (await client.call<{ workspace?: LiveWorkspace }>('workspace.get', {
-            workspace_id: workspaceId,
-        })).workspace;
-    } catch (error) {
-        if (herdrFailureCode(error) === 'workspace_not_found') throw unavailable('workspace');
-        throw error;
-    }
-    if (workspace === undefined) throw unavailable('workspace');
-    const workspaces = (await client.call<{ workspaces?: LiveWorkspace[] }>('workspace.list')).workspaces ?? [];
-    if (isParentWorktreeGroup(workspace, workspaces)) {
-        throw Object.assign(new Error('Closing this workspace would close its worktree group. Use the explicit Close worktree group action instead.'), {
-            code: 'worktree-group-confirmation-required',
-        });
-    }
-    await client.call('workspace.close', { workspace_id: workspaceId });
 }
 
 interface PaneRecord {
@@ -1600,7 +1492,10 @@ export async function createHerdrSessionSource(
         for (const session of currentSessions()) emitState(session.sessionId);
     }
 
-    const client = new HerdrClient(socketPath, () => {
+    // The kit spawns `bin` directly for CLI and terminal verbs, so it needs
+    // the same resolved binary the host would exec, not a PATH lookup.
+    const herdrBin = options.herdrBin ?? process.env.HERDR_BIN ?? 'herdr';
+    const client = new KitHerdrClient(herdrBin, socketPath, () => {
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});
         void refreshSnapshot().then(emitAllStates).catch(() => {});
     });
@@ -2201,7 +2096,7 @@ export async function createHerdrSessionSource(
     async function sendSessionKeys(sessionId: string, keys: string[]): Promise<void> {
         const session = await resolvePane(sessionId);
         if (session.agent === undefined) throw agentUnavailable();
-        await sendKeysToLiveAgent(client, session, keys);
+        await client.kit.sendKeys(session, keys);
     }
 
     type RealtimePaneReadSource = 'visible' | 'recent' | 'recent_unwrapped';
@@ -2925,6 +2820,23 @@ export async function createHerdrSessionSource(
             return kinds.filter(executableOnPath);
         },
 
+        /** Full herdr power without a shell: each argument stays one argument. */
+        async herdrCli(args: string[], timeoutMs?: number): Promise<{
+            stdout: string; stderr: string; exitCode: number | null; timedOut: boolean;
+        }> {
+            try {
+                return await client.kit.cli(args, { timeoutMs: timeoutMs ?? 60_000 });
+            } catch (error) {
+                // The dispatcher never rejects: errors ride the reply shape.
+                return {
+                    stdout: '',
+                    stderr: error instanceof Error ? error.message : String(error),
+                    exitCode: null,
+                    timedOut: false,
+                };
+            }
+        },
+
         async herdrTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; connected: boolean }> {
             const workspaces: HerdrTreeWorkspace[] = [];
             for (const workspace of workspacesById.values()) {
@@ -3265,12 +3177,12 @@ export async function createHerdrSessionSource(
 
         async closeTab(sessionId: string, tabId: string): Promise<void> {
             await resolvePane(sessionId);
-            await closeExactTab(client, tabId);
+            await client.kit.closeTab(tabId);
         },
 
         async closePane(sessionId: string): Promise<void> {
             const record = await resolvePane(sessionId);
-            await closeExactPane(client, record.paneId);
+            await client.kit.closePane(record.paneId);
         },
 
         async rename(target: HerdrRenameTarget, id: string, name: string): Promise<void> {
@@ -3284,7 +3196,7 @@ export async function createHerdrSessionSource(
             try { await refreshSnapshot(); } catch {
                 throw Object.assign(new Error('That workspace is no longer available. Refresh and try again.'), { code: 'workspace-unavailable' });
             }
-            await closeExactWorkspace(client, workspaceId);
+            await client.kit.closeWorkspace(workspaceId);
         },
 
         async createTab(sessionId: string, options: { kind?: string; label?: string }): Promise<{ sessionId?: string }> {
@@ -3570,7 +3482,7 @@ export async function createHerdrSessionSource(
             statusWatches.clear();
             for (const abort of voiceStreamAborts.values()) abort.abort();
             voiceStreamAborts.clear();
-            client.close();
+            await client.close();
             await routes.flush();
         },
     };

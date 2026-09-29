@@ -121,6 +121,10 @@ export function createFakeSessionSource(): SessionSource {
             return ['pi', 'claude', 'codex'];
         },
 
+        async herdrCli() {
+            return { stdout: '', stderr: 'fake source has no herdr CLI', exitCode: null, timedOut: false };
+        },
+
         async installedAgentKinds(kinds) {
             return kinds.filter((kind) => kind === 'pi');
         },

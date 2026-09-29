@@ -34,7 +34,16 @@ function fakeHerdr(dir: string) {
                 let result: unknown = {};
                 let error: { code: string; message: string } | undefined;
                 if (method.endsWith('.rename')) calls.push(method);
+                // The kit holds event sockets open for pushes; ending the
+                // socket after the ack would spin its reconnect loop.
+                if (method === 'events.subscribe') {
+                    socket.write(`${JSON.stringify({ id, result: {} })}\n`);
+                    continue;
+                }
                 switch (method) {
+                    case 'ping':
+                        result = { protocol: 22 };
+                        break;
                     case 'session.snapshot':
                         result = {
                             snapshot: {

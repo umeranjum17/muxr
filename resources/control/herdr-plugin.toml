@@ -6,7 +6,7 @@ name = "muxr"
 # Versioned with muxr itself: bump when a release changes the pack; setup
 # relinks whenever the version or path moves.
 version = "0.2.0"
-min_herdr_version = "0.8.0"
+min_herdr_version = "0.9.1"
 description = "Set up and pair muxr from Herdr, and drive Herdr layout from your phone"
 platforms = ["linux", "macos"]
 
