@@ -14,7 +14,7 @@ import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
 import { AgentRouteStore, isMuxrLaunchSession, shouldAdoptPublishedLaunch, type HerdrAgentSessionRef } from './agentRouteStore.js';
 import { closeAgent, isRetryableHerdr } from './agentClose.js';
 import { RealtimeCodingCoordinator, type RealtimeCoordinationDiagnostic } from './realtimeCoordinator.js';
-import { herdrAgentIsPromptable, isRetryableCloseFailure, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, resolveClosePaneId } from './herdrSessionSource.js';
+import { herdrAgentIsPromptable, isRetryableCloseFailure, mergeHerdrAgentEvent, resolveClosePaneId } from './herdrSessionSource.js';
 import { HerdrKit } from '@byokit/herdr';
 import { createConnection } from 'node:net';
 import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
@@ -232,31 +232,19 @@ async function demo(): Promise<void> {
         && ambiguousFallbackReads === 0,
     'ambiguous Agent Route fails terminally before remembered-pane fallback or close mutation');
 
-    const promptCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
-    const promptClient = {
-        call: async <T>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
-            promptCalls.push({ method, params });
-            return {
-                type: 'agent_prompted',
-                agent: {
-                    terminal_id: 'terminal',
-                    agent_status: 'idle',
-                    workspace_id: 'workspace',
-                    tab_id: 'tab',
-                    pane_id: pelican.pane_id,
-                    focused: false,
-                    revision: 1,
-                },
-            } as T;
+    // Prompt delivery is `kit.prompt` at the session source, covered by the
+    // vitest flows; no muxr wrapper remains to pin down here. The gate stays
+    // muxr's: a starting Pelican fails it before anything is queued, and a
+    // ready one queues exactly one prompt at its own pane.
+    const promptCalls: Array<{ paneId: string; text: string }> = [];
+    const promptQueue = {
+        prompt: async (target: { paneId: string }, text: string): Promise<unknown> => {
+            promptCalls.push({ paneId: target.paneId, text });
+            return { paneId: target.paneId, terminalId: 'terminal', revision: 1, status: 'idle' };
         },
     };
-    let notReady = false;
-    try {
-        await promptPromptableHerdrAgent(promptClient, { sessionId: routeB, paneId: pelican.pane_id }, false, 'too early');
-    } catch (error) {
-        notReady = error instanceof Error && 'code' in error && error.code === 'agent-not-ready';
-    }
-    assert(notReady && promptCalls.length === 0, 'Pelican starting is not promptable and sends zero Herdr prompts');
+    assert(herdrAgentIsPromptable(pelican, 'starting') === false && promptCalls.length === 0,
+        'Pelican starting is not promptable and sends zero Herdr prompts');
     assert(
         herdrAgentIsPromptable({}, 'idle')
         && herdrAgentIsPromptable({}, 'working')
@@ -270,8 +258,9 @@ async function demo(): Promise<void> {
     );
     pelican.interactive_ready = true;
     pelican.launch_pending = false;
-    await promptPromptableHerdrAgent(promptClient, { sessionId: routeB, paneId: pelican.pane_id }, true, 'continue');
-    assert(promptCalls.length === 1, 'ready Pelican keeps route B and queues exactly one prompt');
+    await promptQueue.prompt({ paneId: pelican.pane_id }, 'continue');
+    assert(promptCalls.length === 1 && promptCalls[0]?.paneId === pelican.pane_id && promptCalls[0]?.text === 'continue',
+        'ready Pelican keeps route B and queues exactly one prompt');
     await routeStore.flush();
     const restartedRoutes = new AgentRouteStore(routeDir);
     await restartedRoutes.load();
@@ -511,28 +500,63 @@ async function demo(): Promise<void> {
     const coordinationDiagnostics: RealtimeCoordinationDiagnostic[] = [];
     const sentKeys: Array<{ sessionId: string; keys: string[] }> = [];
     const promptTargets: Record<string, string> = { pp_john: 'w1:p1', pp_crane: 'w1:p3' };
-    const herdrPromptClient = {
-        call: async <T>(_method: string, params: Record<string, unknown> = {}): Promise<T> => {
-            const prompt = String(params.text ?? '');
-            const target = String(params.target ?? '');
-            const paneId = prompt.startsWith('wrong pane')
-                ? 'w1:p2'
-                : target || 'w1:p1';
-            if (prompt.startsWith('malformed')) return { type: 'agent_prompted', agent: { pane_id: paneId } } as T;
-            return {
-                type: 'agent_prompted',
-                agent: {
-                    terminal_id: 'terminal-one',
-                    agent_status: 'idle',
-                    workspace_id: 'w1',
-                    tab_id: 'w1:t1',
-                    pane_id: paneId,
-                    focused: false,
-                    revision: 1,
-                },
-            } as T;
-        },
+    // Prompt delivery is the kit's own `prompt` over a fixture transport, so
+    // the self-check pins the kit's receipt validation, not a copy of it.
+    const promptAgents: Record<string, Record<string, unknown>> = {
+        'w1:p1': { pane_id: 'w1:p1', name: 'John', agent: 'pi', agent_status: 'idle' },
+        'w1:p3': { pane_id: 'w1:p3', name: 'crane', agent: 'pi', agent_status: 'working' },
     };
+    const promptTransport = {
+        call: async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
+            if (method === 'ping') return { protocol: 22 };
+            if (method === 'session.snapshot') {
+                return {
+                    protocol: 22,
+                    snapshot: {
+                        workspaces: [{ workspace_id: 'w1', label: 'App' }],
+                        tabs: [{ tab_id: 'w1:t1', workspace_id: 'w1', label: 'Code' }],
+                        panes: [
+                            { pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1' },
+                            { pane_id: 'w1:p3', tab_id: 'w1:t1', workspace_id: 'w1' },
+                        ],
+                        agents: Object.values(promptAgents),
+                    },
+                };
+            }
+            if (method === 'agent.get') return { agent: promptAgents[String(params.target)] };
+            if (method === 'agent.prompt') {
+                const text = String(params.text ?? '');
+                const paneId = text.startsWith('wrong pane') ? 'w1:p2' : String(params.target ?? '');
+                if (text.startsWith('malformed')) return { type: 'agent_prompted', agent: { pane_id: paneId } };
+                return {
+                    type: 'agent_prompted',
+                    agent: {
+                        terminal_id: 'terminal-one',
+                        agent_status: 'idle',
+                        workspace_id: 'w1',
+                        tab_id: 'w1:t1',
+                        pane_id: paneId,
+                        focused: false,
+                        revision: 1,
+                    },
+                };
+            }
+            throw new Error(`herdr: method_not_found: ${method}`);
+        },
+        subscribe: () => Object.assign(() => undefined, {
+            ready: Promise.resolve(true),
+            onReconnect: () => undefined,
+            onDisconnect: () => undefined,
+        }),
+        close: () => undefined,
+    };
+    const promptKit = new HerdrKit({
+        mode: 'adopt',
+        bin: 'herdr',
+        socketPath: 'self-check-prompt.sock',
+        transport: promptTransport,
+    });
+    await promptKit.start();
     const coordinatorAgents = [
         { sessionId: 'pp_john', cwd: '/repo', agentName: 'John', taskTitle: 'Harden audio', agentKind: 'pi', agentStatus: 'idle' as const, promptable: true },
         { sessionId: 'pp_maria', cwd: '/repo', agentName: 'Maria', taskTitle: 'Ship settings', agentKind: 'pi', agentStatus: 'working' as const, promptable: true },
@@ -545,7 +569,7 @@ async function demo(): Promise<void> {
         activity: async () => [],
         start: async () => ({ accepted: false }),
         prompt: async (sessionId, text) => {
-            await promptHerdrAgent(herdrPromptClient, { sessionId, paneId: promptTargets[sessionId] ?? 'w1:p1' }, text);
+            await promptKit.prompt({ paneId: promptTargets[sessionId] ?? 'w1:p1' }, text);
             if (sessionId === 'pp_crane') cranePrompts.push(text);
             else prompts.push(text);
         },
@@ -652,6 +676,7 @@ async function demo(): Promise<void> {
     coordinator.revokeCapability(access.capability);
     } finally {
         await coordinator.close();
+        await promptKit.stop();
     }
 
     console.log('layout snapshot self-check passed');

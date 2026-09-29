@@ -849,14 +849,14 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
-"@byokit/herdr@0.1.1":
-  version "0.1.1"
-  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.1.tgz#f6123cb29a646fe5453c1f1098632f69179d866e"
-  integrity sha512-F9HTnZuyYv0er6a6301zx+6NNuR3t6lPiyF1cpxw6XgMOyug8DwDlS/Kl6zmNUEarf7fZfAsXtEaZxB4CT9Vug==
+"@byokit/herdr@0.1.2":
+  version "0.1.2"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.2.tgz#71bc7a40ba1a4e8e04e1c8b04a1b98f7aa567cf9"
+  integrity sha512-zjV74M+gTTxmjJwHmpjmk68IbTN8eQIGgI5gXDKVMefXbVt4Gq62Ht9PtfYdRNuY74FVkwbbo/xk9NG2IxgIxg==
   dependencies:
     "@byokit/link" "0.3.2"
     "@byokit/reach" "0.2.0"
-    "@byokit/relay" "0.2.0"
+    "@byokit/relay" "0.2.1"
     "@byokit/seal" "0.1.0"
     ws "8.21.3"
 
@@ -880,10 +880,10 @@
     bonjour-service "^1.4.4"
     react-native-zeroconf "0.14.0"
 
-"@byokit/relay@0.2.0":
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.2.0.tgz#96d6a99bdc6081507c12ef849ccbab9588bc98f5"
-  integrity sha512-YgUWXxnmTGV9JwZPm4bL6I4Ek1eJVsjTyd1i77XQyyYcDWYRYLHNHy62RMnKCQ88HUUjK25LiOKyC9x1trLN0g==
+"@byokit/relay@0.2.1":
+  version "0.2.1"
+  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.2.1.tgz#87605edf7f67a1337f3ece9b37a9da3068d1115b"
+  integrity sha512-h9n0qjMl6cDCvSCti+LHr9/7Uv+Yxu8NQogySE+JFOgQS7oNZyitPwURgnJUQ8vxpAyeE4+TzNtV50spGeGNHQ==
   dependencies:
     "@byokit/link" "0.3.2"
     web-push "3.6.7"
