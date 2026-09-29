@@ -109,6 +109,7 @@ export {
     HERDR_NAME_MAX,
     MISSING_CWD_ERROR_PREFIX,
     normalizeRequestFailure,
+    sanitizeRequestErrorMessage,
     requestRequiresE2ee,
     decodePayload,
     encodePayload,

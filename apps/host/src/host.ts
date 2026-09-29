@@ -6,10 +6,11 @@
  * events start getting dropped and transcripts start feeling thin.
  */
 
+import { join } from 'node:path';
 import { type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@muxr/contract';
 import { deviceTableCanMutate, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
-import { AndroidEmulatorWatcher, DesktopSessions, PreviewDesktops, PreviewPresenceTracker, withPreview, type PaneScreens } from './desktop/index.js';
+import { AndroidEmulatorWatcher, DesktopSessions, PreviewDesktops, PreviewLeaseTracker, PreviewPresenceTracker, filePreviewLeaseSink, PREVIEW_LEASE_FILENAME, withPreview, type PaneScreens } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -99,17 +100,31 @@ export function startHost(options: HostOptions): Host {
     const desktop = new DesktopSessions(desktopEngineOptions);
     const previewPresence = new PreviewPresenceTracker();
     const previewForPane = (paneId: string) => previewPresence.previewFor(paneId);
+    // The human lease: which panes a phone is driving right now. It persists
+    // to one file under the state root so `muxr preview status` can read it
+    // through the naming loopback; without a state root it stays in memory.
+    const previewLeaseError = (error: unknown): void => {
+        const detail = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`preview lease: ${detail}\n`);
+    };
+    const previewLease = new PreviewLeaseTracker({
+        ...(options.stateRoot === undefined ? {} : {
+            persist: filePreviewLeaseSink(join(options.stateRoot, PREVIEW_LEASE_FILENAME), previewLeaseError),
+        }),
+    });
     // One engine wrapper per pane, created only when a phone watches that
     // pane's screen; an idle one with no sessions is reaped after 10 s.
     const previewDesktops = new PreviewDesktops({
         screens: options.paneScreens,
         listSessions: () => source.list(),
         makeDesktop: (environment) => new DesktopSessions(desktopEngineOptions, environment),
+        lease: previewLease,
     });
     // Headless emulators, watched over adb: discovery announces presence and
     // a phone tap starts the scrcpy mirror lazily. No watcher means no chip.
     const androidWatcher = new AndroidEmulatorWatcher({
         listSessions: () => source.list(),
+        lease: previewLease,
     });
     androidWatcher.start();
     // An emulator chip wins over a screen chip; a pane never shows both.
