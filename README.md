@@ -94,7 +94,7 @@ Home puts the agents waiting on you first, then the ones that finished while you
 
 ### Know your limits
 
-See what's left in each plan window, when it resets, and whether you're on pace to run out. Home and Usage show the same numbers.
+See what's left in each plan window, when it resets, and whether you're on pace to run out — Home and a plan's Usage tab show the same numbers — and how many tokens each agent spent, with trends, top models, and what they cost.
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/usage.webp" type="image/webp"><img src="docs/assets/readme/usage.jpg" alt="Usage limits showing remaining session and weekly amounts, reset times, and projected run-out" width="300" /></picture>

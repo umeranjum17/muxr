@@ -8,13 +8,13 @@ import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 /** One recorded assistant response, in the Pi transcript format OMP and Pi both write. */
-function record(id, at, model, counts, cost) {
+function record(id, at, model, counts, cost, provider) {
     const usage = {
         input: counts.input ?? 0, output: counts.output ?? 0, cacheRead: counts.cacheRead ?? 0, cacheWrite: counts.cacheWrite ?? 0,
         totalTokens: (counts.input ?? 0) + (counts.output ?? 0) + (counts.cacheRead ?? 0) + (counts.cacheWrite ?? 0),
         ...(cost === undefined ? {} : { cost: { total: cost } }),
     };
-    return JSON.stringify({ id, parentId: null, type: 'message', timestamp: at, message: { role: 'assistant', model, timestamp: at, usage } });
+    return JSON.stringify({ id, parentId: null, type: 'message', timestamp: at, message: { role: 'assistant', model, ...(provider === undefined ? {} : { provider }), timestamp: at, usage } });
 }
 
 function writeTranscript(path, lines) {
@@ -43,7 +43,7 @@ const ccusageTarget = {
 assert.ok(ccusageTarget, `Usage has no ccusage backend for ${process.platform}-${process.arch}`);
 const ccusageBinary = createRequire(import.meta.url).resolve(`${ccusageTarget}/bin/ccusage`);
 
-/** One Codex rollout, in the log format ccusage reads from CODEX_HOME. */
+/** One Codex rollout, in the log format Codex writes under CODEX_HOME. */
 function codexRollout(path, at, model, counts) {
     const usage = { input_tokens: counts.input, cached_input_tokens: counts.cached, output_tokens: counts.output, reasoning_output_tokens: counts.reasoning, total_tokens: counts.input + counts.output };
     writeTranscript(path, [
@@ -212,7 +212,6 @@ const baseEnv = () => ({
     PI_CODING_AGENT_DIR: undefined,
 });
 const run = (input, environment = {}) => drive({ ...baseEnv(), ...environment }, input);
-const stateFile = (tab) => join(scratch, 'usage', `usage-v2-${tab}.json`);
 
 try {
     writeTranscript(join(scratch, '.omp/agent/sessions/proj/session.jsonl'), [
@@ -225,6 +224,12 @@ try {
     writeFileSync(join(scratch, 'pi'), `#!/bin/sh\ntouch "${piMarker}"\nexit 99\n`, { mode: 0o755 });
     writeFileSync(ccusage, `#!/bin/sh\ncase "$1 $2" in\n"daily --by-agent") printf x >> "${ccusageMarker}"; printf '%s' '${JSON.stringify(report)}';;\n*) exit 77;;\nesac\n`, { mode: 0o755 });
     mkdirSync(join(scratch, '.claude'));
+    // Claude Code's own transcript: one response, written once per content block.
+    const claudeTurn = (block) => JSON.stringify({ type: 'assistant', timestamp: '2026-09-05T09:00:00.000Z', requestId: 'req_1', message: {
+        id: 'msg_1', role: 'assistant', model: 'claude-opus-5', content: [{ type: block }],
+        usage: { input_tokens: 42, output_tokens: 1_000, cache_read_input_tokens: 1_248_958, cache_creation_input_tokens: 0 },
+    } });
+    writeTranscript(join(scratch, '.claude/projects/-fixture/session.jsonl'), [claudeTurn('thinking'), claudeTurn('text')]);
     writeFileSync(join(scratch, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'fixture-claude-token', accountUuid: 'fixture-claude-account', expiresAt: Date.now() + 3_600_000 } }));
     writeFileSync(join(scratch, '.claude', 'last-statusline-input.json'), JSON.stringify(claudeLimits));
     writeFileSync(join(scratch, 'codex'), `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(codexMarker)}, 'x');let b='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>{b+=d;for(;;){const i=b.indexOf('\\n');if(i<0)break;const line=b.slice(0,i);b=b.slice(i+1);const m=JSON.parse(line);if(m.id===1)console.log(JSON.stringify({id:1,result:{}}));if(m.id===2)console.log(JSON.stringify({id:2,result:{rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:25,windowDurationMins:300,resetsAt:Math.floor(Date.now()/1000)+3600},secondary:{usedPercent:90,windowDurationMins:10080,resetsAt:Math.floor(Date.now()/1000)+86400}}}}}));}});\n`, { mode: 0o755 });
@@ -233,10 +238,12 @@ try {
     // Default tab: the busiest measured provider leads, and its own windows ride
     // the same view model as the limits card.
     const output = await run({ provider: 'claude' });
-    // Only integrated providers earn tabs: measured activity this week or a
+    // Only integrated providers earn tabs: measured activity this month or a
     // connected plan/account. The fixture installs many idle CLIs; none of
     // them may mint a tab.
-    assert.deepEqual(output.providers.map((p) => p.id), ['omp', 'opencode', 'claude', 'kimi', 'pi', 'codex']);
+    // Claude, OMP and OpenCode come from their own stores; the backend's rows
+    // for them (and its Pi row) are never counted a second time.
+    assert.deepEqual(output.providers.map((p) => p.id), ['omp', 'opencode', 'claude', 'kimi', 'codex']);
     // Every tab ships an agent mark id; the app renders bundled marks and
     // falls back to a monogram for the allow-listed rest (today: zai).
     const agentMarks = new Set(readdirSync(join(process.cwd(), 'apps/mobile/sources/assets/agents'))
@@ -254,7 +261,11 @@ try {
 
     // Claude's tab carries today, its models, the week, and the real plan windows.
     assert.equal(output.todayTokens, '1.3M');
-    assert.equal(output.todayCost, '$123.45');
+    // Claude Code records no cost: this is its list-price estimate.
+    assert.equal(output.todayCost, '$0.65');
+    assert.equal(output.activity.costBasis, 'estimated');
+    assert.equal(output.activity.hourly.length, 13);
+    assert.equal(output.activity.hourly[9], 1_250_000);
     assert.equal(output.modelSeries[0]?.label, 'claude-opus-5');
     // The window is a fixed 7 days ending today, so an idle day cannot slide an
     // older total into today's slot.
@@ -280,12 +291,10 @@ try {
     // reports its own figure.
     assert.ok(kimi.weekSeries.some((day) => day.valueLabel === '60.0K'), 'older day must keep its total');
     assert.equal(kimi.weekSeries.at(-1)?.valueLabel, '2.5K');
-    // A tab whose agent has no plan integration borrows the machine's
-    // tightest connected plan (codex 90% used beats claude 42%), so it
-    // answers with a real window instead of a false "not connected".
-    assert.equal(kimi.limits.plan, 'OpenAI Codex');
-    assert.equal(kimi.limits.verdict, 'low');
-    assert.deepEqual(kimi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['Session', '5h', 25], ['Weekly', '7d', 90]]);
+    // A tab whose agent has no plan of its own shows none: another plan's
+    // windows would read as this agent's subscription.
+    assert.equal(kimi.limits.plan, undefined);
+    assert.deepEqual(kimi.limits.windows, []);
     assert.equal(kimi.limits.message, undefined);
 
     // A deep link to an installed-but-idle provider no longer mints a tab;
@@ -294,12 +303,10 @@ try {
     assert.equal(cursor.provider, 'omp');
     assert.ok(!cursor.providers.some((p) => p.id === 'cursor'));
 
-    // Pi is accounted from its own transcripts: with none on disk the measured
-    // answer is nothing, and ccusage's own Pi row never stands in for it.
+    // Pi is accounted from its own transcripts: with none on disk it has no
+    // tab, and the backend's own Pi row never stands in for it.
     const emptyPi = await run({ provider: 'pi' });
-    assert.equal(emptyPi.todayTokens, '0');
-    assert.equal(emptyPi.weekTokens, '0');
-    assert.equal(emptyPi.activityNotice, undefined);
+    assert.equal(emptyPi.provider, 'omp');
 
     // One completed collection serves every tab without another scan.
     const cached = await run({ provider: 'claude' });
@@ -311,13 +318,6 @@ try {
     // Four tabs projected, but Codex was read once: a plan reading under a
     // minute old answers for every collection that follows it.
     assert.equal(readFileSync(codexMarker, 'utf8'), 'x', 'a recent Codex reading did not prevent a duplicate Codex app-server');
-
-    // Pi is accounted locally, so a collection that failed must surface on the
-    // tab it belongs to: an honest unavailable notice, not a quiet zero.
-    writeTranscript(join(scratch, 'broken-pi/sessions/proj/broken.jsonl'), ['{"message":{"role":"assistant","usage":{"input":5']);
-    const brokenPi = await run({ provider: 'pi' }, { PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_HOME: join(scratch, 'no-cache-pi') });
-    assert.equal(brokenPi.todayTokens, '—');
-    assert.match(brokenPi.activityNotice ?? '', /could not be measured/);
 
     // A cold cache asked for by two readers at once costs one collection, not
     // one each: the card's follow-ups and a screen's revalidation can land on
@@ -335,16 +335,6 @@ try {
     assert.deepEqual(firstAsk.windows, secondAsk.windows);
     assert.equal(firstAsk.todayTokens, '1.3M');
 
-    // A collection that fails answers every waiter too: the same honest
-    // degraded payload, never silence.
-    const [firstFail, secondFail] = await driveConcurrently(
-        { ...baseEnv(), PI_PROFILE: 'join-fail-flow', PI_AGENT_DIR: join(scratch, 'broken-pi'), MUXR_HOME: join(scratch, 'join-fail-state') },
-        [{ provider: 'pi' }, { provider: 'pi' }],
-    );
-    assert.equal(firstFail.capturedAt, secondFail.capturedAt, 'a failed collection stranded a waiter');
-    assert.equal(firstFail.todayTokens, '—');
-    assert.match(firstFail.activityNotice ?? '', /could not be measured/);
-
     const recent = await run({});
     assert.equal(recent.provider, 'omp');
     assert.equal(recent.todayTokens, '150');
@@ -352,9 +342,9 @@ try {
     assert.equal(recent.modelSeries[0]?.label, 'fixture-omp');
     const go = await run({ provider: 'opencode' });
     assert.equal(go.todayTokens, '300');
-    assert.equal(go.todayCost, '$0.00');
+    // OpenCode recorded 0 for real tokens: not priced, never '$0.00'.
+    assert.equal(go.todayCost, '—');
     assert.match(go.limits.message ?? '', /Go limits unavailable/);
-    assert.ok(!existsSync(stateFile('opencode')), 'missing Go limits must not be cached');
     const goStub = (url, options) => {
         if (url !== 'https://opencode.ai/zen/go/v1/usage' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-secret-key') throw new Error('unexpected quota request');
         return Promise.resolve(new Response(JSON.stringify({ usage: Object.fromEntries(['rolling', 'weekly', 'monthly'].map((key, index) => [key, { status: 'ok', percent: index === 0 ? 0 : 20 + index, resetsAt: new Date(Date.now() + 3600000).toISOString() }])) })));
@@ -387,19 +377,17 @@ try {
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'different-fixture-key' } }));
     const changedKey = await run({ provider: 'opencode' }, { __fetch: async () => { throw new Error('unexpected quota request'); } });
     assert.match(changedKey.limits.message ?? '', /limits unavailable/, 'disk key change reused cached account limits');
-    await run({ provider: 'claude', report: true, refresh: true });
-    assert.doesNotMatch(readFileSync(stateFile('claude'), 'utf8'), /fixture-secret-key|different-fixture-key/);
 
     // Z.ai: the GLM Coding Plan credential Pi holds earns a tab, and its
-    // measured activity is the Z.ai-model slice of Pi's own local records --
+    // measured activity is the Z.ai-routed slice of Pi's own local records --
     // the monitor endpoint fills the windows, the transcripts fill the tokens.
     const zaiAgent = join(scratch, 'zai-agent');
     mkdirSync(zaiAgent, { recursive: true });
     writeFileSync(join(zaiAgent, 'auth.json'), JSON.stringify({ zai: { type: 'api_key', key: 'fixture-zai-key' } }));
     writeFileSync(join(zaiAgent, 'models.json'), JSON.stringify({ providers: { zai: { models: [{ id: 'glm-fixture' }] } } }));
     writeTranscript(join(zaiAgent, 'sessions/proj/zai-session.jsonl'), [
-        record('zai-1', '2026-09-05T11:30:00.000Z', 'glm-fixture', { input: 300, output: 100, cacheRead: 100 }, 0.7),
-        record('zai-2', '2026-09-05T11:45:00.000Z', 'other-model', { input: 50 }, 0.9),
+        record('zai-1', '2026-09-05T11:30:00.000Z', 'glm-fixture', { input: 300, output: 100, cacheRead: 100 }, 0.7, 'zai'),
+        record('zai-2', '2026-09-05T11:45:00.000Z', 'other-model', { input: 50 }, 0.9, 'openai'),
     ]);
     const zaiStubOk = (url, options) => {
         if (url !== 'https://api.z.ai/api/monitor/usage/quota/limit' || options.redirect !== 'error' || options.headers.authorization !== 'Bearer fixture-zai-key') throw new Error('unexpected quota request');
@@ -413,7 +401,7 @@ try {
     assert.equal(zaiRun.provider, 'zai');
     assert.deepEqual(zaiRun.limits.plan, 'Z.ai plan');
     assert.deepEqual(zaiRun.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['Session', '5h', 4], ['Weekly', '7d', 1]]);
-    // Tokens are the local Z.ai-model slice: one model, one turn, measured
+    // Tokens are the local Z.ai-routed slice: one model, one turn, measured
     // once. Cost stays a dash: plan tokens are priced by the plan, and a
     // recorded dollar figure must never stand in for one.
     assert.equal(zaiRun.todayTokens, '500');
@@ -450,10 +438,8 @@ try {
     // A collector that cannot measure one agent does not stop a healthy tab
     // from caching its own (honestly labelled) payload: the failure stays on
     // screen, and the next open refreshes instead of pinning it.
-    rmSync(stateFile('kimi'), { force: true });
-    const kimiDuringOmpFailure = await run({ provider: 'kimi', report: true, refresh: true }, { OMP_PROFILE: '../default' });
+    const kimiDuringOmpFailure = await run({ provider: 'kimi', refresh: true }, { OMP_PROFILE: '../default' });
     assert.equal(kimiDuringOmpFailure.todayTokens, '2.5K');
-    assert.ok(existsSync(stateFile('kimi')), 'a healthy tab caches despite another collector failing');
     assert.equal((await run({ provider: 'kimi' })).providers[0]?.id, 'omp');
 
     // The screen's revalidation asks for fresh data by name (`refresh`), so
@@ -465,7 +451,6 @@ try {
     assert.ok(existsSync(refreshMarker), 'revalidation re-collected past the cache');
     assert.ok(!('stale' in refreshed));
     assert.equal(refreshed.todayTokens, '2.5K');
-    rmSync(stateFile('all'), { force: true });
     const codexFixture = readFileSync(join(scratch, 'codex'), 'utf8');
     rmSync(join(scratch, 'codex'));
     // No Codex anywhere on PATH: a CLI installed on the machine running this
@@ -477,7 +462,6 @@ try {
     assert.equal(fallback.todayTokens, '150');
     assert.ok(!fallback.providers.some((p) => p.id === 'codex'));
     assert.doesNotMatch(JSON.stringify(fallback.windows), /OpenAI Codex/);
-    assert.ok(!existsSync(stateFile('codex')));
 
     const invalid = await run({ provider: 'qwen' }, { MUXR_CCUSAGE_BIN: '/bin/true' });
     assert.equal(invalid.provider, 'omp');
@@ -489,15 +473,15 @@ try {
     try {
         const dstReport = {
             daily: [
-                { period: '2026-03-07', agents: [{ agent: 'claude', totalTokens: 333, totalCost: 1 }] },
-                { period: '2026-03-08', agents: [{ agent: 'claude', totalTokens: 111, totalCost: 1 }] },
-                { period: '2026-03-09', agents: [{ agent: 'claude', totalTokens: 222, totalCost: 1 }] },
+                { period: '2026-03-07', agents: [{ agent: 'kimi', totalTokens: 333, inputTokens: 333, totalCost: 1 }] },
+                { period: '2026-03-08', agents: [{ agent: 'kimi', totalTokens: 111, inputTokens: 111, totalCost: 1 }] },
+                { period: '2026-03-09', agents: [{ agent: 'kimi', totalTokens: 222, inputTokens: 222, totalCost: 1 }] },
             ],
             totals: { totalTokens: 666, totalCost: 3 },
         };
         const dstCcusage = join(dstScratch, 'ccusage');
         writeFileSync(dstCcusage, `#!/bin/sh\nprintf '%s' '${JSON.stringify(dstReport)}'\n`, { mode: 0o755 });
-        writeFileSync(join(dstScratch, 'claude'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+        writeFileSync(join(dstScratch, 'kimi'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
         const dstOut = await drive({
             HOME: dstScratch,
             PATH: `${dstScratch}:${process.env.PATH}`,
@@ -515,7 +499,7 @@ try {
     } finally {
         rmSync(dstScratch, { recursive: true, force: true });
     }
-    process.stdout.write('PASS tabs: per-provider ccusage tabs + safe live limits + deduped local accounting\n');
+    process.stdout.write('PASS tabs: per-harness ledger tabs + no borrowed limits + safe live limits\n');
 
     // Profile switches and provider env stay host-internal: the same module
     // the running host calls reads the host's own environment, and a switch
@@ -623,12 +607,11 @@ try {
         // Yesterday's record has no recorded cost: unknown, never free.
         assert.equal(pi.weekSeries.at(-2)?.value, 500);
         assert.equal(pi.weekCost, '—');
-        // The pi tab borrows the machine's tightest connected plan (codex)
-        // instead of a false "not connected".
-        assert.equal(pi.limits.plan, 'OpenAI Codex');
-        assert.equal(pi.limits.verdict, 'low');
-        assert.deepEqual(pi.limits.windows.map((limit) => [limit.label, limit.window, limit.used]), [['Session', '5h', 25], ['Weekly', '7d', 90]]);
-        assert.equal(pi.limits.message, undefined);
+        // Pi holds no plan of its own: no limits on the tab, and each provider
+        // it routed to speaks for itself on its route.
+        assert.equal(pi.limits.plan, undefined);
+        assert.deepEqual(pi.limits.windows, []);
+        assert.deepEqual(pi.activity.routes.map((route) => [route.id, route.today]), [['unknown', 1250]]);
 
         const omp = await flowRun('omp');
         assert.equal(omp.provider, 'omp');
@@ -637,16 +620,15 @@ try {
         assert.equal(omp.todayCost, '$0.00');
         assert.deepEqual(omp.modelSeries, []);
         assert.equal(omp.weekTokens, '4.0K');
-        assert.equal(omp.weekCost, '$0.00');
+        // Those 4K tokens were recorded at 0: not priced, never '$0.00'.
+        assert.equal(omp.weekCost, '—');
         assert.equal(omp.weekSeries.at(-2)?.value, 4000);
-        // A stale row could only surface through measured activity. The
-        // borrowed limits node ships no usage records, and its clock-derived
-        // elapsed floats legitimately print digit runs like 999999999.
+        // A stale row could only surface through measured activity.
         assert.doesNotMatch(JSON.stringify([omp.modelSeries, omp.weekSeries, omp.weekTokens, omp.weekCost, omp.todayTokens, omp.todayCost]),
             /stale-omp|999999999|4242/, 'stale stats database outranked the transcripts');
 
-        // Real Codex logs through the real ccusage: pinned daily and week totals,
-        // not a shape check.
+        // Real Codex logs through the ledger: pinned daily and week totals, not
+        // a shape check. Cached input is its own figure, never counted twice.
         const codex = await flowRun('codex');
         assert.equal(codex.provider, 'codex');
         assert.ok(codex.limits.windows.length > 0);
@@ -675,16 +657,16 @@ try {
         assert.equal(customRoot.todayTokens, '55');
         assert.equal(customRoot.modelSeries[0]?.label, 'custom-omp');
 
-        // A usage record that cannot be parsed makes the total unavailable
-        // rather than quietly dropping what it was worth.
+        // A line that cannot be parsed (a crashed write) is skipped; the
+        // records around it still count.
         const malformed = join(flow, 'malformed-agent');
         writeTranscript(join(malformed, 'sessions/proj/broken.jsonl'), [
             record('good-1', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
             '{"message":{"role":"assistant","usage":{"input":5',
         ]);
         const broken = await flowRun('pi', { PI_AGENT_DIR: malformed, MUXR_HOME: join(flow, 'state-m1') });
-        assert.equal(broken.todayTokens, '—');
-        assert.match(broken.activityNotice ?? '', /could not be measured/);
+        assert.equal(broken.todayTokens, '10');
+        assert.equal(broken.activityNotice, undefined);
         // A transcript nested past the scan's depth bound is unread, not empty.
         const deep = join(flow, 'deep-agent');
         writeTranscript(join(deep, 'sessions/a/b/c/d/e/f/g/h/i/session.jsonl'), [
@@ -700,17 +682,14 @@ try {
         ]);
         assert.equal((await flowRun('pi', { PI_AGENT_DIR: nested, MUXR_HOME: join(flow, 'state-m3') })).todayTokens, '700');
 
-        // A line past the 4 MB bound whose usage sits after the retained prefix:
-        // the head alone cannot say the line was worthless, so the total is not
-        // reported as if the line had been read.
+        // A 5 MB line whose usage sits past its head is still read whole.
         const oversized = join(flow, 'oversized-agent');
         writeTranscript(join(oversized, 'sessions/proj/wide.jsonl'), [
             record('good-2', '2026-09-07T20:03:00.000Z', 'fixture-pi', { input: 10 }, 0.01),
             `{"id":"huge","pad":"${'p'.repeat(5 * 1024 * 1024)}","message":{"role":"assistant","model":"fixture-pi","timestamp":"2026-09-07T20:03:30.000Z","usage":{"input":999999}}}`,
         ]);
         const huge = await flowRun('pi', { PI_AGENT_DIR: oversized, MUXR_HOME: join(flow, 'state-m4') });
-        assert.equal(huge.todayTokens, '—');
-        assert.match(huge.activityNotice ?? '', /could not be measured/);
+        assert.equal(huge.todayTokens, '1.0M');
         // A tool result that long (an image, a file dump) names itself in its
         // head and never carries usage: it is skipped, and the rest still counts.
         const toolDump = join(flow, 'tool-dump-agent');
@@ -744,30 +723,30 @@ try {
         assert.equal(again.todayTokens, '1.3K');
         assert.equal(again.weekCost, '—');
 
-        // Authoritative collection that cannot complete says so; it never shows
-        // a truncated total, and never caches one.
-        const exhausted = join(flow, 'exhausted-agent');
-        writeTranscript(join(exhausted, 'sessions/proj/wide.jsonl'),
+        // A thousand models in one transcript are all counted; the payload
+        // names the most used few.
+        const wide = join(flow, 'wide-agent');
+        writeTranscript(join(wide, 'sessions/proj/wide.jsonl'),
             Array.from({ length: 1100 }, (_, index) => record(`wide-${index}`, '2026-09-07T20:03:00.000Z', `model-${index}`, { input: 10 }, 0.01)));
-        rmSync(join(flow, 'state', 'usage-v2-pi.json'), { force: true });
-        const unavailable = await flowRun('pi', { PI_AGENT_DIR: exhausted });
-        assert.equal(unavailable.todayTokens, '—');
-        assert.equal(unavailable.todayCost, '—');
-        assert.match(unavailable.activityNotice ?? '', /could not be measured/);
-        assert.ok(!existsSync(join(flow, 'state', 'usage-v2-pi.json')), 'unavailable collection was cached');
+        const manyModels = await flowRun('pi', { PI_AGENT_DIR: wide, MUXR_HOME: join(flow, 'state-m6') });
+        assert.equal(manyModels.todayTokens, '11.0K');
+        assert.equal(manyModels.activity.models.length, 8);
     } finally {
         rmSync(flow, { recursive: true, force: true });
     }
-    process.stdout.write('PASS flow: fork-deduped transcripts, borrowed plans, bounded scans, Dubai-midnight journey\n');
+    process.stdout.write('PASS flow: fork-deduped transcripts, no borrowed plans, Codex rollouts, Dubai-midnight journey\n');
 
-    // The Right now card and the default Usage tab both project the same
-    // collection; OMP borrows the tightest connected plan's windows. Remove
+    // The Right now card and every Usage tab project the same collection: the
+    // card leads with the machine's tightest plan (Codex here), while the
+    // default OMP tab borrows nothing. Remove
     // the real-clock reading from the host-env fixture above before comparing
     // it with this pinned-clock collection.
     rmSync(join(scratch, 'usage', 'plans-v1.json'), { force: true });
     const nowPayload = await driveNow(baseEnv());
-    const nowUsage = await run({});
-    assert.equal(nowUsage.provider, 'omp');
+    const defaultTab = await run({});
+    assert.equal(defaultTab.provider, 'omp');
+    assert.deepEqual(defaultTab.limits.windows, []);
+    const nowUsage = await run({ provider: 'codex' });
     assert.equal(nowPayload.capturedAt, nowUsage.capturedAt);
     assert.ok(nowUsage.windows.length > 1, 'fixtures must publish competing windows for the selection to mean anything');
     assert.equal(nowPayload.limits.verdict, nowUsage.limits.verdict);

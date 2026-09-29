@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginScreenLimitsNode, PluginScreenTone } from '@muxr/contract';
-import { asLimitsPayload, type PluginLimitsPayload, type PluginLimitsWindow } from '../domain/limitsModel';
+import { asLimitsPayload, runOutMs, type PluginLimitsPayload, type PluginLimitsWindow } from '../domain/limitsModel';
 import { resolvePath, bindText } from '../domain/screenModel';
 import { resolvePluginText } from '../domain/pluginText';
 import { toneColor } from '../domain/pluginTone';
@@ -18,38 +18,16 @@ export const verdictTone = (verdict: PluginLimitsPayload['verdict']): PluginScre
             : verdict === 'watch' || verdict === 'ahead' ? 'warning'
                 : 'danger';
 
-/** Below this share of the window gone, a projection is noise, not a trend:
- *  a window that just opened says nothing about how it will end. */
-const MIN_ELAPSED_FOR_PROJECTION = 0.01;
 /** A window that will not outlast its reset reads as urgent only when the
  *  moment it runs out is close; earlier it is a plan, not an emergency. */
 const RUNS_OUT_SOON_MS = 60 * 60_000;
 
-/** Seconds in the host's reset spelling ("16d 23h", "4h 11m", "45m"). */
-function resetSeconds(resetsIn: string | undefined): number | undefined {
-    if (resetsIn === undefined) return undefined;
-    let seconds = 0;
-    for (const [, amount, unit] of resetsIn.matchAll(/(\d+)\s*([dhm])/g)) {
-        seconds += Number(amount) * { d: 86_400, h: 3_600, m: 60 }[unit as 'd' | 'h' | 'm']!;
-    }
-    return seconds > 0 ? seconds : undefined;
-}
-
-/** What one window's own pace says is coming, computed from the figures the
- *  host already publishes: at the pace so far, does it outlast the reset?
- *  Calm while it does (undefined -- the host's word stands); warm once it
- *  will not, with the moment named; strong only when that moment is soon.
- *  A window already out keeps the host's own verdict. */
+/** What one window's own pace says is coming: calm while it outlasts its
+ *  reset (undefined -- the host's word stands); warm once it will not, with
+ *  the moment named; strong only when that moment is soon. */
 export function runOut(window: PluginLimitsWindow): { tone: 'warning' | 'danger'; note: string } | undefined {
-    const elapsed = window.elapsed;
-    if (elapsed === undefined || elapsed < MIN_ELAPSED_FOR_PROJECTION) return undefined;
-    if (window.used <= 0 || window.used >= 100 || window.pace === 'limited') return undefined;
-    if (window.used / elapsed <= 100) return undefined;
-    const reset = resetSeconds(window.resetsIn);
-    if (reset === undefined) return undefined;
-    // At the pace so far the remaining share takes the same fraction of the
-    // elapsed wall time as the share is of what was used when it was spent.
-    const ms = ((100 - window.used) / window.used) * (elapsed / (1 - elapsed)) * reset * 1_000;
+    const ms = runOutMs(window);
+    if (ms === undefined) return undefined;
     return {
         tone: ms <= RUNS_OUT_SOON_MS ? 'danger' : 'warning',
         note: t('plugins.limits.runsOutIn', { time: compactAge(Math.max(ms, 60_000)) }),

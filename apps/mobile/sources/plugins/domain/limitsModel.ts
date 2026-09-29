@@ -60,3 +60,32 @@ export function asLimitsPayload(value: unknown): PluginLimitsPayload {
         windows,
     };
 }
+
+/** Below this share of the window gone, a projection is noise, not a trend:
+ *  a window that just opened says nothing about how it will end. */
+const MIN_ELAPSED_FOR_PROJECTION = 0.01;
+
+/** Seconds in the host's reset spelling ("16d 23h", "4h 11m", "45m"). */
+export function resetSeconds(resetsIn: string | undefined): number | undefined {
+    if (resetsIn === undefined) return undefined;
+    let seconds = 0;
+    for (const [, amount, unit] of resetsIn.matchAll(/(\d+)\s*([dhm])/g)) {
+        seconds += Number(amount) * { d: 86_400, h: 3_600, m: 60 }[unit as 'd' | 'h' | 'm']!;
+    }
+    return seconds > 0 ? seconds : undefined;
+}
+
+/** How long until a window runs out at the pace so far, when that is before
+ *  its reset; undefined while it outlasts the reset or cannot be projected.
+ *  A window already out keeps the host's own verdict. */
+export function runOutMs(window: PluginLimitsWindow): number | undefined {
+    const elapsed = window.elapsed;
+    if (elapsed === undefined || elapsed < MIN_ELAPSED_FOR_PROJECTION) return undefined;
+    if (window.used <= 0 || window.used >= 100 || window.pace === 'limited') return undefined;
+    if (window.used / elapsed <= 100) return undefined;
+    const reset = resetSeconds(window.resetsIn);
+    if (reset === undefined) return undefined;
+    // At the pace so far the remaining share takes the same fraction of the
+    // elapsed wall time as the share is of what was used when it was spent.
+    return ((100 - window.used) / window.used) * (elapsed / (1 - elapsed)) * reset * 1_000;
+}

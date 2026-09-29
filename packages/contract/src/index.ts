@@ -293,6 +293,12 @@ export type {
     UsageWindowViewModel,
     UsageConnectedProvider,
     UsageReport,
+    UsageTokenCounts,
+    UsageActivityDay,
+    UsageActivityModel,
+    UsageActivityRoute,
+    UsageActivitySource,
+    UsageActivity,
     UsageVitals,
     UsageNow,
 } from './usage/index.js';

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
-import type { UsageNow, UsageReport } from '@muxr/contract';
+import type { UsageActivityDay, UsageNow, UsageReport } from '@muxr/contract';
 import { FRESH_MS, lastKnownPlan, noteAsked, rememberShown, shownUsage, withNow, withReport } from './freshnessWindow';
 
 /**
@@ -72,6 +72,15 @@ vi.mock('react-native', () => ({
     View: 'View',
 }));
 vi.mock('react-native-unistyles', () => ({ useUnistyles: () => ({ theme }) }));
+vi.mock('react-native-reanimated', () => ({
+    default: { View: 'Animated.View' },
+    Easing: { bezier: () => undefined, inOut: () => undefined, quad: undefined },
+    useAnimatedStyle: () => ({}),
+    useReducedMotion: () => true,
+    useSharedValue: (value: unknown) => ({ value }),
+    withDelay: (_delay: number, value: unknown) => value,
+    withTiming: (value: unknown) => value,
+}));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('@/components/haptics', () => ({ hapticsSelection }));
@@ -198,6 +207,15 @@ function pressRefresh(renderer: any, label = 'plugins.rightNow.refreshNow') {
 const screenText = (renderer: any): string => renderer.root.findAllByType('Text')
     .map((node: any) => (typeof node.props.children === 'string' ? node.props.children : ''))
     .join(' ');
+
+/** Like screenText, but a Text's string array children join in, and runs of
+ *  space collapse -- so a sentence its label and figure share reads as one. */
+const flatText = (renderer: any): string => renderer.root.findAllByType('Text')
+    .map((node: any) => Array.isArray(node.props.children)
+        ? node.props.children.filter((child: any) => typeof child === 'string').join('')
+        : node.props.children)
+    .filter((text: any) => typeof text === 'string').join(' ')
+    .replace(/\s+/g, ' ');
 
 /** Press any control by its label, for the card states that offer one. */
 function press(renderer: any, label: string) {
@@ -1775,5 +1793,148 @@ describe('the usage screen read path', () => {
         expect(card().props.data.limits.verdict).toBe('go');
         expect(card().props.asOf).toBeUndefined();
         expect(card().parent.props.style.opacity).toBe(1);
+    });
+
+    it('shows each route\'s cost for the span shown, marking a floor, and nothing for a route that could not be priced', async () => {
+        // The figure beside a route's tokens belongs to the span on screen, a
+        // cost the harness could not fully price reads as the floor it is,
+        // and a route with no recorded cost stays silent rather than reading
+        // as free.
+        request.mockResolvedValue({
+            ...report('pi', 0),
+            activity: {
+                state: 'measured' as const,
+                hourly: [],
+                days: ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07']
+                    .map((date, index) => ({ date, input: index === 6 ? 4_000_000 : 0, output: 0, cacheRead: 0, cacheWrite: 0, other: 0 })),
+                models: [],
+                routes: [
+                    { id: 'openai-codex', label: 'OpenAI Codex', glyph: 'codex', today: 4_000_000, week: 21_100_000_000, month: 30_000_000_000, weekCost: 950, monthCost: 1_900 },
+                    { id: 'anthropic', label: 'Anthropic', glyph: 'claude', today: 0, week: 2_000_000, month: 2_000_000, weekCost: 40, monthCost: 40, weekUnpriced: true, monthUnpriced: true },
+                    { id: 'google', label: 'Gemini', glyph: 'gemini', today: 0, week: 5_000_000, month: 5_000_000 },
+                ],
+            },
+        });
+        const routeRow = (label: string): string => {
+            const row = screen.root.findAll((node: any) => typeof node.props?.accessibilityLabel === 'string' && node.props.accessibilityLabel.startsWith(`${label}:`))[0];
+            if (row === undefined) throw new Error(`no route row for ${label}`);
+            return row.props.accessibilityLabel;
+        };
+        const screen = renderScreen();
+        await tick();
+        expect(routeRow('OpenAI Codex')).toBe('OpenAI Codex: 21.1B tokens, $950, 100 percent');
+        expect(routeRow('Anthropic')).toBe('Anthropic: 2M tokens, ≥ $40.00, 0 percent');
+        expect(routeRow('Gemini')).toBe('Gemini: 5M tokens, 0 percent');
+        expect(screenText(screen)).toContain('· $950');
+        expect(screenText(screen)).toContain('≥ $40.00');
+
+        // The month span carries the month's own cost, never the week's.
+        press(screen, '30 days');
+        await tick();
+        expect(routeRow('OpenAI Codex')).toBe('OpenAI Codex: 30B tokens, $1,900, 100 percent');
+        expect(routeRow('Anthropic')).toBe('Anthropic: 2M tokens, ≥ $40.00, 0 percent');
+        expect(routeRow('Gemini')).toBe('Gemini: 5M tokens, 0 percent');
+
+        // A route with no recorded cost earns no dollar figure on either span.
+        expect(screenText(screen)).not.toContain('$0');
+    });
+
+    it('speaks no dollar figure on a plan-priced tab, whose footnote stays the one explanation', async () => {
+        // The Z.ai tab's costs are withheld because its plan prices the
+        // traffic: its cards show tokens alone -- neither '$' nor 'Not priced'
+        // -- while a tab whose costs are genuinely unknown still says so.
+        const days = ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07']
+            .map((date, index) => ({ date, input: index === 6 ? 4_000_000 : 900_000, output: 0, cacheRead: 0, cacheWrite: 0, other: 0 }));
+        request.mockResolvedValue({
+            ...report('zai', 0),
+            providers: [{ id: 'zai', label: 'Z.ai', glyph: 'zai' }],
+            providerName: 'Z.ai',
+            activity: { state: 'measured' as const, hourly: [100, 200], days, models: [] },
+        });
+        const screen = renderScreen();
+        await tick();
+        expect(flatText(screen)).toContain('Plan traffic is priced by the plan, so no dollar figure is shown.');
+        expect(flatText(screen)).not.toContain('Not priced');
+        expect(flatText(screen)).not.toContain('$');
+        expect(flatText(screen)).not.toContain('Cost');
+        const today = screen.root.findAll((node: any) => node.props?.accessibilityRole === 'summary')[0];
+        expect(today.props.accessibilityLabel).toContain('Today 4M tokens');
+        expect(today.props.accessibilityLabel).not.toContain('Not priced');
+
+        // The same cards keep the honest label where cost is genuinely
+        // unknown: another machine's tab, whose retained window this test's
+        // first read does not hold open.
+        connection.machineId = 'machine-plan-unknown';
+        request.mockResolvedValue({
+            ...report('pi', 0),
+            activity: { state: 'measured' as const, hourly: [100, 200], days: days.map((day) => ({ ...day, unpriced: true as const })), models: [] },
+        });
+        const other = renderScreen();
+        await tick();
+        expect(flatText(other)).toContain('Not priced');
+        expect(flatText(other)).toContain('Cost');
+    });
+
+    it('opens each tab on its own span, so a tab idle this week is not shown the busy tab\'s empty week', async () => {
+        // Claude worked today; OpenCode last worked a fortnight ago. The span
+        // picked on one tab used to carry to the next, so OpenCode read as
+        // zero until its month was tapped.
+        const days = (busyToday: boolean) => Array.from({ length: 30 }, (_, index) => ({
+            date: `2026-08-${String(index + 1).padStart(2, '0')}`,
+            input: (busyToday ? index === 29 : index === 14) ? 5_000_000 : 0,
+            output: 0, cacheRead: 0, cacheWrite: 0, other: 0,
+        }));
+        request.mockImplementation((_method: string, params?: { provider?: string }) => {
+            const provider = params?.provider ?? 'claude';
+            return Promise.resolve({ ...report(provider, 0), activity: { state: 'measured' as const, hourly: [], days: days(provider === 'claude'), models: [] } });
+        });
+        const screen = renderScreen();
+        await tick();
+        const selectedSpan = () => screen.root.findAll((node: any) => node.props?.accessibilityRole === 'tab'
+            && node.props?.accessibilityState?.selected === true
+            && /^\d+ days$/.test(node.props?.accessibilityLabel ?? ''))[0]?.props.accessibilityLabel;
+
+        expect(selectedSpan()).toBe('7 days');
+        press(screen, 'OpenCode');
+        await tick();
+        expect(selectedSpan()).toBe('30 days');
+        expect(flatText(screen)).toContain('5M');
+
+        // A pick stays with its tab: the week chosen here is not Claude's.
+        press(screen, '7 days');
+        press(screen, 'Claude');
+        await tick();
+        press(screen, '30 days');
+        press(screen, 'OpenCode');
+        await tick();
+        expect(selectedSpan()).toBe('30 days');
+        press(screen, 'Claude');
+        await tick();
+        expect(selectedSpan()).toBe('7 days');
+    });
+
+    it('names the day\'s unitemized tokens Other in the split, and only while there are any', async () => {
+        // A kimi-style day: the source counted 60K and itemized 40K by model.
+        // The 20K rest is its own kind in the legend -- not folded into Input
+        // -- and stays only while there is any of it.
+        const day = (other: number): UsageActivityDay => ({ date: '2026-09-07', input: 40_000, output: 0, cacheRead: 0, cacheWrite: 0, other });
+        const kimi = (days: UsageActivityDay[]) => ({
+            ...report('kimi', 0),
+            providers: [{ id: 'kimi', label: 'Kimi', glyph: 'kimi' }],
+            providerName: 'Kimi',
+            activity: { state: 'measured' as const, hourly: [], days, models: [] },
+        });
+        request.mockResolvedValue(kimi([day(20_000)]));
+        const screen = renderScreen();
+        await tick();
+        expect(flatText(screen)).toContain('Input 40K');
+        expect(flatText(screen)).toContain('Other 20K');
+
+        connection.machineId = 'machine-split-itemized';
+        request.mockResolvedValue(kimi([day(0)]));
+        const plain = renderScreen();
+        await tick();
+        expect(flatText(plain)).toContain('Input 40K');
+        expect(flatText(plain)).not.toContain('Other');
     });
 });
