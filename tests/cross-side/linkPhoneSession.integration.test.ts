@@ -54,7 +54,7 @@ describe('browser session over byokit', () => {
         expect(notices).toEqual([expect.stringContaining('pair again')]);
         old.close();
 
-        const client = new LinkFirstClient({ hostedGrant: stored, onPermanentError: (message) => notices.push(message) });
+        const client = new LinkFirstClient({ hostedGrant: stored, pingMs: 300, onPermanentError: (message) => notices.push(message) });
         cleanups.push(() => client.close());
         client.connect();
         await until(() => client.state === 'connecting', 'first dial');
@@ -93,6 +93,17 @@ describe('browser session over byokit', () => {
         endpoint = await openEndpoint(machineHello('machine', '0.2.1'));
         endpoint!.start();
         await until(() => client.state === 'open', 'browser reconnects to a current host');
+        expect((await client.request('session.list', {})).length).toBe(5);
+
+        // A backgrounded app or hidden tab freezes its timers, so no heartbeat
+        // goes out and none comes back. Waking must not read that silence as a
+        // dead link: the socket is healthy and "connecting" would be a lie.
+        const states: string[] = [];
+        const offState = client.onStateChange((state) => states.push(state));
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_500);
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+        offState();
+        expect(states).toEqual([]);
         expect((await client.request('session.list', {})).length).toBe(5);
         expect(notices.some((notice) => notice.startsWith('Update needed'))).toBe(false);
         endpoint!.close();
