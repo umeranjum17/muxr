@@ -37,14 +37,23 @@ MUXR_PARITY_EVIDENCE="$EVIDENCE_DIR/evidence"
 export MUXR_PARITY_EVIDENCE
 WORKDIR=$(mktemp -d "$EVIDENCE_DIR/work.XXXXXX")
 
+# The pane below runs a real pi. pi resolves its agent home (sessions, auth,
+# projects-memory) from PI_CODING_AGENT_DIR and falls back to the user's real
+# ~/.pi/agent when it is unset, so point it at a per-run temp dir and remove
+# the dir afterwards. Exported too so checkRealtimeParity.mjs (which inherits
+# this environment for the relay/host it spawns) forwards it into every pane
+# the host creates.
+PI_AGENT_TMP=$(mktemp -d "${TMPDIR:-/tmp}/pock-pi-agent-XXXXXX")
+export PI_CODING_AGENT_DIR="$PI_AGENT_TMP"
+
 # Every non-lifecycle Herdr call goes through the helper. Its fleet-state
 # tripwire fails teardown closed if the default session changed.
-trap '"$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || exit 1' EXIT
+trap '"$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || exit 1; rm -rf "$PI_AGENT_TMP"' EXIT
 "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION"
 h() { "$HERDR_LAB_HELPER" run "$HERDR_LAB_SESSION" "$@"; }
 
 # --- warm one real agent ---------------------------------------------------
-ROOT_PANE=$(h workspace create --cwd "$WORKDIR" --label realtime-parity | jq -r '.result.root_pane.pane_id')
+ROOT_PANE=$(h workspace create --cwd "$WORKDIR" --label realtime-parity --env "PI_CODING_AGENT_DIR=$PI_CODING_AGENT_DIR" | jq -r '.result.root_pane.pane_id')
 if [ "$ROOT_PANE" = "null" ] || [ -z "$ROOT_PANE" ]; then
   ROOT_PANE=$(h pane list | jq -r '.result.panes[0].pane_id')
 fi
