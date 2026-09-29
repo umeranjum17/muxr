@@ -168,6 +168,12 @@ export const MetadataSchema = z.object({
     tabId: z.string().optional(),
     tabLabel: z.string().optional(),
     spawnedBy: z.string().optional(),
+    /** The browser or emulator this pane's agent is showing on its own screen, while it shows one. */
+    preview: z.object({
+        kind: z.enum(['browser', 'android']),
+        title: z.string().optional(),
+        since: z.number(),
+    }).optional(),
     worktree: z.object({
         repo: z.string(),
         branch: z.string().optional(),

@@ -842,6 +842,12 @@ describe('session sync flow', () => {
         expect(next[0]!.agentStatus).toBe('blocked');
         expect(next[1]).toBe(cards[1]);
 
+        // An agent's browser rides the same frames: it arrives, and the first
+        // frame without it takes it away rather than the merge keeping it.
+        const shown = applyHostInfoToAgent(before.a!, sessionInfoToSession({ ...info('a'), preview: { kind: 'browser', title: 'Pricing', since: 1 } }));
+        expect(shown.metadata?.preview?.title).toBe('Pricing');
+        expect(applyHostInfoToAgent(shown, sessionInfoToSession(info('a'))).metadata?.preview).toBeUndefined();
+
         vi.useRealTimers();
     });
 

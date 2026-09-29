@@ -213,7 +213,7 @@ export default function ConnectionSettingsScreen() {
     // a connection failure -- a network failure only: a dead grant needs
     // Pair again, not a restart.
     const [restartCopied, setRestartCopied] = React.useState(false);
-    const offerRestart = latestFailure !== undefined && !latestFailureIsDeadGrant();
+    const offerRestart = latestFailure !== undefined && socketError === null && !latestFailureIsDeadGrant();
     React.useEffect(() => { if (!offerRestart) setRestartCopied(false); }, [offerRestart]);
 
     const [sshHost, setSshHost] = React.useState(initial.ssh?.host ?? '');
@@ -557,7 +557,7 @@ export default function ConnectionSettingsScreen() {
         else if (hostRefresh === 'failed') pairedCountText = 'Could not refresh the count. Reconnect or run muxr devices list on the computer.';
         else if (pairedDeviceCount === undefined) pairedCountText = 'This host has not reported a count. Run muxr devices list on the computer.';
         else pairedCountText = `${pairedDeviceCount} paired at last check`;
-        let statusSubtitle = latestFailure ?? socketError ?? 'The app reconnects on its own when the machine is back';
+        let statusSubtitle = socketError ?? latestFailure ?? 'The app reconnects on its own when the machine is back';
         if (status === 'connected') {
             if (hostRefresh === 'loading') statusSubtitle = 'Relay connected; checking the computer…';
             else if (hostRefresh === 'failed') statusSubtitle = 'Relay connected; the computer did not answer. Try Reconnect now or muxr doctor there.';

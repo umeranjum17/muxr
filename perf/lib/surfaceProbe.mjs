@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
@@ -53,6 +53,12 @@ export function processStartIdentity(pid) {
 }
 
 export function validateOwnerLock(path, owner) {
+    if (owner?.kind === 'flock') {
+        try {
+            if (processStartIdentity(owner.pid) !== owner.startIdentity) return 'phone keeper is not owned by this session';
+            return spawnSync('flock', ['-n', path, 'true'], { timeout: 5000 }).status === 1 ? undefined : 'phone keeper lock is missing';
+        } catch { return 'phone keeper lock is missing'; }
+    }
     try {
         const held = JSON.parse(readFileSync(`${path}/owner.json`, 'utf8'));
         const same = held.pid === owner.pid && held.descriptor === owner.descriptor && held.device === owner.device;

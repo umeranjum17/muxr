@@ -1,6 +1,6 @@
 import type { SessionSnapshot } from '@desklink/react-native';
 
-import { desktopCopy } from './desktopCopy';
+import { desktopCopy, previewCopy } from './desktopCopy';
 
 export interface DesktopOverlay {
     title: string;
@@ -69,7 +69,7 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     if (snapshot.status === 'opening' && consentSecondsLeft !== null) {
         const left = Math.max(0, consentSecondsLeft);
         const clock = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-        return { title: desktopCopy.awaitingConsentTitle, detail: `${desktopCopy.awaitingConsentBody} ${clock} left.`, spinner: true, canRetry: false };
+        return { title: openedBefore ? desktopCopy.awaitingConsentTitle : 'Approve once on your computer', detail: `${desktopCopy.awaitingConsentBody}${openedBefore ? '' : ' You will not be asked again unless you revoke it.'} ${clock} left.`, spinner: true, canRetry: false };
     }
     if (snapshot.status === 'reconnecting') {
         return { title: desktopCopy.reconnectingTitle, detail: desktopCopy.reconnectingBody, spinner: true, canRetry: false };
@@ -80,6 +80,43 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
         spinner: true,
         canRetry: false,
     };
+}
+
+export type PreviewKind = 'browser' | 'android';
+
+export interface PreviewOverlay {
+    title: string;
+    detail?: string;
+    spinner: boolean;
+    /** Try again / Watch here reconnect; `exit` goes back to the conversation. */
+    action?: { label: string; exit: boolean };
+}
+
+const TAKEN = new Set(['replaced by a new session', 'another device opened this computer']);
+
+/**
+ * What the live view of an agent's browser or emulator says while it is not
+ * showing it, or null while the picture is up (live or reconnecting, which
+ * keep the last frame). A target the host no longer has is "closed": the
+ * agent finished with it, and the only way on is back.
+ */
+export function describePreviewOverlay(snapshot: SessionSnapshot, kind: PreviewKind, closed: boolean): PreviewOverlay | null {
+    const copy = previewCopy[kind];
+    const gone = { title: copy.closedTitle, detail: previewCopy.closedBody, spinner: false, action: { label: previewCopy.closedAction, exit: true } };
+    if (closed) return gone;
+    const failure = snapshot.failure?.message ?? '';
+    const unreachable = { title: copy.unreachableTitle, detail: previewCopy.unreachableBody, spinner: false, action: { label: 'Try again', exit: false } };
+    if (snapshot.status === 'failed') {
+        if (snapshot.failure?.code === 'transport') return unreachable;
+        return { title: copy.failedTitle, detail: previewCopy.failedBody, spinner: false, action: { label: 'Try again', exit: false } };
+    }
+    if (snapshot.status === 'ended') {
+        if (TAKEN.has(failure)) return { title: previewCopy.takenTitle, detail: previewCopy.takenBody, spinner: false, action: { label: previewCopy.takenAction, exit: false } };
+        if (failure === 'the connection to the phone was lost') return unreachable;
+        return gone;
+    }
+    if (snapshot.status === 'live' || snapshot.status === 'reconnecting') return null;
+    return { title: copy.opening, spinner: true };
 }
 
 const TEXT_REFUSED = new Map<string, string>([

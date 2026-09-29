@@ -168,63 +168,6 @@ export function codexWindows(limits: unknown[], { provider = 'codex', nowMs }: {
     }));
 }
 
-// --- Measured activity: local session records in, totals out. ---
-
-/** One measured model slice inside a day row: a ccusage model breakdown or a
- *  local transcript aggregate share the same fields. */
-export interface UsageModelUsage {
-    period?: string | undefined;
-    modelName: string;
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadTokens?: number;
-    cacheCreationTokens?: number;
-    totalTokens?: number;
-    totalCost?: number;
-}
-
-export interface UsageDayRow {
-    period: string;
-    row?: {
-        totalTokens: number;
-        totalCost: number | undefined;
-        modelBreakdowns: UsageModelUsage[];
-    } | undefined;
-}
-
-/**
- * Week reduction for one provider's day rows (oldest first, today last).
- * Cost comes back only when every measured day recorded one; a day without a
- * cost makes the week unknown rather than free.
- */
-export function activityTotals(days: UsageDayRow[]): { today: UsageDayRow['row']; tokensToday: number; tokensWeek: number; costToday: number | undefined; costWeek: number | undefined } {
-    const today = days[days.length - 1]?.row;
-    const tokensToday = today?.totalTokens ?? 0;
-    const tokensWeek = days.reduce((sum, day) => sum + (day.row?.totalTokens ?? 0), 0);
-    const costToday = today?.totalCost;
-    const costWeekKnown = days.every(({ row }) => row === undefined || Number.isFinite(row.totalCost));
-    const costWeek = costWeekKnown ? days.reduce((sum, day) => sum + (day.row?.totalCost ?? 0), 0) : undefined;
-    return { today, tokensToday, tokensWeek, costToday, costWeek };
-}
-
-/** The bare model id behind a recorded name ("zai/glm-x:high" -> "glm-x"). */
-function bareModel(name: unknown): string {
-    const tail = String(name ?? '').split('/').pop() ?? '';
-    return tail.split(':')[0] ?? '';
-}
-
-/** Model ids one provider owns, from the agent's own model registry. */
-export function providerModelIds(modelsRaw: unknown, providerId: string): Set<string> {
-    // Custom-provider config nests under `providers`; the model store keys
-    // providers at the top level. Either may declare the same provider.
-    const models = (modelsRaw as { providers?: Record<string, { models?: unknown }> } | undefined)?.providers?.[providerId]?.models
-        ?? (modelsRaw as Record<string, { models?: unknown }> | undefined)?.[providerId]?.models;
-    return new Set((Array.isArray(models) ? models : []).flatMap((model): string[] => {
-        const id = typeof (model as { id?: unknown } | null)?.id === 'string' ? (model as { id: string }).id.trim() : '';
-        return id !== '' && id.length <= 64 ? [id] : [];
-    }));
-}
-
 /** The host's own line when muxr has no plan integration for the provider at
  *  all. A surface that owns a localized empty state shows that instead, so it
  *  is named here rather than spelled out at each reader. */
@@ -312,28 +255,4 @@ export function limitsPayload(vms: UsageWindowVM[], { plan, message, nowMs = Dat
         ...(message === undefined ? {} : { message }),
         windows,
     };
-}
-
-/**
- * One provider's slice of another agent's measured local records: the day
- * rows whose models belong to it. Plan providers are priced by the plan, not
- * the token, so their slice never claims a dollar figure.
- */
-export function localActivityForModels(report: { rows?: UsageModelUsage[]; latest?: number } | undefined, modelIds: Set<string>, periods: string[]): { days: UsageDayRow[]; latest?: number } | undefined {
-    if (!Array.isArray(report?.rows) || modelIds.size === 0) return undefined;
-    const days: UsageDayRow[] = periods.map((period) => ({ period, row: undefined }));
-    let matched = false;
-    for (const aggregate of report!.rows!) {
-        if (!modelIds.has(bareModel(aggregate.modelName))) continue;
-        matched = true;
-        if (!Number.isSafeInteger(aggregate.totalTokens) || (aggregate.totalTokens ?? 0) < 0) continue;
-        const day = days.find((candidate) => candidate.period === aggregate.period);
-        if (!day) continue;
-        day.row ??= { totalTokens: 0, totalCost: 0, modelBreakdowns: [] };
-        day.row.totalTokens += aggregate.totalTokens ?? 0;
-        day.row.totalCost = undefined;
-        day.row.modelBreakdowns.push(aggregate);
-    }
-    if (!matched) return undefined;
-    return { days, ...(report!.latest === undefined ? {} : { latest: report!.latest }) };
 }

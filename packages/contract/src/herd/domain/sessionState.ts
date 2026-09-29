@@ -52,6 +52,25 @@ export interface SessionInfo extends SessionRef, AgentInfo {
     tabLabel?: string;
     /** Agent Route of the spawning Agent, stored in current Herdr pane metadata. */
     spawnedBy?: string;
+    /**
+     * What an agent is showing on this pane's own screen right now, when it is
+     * showing anything a client can watch. Absent means nothing is being shown,
+     * which is the ordinary case; it is never filled speculatively.
+     */
+    preview?: PreviewPresence;
+}
+
+/**
+ * The live thing an agent put on its pane's screen: a browser window, or an
+ * Android emulator. Measured from the screen itself (a mapped window), so it is
+ * the same answer whatever tool opened it and never a claim made by a tool.
+ */
+export interface PreviewPresence {
+    kind: 'browser' | 'android';
+    /** Page title, or the AVD name for an emulator. Client-facing, never an id. */
+    title?: string;
+    /** Epoch ms the presence was first seen, so a client can order arrivals. */
+    since: number;
 }
 
 /** One file in a session's working-tree change set (git-derived, agent-agnostic). */

@@ -74,6 +74,40 @@ describe('byokit link streams (real relay + real host)', () => {
         while (cleanups.length > 0) cleanups.pop()!();
     });
 
+    it('holds a streaming pane at a slow phone instead of queueing its whole output', { timeout: 15_000 }, async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-pressure-'));
+        cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+        const bin = join(dir, 'stream.mjs');
+        writeFileSync(bin, `#!/usr/bin/env node
+for (let i = 0; i < 200; i++) process.stdout.write(JSON.stringify({ type: 'terminal.frame', full: i === 0, bytes: 'a'.repeat(4096) }) + '\\n');
+setInterval(() => {}, 1000);
+`, { mode: 0o755 });
+        const manager = new TerminalManager({ resolvePane: async () => 'pane-1', focusSession: async () => undefined, herdrBin: bin });
+        cleanups.push(() => manager.closeAll());
+        let sent = 0;
+        let release!: () => void;
+        const blocked = new Promise<void>((resolve) => { release = resolve; });
+        cleanups.push(release);
+        const socket = {
+            isOpen: true,
+            send: () => { sent++; return blocked; },
+            onLine: () => () => undefined,
+            onEnd: () => () => undefined,
+            close: () => undefined,
+        };
+        await manager.attach({ sessionId: 's1', channel: 'slow', cols: 20, rows: 5, socket });
+        await once(new Promise<void>((resolve) => {
+            const timer = setInterval(() => { if (sent > 0) { clearInterval(timer); resolve(); } }, 10);
+        }), 3000, 'first frame');
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(sent).toBe(1);
+        release();
+        await once(new Promise<void>((resolve) => {
+            const timer = setInterval(() => { if (sent === 200) { clearInterval(timer); resolve(); } }, 10);
+        }), 3000, 'stream resume');
+        expect(sent).toBe(200);
+    });
+
     it('carries terminal and voice streams over the byokit link', { timeout: 60_000 }, async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-terminal-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
@@ -92,6 +126,15 @@ process.stdin.on('data', (chunk) => {
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
         cleanups.push(() => void relay.close());
         const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
+        const base = `http://127.0.0.1:${relay.port}`;
+        const health = await (await fetch(`${base}/health`)).json() as { muxrVersion: string; linkProtocol: number };
+        expect(health.linkProtocol).toBe(1);
+        expect(health.muxrVersion).toMatch(/^\d+\.\d+\.\d+/);
+        const oldGrant = await fetch(`${base}/v1/machines/old/grant`);
+        expect(oldGrant.status).toBe(410);
+        expect((await oldGrant.json()) as { error: string }).toMatchObject({ error: expect.stringContaining('Update the muxr app') });
+        const oldTicket = await fetch(`${base}/v1/ws-tickets`, { method: 'POST' });
+        expect(oldTicket.status).toBe(403); // 0.2.0 maps this to its fixed re-pair message.
         const ownerToken = JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string;
 
         const machine = generateKeyPair();

@@ -9,7 +9,7 @@
 import { type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@muxr/contract';
 import { deviceTableCanMutate, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
-import { DesktopSessions } from './desktop/index.js';
+import { DesktopSessions, PreviewDesktops, PreviewPresenceTracker, withPreview, type PaneScreens } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -43,6 +43,12 @@ export interface HostOptions {
     desktopEnginePath?: string;
     /** Existing host state root for local desktop portal grants. */
     stateRoot?: string;
+    /**
+     * The private screens agent panes run on. The session source is built
+     * before this host is (it needs them to allocate a pane's screen), so it is
+     * handed to both and the host owns the teardown.
+     */
+    paneScreens?: PaneScreens;
 }
 
 export interface Host {
@@ -51,7 +57,7 @@ export interface Host {
     answer: (frame: ClientFrame, authenticatedSenderId: string, connectionId?: string) => Promise<HostFrame | undefined>;
     setLinkDesktopConnection: (connectionId: string, active: boolean) => void;
     setLinkDeviceConnection: (deviceId: string, active: boolean) => void;
-    closeDeviceDesktopSessions: (deviceId: string) => Promise<void>;
+    closeDeviceDesktopSessions: (deviceId: string, removed?: boolean) => Promise<void>;
     canView: (frame: ClientFrame) => boolean;
     /** Product events fan out through the byokit endpoint. */
     onBroadcast: (listener: (frame: HostFrame) => void) => void;
@@ -83,15 +89,23 @@ export function startHost(options: HostOptions): Host {
         };
     }
     // Started lazily: a host that never opens a desktop never spawns the engine.
-    const desktop = new DesktopSessions(
-        {
-            ...(options.desktopEnginePath === undefined ? {} : { enginePath: options.desktopEnginePath }),
-            ...(options.stateRoot === undefined ? {} : { stateRoot: options.stateRoot }),
-            // The engine's own account of a failure (a refused portal, a
-            // missing library) belongs in the host's log with everything else.
-            onDiagnostic: (line) => process.stderr.write(`desktop engine: ${line}\n`),
-        },
-    );
+    const desktopEngineOptions = {
+        ...(options.desktopEnginePath === undefined ? {} : { enginePath: options.desktopEnginePath }),
+        ...(options.stateRoot === undefined ? {} : { stateRoot: options.stateRoot }),
+        // The engine's own account of a failure (a refused portal, a
+        // missing library) belongs in the host's log with everything else.
+        onDiagnostic: (line: string) => process.stderr.write(`desktop engine: ${line}\n`),
+    };
+    const desktop = new DesktopSessions(desktopEngineOptions);
+    const previewPresence = new PreviewPresenceTracker();
+    const previewForPane = (paneId: string) => previewPresence.previewFor(paneId);
+    // One engine wrapper per pane, created only when a phone watches that
+    // pane's screen; an idle one with no sessions is reaped after 10 s.
+    const previewDesktops = new PreviewDesktops({
+        screens: options.paneScreens,
+        listSessions: () => source.list(),
+        makeDesktop: (environment) => new DesktopSessions(desktopEngineOptions, environment),
+    });
     const dispatcher = createRequestDispatcher({
         source,
         domain,
@@ -105,6 +119,8 @@ export function startHost(options: HostOptions): Host {
         ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
         ...(options.peerRuntime === undefined ? {} : { peerRuntime: options.peerRuntime }),
         desktop,
+        previewDesktops,
+        previewForPane,
         isDesktopConnectionActive: (id: string) => activeDesktopConnections.has(id),
         ...hostedDispatcherOptions,
     });
@@ -141,7 +157,7 @@ export function startHost(options: HostOptions): Host {
                 || options.hostedE2ee?.deviceCapabilities?.[peerRecipient]?.includes('list') === true;
             if (!peerMayList) return undefined;
             const listed = await listAgents(source, {});
-            return listed.ok ? { type: 'session.list', sessions: listed.data } : undefined;
+            return listed.ok ? { type: 'session.list', sessions: withPreview(listed.data, previewForPane) } : undefined;
         }
 
         let response;
@@ -173,6 +189,29 @@ export function startHost(options: HostOptions): Host {
 
     const unsubscribe = source.subscribe(forward);
     const unsubscribeMachine = source.subscribeMachine?.((frame) => broadcast(frame));
+    // Presence is pushed, not polled: a changed chip reaches the phone as the
+    // session's own update, the same frame a rename travels in. It skips
+    // `forward` on purpose — a browser opening is not unread activity.
+    const pushPresence = (paneId: string): void => {
+        void source.list().then((sessions) => {
+            const preview = previewForPane(paneId);
+            for (const session of sessions) {
+                if (session.paneId !== paneId) continue;
+                const event: SessionEvent = {
+                    type: 'session.updated',
+                    session: preview === undefined ? session : { ...session, preview },
+                    seq: nextSeq(session.id),
+                };
+                broadcast({ type: 'session.event', sessionId: session.id, event });
+            }
+        }).catch(() => undefined);
+    };
+    // Announce and withdraw timers fire outside any keeper event, so the push
+    // subscribes to announced changes rather than one call's return value.
+    const unsubscribePresence = previewPresence.onChange(pushPresence);
+    const unsubscribePreview = options.paneScreens?.onWindows((paneId, windows) => {
+        previewPresence.handleWindows(paneId, windows);
+    });
 
     return {
         canView: (frame) => frame.type === 'client.hello' || viewOnlyRequestAllowed(frame as ClientRequest, source),
@@ -185,15 +224,27 @@ export function startHost(options: HostOptions): Host {
             if (active) activeDesktopConnections.add(connectionId);
             else activeDesktopConnections.delete(connectionId);
         },
-        setLinkDeviceConnection: (deviceId, active) => desktop.setLinkDeviceConnected(deviceId, active),
-        closeDeviceDesktopSessions: (deviceId) => desktop.revokeDevice(deviceId),
+        setLinkDeviceConnection: (deviceId, active) => {
+            desktop.setLinkDeviceConnected(deviceId, active);
+            previewDesktops.setLinkDeviceConnected(deviceId, active);
+        },
+        closeDeviceDesktopSessions: async (deviceId, removed) => {
+            await desktop.revokeDevice(deviceId, removed);
+            // A removed device loses every target session too.
+            await previewDesktops.revokeDevice(deviceId);
+        },
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
         refreshLinkEnrolment,
         close: async () => {
             unsubscribe();
             unsubscribeMachine?.();
+            unsubscribePreview?.();
+            unsubscribePresence();
+            previewPresence.stop();
+            await previewDesktops.closeAll();
             await desktop.closeAll();
             desktop.stopVirtualDisplay();
+            options.paneScreens?.stop();
             await source.dispose();
         },
     };

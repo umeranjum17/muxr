@@ -102,6 +102,9 @@ function sessionMetadataFromInfo(
         ...(info.tabId === undefined || info.tabId === '' ? {} : { tabId: info.tabId }),
         ...(info.tabLabel === undefined || info.tabLabel === '' ? {} : { tabLabel: info.tabLabel }),
         ...(info.spawnedBy === undefined || info.spawnedBy === '' ? {} : { spawnedBy: info.spawnedBy }),
+        // Always present, even when absent: a frame without it must clear the
+        // one the merge with known metadata would otherwise keep.
+        preview: info.preview,
         startedBy: 'daemon',
         rigMetadataVersion: 1,
         capabilities: {

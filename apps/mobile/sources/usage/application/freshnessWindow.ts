@@ -72,6 +72,8 @@ export interface UsageActivity {
     activityNotice?: string;
     noProvidersTitle?: string;
     noProviders?: string;
+    /** Tokens, trends, models and routes, from hosts that send them. */
+    detail?: UsageReport['activity'];
 }
 
 /** One machine's tab, as figures: the limits and plans both surfaces show, the
@@ -167,6 +169,7 @@ export function withReport(previous: UsageFigures | undefined, value: UsageRepor
             ...(value.activityNotice === undefined ? {} : { activityNotice: value.activityNotice }),
             ...(value.noProvidersTitle === undefined ? {} : { noProvidersTitle: value.noProvidersTitle }),
             ...(value.noProviders === undefined ? {} : { noProviders: value.noProviders }),
+            ...(value.activity === undefined ? {} : { detail: value.activity }),
         },
         connected: value.connected,
         ...(value.ageSeconds === undefined ? {} : { ageSeconds: value.ageSeconds, ageAt: now }),

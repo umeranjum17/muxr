@@ -48,7 +48,7 @@ import { herdrPaneForSession, navigateToSession } from '@/herd';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
-import { HomeRecoveryCard } from './HomeRecoveryCard';
+import { HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
 
 
 const styles = StyleSheet.create((theme) => ({
@@ -464,9 +464,10 @@ export const MainView = React.memo(() => {
         setHeaderBackdropVisible(nextVisible);
     }, []);
 
+    const permanentRecovery = !['host', 'runtime'].includes(recoveryMode(socketStatus.error, false));
     const homeHeader = <>
         <PluginSlot slot="home.cards" context={{}} />
-        <RightNowCard />
+        {!permanentRecovery && <RightNowCard />}
         <DeclarativeHomeCards />
         <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
     </>;
@@ -497,7 +498,8 @@ export const MainView = React.memo(() => {
                     <VersionNotice />
                     {splitRecovering ? (
                         <HomeRecoveryCard
-                            mode={splitRuntimeOffline && !splitHostOffline ? 'runtime' : 'host'}
+                            mode={recoveryMode(socketStatus.error, splitRuntimeOffline && !splitHostOffline)}
+                            reason={socketStatus.error}
                             retrying={retryingHome}
                             feedback={homeRecoveryFeedback}
                             onRetry={() => void retrySplitConnection()}
@@ -509,7 +511,7 @@ export const MainView = React.memo(() => {
                     {homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitRecovering && socketStatus.status === 'connected'
                         ? <HomeDiscoveryRows /> : null}
                     <PluginSlot slot="home.cards" context={{}} />
-                    <RightNowCard />
+                    {!permanentRecovery && <RightNowCard />}
                     <DeclarativeHomeCards />
                     {recentSessions.length > 0 && (
                         <View style={styles.recentSection}>

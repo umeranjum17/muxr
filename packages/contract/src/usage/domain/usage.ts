@@ -72,6 +72,88 @@ export interface UsageConnectedProvider {
     windows: UsageLimitsWindow[];
 }
 
+/** Tokens by kind. `input` is fresh input: cache reads and writes are their
+ *  own figures, never folded into it. */
+export interface UsageTokenCounts {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    /** Tokens the source counted but did not itemize by kind: the rest, never a guessed kind. */
+    other: number;
+}
+
+/** One local day of measured activity. */
+export interface UsageActivityDay extends UsageTokenCounts {
+    /** Local ISO date (YYYY-MM-DD). */
+    date: string;
+    /** USD, recorded by the harness or estimated at list prices; absent when
+     *  nothing on the day could be priced. */
+    cost?: number;
+    /** Some of the day's tokens could not be priced: `cost` is a floor. */
+    unpriced?: true;
+}
+
+/** One model's measured tokens, totals over today, 7 and 30 days. */
+export interface UsageActivityModel {
+    model: string;
+    /** The provider the harness routed the model through, when it names one. */
+    route?: string;
+    today: number;
+    week: number;
+    month: number;
+}
+
+/** One provider an aggregator routed to, with that provider's own plan
+ *  limits when this machine has them connected. */
+export interface UsageActivityRoute {
+    id: string;
+    label: string;
+    glyph?: string;
+    today: number;
+    week: number;
+    month: number;
+    weekCost?: number;
+    monthCost?: number;
+    /** Some of that span's tokens could not be priced: that span's cost is a floor. */
+    weekUnpriced?: true;
+    monthUnpriced?: true;
+    /** The provider's own plan, never the harness's: an aggregator has none. */
+    plan?: string;
+    windows?: UsageLimitsWindow[];
+}
+
+/** One harness whose traffic landed on the selected plan, over 7 days. */
+export interface UsageActivitySource {
+    id: string;
+    label: string;
+    glyph: string;
+    week: number;
+}
+
+/** Measured local activity for one tab: figures only, the phone owns words.
+ *  `counting` is a first count still reading the session stores. */
+export interface UsageActivity {
+    state: 'measured' | 'counting' | 'unavailable';
+    /** Why the figures are missing, and how to fix it, when they are. */
+    reason?: string;
+    /** Today's tokens per local hour, index 0 = midnight, up to the current hour. */
+    hourly: number[];
+    /** Thirty local days, oldest first, ending today. */
+    days: UsageActivityDay[];
+    /** Most-used models over 30 days, at most eight. */
+    models: UsageActivityModel[];
+    /** Aggregators: the providers the traffic went to, most used first. */
+    routes?: UsageActivityRoute[];
+    /** Plan tabs: which harnesses sent this plan's traffic. */
+    sources?: UsageActivitySource[];
+    /** Whether cost figures were recorded by the harness, estimated at list
+     *  prices, or both. */
+    costBasis?: 'recorded' | 'estimated' | 'mixed';
+    /** The last measured record, when there is one. */
+    lastActiveAt?: string;
+}
+
 /** The Usage screen payload for one selected provider tab (or the machine's
  *  default when `provider` is empty). */
 export interface UsageReport {
@@ -83,6 +165,8 @@ export interface UsageReport {
     noProviders?: string;
     /** Why the selected tab's local activity is a dash; silence means measured. */
     activityNotice?: string;
+    /** Tokens, trends, models and routes; absent from hosts that predate it. */
+    activity?: UsageActivity;
     todayTokens: string;
     todayCost: string;
     modelSeries: UsageSeriesPoint[];
@@ -101,8 +185,8 @@ export interface UsageReport {
     windowPeriods: string[];
     /** The selected tab's windows as plain view models, parallel to `limits`. */
     windows: UsageWindowViewModel[];
-    /** The rendered limits payload; a planless selection borrows the tightest
-     *  connected plan so the default view never lies about being disconnected. */
+    /** The selected tab's own plan limits. A harness with no plan of its own
+     *  (Pi, OMP, OpenCode) has none here: its routes carry each provider's. */
     limits: UsageLimitsPayload;
     /** Every provider with real quota windows; absent when none are connected. */
     connected?: UsageConnectedProvider[];

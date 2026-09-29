@@ -7,6 +7,12 @@ export type {
     UsageWindowViewModel,
     UsageConnectedProvider,
     UsageReport,
+    UsageTokenCounts,
+    UsageActivityDay,
+    UsageActivityModel,
+    UsageActivityRoute,
+    UsageActivitySource,
+    UsageActivity,
     UsageVitals,
     UsageNow,
 } from './domain/usage.js';

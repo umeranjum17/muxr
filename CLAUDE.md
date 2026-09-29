@@ -22,8 +22,10 @@ behaviour it claims to cover and watch it go red.
 
 - Review standard (size triggers, errors at boundaries, lifecycle owners, how automation grows): [docs/engineering-guidelines.md](docs/engineering-guidelines.md), on top of the module-first rules in `CONTRIBUTING.md`.
 - `yarn check` is yarn v1's built-in dependency checker, not this repo's suite. The suite is `yarn run check`; the automatic pull-request lane is `yarn run check:fast`. `scripts/diagnostics/application/runSuite.mjs` owns both lists.
+- `apps/mobile` typecheck has pre-existing errors. Before blaming a `tsc` failure on your change, compare against a clean checkout of `origin/main`.
 - An e2e check must own the relay it starts: spawn with `MUXR_RELAY_PORT=0` and take the real port from `waitForRelay(child)`. Naming a port instead lets a relay from another worktree answer the health probe, and the check then passes having tested nothing it started.
 - A browser lab cannot be pointed at its own relay with `EXPO_PUBLIC_MUXR_*`. `BUILD_ENV_APPLIES` in `apps/mobile/sources/connection/connectionSettings.ts` drops them on web on purpose. Pair the lab browser with its running development host and store its link grant through `pairing/infrastructure/webSecureStore.ts`; do not inject a relay owner secret or rely on an unpaired local connection.
+- `gh-axi` (this repo's `gh` wrapper) prints TOON/text, not JSON — parse the text output instead of reaching for `gh`'s `--json`/`--jq` (see `gh-axi pr view --help`).
 
 ## Voice
 
@@ -84,3 +86,10 @@ muxr name --workspace 'short-task-slug' \
 - `MUXR_NAMING_PORT` overrides the local endpoint port. See `scripts/naming/`.
 - If no self-name arrives, the existing blank-name fallback may fill an absent
   name. Do not guess a title from command lines or provider-specific output.
+
+## Maintaining this file
+
+Keep this file for knowledge useful to almost every future agent session in this project.
+Do not repeat what the codebase already shows; point to the authoritative file or command instead.
+Prefer rewriting or pruning existing entries over appending new ones.
+When updating this file, preserve this bar for all agents and keep entries concise.

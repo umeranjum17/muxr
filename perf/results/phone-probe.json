@@ -1,0 +1,144 @@
+{
+  "startedAt": "2026-09-27T12:44:04.753Z",
+  "pkg": "app.muxr.crashperf.dev",
+  "samples": [
+    {
+      "label": "connected home",
+      "elapsedSeconds": 40,
+      "pid": "29251",
+      "pssKb": 337803,
+      "frames": 14
+    },
+    {
+      "label": "home after w1:p31",
+      "elapsedSeconds": 52,
+      "pid": "29251",
+      "pssKb": 348177,
+      "frames": 442
+    },
+    {
+      "label": "home after w1:p32",
+      "elapsedSeconds": 57,
+      "pid": "29251",
+      "pssKb": 360966,
+      "frames": 568
+    },
+    {
+      "label": "home after w1:p33",
+      "elapsedSeconds": 62,
+      "pid": "29251",
+      "pssKb": 360818,
+      "frames": 686
+    },
+    {
+      "label": "home after w1:p34",
+      "elapsedSeconds": 67,
+      "pid": "29251",
+      "pssKb": 366242,
+      "frames": 802
+    },
+    {
+      "label": "home after w1:p35",
+      "elapsedSeconds": 73,
+      "pid": "29251",
+      "pssKb": 364147,
+      "frames": 920
+    },
+    {
+      "label": "home after w1:p36",
+      "elapsedSeconds": 78,
+      "pid": "29251",
+      "pssKb": 364137,
+      "frames": 1037
+    },
+    {
+      "label": "home after w1:p37",
+      "elapsedSeconds": 84,
+      "pid": "29251",
+      "pssKb": 408613,
+      "frames": 1268
+    },
+    {
+      "label": "home after w1:p38",
+      "elapsedSeconds": 90,
+      "pid": "29251",
+      "pssKb": 391605,
+      "frames": 1561
+    },
+    {
+      "label": "settled home",
+      "elapsedSeconds": 120,
+      "pid": "29251",
+      "pssKb": 423419,
+      "frames": 2920
+    }
+  ],
+  "visits": [
+    {
+      "pane": "w1:p31",
+      "ms": 9130,
+      "terminalShown": true
+    },
+    {
+      "pane": "w1:p32",
+      "ms": 5009,
+      "terminalShown": true
+    },
+    {
+      "pane": "w1:p33",
+      "ms": 4975,
+      "terminalShown": true
+    },
+    {
+      "pane": "w1:p34",
+      "ms": 4964,
+      "terminalShown": true
+    },
+    {
+      "pane": "w1:p35",
+      "ms": 4976,
+      "terminalShown": true
+    },
+    {
+      "pane": "w1:p36",
+      "ms": 4982,
+      "terminalShown": true
+    },
+    {
+      "pane": "w1:p37",
+      "ms": 6255,
+      "terminalShown": true
+    },
+    {
+      "pane": "w1:p38",
+      "ms": 5296,
+      "terminalShown": true
+    }
+  ],
+  "outcome": "pass",
+  "apkSha256": "e6dc99afba2d5c2064c161ca648857ced1be4573a7e6a5db9a3fafa6f596a73f",
+  "load": {
+    "panes": 100,
+    "agents": 30,
+    "titleChurnHz": 2,
+    "terminalBytesPerSecond": 4096
+  },
+  "relayPort": 33289,
+  "pairMs": 34885,
+  "jank": {
+    "frames": 2920,
+    "janky": 81,
+    "jankyPercent": 2.8,
+    "p50Ms": 7,
+    "p90Ms": 9,
+    "p95Ms": 12,
+    "p99Ms": 19,
+    "missedVsync": 0,
+    "highInputLatency": 961,
+    "deadlineMissed": 81,
+    "overOneFrame": 49,
+    "overFourFrames": 0,
+    "histogram": "5ms=855 6ms=217 7ms=651 8ms=729 9ms=189 10ms=87 11ms=38 12ms=28 13ms=18 14ms=10 15ms=12 16ms=10 17ms=27 18ms=17 19ms=13 20ms=6 21ms=6 22ms=2 23ms=1 24ms=3 25ms=0 26ms=0 27ms=0 28ms=0 29ms=0 30ms=0 31ms=1 32ms=0 34ms=0 36ms=0 38ms=0 40ms=0 42ms=0 44ms=0 46ms=0 48ms=0 53ms=0 57ms=0 61ms=0 65ms=0 69ms=0 73ms=0 77ms=0 81ms=0 85ms=0 89ms=0 93ms=0 97ms=0 101ms=0 105ms=0 109ms=0 113ms=0 117ms=0 121ms=0 125ms=0 129ms=0 133ms=0 150ms=0 200ms=0 250ms=0 300ms=0 350ms=0 400ms=0 450ms=0 500ms=0 550ms=0 600ms=0 650ms=0 700ms=0 750ms=0 800ms=0 850ms=0 900ms=0 950ms=0 1000ms=0 1050ms=0 1100ms=0 1150ms=0 1200ms=0 1250ms=0 1300ms=0 1350ms=0 1400ms=0 1450ms=0 1500ms=0 1550ms=0 1600ms=0 1650ms=0 1700ms=0 1750ms=0 1800ms=0 1850ms=0 1900ms=0 1950ms=0 2000ms=0 2050ms=0 2100ms=0 2150ms=0 2200ms=0 2250ms=0 2300ms=0 2350ms=0 2400ms=0 2450ms=0 2500ms=0 2550ms=0 2600ms=0 2650ms=0 2700ms=0 2750ms=0 2800ms=0 2850ms=0 2900ms=0 2950ms=0 3000ms=0 3050ms=0 3100ms=0 3150ms=0 3200ms=0 3250ms=0 3300ms=0 3350ms=0 3400ms=0 3450ms=0 3500ms=0 3550ms=0 3600ms=0 3650ms=0 3700ms=0 3750ms=0 3800ms=0 3850ms=0 3900ms=0 3950ms=0 4000ms=0 4050ms=0 4100ms=0 4150ms=0 4200ms=0 4250ms=0 4300ms=0 4350ms=0 4400ms=0 4450ms=0 4500ms=0 4550ms=0 4600ms=0 4650ms=0 4700ms=0 4750ms=0 4800ms=0 4850ms=0 4900ms=0 4950ms=0"
+  },
+  "finishedAt": "2026-09-27T12:46:05.103Z"
+}

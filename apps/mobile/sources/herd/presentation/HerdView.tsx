@@ -28,7 +28,7 @@ import { useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
-import { HomeRecoveryCard } from './HomeRecoveryCard';
+import { HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
@@ -179,9 +179,11 @@ export const HerdView = React.memo(({
             setRetrying(false);
         }
     };
+    const mode = recoveryMode(socketStatus.error, runtimeOffline && !hostOffline);
     const recoveryCard = needsRecovery ? (
         <HomeRecoveryCard
-            mode={runtimeOffline && !hostOffline ? 'runtime' : 'host'}
+            mode={mode}
+            reason={socketStatus.error}
             retrying={retrying}
             feedback={recoveryFeedback}
             onRetry={() => void retryConnection()}
@@ -248,9 +250,9 @@ export const HerdView = React.memo(({
                     visibilityBottomInset={bottomContentInset}
                 />}
             {!needsRecovery && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
-            {needsRecovery ? (
+            {needsRecovery && (mode === 'host' || mode === 'runtime') ? (
                 <Text style={styles.quietLine}>Your terminals will reappear when the computer reconnects.</Text>
-            ) : error !== null ? (
+            ) : needsRecovery ? null : error !== null ? (
                 <View style={styles.empty}>
                     <Text style={styles.emptyText}>{error}</Text>
                     <View style={styles.emptyAction}>

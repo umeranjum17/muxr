@@ -50,6 +50,7 @@ const harness = vi.hoisted(() => {
     };
 });
 
+vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => '0.2.0' }));
 vi.mock('expo-crypto', () => ({ randomUUID: () => 'login-device' }));
 vi.mock('expo-device', () => ({ isDevice: true }));
 vi.mock('expo-secure-store', () => ({
@@ -243,6 +244,7 @@ describe('link session sync flow', () => {
         harness.blockedMachinesFinished = false;
         harness.machineSnapshots.length = 0;
         harness.socketStatus = 'disconnected';
+        harness.socketError = null;
         harness.ready = false;
         harness.machineReplaceFlags.length = 0;
         harness.sessionReplaceFlags.length = 0;
@@ -305,6 +307,41 @@ describe('link session sync flow', () => {
 
     afterEach(() => {
         vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it('names version, route and revoked pairing failures through the live link session', async () => {
+        harness.connection.machineId = 'machine-a';
+        harness.grant = { machineId: 'machine-a', relayUrl: 'ws://100.100.100.100', source: 'selfhost' } as never;
+        const health = vi.fn();
+        vi.stubGlobal('fetch', health);
+        const dial = async () => {
+            await syncReconnect();
+            await vi.waitFor(() => expect(harness.socketStatus).toBe('connected'));
+            return harness.clients.at(-1)!;
+        };
+
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
+        (await dial()).fire('offline');
+        await vi.waitFor(() => expect(harness.socketError).toContain('computer runs muxr 0.2.1'));
+        expect(harness.socketStatus).toBe('error');
+
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.1.9', linkProtocol: 1 }) });
+        (await dial()).fire('offline');
+        await vi.waitFor(() => expect(harness.socketError).toContain('Update muxr on the computer'));
+
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, onlineMachines: 1 }) });
+        (await dial()).fire('offline');
+        await vi.waitFor(() => expect(harness.socketError).toContain('older muxr connection protocol'));
+
+        health.mockRejectedValueOnce(new Error('network unreachable'));
+        (await dial()).fire('offline');
+        await vi.waitFor(() => expect(harness.socketError).toContain('Tailscale could not reach'));
+        expect(harness.socketError).not.toContain('Pair again:');
+
+        (await dial()).fire('removed');
+        await vi.waitFor(() => expect(harness.socketError).toContain('Access removed:'));
+        expect(harness.socketStatus).toBe('error');
     });
 
     it('merges inbound session.updated frames into one store write per 250 ms window', async () => {

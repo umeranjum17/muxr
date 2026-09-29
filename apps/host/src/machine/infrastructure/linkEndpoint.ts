@@ -41,7 +41,7 @@ export interface LinkEndpointOptions {
     onStatus?: (status: string) => void;
     onDesktopConnection?: (connectionId: string, active: boolean) => void;
     onDeviceConnection?: (deviceId: string, active: boolean) => void;
-    onDeviceRevoked?: (deviceId: string) => void | Promise<void>;
+    onDeviceRevoked?: (deviceId: string, removed: boolean) => void | Promise<void>;
 }
 
 interface DeviceMeta { muxrDeviceId: string }
@@ -120,9 +120,12 @@ class LinkTerminalSocket implements TerminalPipe {
         return !this.ended;
     }
 
-    send(line: string): void {
+    send(line: string): Promise<void> {
         // The link is a byte stream, not messages: every line carries its own newline.
-        this.stream.write(`${line}\n`).then(() => undefined, () => this.finish());
+        return this.stream.write(`${line}\n`).catch((error: unknown) => {
+            this.finish();
+            throw error;
+        });
     }
 
     onLine(listener: (line: string) => void): () => void {
@@ -201,7 +204,7 @@ export class LinkEndpoint {
         private readonly connectRelay: () => RelayClient,
         private readonly machineId?: string,
         private readonly onDeviceConnection?: (deviceId: string, active: boolean) => void,
-        private readonly onDeviceRevoked?: (deviceId: string) => void | Promise<void>) {}
+        private readonly onDeviceRevoked?: (deviceId: string, removed: boolean) => void | Promise<void>) {}
 
     static async open(options: LinkEndpointOptions): Promise<LinkEndpoint | undefined> {
         const keys = keyPairFrom(Buffer.from(options.crypto.boxSecretKey, 'base64'));
@@ -427,10 +430,10 @@ export class LinkEndpoint {
                 if (deviceId !== undefined) {
                     this.deviceConnections.delete(deviceId);
                     this.onDeviceConnection?.(deviceId, false);
-                    await this.onDeviceRevoked?.(deviceId);
+                    await this.onDeviceRevoked?.(deviceId, true);
                 }
             } else if (roleMatches) enrolled.add(device.deviceId);
-            else if (deviceId !== undefined) await this.onDeviceRevoked?.(deviceId);
+            else if (deviceId !== undefined) await this.onDeviceRevoked?.(deviceId, false);
         }
         for (const device of wanted.values()) {
             if (enrolled.has(device.deviceId)) continue;

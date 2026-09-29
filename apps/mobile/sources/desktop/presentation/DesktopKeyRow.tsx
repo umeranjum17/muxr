@@ -1,7 +1,6 @@
 import * as React from 'react';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useUnistyles } from 'react-native-unistyles';
 import type { DesktopSession, StickyModifier } from '@desklink/react-native';
 
 import { Typography } from '@/constants/Typography';
@@ -20,18 +19,25 @@ const KEEP_KEYBOARD = Platform.OS === 'web'
 
 /** The row's height, so the chrome floating above it can clear it. */
 export const DESKTOP_KEY_ROW_HEIGHT = 36;
+const KEY_TINT = '#B5B7C2'; // Desktop canvas is black even in the light app theme.
+const ACTIVE_TINT = '#80BBFF';
+const LOCK_TINT = '#1A334F';
 
 const MODIFIERS: readonly { name: StickyModifier; label: string; glyph: string }[] = [
     { name: 'Control', label: 'ctrl', glyph: '⌃' },
     { name: 'Shift', label: 'shift', glyph: '⇧' },
+    { name: 'Alt', label: 'alt', glyph: '⌥' },
+    { name: 'Meta', label: 'super', glyph: '◆' },
 ];
 
-const KEYS: readonly {
+type DesktopKey = {
     name: string;
     accessibilityLabel: string;
     label?: string;
     icon?: React.ComponentProps<typeof Ionicons>['name'];
-}[] = [
+};
+
+const KEYS: readonly DesktopKey[] = [
     { name: 'Escape', accessibilityLabel: 'Escape', label: 'esc' },
     { name: 'Tab', accessibilityLabel: 'Tab', label: 'tab' },
     { name: 'ArrowLeft', accessibilityLabel: 'Left arrow', icon: 'arrow-back' },
@@ -40,20 +46,23 @@ const KEYS: readonly {
     { name: 'ArrowRight', accessibilityLabel: 'Right arrow', icon: 'arrow-forward' },
 ];
 
+const MORE_KEYS: readonly DesktopKey[] = [
+    { name: 'Delete', accessibilityLabel: 'Delete', label: 'del' },
+    { name: 'Home', accessibilityLabel: 'Home', label: 'home' },
+    { name: 'End', accessibilityLabel: 'End', label: 'end' },
+    { name: 'PageUp', accessibilityLabel: 'Page Up', label: 'pg↑' },
+    { name: 'PageDown', accessibilityLabel: 'Page Down', label: 'pg↓' },
+    { name: 'Enter', accessibilityLabel: 'Enter', label: 'enter' },
+    ...Array.from({ length: 12 }, (_, index) => ({ name: `F${index + 1}`, accessibilityLabel: `F${index + 1}`, label: `F${index + 1}` })),
+];
+
 /**
- * The keys a phone keyboard does not have, for the desktop: sticky Ctrl and
- * Shift, Esc, Tab and the arrows.
- *
- * It is the terminal key row's own look — unboxed marks on the canvas, where
- * only an armed modifier takes colour and a locked one a wash — but the eight
- * keys share the width rather than scroll, so all of them fit a narrow phone.
- * Ctrl and Shift cycle the way the terminal's do: tap for the next key, tap
- * again to lock, once more to let go. What the phone's keyboard types next is
- * chorded by the session, so Ctrl then "v" is Ctrl+V.
+ * Desktop keys a phone keyboard lacks. Modifiers cycle once, lock, off;
+ * the session chords the next phone key or a key in either row.
  */
 export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modifiers' | 'tapModifier' | 'pressKey'> }) {
-    const { theme } = useUnistyles();
     const glyphs = useLocalSetting('terminalModifierIcons') === true;
+    const [more, setMore] = React.useState(false);
     const { modifiers, tapModifier, pressKey } = session;
 
     // A held arrow is held on the desktop too, which repeats it with the
@@ -71,7 +80,8 @@ export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modi
     );
 
     return (
-        <View {...KEEP_KEYBOARD} style={{ height: DESKTOP_KEY_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }}>
+        <View {...KEEP_KEYBOARD} style={{ height: DESKTOP_KEY_ROW_HEIGHT, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4 }}>
+            <ScrollView key={more ? 'more' : 'main'} horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" contentContainerStyle={{ alignItems: 'center' }}>
             {MODIFIERS.map(({ name, label: text, glyph }) => {
                 const state = modifiers[name];
                 return (
@@ -82,21 +92,21 @@ export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modi
                             tapModifier(name);
                         }}
                         accessibilityRole="button"
-                        accessibilityLabel={`${name}${state === 'lock' ? ', locked' : ''}`}
+                        accessibilityLabel={`${name === 'Meta' ? 'Super' : name}${state === 'lock' ? ', locked' : ''}`}
                         accessibilityHint="Tap for the next key, tap again to lock."
                         accessibilityState={{ selected: state !== 'off' }}
                         style={({ pressed }) => [
                             styles.key,
-                            { flex: 1.3 },
-                            state === 'lock' && { backgroundColor: theme.colors.accentSubtle },
+                            { minWidth: 42 },
+                            state === 'lock' && { backgroundColor: LOCK_TINT },
                             pressed && styles.pressed,
                         ]}
                     >
-                        {label(glyphs ? glyph : text, state === 'off' ? theme.colors.textSecondary : theme.colors.accent)}
+                        {label(glyphs && name !== 'Meta' ? glyph : text, state === 'off' ? KEY_TINT : ACTIVE_TINT)}
                     </Pressable>
                 );
             })}
-            {KEYS.map((key) => (
+            {(more ? MORE_KEYS : KEYS).map((key) => (
                 <Pressable
                     key={key.name}
                     onPress={() => {
@@ -112,13 +122,23 @@ export function DesktopKeyRow({ session }: { session: Pick<DesktopSession, 'modi
                     onPressOut={release}
                     accessibilityRole="button"
                     accessibilityLabel={key.accessibilityLabel}
-                    style={({ pressed }) => [styles.key, { flex: 1 }, pressed && styles.pressed]}
+                    style={({ pressed }) => [styles.key, { minWidth: 34, paddingHorizontal: 5 }, pressed && styles.pressed]}
                 >
                     {key.icon !== undefined
-                        ? <Ionicons name={key.icon} size={12} color={theme.colors.textSecondary} />
-                        : label(key.label ?? key.name, theme.colors.textSecondary)}
+                        ? <Ionicons name={key.icon} size={12} color={KEY_TINT} />
+                        : label(key.label ?? key.name, KEY_TINT)}
                 </Pressable>
             ))}
+            </ScrollView>
+            <Pressable
+                onPress={() => { release(); hapticsSelection(); setMore(!more); }}
+                accessibilityRole="button"
+                accessibilityLabel={more ? 'Back to main desktop keys' : 'More desktop keys'}
+                accessibilityState={{ selected: more }}
+                style={({ pressed }) => [styles.key, { minWidth: 38 }, more && { backgroundColor: LOCK_TINT }, pressed && styles.pressed]}
+            >
+                {label(more ? '‹' : 'more', more ? ACTIVE_TINT : KEY_TINT)}
+            </Pressable>
         </View>
     );
 }
