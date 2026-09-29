@@ -27,7 +27,7 @@ function fakeHerdr(dir: string, cwd: string) {
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
-    const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined };
+    const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>() };
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
     const sendTexts: Array<{ pane_id: unknown; text: unknown }> = [];
@@ -106,6 +106,10 @@ function fakeHerdr(dir: string, cwd: string) {
                     }
                     case 'pane.close': {
                         calls.push({ method, detail: String(p.pane_id) });
+                        if (state.failCloseFor.delete(String(p.pane_id))) {
+                            reply = { id, error: { code: 'close_failed', message: 'pane.close failed' } };
+                            break;
+                        }
                         const at = panes.findIndex((row) => row.pane_id === p.pane_id);
                         if (at >= 0) panes.splice(at, 1);
                         for (let i = agents.length - 1; i >= 0; i -= 1) {
@@ -290,6 +294,71 @@ describe('a plan-account move whose new-account start fails', () => {
             expect(herdr.sendTexts.filter((sent) => String(sent.text).includes('MUXR_PLAN_ORIGIN_'))).toHaveLength(0);
             expect(herdr.panes.some((pane) => pane.pane_id === 'p3')).toBe(true);
             expect(herdr.agents.some((agent) => agent.pane_id === 'p3')).toBe(false);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('aborts the move when the old pane refuses to close, starting nothing new', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-move-close-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const sessionId = await launchOn(source, cwd, '/orig/claude');
+
+            herdr.state.failCloseFor.add('p2');
+            const error = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' })
+                .then(() => { throw new Error('move should have failed'); })
+                .catch((cause: unknown) => cause);
+            expect(error).toMatchObject({ code: 'plan-move-close-failed' });
+
+            expect(herdr.calls.filter((call) => call.method === 'agent.start')).toHaveLength(1);
+            expect(herdr.agents.some((agent) => agent.pane_id === 'p2')).toBe(true);
+            expect(herdr.panes.some((pane) => pane.pane_id === 'p3')).toBe(false);
+
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            expect((await source.open({ sessionId })).info.id).toBe(sessionId);
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('aborts the rollback when the failed pane refuses to close, resuming nothing', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-move-rollback-close-'));
+        const cwd = join(dir, 'repo');
+        const herdr = fakeHerdr(dir, cwd);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const sessionId = await launchOn(source, cwd, '/orig/claude');
+
+            herdr.state.failNextStart = true;
+            herdr.state.failCloseFor.add('p3');
+            const error = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' })
+                .then(() => { throw new Error('move should have failed'); })
+                .catch((cause: unknown) => cause);
+            const shell = (error as { sessionId?: unknown }).sessionId;
+            expect(error).toMatchObject({ code: 'plan-move-start-failed' });
+            expect(String(shell)).toMatch(/^shell:p3$/);
+            expect(String((error as Error).message)).toContain('try again');
+
+            expect(herdr.calls.some((call) => call.method === 'agent.start' && call.detail === 'p4')).toBe(false);
+            expect(herdr.agents.some((agent) => agent.pane_id === 'p4')).toBe(false);
+            expect(herdr.panes.some((pane) => pane.pane_id === 'p3')).toBe(true);
         } finally {
             await source.dispose();
             herdr.close();

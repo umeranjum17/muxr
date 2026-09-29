@@ -1675,7 +1675,16 @@ export async function createHerdrSessionSource(
                 ? failed('The agent did not start on the new account, and the move could not be undone. The new account is running here: try again or go back.', live.sessionId)
                 : failed('The agent did not start on the new account, and the move could not be undone. The tab stays as a shell: try again or go back.', live.sessionId);
         }
-        await client.call('pane.close', { pane_id: rollback.paneId }).catch(() => undefined);
+        try {
+            await client.call('pane.close', { pane_id: rollback.paneId });
+        } catch {
+            releaseMoveRoute();
+            const live = await keepPaneSession();
+            if (live === undefined) return failed('The failed pane could not be closed, so the original account was not resumed. Go back and start again.');
+            return live.listed
+                ? failed('The failed pane could not be closed, so the original account was not resumed. The new account is running here: try again or go back.', live.sessionId)
+                : failed('The failed pane could not be closed, so the original account was not resumed. The tab stays as a shell: try again or go back.', live.sessionId);
+        }
         planAccountByPane.delete(rollback.paneId);
         screens?.releaseScreen(rollback.screen);
         screens?.bind(screen, rollbackPaneId);
@@ -3181,7 +3190,17 @@ export async function createHerdrSessionSource(
                 );
             }
             moveRetainedRoutes.set(record.sessionId, conversation);
-            await client.call('pane.close', { pane_id: record.paneId }).catch(() => undefined);
+            try {
+                await client.call('pane.close', { pane_id: record.paneId });
+            } catch (error) {
+                await client.call('pane.close', { pane_id: newPaneId }).catch(() => undefined);
+                screens?.releaseScreen(screen);
+                moveRetainedRoutes.delete(record.sessionId);
+                throw Object.assign(
+                    new Error('The old pane could not be closed, so the move was aborted before anything started on the new account. Try again.'),
+                    { code: 'plan-move-close-failed', cause: error },
+                );
+            }
             planAccountByPane.delete(record.paneId);
             forgetLaunch(record.paneId);
             statusWatches.get(record.paneId)?.();
