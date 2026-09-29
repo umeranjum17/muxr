@@ -41,6 +41,10 @@ import type {
 } from '../../voice/index.js';
 import type { LandWorktreeResult } from '../../worktree/index.js';
 import type { MachineHello } from './envelope.js';
+import type {
+    PlanAccount,
+    PlanProviderAccounts,
+} from '../../plans/index.js';
 import type { AttentionCatalog, CloseResult, CloseScope, HerdrTreeWorkspace, LifecycleCatalog, SessionArtifactMetadata, SessionInfo, SessionShellOutcome, SessionStatus } from '../../herd/index.js';
 import type {
     PeerAuthorityMetadata,
@@ -345,6 +349,8 @@ export interface RequestMap extends PeerRequestMap {
             label?: string;
             /** Explicit concise task identity. Never derived from terminal output. */
             taskTitle?: string;
+            /** A Plan Account id from `plans.list`; the launch runs on that sign-in. Unknown ids fail. */
+            planAccount?: string;
             /** Create the session inside a new git worktree of the repo at cwd. */
             worktree?: { branch?: string; base?: string };
             /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
@@ -746,6 +752,30 @@ export interface RequestMap extends PeerRequestMap {
      *  A normal read joins or reuses a recent shared collection; `refresh`
      *  explicitly re-collects past it. */
     'usage.now': { params: { refresh?: boolean }; result: UsageNow };
+
+    // --- plan accounts --------------------------------------------------------
+    // Product-owned. One sign-in to a provider plan an agent can run on (see
+    // `PlanAccount`). Providers with fewer than two known accounts are omitted,
+    // so a one-account machine sees nothing new. An older host has no handler
+    // and answers host-contract-mismatch, which the app treats as no accounts.
+    /** Every provider with two or more known sign-ins, with room hints when read. `autoTermsNote` is the one-time Auto note the app shows until acknowledged. */
+    'plans.list': { params: Record<string, never>; result: { providers: PlanProviderAccounts[]; autoTermsAcknowledged: boolean; autoTermsNote: string } };
+    /** Record that the one-time Auto terms note was shown, so it never repeats on this host. */
+    'plans.acknowledgeAutoTerms': { params: Record<string, never>; result: { acknowledged: true } };
+    /** Rename one known account. The name is the person's own words, never a number. */
+    'plans.rename': { params: { accountId: string; name: string }; result: { account: PlanAccount } };
+    /**
+     * Forget one known account. A muxr-created folder is deleted with it
+     * (`deletedFolder: true`), which signs that account out on this computer;
+     * a found account is only forgotten, its folder never touched.
+     */
+    'plans.remove': { params: { accountId: string }; result: { deletedFolder: boolean } };
+    /**
+     * Move a running agent onto another account of a provider it already uses.
+     * The conversation resumes in place; the result names the session to show,
+     * which is the same session when its route rebinds and the new one otherwise.
+     */
+    'plans.move': { params: { sessionId: string; accountId: string }; result: { sessionId: string } };
 
     // --- realtime voice -------------------------------------------------------
     // Product-owned. The provider adapters are internal host modules, so these

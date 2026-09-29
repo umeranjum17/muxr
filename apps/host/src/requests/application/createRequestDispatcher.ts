@@ -41,6 +41,7 @@ import {
 } from '../../voice/index.js';
 import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
+import { PLAN_LABELS, acknowledgeAutoTerms, listPlans, planLaunchEnv, removePlanAccount, renamePlanAccount, resolvePlanRecord } from '../../plans/index.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { PreviewDesktops, androidCapabilities, withAndroidPreview, withPreview, type AndroidPreviewTargets } from '../../desktop/index.js';
@@ -91,6 +92,8 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'attention.catalog', 'lifecycle.catalog', 'machines.list', 'machine.hello',
     'changes.list', 'changes.browse', 'changes.worktrees', 'changes.patch',
     'usage.report', 'usage.now',
+    // Plan account names and emails are readable; changing them is a mutation.
+    'plans.list',
     // Voice readiness is readable by every grant; changing a provider or its
     // key is a mutation and stays out of this set. The spoken report sentence
     // is derived without touching host state, so it stays readable too.
@@ -196,12 +199,34 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(params.base === undefined ? {} : { base: params.base }),
         }),
         'session.start': async (params) => {
-            const { peerMutation: _peerMutation, ...start } = params;
+            const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, ...start } =
+                params as typeof params & { planEnv?: unknown };
+            if (planAccount !== undefined && (start.kinds !== undefined || start.members !== undefined)) {
+                throw Object.assign(
+                    new Error('A squad cannot start on one plan account. Start its agents separately.'),
+                    { code: 'plan-squad-unsupported' },
+                );
+            }
+            const record = planAccount === undefined ? undefined : resolvePlanRecord(process.env, planAccount);
+            if (record !== undefined) {
+                const kinds = record.provider === 'claude' ? ['claude', 'pi'] : ['codex', 'pi'];
+                // A shell pane may host anything, so the env rides along;
+                // a concrete agent of another provider is a real mismatch.
+                if (start.kind !== undefined && start.kind !== 'shell' && !kinds.includes(start.kind)) {
+                    throw Object.assign(
+                        new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${start.kind} one.`),
+                        { code: 'plan-kind-mismatch' },
+                    );
+                }
+            }
             return useCaseData(await startAgent({
                 exists: existsSync,
                 create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
                 start: (command) => source.start(command),
-            }, start));
+            }, {
+                ...start,
+                ...(record === undefined ? {} : { planEnv: planLaunchEnv(record) }),
+            }));
         },
         'session.open': async (params) => useCaseData(await openAgent(source, params)),
         'herdr.tree': async () => source.herdrTree(),
@@ -460,6 +485,36 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(params.refresh === undefined ? {} : { refresh: params.refresh }),
         }),
         'usage.now': (params) => usageNow(process.env, { ...(params.refresh === undefined ? {} : { refresh: params.refresh }) }),
+        'plans.list': () => listPlans(process.env),
+        'plans.acknowledgeAutoTerms': async () => acknowledgeAutoTerms(process.env),
+        'plans.rename': async (params) => renamePlanAccount(process.env, params.accountId, params.name),
+        'plans.remove': async (params) => removePlanAccount(process.env, params.accountId),
+        'plans.move': async (params) => {
+            const record = resolvePlanRecord(process.env, params.accountId);
+            if (source.movePlanAccount === undefined) {
+                throw Object.assign(
+                    new Error('This host cannot move between plan accounts yet; update the host first.'),
+                    { code: 'host-contract-mismatch' },
+                );
+            }
+            try {
+                return await source.movePlanAccount({
+                    sessionId: params.sessionId,
+                    provider: record.provider,
+                    folder: record.folder,
+                });
+            } catch (error) {
+                if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
+                    const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
+                    const sessionId = (error as { sessionId?: unknown }).sessionId;
+                    throw Object.assign(new Error(`Couldn't start on ${name}. Try again or go back.`), {
+                        code: 'plan-move-start-failed',
+                        ...(typeof sessionId === 'string' ? { sessionId } : {}),
+                    });
+                }
+                throw error;
+            }
+        },
         'voice.status': () => voiceStatus(),
         'voice.provider.list': () => voiceProviderList(),
         'voice.provider.set': (params) => voiceProviderSet(params.providerId),

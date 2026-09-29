@@ -46,6 +46,10 @@ _Avoid_: cached title, name
 The current Herdr Agent provider (`pi`, `claude`, `codex`). Separate from Agent Name and Task Title. A phone-launched Agent carries the requested kind until Herdr detects the process or the launch window expires.
 _Avoid_: agent name, kind label, model
 
+**Plan Account**:
+One sign-in to a provider plan an Agent can run on. Chosen at launch, or moved once by the person with the conversation resumed; never rotated per request. muxr's own login is an Account Credential and never appears on this surface.
+_Avoid_: account, profile, config dir
+
 **Agent Route**:
 An opaque authorization route bound to exactly one Herdr `agent_session` generation. It survives that generation's pane moves and host restarts; a new generation receives a new route.
 _Avoid_: pane id, spoken name, label, Herdr agent name
