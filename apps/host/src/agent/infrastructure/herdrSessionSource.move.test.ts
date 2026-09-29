@@ -49,6 +49,9 @@ function fakeHerdr(dir: string, cwd: string) {
                 const p = params ?? {};
                 let reply: unknown;
                 switch (method) {
+                    case 'ping':
+                        reply = { id, result: { protocol: 22 } };
+                        break;
                     case 'session.snapshot':
                         reply = { id, result: { snapshot: structuredClone({ workspaces, tabs, panes, agents }) } };
                         break;
