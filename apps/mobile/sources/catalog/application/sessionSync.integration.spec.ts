@@ -712,6 +712,7 @@ describe('session sync flow', () => {
         expect(state.localSettings.terminalKeyboardDisabled).toBe(false);
         state.applyLocalSettings({ terminalKeyboardDisabled: true });
         state.applyLocalSettings({ vadStandbyEnabled: true });
+        state.applyLocalSettings({ terminalColors: { background: '#102030', ansi1: '#ff5555' } });
 
         // Module re-evaluation simulates the store/app restarting while MMKV remains.
         vi.resetModules();
@@ -719,6 +720,7 @@ describe('session sync flow', () => {
         restarted.getState().setLifecycleScope('test-authority:machine');
         expect(restarted.getState().localSettings.vadStandbyEnabled).toBe(true);
         expect(restarted.getState().localSettings.terminalKeyboardDisabled).toBe(true);
+        expect(restarted.getState().localSettings.terminalColors).toEqual({ background: '#102030', ansi1: '#ff5555' });
         restarted.getState().applyLocalSettings({ vadStandbyEnabled: false });
         expect(JSON.parse(mmkvValues.get('local-settings')!).vadStandbyEnabled).toBe(false);
         expect(restarted.getState().voicePendingReports).toEqual([durableReport]);

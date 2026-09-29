@@ -194,9 +194,8 @@ Beyond the session basics, the host exposes herdr's topology to the app:
   ` · p:<token>` correlator, and name path labels by their folder. Only names
   visible in the current list are disambiguated; a close confirmation identifies
   the selected workspace by name and its worktree/root path, or by host.
-- `herdr.layout` — a tab's split rects (terminal cells), still served for
-  layout-aware callers; the tab grid and pane overview render uniform cards
-  from `herdr.tree` with snapshot previews instead of the BSP geometry.
+- `herdr.layout` — a tab's split rects (terminal cells); the tab grid and pane
+  overview are its layout-aware callers, drawing the tab's real split from it.
 - `pane.split` — split any session's pane; with `kind`, an agent starts in the new
   pane. The multiplexing primitive: two agents side by side, one tab.
 - `session.start` with `kinds[]` — squad mode: one tab per kind, same workspace,

@@ -70,7 +70,7 @@ The workspace's panes as one live tree: each tab is a card with its panes under 
 
 ### Arrange panes like the desk
 
-The pane counter in an agent's header tells you where you are in the tab, and tapping it lays the tab out as the desk has it — the same splits your computer shows, with the open pane outlined. Tap a tile to switch panes, or split Right or Below to make room, all without leaving the phone.
+The pane counter in an agent's header tells you where you are in the tab, and tapping it — or the header title — lays the tab out as the desk has it — the same splits your computer shows, with the open pane outlined. Tap a tile to switch panes, or split Right or Below to make room, all without leaving the phone.
 
 <p align="center">
   <picture><source srcset="docs/assets/readme/pane-sheet.webp" type="image/webp"><img src="docs/assets/readme/pane-sheet.jpg" alt="A tab's split as tiles, one tall pane beside two stacked ones, the open pane outlined, with Right and Below split buttons" width="300" /></picture>
@@ -138,7 +138,7 @@ Tap the mic in the composer and speak. In the app, speech is transcribed on your
 
 - **New agents and worktrees** — open the home composer to choose the machine, repository, worktree, and one of 20+ agent CLIs. The resting dock hides Send until there's a draft or a submission in progress. On a short phone, scroll the open composer to reach its options and Start when the keyboard is visible. On a later launch, Home can show the last confirmed agents and spaces while reconnecting; they appear dimmed until the host responds, and closing a remembered space is unavailable.
 - **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone; download an agent's Shared Artifacts with progress and resume after a lost connection. On web, a download finished in the background offers **Save** when you return.
-- **Settings** — under Appearance, choose a theme and terminal text size; the browser terminal also offers System or IBM Plex Mono. Gestures lists terminal actions and the swipe and zoom choices. Under Notifications, choose alerts for agents needing you or finishing; enable browser notifications in the web app or manage permission and sound in your phone's system settings.
+- **Settings** — under Appearance, choose a theme, terminal text size, and terminal colors; the browser terminal also offers System or IBM Plex Mono. Gestures lists terminal actions and the swipe and zoom choices. Under Notifications, choose alerts for agents needing you or finishing; enable browser notifications in the web app or manage permission and sound in your phone's system settings.
 - **Desktop control (Linux)** — see **Peek at your computer** above. Remote desktop needs a Linux x64 host today (macOS later; Arm servers build the engine from source), and a cloud server needs the virtual-display packages once. Android and web have desktop clients; on iPhone, open Computer in the web app (native iOS support is not yet available). [Remote desktop setup and limits](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server) · [Host engine](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md)
 - **[Extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 

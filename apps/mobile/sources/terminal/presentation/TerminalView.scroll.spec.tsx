@@ -23,7 +23,7 @@ vi.mock('../application/OpenTerminal', () => ({
 vi.mock('../application/terminalAhead', () => ({ claimTerminalAhead: () => undefined, rememberTerminalGrid() {} }));
 vi.mock('../application/recentOutput', () => ({ recordTerminalOutput() {}, setTerminalColumns() {} }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: async () => undefined }));
-vi.mock('@/theme', () => ({ terminalCanvas: '#000' }));
+vi.mock('@/theme', () => ({ terminalColorDefaults: { background: '#000', foreground: '#fff', cursor: '#fff', selection: '#fff', ansi: [] } }));
 
 import { TerminalView } from './TerminalView';
 

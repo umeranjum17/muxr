@@ -9,6 +9,37 @@ import { Platform } from 'react-native';
  */
 export const terminalCanvas = Platform.OS === 'android' ? '#000000' : '#0c0c0b';
 
+/**
+ * What each terminal draws when nobody has tuned its colours in Settings: the
+ * canvas above plus each renderer's built-in palette (ghostty on the phone,
+ * xterm.js on the web). The renderers are only handed the slots a person
+ * changed, so these values are for showing and resetting, never for painting
+ * an untouched terminal. Selection has no single colour on the phone, which
+ * swaps text and background; the text colour stands in for it.
+ */
+export const terminalColorDefaults = Platform.OS === 'web'
+    ? {
+        background: terminalCanvas,
+        foreground: '#ffffff',
+        cursor: '#ffffff',
+        // xterm.js lays white at 30% over the canvas.
+        selection: '#555554',
+        ansi: [
+            '#2e3436', '#cc0000', '#4e9a06', '#c4a000', '#3465a4', '#75507b', '#06989a', '#d3d7cf',
+            '#555753', '#ef2929', '#8ae234', '#fce94f', '#729fcf', '#ad7fa8', '#34e2e2', '#eeeeec',
+        ],
+    }
+    : {
+        background: terminalCanvas,
+        foreground: '#ffffff',
+        cursor: '#ffffff',
+        selection: '#ffffff',
+        ansi: [
+            '#1d1f21', '#cc6666', '#b5bd68', '#f0c674', '#81a2be', '#b294bb', '#8abeb7', '#c5c8c6',
+            '#666666', '#d54e53', '#b9ca4a', '#e7c547', '#7aa6da', '#c397d8', '#70c0b1', '#eaeaea',
+        ],
+    };
+
 const terminalChrome = {
     canvas: terminalCanvas,
     chrome: '#191918',

@@ -6,3 +6,5 @@ export * from './presentation/TerminalKeyRow';
 export * from './presentation/TerminalScreen';
 export * from './presentation/TerminalView';
 export * from './presentation/TerminalRoute';
+export * from './presentation/TerminalColorsSettings';
+export { useTerminalColors } from './presentation/useTerminalColors';

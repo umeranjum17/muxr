@@ -8,7 +8,7 @@
 
 import * as React from 'react';
 import { Pressable, View } from 'react-native';
-import { useUnistyles } from 'react-native-unistyles';
+import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import type { HerdrTreePane, HerdrTreeTab } from '@muxr/contract';
 import { Text } from '@/components/StyledText';
@@ -70,6 +70,9 @@ const PaneTile = React.memo(function PaneTile(props: {
     const needsYou = pane.agentStatus === 'blocked';
     const task = paneTaskLine(pane);
     const roomy = props.height >= 76 && props.width >= 110;
+    // A sliver of a pane (a quarter split on a narrow phone) gives the glyph's
+    // room to the name, so it reads as a word rather than a lone ellipsis.
+    const narrow = props.width < 88;
     // A close glyph only where it cannot crowd the name; long-press closes everywhere.
     const closable = props.canClose && pane.sessionId !== undefined && !props.pending;
     const showClose = closable && props.height >= 96 && props.width >= 132;
@@ -85,11 +88,11 @@ const PaneTile = React.memo(function PaneTile(props: {
                 accessibilityState={{ selected: props.current, disabled: pane.sessionId === undefined || props.pending }}
                 accessibilityLabel={[props.current ? 'Current pane' : 'Open pane', labels.title, state, task].filter(Boolean).join(', ')}
                 accessibilityHint={closable ? (props.onLongPress === undefined ? 'Long-press to close' : 'Long-press to rename or close') : undefined}
-                style={({ pressed }) => ({ flex: 1, padding: 8, gap: 3, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}
+                style={({ pressed }) => ({ flex: 1, padding: narrow ? 6 : 8, gap: 3, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}
             >
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />
-                    <Text numberOfLines={1} style={{ ...Typography.default('semiBold'), flex: 1, minWidth: 0, fontSize: 13, color: theme.colors.text }}>{labels.title}</Text>
+                    {!narrow && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
+                    <Text numberOfLines={narrow && props.height >= 56 ? 2 : 1} style={{ ...Typography.default('semiBold'), flex: 1, minWidth: 0, fontSize: 13, color: theme.colors.text }}>{labels.title}</Text>
                     {!shell && <StatusDot color={tone.color} isPulsing={tone.pulsing} size={7} />}
                 </View>
                 {roomy && task !== undefined && (
@@ -123,6 +126,9 @@ export function PaneMap(props: {
     onClose: (pane: HerdrTreePane) => void;
     /** Long-press; without it a long-press closes. */
     onLongPress?: (pane: HerdrTreePane) => void;
+    /** Inside a dark sheet. The tiles first draw on this map's own measure,
+     *  outside the sheet's render, so the dark scope is repeated here. */
+    dark?: boolean;
 }): React.JSX.Element {
     const [width, setWidth] = React.useState(0);
     const layout = useTabLayout(props.tab);
@@ -131,7 +137,7 @@ export function PaneMap(props: {
     const tiles = map?.tiles ?? panes.map((pane, index) => ({ paneId: pane.paneId, left: 0, top: index * STACKED_TILE, width, height: STACKED_TILE }));
     const height = map?.height ?? panes.length * STACKED_TILE;
     const byId = new Map(panes.map((pane) => [pane.paneId, pane]));
-    return (
+    const tiled = (
         <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ height: width === 0 ? 0 : height }}>
             {width > 0 && tiles.map((tile) => {
                 const pane = byId.get(tile.paneId)!;
@@ -153,4 +159,5 @@ export function PaneMap(props: {
             })}
         </View>
     );
+    return props.dark === true ? <ScopedTheme name="dark">{tiled}</ScopedTheme> : tiled;
 }

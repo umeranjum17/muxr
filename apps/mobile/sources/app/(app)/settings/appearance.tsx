@@ -4,6 +4,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { useSettingMutable, useLocalSettingMutable } from '@/catalog/store';
 import { DEFAULT_FONT_INDEX, FONT_STEPS, TERMINAL_FONTS, clampFontIndex, type TerminalFont } from '@/terminal';
+import { useTerminalColors } from '@/terminal/ui';
 import { useRouter } from 'expo-router';
 import * as Localization from 'expo-localization';
 import { useUnistyles, UnistylesRuntime } from 'react-native-unistyles';
@@ -90,6 +91,7 @@ export default function AppearanceSettingsScreen() {
     const [darkSurfaces, setDarkSurfaces] = useLocalSettingMutable('darkSurfaces');
     const [keyRowVisible, setKeyRowVisible] = useLocalSettingMutable('terminalKeyRowVisible');
     const [paneTabs, setPaneTabs] = useLocalSettingMutable('terminalPaneTabs');
+    const colorCount = Object.keys(useTerminalColors().overrides).length;
     const [preferredLanguage] = useSettingMutable('preferredLanguage');
     const [sheet, setSheet] = React.useState<'theme' | 'surfaces' | 'size' | 'font' | 'tabs' | 'avatar' | null>(null);
     const close = () => setSheet(null);
@@ -152,6 +154,11 @@ export default function AppearanceSettingsScreen() {
                 {Platform.OS === 'web' && (
                     <Item title="Font" subtitle={TERMINAL_FONTS[terminalFont].name} onPress={() => setSheet('font')} />
                 )}
+                <Item
+                    title="Colors"
+                    subtitle={colorCount === 0 ? 'Default' : `${colorCount} changed`}
+                    onPress={() => router.push('/settings/terminal-colors')}
+                />
                 <Item title="Tabs row" subtitle={paneTabsName[paneTabs]} onPress={() => setSheet('tabs')} />
                 <Item
                     title="Key row"

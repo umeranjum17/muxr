@@ -1,9 +1,10 @@
 /**
  * The pane overview: one deliberate sheet over the session, opened from the
- * header's pane counter. It draws the tab as the desk lays it out -- a
- * mini-map of the real split -- with the pane open here outlined. Tap a tile
- * to switch; long-press or its × closes; the split actions act on the
- * outlined pane. The tab row above shows the workspace's other tabs' layouts.
+ * header's title or its pane counter. It draws the tab as the desk lays it
+ * out -- a mini-map of the real split -- with the pane open here outlined. Tap
+ * a tile to switch; long-press or its × closes; the split actions act on the
+ * outlined pane. The tab row above shows the workspace's other tabs' layouts;
+ * Spaces hands over to the whole workspace tree.
  * Refreshes the shared tree on open and after each mutation; no poller.
  */
 
@@ -33,7 +34,7 @@ function errorMessage(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause);
 }
 
-export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; onClose: () => void }): React.JSX.Element {
+export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; onClose: () => void; onOpenSpaces: () => void }): React.JSX.Element {
     const { theme } = useUnistyles();
     const { workspaces, loaded } = useHerdrTree();
     const { authority, loading: authorityLoading } = useDeviceAuthority();
@@ -180,6 +181,15 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                     {tab === undefined ? 'Panes' : tabLabel(tab, tabs.indexOf(tab))}
                 </Text>
             )}
+            <Pressable
+                onPress={() => { close(); props.onOpenSpaces(); }}
+                accessibilityRole="button"
+                accessibilityLabel="Spaces, every workspace"
+                style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 4, opacity: pressed ? 0.6 : 1 })}
+            >
+                <Ionicons name="albums-outline" size={16} color={theme.colors.textLink} />
+                <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Spaces</Text>
+            </Pressable>
             <Pressable onPress={close} accessibilityRole="button" accessibilityLabel="Done" style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 8, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                 <Text style={{ ...Typography.default('semiBold'), color: theme.colors.textLink }}>Done</Text>
             </Pressable>
@@ -224,6 +234,7 @@ export function PaneOverviewSheet(props: { visible: boolean; sessionId: string; 
                                 onOpen={openPane}
                                 onClose={closePane}
                                 onLongPress={paneActions}
+                                dark
                             />
                         )}
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 12 }}>
