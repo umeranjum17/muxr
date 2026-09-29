@@ -27,10 +27,12 @@ function fakeHerdr(dir: string, cwd: string) {
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
-    const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined, failReadFor: new Set<string>() };
+    const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined };
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
+    const sendTexts: Array<{ pane_id: unknown; text: unknown }> = [];
     let next = 2;
+    let nextTab = 2;
     const server = createServer((socket) => {
         let buffer = '';
         socket.on('data', (chunk) => {
@@ -53,6 +55,18 @@ function fakeHerdr(dir: string, cwd: string) {
                     case 'plugin.list':
                         reply = { id, result: { plugins: [] } };
                         break;
+                    case 'workspace.list':
+                        reply = { id, result: { workspaces } };
+                        break;
+                    case 'tab.create': {
+                        const tab_id = `t${nextTab++}`;
+                        const pane_id = `p${next++}`;
+                        const tab = { tab_id, workspace_id: p.workspace_id, label: p.label };
+                        tabs.push(tab);
+                        panes.push({ pane_id, tab_id, workspace_id: p.workspace_id, cwd, env: p.env, output: [] as string[] });
+                        reply = { id, result: { tab: { tab_id }, root_pane: { pane_id } } };
+                        break;
+                    }
                     case 'pane.split': {
                         if (state.failSecondSplit && splits.length === 1) {
                             state.failSecondSplit = false;
@@ -68,19 +82,21 @@ function fakeHerdr(dir: string, cwd: string) {
                         break;
                     }
                     case 'pane.send_text': {
+                        sendTexts.push({ pane_id: p.pane_id, text: p.text });
                         const pane = panes.find((row) => row.pane_id === p.pane_id);
                         if (pane !== undefined) (pane.output as string[]).push(String(p.text));
                         reply = { id, result: {} };
                         break;
                     }
                     case 'pane.read': {
-                        if (state.failReadFor.has(String(p.pane_id))) {
-                            reply = { id, error: { code: 'read_failed', message: 'pane.read failed' } };
-                            break;
-                        }
                         const pane = panes.find((row) => row.pane_id === p.pane_id);
                         const output = ((pane?.output ?? []) as string[]).join('');
-                        const echo = output.split('\n').reverse().find((entry) => entry.startsWith('echo '));
+                        // Production only evaluates shell input on shell panes: text typed
+                        // at a live agent reaches the agent as chat, never the shell.
+                        const liveAgent = agents.some((agent) => agent.pane_id === p.pane_id);
+                        const echo = liveAgent
+                            ? undefined
+                            : output.split('\n').reverse().find((entry) => entry.startsWith('echo '));
                         const parsed = /echo (\S+)=\$(\S+)/.exec(echo ?? '');
                         const text = parsed === null
                             ? output
@@ -148,10 +164,21 @@ function fakeHerdr(dir: string, cwd: string) {
         panes,
         splits,
         calls,
+        sendTexts,
         close(): void {
             server.close();
         },
     };
+}
+
+async function launchOn(
+    source: Awaited<ReturnType<typeof createHerdrSessionSource>>,
+    cwd: string,
+    folder: string,
+): Promise<string> {
+    const started = await source.start({ cwd, kind: 'claude', planEnv: { CLAUDE_CONFIG_DIR: folder } });
+    if (!('info' in started)) throw new Error('launch rejected');
+    return started.info.id;
 }
 
 describe('a plan-account move whose new-account start fails', () => {
@@ -166,10 +193,7 @@ describe('a plan-account move whose new-account start fails', () => {
             hostHttpPort: 0,
         });
         try {
-            await source.refreshHerdr();
-            const listed = await source.list();
-            expect(listed).toHaveLength(1);
-            const sessionId = listed[0]!.id;
+            const sessionId = await launchOn(source, cwd, '/orig/claude');
 
             herdr.state.failNextStart = true;
             const error = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' })
@@ -178,19 +202,21 @@ describe('a plan-account move whose new-account start fails', () => {
             expect(error).toMatchObject({ code: 'plan-move-start-failed', sessionId });
             expect(String((error as Error).message)).toContain('try again');
 
-            const closeOfOld = herdr.calls.findIndex((call) => call.method === 'pane.close' && call.detail === 'p1');
-            const firstStart = herdr.calls.findIndex((call) => call.method === 'agent.start');
+            expect(herdr.sendTexts.filter((sent) => String(sent.text).includes('MUXR_PLAN_ORIGIN_'))).toHaveLength(0);
+            expect(herdr.sendTexts.filter((sent) => sent.pane_id === 'p2')).toHaveLength(0);
+
+            const starts = herdr.calls.filter((call) => call.method === 'agent.start');
+            const closeOfOld = herdr.calls.findIndex((call) => call.method === 'pane.close' && call.detail === 'p2');
             expect(closeOfOld).toBeGreaterThanOrEqual(0);
-            expect(firstStart).toBeGreaterThanOrEqual(0);
-            expect(closeOfOld).toBeLessThan(firstStart);
+            expect(herdr.calls.indexOf(starts.at(-1)!)).toBeGreaterThan(closeOfOld);
 
             expect(herdr.splits[0]?.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/new/claude' });
             expect(herdr.splits.at(-1)?.env).toMatchObject({ CLAUDE_CONFIG_DIR: '/orig/claude' });
 
-            expect(herdr.agents).toHaveLength(1);
-            expect(herdr.agents[0]).toMatchObject({
+            const rolledBack = herdr.agents.find((agent) => agent.pane_id === 'p4');
+            expect(rolledBack).toMatchObject({
                 agent: 'claude',
-                agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
+                agent_session: { source: 'herdr', agent: 'claude', kind: 'id' },
             });
 
             await new Promise((resolve) => setTimeout(resolve, 500));
@@ -220,6 +246,7 @@ describe('a plan-account move whose new-account start fails', () => {
             herdr.state.republishSession = 'claude-2';
             const moved = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' });
             expect(moved.sessionId).not.toBe(sessionId);
+            expect(herdr.sendTexts.filter((sent) => sent.pane_id === 'p1')).toHaveLength(0);
 
             expect(herdr.agents).toHaveLength(1);
             expect(herdr.agents[0]).toMatchObject({
@@ -248,8 +275,7 @@ describe('a plan-account move whose new-account start fails', () => {
             hostHttpPort: 0,
         });
         try {
-            await source.refreshHerdr();
-            const sessionId = (await source.list())[0]!.id;
+            const sessionId = await launchOn(source, cwd, '/orig/claude');
 
             herdr.state.failNextStart = true;
             herdr.state.failSecondSplit = true;
@@ -258,12 +284,12 @@ describe('a plan-account move whose new-account start fails', () => {
                 .catch((cause: unknown) => cause);
             const shell = (error as { sessionId?: unknown }).sessionId;
             expect(error).toMatchObject({ code: 'plan-move-start-failed' });
-            expect(String(shell)).toMatch(/^shell:p2$/);
+            expect(String(shell)).toMatch(/^shell:p3$/);
             expect(String((error as Error).message)).toContain('try again');
 
-            expect(herdr.agents).toHaveLength(0);
-            expect(herdr.panes.some((pane) => pane.pane_id === 'p2')).toBe(true);
-            expect((await source.list()).map((session) => session.id)).toEqual([shell]);
+            expect(herdr.sendTexts.filter((sent) => String(sent.text).includes('MUXR_PLAN_ORIGIN_'))).toHaveLength(0);
+            expect(herdr.panes.some((pane) => pane.pane_id === 'p3')).toBe(true);
+            expect(herdr.agents.some((agent) => agent.pane_id === 'p3')).toBe(false);
         } finally {
             await source.dispose();
             herdr.close();
@@ -271,7 +297,7 @@ describe('a plan-account move whose new-account start fails', () => {
         }
     }, 30_000);
 
-    it('keeps the failed pane as a shell instead of resuming on an unknown sign-in', async () => {
+    it('keeps the failed pane as a shell when the old session has no host record', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-move-origin-'));
         const cwd = join(dir, 'repo');
         const herdr = fakeHerdr(dir, cwd);
@@ -285,7 +311,6 @@ describe('a plan-account move whose new-account start fails', () => {
             await source.refreshHerdr();
             const sessionId = (await source.list())[0]!.id;
 
-            herdr.state.failReadFor.add('p1');
             herdr.state.failNextStart = true;
             const error = await source.movePlanAccount({ sessionId, provider: 'claude', folder: '/new/claude' })
                 .then(() => { throw new Error('move should have failed'); })
@@ -296,6 +321,8 @@ describe('a plan-account move whose new-account start fails', () => {
             expect(String(shell)).toMatch(/^shell:p2$/);
             expect(String((error as Error).message)).toContain('try again');
 
+            expect(herdr.sendTexts.filter((sent) => sent.pane_id === 'p1')).toHaveLength(0);
+            expect(herdr.sendTexts.filter((sent) => String(sent.text).includes('MUXR_PLAN_ORIGIN_'))).toHaveLength(0);
             expect(herdr.agents).toHaveLength(0);
             expect(herdr.splits).toHaveLength(1);
             expect((await source.list()).map((session) => session.id)).toEqual([shell]);
