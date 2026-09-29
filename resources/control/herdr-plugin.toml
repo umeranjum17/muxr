@@ -1,14 +1,76 @@
-# Product-owned Herdr pane pack. This manifest exists only because Herdr's
-# pane surface is manifest-shaped; it is not an optional plugin and has no
-# muxr UI. `muxr setup` installs and relinks it.
+# Product-owned Herdr pack: muxr's launcher inside Herdr. It only drives the
+# muxr CLI; the host and relay always run under muxr.service/launchd through
+# `muxr up`, so nothing here outlives a command. `muxr setup` links it from
+# the installed package, or `herdr plugin install` fetches it from GitHub
+# (then Herdr owns it and setup leaves it alone).
 id = "muxr.control"
 name = "muxr"
 # Versioned with muxr itself: bump when a release changes the pack; setup
 # relinks whenever the version or path moves.
-version = "0.2.0"
+version = "0.3.0"
 min_herdr_version = "0.9.1"
 description = "Set up and pair muxr from Herdr, and drive Herdr layout from your phone"
 platforms = ["linux", "macos"]
+
+# A GitHub install gets a git tree with no bundles: fetch the release's CLI.
+[[build]]
+command = ["node", "./build.mjs"]
+
+# Service and maintenance verbs. Herdr gives actions no terminal, so anything
+# that asks a question opens a pane instead.
+[[actions]]
+id = "start"
+title = "Start muxr"
+description = "Start the muxr service and keep it running across logins"
+command = ["node", "./run.mjs", "start"]
+
+[[actions]]
+id = "stop"
+title = "Stop muxr"
+description = "Stop the muxr service"
+command = ["node", "./run.mjs", "stop"]
+
+[[actions]]
+id = "restart"
+title = "Restart muxr"
+description = "Restart the muxr relay and host"
+command = ["node", "./run.mjs", "restart"]
+
+[[actions]]
+id = "status"
+title = "muxr status"
+description = "Check the complete muxr setup"
+command = ["node", "./run.mjs", "status"]
+
+[[actions]]
+id = "integration-sync"
+title = "Sync muxr agent integrations"
+description = "Install Herdr lifecycle detection for the coding agents found here"
+command = ["node", "./run.mjs", "integration-sync"]
+
+[[actions]]
+id = "update"
+title = "Update muxr"
+description = "Update muxr within its release channel and restart it"
+command = ["node", "./run.mjs", "update"]
+
+[[actions]]
+id = "uninstall"
+title = "Uninstall muxr"
+description = "Open the uninstall pane; it asks before removing anything"
+command = ["herdr", "plugin", "pane", "open", "--plugin", "muxr.control", "--entrypoint", "uninstall"]
+
+[[actions]]
+id = "desktop-setup"
+title = "Approve muxr screen sharing"
+description = "Open the screen-sharing approval pane at this computer"
+command = ["herdr", "plugin", "pane", "open", "--plugin", "muxr.control", "--entrypoint", "desktop-setup"]
+
+[[actions]]
+id = "link-cli"
+title = "Put muxr on PATH"
+description = "Link the muxr command into ~/.local/bin"
+command = ["node", "./run.mjs", "link-cli"]
 
 # Herdr already owns pane layout, so these need no backend script of their own:
 # an action process inherits HERDR_PANE_ID from the invocation context, which is
@@ -62,3 +124,21 @@ id = "selfhost"
 title = "muxr self-host relay"
 placement = "overlay"
 command = ["node", "./run.mjs", "selfhost"]
+
+[[panes]]
+id = "logs"
+title = "muxr logs"
+placement = "overlay"
+command = ["node", "./run.mjs", "logs"]
+
+[[panes]]
+id = "uninstall"
+title = "Uninstall muxr"
+placement = "overlay"
+command = ["node", "./run.mjs", "uninstall"]
+
+[[panes]]
+id = "desktop-setup"
+title = "muxr screen sharing"
+placement = "overlay"
+command = ["node", "./run.mjs", "desktop-setup"]

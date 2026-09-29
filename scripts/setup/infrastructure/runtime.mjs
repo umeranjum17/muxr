@@ -263,4 +263,12 @@ export function flagValue(args, name) {
     return index >= 0 ? args[index + 1] : undefined;
 }
 
+export function relayPortFromEnv() {
+    const raw = process.env.MUXR_RELAY_PORT;
+    if (raw === undefined || raw.trim() === '') return undefined;
+    const parsed = Number(raw.trim());
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) throw new Error(`MUXR_RELAY_PORT ${JSON.stringify(raw.trim())} is not a valid TCP port (1-65535); unset it or set a port from 1 to 65535`);
+    return parsed;
+}
+
 export { nacl, hostPlatform, createHash, randomBytes };

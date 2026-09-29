@@ -38,7 +38,6 @@ export async function previewStatus(args) {
             authorization: `Bearer ${token}`,
             origin: 'muxr://agent',
             'x-muxr-pane-id': paneId,
-            ...(process.env.HERDR_SESSION?.trim() ? { 'x-herdr-session': process.env.HERDR_SESSION.trim() } : {}),
         },
         signal: AbortSignal.timeout(CLIENT_TIMEOUT_MS),
     });

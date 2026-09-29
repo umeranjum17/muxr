@@ -902,6 +902,17 @@ try {
     });
     assert.notEqual(failedUnlink.status, 0, 'setup treated a failed retired-plugin unlink as success');
     assert.match(`${failedUnlink.stdout}${failedUnlink.stderr}`, /permission denied|failed to unlink/);
+    // A Herdr-managed install (`herdr plugin install`) owns its checkout:
+    // linking over it would turn it local and orphan that checkout.
+    const githubManaged = { result: { plugins: [{
+        plugin_id: 'muxr.control', plugin_root: join(scratch, 'herdr-managed', 'resources', 'control'), version: '0.3.0', enabled: true,
+        source: { kind: 'github', owner: 'umeranjum17', repo: 'muxr', subdir: 'resources/control', requested_ref: 'v0.3.0', managed_path: join(scratch, 'herdr-managed') },
+    }] } };
+    const logBeforeManagedSetup = readFileSync(fakeLog, 'utf8');
+    const managedSetup = run(cli, ['setup', ...setupArgs], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(githubManaged) } });
+    const managedSetupCalls = readFileSync(fakeLog, 'utf8').slice(logBeforeManagedSetup.length);
+    assert.doesNotMatch(managedSetupCalls, /plugin (?:link|unlink)/, 'setup relinked over the Herdr-managed muxr.control install');
+    assert.match(`${managedSetup.stdout}${managedSetup.stderr}`, /installed by Herdr from umeranjum17\/muxr\/resources\/control/);
     const movedProviders = {
         result: {
             plugins: existingProviders.result.plugins.map((plugin) => ({ ...plugin, plugin_root: join(scratch, 'old-package', plugin.plugin_id) })),
@@ -1240,6 +1251,10 @@ else if(a[0]==='view') {
     const uninstallLinks = readFileSync(fakeLog, 'utf8').slice(logBeforeUninstall.length);
     assert.match(uninstallLinks, /plugin unlink muxr\.panes/, 'uninstall left a retired registration from a prior release in place');
     assert.match(uninstallLinks, /plugin unlink muxr\.control/, 'uninstall left the management pane pack registered');
+    const logBeforeManagedUninstall = readFileSync(fakeLog, 'utf8');
+    run(cli, ['integrations', 'uninstall'], { cwd: installDir, env: { ...env, FAKE_PLUGIN_LIST: JSON.stringify(githubManaged) } });
+    assert.doesNotMatch(readFileSync(fakeLog, 'utf8').slice(logBeforeManagedUninstall.length), /plugin unlink muxr\.control/,
+        'uninstall unlinked a Herdr-managed muxr.control and orphaned its checkout');
     assert.equal(readFileSync(instructionPath, 'utf8'), initialInstructions);
     assert.ok(existsSync(join(home, '.muxr', 'xai.key')), 'narrow integration uninstall removed provider data');
 

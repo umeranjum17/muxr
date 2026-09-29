@@ -79,11 +79,12 @@ muxr name --workspace 'short-task-slug' \
   --provider '<your-provider>' --model '<your-model>'
 ```
 
-- `HERDR_PANE_ID` binds the request to the current pane; muxr authenticates the
-  loopback request and resolves workspace membership from Herdr.
+- `HERDR_PANE_ID` binds the request to the current pane; `muxr name` calls the
+  Herdr CLI directly and resolves workspace membership from Herdr, so it needs
+  no running muxr host.
 - Names are used verbatim within bounded limits. Provider/model attribution is
   read from Herdr pane metadata; there is no competing JSON state file.
-- `MUXR_NAMING_PORT` overrides the local endpoint port. See `scripts/naming/`.
+- See `scripts/naming/`.
 - If no self-name arrives, the existing blank-name fallback may fill an absent
   name. Do not guess a title from command lines or provider-specific output.
 

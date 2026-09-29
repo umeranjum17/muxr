@@ -28,6 +28,20 @@ import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
 /** How long the phone has to prove itself over the machine's link. */
 const VERIFY_DEADLINE_MS = 60_000;
 
+/** How long a fresh host gets to open pair.sock after the service starts. */
+const PAIR_SOCKET_WAIT_MS = 15_000;
+
+/**
+ * Validation-only bound on that wait, in milliseconds. The failure-path
+ * checks assert the same error without burning the full window.
+ */
+function pairSocketWaitMs() {
+    const raw = process.env.MUXR_PAIR_SOCKET_WAIT_MS?.trim();
+    if (raw === undefined || raw === '') return PAIR_SOCKET_WAIT_MS;
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : PAIR_SOCKET_WAIT_MS;
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function aborted(signal) {
@@ -51,11 +65,21 @@ export function machineLinkUrl(relayUrl, machineBoxPublicKeyBase64) {
  */
 export async function linkPair(state, { approve, signal, intent = pairingIntent({ kind: 'native' }) } = {}) {
     if (typeof selfhostCredential(state) !== 'string') throw new Error('muxr is not set up yet; run `muxr setup` first');
-    try {
-        const running = await pairOnRunningHost(join(process.env.MUXR_HOME ?? join(homedir(), '.muxr'), 'host', 'pair.sock'), approve ?? showApproval, signal, intent);
-        if (running !== undefined) return running;
-    } catch (error) {
-        if (error?.code !== 'ECONNREFUSED' && error?.code !== 'ENOENT') throw error;
+    const socketPath = join(process.env.MUXR_HOME ?? join(homedir(), '.muxr'), 'host', 'pair.sock');
+    // `muxr setup` starts the service and pairs immediately, but the new host
+    // opens pair.sock a couple of seconds later. Retry an absent or refused
+    // socket for a bounded window; anything else still throws immediately.
+    const deadline = Date.now() + pairSocketWaitMs();
+    for (;;) {
+        try {
+            const running = await pairOnRunningHost(socketPath, approve ?? showApproval, signal, intent);
+            if (running !== undefined) return running;
+        } catch (error) {
+            if (error?.code !== 'ECONNREFUSED' && error?.code !== 'ENOENT') throw error;
+        }
+        if (signal?.aborted) throw new Error('pairing cancelled');
+        if (Date.now() >= deadline) break;
+        await Promise.race([sleep(Math.min(500, Math.max(deadline - Date.now(), 0))), aborted(signal)]);
     }
     throw new Error('Start muxr on this computer first, then run `muxr pair` again.');
 }

@@ -12,7 +12,7 @@ import {
     statSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
     HERDR_INSTALL_HINT,
@@ -181,7 +181,8 @@ async function migrateLegacyVoiceProvider(installed, dryRun) {
  * installed and carries the selected realtime voice engine into muxr's own
  * state; anything the user linked from elsewhere stays untouched.
  */
-export async function retireBundledPlugins(binary, dryRun) {
+/** Herdr's plugin registrations, as `herdr plugin list --json` reports them. */
+export function herdrPlugins(binary) {
     const pluginList = run(binary, ['plugin', 'list', '--json']);
     if (!pluginList.ok) throw new Error(pluginList.stderr || pluginList.stdout || 'failed to list Herdr plugins');
     let installed;
@@ -198,6 +199,36 @@ export async function retireBundledPlugins(binary, dryRun) {
         || typeof plugin.enabled !== 'boolean')) {
         throw new Error('Herdr returned an invalid plugin list');
     }
+    return installed;
+}
+
+/**
+ * The management pack when `herdr plugin install` put it there from GitHub.
+ * Herdr owns that checkout: linking over it would silently turn it into a
+ * local registration and orphan the checkout, so setup and uninstall leave it
+ * to Herdr. Moving between the two is an explicit unlink or uninstall.
+ */
+export function githubManagedPanePack(installed) {
+    const current = installed.find((plugin) => plugin.plugin_id === productPanePack().id);
+    return current?.source?.kind === 'github' ? current : undefined;
+}
+
+/** `owner/repo[/subdir]`, the shorthand `herdr plugin install` takes. */
+export function githubPluginSource(plugin) {
+    const { owner, repo, subdir } = plugin.source;
+    return [owner, repo, ...(subdir ? [subdir] : [])].join('/');
+}
+
+/** The GitHub-managed pack this CLI runs from, if Herdr installed it. */
+export function panePackManagingThisCli(binary) {
+    const managed = githubManagedPanePack(herdrPlugins(binary));
+    const checkout = realpathOrUndefined(managed?.source?.managed_path ?? '');
+    if (checkout === undefined) return undefined;
+    return realpathSync(process.argv[1]).startsWith(`${checkout}${sep}`) ? managed : undefined;
+}
+
+export async function retireBundledPlugins(binary, dryRun) {
+    const installed = herdrPlugins(binary);
     const legacyVoice = await migrateLegacyVoiceProvider(installed, dryRun);
     if (legacyVoice !== undefined) print(`  ${dryRun ? 'would preserve' : '✓ preserved'} ${legacyVoice.name} as the realtime voice provider`);
     for (const current of installed) {
@@ -217,6 +248,10 @@ async function ensureProductPanePack(binary, installed, dryRun) {
     const pack = productPanePack();
     const expected = realpathSync(pack.root);
     const current = installed.find((plugin) => plugin.plugin_id === pack.id);
+    if (current?.source?.kind === 'github') {
+        print(`  ✓ ${pack.id} ${current.version} installed by Herdr from ${githubPluginSource(current)}; left to Herdr`);
+        return;
+    }
     if (current && realpathOrUndefined(current.plugin_root) === expected && current.version === pack.version && current.enabled === true) {
         print(`  ✓ ${pack.id} ${pack.version} management pane pack ready`);
         return;
@@ -465,7 +500,13 @@ export async function runIntegrations(args = []) {
             if (binary) {
                 // Bundled add-ons, the product's management pane pack, and the
                 // retired panes plugin a prior release may still have registered.
-                const productIds = [...LEGACY_BUNDLED_PLUGIN_IDS, productPanePack().id, 'muxr.panes'];
+                let managedPack;
+                try { managedPack = githubManagedPanePack(herdrPlugins(binary)); } catch { /* unreadable list: unlink by id as before */ }
+                if (managedPack !== undefined && !args.includes('--quiet')) {
+                    print(`  ${managedPack.plugin_id} was installed by Herdr; remove it last with \`herdr plugin uninstall ${managedPack.plugin_id}\``);
+                }
+                const productIds = [...LEGACY_BUNDLED_PLUGIN_IDS, productPanePack().id, 'muxr.panes']
+                    .filter((id) => id !== managedPack?.plugin_id);
                 for (const id of productIds) {
                     if (!args.includes('--quiet')) print(`  ${dryRun ? 'would run' : 'run'} herdr plugin unlink ${id}`);
                     if (!dryRun) {

@@ -29,11 +29,13 @@ import {
     detectedLifecycleTargets,
     ensureHerdr,
     ensureHerdrServer,
+    githubPluginSource,
     herdrBin,
     herdrServerIsReady,
     herdrServiceUnitPaths,
     parseIntegrationStatus,
     parseVersion,
+    productPanePack,
     runIntegrations,
     staleUnitPaths,
     versionIsCompatible,
@@ -166,18 +168,52 @@ export async function uninstallMuxr(args = []) {
     return 0;
 }
 
-export function cliVersion() {
-    for (const path of [join(dirname(realpathSync(process.argv[1])), 'package.json'), join(process.cwd(), 'package.json')]) {
+/** The version of the package holding `directory`: a packed CLI, or a checkout's root. */
+function packageVersion(directory) {
+    for (const path of [join(directory, 'package.json'), join(directory, '..', 'package.json')]) {
         try {
             const version = JSON.parse(readFileSync(path, 'utf8')).version;
             if (typeof version === 'string' && /^\d+\.\d+\.\d+/.test(version)) return version;
         } catch {}
     }
-    return 'unknown';
+    return undefined;
+}
+
+export function cliVersion() {
+    return packageVersion(dirname(realpathSync(process.argv[1]))) ?? 'unknown';
+}
+
+/**
+ * The muxr release the registered management pack came from. A GitHub
+ * install is pinned by its release tag; a linked pack sits two levels inside
+ * the package or checkout that ships it.
+ */
+function panePackRelease(plugin) {
+    if (plugin.source?.kind === 'github') {
+        const ref = plugin.source.requested_ref ?? '';
+        const tagged = /^v(\d+\.\d+\.\d+\S*)$/.exec(ref)?.[1];
+        return { version: tagged, from: `${githubPluginSource(plugin)}@${ref || plugin.source.resolved_commit?.slice(0, 12) || 'HEAD'}` };
+    }
+    return { version: packageVersion(join(plugin.plugin_root, '..', '..')) ?? packageVersion(join(plugin.plugin_root, '..')), from: plugin.plugin_root };
+}
+
+function versionAgreement(cli, service, pack) {
+    const known = [cli === 'unknown' ? undefined : cli, service, pack?.version].filter((version) => version !== undefined);
+    const agree = known.every((version) => version === known[0]);
+    const parts = [
+        `CLI ${cli}`,
+        `host ${service ?? 'not observed'}`,
+        ...(pack === undefined ? [] : [`Herdr plugin ${pack.version ?? 'unpinned'} (${pack.from})`]),
+    ];
+    return {
+        level: agree ? 'ok' : 'warn',
+        detail: `${parts.join(' · ')}${agree ? '' : ' — these copies differ; update or reinstall so the plugin, the CLI on PATH and the running host are one release before trusting validation'}`,
+    };
 }
 
 export function hostServiceVersion() {
-    const path = join(stateDir(), 'host', 'diagnostics.json');
+    const dataDir = env('MUXR_DATA_DIR') ?? join(stateDir(), 'host');
+    const path = join(dataDir, 'diagnostics.json');
     try {
         const info = lstatSync(path);
         if (!info.isFile() || info.isSymbolicLink()) return undefined;
@@ -224,12 +260,10 @@ export async function inspectSetup() {
     const checks = [];
     // repair: { label, run } — offered interactively when the check fails.
     const add = (level, name, detail, repair) => checks.push({ level, name, detail, repair });
-    const cli = cliVersion();
-    const service = hostServiceVersion();
-    const versionsMatch = service === undefined || cli === 'unknown' || service === cli;
-    add(versionsMatch ? 'ok' : 'warn', 'muxr versions', service === undefined
-        ? `CLI ${cli} · service not observed`
-        : `CLI ${cli} · service ${service}${versionsMatch ? '' : ' — PATH CLI differs from the running host; update or fix PATH before trusting validation'}`);
+    // Filled in once Herdr's registrations are read; it still prints first.
+    const versions = { level: 'ok', name: 'muxr versions', detail: '' };
+    checks.push(versions);
+    let panePack;
     const major = Number(process.versions.node.split('.')[0]);
     add(major >= 22 ? 'ok' : 'fail', 'node', `v${process.versions.node}${major >= 22 ? '' : ' — needs >= 22'}`);
     const cliDir = dirname(realpathSync(process.argv[1]));
@@ -291,7 +325,10 @@ export async function inspectSetup() {
         if (registered.ok) {
             try {
                 const parsed = JSON.parse(registered.stdout);
-                missing = (parsed.result?.plugins ?? parsed.plugins ?? [])
+                const plugins = parsed.result?.plugins ?? parsed.plugins ?? [];
+                const control = plugins.find((plugin) => plugin?.plugin_id === productPanePack().id && typeof plugin.plugin_root === 'string');
+                if (control !== undefined) panePack = panePackRelease(control);
+                missing = plugins
                     .filter((plugin) => typeof plugin?.plugin_id === 'string' && typeof plugin.plugin_root === 'string'
                         && !existsSync(join(plugin.plugin_root, 'herdr-plugin.toml')))
                     .map((plugin) => plugin.plugin_id);
@@ -305,6 +342,7 @@ export async function inspectSetup() {
                 run: () => { for (const id of missing) run(binary, ['plugin', 'unlink', id]); },
             } : undefined);
     }
+    Object.assign(versions, versionAgreement(cliVersion(), hostServiceVersion(), panePack));
     const manifest = loadManifest();
     const integrations = Object.entries(manifest.entries).filter(([, entry]) => entry.scope !== 'daemon');
     const states = integrations.map(([path, entry]) => `${path.startsWith(`${home()}/`) ? `~/${path.slice(home().length + 1)}` : basename(path)}:${entryStatus(path, entry)}`);
