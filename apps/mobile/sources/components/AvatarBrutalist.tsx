@@ -1,6 +1,7 @@
 import * as React from "react";
 import { View } from "react-native";
 import { Image } from "expo-image";
+import { useUnistyles } from 'react-native-unistyles';
 import { avatarHash, type GeneratedAvatarProps } from '@/components/generatedAvatar';
 
 
@@ -435,26 +436,16 @@ const brutalismImages = [
 
 const allImages = [...abstractImages, ...bauhausImages, ...brutalismImages];
 
-const colorPairs = [
-    { tint: '#FFA617', background: '#0056B3' }, // Orange → Deep blue
-    { tint: '#59C9DF', background: '#DC2626' }, // Cyan → Bold red
-    { tint: '#C678FF', background: '#16A34A' }, // Purple → Forest green
-    { tint: '#FF79D7', background: '#047857' }, // Pink → Teal green
-    { tint: '#FFD800', background: '#4C1D95' }, // Yellow → Deep purple
-    { tint: '#84E600', background: '#C026D3' }  // Lime → Magenta
-];
-
-
 export const AvatarBrutalist = React.memo((props: GeneratedAvatarProps) => {
     const { id, size = 32, square = false, monochrome = false } = props;
 
-    const imageIndex = avatarHash(id) % allImages.length;
-    const colorIndex = avatarHash(`${id}color`) % colorPairs.length;
+    const { theme } = useUnistyles();
 
-    const imageSource = allImages[imageIndex];
-    const colorPair = colorPairs[colorIndex];
-    const tintColor = monochrome ? '#999999' : colorPair.tint;
-    const backgroundColor = monochrome ? '#F0F0F0' : colorPair.background;
+    const imageSource = allImages[avatarHash(id) % allImages.length];
+    // Ink on the theme's raised surface: the shape tells sessions apart, so the
+    // mark stays in the app's own palette instead of a loud per-session colour.
+    const tintColor = monochrome ? theme.colors.textSecondary : theme.colors.accent;
+    const backgroundColor = theme.colors.surfaceHighest;
 
     const dimension = size;
     const borderRadius = square ? 0 : size / 2;
