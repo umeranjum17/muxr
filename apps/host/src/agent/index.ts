@@ -28,6 +28,7 @@ export type {
     SessionShellOutcome,
     SessionReadFileOptions,
     SessionSaveAttachmentsOptions,
+    PlanMoveOptions,
     VoiceStreamTransport,
 } from './application/sessionSource.js';
 export { createAgentWatchStores, type AgentWatchStores } from './application/watchStores.js';

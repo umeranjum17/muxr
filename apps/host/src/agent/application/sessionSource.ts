@@ -47,6 +47,10 @@ export interface SessionStartOptions {
     kind?: string;
     label?: string;
     taskTitle?: string;
+    /** Internal (never on the peer wire): a Plan Account id resolved by the dispatcher into `planEnv`. */
+    planAccount?: string;
+    /** Internal launch env for that account: merged into the new pane's env. Absent means today's launch. */
+    planEnv?: Record<string, string>;
     worktree?: { branch?: string; base?: string };
     /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
     kinds?: string[];
@@ -85,6 +89,15 @@ export interface SessionShellOutcome {
 
 export interface SessionStopOptions {
     confirmedScope?: CloseScope;
+}
+
+/** Move a running agent onto another sign-in of a provider it already uses.
+ *  The host splits with that account's env, resumes the same conversation,
+ *  and closes the old pane so two accounts never write one conversation. */
+export interface PlanMoveOptions {
+    sessionId: string;
+    provider: string;
+    folder: string;
 }
 
 export interface SessionSaveAttachmentsOptions {
@@ -204,6 +217,7 @@ export interface SessionSource {
         reason?: string;
     }>;
     stop(sessionId: string, options: SessionStopOptions): Promise<CloseResult>;
+    movePlanAccount?(options: PlanMoveOptions): Promise<{ sessionId: string }>;
     abort(sessionId: string): Promise<void>;
     reload(sessionId: string): Promise<void>;
     prompt(options: SessionPromptOptions): Promise<void>;
