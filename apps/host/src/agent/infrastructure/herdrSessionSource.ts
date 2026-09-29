@@ -155,8 +155,13 @@ export async function reportHerdrActionFailure(
     if (typeof logId !== 'string' || logId === '') throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
     const deadline = Date.now() + reportMs;
     let sawRunning = false;
-    for (let wait = 25; Date.now() < deadline; wait = Math.min(wait * 2, 250)) {
+    // Always poll at least once: with a tiny budget the deadline can pass before
+    // the first check, which would report "unavailable" without ever asking Herdr
+    // and makes the outcome depend on scheduler timing instead of the log state.
+    let wait = 25;
+    do {
         await sleep(wait);
+        wait = Math.min(wait * 2, 250);
         let response: unknown;
         try {
             response = await client.call('plugin.log.list', { plugin_id: pluginId, limit: 50 });
@@ -178,7 +183,7 @@ export async function reportHerdrActionFailure(
             throw new Error(failure);
         }
         return;
-    }
+    } while (Date.now() < deadline);
     if (!sawRunning) throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
 }
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
