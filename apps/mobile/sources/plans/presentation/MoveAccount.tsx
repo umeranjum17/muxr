@@ -1,0 +1,199 @@
+import * as React from 'react';
+import { Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { create } from 'zustand';
+import { OptionSheet } from '@/components/OptionSheet';
+import { navigateToSession } from '@/herd';
+import { Modal } from '@/modal';
+import { bestMoveTarget, isLow, runningOn, type PlanAccount } from '../domain/planAccounts';
+import { usePlans, useProviderChoice } from '../application/plansStore';
+import { agentAccount, conversationTokens, moveAgent, planFailure } from '../application/plansApi';
+import { showNotice, useAccountFlows } from './AccountFlows';
+import { AccountRow, Note, Pill, PrimaryButton, SheetLede, SheetTitle, SignInPill, styles as parts } from './accountParts';
+
+/** The agents an account can carry, by the names the dock gives them. */
+const AGENT_NAMES: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', pi: 'Pi' };
+
+interface Moving { sessionId: string; agentKind: string; working: boolean; currentId?: string }
+
+const useMoving = create<{ moving: Moving | null }>()(() => ({ moving: null }));
+
+/**
+ * One row in a running agent's menu, and only when its provider has another
+ * account to move to: "Move to another account · On Personal · 18% left".
+ */
+export function MoveAccountRow({ sessionId, agentKind, working, onOpen }: {
+    sessionId: string;
+    agentKind: string | undefined;
+    working: boolean;
+    onOpen: () => void;
+}) {
+    const { theme } = useUnistyles();
+    usePlans();
+    const { entry } = useProviderChoice(agentKind ?? '');
+    const [recorded, setRecorded] = React.useState<{ id?: string } | null>(null);
+    const known = entry !== undefined;
+    React.useEffect(() => {
+        if (!known) return;
+        let live = true;
+        void agentAccount(sessionId).then((id) => { if (live) setRecorded({ id }); });
+        return () => { live = false; };
+    }, [known, sessionId]);
+    if (agentKind === undefined || entry === undefined) return null;
+    const current = recorded === null ? undefined : runningOn(entry, recorded.id);
+    return (
+        <Pressable
+            onPress={() => { onOpen(); useMoving.setState({ moving: { sessionId, agentKind, working, currentId: current?.id } }); }}
+            accessibilityRole="button"
+            accessibilityLabel={`Move to another account${current ? `, on ${current.name}` : ''}${current?.roomLeftPercent !== undefined ? `, ${current.roomLeftPercent}% left` : ''}`}
+            style={({ pressed }) => [styles.menuRow, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh }]}
+        >
+            <Ionicons name="swap-horizontal-outline" size={18} color={theme.colors.textSecondary} />
+            <View style={parts.rowCopy}>
+                <Text style={styles.menuText}>Move to another account</Text>
+                {current !== undefined && (
+                    <Text style={styles.menuSub} numberOfLines={1}>
+                        On {current.name}
+                        {current.roomLeftPercent !== undefined && (
+                            <Text style={isLow(current) ? { color: theme.colors.box.warning.text } : null}> · <Text style={parts.mono}>{current.roomLeftPercent}%</Text> left</Text>
+                        )}
+                    </Text>
+                )}
+            </View>
+            <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
+        </Pressable>
+    );
+}
+
+/** "about 140k tokens", when the host knows the conversation's size. */
+function tokensWords(tokens: number | undefined): string {
+    if (tokens === undefined || !Number.isFinite(tokens) || tokens <= 0) return '';
+    if (tokens >= 1_000_000) return `about ${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M tokens`;
+    return `about ${Math.max(1, Math.round(tokens / 1000))}k tokens`;
+}
+
+/** The move itself: the roomiest other account preselected, the current one
+ *  marked Now, and the cost said plainly. Mounted once in the overlay. */
+export function MoveSheet() {
+    const router = useRouter();
+    const moving = useMoving((state) => state.moving);
+    const { entry } = useProviderChoice(moving?.agentKind ?? '');
+    const flows = useAccountFlows();
+    const accounts: PlanAccount[] = entry?.accounts ?? [];
+    const current = accounts.find((account) => account.id === moving?.currentId);
+    const best = bestMoveTarget(accounts, current?.id);
+    // Said only when true of every account, the one it runs on included.
+    const roomiest = best?.roomLeftPercent !== undefined
+        && accounts.every((account) => !account.signedIn || (account.roomLeftPercent ?? -1) <= best.roomLeftPercent!);
+    const [picked, setPicked] = React.useState<string | null>(null);
+    const [tokens, setTokens] = React.useState<number | undefined>();
+    const [busy, setBusy] = React.useState(false);
+    // The short reference phone keeps the accounts, the cost and the button on screen.
+    const short = useWindowDimensions().height < 640;
+
+    React.useEffect(() => {
+        setPicked(null);
+        setBusy(false);
+        setTokens(undefined);
+        if (moving === null) return;
+        let live = true;
+        void conversationTokens(moving.sessionId).then((count) => { if (live) setTokens(count); });
+        return () => { live = false; };
+    }, [moving]);
+
+    const close = () => useMoving.setState({ moving: null });
+    if (moving === null || entry === undefined) {
+        return <OptionSheet visible={false} title="" options={[]} onSelect={() => {}} onClose={close} body={<View />} />;
+    }
+    const target = accounts.find((account) => account.id === (picked ?? best?.id) && account.signedIn && account.id !== current?.id);
+    const agentName = AGENT_NAMES[moving.agentKind] ?? moving.agentKind;
+
+    const move = async () => {
+        if (target === undefined || busy) return;
+        if (moving.working) {
+            const go = await Modal.confirm(
+                `${agentName} is still working`,
+                'Moving stops the current step. The conversation carries on from there.',
+                { cancelText: 'Wait', confirmText: `Move to ${target.name}` },
+            );
+            if (!go) return;
+        }
+        setBusy(true);
+        try {
+            const result = await moveAgent(moving.sessionId, target.id);
+            close();
+            if (result.sessionId !== moving.sessionId) navigateToSession(router, result.sessionId);
+            showNotice(`Moved to ${target.name}`, `Same conversation${current ? ` · ${current.name} is free again` : ''}`, true);
+        } catch (error) {
+            setBusy(false);
+            const said = planFailure(error);
+            // A failed start may have left the conversation elsewhere; the host's sentence says where.
+            const startFailed = (error as { code?: unknown }).code === 'plan-move-start-failed' || said.startsWith("Couldn't start on");
+            Modal.alert(`Couldn't move to ${target.name}`, `${said}${current && !startFailed ? ` The conversation is still on ${current.name}.` : ''}`);
+        }
+    };
+
+    const cost = tokensWords(tokens);
+    return (
+        <OptionSheet
+            visible
+            title=""
+            options={[]}
+            onSelect={() => {}}
+            onClose={close}
+            body={
+                <View>
+                    <SheetTitle>Move to another account</SheetTitle>
+                    {!short && <SheetLede>This conversation carries on where it stopped, on the account you pick. {agentName} restarts in this tab.</SheetLede>}
+                    {accounts.map((account) => (account.id === current?.id
+                        ? <AccountRow key={account.id} account={account} selected={false} note="Running here now" onPress={() => {}} trailing={<Pill label="Now" />} hideEmail inert />
+                        : <AccountRow
+                            key={account.id}
+                            account={account}
+                            hideEmail
+                            selected={account.id === target?.id}
+                            onPress={() => setPicked(account.id)}
+                            trailing={account.signedIn ? undefined : <SignInPill onPress={() => { close(); flows.signIn(account); }} />}
+                            badge={account.id === best?.id && roomiest ? 'most room left' : undefined}
+                        />
+                    ))}
+                    {target !== undefined && (
+                        <Note icon="time-outline">
+                            {target.name} reads this conversation once from the start{cost ? `, ${cost} of its limit,` : ''} because nothing is saved up for it yet. After that it costs the same as usual.
+                        </Note>
+                    )}
+                    <PrimaryButton
+                        icon="swap-horizontal-outline"
+                        label={target === undefined ? 'Pick an account' : busy ? `Moving to ${target.name}…` : `Move to ${target.name}`}
+                        busy={busy || target === undefined}
+                        onPress={() => void move()}
+                    />
+                </View>
+            }
+        />
+    );
+}
+
+const styles = StyleSheet.create((theme) => ({
+    menuRow: {
+        minHeight: 44,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: theme.colors.divider,
+    },
+    menuText: {
+        color: theme.colors.text,
+        fontSize: 15,
+    },
+    menuSub: {
+        color: theme.colors.textSecondary,
+        fontSize: 12,
+        marginTop: 2,
+    },
+}));

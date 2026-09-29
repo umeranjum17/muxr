@@ -22,6 +22,7 @@ import { loadAppConfig } from '@/catalog';
 import { versionsMismatch } from '@/utils/versionStatus';
 import { getAppVersion } from '@/utils/appVersion';
 import { DeclarativeSettingsItems } from '@/plugins/ui';
+import { usePlanAccountsAvailable } from '@/plans';
 import {
     collaborationSummary,
     hasMachineCollaboration,
@@ -44,6 +45,8 @@ export const SettingsView = React.memo(function SettingsView({
 }) {
     const { theme } = useUnistyles();
     const router = useRouter();
+    // Only a computer that can list accounts offers them.
+    const accountsAvailable = usePlanAccountsAvailable();
     const appVersion = getAppVersion();
     const openConnection = React.useCallback(() => router.push('/settings/connection' as never), [router]);
     const openVoice = React.useCallback(() => router.push('/settings/voice' as never), [router]);
@@ -348,6 +351,12 @@ export const SettingsView = React.memo(function SettingsView({
                     icon={<Ionicons name="speedometer-outline" size={29} color="#5856D6" />}
                     onPress={() => router.push('/usage' as any)}
                 />
+                {accountsAvailable && <Item
+                    title="Accounts"
+                    subtitle="Run agents on more than one Claude or ChatGPT plan"
+                    icon={<Ionicons name="person-circle-outline" size={29} color="#5856D6" />}
+                    onPress={() => router.push('/settings/accounts' as never)}
+                />}
                 <Item
                     title="Plugins"
                     subtitle="Extensions installed through Herdr on the computer"

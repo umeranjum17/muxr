@@ -36,6 +36,8 @@ import { type NewSessionAgentType } from '@/catalog';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { sync } from '@/catalog/sync';
 import { resolveAgentCatalog } from '@/catalog';
+import { useAccountHints, useAccountLine } from '@/plans';
+import { AccountSheet } from '@/plans/ui';
 import {
     applyWorktreeSelection,
     currentDockAgent,
@@ -50,7 +52,7 @@ import {
 
 export const MOBILE_HOME_DOCK_CONTENT_INSET = 108;
 
-type EnvironmentSetting = 'project' | 'worktree' | 'agent';
+type EnvironmentSetting = 'project' | 'worktree' | 'agent' | 'account';
 
 const styles = StyleSheet.create((theme) => ({
     keyboardFollower: {
@@ -343,6 +345,12 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 17,
         ...Typography.default(),
     },
+    // The account row's room left, quieter than the account it qualifies.
+    focusConfigDetail: {
+        color: theme.colors.textSecondary,
+        fontSize: 13,
+        ...Typography.default(),
+    },
     focusConfigChevron: {
         width: 16,
         alignItems: 'center',
@@ -602,6 +610,9 @@ export const HomeDock = React.memo(({
         [hostAgentKinds, hostAgentKindsAuthoritative, agentType],
     );
     const currentAgent = currentDockAgent(availableAgents, agentType);
+    // Absent unless the agent's provider has two or more accounts.
+    const accountLine = useAccountLine(agentType);
+    const agentSheetOptions = useAccountHints(availableAgents);
     const hasPrompt = prompt.trim().length > 0 || selectedImages.length > 0;
     const compact = useWindowDimensions().width < 330;
     const canSubmit = !isSubmitting && hasPrompt;
@@ -774,11 +785,13 @@ export const HomeDock = React.memo(({
         page: string;
         label: string;
         value: string;
+        detail?: string;
         icon: React.ComponentProps<typeof Ionicons>['name'];
     };
 
     const environmentRows: SettingsRow[] = [
         { page: 'agent', label: 'AGENT', value: currentAgent.name, icon: 'hardware-chip-outline' },
+        ...(accountLine === null ? [] : [{ page: 'account', label: 'ACCOUNT', value: accountLine.value, detail: accountLine.detail, icon: 'person-circle-outline' as const }]),
         { page: 'project', label: 'PROJECT', value: currentProject?.name ?? '~', icon: 'folder-outline' },
         { page: 'worktree', label: 'WORKTREE', value: currentWorktree?.name ?? 'No worktree', icon: 'git-branch-outline' },
     ];
@@ -807,7 +820,10 @@ export const HomeDock = React.memo(({
                 <View style={styles.focusConfigIcon}>
                     <Ionicons name={row.icon} size={21} color={theme.colors.text} />
                 </View>
-                <Text style={styles.focusConfigValue} numberOfLines={1}>{row.value}</Text>
+                <Text style={styles.focusConfigValue} numberOfLines={1}>
+                    {row.value}
+                    {row.detail !== undefined && <Text style={styles.focusConfigDetail}> · {row.detail}</Text>}
+                </Text>
                 <View style={styles.focusConfigChevron}>
                     <Ionicons name="chevron-up" size={12} color={theme.colors.text} />
                     <Ionicons name="chevron-down" size={12} color={theme.colors.text} />
@@ -1071,7 +1087,7 @@ export const HomeDock = React.memo(({
                             <View style={styles.focusConfig}>
                                 <View style={styles.focusConfigGroup}>
                                     {renderEnvironmentPickers()}
-                                    <FocusConfigRevealRow progress={focusPresentation} index={3}>
+                                    <FocusConfigRevealRow progress={focusPresentation} index={environmentRows.length}>
                                         <BubblePressable
                                             onPress={startBlankSession}
                                             disabled={isSubmitting}
@@ -1097,11 +1113,18 @@ export const HomeDock = React.memo(({
                     <OptionSheet
                         visible={openSheet === 'agent'}
                         title="Agent"
-                        options={availableAgents}
+                        options={agentSheetOptions}
                         selectedKey={agentType}
                         onSelect={(agent) => selectAgent(agent.key as NewSessionAgentType)}
                         onClose={() => setOpenSheet(null)}
                         searchPlaceholder="search agents"
+                    />
+                    <AccountSheet
+                        visible={openSheet === 'account'}
+                        agentKind={agentType}
+                        agentName={currentAgent.name}
+                        onClose={() => setOpenSheet(null)}
+                        onLeave={closeFocusMode}
                     />
                     <OptionSheet
                         visible={openSheet === 'project'}

@@ -6,6 +6,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
+import { planAccountForLaunch } from '@/plans';
 
 function pathForeignToHome(path: string, homeDir: string): boolean {
     if (path === '~' || (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path))) return false;
@@ -35,6 +36,7 @@ export async function startSessionFromDraft(options: {
     );
 
     let createCwd = false;
+    const planAccount = planAccountForLaunch(draft.agentType);
     for (;;) {
         const result = await startAgentFromDock({
             machine,
@@ -44,6 +46,7 @@ export async function startSessionFromDraft(options: {
             prompt: blank ? '' : draft.input.trim(),
             attachments: blank ? [] : draft.attachments,
             createCwd,
+            ...(planAccount === undefined ? {} : { planAccount }),
         });
         if (result.ok) {
             if (!blank) {

@@ -17,6 +17,7 @@ export type StartAgentFromDockCommand = {
     prompt: string;
     attachments: unknown[];
     createCwd?: boolean;
+    planAccount?: string;
     /** Fires once the route exists, before the first prompt is delivered. */
     onRouteReady?: (sessionId: string) => void;
 };
@@ -70,6 +71,7 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
         directory: spawnDirectory,
         approvedNewDirectoryCreation: command.createCwd === true,
         agent: command.providerKind,
+        ...(command.planAccount === undefined ? {} : { planAccount: command.planAccount }),
     });
     if (result.type === 'error') return { ok: false, reason: 'failed', message: result.errorMessage };
     if (result.type !== 'success') {

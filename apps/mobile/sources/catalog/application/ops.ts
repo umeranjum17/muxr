@@ -40,6 +40,8 @@ export interface SpawnSessionOptions {
     resumeClaudeSessionId?: string;
     resumeCodexThreadId?: string;
     parentSessionId?: string;
+    /** Which Plan Account the agent starts on; absent with one account. */
+    planAccount?: string;
     forkedFromMessageId?: string;
     isSideChat?: boolean;
 }
@@ -281,6 +283,7 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
             ...(input.createDirectory === true ? { createCwd: true } : {}),
             ...(input.parentAgentRoute === undefined ? {} : { parentSessionId: input.parentAgentRoute }),
             ...(input.kind === undefined ? {} : { kind: input.kind }),
+            ...(options.planAccount === undefined ? {} : { planAccount: options.planAccount }),
         }),
         waitUntilListed: refreshUntilSessionVisible,
         missingDirectory: (message) => message.includes(MISSING_CWD_ERROR_PREFIX),
