@@ -416,6 +416,7 @@ async function main(): Promise<void> {
             screens: paneScreens,
             // A test harness points the host at its own Herdr; unset means the desk's.
             ...(herdrSocketPath === undefined ? {} : { socketPath: herdrSocketPath }),
+            ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
             attention: domain.attention,
             lifecycle: domain.lifecycle,
             routes,
@@ -477,7 +478,7 @@ async function main(): Promise<void> {
         },
         focusSession: (sessionId, assertActive) => source.paneFocus(sessionId, assertActive),
         readPaneScroll: (paneId) => source.paneScroll(paneId),
-        ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
+        openTerminal: (paneId, opts) => source.herdrTerminal(paneId, opts),
     });
 
     const host = startHost({

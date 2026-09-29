@@ -43,7 +43,6 @@ import { landWorktree } from '../infrastructure/landWorktree.js';
 import { listDir } from '../infrastructure/listDir.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
-import { runHerdrCli } from '../infrastructure/runHerdrCli.js';
 import { PreviewDesktops, androidCapabilities, withAndroidPreview, withPreview, type AndroidPreviewTargets } from '../../desktop/index.js';
 import type { DesktopSessions } from '../../desktop/index.js';
 
@@ -344,7 +343,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return desktopOrThrow(options).close(params.desktopId, context.connectionId, context.deviceId);
         },
         'herdr.cli': async (params) => {
-            const result = await runHerdrCli(params.args, params.timeoutMs);
+            const result = await source.herdrCli(params.args, params.timeoutMs);
             await source.refreshHerdr();
             await source.refreshPlugins?.();
             return result;

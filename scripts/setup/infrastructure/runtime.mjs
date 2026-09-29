@@ -24,7 +24,7 @@ import {
     validMachineCrypto,
 } from '../domain/dist/index.js';
 
-export const MIN_HERDR = [0, 8, 0];
+export const MIN_HERDR = [0, 9, 1];
 export { BROWSER_GRANT_TTL_MS, DURABLE_GRANT_EXPIRES_AT, publicRelayUrl, validMachineCrypto };
 export const HERDR_INSTALL_URL = 'https://herdr.dev/install.sh';
 export const HERDR_INSTALL_HINT = 'run `muxr setup` to install Herdr automatically';

@@ -87,7 +87,7 @@ mkdirSync(pluginRoot, { recursive: true });
 writeFileSync(join(pluginRoot, 'herdr-plugin.toml'), `id = "${pluginId}"
 name = "Realtime parity probe"
 version = "0.1.0"
-min_herdr_version = "0.8.0"
+min_herdr_version = "0.9.1"
 platforms = ["linux", "macos"]
 `);
 writeFileSync(join(pluginRoot, 'muxr-ui.json'), `${JSON.stringify({

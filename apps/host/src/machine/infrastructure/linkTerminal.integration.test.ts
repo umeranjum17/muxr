@@ -9,8 +9,9 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { HerdrKit } from '@byokit/herdr';
 import { DeviceLink, hostId, keyPairFrom, type DeviceGrant, type LinkStatus } from '@byokit/link';
 import type { HostFrame } from '@muxr/contract';
 import { generateKeyPair, generateSigningKeyPair } from '@muxr/crypto';
@@ -62,6 +63,20 @@ process.stdin.on('data', (chunk) => {
     return bin;
 }
 
+/** Kit-backed terminal opener over a stub herdr bin. The K6 `path` entry is
+ * what lets the `#!/usr/bin/env node` stub resolve node; without it the kit's
+ * fixed adopt PATH cannot spawn the stub. */
+function openTerminalFor(bin: string) {
+    const kit = new HerdrKit({
+        mode: 'adopt',
+        bin,
+        socketPath: join(tmpdir(), 'muxr-terminal-test-unused.sock'),
+        path: [dirname(process.execPath)],
+    });
+    return (paneId: string, opts: { mode: 'control' | 'observe'; cols: number; rows: number }) =>
+        kit.terminal(paneId, opts);
+}
+
 function once<T>(target: Promise<T>, ms: number, what: string): Promise<T> {
     return Promise.race([
         target,
@@ -84,7 +99,11 @@ describe('byokit link streams (real relay + real host)', () => {
 for (let i = 0; i < 200; i++) process.stdout.write(JSON.stringify({ type: 'terminal.frame', full: i === 0, bytes: 'a'.repeat(4096) }) + '\\n');
 setInterval(() => {}, 1000);
 `, { mode: 0o755 });
-        const manager = new TerminalManager({ resolvePane: async () => 'pane-1', focusSession: async () => undefined, herdrBin: bin });
+        const manager = new TerminalManager({
+            resolvePane: async () => 'pane-1',
+            focusSession: async () => undefined,
+            openTerminal: openTerminalFor(bin),
+        });
         cleanups.push(() => manager.closeAll());
         let sent = 0;
         let release!: () => void;
@@ -170,7 +189,7 @@ process.stdin.on('data', (chunk) => {
             resolvePane: async (sessionId) => `pane-${sessionId}`,
             focusSession: async () => undefined,
             readPaneScroll: async () => ({ offsetFromBottom: 0, maxOffsetFromBottom: 0 }),
-            herdrBin,
+            openTerminal: openTerminalFor(herdrBin),
         });
         cleanups.push(() => terminals.closeAll());
         const plugins = new PluginStreamManager({});

@@ -35,7 +35,7 @@ hello-muxr/
 id = "you.hello-muxr"
 name = "Hello muxr"
 version = "0.1.0"
-min_herdr_version = "0.8.0"
+min_herdr_version = "0.9.1"
 description = "A UI-only muxr plugin"
 platforms = ["linux", "macos"]
 ```

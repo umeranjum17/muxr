@@ -20,7 +20,7 @@ mkdirSync(pluginRoot);
 writeFileSync(join(pluginRoot, 'herdr-plugin.toml'), `id = "${pluginId}"
 name = "Action failure e2e"
 version = "0.1.0"
-min_herdr_version = "0.8.0"
+min_herdr_version = "0.9.1"
 platforms = ["linux", "macos"]
 
 [[actions]]

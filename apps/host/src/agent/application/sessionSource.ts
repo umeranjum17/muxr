@@ -25,6 +25,7 @@ import type {
     PluginsInvalidatedFrame,
     WatchSettlement,
 } from '@muxr/contract';
+import type { TerminalSession } from '@byokit/herdr';
 
 export interface VoiceStreamTransport {
     onData: (chunk: Uint8Array) => void | Promise<void>;
@@ -115,6 +116,12 @@ export interface SessionSource {
     agentKinds(): Promise<string[]>;
     /** Kinds whose canonical executable is launchable in the host PATH. */
     installedAgentKinds(kinds: readonly string[]): Promise<string[]>;
+    /** Full herdr power without a shell: each argument stays one argument. Never rejects. */
+    herdrCli(args: string[], timeoutMs?: number): Promise<{
+        stdout: string; stderr: string; exitCode: number | null; timedOut: boolean;
+    }>;
+    /** Open a kit terminal session on a pane; the kit owns the binary and env. */
+    herdrTerminal(paneId: string, opts: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession;
     /** Immutable native UI plugin catalog and snapshots. */
     pluginList(deviceId: string): Promise<PluginSummary[]>;
     pluginManifest(options: { pluginId: string; manifestHash: string }): Promise<PluginManifestV1>;

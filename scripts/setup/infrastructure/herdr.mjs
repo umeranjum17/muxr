@@ -156,7 +156,7 @@ export async function ensureHerdr({ dryRun, noInstall, installRequested }) {
     const versionResult = run(binary, ['--version']);
     const version = parseVersion(versionResult.stdout);
     if (!versionResult.ok || !version || !versionIsCompatible(version)) {
-        throw new Error(`herdr >= 0.8.0 is required; found ${versionResult.stdout || versionResult.stderr || 'an unreadable version'}. Run \`herdr update\` after reviewing the upgrade.`);
+        throw new Error(`herdr >= 0.9.1 is required; found ${versionResult.stdout || versionResult.stderr || 'an unreadable version'}. Run \`herdr update\` after reviewing the upgrade.`);
     }
     print(`  ✓ herdr ${version.join('.')} (adopted; config and sessions unchanged)`);
     return binary;

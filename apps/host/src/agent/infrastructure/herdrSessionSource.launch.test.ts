@@ -28,6 +28,7 @@ function fakeHerdr(dir: string, cwd: string) {
         holdStatusAck: boolean;
         releaseStatusAck?: () => void;
     } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false };
+    const heldStatusAcks: Array<() => void> = [];
     let next = 1;
     const handleSnapshot = () => ({ snapshot: { workspaces, tabs, panes, agents } });
     const handlePluginList = () => ({ plugins: [] });
@@ -89,13 +90,26 @@ function fakeHerdr(dir: string, cwd: string) {
                         subscribers.set(socket, (params?.subscriptions ?? []) as Array<{ type: string; pane_id?: string }>);
                         socket.write(`${JSON.stringify({ id, result: {} })}\n`);
                     };
-                    if (state.holdStatusAck && id === 'pph_status') state.releaseStatusAck = accept;
-                    else accept();
+                    // The kit reuses one status socket per pane with its own ids, and
+                    // opens its own bootstrap watches beside muxr's discovery watch:
+                    // hold every filtered agent-status subscription while held.
+                    const wantsStatus = ((params?.subscriptions ?? []) as Array<{ type?: string }>)
+                        .some((sub) => sub.type === 'pane.agent_status_changed');
+                    if (state.holdStatusAck && wantsStatus) {
+                        heldStatusAcks.push(accept);
+                        state.releaseStatusAck = () => {
+                            state.holdStatusAck = false;
+                            for (const release of heldStatusAcks.splice(0)) release();
+                        };
+                    } else accept();
                     continue;
                 }
                 const p = params ?? {};
                 let reply: unknown;
                 switch (method) {
+                    case 'ping':
+                        reply = { id, result: { protocol: 22 } };
+                        break;
                     case 'session.snapshot': {
                         state.snapshotCount += 1;
                         const result = structuredClone(handleSnapshot());

@@ -14,7 +14,8 @@ import { lifecycleReasonForObservation } from '../domain/lifecycle.js';
 import { AgentRouteStore, isMuxrLaunchSession, shouldAdoptPublishedLaunch, type HerdrAgentSessionRef } from './agentRouteStore.js';
 import { closeAgent, isRetryableHerdr } from './agentClose.js';
 import { RealtimeCodingCoordinator, type RealtimeCoordinationDiagnostic } from './realtimeCoordinator.js';
-import { closeExactPane, closeExactTab, closeExactWorkspace, herdrAgentIsPromptable, isRetryableCloseFailure, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, resolveClosePaneId, sendKeysToLiveAgent } from './herdrSessionSource.js';
+import { herdrAgentIsPromptable, isRetryableCloseFailure, mergeHerdrAgentEvent, promptHerdrAgent, promptPromptableHerdrAgent, resolveClosePaneId } from './herdrSessionSource.js';
+import { HerdrKit } from '@byokit/herdr';
 import { createConnection } from 'node:net';
 import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -279,16 +280,8 @@ async function demo(): Promise<void> {
     assert(restartedRoutes.route(sessionB) === routeB && restartedRoutes.route(sessionA) === undefined,
         'host restart restores only current Pelican route B');
 
-    const herdrKeyCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
-    const keyClient = {
-        call: async <T>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
-            herdrKeyCalls.push({ method, params });
-            return undefined as T;
-        },
-    };
-    await sendKeysToLiveAgent(keyClient, { sessionId: routeB, paneId: pelican.pane_id }, ['escape']);
-    assert(herdrKeyCalls[0]?.params.target === pelican.pane_id,
-        'runtime controls resolve through current route B');
+    // Runtime key delivery is `kit.sendKeys` at the session source, covered by
+    // the vitest flows; no muxr wrapper remains to pin down here.
     const explicitCloseCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const livePanes: Record<string, { pane_id: string; tab_id: string }> = {
         'w4:p1': { pane_id: 'w4:p1', tab_id: 'w4:t1' },
@@ -314,23 +307,46 @@ async function demo(): Promise<void> {
         w7: { workspace_id: 'w7', tab_count: 1, label: 'One' },
         w8: { workspace_id: 'w8', tab_count: 1, label: 'One' },
     };
-    const explicitCloseClient = {
-        call: async <T>(method: string, params: Record<string, unknown> = {}): Promise<T> => {
+    // The kit backs exact-scope closes; drive its guards through a fake
+    // transport so the self-check pins the kit's live behavior, not a copy.
+    const explicitCloseTransport = {
+        call: async (method: string, params: Record<string, unknown> = {}): Promise<unknown> => {
             explicitCloseCalls.push({ method, params });
-            if (method === 'pane.get') return { pane: livePanes[String(params.pane_id)] } as T;
-            if (method === 'tab.get') return { tab: liveTabs[String(params.tab_id)] } as T;
-            if (method === 'workspace.get') return { workspace: liveWorkspaces[String(params.workspace_id)] } as T;
-            if (method === 'workspace.list') return { workspaces: Object.values(liveWorkspaces) } as T;
-            return undefined as T;
+            if (method === 'ping') return { protocol: 22 };
+            if (method === 'session.snapshot') {
+                return {
+                    snapshot: {
+                        workspaces: Object.values(liveWorkspaces),
+                        tabs: Object.values(liveTabs),
+                        panes: Object.values(livePanes),
+                        agents: [],
+                    },
+                };
+            }
+            if (method === 'pane.get') return { pane: livePanes[String(params.pane_id)] };
+            if (method === 'tab.get') return { tab: liveTabs[String(params.tab_id)] };
+            if (method === 'workspace.get') return { workspace: liveWorkspaces[String(params.workspace_id)] };
+            if (method === 'workspace.list') return { workspaces: Object.values(liveWorkspaces) };
+            if (method.endsWith('.close')) return {};
+            throw new Error(`herdr: method_not_found: ${method}`);
         },
+        subscribe: () => () => undefined,
+        close: () => undefined,
     };
-    await closeExactPane(explicitCloseClient, 'w4:p1');
-    await closeExactTab(explicitCloseClient, 'w4:t2');
+    const explicitCloseKit = new HerdrKit({
+        mode: 'adopt',
+        bin: 'herdr',
+        socketPath: 'self-check.sock',
+        transport: explicitCloseTransport,
+    });
+    await explicitCloseKit.start();
+    await explicitCloseKit.closePane('w4:p1');
+    await explicitCloseKit.closeTab('w4:t2');
     let paneWidenError: unknown;
-    try { await closeExactPane(explicitCloseClient, 'w7:p1'); }
+    try { await explicitCloseKit.closePane('w7:p1'); }
     catch (error) { paneWidenError = error; }
     let tabWidenError: unknown;
-    try { await closeExactTab(explicitCloseClient, 'w8:t1'); }
+    try { await explicitCloseKit.closeTab('w8:t1'); }
     catch (error) { tabWidenError = error; }
     const paneWidenCode = paneWidenError !== null && typeof paneWidenError === 'object' && 'code' in paneWidenError
         ? paneWidenError.code
@@ -342,8 +358,8 @@ async function demo(): Promise<void> {
         && !explicitCloseCalls.some((call) => call.method === 'pane.close' && call.params.pane_id === 'w7:p1')
         && !explicitCloseCalls.some((call) => call.method === 'tab.close' && call.params.tab_id === 'w8:t1'),
         'Close pane and Close tab refuse hidden widening without mutation');
-    await closeExactWorkspace(explicitCloseClient, 'w4');
-    await closeExactWorkspace(explicitCloseClient, 'w6');
+    await explicitCloseKit.closeWorkspace('w4');
+    await explicitCloseKit.closeWorkspace('w6');
     assert(JSON.stringify(explicitCloseCalls.filter((call) => call.method.endsWith('.close'))) === JSON.stringify([
         { method: 'pane.close', params: { pane_id: 'w4:p1' } },
         { method: 'tab.close', params: { tab_id: 'w4:t2' } },
@@ -351,15 +367,16 @@ async function demo(): Promise<void> {
         { method: 'workspace.close', params: { workspace_id: 'w6' } },
     ]), 'Close pane, Close tab, and Close workspace each issue exactly their named live Herdr RPC');
     let groupCloseError: unknown;
-    try { await closeExactWorkspace(explicitCloseClient, 'w5'); }
+    try { await explicitCloseKit.closeWorkspace('w5'); }
     catch (error) { groupCloseError = error; }
     const groupCloseCode = groupCloseError !== null && typeof groupCloseError === 'object' && 'code' in groupCloseError
         ? groupCloseError.code
         : undefined;
-    assert(groupCloseCode === 'worktree-group-confirmation-required'
+    assert(groupCloseCode === 'workspace-close-would-widen'
         && !explicitCloseCalls.some((call) => call.method === 'workspace.close' && call.params.workspace_id === 'w5'),
         'parent worktree workspace requires an explicit group action without mutation');
     assert(explicitCloseCalls.every(({ method }) => !method.startsWith('worktree.')), 'no ordinary close action can close a worktree group');
+    await explicitCloseKit.stop();
 
     // The close ladder is host code; drive it directly against fixture topology.
     const sanitizedRetryCodes = ['EACCES', 'ECONNRESET', 'ETIMEDOUT'];

@@ -44,7 +44,12 @@ function fakeHerdr(dir: string, plugins: unknown[]) {
                 let reply: unknown;
                 switch (method) {
                     case 'events.subscribe':
-                        reply = {};
+                        // The kit holds the event socket open for pushes; only
+                        // the ack carries the subscribe id it waits for.
+                        socket.write(`${JSON.stringify({ id, result: {} })}\n`);
+                        continue;
+                    case 'ping':
+                        reply = { id, result: { protocol: 22 } };
                         break;
                     case 'session.snapshot':
                         reply = {

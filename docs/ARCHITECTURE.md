@@ -44,7 +44,7 @@ same stream:
 agent process → PTY (kernel pipe, herdr holds it)
                   │
                   ├─→ herdr's emulator ──→ herdr desktop UI
-                  └─→ host runs `herdr terminal session control <pane>`
+                  └─→ kit terminal session per channel
                       (base64 ANSI frames) → byokit link stream via relay → phone
                       → Ghostty (native) or xterm.js (web) draws its own copy
 ```
@@ -137,29 +137,29 @@ removed grants, and web secure-store reset clear it.
 | Close worktree group | final explicit scope of `session.stop`, after its own confirmation | revalidate the parent workspace, then call Herdr `workspace.close`; Herdr has no separate group-close method |
 | status | `idle · working · blocked · done · unknown` | `pane.agent_status_changed` |
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
-| live view | terminal frames over a link stream | CLI `herdr terminal session control` (interactive, `--takeover`) / `observe` (read-only previews) |
+| live view | terminal frames over a link stream | kit `TerminalSession` (`control` with takeover / `observe` read-only previews) |
 
 Sessions started at the desk show up on the phone once Herdr publishes their
 agent session (often after the first turn). Detection alone is not a session:
 the host rechecks missing sessions when pane status changes and after the
 per-pane status watch is acknowledged, even if an older snapshot was in flight.
 
-## Facts worth knowing (verified against herdr 0.8.0)
+## Facts worth knowing (verified against herdr 0.9.1)
 
 - **The socket answers one request per connection**, then closes. Only
   `events.subscribe` holds a socket open — one subscribe per socket; a second
-  interleaves acks with events. The host's
-  [`socketClient.ts`](../apps/host/src/agent/infrastructure/socketClient.ts) opens a
-  connection per request, one batch subscription socket, and one filtered socket
-  per pane for status.
+  interleaves acks with events. The kit owns this: the host's
+  [`herdrKitClient.ts`](../apps/host/src/agent/infrastructure/herdrKitClient.ts)
+  (`KitHerdrClient`) keeps one batch subscription socket and one filtered socket
+  per pane for status, over `@byokit/herdr`.
 - **Filtered subscription kinds reject the whole batch.** `pane.agent_status_changed`
   needs a `pane_id`; including it in the batch errors everything (with an
   invisible `id:""` error frame) and zero events flow. Status transitions ride
   per-pane sockets (`watchPaneStatus`).
-- **There are no raw `terminal.*` socket methods.** Frames come from the CLI:
-  `herdr terminal session control <pane>` emits NDJSON with base64 ANSI. One subprocess
-  per attached channel
-  ([`terminalManager.ts`](../apps/host/src/agent/infrastructure/terminalManager.ts)).
+- **There are no raw `terminal.*` socket methods.** Frames come from a kit
+  terminal session (`source.herdrTerminal`, one `TerminalSession` per attached
+  channel), which emits herdr's own NDJSON terminal protocol — the only
+  host-generated frame is `terminal.ready`. The kit owns the herdr binary and env.
 - **`control` resizes the real PTY** (measured: 23×53 → 35×110); `observe` does not.
   Control is single-owner, so attaching takes over input from the desk; preview
   cards use `observe` exactly so the desk is never disturbed.
