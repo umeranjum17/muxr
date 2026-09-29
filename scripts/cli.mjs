@@ -15,7 +15,9 @@ import {
     daemonIsRunning,
     daemonMode,
     enableBrowserHosting,
+    githubPluginSource,
     hasPendingRemoteConnect,
+    herdrBin,
     heading,
     hostSharedRelay,
     inspectSetup,
@@ -23,6 +25,7 @@ import {
     listMachines,
     manageMachines,
     pairDevice,
+    panePackManagingThisCli,
     approveScreenSharing,
     prompt,
     revokeDevice,
@@ -106,7 +109,7 @@ const COMMAND_HELP = {
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
     plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
     'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
-    name: `muxr name [--workspace LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]\n\nName the current Herdr workspace and pane through muxr's authenticated local naming facade.\nThe pane identity comes from HERDR_PANE_ID; names and metadata are passed verbatim within bounds.\n`,
+    name: `muxr name [--workspace LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]\n\nName the current Herdr workspace and pane through the Herdr CLI; no muxr host is needed.\nThe pane identity comes from HERDR_PANE_ID; names and metadata are passed verbatim within bounds.\n`,
     preview: `muxr preview status [--json]\n\nAsk whether the phone is driving this pane's browser or emulator right now.\nPrints human while a person holds control (pause browser input), none otherwise.\nThe pane identity comes from HERDR_PANE_ID; a pane can only read its own lease.\n`,
     share: `muxr share <path> [--pane <pane-id>]\n\nSave a file to the given pane's durable Shared Artifacts timeline.\nUses HERDR_PANE_ID when --pane is omitted. Name collisions get a numeric suffix.\n`,
     artifacts: `muxr artifacts [status]\nmuxr artifacts prune [--dry-run] [--yes]\n\nThe host sweeps Shared Artifacts daily and never touches files that predate retention.\nstatus prints the policy and the last sweep's removals. prune applies the same policy\nto the history that was already there: it deletes files, so it shows the plan first\nand --yes skips the question.\n`,
@@ -125,8 +128,8 @@ const COMMAND_HELP = {
     report: `muxr report > muxr-report.md\n\nPrepare a local GitHub issue draft with environment versions, redacted doctor check names, and the latest 50 bounded diagnostic events. The command only prints a draft. Review every line, add what happened, and explicitly decide whether to post it; muxr never opens or submits an issue.\n`,
     status: `muxr status\n\nAlias for muxr doctor.\n`,
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
-    uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last.\n`,
-    update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release. --to VERSION selects an exact published version; changing channels or downgrading remains explicit. Interactive terminals ask before installing; --yes updates without prompting.\n`,
+    uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last (on a Herdr plugin install, the Herdr plugin is offered for removal instead).\n`,
+    update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release (on a Herdr plugin install, reinstall the plugin checkout at the new release tag instead). --to VERSION selects an exact published version; changing channels or downgrading remains explicit. Interactive terminals ask before installing; --yes updates without prompting.\n`,
     skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|agent-browser-preview|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
     peers: `muxr peers list [--machine <name>]\nmuxr peers read --machine <name> [--agent <name>] [--lines <n>]\nmuxr peers status --machine <name> [--agent <name>]\nmuxr peers watch --machine <name> [--agent <name>] [--timeout-ms <n>]\nmuxr peers prompt --machine <name> [--agent <name>] --text <prompt>\n\nUse established computer collaboration with Machine Names and Agent Names only. Output is JSON. Raw shell, takeover, and destructive actions are never granted.\n`,
     connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-browser-view|--pair-both]\nmuxr connect --resume\n`,
@@ -324,8 +327,13 @@ async function runUninstall(args = []) {
         if (confirmed !== 'yes') return 0;
     }
 
+    // Read before uninstalling: afterwards muxr no longer knows its install.
+    const herdr = herdrBin();
+    let managedPack;
+    try { managedPack = herdr === undefined ? undefined : panePackManagingThisCli(herdr); } catch { /* not Herdr-managed */ }
     const code = await uninstallMuxr(args);
     if (code !== 0) return code;
+    if (managedPack !== undefined) return removeManagedPack(herdr, managedPack, assumeYes);
     const global = globalCliPrefix();
     if (global === undefined) return 0;
     const removePackage = assumeYes || await select('Remove the muxr CLI package too?', [
@@ -340,6 +348,26 @@ async function runUninstall(args = []) {
         return 1;
     }
     process.stdout.write('@trymuxr/cli was removed. Reinstall later with `npm install -g --ignore-scripts @trymuxr/cli`.\n');
+    return 0;
+}
+
+/**
+ * The last of three layers when Herdr installed muxr: services and state are
+ * gone, so the Herdr checkout that holds this CLI can go too.
+ */
+async function removeManagedPack(herdr, plugin, assumeYes) {
+    const remove = assumeYes || await select(`Remove the ${plugin.plugin_id} Herdr plugin too?`, [
+        { value: true, title: 'Remove the Herdr plugin', description: 'finish the full uninstall' },
+        { value: false, title: 'Keep the plugin installed', description: 'its setup pane starts fresh setup' },
+    ]);
+    if (remove !== true) return 0;
+    process.stdout.write(`\nRemoving the ${plugin.plugin_id} Herdr plugin…\n`);
+    const removed = spawnSync(herdr, ['plugin', 'uninstall', plugin.plugin_id], { stdio: 'inherit' });
+    if (removed.status !== 0) {
+        process.stderr.write(`Runtime state was removed, but Herdr could not remove the plugin. Run \`herdr plugin uninstall ${plugin.plugin_id}\`.\n`);
+        return 1;
+    }
+    process.stdout.write(`The plugin was removed. Reinstall later with \`herdr plugin install ${githubPluginSource(plugin)} --ref ${plugin.source.requested_ref || 'vX.Y.Z'}\`.\n`);
     return 0;
 }
 

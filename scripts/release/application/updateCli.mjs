@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runBootstrap, daemonIsRunning, daemonMode, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
+import { runBootstrap, daemonIsRunning, daemonMode, githubPluginSource, herdrBin, panePackManagingThisCli, runDaemon, restartSelfhostRelayIfRunning, stopSelfhostRelayIfRunning } from '../../setup/index.mjs';
 import { compareVersions, channelTags, releaseVersion, resolveChannel } from '../domain/channel.mjs';
 
 const PACKAGE = '@trymuxr/cli';
@@ -56,6 +56,26 @@ function activePackageUsesCurrentNpmPrefix() {
     } catch { /* mismatch or missing path: report below */ }
     process.stderr.write('The active muxr belongs to a different npm prefix. Re-enter the Node environment that installed it, then rerun `muxr update`.\n');
     return false;
+}
+
+/**
+ * When `herdr plugin install` put this CLI in the muxr.control checkout, Herdr
+ * owns that copy: an update reinstalls the checkout at the release tag, whose
+ * build fetches the matching CLI. `npm install -g` would leave it behind.
+ */
+function herdrManagedInstall() {
+    const binary = herdrBin();
+    if (binary === undefined) return undefined;
+    try {
+        const plugin = panePackManagingThisCli(binary);
+        return plugin === undefined ? undefined : { binary, plugin, source: githubPluginSource(plugin) };
+    } catch {
+        return undefined;
+    }
+}
+
+function reinstallPlugin(managed, ref) {
+    return spawnSync(managed.binary, ['plugin', 'install', managed.source, '--ref', ref, '--yes'], { stdio: 'inherit' });
 }
 
 export async function updateCli(command = {}) {
@@ -124,11 +144,14 @@ export async function updateCli(command = {}) {
     if (channel !== installedChannel) process.stdout.write('This explicitly switches the current installation and its managed services; it does not create a second isolated host.\n');
     if (command.checkOnly) return 0;
     const installedMode = daemonMode();
+    const managed = herdrManagedInstall();
     let approved = command.yes === true;
     if (!approved && command.confirm) {
         process.stdout.write([
             'Update plan:',
-            `  • install ${PACKAGE}@${latest}`,
+            managed === undefined
+                ? `  • install ${PACKAGE}@${latest}`
+                : `  • reinstall the Herdr plugin ${managed.plugin.plugin_id} from ${managed.source} at v${latest}`,
             installedMode === 'relay'
                 ? '  • leave Herdr and agent integrations unchanged on this relay-only server'
                 : '  • ensure the Herdr server is running and retract retired plugin registrations',
@@ -142,10 +165,12 @@ export async function updateCli(command = {}) {
         return 0;
     }
 
-    if (!activePackageUsesCurrentNpmPrefix()) return 1;
+    if (managed === undefined && !activePackageUsesCurrentNpmPrefix()) return 1;
     const restart = daemonIsRunning();
     const restartMode = installedMode;
-    const install = npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${latest}`], 'inherit');
+    const install = managed === undefined
+        ? npm(['install', '--global', '--ignore-scripts', `${PACKAGE}@${latest}`], 'inherit')
+        : reinstallPlugin(managed, `v${latest}`);
     if (install.status !== 0) return install.status ?? 1;
 
     if (restartMode !== 'relay' && (await runBootstrap(['--no-install-herdr'])) !== 0) {
@@ -172,6 +197,14 @@ export async function updateCli(command = {}) {
         }
     } catch (cause) {
         process.stderr.write(`The package updated, but the managed services did not restart: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+        // Herdr keeps no previous checkout, so put the one that ran back.
+        const previous = managed?.plugin.source.requested_ref ?? managed?.plugin.source.resolved_commit;
+        if (previous !== undefined) {
+            process.stderr.write(`Rolling the Herdr plugin back to ${previous}.\n`);
+            if (reinstallPlugin(managed, previous).status === 0 && (await runDaemon(['start'])) === 0) {
+                process.stderr.write(`Rolled back to ${current}; run \`muxr doctor\`.\n`);
+            }
+        }
         return 1;
     }
     const parts = [];

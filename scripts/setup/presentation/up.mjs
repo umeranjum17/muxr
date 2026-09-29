@@ -174,9 +174,8 @@ children.push(host);
 prefixOutput(host, 'host', process.stdout);
 host.on('exit', (code, signal) => onChildExit('host', code, signal));
 
-// The agent self-naming endpoint: agents POST their own workspace/pane names.
-// Decoupled on purpose — a naming failure degrades to the fallback namers, it
-// must never take the relay or host down.
+// The agent loopback behind `muxr preview status`. Decoupled on purpose: its
+// failure must never take the relay or host down.
 const naming = spawn('node', [namingEntry()], {
     env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -184,7 +183,7 @@ const naming = spawn('node', [namingEntry()], {
 children.push(naming);
 prefixOutput(naming, 'naming', process.stdout);
 naming.on('exit', (code, signal) => {
-    if (!shuttingDown) process.stderr.write(`[naming] exited (code ${code ?? ''}${signal ? ` ${signal}` : ''}); self-naming unavailable until restart\n`);
+    if (!shuttingDown) process.stderr.write(`[naming] exited (code ${code ?? ''}${signal ? ` ${signal}` : ''}); preview status unavailable until restart\n`);
 });
 
 const phoneRelay = state.relayUrl;

@@ -195,8 +195,11 @@ describe('native pairing over the byokit link', () => {
     it('refuses owned and shared pairing without a running machine before showing a code', async () => {
         const state = readSelfhostState();
         const originalHome = process.env.MUXR_HOME;
+        const originalWait = process.env.MUXR_PAIR_SOCKET_WAIT_MS;
         const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
         process.env.MUXR_HOME = join(home, 'offline-pairing');
+        // No host will ever open this socket; assert the same error at once.
+        process.env.MUXR_PAIR_SOCKET_WAIT_MS = '0';
         try {
             for (const relayLocation of ['local', 'remote'] as const) {
                 const connection = relayLocation === 'local' ? state : {
@@ -209,6 +212,8 @@ describe('native pairing over the byokit link', () => {
         } finally {
             output.mockRestore();
             process.env.MUXR_HOME = originalHome;
+            if (originalWait === undefined) delete process.env.MUXR_PAIR_SOCKET_WAIT_MS;
+            else process.env.MUXR_PAIR_SOCKET_WAIT_MS = originalWait;
         }
     });
 
