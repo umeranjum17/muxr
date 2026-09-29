@@ -2,7 +2,7 @@
 
 Use this when a muxr-launched agent opens a page the user should watch or must
 complete themselves (sign-in, 2FA/OTP, CAPTCHA, SSO). There is no in-app Browser:
-the agent's browser runs headed on its pane's own screen, and the phone shows a
+the agent's browser or emulator runs on its pane's own screen, and the phone shows a
 live chip in the session header while it is there. Tapping the chip (Watch)
 opens the live view; the first tap on the picture takes control, and Hand back
 returns it. On iPhone, use the web app; the native iOS client does not offer it.
@@ -17,7 +17,7 @@ security, or privacy boundary requiring their action or approval.
    show: a headless browser never raises the chip. If a Chrome fails with a
    Wayland error, add --ozone-platform=x11.
 2. Tell the user where to look: "Your agent opened a browser — tap the browser
-   chip to watch." Never paste ports, token-bearing URLs, or internal ids.
+   chip to watch" (emulator chip for an Android emulator). Never paste ports, token-bearing URLs, or internal ids.
 3. In a Herdr pane, report the wall as blocked so muxr notifies the phone:
    ```sh
    herdr pane report-agent "$HERDR_PANE_ID" --source "$HERDR_PANE_ID" --agent <your-label> --state blocked \
@@ -25,7 +25,7 @@ security, or privacy boundary requiring their action or approval.
    ```
    Name the site and wall, not page contents or credentials. If `HERDR_PANE_ID`
    is unset, say that no pane is available to notify rather than guessing an id.
-4. Before touching the browser, check `muxr preview status`: while it prints
+4. Before touching the browser or emulator, check `muxr preview status`: while it prints
    `human` the person is driving — no clicks, typing, refresh, or navigation.
    Wait for their message or check at most every 30–60 seconds.
 5. Verify the page has advanced before resuming, then report working with the
