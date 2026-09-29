@@ -1,5 +1,4 @@
 import { Platform } from 'react-native';
-import type { KeyPair } from '@trymuxr/crypto';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from './nativeSecretStore';
 import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from './webSecureStore';
 
@@ -16,17 +15,6 @@ export interface PendingLinkPair {
     name: string;
     secretKey: string;
     startedAt: number;
-}
-
-export async function readDeviceKey(): Promise<KeyPair | undefined> {
-    const stored = await secretGet(DEVICE_KEY);
-    if (stored === null) return undefined;
-    const parsed = JSON.parse(stored) as KeyPair;
-    return typeof parsed.publicKey === 'string' && typeof parsed.secretKey === 'string' ? parsed : undefined;
-}
-
-export function writeDeviceKey(key: KeyPair): Promise<void> {
-    return secretSet(DEVICE_KEY, JSON.stringify(key));
 }
 
 export async function readPendingPair(): Promise<PendingLinkPair | undefined> {

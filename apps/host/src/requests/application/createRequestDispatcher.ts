@@ -163,6 +163,7 @@ function fromUseCase(requestId: string, result: UseCaseResult<unknown>): Request
 
 export function createRequestDispatcher(options: RequestDispatcherOptions): {
     dispatch(request: ClientRequest, authenticatedSenderId?: string, connectionId?: string): Promise<RequestResponse>;
+    close(): Promise<void>;
 } {
     const { source, domain, machineId, hostVersion } = options;
 
@@ -662,6 +663,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     }
 
     return {
+        /** Lab-script teardown: the dispatcher owns no handles itself, so this
+         *  cascades to the session source it dispatches against. Idempotent
+         *  through the source's own dispose. */
+        async close(): Promise<void> {
+            await options.source.dispose();
+        },
         async dispatch(request, authenticatedSenderId, connectionId): Promise<RequestResponse> {
             const deviceId = authenticatedSenderId ?? 'local';
             const context = options.getDeviceContext?.(deviceId);

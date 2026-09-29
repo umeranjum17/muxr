@@ -372,6 +372,9 @@ export function createFakeSessionSource(): SessionSource {
             listeners.clear();
             sessions.clear();
         },
+        async close() {
+            await this.dispose();
+        },
     };
 }
 

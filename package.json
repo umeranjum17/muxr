@@ -45,12 +45,14 @@
         "@xterm/addon-webgl": "^0.19.0",
         "@xterm/xterm": "^6.0.0",
         "ccusage": "20.0.20",
+        "qrcode": "1.5.4",
         "ws": "^8.18.0"
     },
     "engines": {
         "node": ">=22"
     },
     "resolutions": {
+        "@byokit/link": "0.3.2",
         "@expo/router-server": "55.0.11",
         "@expo/ui": "55.0.5",
         "@expo/vector-icons": "15.0.3",
