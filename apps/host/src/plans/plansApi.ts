@@ -6,7 +6,7 @@
  * machine sees nothing new. `session.start` carries nothing then either.
  */
 import { existsSync } from 'node:fs';
-import type { PlanAccount, PlanProviderAccounts } from '@muxr/contract';
+import type { PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
 import { planAccountWindows, type UsageWindowVM } from '../usage/index.js';
 import { choosePlanAccount, roomLabelFor, tightestRoomWindow } from './planAuto.js';
 import {
