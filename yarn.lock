@@ -872,6 +872,18 @@
     sodium-native "5.1.0"
     sodium-universal "5.0.1"
 
+"@byokit/link@0.3.2":
+  version "0.3.2"
+  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.3.2.tgz#3c76572c48db3a88547d009f2347e2d9ef8e612a"
+  integrity sha512-RqZLsj7uWlffDjzXQqVLWq+028I1gmXgMwV9gUKRqMiObW0s4AKFqofpyMeK0TJXQS6/GBWP3N2p6gRhnPscfg==
+  dependencies:
+    "@noble/ciphers" "2.4.0"
+    b4a "1.9.0"
+    noise-handshake "4.2.0"
+    sodium-javascript "0.8.0"
+    sodium-native "5.1.0"
+    sodium-universal "5.0.1"
+
 "@byokit/reach@0.2.0":
   version "0.2.0"
   resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.2.0.tgz#8f129494f7ce460fef37d8cf790cbf4203127aaf"
