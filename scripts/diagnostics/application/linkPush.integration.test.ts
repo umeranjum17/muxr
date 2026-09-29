@@ -217,10 +217,17 @@ describe('push rides the byokit link relay', () => {
             }, { timeoutMs: 5_000 });
             const afterSecond = expoSends.length;
             await until(() => (expoSends.length >= afterSecond ? true : undefined), 'second registration recorded');
-            // The host drops the device; its grant and its push registration go.
+            const relayStore = () => readFileSync(join(dataDir, 'link-relay.json'), 'utf8');
+            expect(relayStore()).toContain('muxr-revoked-token');
+            // The host drops the device; its grant and its push registration on the relay go.
             currentCrypto = { ...currentCrypto, devices: currentCrypto.devices.filter((entry) => entry.deviceId !== 'dev_push_2') };
             writeFileSync(statePath, JSON.stringify(currentCrypto));
-            await endpoint.sync(currentCrypto as never);
+            expect(await endpoint.sync(currentCrypto as never)).toBe(true);
+            expect(relayStore()).not.toContain('muxr-revoked-token');
+            await expect(revokedLink.request('push.subscribe', {
+                type: 'push.subscribe', requestId: 'rn-3', params: { token: 'ExponentPushToken[muxr-revoked-token]', level: 'all' },
+            }, { timeoutMs: 2_000 })).rejects.toThrow();
+            expect(relayStore()).not.toContain('muxr-revoked-token');
             endpoint.notifyAttention({
                 sessionId: 's1', eventId: 'evt-4', kind: 'blocked', machineId: 'machine-push-test',
                 reasonCode: 'agent-blocked', agentName: 'Maria', taskTitle: 'Ship it',
