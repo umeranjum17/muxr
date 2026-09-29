@@ -234,27 +234,30 @@ export const SCRCPY_SERVER_VERSION = '4.0';
 const SCRCPY_JAR = 'scrcpy-server-v4.0';
 const SCRCPY_DEVICE_PATH = '/data/local/tmp/scrcpy-server.jar';
 
-/** The vendored jar, verified against its pinned SHA-256. */
+/** The vendored jar at this path, or undefined when it is not installed here. A present jar with a missing or mismatched hash throws. */
+function verifiedScrcpyJar(jar: string): string | undefined {
+    const hashFile = `${jar}.sha256`;
+    if (!existsSync(jar) || !existsSync(hashFile)) return undefined;
+    const expected = readFileSync(hashFile, 'utf8').split(/\s+/)[0]?.trim();
+    const actual = createHash('sha256').update(readFileSync(jar)).digest('hex');
+    if (expected === undefined || expected === '' || actual !== expected) {
+        throw new Error('the vendored scrcpy server failed its pinned hash check');
+    }
+    return jar;
+}
+
 export function resolveScrcpyServer(start = dirname(fileURLToPath(import.meta.url))): string {
     let dir = start;
     for (let depth = 0; depth < 8; depth += 1) {
-        const jar = join(dir, 'resources', 'scrcpy', SCRCPY_JAR);
-        const hashFile = `${jar}.sha256`;
-        if (existsSync(jar) && existsSync(hashFile)) {
-            const expected = readFileSync(hashFile, 'utf8').split(/\s+/)[0]?.trim();
-            const actual = createHash('sha256').update(readFileSync(jar)).digest('hex');
-            if (expected === undefined || expected === '' || actual !== expected) {
-                throw new Error('the vendored scrcpy server failed its pinned hash check');
-            }
-            return jar;
-        }
+        const verified = verifiedScrcpyJar(join(dir, 'resources', 'scrcpy', SCRCPY_JAR));
+        if (verified !== undefined) return verified;
         const parent = dirname(dir);
         if (parent === dir) break;
         dir = parent;
     }
     // The packed artifact lays `resources/` beside the host bundle.
-    const packed = join(start, 'resources', 'scrcpy', SCRCPY_JAR);
-    if (existsSync(packed)) return packed;
+    const packed = verifiedScrcpyJar(join(start, 'resources', 'scrcpy', SCRCPY_JAR));
+    if (packed !== undefined) return packed;
     throw new Error('the vendored scrcpy server is not installed');
 }
 
@@ -1210,24 +1213,32 @@ export class AndroidPreviewTargets {
         return desktopId.startsWith(ANDROID_TARGET_PREFIX) && this.serialByTarget.has(desktopId);
     }
 
-    private require(desktopId: string): EncodedEngine {
+    private requiredTarget(desktopId: string, connectionId?: string, deviceId?: string): { serial: string; ownerDeviceId?: string } {
         const target = this.serialByTarget.get(desktopId);
-        const engine = target === undefined ? undefined : this.mirrors.engineFor(target.serial);
+        if (target === undefined) throw new EngineRefused('session', 'that desktop session is not open');
+        if (connectionId !== undefined && (deviceId === undefined || target.ownerDeviceId !== deviceId)) {
+            throw new EngineRefused('session', 'that desktop session belongs to another device');
+        }
+        return target;
+    }
+
+    private require(desktopId: string, connectionId?: string, deviceId?: string): EncodedEngine {
+        const target = this.requiredTarget(desktopId, connectionId, deviceId);
+        const engine = this.mirrors.engineFor(target.serial);
         if (engine === undefined) throw new EngineRefused('session', 'that desktop session is not open');
         return engine;
     }
 
-    async answer(desktopId: string, sdp: string): Promise<{ accepted: boolean }> {
-        return this.require(desktopId).answer(sdp);
+    async answer(desktopId: string, sdp: string, connectionId?: string, deviceId?: string): Promise<{ accepted: boolean }> {
+        return this.require(desktopId, connectionId, deviceId).answer(sdp);
     }
 
-    async candidate(desktopId: string, candidate: string, sdpMid: string | null, sdpMLineIndex: number | null): Promise<{ accepted: boolean }> {
-        return this.require(desktopId).candidate(candidate, sdpMid, sdpMLineIndex);
+    async candidate(desktopId: string, candidate: string, sdpMid: string | null, sdpMLineIndex: number | null, connectionId?: string, deviceId?: string): Promise<{ accepted: boolean }> {
+        return this.require(desktopId, connectionId, deviceId).candidate(candidate, sdpMid, sdpMLineIndex);
     }
 
-    async poll(desktopId: string, cursor: number): Promise<{ cursor: number; events: DesktopEvent[] }> {
-        const target = this.serialByTarget.get(desktopId);
-        if (target === undefined) throw new EngineRefused('session', 'that desktop session is not open');
+    async poll(desktopId: string, cursor: number, connectionId?: string, deviceId?: string): Promise<{ cursor: number; events: DesktopEvent[] }> {
+        const target = this.requiredTarget(desktopId, connectionId, deviceId);
         const engine = this.mirrors.engineFor(target.serial);
         if (engine === undefined) throw new EngineRefused('session', 'that desktop session is not open');
         for (const signal of engine.drainSignaling()) {
@@ -1266,9 +1277,12 @@ export class AndroidPreviewTargets {
         return answer;
     }
 
-    async close(desktopId: string): Promise<{ closed: boolean }> {
+    async close(desktopId: string, connectionId?: string, deviceId?: string): Promise<{ closed: boolean }> {
         const target = this.serialByTarget.get(desktopId);
         if (target === undefined) return { closed: true };
+        if (connectionId !== undefined && (deviceId === undefined || target.ownerDeviceId !== deviceId)) {
+            throw new EngineRefused('session', 'that desktop session belongs to another device');
+        }
         this.serialByTarget.delete(desktopId);
         this.backlog.delete(desktopId);
         // The last viewer takes the mirror down: no watcher, no engine.
@@ -1419,7 +1433,6 @@ export class AndroidEmulatorWatcher {
     async scan(): Promise<void> {
         if (this.runAdb === undefined) return;
         const sessions = await this.options.listSessions().catch(() => []);
-        if (sessions.length === 0) return;
         const livePanes = new Set(sessions.flatMap((session) => session.paneId === undefined ? [] : [session.paneId]));
         const discovered = scanAndroidEmulators(this.options.procRoot ?? '/proc');
         const known = new Map<string, { serial: string; title: string | undefined }>();

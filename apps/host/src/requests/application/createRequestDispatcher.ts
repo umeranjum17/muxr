@@ -289,7 +289,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'desktop.answer': async (params, context) => {
             if (options.androidTargets?.owns(params.desktopId) === true) {
-                return options.androidTargets.answer(params.desktopId, params.sdp);
+                return options.androidTargets.answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
             }
             if (options.previewDesktops?.owns(params.desktopId) === true) {
                 return options.previewDesktops.answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
@@ -303,6 +303,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     params.candidate,
                     params.sdpMid ?? null,
                     params.sdpMLineIndex ?? null,
+                    context.connectionId,
+                    context.deviceId,
                 );
             }
             if (options.previewDesktops?.owns(params.desktopId) === true) {
@@ -326,7 +328,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'desktop.poll': async (params, context) => {
             if (options.androidTargets?.owns(params.desktopId) === true) {
-                return options.androidTargets.poll(params.desktopId, params.cursor);
+                return options.androidTargets.poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
             }
             if (options.previewDesktops?.owns(params.desktopId) === true) {
                 return options.previewDesktops.poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
@@ -335,7 +337,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'desktop.close': async (params, context) => {
             if (options.androidTargets?.owns(params.desktopId) === true) {
-                return options.androidTargets.close(params.desktopId);
+                return options.androidTargets.close(params.desktopId, context.connectionId, context.deviceId);
             }
             if (options.previewDesktops?.owns(params.desktopId) === true) {
                 return options.previewDesktops.close(params.desktopId, context.connectionId, context.deviceId);
