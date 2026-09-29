@@ -2829,8 +2829,16 @@ export async function createHerdrSessionSource(
         async herdrCli(args: string[], timeoutMs?: number): Promise<{
             stdout: string; stderr: string; exitCode: number | null; timedOut: boolean;
         }> {
+            if (!Array.isArray(args) || args.length === 0 || args.some((arg) => typeof arg !== 'string')) {
+                return { stdout: '', stderr: 'herdr: args must be a non-empty list of strings', exitCode: null, timedOut: false };
+            }
+            if (args.some((arg) => arg.includes('\0'))) {
+                return { stdout: '', stderr: 'herdr: arguments cannot contain NUL bytes', exitCode: null, timedOut: false };
+            }
+            const requested = timeoutMs === undefined || !Number.isFinite(timeoutMs) ? 60_000 : timeoutMs;
+            const clamped = Math.max(1_000, Math.min(requested, 5 * 60_000));
             try {
-                return await client.kit.cli(args, { timeoutMs: timeoutMs ?? 60_000 });
+                return await client.kit.cli(args, { timeoutMs: clamped });
             } catch (error) {
                 // The dispatcher never rejects: errors ride the reply shape.
                 return {

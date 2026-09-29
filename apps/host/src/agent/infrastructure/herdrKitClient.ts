@@ -10,6 +10,7 @@
  * `bin` is spawned with it directly.
  */
 import { homedir } from 'node:os';
+import { delimiter } from 'node:path';
 import { HerdrKit } from '@byokit/herdr';
 
 export interface HerdrEvent {
@@ -60,7 +61,7 @@ export class KitHerdrClient implements HerdrCaller {
             bin,
             socketPath,
             env: kitEnv,
-            path: (process.env.PATH ?? '').split(':').filter((dir) => dir !== ''),
+            path: (process.env.PATH ?? '').split(delimiter).filter((dir) => dir !== ''),
             onState: (state) => {
                 const ready = state.phase === 'ready';
                 this.connected = ready;
@@ -157,6 +158,8 @@ export class KitHerdrClient implements HerdrCaller {
             void ready.then((ok) => {
                 if (ok !== false) onReady();
             }).catch(() => {});
+        } else {
+            queueMicrotask(onReady);
         }
         return stop;
     }
