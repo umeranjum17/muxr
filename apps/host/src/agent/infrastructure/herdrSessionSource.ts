@@ -102,6 +102,13 @@ const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pa
  * Provider-neutral hint inherited by every pane muxr creates through Herdr.
  * The default names no private screen: only a pane this host actually gave one
  * may claim it (paneEnvironment upgrades the sentence for that pane).
+ *
+ * Test isolation pass-through: when the host itself runs with
+ * PI_CODING_AGENT_DIR set (diagnostics that launch a real pi point it at a
+ * per-run temp dir via scripts/diagnostics/application/isolatePiAgentDir.mjs),
+ * forward it so pi processes Herdr spawns for those panes never touch the
+ * user's real ~/.pi/agent. Unset in production, so production panes behave
+ * exactly as before.
  */
 export const MUXR_AGENT_ENV = {
     MUXR_AGENT_CAPABILITIES: `${DESKTOP_BROWSER}${BROWSER_GUIDANCE}${ARTIFACT_GUIDANCE}`,
@@ -112,10 +119,12 @@ export const MUXR_AGENT_ENV = {
  * host could make one. A pane without a screen behaves exactly as before.
  */
 function paneEnvironment(screen: PaneScreen | undefined): Record<string, string> {
+    const agentDir = process.env.PI_CODING_AGENT_DIR?.trim();
     return {
         ...MUXR_AGENT_ENV,
         ...(screen === undefined ? {} : { MUXR_AGENT_CAPABILITIES: `${SCREEN_BROWSER}${BROWSER_GUIDANCE}${ARTIFACT_GUIDANCE}` }),
         ...screen?.env,
+        ...(agentDir ? { PI_CODING_AGENT_DIR: agentDir } : {}),
     };
 }
 

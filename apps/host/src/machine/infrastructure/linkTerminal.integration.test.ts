@@ -23,7 +23,7 @@ const b64 = (value: Uint8Array | string): string => Buffer.from(value).toString(
 /** @muxr/crypto keys are base64 strings; byokit wants base64url bytes. */
 const toB64url = (valueBase64: string): string => Buffer.from(valueBase64, 'base64').toString('base64url');
 
-/** The pane: paints a full screen, echoes input, repaints on resize. */
+/** The pane: paints a full screen, echoes input, repaints on resize and on each scroll it is handed. */
 function writeFakeHerdr(dir: string): string {
     const bin = join(dir, 'fake-herdr.mjs');
     writeFileSync(bin, `#!/usr/bin/env node
@@ -51,6 +51,8 @@ process.stdin.on('data', (chunk) => {
             cols = frame.cols;
             rows = frame.rows;
             send({ type: 'terminal.frame', bytes: b64(\`SCREEN \${pane} \${cols}x\${rows}\`) });
+        } else if (frame.type === 'terminal.scroll') {
+            send({ type: 'terminal.frame', bytes: b64(\`SCROLL \${frame.direction} \${frame.lines}\`) });
         } else if (frame.type === 'terminal.release') {
             process.exit(0);
         }
@@ -320,6 +322,17 @@ process.stdin.on('data', (chunk) => {
         // Resize.
         await stream.write(`${JSON.stringify({ type: 'terminal.resize', cols: 40, rows: 12 })}\n`);
         expect(await nextFrameBytes('resize repaint')).toBe('SCREEN pane-s1 40x12');
+
+        // A pane with no Herdr scrollback (Claude Code on the alternate
+        // screen) gets a 30-row drag as 30 wheel reports. Herdr turns any one
+        // scroll into a single report, which is how a fling or a jump to
+        // Latest used to move Claude Code by one notch.
+        // The host learns that from Herdr's scroll state, read just after the first paint.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await stream.write(`${JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 30, column: 10, row: 6 })}\n`);
+        const reports: string[] = [];
+        while (reports.length < 30) reports.push(await nextFrameBytes('wheel report'));
+        expect(reports).toEqual(Array.from({ length: 30 }, () => 'SCROLL up 1'));
 
         // Voice frames traverse the host stream adapter over the byokit link.
         const voice = await link.stream('voice', { channel: 'rs_linkvoice1234', sessionId: 's1' });
