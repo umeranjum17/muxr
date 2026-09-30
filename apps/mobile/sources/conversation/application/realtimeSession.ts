@@ -1,4 +1,4 @@
-import { realtimeClient, type AudioPorts } from '@byokit/realtime';
+import { MAX_REALTIME_TEXT_BYTES, realtimeClient, type AudioPorts } from '@byokit/realtime';
 import { webRtcPeer } from '@byokit/realtime/webrtc';
 import { isVoiceServiceReady, releaseVoiceAudio, routeVoiceAudio, startVoiceService } from '@/../modules/voice-overlay';
 import { refreshPluginStreamSnapshot } from '@/plugins/openPluginStream';
@@ -18,6 +18,13 @@ export interface RealtimeHandle {
 }
 
 const SERVICE_READY_TIMEOUT_MS = 2_000;
+
+/** A screen with many controls can describe itself past one frame; an oversized answer would end the call. */
+function fitFrame(text: string): string {
+    let fitted = text;
+    while (new TextEncoder().encode(fitted).length > MAX_REALTIME_TEXT_BYTES) fitted = fitted.slice(0, Math.floor(fitted.length * 0.9));
+    return fitted;
+}
 
 /** Android returns a deaf session unless the microphone service is foreground first. */
 async function foregroundMicrophoneService(): Promise<void> {
@@ -81,9 +88,9 @@ export function startRealtimeSession(options: {
         },
         onAppRequest: async (action, target) => {
             try {
-                if (action === 'view') return { ok: true, text: await realtimeAppController.inspect() };
-                if (action === 'navigate') return { ok: true, text: await realtimeAppController.navigateTo(target!) };
-                return { ok: true, text: await realtimeAppController.activate(target!) };
+                if (action === 'view') return { ok: true, text: fitFrame(await realtimeAppController.inspect()) };
+                if (action === 'navigate') return { ok: true, text: fitFrame(await realtimeAppController.navigateTo(target!)) };
+                return { ok: true, text: fitFrame(await realtimeAppController.activate(target!)) };
             } catch {
                 return { ok: false, text: 'The app could not complete that semantic action.' };
             }
