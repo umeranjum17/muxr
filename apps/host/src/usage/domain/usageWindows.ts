@@ -11,7 +11,8 @@
  */
 
 import type { UsageLimitsPayload, UsageLimitsWindow } from '@trymuxr/contract';
-import { resetClock, WINDOW_MINUTES } from './rateLimits.js';
+import type { Window } from '@byokit/usage';
+import { resetClock } from './rateLimits.js';
 
 const clampPct = (value: number): number => Math.max(0, Math.min(100, value));
 
@@ -75,97 +76,18 @@ export function normalizeWindow({ provider, windowKind, label, used, remaining, 
     };
 }
 
-// --- Per-provider transforms: raw payload in, view models out. ---
+/** Labels and pace belong to muxr; payload dialects belong to the kit. */
+const KIND_LABELS: Record<string, string> = { session: 'Session', weekly: 'Weekly', monthly: 'Monthly', rolling: 'Rolling' };
 
-/** One name per window kind, for every provider. The published length rides
- *  beside it as `window` ("5h", "7d"), so a label never spells it again. */
-const KIND_LABELS: Record<string, string> = { session: 'Session', weekly: 'Weekly', monthly: 'Monthly' };
-
-const CLAUDE_WINDOWS: [id: keyof typeof WINDOW_MINUTES, kind: string, label: string][] = [['five_hour', 'session', KIND_LABELS.session!], ['seven_day', 'weekly', KIND_LABELS.weekly!]];
-
-/** Claude oauth/usage payload: `rate_limits.five_hour.utilization` is percent used. */
-export function claudeWindows(raw: unknown, { provider = 'claude', nowMs }: { provider?: string; nowMs: number }): UsageWindowVM[] {
-    const source = (raw as { rate_limits?: unknown } | undefined)?.rate_limits ?? raw;
-    return CLAUDE_WINDOWS.flatMap(([id, kind, label]) => {
-        const window = (source as Record<string, { utilization?: unknown; used_percentage?: unknown; resets_at?: unknown } | undefined> | undefined)?.[id];
-        const used = percentUsedOf(window);
-        const resetEpochSec = typeof window?.resets_at === 'number' ? window.resets_at : Date.parse(String(window?.resets_at)) / 1000;
-        return [normalizeWindow({
-            provider, windowKind: kind, label, used, windowMinutes: WINDOW_MINUTES[id],
-            resetEpochSec, nowMs,
-        })].filter((vm): vm is UsageWindowVM => vm !== undefined);
-    });
-}
-
-function percentUsedOf(window: { utilization?: unknown; used_percentage?: unknown } | undefined): number | undefined {
-    if (Number.isFinite(window?.utilization)) return window?.utilization as number;
-    if (Number.isFinite(window?.used_percentage)) return window?.used_percentage as number;
-    return undefined;
-}
-
-/** Z.ai monitor payload: `limits[].percentage` is percent used. */
-export function zaiWindows(limits: unknown, { provider = 'zai', nowMs }: { provider?: string; nowMs: number }): UsageWindowVM[] {
-    // Monitor buckets arrive as unit/number pairs; unknown pairs are skipped
-    // rather than guessed at, so a schema change degrades to "unavailable".
-    const windows = new Map([
-        ['3:5', { kind: 'session', label: KIND_LABELS.session!, windowMinutes: WINDOW_MINUTES.five_hour }],
-        ['6:1', { kind: 'weekly', label: KIND_LABELS.weekly!, windowMinutes: WINDOW_MINUTES.seven_day }],
-    ]);
-    return (Array.isArray(limits) ? limits : []).flatMap((limit): UsageWindowVM[] => {
-        const entry = limit as { unit?: unknown; number?: unknown; percentage?: unknown; nextResetTime?: unknown } | null;
-        const window = windows.get(`${entry?.unit}:${entry?.number}`);
-        if (window === undefined) return [];
-        return [normalizeWindow({
-            provider, windowKind: window.kind, label: window.label, windowMinutes: window.windowMinutes,
-            used: typeof entry?.percentage === 'number' ? entry.percentage : undefined,
-            resetEpochSec: Number(entry?.nextResetTime) / 1000, nowMs,
-        })].filter((vm): vm is UsageWindowVM => vm !== undefined);
-    });
-}
-
-/** OpenCode Go payload: `usage[key].percent` is percent used, status marks rate limiting. */
-export function goWindows(usage: unknown, { provider = 'opencode', nowMs }: { provider?: string; nowMs: number }): UsageWindowVM[] {
-    // Rolling is documented as five hours and the weekly reset as Monday 00:00
-    // UTC; the monthly anchor is the subscription date, so it publishes no
-    // length and never claims a pace projection.
-    const lengths: Record<'rolling' | 'weekly' | 'monthly', number | undefined> = { rolling: WINDOW_MINUTES.five_hour, weekly: WINDOW_MINUTES.weekly, monthly: undefined };
-    const windowOf = (key: 'rolling' | 'weekly' | 'monthly') => (usage as Partial<Record<'rolling' | 'weekly' | 'monthly', { percent?: unknown; status?: unknown; resetsAt?: unknown }>> | undefined)?.[key];
-    const GO_KEYS: ['rolling' | 'weekly' | 'monthly', string][] = [['rolling', 'Rolling'], ['weekly', 'Weekly'], ['monthly', 'Monthly']];
-    return GO_KEYS.flatMap(([key, label]): UsageWindowVM[] => {
-        const window = windowOf(key);
-        if (!Number.isFinite(window?.percent) || (window?.percent as number) < 0 || !['ok', 'rate-limited'].includes(String(window?.status))) return [];
-        return [normalizeWindow({
-            provider, windowKind: key, label, used: window?.percent as number,
-            windowMinutes: lengths[key], resetEpochSec: Date.parse(String(window?.resetsAt)) / 1000,
-            nowMs, limited: window?.status === 'rate-limited',
-        })].filter((vm): vm is UsageWindowVM => vm !== undefined);
-    });
-}
-
-/** Codex app-server payload: windows carry usedPercent plus their own durations.
- *  A limit without a `limitName` is the plan's own, so its windows are named by
- *  kind alone; a separately named limit prefixes its name. */
-export function codexWindows(limits: unknown[], { provider = 'codex', nowMs }: { provider?: string; nowMs: number }): UsageWindowVM[] {
-    const kindForMinutes = (minutes: number | undefined): string => {
-        if (minutes === WINDOW_MINUTES.five_hour) return 'session';
-        if (minutes === WINDOW_MINUTES.seven_day) return 'weekly';
-        if (minutes === WINDOW_MINUTES.monthly) return 'monthly';
-        return 'custom';
-    };
-    return limits.flatMap((limit) => ['primary', 'secondary'].flatMap((key): UsageWindowVM[] => {
-        const window = (limit as Record<string, { usedPercent?: unknown; windowDurationMins?: unknown; resetsAt?: unknown } | undefined> | undefined)?.[key];
-        if (!Number.isFinite(window?.usedPercent)) return [];
-        const rawMinutes = window?.windowDurationMins;
-        const windowMinutes = Number.isFinite(rawMinutes) && (rawMinutes as number) > 0 ? rawMinutes as number : undefined;
-        const limitName = (limit as { limitName?: unknown }).limitName;
-        const windowKind = kindForMinutes(windowMinutes);
-        const kindLabel = KIND_LABELS[windowKind] ?? 'Limit';
-        return [normalizeWindow({
-            provider, windowKind,
-            label: typeof limitName === 'string' && limitName !== '' ? `${limitName} · ${kindLabel}` : kindLabel,
-            used: window?.usedPercent as number, windowMinutes, resetEpochSec: window?.resetsAt as number | undefined, nowMs,
-        })].filter((vm): vm is UsageWindowVM => vm !== undefined);
-    }));
+export function toVM(window: Window, nowMs: number): UsageWindowVM {
+    const kindLabel = KIND_LABELS[window.kind] ?? 'Limit';
+    return normalizeWindow({
+        provider: window.provider, windowKind: window.kind,
+        label: window.limit ? `${window.limit} · ${kindLabel}` : kindLabel,
+        used: window.usedPercent, windowMinutes: window.minutes,
+        resetEpochSec: window.resetsAt, nowMs,
+        ...(window.limited === undefined ? {} : { limited: window.limited }),
+    })!;
 }
 
 /** The host's own line when muxr has no plan integration for the provider at

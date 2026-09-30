@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { usage } from '@byokit/usage';
 import { createRequire } from 'node:module';
 let DatabaseSync;
 try { ({ DatabaseSync } = await import('node:sqlite')); } catch {};
@@ -793,7 +794,12 @@ try {
     assert.deepEqual(coldNow.limits, { verdict: 'unknown', windows: [] });
     assert.ok(Number.isFinite(coldNow.vitals.memoryTotal) && coldNow.vitals.memoryTotal > 0);
     assert.ok(coldMs < 8_000, `the bounded wait answered late (${coldMs}ms)`);
-    assert.ok(!existsSync(join(coldHome, 'usage')), 'a timed-out collection must not have cached a partial answer');
+    // A successful plan read is durable independently of the unfinished
+    // activity collection. Restart the kit to verify the persisted reading,
+    // while the Home answer above still honestly reports collecting.
+    const restarted = usage({ stateDir: join(coldHome, 'usage'), salt: 'muxr/usage/account' });
+    const knownCodex = restarted.lastKnown({ provider: 'codex', bin: join(scratch, 'codex'), home: join(scratch, '.codex') }, { nowMs: today.getTime() });
+    assert.deepEqual(knownCodex?.windows.map((window) => window.usedPercent), [25, 90]);
     process.stdout.write('PASS now: the home card leads with the window its verdict describes\n');
 } finally {
     globalThis.fetch = realFetch;
