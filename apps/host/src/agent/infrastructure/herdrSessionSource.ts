@@ -54,6 +54,7 @@ import type { AgentStatus } from '@byokit/herdr';
 import {
     AgentRouteStore,
     herdrAgentSessionKey,
+    herdrPaneSession,
     isMuxrLaunchSession,
     muxrLaunchSession,
     parseHerdrAgentSession,
@@ -767,9 +768,13 @@ export async function createHerdrSessionSource(
         return parseHerdrAgentSession(agent?.agent_session);
     }
 
+    /** The route identity: Herdr's session, else the pending launch, else the pane of an agent Herdr detected. */
     function agentSession(agent: AgentRecord | undefined): HerdrAgentSessionRef | undefined {
+        if (agent === undefined) return undefined;
+        const kind = publicAgentKind(agent.agent ?? undefined);
         return publishedAgentSession(agent)
-            ?? (agent === undefined ? undefined : pendingLaunchByPane.get(agent.pane_id));
+            ?? pendingLaunchByPane.get(agent.pane_id)
+            ?? (kind === undefined ? undefined : herdrPaneSession(kind, agent.pane_id));
     }
 
     function forgetLaunch(paneId: string): void {
@@ -820,6 +825,12 @@ export async function createHerdrSessionSource(
             routes.adopt(pending, real);
             forgetLaunch(paneId);
         }
+        // An agent listed by its pane keeps that route once Herdr publishes its session.
+        for (const agent of agentsByPane.values()) {
+            const real = publishedAgentSession(agent);
+            if (real === undefined || isMuxrLaunchSession(real) || typeof agent.agent !== 'string') continue;
+            routes.adopt(herdrPaneSession(agent.agent, agent.pane_id), real);
+        }
     }
 
     function rehydratePendingLaunches(): void {
@@ -853,9 +864,7 @@ export async function createHerdrSessionSource(
     }
 
     function listedAgent(agent: AgentRecord | undefined): agent is AgentRecord {
-        if (agent === undefined || agentSession(agent) === undefined) return false;
-        if (typeof agent.name === 'string' && agent.name.length > 0) return true;
-        return pendingLaunchByPane.has(agent.pane_id) || publishedAgentSession(agent) !== undefined;
+        return agent !== undefined && agentSession(agent) !== undefined;
     }
 
     /** Herdr's kind once detected; until then the kind the phone asked for, while that launch is still active. */
@@ -1720,8 +1729,10 @@ export async function createHerdrSessionSource(
         while (Date.now() < deadline) {
             await refreshSnapshot();
             const agent = agentsByPane.get(paneId);
-            const published = publishedAgentSession(agent);
-            const detected = publicAgentKind(agent?.agent ?? undefined) ?? publicAgentKind(published?.agent);
+            const detected = publicAgentKind(agent?.agent ?? undefined) ?? publicAgentKind(publishedAgentSession(agent)?.agent);
+            // Codex 0.159 never publishes a session: the requested kind on the pane stands in.
+            const published = publishedAgentSession(agent)
+                ?? (requested !== undefined && detected === requested ? herdrPaneSession(requested, paneId) : undefined);
             if (published !== undefined && requested !== undefined && detected !== undefined && detected !== requested) {
                 throw Object.assign(
                     new Error(`herdr: agent_kind_mismatch: expected ${requested}, detected ${detected}`),
@@ -3113,7 +3124,7 @@ export async function createHerdrSessionSource(
                     { code: 'plan-move-unsupported' },
                 );
             }
-            const conversation = agentSession(record.agent);
+            const conversation = publishedAgentSession(record.agent);
             if (conversation === undefined || isMuxrLaunchSession(conversation)) {
                 throw Object.assign(
                     new Error('The agent has no conversation to move yet. Wait for it to start, then try again.'),

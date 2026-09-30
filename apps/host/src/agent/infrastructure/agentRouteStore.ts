@@ -42,6 +42,11 @@ export function muxrLaunchSession(agent: string, launchName: string): HerdrAgent
     return { source: MUXR_LAUNCH_SOURCE, agent, kind: 'id', value: launchName };
 }
 
+/** Herdr named the agent's kind but published no harness session (Codex 0.159 does this): the pane stands in. */
+export function herdrPaneSession(agent: string, paneId: string): HerdrAgentSessionRef {
+    return { source: 'herdr:pane', agent, kind: 'id', value: paneId };
+}
+
 export function isMuxrLaunchSession(ref: HerdrAgentSessionRef): boolean {
     return ref.source === MUXR_LAUNCH_SOURCE && ref.kind === 'id' && ref.value.length > 0;
 }

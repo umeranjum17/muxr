@@ -51,7 +51,7 @@ One sign-in to a provider plan an Agent can run on. Chosen at launch, or moved o
 _Avoid_: account, profile, config dir
 
 **Agent Route**:
-An opaque authorization route bound to exactly one Herdr `agent_session` generation. It survives that generation's pane moves and host restarts; a new generation receives a new route.
+An opaque authorization route bound to exactly one agent generation: normally the Herdr `agent_session`, or the pane itself until Herdr publishes one. It survives that generation's pane moves and host restarts; a new generation receives a new route.
 _Avoid_: pane id, spoken name, label, Herdr agent name
 
 **Close Scope**:
