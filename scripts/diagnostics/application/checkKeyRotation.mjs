@@ -74,6 +74,7 @@ try {
     if (rotate().status === 0 || readState().machine.crypto.boxSecretKey !== before.boxSecretKey) {
         throw new Error('rotation ran without --unpair-all');
     }
+    await stop(first);
     const rotated = rotate('--unpair-all');
     if (rotated.status !== 0) throw new Error(`rotation failed: ${rotated.stderr}`);
     const after = readState().machine.crypto;
@@ -88,7 +89,6 @@ try {
     if ((await hosts()).some((host) => host.id === hostOf(before))) throw new Error('relay still admits the old host key');
     await until(() => device.status !== 'online', 'old pairing drops off the retired host');
 
-    await stop(first);
     await start();
     await until(async () => (await hosts()).some((host) => host.id === hostOf(after) && host.online), 'new host key online on the relay');
     if ((await hosts()).some((host) => host.id === hostOf(before))) throw new Error('restarted host re-enrolled the old key');
