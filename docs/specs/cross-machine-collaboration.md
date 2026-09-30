@@ -154,7 +154,7 @@ The release implementation adds the following security and recovery invariants:
 - issuance uses the pair-session claim and grant flow, device revoke, and machine key rotation APIs
 - a peer client sends mutations only after a fresh random liveness request receives its correlated encrypted result
 - decrypted client frames are validated before host access and malformed-frame errors are null-safe
-- voice adapters expose no raw Herdr CLI or close tool; remote output is bounded and redacts credentials, internal ids, and private paths before provider access
+- the voice host integration exposes no raw Herdr CLI or close tool; remote output is bounded and redacts credentials, internal ids, and private paths before provider access
 - voice reconnect refreshes only the pinned machine's grant generation, and every pairing entry point requires **End voice and switch** before changing the active machine
 
 The optional **Start agents** permission remains deferred. It returns only when Settings can present target-reported directories and the user can approve an exact directory per machine.
@@ -191,7 +191,7 @@ The work lands as one cohesive feature PR.
 - `apps/mobile/sources/plugins/openPluginStream.ts`
 - `apps/mobile/sources/realtime/realtimeSessionState.ts`
 - `apps/mobile/sources/voice/realtimeSession.ts`
-- the product-owned realtime voice adapters under `apps/host/src/voice/`
+- the product-owned realtime voice integration under `apps/host/src/voice/`
 
 ## Revisions
 
