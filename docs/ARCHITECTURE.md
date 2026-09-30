@@ -139,10 +139,12 @@ removed grants, and web secure-store reset clear it.
 | inbox / attention | blocked → needs you, done → finished | derived host-side |
 | live view | terminal frames over a link stream | kit `TerminalSession` (`control` with takeover / `observe` read-only previews) |
 
-Sessions started at the desk show up on the phone once Herdr publishes their
-agent session (often after the first turn). Detection alone is not a session:
-the host rechecks missing sessions when pane status changes and after the
-per-pane status watch is acknowledged, even if an older snapshot was in flight.
+Sessions started at the desk show up on the phone once Herdr detects the agent
+kind on the pane. A pane Herdr detected but has not published a session for
+yet (Codex 0.159 publishes none) stands in on a pane route the host adopts
+onto the real session when it arrives. The host rechecks missing sessions
+when pane status changes and after the per-pane status watch is acknowledged,
+even if an older snapshot was in flight.
 
 ## Facts worth knowing (verified against herdr 0.9.1)
 
