@@ -66,9 +66,9 @@ export interface StoredPlanReading { at: number; raw: unknown }
  *  failure never costs the other its standing. */
 export type PlanReadings = Partial<Record<PlanId, Record<string, StoredPlanReading>>>;
 
-/** Retained for Claude only. Preserve the kit-owned provider entries when
- *  merging a Claude update into the shared file. The kit owns every other
- *  provider's last-good lookup and persistence. */
+/** Normalize legacy account/at/raw entries before the kit first opens the
+ *  shared file. Claude also uses this reader to preserve kit-owned entries
+ *  when saving its own readings; the kit owns the other providers' lookups. */
 export function readPlans(env: NodeJS.ProcessEnv, migrateLegacy = false): PlanReadings {
     const saved = readJson(join(usageStateDir(env), 'plans-v1.json'), 256 * 1024)?.value;
     if (!isRecord(saved) || !isRecord(saved.plans)) return {};
