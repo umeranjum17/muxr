@@ -55,7 +55,6 @@ export type SessionClient = {
     terminalStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
     voiceStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
     closeDesktopSignaling?(): void;
-    pluginStream?(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined>;
 };
 
 /** Line-framed duplex stream used by terminal and realtime adapters. */
@@ -370,9 +369,6 @@ export class LinkFirstClient implements SessionClient {
         this.desktopTransport = undefined;
     }
 
-    pluginStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> {
-        return this.openByteStream('plugin', args);
-    }
 
     onStateChange(listener: (state: ConnectionState) => void): () => void {
         this.stateListeners.add(listener);

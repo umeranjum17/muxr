@@ -20,10 +20,6 @@ const registry: Record<PluginPrimitive, PrimitiveRenderer> = {
     'item-list': (props) => <ItemList {...props} />,
     collection: (props) => <CollectionView {...props} />,
     'icon-button': (props) => <CapabilityButton {...props} />,
-    // The product mounts the one realtime overlay in _layout.tsx. Declaring
-    // this primitive is how a plugin asks for speech.wake/voice.start, and the
-    // gate must keep seeing it; rendering here would paint a second bubble.
-    'realtime-session-overlay': () => null,
     'tree-sheet': (props) => <TreeSheet {...props} />,
     dictate: (props) => <DictateButton context={props.context as { getText: () => string; setText: (text: string) => void }} />,
 };

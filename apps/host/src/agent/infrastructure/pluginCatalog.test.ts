@@ -117,16 +117,19 @@ describe('plugin catalog flow', () => {
         const manifestPath = join(root, 'muxr-ui.json');
         await writeFile(manifestPath, JSON.stringify({
             schemaVersion: 1, pluginId: 'example.muxr-ui',
+            capabilities: { 'voice.session': 'retired-stream' },
             contributions: [
                 { slot: 'settings.sections', id: 'hello', title: 'Example', children: [{ type: 'row', title: 'It works' }, { type: 'future-widget' }] },
                 { slot: 'future.slot', id: 'ignored' },
+                { slot: 'host.stream', id: 'retired-stream', type: 'stream', entry: 'stream.mjs' },
+                { slot: 'app.overlay', id: 'retired-overlay', type: 'native', primitive: 'realtime-session-overlay' },
             ],
         }));
 
         const catalog = new PluginCatalog();
         await catalog.refresh([plugin(root)]);
         const first = catalog.list(() => false)[0];
-        expect(first).toMatchObject({ pluginId: 'example.muxr-ui', approved: false, hasBackend: false, herdrBackend: false });
+        expect(first).toMatchObject({ pluginId: 'example.muxr-ui', approved: false, hasBackend: false, herdrBackend: false, capabilities: {} });
         if (first?.manifestHash === undefined) throw new Error('plugin missing');
         const firstHash = first.manifestHash;
         expect(catalog.manifest(first.pluginId, firstHash).contributions).toHaveLength(1);

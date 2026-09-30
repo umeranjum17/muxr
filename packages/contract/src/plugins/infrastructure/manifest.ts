@@ -620,10 +620,6 @@ function parseNativeContribution(item: Record<string, unknown>): PluginContribut
     if (item.source !== undefined || item.capability !== undefined || item.title !== undefined) {
         throw new Error(`plugin primitive ${primitive} parameters must be under params`);
     }
-    if (item.quickAction !== undefined && typeof item.quickAction !== 'boolean') throw new Error('invalid quickAction');
-    if (item.quickAction === true && item.slot !== 'session.header.trailing' && item.slot !== 'session.pills') {
-        throw new Error('quick actions require a session action slot');
-    }
     const params = item.params === undefined ? {} : item.params;
     if (!isRecord(params)) throw new Error(`invalid params for plugin primitive ${primitive}`);
     for (const name of Object.keys(params)) {
@@ -676,7 +672,6 @@ function parseNativeContribution(item: Record<string, unknown>): PluginContribut
         id: id(item.id),
         type: 'native',
         primitive: primitive as typeof PRIMITIVES[number],
-        ...(item.quickAction === undefined ? {} : { quickAction: item.quickAction }),
         ...(title === undefined ? {} : { title }),
         ...(emptyTitle === undefined ? {} : { emptyTitle }),
         ...(emptyMessage === undefined ? {} : { emptyMessage }),
@@ -703,9 +698,6 @@ function parseContribution(item: Record<string, unknown>, skipped: string[]): Pl
     }
     if (item.slot === 'session.toolbar' && item.type === 'button' && isRecord(item.action) && item.action.type === 'plugin.invoke') {
         return { slot: 'session.toolbar', id: id(item.id), type: 'button', label: pluginText(item.label, 40), action: { type: 'plugin.invoke', actionId: id(item.action.actionId) } };
-    }
-    if (item.slot === 'host.stream' && item.type === 'stream') {
-        return { slot: 'host.stream', id: id(item.id), type: 'stream', entry: parseHostModuleEntry(item.entry, 'stream') };
     }
     if (item.slot === 'host.rpc' && item.type === 'rpc') return parseRpcContribution(item);
     if (item.type === 'native' && typeof item.slot === 'string' && NATIVE_SLOT_SET.has(item.slot)) {
@@ -741,8 +733,7 @@ function parseContribution(item: Record<string, unknown>, skipped: string[]): Pl
         };
     }
     if (item.slot === 'session.header.trailing' && item.type === 'screen-button') {
-        if (item.quickAction !== undefined && typeof item.quickAction !== 'boolean') throw new Error('invalid quickAction');
-        return { slot: 'session.header.trailing', id: id(item.id), type: 'screen-button', title: pluginText(item.title, 40), icon: id(item.icon), contentContributionId: id(item.contentContributionId), ...(item.quickAction === undefined ? {} : { quickAction: item.quickAction }) };
+        return { slot: 'session.header.trailing', id: id(item.id), type: 'screen-button', title: pluginText(item.title, 40), icon: id(item.icon), contentContributionId: id(item.contentContributionId) };
     }
     if (item.slot === 'shortcuts') return parseShortcut(item);
     if (item.slot === 'events') return parseEventTrigger(item);
@@ -888,7 +879,7 @@ export function parseManifestWithMeta(value: unknown): { manifest: PluginManifes
         && (typeof minMuxrVersion !== 'number' || !Number.isInteger(minMuxrVersion) || minMuxrVersion < 1)) {
         throw new Error('invalid minMuxrVersion');
     }
-    const capabilities = parseCapabilities(value.capabilities);
+    const declaredCapabilities = parseCapabilities(value.capabilities);
     if (value.contributions.length > MAX_CONTRIBUTIONS) throw new Error('too many plugin contributions');
     const contributions: PluginContribution[] = [];
     const skippedScreenNodes: string[] = [];
@@ -898,6 +889,9 @@ export function parseManifestWithMeta(value: unknown): { manifest: PluginManifes
         if (contribution === undefined) continue;
         contributions.push(contribution);
     }
+    const skippedIds = new Set(value.contributions.filter((item) => isRecord(item) && item.slot === 'host.stream').map((item) => (item as Record<string, unknown>).id));
+    const capabilities = declaredCapabilities === undefined ? undefined
+        : Object.fromEntries(Object.entries(declaredCapabilities).filter(([, contributionId]) => !skippedIds.has(contributionId)));
     validateManifestGraph(contributions, capabilities, typeof minMuxrVersion === 'number' ? minMuxrVersion : undefined);
     return {
         manifest: {
