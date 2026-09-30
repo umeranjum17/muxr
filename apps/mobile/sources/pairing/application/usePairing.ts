@@ -1,38 +1,28 @@
 import * as React from 'react';
 import { consentWords, pairingView } from '@byokit/ui-core/link';
 import { pairingDeviceKind } from '../infrastructure/pairingPlatform';
+import { useRouter } from 'expo-router';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
 import { linkPairMachineName, pairOverLink } from './linkPairing';
-import { linkOfferRole, looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
+import { hostedPairingDuration, linkOfferRole, looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
 import { deliverScannedPairingLink } from './deliverScannedPairing';
 /**
- * Confirm + claim + save + login for a muxr pair link, wherever it came from
- * (first-run scan, Settings → Pair another machine, or the empty-herd card).
- * Pairing while already paired is a safe context switch — the old grant stays
- * stored — so the confirm body says that out loud instead of staying silent.
+ * All pairing entries share the screen's single consent and inline progress.
+ * The one-time offer is not claimed until the person presses Pair there.
  */
 export function useHostedPairing() {
-    const auth = useAuth();
-    const pairing = React.useRef(false);
+    const router = useRouter();
     return React.useCallback(async (url: string) => {
-        if (pairing.current) return;
-        pairing.current = true;
-        try {
-            if (looksLikeLinkOffer(url)) {
-                await pairLinkOffer(url.trim(), auth);
-                return;
-            }
-            Modal.alert('Pairing code expired', 'This pairing code is from an older muxr. Update muxr on both devices, run `muxr pair` on the computer, then scan its new link code.');
-        } catch (error) {
-            Modal.alert('Pairing failed', error instanceof Error ? error.message : String(error));
-        } finally {
-            pairing.current = false;
+        if (looksLikeLinkOffer(url)) {
+            router.push({ pathname: '/pair', params: { offer: url.trim() } });
+            return;
         }
-    }, [auth]);
+        Modal.alert('Pairing code expired', 'This pairing code is from an older muxr. Update muxr on both devices, run `muxr pair` on the computer, then scan its new link code.');
+    }, [router]);
 }
 
 /**
@@ -41,24 +31,37 @@ export function useHostedPairing() {
  * too, and pairing completes only when that approval and the phone's proof
  * over the machine's own link both land.
  */
-export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>, options: { tunnelPort?: number } = {}): Promise<boolean> {
+export function pairLinkConsent(scanned: string, machineName: string): string {
     const device = pairingDeviceKind();
     const role = linkOfferRole(scanned);
+    if (role === undefined) {
+        return `${device === 'browser' ? 'This browser' : 'This phone'} will receive the access shown on the pairing screen. Only continue if you just ran ${device === 'browser' ? '`muxr pair --browser`' : '`muxr pair`'} on that computer.`;
+    }
+    let detail = pairLinkDetail(device, role);
+    if (device === 'browser') detail = `Machine keys stay end-to-end encrypted in this browser for ${hostedPairingDuration(scanned)}. ${detail}`;
+    return consentWords({ hostName: machineName, role, device, detail });
+}
+
+export type PairingProgress = ReturnType<typeof pairingView>;
+
+export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>, options: {
+    tunnelPort?: number;
+    confirm?: (title: string, words: string) => Promise<boolean>;
+    onProgress?: (view: PairingProgress) => void;
+} = {}): Promise<boolean> {
+    const device = pairingDeviceKind();
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
-    const confirmation = role === undefined
-        ? `${device === 'browser' ? 'This browser' : 'This phone'} will receive the access shown on the pairing screen. Only continue if you just ran ${device === 'browser' ? '`muxr pair --browser`' : '`muxr pair`'} on that computer.`
-        : consentWords({ hostName: machineName, role, device, detail: pairLinkDetail(device, role) });
-    const approved = await Modal.confirm(
+    const confirmation = pairLinkConsent(scanned, machineName);
+    const approved = await (options.confirm ?? ((title, words) => Modal.confirm(title, words, { confirmText: 'Pair' })))(
         `Pair with ${machineName}?`,
         confirmation,
-        { confirmText: 'Pair' },
     );
     if (!approved) return false;
     const grant = await pairOverLink(scanned, {
-        ...options,
+        tunnelPort: options.tunnelPort,
         onWords: (words) => {
             const view = pairingView({ phase: 'compare', hostName: machineName, words, device });
-            void Modal.alert(view.title, view.words);
+            options.onProgress?.(view);
         },
     });
     // Activation runs through the shared path so a pinned voice session and a
@@ -76,6 +79,7 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
             Modal.alert('Pairing failed', 'Pairing failed');
             return false;
         }
+        options.onProgress?.(pairingView({ phase: 'paired', hostName: machineName, device }));
         await auth.login(retried.credential, retried.secretKey);
         return true;
     }
@@ -83,6 +87,7 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
         Modal.alert('Pairing failed', paired.message ?? 'Pairing failed');
         return false;
     }
+    options.onProgress?.(pairingView({ phase: 'paired', hostName: machineName, device }));
     await auth.login(paired.credential, paired.secretKey);
     return true;
 }
@@ -120,8 +125,8 @@ function ensureScanSubscription(): void {
 }
 
 /**
- * QR entry to pairing. Returns a function that primes the user, checks camera
- * permission and launches the scanner; `onScanned` gets the short relay code.
+ * QR entry to pairing. Returns a function that checks camera
+ * permission and launches the scanner; `onScanned` gets the link offer.
  */
 export function usePairQrScanner(onScanned: (url: string) => void, enabled: boolean = true) {
     const checkScannerPermissions = useCheckScannerPermissions();
@@ -138,14 +143,6 @@ export function usePairQrScanner(onScanned: (url: string) => void, enabled: bool
     }, [enabled, stableHandler]);
 
     return React.useCallback(async () => {
-        // Prime before the system prompt: a bare permission dialog with no
-        // context reads as suspicious on a security product.
-        const primed = await Modal.confirm(
-            'Scan your machine QR',
-            'Point the camera at the QR code shown by `muxr setup` or `muxr pair` on your computer. The scan completes an end-to-end encrypted pairing — the image never leaves this phone.',
-            { confirmText: 'Open camera' },
-        );
-        if (!primed) return;
         if (!(await checkScannerPermissions())) {
             Modal.alert('Camera required', 'Allow camera access to scan the secure machine QR.');
             return;
@@ -155,7 +152,7 @@ export function usePairQrScanner(onScanned: (url: string) => void, enabled: bool
             await CameraView.launchScanner({ barcodeTypes: ['qr'] });
         } catch {
             if (pendingScan === stableHandler) pendingScan = null;
-            Modal.alert('Camera scanner unavailable', 'The system QR scanner could not open. Enter the short pairing string instead, or try again on a device with a working camera scanner.');
+            Modal.alert('Camera scanner unavailable', 'The system QR scanner could not open. Enter the pairing string instead, or try again on a device with a working camera scanner.');
         }
     }, [checkScannerPermissions, stableHandler]);
 }

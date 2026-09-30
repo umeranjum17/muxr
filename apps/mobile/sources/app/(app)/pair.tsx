@@ -1,5 +1,6 @@
 import * as React from 'react';
 import * as Linking from 'expo-linking';
+import { pairingView } from '@byokit/ui-core/link';
 import * as Clipboard from 'expo-clipboard';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
@@ -8,48 +9,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { hostedPairingAuthority, hostedPairingDuration, linkPairMachineName, looksLikeLinkOffer } from '@/pairing/e2ee';
-import { pairLinkOffer, usePairQrScanner } from '@/pairing';
+import { linkPairMachineName, looksLikeLinkOffer } from '@/pairing/e2ee';
+import { pairLinkConsent, pairLinkOffer, usePairQrScanner, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
-
-/**
- * What pairing actually authorises. The previous copy described only the
- * cryptography, which understated it: this is full interactive control of the
- * machine's agent sessions under the account that started muxr.
- */
-const PHONE_PAIRING_GRANTS = [
-    'Read every agent terminal on that computer, including whatever is already on screen.',
-    'Type into those terminals and answer approval prompts.',
-    'Start, stop and restart agents — running as the user who launched muxr.',
-] as const;
-
-const BROWSER_CONTROL_GRANTS = [
-    'Read and type into every agent terminal on that computer.',
-    'Answer approvals and start or stop agents as the user running muxr.',
-    'Keep machine keys end-to-end encrypted in this browser for eight hours.',
-] as const;
-
-const BROWSER_OBSERVE_GRANTS = [
-    'Read agent status and terminal output from this browser.',
-    'Keep the machine keys end-to-end encrypted in this browser.',
-    'Use this view-only grant for eight hours, then pair again.',
-] as const;
-
-const PHONE_PAIRING_STEPS = [
-    'This phone claims the one-time code from the QR or pairing string.',
-    'The computer seals its key grant to this phone only.',
-    'The phone verifies the grant against the machine key from pairing.',
-] as const;
-
-const BROWSER_PAIRING_STEPS = [
-    'This browser claims the one-time code from the link.',
-    'The computer seals its key grant to this browser only.',
-    'The browser verifies the grant against the machine key from pairing.',
-] as const;
 
 type PairState =
     | { phase: 'confirm'; url: string; machineName: string; linkOffer?: boolean }
@@ -99,6 +65,7 @@ export default function PairScreen() {
     const router = useRouter();
     const insets = useSafeAreaInsets();
     const [state, setState] = React.useState<PairState | undefined>(undefined);
+    const [progress, setProgress] = React.useState<PairingProgress>();
     const [pairingValue, setPairingValue] = React.useState('');
     // The SSH-fluent route from the first-run chooser: the existing Direct SSH
     // fields open immediately, before any QR. Pairing itself is unchanged —
@@ -130,12 +97,6 @@ export default function PairScreen() {
         setState({ phase: 'error', message: 'This pairing code is from an older muxr. Update muxr on both devices, run `muxr pair` on the computer, then scan its new link code.' });
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
-    const browserAuthority = browser && state?.url ? hostedPairingAuthority(state.url) : 'observe';
-    const grants = browser
-        ? (browserAuthority === 'control' ? BROWSER_CONTROL_GRANTS : BROWSER_OBSERVE_GRANTS)
-            .map((grant) => grant.replace('eight hours', hostedPairingDuration(state?.url ?? '')))
-        : PHONE_PAIRING_GRANTS;
-    const pairingSteps = browser ? BROWSER_PAIRING_STEPS : PHONE_PAIRING_STEPS;
     const switching = getCachedConnectionSettings().machineId !== '';
     const routePairUrl = typeof routeParams.offer === 'string' && looksLikeLinkOffer(routeParams.offer)
         ? routeParams.offer : undefined;
@@ -145,6 +106,7 @@ export default function PairScreen() {
         const receive = (raw: string | null) => {
             if (cancelled || !raw) return false;
             if (!looksLikeLinkOffer(raw.trim())) {
+                if (!raw.includes('byokit-link:') && !raw.includes('pair=')) return false;
                 setState({ phase: 'error', message: 'This pairing code is from an older muxr. Run `muxr pair` on the computer for a new link code.' });
                 return true;
             }
@@ -157,11 +119,7 @@ export default function PairScreen() {
         }
         void Linking.getInitialURL().then((url) => {
             if (cancelled) return;
-            if (!receive(url) && !sshRoute) {
-                setState({ phase: 'error', message: browser
-                    ? 'Paste a fresh browser pairing string from `muxr pair --browser`, `muxr pair --browser-personal`, or `muxr pair --browser-view`.'
-                    : 'Enter the short pairing string shown by `muxr pair`.' });
-            };
+            receive(url);
         }).catch((cause) => {
             if (!cancelled) setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
         });
@@ -175,8 +133,14 @@ export default function PairScreen() {
         if (looksLikeLinkOffer(url.trim())) {
             const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput);
             if (tunnel !== undefined && !tunnel.ok) throw new Error(tunnel.message);
-            const paired = await pairLinkOffer(url.trim(), auth, tunnel === undefined ? {} : { tunnelPort: tunnel.localPort });
+            const paired = await pairLinkOffer(url.trim(), auth, {
+                tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,
+                // The Pair button on this screen is the single consent.
+                confirm: async () => true,
+                onProgress: setProgress,
+            });
             if (!paired) {
+                setState((current) => current?.url === url ? { phase: 'confirm', url, machineName: current.machineName ?? 'your computer' } : current);
                 if (tunnel !== undefined) await stopSshTunnel();
                 return;
             }
@@ -219,6 +183,7 @@ export default function PairScreen() {
             return;
         }
         const { url, machineName } = state;
+        setProgress(undefined);
         setState({ phase: 'working', url, machineName: machineName ?? 'this machine' });
         void pair(url, parsedInput.input).catch((cause) => {
             setState({
@@ -278,30 +243,16 @@ export default function PairScreen() {
                             <ActivityIndicator color={styles.progressText.color} />
                             <Text style={styles.progressText}>Pairing…</Text>
                         </View>
-                        {pairingSteps.map((step, index) => (
-                            <View key={step} style={styles.stepRow}>
-                                <Text style={styles.stepIndex}>{index + 1}</Text>
-                                <Text style={styles.stepText}>{step}</Text>
-                            </View>
-                        ))}
+                        <Text accessibilityLiveRegion="polite" style={styles.stepText}>{progress?.title ?? 'Connecting securely to your computer…'}</Text>
+                        {progress?.words && <>
+                            <Text selectable style={styles.machineName}>{progress.words}</Text>
+                            <Text style={styles.stepText}>{pairingView({ phase: 'waiting', hostName: state.machineName, words: progress.words }).title}</Text>
+                            <Text style={styles.routeHint}>Check both words match, then press y on the computer.</Text>
+                        </>}
                     </>
                 ) : state?.phase === 'confirm' ? (
                     <>
-                        <View style={styles.stepGroup}>
-                            <Text style={styles.stepHeading}>{browser ? `This ${browserAuthority === 'control' ? 'control' : 'view-only'} browser will be able to` : 'This phone will be able to'}</Text>
-                            {grants.map((grant) => (
-                                <View key={grant} style={styles.stepRow}>
-                                    <Ionicons name="ellipse" size={6} color={styles.grantDot.color} style={styles.grantBullet} />
-                                    <Text style={styles.grantText}>{grant}</Text>
-                                </View>
-                            ))}
-                        </View>
-                        <View style={styles.securityRow}>
-                            <Ionicons name="lock-closed-outline" size={16} color={styles.securityText.color} />
-                            <Text style={styles.securityText}>
-                                Only continue if you just ran `muxr setup` or `muxr pair` on that computer.
-                            </Text>
-                        </View>
+                        <Text style={styles.grantText}>{pairLinkConsent(state.url, state.machineName)}</Text>
                         {switching && (
                             <View style={styles.securityRow}>
                                 <Ionicons name="swap-horizontal-outline" size={16} color={styles.securityText.color} />
@@ -310,15 +261,6 @@ export default function PairScreen() {
                                 </Text>
                             </View>
                         )}
-                        <View style={styles.stepGroup}>
-                            <Text style={styles.stepHeading}>How it is secured</Text>
-                            {pairingSteps.map((step, index) => (
-                                <View key={step} style={styles.stepRow}>
-                                    <Text style={styles.stepIndex}>{index + 1}</Text>
-                                    <Text style={styles.stepText}>{step}</Text>
-                                </View>
-                            ))}
-                        </View>
                         <ActionButton title="Pair" icon="link-outline" onPress={confirm} />
                         <ActionButton title="Cancel" variant="secondary" onPress={cancel} />
                     </>
@@ -394,7 +336,7 @@ export default function PairScreen() {
                             autoCapitalize="none"
                             autoCorrect={false}
                             keyboardType="url"
-                            placeholder={browser ? 'https://your-relay/pair?pair=7KDM4-QXP7N' : 'wss://your-relay?pair=7KDM4-QXP7N'}
+                            placeholder={browser ? 'https://your-relay/pair#byokit-link:1:…' : 'byokit-link:1:…'}
                             placeholderTextColor={styles.inputPlaceholder.color}
                             returnKeyType="go"
                             style={styles.input}

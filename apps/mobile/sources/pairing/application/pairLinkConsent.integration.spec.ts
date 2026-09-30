@@ -5,18 +5,22 @@ import { pairLinkOffer } from './usePairing';
 const harness = vi.hoisted(() => ({
     device: 'phone' as 'phone' | 'browser',
     machineName: 'Desk',
+    approved: false,
+    alerts: [] as string[],
+    activated: false,
     confirms: [] as Array<{ title: string; body: string }>,
 }));
 
+vi.mock('expo-router', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('expo-camera', () => ({ CameraView: {} }));
 vi.mock('@/account/ui', () => ({ useAuth: () => ({}) }));
 vi.mock('@/modal', () => ({
     Modal: {
         confirm: async (title: string, body: string) => {
             harness.confirms.push({ title, body });
-            return false;
+            return harness.approved;
         },
-        alert: async () => undefined,
+        alert: async (title: string) => { harness.alerts.push(title); },
     },
 }));
 vi.mock('../infrastructure/pairingPlatform', () => ({
@@ -24,12 +28,14 @@ vi.mock('../infrastructure/pairingPlatform', () => ({
 }));
 vi.mock('./linkPairing', () => ({
     linkPairMachineName: async () => harness.machineName,
-    pairOverLink: async () => {
-        throw new Error('must not pair after the user declines');
+    pairOverLink: async (_scanned: string, options: { onWords: (words: string) => void }) => {
+        if (!harness.approved) throw new Error('must not pair after the user declines');
+        options.onWords('spark castle');
+        return { machineName: harness.machineName };
     },
 }));
 vi.mock('./useCheckCameraPermissions', () => ({ useCheckScannerPermissions: () => async () => true }));
-vi.mock('./PairMachine', () => ({ pairMachine: async () => ({ ok: false }) }));
+vi.mock('./PairMachine', () => ({ pairMachine: async () => { harness.activated = true; return { ok: true, credential: 'credential', secretKey: 'key' }; } }));
 vi.mock('./deliverScannedPairing', () => ({ deliverScannedPairingLink: async () => undefined }));
 
 function linkOffer(payload: Record<string, unknown>): string {
@@ -39,6 +45,9 @@ function linkOffer(payload: Record<string, unknown>): string {
 
 beforeEach(() => {
     harness.confirms.length = 0;
+    harness.alerts.length = 0;
+    harness.approved = false;
+    harness.activated = false;
     harness.device = 'phone';
     harness.machineName = 'Desk';
 });
@@ -78,4 +87,27 @@ describe('pairLinkOffer consent', () => {
         expect(harness.confirms[0]?.body).toContain('will receive the access shown on the pairing screen');
         expect(harness.confirms[0]?.body).not.toContain('see and change');
     });
+});
+
+// The screen's Pair press owns consent; progress must never leave an alert over Home.
+it('pairs after one screen consent, shows words inline, and activates without another tap', async () => {
+    harness.approved = true;
+    const progress: Array<{ phase: string; title: string; words?: string }> = [];
+    const login = vi.fn(async () => undefined);
+    const consent = vi.fn(async () => true);
+    const paired = await pairLinkOffer(linkOffer({ role: 'control', name: 'Desk' }), { login } as never, {
+        confirm: consent,
+        onProgress: (view) => progress.push(view),
+    });
+    expect(paired).toBe(true);
+    expect(consent).toHaveBeenCalledTimes(1);
+    expect(consent).toHaveBeenCalledWith('Pair with Desk?', expect.stringContaining('see and change things on it'));
+    expect(harness.confirms).toHaveLength(0);
+    expect(progress).toEqual([
+        expect.objectContaining({ phase: 'compare', words: 'spark castle' }),
+        expect.objectContaining({ phase: 'paired', title: 'This phone is paired with Desk.' }),
+    ]);
+    expect(harness.activated).toBe(true);
+    expect(login).toHaveBeenCalledWith('credential', 'key');
+    expect(harness.alerts).toHaveLength(0);
 });
