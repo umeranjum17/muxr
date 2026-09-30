@@ -82,11 +82,10 @@ function parseEventBlock(block) {
 }
 
 /**
- * Kit gaps in 0.6.0: respond has no parallel_tool_calls option, response byte
- * bound or redirect policy and treats response.incomplete as success. This fetch
- * guard adds that option and owns admission and stream cleanup; the kit owns
- * headers, the remaining request shape, SSE output
- * parsing and provider errors. No output is executed until respond succeeds.
+ * Keep planning serial, bounded and redirect-free, and close the stream when
+ * completion arrives rather than waiting for EOF. The kit owns request headers
+ * and SSE parsing; no output is executed until respond succeeds. See README.md
+ * for the accounts integration and remaining kit gaps.
  */
 async function planningFetch(url, options, ownReader) {
     const requestBody = JSON.stringify({ ...JSON.parse(options.body), parallel_tool_calls: false });
@@ -182,7 +181,7 @@ async function planTurn({ credential, input, model, signal }) {
         if (httpStatus) return { items: [], terminal: { kind: 'http', status: httpStatus, detail: cleanProviderProse(error.message, '', 200) } };
         return { items: [], terminal: { kind: 'failed' } };
     } finally {
-        // 0.6.0 respond waits for EOF and does not cancel on SSE parse errors.
+        // Release the upstream reader even if the kit exits on a parse error.
         await cancelResponse?.();
     }
 }
