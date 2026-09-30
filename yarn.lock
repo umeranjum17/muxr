@@ -1106,21 +1106,21 @@
   dependencies:
     "@earendil-works/pi-ai" "0.87.1"
 
-"@byokit/herdr@0.1.6":
-  version "0.1.6"
-  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.6.tgz#cf415b22e46b6d98aba2b12ebbb3593c13c33e6a"
-  integrity sha512-OxzEYSVI++8zF4ZMDdhxQZ5hUyc4Yl4O9q0cKCLM0mc3IFqLiPs9lD80mEr+s7iFnrnZhfkpqKO6bGKxsIorww==
+"@byokit/herdr@0.1.10":
+  version "0.1.10"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.10.tgz#d1856bcbf8e95af3057484157e452b98f8f93343"
+  integrity sha512-Vt+7DiNHB1MhYcw7Vs/Ho3QEBtF1hj+OB7+v7kg1EPCZiE5UbJ3hFpO/jyCufItPoBHwtmP5gn7JyPONQs22rQ==
   dependencies:
-    "@byokit/link" "0.4.0"
-    "@byokit/reach" "0.3.0"
-    "@byokit/relay" "0.3.0"
+    "@byokit/link" "0.6.0"
+    "@byokit/reach" "0.4.0"
+    "@byokit/relay" "0.4.2"
     "@byokit/seal" "0.2.0"
     ws "8.21.3"
 
-"@byokit/link@0.4.0":
-  version "0.4.0"
-  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.4.0.tgz#c1932e4fbf2388fd273abbfc7a95eeeb25497fca"
-  integrity sha512-WpSLY1mjndljkHITe/EmBgR3oCA62ixMzRLKv+I3o2nW5ejtnCCt6EbN6c6aexejLBHwr5xF0NwqmfzHH+MvVg==
+"@byokit/link@0.6.0":
+  version "0.6.0"
+  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.6.0.tgz#db6ef52e4761b98f2836d1bd66fc8b12ec8c9f55"
+  integrity sha512-egk/SqqfTksGrB/SrdrRz+oLPlCoZvvsZ0/oLDSJCaXzTocL1WGdgQlkYwHsLt8fT/bCRc76UjMPG16YtnWIKw==
   dependencies:
     "@noble/ciphers" "2.4.0"
     b4a "1.9.0"
@@ -1137,12 +1137,20 @@
     bonjour-service "^1.4.4"
     react-native-zeroconf "0.14.0"
 
-"@byokit/relay@0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.3.0.tgz#69684de0589b078302efbef797676c34f88ea3b5"
-  integrity sha512-e3GuGgSZGmjPi9ahdgphvzMN6PbWs84JMPscf6z7TweDiXeARgV5HrBKi7EyXkMbqiPm908qf4tS7Le2mqi1Og==
+"@byokit/reach@0.4.0":
+  version "0.4.0"
+  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.4.0.tgz#39452973301c5942b63788632b9d6e696b363850"
+  integrity sha512-12kAxesXSTovENDNwO+qcy6XuygRyx4ounb6qQtrwWKhLk+kZp498VDTdAeh4ds0WmIesUUSF7t9FLF2j/6tNg==
   dependencies:
-    "@byokit/link" "0.4.0"
+    bonjour-service "^1.4.4"
+    react-native-zeroconf "0.14.0"
+
+"@byokit/relay@0.4.2":
+  version "0.4.2"
+  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.4.2.tgz#b192e0a2e9fa4238f895d7d001ee3992682a3f89"
+  integrity sha512-+grFHuYT2iYpfsxhxnLNgukur4QVMEtHMgBWA4pbMAMk6oZMV0Wmp0oi2CByyZus6W4/LOOh4Al2L03B6Cjbeg==
+  dependencies:
+    "@byokit/link" "0.6.0"
     web-push "3.6.7"
     ws "8.21.3"
 
