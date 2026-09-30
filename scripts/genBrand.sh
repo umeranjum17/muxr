@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Generate muxr brand assets. Regenerate with: bash scripts/genBrand.sh
+# OUT overrides only the source-image destination; regeneration also updates
+# the checked-in native, public web and Play Store icons at their fixed paths.
 #
 # Wordmark and glyph are rasterised small from a pixel font, upscaled with
 # point sampling, then a gap is knocked out of each cell so the pixels read as

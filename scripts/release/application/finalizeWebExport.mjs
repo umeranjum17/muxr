@@ -4,13 +4,14 @@
  *
  * `expo export` with `web.output: "single"` renders its own SPA template
  * and never consults a +html.tsx, so the install metadata the PWA needs
- * (manifest link, Apple web-app meta, touch icon, the keyboard-resizing
+ * (manifest link, Apple web-app meta, touch icon, favicon, the keyboard-resizing
  * viewport) has to be written into the built file. This runs right after
  * the export as part of `web:export`, so every consumer of dist/ -- the
  * self-host deploy, the demo, the diagnostics -- receives the same shell.
  *
- * Idempotent: a re-run replaces its own block. Fails closed: an index.html
- * without the shape it expects (one <head>, one viewport meta) aborts the
+ * Idempotent: a re-run replaces its own block and Expo's favicon link, leaving
+ * one icon link for the runtime attention switcher to update. Fails closed:
+ * an index.html without the shape it expects (one <head>, one viewport meta) aborts the
  * export rather than shipping a shell that would install without a manifest.
  * Adds no scripts, so the CSP (script-src 'self') is untouched.
  */
