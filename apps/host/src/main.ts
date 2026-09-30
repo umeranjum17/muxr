@@ -225,7 +225,7 @@ function readAuthStates() {
         // Deterministic auth faults cannot heal by restarting. Transient I/O
         // errors remain failures so the service manager may retry.
         const code = (error as NodeJS.ErrnoException)?.code;
-        if (process.argv.includes('--retire-machine-peers')) process.exit(1);
+        if (process.argv.includes('--retire-machine-peers') || process.argv.includes('--check-host-stopped')) process.exit(1);
         process.exit(error instanceof NonRecoverableAuthError || code === 'EACCES' || code === 'EPERM' ? 0 : 1);
     }
 }
@@ -292,6 +292,7 @@ const peerRelayUrl = targetPeerRelayUrl(selfhostAuth, relayUrl);
 const token = selfhostAuth?.mintSecret ?? selfhostAuth?.machineCredential;
 if (mode === 'selfhost' && selfhostAuth === undefined) {
     process.stderr.write('selfhost mode requires muxr setup state; run `muxr doctor`\n');
+    if (process.argv.includes('--retire-machine-peers') || process.argv.includes('--check-host-stopped')) process.exit(1);
     process.exit(0);
 }
 
@@ -299,7 +300,7 @@ if (mode === 'selfhost' && selfhostAuth === undefined) {
 const stateFilePolls: Array<StatWatcher | NodeJS.Timeout> = [];
 
 async function main(): Promise<void> {
-    if (process.argv.includes('--retire-machine-peers')) {
+    if (process.argv.includes('--retire-machine-peers') || process.argv.includes('--check-host-stopped')) {
         for (const socketPath of [join(dataDir, 'pair.sock'), join(dataDir, 'peer', 'broker.sock')]) {
             if (!existsSync(socketPath)) continue;
             const info = lstatSync(socketPath);
@@ -323,7 +324,12 @@ async function main(): Promise<void> {
                 });
             });
         }
-        const retired = await retireMachinePeers(join(dataDir, 'peer'));
+        if (process.argv.includes('--check-host-stopped')) {
+            process.stdout.write(`  ✓ host stopped in ${dataDir}\n`);
+            return;
+        }
+        if (selfhostAuth === undefined) throw new Error('machine pairing state is required for peer retirement');
+        const retired = await retireMachinePeers(join(dataDir, 'peer'), selfhostAuth.machine.crypto);
         process.stdout.write(`  ✓ ${retired} inbound peer relationship(s) retired in ${dataDir}\n`);
         return;
     }

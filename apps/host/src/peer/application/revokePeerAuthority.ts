@@ -1,5 +1,5 @@
 import type { PeerClientRequest, PeerRequestResult } from '@trymuxr/contract';
-import type { MachinePendingRotation } from '../../machine/index.js';
+import type { MachineCryptoState, MachinePendingRotation } from '../../machine/index.js';
 import { PeerStore, type StoredPendingAuthorization, type StoredPeerRelationship } from '../infrastructure/store.js';
 
 export type RevokePeerAuthorityCommand = Extract<PeerClientRequest, { type: 'peer.revoke' }>['params'];
@@ -58,7 +58,8 @@ export async function revokePeerAuthority(
     return { state: 'revoked', revokedAt: fleet.now(), ...(relationship.authority === undefined ? {} : { authority: relationship.authority }) };
 }
 
-export async function retireMachinePeers(dataDir: string): Promise<number> {
+export async function retireMachinePeers(dataDir: string, crypto: MachineCryptoState): Promise<number> {
+    if (crypto.devices.length !== 0 || crypto.pendingRotation !== undefined) throw new Error('remove machine device grants before retiring peer relationships');
     const store = new PeerStore(dataDir);
     let retired = 0;
     for (const relationship of store.list().peers) {

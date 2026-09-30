@@ -144,7 +144,8 @@ keep their quotas rather than having them reset.
 
   If the machine's secret keys were exposed, replace them. Every device pinned
   the old key, so all of them pair again afterwards. Rotation stops a running
-  muxr service, replaces the keys, starts it again, then waits for the relay
+  muxr service, replaces the keys, retires inbound peer records, starts it
+  again, then waits for the relay
   and retires the old host registration. Stop any foreground muxr host first;
   rotation refuses while its local sockets still accept connections. Inbound
   peer collaborations are retired with their grants and can be set up again
@@ -160,7 +161,10 @@ keep their quotas rather than having them reset.
   directory used for socket checks and peer retirement. Directory resolution
   follows the host: flag, `MUXR_DATA_DIR`, `config.json`, then the default.
 
-  If retirement fails, the replacement keys remain in place. The error names
+  If key replacement or peer cleanup fails, the service remains stopped.
+  Resolve the storage failure and complete rotation before starting it again.
+
+  If relay retirement fails, the replacement keys remain in place. The error names
   the old host ID; restore relay access and retry the reported DELETE with the
   relay owner credential to remove that registration.
 

@@ -26,24 +26,24 @@ export async function rotateMachineKeys(args = []) {
             const oldHost = hostId(Buffer.from(old.boxPublicKey, 'base64'));
             const wasRunning = daemonIsRunning();
             if (wasRunning && await runDaemon(['stop']) !== 0) throw new Error('could not stop the muxr service; machine keys were not rotated');
-            try {
-                const dataDir = flagValue(args, '--data-dir');
-                const peerArgs = [hostEntry(), '--retire-machine-peers'];
-                if (dataDir !== undefined) peerArgs.push('--data-dir', dataDir);
-                const peers = run(process.execPath, peerArgs);
-                if (!peers.ok) throw new Error(peers.stderr || 'could not retire machine peer relationships');
-                print(peers.stdout);
-                const fresh = machineIdentity(undefined).crypto;
-                state.machine.publicKey = fresh.signingPublicKey;
-                state.machine.crypto = { ...fresh, keyVersion: old.keyVersion + 1 };
-                writeSelfhostState(state);
-                print(`  ✓ signing key ${fingerprint(old.signingPublicKey)} → ${fingerprint(fresh.signingPublicKey)}`);
-                print(`  ✓ box key (host ${oldHost}) → host ${hostId(Buffer.from(fresh.boxPublicKey, 'base64'))}`);
-                print(`  ✓ data key replaced; key version ${old.keyVersion} → ${old.keyVersion + 1}`);
-                print(`  ✓ ${old.devices.length} device pairing(s) removed`);
-            } finally {
-                if (wasRunning && await runDaemon(['start']) !== 0) throw new Error(`could not start the muxr service; old host ${oldHost} is still registered on the relay; run \`muxr daemon start\`, then retry retirement of that host`);
-            }
+            const dataDir = flagValue(args, '--data-dir');
+            const hostArgs = [hostEntry()];
+            if (dataDir !== undefined) hostArgs.push('--data-dir', dataDir);
+            const stopped = run(process.execPath, [...hostArgs, '--check-host-stopped']);
+            if (!stopped.ok) throw new Error(stopped.stderr || 'could not verify host quiescence; the muxr service was left stopped');
+            print(stopped.stdout);
+            const fresh = machineIdentity(undefined).crypto;
+            state.machine.publicKey = fresh.signingPublicKey;
+            state.machine.crypto = { ...fresh, keyVersion: old.keyVersion + 1 };
+            writeSelfhostState(state);
+            print(`  ✓ signing key ${fingerprint(old.signingPublicKey)} → ${fingerprint(fresh.signingPublicKey)}`);
+            print(`  ✓ box key (host ${oldHost}) → host ${hostId(Buffer.from(fresh.boxPublicKey, 'base64'))}`);
+            print(`  ✓ data key replaced; key version ${old.keyVersion} → ${old.keyVersion + 1}`);
+            print(`  ✓ ${old.devices.length} device pairing(s) removed`);
+            const peers = run(process.execPath, [...hostArgs, '--retire-machine-peers']);
+            if (!peers.ok) throw new Error(`peer cleanup incomplete; the muxr service was left stopped: ${peers.stderr || 'could not retire machine peer relationships'}`);
+            print(peers.stdout);
+            if (wasRunning && await runDaemon(['start']) !== 0) throw new Error(`could not start the muxr service; old host ${oldHost} is still registered on the relay; run \`muxr daemon start\`, then retry retirement of that host`);
             try {
                 const deadline = Date.now() + 30_000;
                 for (;;) {
