@@ -10,11 +10,19 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
 import { autoTermsAcknowledged, loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
 
-const mockState = vi.hoisted(() => ({ failRename: false }));
+const mockState = vi.hoisted(() => ({ failRename: false, failRefreshAllocation: false, failRefreshCleanup: false }));
 vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal<typeof import('node:fs')>();
     return {
         ...actual,
+        mkdtempSync: (...args: Parameters<typeof actual.mkdtempSync>) => {
+            if (mockState.failRefreshAllocation && String(args[0]).includes('muxr-usage-refresh-')) throw new Error('temporary storage unavailable');
+            return actual.mkdtempSync(...args);
+        },
+        rmSync: (...args: Parameters<typeof actual.rmSync>) => {
+            actual.rmSync(...args);
+            if (mockState.failRefreshCleanup && String(args[0]).includes('muxr-usage-refresh-')) throw new Error('temporary cleanup failed');
+        },
         renameSync: (...args: Parameters<typeof actual.renameSync>) => {
             if (mockState.failRename) throw new Error('crash before rename');
             return actual.renameSync(...args);
@@ -69,6 +77,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    mockState.failRefreshAllocation = false;
+    mockState.failRefreshCleanup = false;
     rmSync(root, { recursive: true, force: true });
 });
 
@@ -166,6 +176,18 @@ it('keeps selected Codex sign-ins separate through switches and failed reads', a
     expect(listed.providers.map((entry) => entry.provider)).toEqual(['codex']);
     expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual(['.codex@example.com', 'tight@example.com']);
     expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
+    mockState.failRefreshAllocation = true;
+    const unavailable = (await listPlans(env)).providers[0]!.accounts;
+    expect(unavailable.map((account) => account.email)).toEqual(['.codex@example.com', 'tight@example.com']);
+    expect(unavailable.map((account) => account.signedIn)).toEqual([true, true]);
+    expect(unavailable.map((account) => account.roomLeftPercent)).toEqual([undefined, undefined]);
+    expect((await resolvePlanLaunch(env, 'pa_x', 'codex'))?.id).toBe('pa_x');
+    expect(await resolvePlanLaunch(env, 'auto', 'codex')).toBeDefined();
+    mockState.failRefreshAllocation = false;
+    mockState.failRefreshCleanup = true;
+    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
+    expect((await resolvePlanLaunch(env, 'auto', 'codex'))?.id).toBe('found-codex');
+    mockState.failRefreshCleanup = false;
     const { collectUsage } = await import('../usage/index.js');
     const selected = { ...env, ...resolvePlanEnv(env, 'pa_x') };
     expect((await collectUsage({ provider: 'codex' }, selected)).limits.windows.map((window) => window.used)).toEqual([90]);
