@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { respond } from '@byokit/accounts';
-import { voiceTools } from './toolRuntime.mjs';
+import { voiceTools } from './voiceTools.mjs';
 import { appControlInstructions, cleanProviderProse, safeVoiceToolFailure, voiceCoordinationInstructions } from './coordinatorPolicy.mjs';
 
 /**
@@ -40,7 +40,7 @@ const MAX_MODEL_TURNS = 4;
 const MAX_TOOL_CALLS = 8;
 const TURN_TIMEOUT_MS = 90000;
 // Covers the longest host watch (290s) plus one further planning turn.
-const RUN_DEADLINE_MS = 340000;
+export const RUN_DEADLINE_MS = 340_000;
 const ANSWER_MAX_CHARS = 1200;
 const TOOL_OUTPUT_MAX_BYTES = 8000;
 const HISTORY_MAX_ITEMS = 30;
