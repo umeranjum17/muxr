@@ -108,6 +108,8 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
     // The latest reading: how far it reached and what it heard.
     let readTo = 0;
     let previewFrom = 0;
+    let previewChunk = 0;
+    let readChunk = 0;
     let prefix = '';
     let heard = '';
     let shown = '';
@@ -129,7 +131,8 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
 
     const read = async (context: WhisperContext, to: number, live: boolean) => {
         const from = live ? previewFrom : 0;
-        const job = context.transcribeData(pcm16ChunksToArrayBuffer(chunks).slice(from, to), {
+        const chunkCount = chunks.length;
+        const job = context.transcribeData(pcm16ChunksToArrayBuffer(live ? chunks.slice(previewChunk, chunkCount) : chunks), {
             language,
             maxThreads: THREADS,
             ...(live ? { audioCtx: audioContextFor(to - from) } : {}),
@@ -143,6 +146,7 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
             shown = recording ? settleWords(shown, heard, result.trim()) : result.trim();
             heard = result.trim();
             readTo = to;
+            readChunk = chunkCount;
             return true;
         } finally {
             reading = null;
@@ -156,6 +160,7 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
         if (total - previewFrom > LIVE_WINDOW_BYTES) {
             prefix = [prefix, shown].filter(Boolean).join(' ');
             previewFrom = readTo;
+            previewChunk = readChunk;
             heard = '';
             shown = '';
         }
