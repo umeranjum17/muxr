@@ -164,9 +164,7 @@ function fail(requestId: string, error: unknown, code?: string): RequestResponse
 
 function fromCaught(requestId: string, error: unknown): RequestResponse {
     const code = (error as { code?: unknown }).code;
-    const response = fail(requestId, error, typeof code === 'string' ? code : undefined);
-    const sessionId = (error as { sessionId?: unknown }).sessionId;
-    return code === 'plan-move-start-failed' && typeof sessionId === 'string' ? { ...response, sessionId } : response;
+    return fail(requestId, error, typeof code === 'string' ? code : undefined);
 }
 
 type UseCaseResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
@@ -609,15 +607,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             } catch (error) {
                 if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
                     const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
-                    const sessionId = (error as { sessionId?: unknown }).sessionId;
-                    const folder = (error as { planFolder?: unknown }).planFolder;
-                    const actual = loadPlanAccounts(process.env).find((account) => account.folder === folder);
-                    if (typeof sessionId === 'string' && actual !== undefined) {
-                        await rememberPane(await planPaneOf(sessionId), actual.id);
-                    }
-                    throw Object.assign(new Error(`Couldn't start on ${name}. Try again or go back.`), {
+                    throw Object.assign(new Error(`Couldn't start on ${name}. The original conversation is still running. Try again.`), {
                         code: 'plan-move-start-failed',
-                        ...(typeof sessionId === 'string' ? { sessionId } : {}),
                     });
                 }
                 throw error;

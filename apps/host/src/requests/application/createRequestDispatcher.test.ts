@@ -574,13 +574,14 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
 
             const failing = {
                 async movePlanAccount() {
-                    throw Object.assign(new Error('The agent did not start on the new account.'), { code: 'plan-move-start-failed', sessionId: 'surviving-shell' });
+                    throw Object.assign(new Error('The agent did not start on the new account.'), { code: 'plan-move-start-failed' });
                 },
             } as unknown as SessionSource;
             const { dispatch: dispatchFailing } = createRequestDispatcher({ source: failing, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
             const failed = await dispatchFailing({ type: 'plans.move', requestId: 'm2', params: { sessionId: 's1', accountId: 'pa_w' } });
-            expect(failed).toMatchObject({ ok: false, code: 'plan-move-start-failed', sessionId: 'surviving-shell' });
+            expect(failed).toMatchObject({ ok: false, code: 'plan-move-start-failed' });
             expect(String((failed as { error: string }).error)).toContain("Couldn't start on Work");
+            expect(failed).not.toHaveProperty('sessionId');
         } finally {
             if (keepHome === undefined) delete process.env.HOME;
             else process.env.HOME = keepHome;

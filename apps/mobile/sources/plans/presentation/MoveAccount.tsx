@@ -128,27 +128,9 @@ export function MoveSheet() {
             showNotice(`Moved to ${target.name}`, `Same conversation${current ? ` · ${current.name} is free again` : ''}`, true);
         } catch (error) {
             if (!samePlanConnection(moving.connection)) return;
-            const recovery = (error as { sessionId?: unknown }).sessionId;
-            if (typeof recovery === 'string' && recovery !== moving.sessionId) {
-                let currentId: string | undefined;
-                try {
-                    currentId = await agentAccount(recovery, moving.connection);
-                } catch {
-                    if (!samePlanConnection(moving.connection)) return;
-                    close();
-                    navigateToSession(router, recovery);
-                    Modal.alert("Couldn't move", planFailure(error));
-                    return;
-                }
-                if (!samePlanConnection(moving.connection)) return;
-                useMoving.setState({ moving: { ...moving, sessionId: recovery, currentId } });
-                navigateToSession(router, recovery);
-            }
             setBusy(false);
             const said = planFailure(error);
-            // A failed start may have left the conversation elsewhere; the host's sentence says where.
-            const startFailed = (error as { code?: unknown }).code === 'plan-move-start-failed' || said.startsWith("Couldn't start on");
-            Modal.alert(`Couldn't move to ${target.name}`, `${said}${current && !startFailed ? ` The conversation is still on ${current.name}.` : ''}`);
+            Modal.alert(`Couldn't move to ${target.name}`, `${said}${current ? ` The conversation is still on ${current.name}.` : ''}`);
         }
     };
 

@@ -86,9 +86,9 @@ describe('which account a launch carries', () => {
         planConnection();
         acknowledgeOld();
         await expect(acknowledgment).rejects.toThrow('computer changed');
-        const recovery = Object.assign(new Error('Move failed'), { code: 'plan-move-start-failed', sessionId: 'surviving-shell' });
-        request.mockRejectedValueOnce(recovery);
-        await expect(moveAgent('original', 'pa_work')).rejects.toMatchObject({ sessionId: 'surviving-shell' });
+        const failure = Object.assign(new Error('Original conversation still running'), { code: 'plan-move-start-failed' });
+        request.mockRejectedValueOnce(failure);
+        await expect(moveAgent('original', 'pa_work')).rejects.toMatchObject({ code: 'plan-move-start-failed' });
 
         // A host without plans.list answers an error: every launch is today's.
         request.mockRejectedValueOnce(new Error('host-contract-mismatch'));
