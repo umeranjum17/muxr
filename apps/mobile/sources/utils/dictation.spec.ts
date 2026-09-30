@@ -226,7 +226,7 @@ describe('on-device dictation flow', () => {
         // Words reach the draft while the speaker is still going. They only
         // ever grow, and a half-heard word the next reading disagrees with
         // never shows.
-        await act(async () => { await say(4); });
+        await act(async () => { await say(34); });
         const heard = appended.slice();
         expect(heard.length).toBeGreaterThan(1);
         heard.reduce((previous, next) => {
@@ -234,6 +234,9 @@ describe('on-device dictation flow', () => {
             return next;
         }, 'hello');
         expect(heard.join(' ')).not.toMatch(/\b(hm|uh|er)\b/);
+        const liveCalls = mocks.transcribe.mock.calls.slice();
+        expect(liveCalls.length).toBeGreaterThan(2);
+        expect(liveCalls.every(([data, options]) => 'audioCtx' in options && data.byteLength <= 30 * 32_000)).toBe(true);
 
         // Stopping reads everything once more, in English and with the full
         // window: the window sized to the audio that the live words use can
@@ -246,6 +249,7 @@ describe('on-device dictation flow', () => {
         expect(mocks.transcribe).toHaveBeenCalledTimes(readings + 1);
         expect(mocks.transcribe.mock.calls.at(-1)![1]).not.toHaveProperty('audioCtx');
         expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en' });
+        expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(35.5 * 32_000);
         expect(appended.at(-1)).toBe('hello one two three 4 five six seven eight');
         expect(api!.live).toBe('');
         expect(api!.transcribing).toBe(false);

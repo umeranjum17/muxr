@@ -7,6 +7,7 @@ import { BUNDLED_DICTATION_MODEL_ID, getInstalledDictationModelUri } from '@/uti
 import { bundledDictationModel } from '@/utils/dictationModelFiles';
 
 const BYTES_PER_SECOND = 16_000 * 2;
+const LIVE_WINDOW_BYTES = 30 * BYTES_PER_SECOND;
 // Read what has been said again once this much more has arrived.
 const READ_EVERY_BYTES = BYTES_PER_SECOND;
 // Below this level a chunk holds no speech.
@@ -106,12 +107,15 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
     let cancelled = false;
     // The latest reading: how far it reached and what it heard.
     let readTo = 0;
+    let previewFrom = 0;
+    let prefix = '';
     let heard = '';
     let shown = '';
     let reading: { stop: () => Promise<void>; done: Promise<void> } | null = null;
 
     const spokenAfter = (at: number) => levels.some(({ level, end }) => end > at && level >= SILENT_LEVEL);
     const text = (said: string) => applyWordReplacements(said, replacements).trim();
+    const liveText = () => [prefix, shown].filter(Boolean).join(' ');
 
     const model = previousDone.then(() => acquireModel(modelId));
     let released!: () => void;
@@ -124,10 +128,11 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
     };
 
     const read = async (context: WhisperContext, to: number, live: boolean) => {
-        const job = context.transcribeData(pcm16ChunksToArrayBuffer(chunks).slice(0, to), {
+        const from = live ? previewFrom : 0;
+        const job = context.transcribeData(pcm16ChunksToArrayBuffer(chunks).slice(from, to), {
             language,
             maxThreads: THREADS,
-            ...(live ? { audioCtx: audioContextFor(to) } : {}),
+            ...(live ? { audioCtx: audioContextFor(to - from) } : {}),
             prompt: hint,
         });
         const done = job.promise.then(() => undefined, () => undefined);
@@ -148,10 +153,16 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
         if (!recording || reading !== null || total - readTo < READ_EVERY_BYTES) return;
         // Nothing new has been said; the last reading still stands.
         if (!spokenAfter(readTo)) return;
+        if (total - previewFrom > LIVE_WINDOW_BYTES) {
+            prefix = [prefix, shown].filter(Boolean).join(' ');
+            previewFrom = readTo;
+            heard = '';
+            shown = '';
+        }
         void model.then(async (context) => {
             if (!recording || reading !== null) return;
             if (await read(context, total, true).catch(() => false)) {
-                if (recording && !cancelled) onText(text(shown));
+                if (recording && !cancelled) onText(text(liveText()));
             }
             follow();
         }, () => undefined);
