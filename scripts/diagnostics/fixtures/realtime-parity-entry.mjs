@@ -4,10 +4,10 @@
  *
  * Runs as the real host's plugin-stream child, so it holds the real
  * MUXR_VOICE_COORDINATOR_SOCKET / MUXR_VOICE_COORDINATOR_CAPABILITY the host
- * issued for this stream. It drives the real provider-facing tool runtime
- * (apps/host/src/voice/toolRuntime.mjs -> coordinatorPolicy.mjs) exactly as a provider
- * adapter does, one tool call at a time, and reports the real coordinator
- * results over the real stream.
+ * issued for this stream. It drives the real provider-facing tools
+ * (@byokit/realtime's toolBridge over apps/host/src/voice/voiceTools.mjs ->
+ * coordinatorPolicy.mjs) exactly as an engine does, one tool call at a time,
+ * and reports the real coordinator results over the real stream.
  *
  * Only the LLM's token choice is scripted here; every layer below the model is
  * production code talking to real Herdr.
@@ -22,11 +22,12 @@ const config = JSON.parse(readFileSync(join(stateDir, 'parity-config.json'), 'ut
 const root = process.cwd();
 const agent = config.agent;
 const evidencePath = join(stateDir, 'child-result.json');
-const { createVoiceTools } = await import(`${root}/apps/host/src/voice/toolRuntime.mjs`);
+const { appBridge, toolBridge } = await import('@byokit/realtime/node');
+const { voiceToolFailure, voiceToolHandlers, voiceTools } = await import(`${root}/apps/host/src/voice/voiceTools.mjs`);
 const { runCodingTool } = await import(`${root}/apps/host/src/voice/coordinatorPolicy.mjs`);
 
 const emit = (frame) => process.stdout.write(`${JSON.stringify(frame)}\n`);
-const tools = createVoiceTools(emit, { timeoutMs: 150000 });
+const tools = toolBridge({ emit, tools: voiceTools, handlers: voiceToolHandlers(appBridge(emit)), timeoutFor: () => 150000, failure: voiceToolFailure });
 const results = [];
 const record = (step, value, error) => {
     results.push({ step, ...(error === undefined ? { value } : { error: String(error) }) });

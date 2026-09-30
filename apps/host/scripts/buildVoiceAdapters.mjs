@@ -1,6 +1,6 @@
 /**
  * The realtime voice adapters stay ESM: `stream.mjs` is spawned as a child
- * process and imports its providers by relative path. tsc only emits the
+ * process and imports its modules by relative path. tsc only emits the
  * TypeScript facade, so stage the runtime next to it. Only runtime files are
  * touched; the compiled facade is left alone.
  */
