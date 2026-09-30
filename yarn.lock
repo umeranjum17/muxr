@@ -1210,24 +1210,30 @@
   resolved "https://registry.yarnpkg.com/@chevrotain/types/-/types-11.1.2.tgz#e83a1a2704f0c5e49e7592b214031a0f4a34d7e5"
   integrity sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==
 
-"@desklink/host-linux-x64-gnu@0.2.0":
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.2.0.tgz#f98a93552e0bbeea2fce1f5c092cee2a4fbb71d8"
-  integrity sha512-cJeEAN0GUBREA+4RtzOmvTbVzbt7Fl7X5iuNLndTWVkb7YlSaOWErMyB/dbP2H8ubcWmTbrMabZirtvypQldEw==
+"@desklink/host-darwin-arm64@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.3.0.tgz#e9fbab64b2e3cdf6833730747c2f0f0ffb195880"
+  integrity sha512-+w19ZRRttZMS22Bbq1raNyxMt1b2A1djm0kS/a28lYFu6rrpIRFmzLtMVz8OKNmsDwdxw13cloO7ixK6Bdqssw==
 
-"@desklink/host@0.2.0":
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.2.0.tgz#7cca41c4d6ace00b5a4ab08719982424b11d39c0"
-  integrity sha512-fXgsu7KEEuDbicz23itGlc2nzDuZZMSjkVNYxOaP76TkB9x15QDRhkQOUmAaBKEJRcBhWPPYo290QiHXAoBLHw==
+"@desklink/host-linux-x64-gnu@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.3.0.tgz#6fafe8472325cd0c1c1ea214b67ce3c7dfe6b812"
+  integrity sha512-rNl3W7Zww543GtShlBpqnUXvLCHLwCVGcV0DWkCe4fdEDDLdBP3984emzrF3ER2isl2DpaorsecwrH82h8/FUA==
+
+"@desklink/host@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.3.0.tgz#58a964599fa6010b4b1625198d7511de5a25db95"
+  integrity sha512-DYhKfivubtblgL6E4hI8qy1slQM3hPNe0TUOBg3d/h7ZwA0Lf5SNKeOIXgAi9IVIst8Vw/3hsYoVAV4gPylKSw==
   dependencies:
     ws "^8.18.0"
   optionalDependencies:
-    "@desklink/host-linux-x64-gnu" "0.2.0"
+    "@desklink/host-darwin-arm64" "0.3.0"
+    "@desklink/host-linux-x64-gnu" "0.3.0"
 
-"@desklink/react-native@0.2.0":
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.2.0.tgz#5c6a459c35c094a449938dd228c103064bceb436"
-  integrity sha512-qhAif5ZIqr5f61t5XwXCjINryThlovUztmmPPSK56Oq58Jz+cqs+mk5PyIBc4CiB97D3Trlj7hse7yMOjkLR6w==
+"@desklink/react-native@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@desklink/react-native/-/react-native-0.3.0.tgz#9914a1c0179a1e69a00fe517f49ecf287f1c9ece"
+  integrity sha512-CKhNL64waY3F0XbDRrnJ59qXdM82KDa6Uc6VsowH9IGV/fhdt6EA8GUGnMkh5xcvrXN5XEPpj4qrWRBp5NGAZA==
 
 "@earendil-works/pi-ai@0.87.1":
   version "0.87.1"

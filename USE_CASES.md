@@ -80,7 +80,7 @@ These operations exist in host/mobile (not rewritten here). Navigate by contract
 
 | Capability | Where the behavior lives | Adapters |
 |---|---|---|
-| Start Agent from the phone | `apps/host` `session.start` / Herdr `agent.start` | mobile session actions |
+| Start Agent from the phone | `apps/host` `session.start` ([Herdr mapping](docs/ARCHITECTURE.md#model-mapping)) | mobile session actions |
 | Open terminal | [terminal transport](docs/ARCHITECTURE.md#what-the-relay-does), mobile renderer | `kernel.navigate` session |
 
 | Grant / revoke peer authority | `apps/host` peer grants | Settings → Computer collaboration |

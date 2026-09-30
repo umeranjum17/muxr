@@ -121,8 +121,10 @@ the terminal, so port 22 is the only inbound port the server needs.
 3. Pair the Android app with **Connect over SSH** ([Direct SSH from Android](#direct-ssh-from-android)),
    open an agent, and tap **Computer**.
 
-The prebuilt desktop engine is Linux x64 (glibc 2.36 or newer). An Arm server
-needs it [built from source](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md#building-from-source).
+The prebuilt desktop engine supports Linux x64 (glibc 2.36 or newer) and macOS
+arm64. The macOS engine starts by default; set `DESKLINK_MACOS=0` to opt out.
+Other Arm servers need it
+[built from source](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md#building-from-source).
 
 muxr never enables Funnel. Restrict the Serve endpoint with a tailnet grant/ACL to intended devices even though muxr pairing and E2EE remain authoritative. `--web` requires a secure `wss://` route; insecure LAN HTTP is refused.
 

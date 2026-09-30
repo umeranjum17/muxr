@@ -168,6 +168,9 @@ interface StorageState extends WatchSnapshot {
     localSettings: LocalSettings;
     profile: Profile;
     sessions: Record<string, Session>;
+    /** Transient errors survive session.removed so an open route can explain its failure. */
+    sessionErrors: Record<string, string>;
+    setSessionError: (sessionId: string, message: string | null) => void;
     herdrWorkspaces: HerdrTreeWorkspace[];
     herdrTreeLoaded: boolean;
     /** Spaces pins: workspace ids shown first, a per-device view preference. */
@@ -274,6 +277,13 @@ export const storage = create<StorageState>()((set, get) => ({
     localSettings,
     profile,
     sessions: {},
+    sessionErrors: {},
+    setSessionError: (sessionId, message) => set((state) => {
+        const errors = { ...state.sessionErrors };
+        delete errors[sessionId];
+        if (message !== null) errors[sessionId] = message;
+        return { sessionErrors: Object.fromEntries(Object.entries(errors).slice(-64)) };
+    }),
     herdrWorkspaces: [],
     herdrTreeLoaded: false,
     pinnedSpaceIds: loadSpacePins(),
@@ -491,7 +501,8 @@ export const storage = create<StorageState>()((set, get) => ({
         watch.setAuthority(authority);
     },
     setLifecycleScope: (scope) => {
-        set(watch.setScope(scope));
+        const changed = scope !== get().voiceReportScope;
+        set({ ...watch.setScope(scope), ...(changed ? { sessionErrors: {} } : {}) });
     },
     resetLifecycleCatalog: () => {
         set(watch.resetCatalog());
@@ -545,6 +556,10 @@ export function useHomeHerd(): { workspaces: HerdrTreeWorkspace[]; sessions: (Se
     const tree = useHomeTree();
     const sessions = storage(useShallow((state) => Object.values(homeShowsSnapshot(state) ? state.homeSnapshot!.sessions : state.sessions)));
     return { ...tree, sessions };
+}
+
+export function useSessionError(id: string): string | undefined {
+    return storage((state) => state.sessionErrors[id]);
 }
 
 export function useSession(id: string): Session | null {

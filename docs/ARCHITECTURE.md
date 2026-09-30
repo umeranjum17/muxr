@@ -126,7 +126,7 @@ removed grants, and web secure-store reset clear it.
 |---|---|---|
 | machine | the host running `herdr server` | `ping`, `session.snapshot` |
 | session | **a pane with an agent in it** | `agent.list`, `pane.list` |
-| session.start | workspace-per-cwd → tab → `agent.start` | `workspace.create` / `tab.create` / `agent.start --kind` |
+| session.start | workspace-per-cwd → tab → agent in the selected pane | `workspace.create` / `tab.create` / kit `startAgent` with `place: { pane }` and the pane's cwd (home directory fallback) |
 | session.prompt | submit text to the agent | `agent.prompt` |
 | session.abort | interrupt | `agent.send_keys esc` |
 | session.stop | close the selected live Agent Route through an explicit pane → tab → workspace → worktree-group ladder | host close ladder (`agentClose.ts`) on the live Herdr socket; live revalidation and confirmation for every broader scope |
