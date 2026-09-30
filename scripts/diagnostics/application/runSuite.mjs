@@ -34,6 +34,7 @@ const checks = [
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
     ['unit: service commands stay in their MUXR_HOME scope', 'node', ['scripts/setup/serviceScope.selfcheck.mjs']],
+    ['unit: setup wizard onboarding', 'node', ['--experimental-test-module-mocks', 'scripts/setup/presentation/setupWizard.selfcheck.mjs']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     // The load-test flows carry their own generous per-test budgets; the step
     // kill must stay well above them or it SIGKILLs a healthy run first.
