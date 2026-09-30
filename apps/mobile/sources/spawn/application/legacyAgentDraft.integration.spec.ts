@@ -10,6 +10,8 @@ vi.mock('react-native-mmkv', () => ({
     },
 }));
 
+vi.mock('@/catalog', async () => import('@/catalog/application/persistence'));
+
 beforeEach(() => {
     values.clear();
     vi.resetModules();
