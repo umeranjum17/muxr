@@ -256,7 +256,6 @@ export default function NewAgentScreen() {
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState<string | undefined>(undefined);
     const [scrollHeight, setScrollHeight] = React.useState(0);
-    const [scrollY, setScrollY] = React.useState(0);
     const [isTypingPath, setIsTypingPath] = React.useState(false);
     const keyboardHeight = useKeyboardState((state) => state.height);
 
@@ -278,6 +277,10 @@ export default function NewAgentScreen() {
         });
         return () => shown.remove();
     }, [showPicker]);
+    // The browser has no keyboard events; its viewport shrinks instead, so pin again once it settles.
+    React.useEffect(() => {
+        if (Platform.OS === 'web' && isTypingPath) showPicker();
+    }, [isTypingPath, scrollHeight, showPicker]);
 
     React.useEffect(() => {
         if (!canControl) return undefined;
@@ -399,11 +402,10 @@ export default function NewAgentScreen() {
             <FormScrollView
                 ref={(node: ScrollView | null) => { scrollRef.current = node; }}
                 onLayout={({ nativeEvent }) => setScrollHeight(nativeEvent.layout.height)}
-                onScroll={({ nativeEvent }) => {
-                    if (typingPath.current) setScrollY(nativeEvent.contentOffset.y);
-                }}
-                scrollEventThrottle={16}
-                contentContainerStyle={styles.content}
+                // A reloading listing changes the content height and can clamp the scroll; pin the field again.
+                onContentSizeChange={() => { if (typingPath.current && Platform.OS !== 'web') showPicker(); }}
+                // Web gets no keyboard padding, so leave room below for the field to reach the top.
+                contentContainerStyle={[styles.content, Platform.OS === 'web' && isTypingPath && { paddingBottom: scrollHeight }]}
                 keyboardShouldPersistTaps="handled"
             >
                 {/* --- Agent grid (multi-select -> squad) ---------------------- */}
@@ -491,11 +493,7 @@ export default function NewAgentScreen() {
                             value={cwd}
                             onChange={setCwd}
                             recent={recent}
-                            room={isTypingPath && scrollHeight > 0
-                                ? Platform.OS === 'web'
-                                    ? scrollHeight
-                                    : scrollHeight - keyboardHeight - Math.max(0, directoryY.current + pickerY.current - scrollY)
-                                : undefined}
+                            room={isTypingPath && scrollHeight > 0 ? scrollHeight - (Platform.OS === 'web' ? 0 : keyboardHeight) : undefined}
                             onFocus={() => {
                                 typingPath.current = true;
                                 setIsTypingPath(true);
