@@ -816,6 +816,8 @@ export interface RequestMap extends PeerRequestMap {
      * Move a running agent onto another account of a provider it already uses.
      * The conversation resumes in place; the result names the session to show,
      * which is the same session when its route rebinds and the new one otherwise.
+     * Only one move may run on a host at a time, through account association
+     * persistence; concurrent requests fail with `plan-move-in-progress`.
      */
     'plans.move': { params: { sessionId: string; accountId: string }; result: { sessionId: string } };
     /**

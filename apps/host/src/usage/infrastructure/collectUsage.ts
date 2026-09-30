@@ -588,8 +588,10 @@ function planWindows(id: PlanId, raw: unknown, nowMs: number): UsageWindowVM[] {
 /** Windows for one account's env: the same reader Usage uses for the main
  *  account, pointed at that sign-in's folder. In-process only; nothing is
  *  shown, stored under another account, or sent anywhere but the provider.
- *  A fresh-enough stored reading answers; a failed read falls back to the
- *  last good one, honestly aged by the caller. */
+ *  `refresh: true` bypasses cache reads and writes for Plan Account selection;
+ *  only derived room hints leave that path. Otherwise a fresh-enough stored
+ *  reading answers, and a failed read falls back to the last good one,
+ *  honestly aged by the caller. */
 export async function planAccountWindows(id: PlanId, env: NodeJS.ProcessEnv, { refresh = false }: { refresh?: boolean } = {}): Promise<UsageWindowVM[]> {
     if (id !== 'claude' && id !== 'codex') return [];
     const nowMs = Date.now();

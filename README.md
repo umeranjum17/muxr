@@ -106,6 +106,8 @@ Open **Settings → Accounts** to add a Claude or ChatGPT (Codex) account on the
 
 With two or more accounts for the selected provider, the new-agent dock shows an **Account** row under Agent. Open it to choose a named account or **Auto**, which picks the signed-in account with the most room left at launch and explains its pick. Signed-out accounts offer **Sign in** and are never picked. Auto shows a one-time note that it may use either account; it does not rotate accounts during a conversation. With one account per provider, the dock and Agent picker stay as before and launches carry no account choice.
 
+If a saved account is no longer signed in, the dock falls back to Auto. With Auto off, it prefers the computer's signed-in account, then another signed-in account if available. If an account signs out after selection but before launch, the host uses the computer's own sign-in. Starting waits for initial account discovery; a temporary discovery failure blocks a saved or Auto choice until accounts can be checked.
+
 In a running agent's menu, choose **Move to another account**. The sheet marks the current account **Now** and preselects the signed-in alternative with the most room left. Claude Code, Codex and Pi can resume a published conversation in the same tab; moving stops the current step, and the new account reads the conversation once from the start. A **Moved to X** notice confirms the change.
 
 **Settings → Accounts** also lets you rename accounts, sign in again, remove added accounts, and turn Auto off to keep the last chosen account. The computer's own sign-in is marked **found on this computer** and cannot be removed here. Removing an added account deletes its private sign-in folder; shared conversation history stays.

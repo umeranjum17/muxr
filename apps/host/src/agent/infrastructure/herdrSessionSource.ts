@@ -3011,6 +3011,10 @@ export async function createHerdrSessionSource(
             }
         },
 
+        /** Keep the original authoritative while the replacement resumes the
+         *  conversation and becomes interactive. Staging hides the replacement
+         *  from discovery until the original closes; failed cleanup exposes it
+         *  as an extra copy so the person can close it. */
         async movePlanAccount(moveOptions: { sessionId: string; provider: string; folder: string }): Promise<{ sessionId: string }> {
             const kinds = PLAN_ACCOUNT_KINDS[moveOptions.provider] ?? [];
             const record = await resolvePane(moveOptions.sessionId);
