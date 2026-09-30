@@ -56,7 +56,7 @@ export async function runPluginShortcut(command: RunPluginShortcutCommand): Prom
     if (found === undefined) return { ok: false };
     const { shortcut, pluginId, manifestHash, manifest } = found;
     if (shortcut.action.type === 'capability') {
-        await capabilityFor(shortcut.action.name, manifest)?.({ sessionId: '', status: 'shortcut', from: 'shortcut' });
+        await capabilityFor(shortcut.action.name)?.({ sessionId: '', status: 'shortcut', from: 'shortcut' });
         return { ok: true };
     }
     await sync.request('plugin.call', { pluginId, manifestHash, contributionId: shortcut.action.contributionId, input: { shortcutId: command.shortcutId } }, PLUGIN_CALL_CLIENT_TIMEOUT_MS);

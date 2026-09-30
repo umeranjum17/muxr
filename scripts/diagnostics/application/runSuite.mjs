@@ -54,9 +54,9 @@ const checks = [
     ['e2e: machine key rotation retires the old host key', 'node', ['scripts/diagnostics/application/checkKeyRotation.mjs']],
     ['e2e: wire + RPC (all event types)', 'node', ['scripts/diagnostics/application/runSkeletonCheck.mjs']],
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/diagnostics/application/checkHerdrE2E.mjs'], 'herdr', 180000],
-    // The warmed-agent parity proof owns its own lab session, so it only runs
+    // The voice attachment check owns its own lab session, so it only runs
     // where the guarded lab helper exists; it never touches the default fleet.
-    ['e2e: realtime voice warmed-agent parity (isolated lab herdr)', 'bash', ['scripts/diagnostics/application/checkRealtimeAgentHealth.sh'], 'herdr-lab', 900000],
+    ['e2e: realtime voice attachment (isolated lab herdr)', 'bash', ['scripts/diagnostics/application/checkRealtimeAgentHealth.sh'], 'herdr-lab', 900000],
     ['e2e: worktree session (live stack)', 'node', ['scripts/diagnostics/application/checkWorktreeE2E.mjs'], 'herdr'],
     ['e2e: real-pi runs stay inside an isolated agent home', 'node', ['scripts/diagnostics/application/checkPiAgentIsolation.mjs']],
     ['package: curl installer wrapper', 'node', ['scripts/diagnostics/application/checkInstallScript.mjs']],

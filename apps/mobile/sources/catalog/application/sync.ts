@@ -28,7 +28,7 @@ import {
     loadConnectionSettingsAsync,
     sshTunnelAvailable,
 } from '@/connection';
-import { getCachedHostedGrant, loadHostedGrant } from '@/pairing/e2ee';
+import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
 import { saveHomeSnapshot } from './persistence';
 import { spawnerOf, workspaceNames } from '@/herd/tree';
@@ -224,6 +224,8 @@ async function toPromptAttachments(previews: readonly AttachmentPreview[]): Prom
 
 /** Window for merging inbound session frames before one store write. */
 const SESSION_UPDATE_FLUSH_MS = 250;
+
+export type MachineTransportGrant = StoredHostedGrant;
 
 class MuxrSync {
     private readonly pendingSessionInfo = new Map<string, SessionInfo>();
@@ -772,12 +774,13 @@ class MuxrSync {
         return this.client?.terminalStream?.(args);
     }
 
-    openVoiceStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> | undefined {
-        return this.client?.voiceStream?.(args);
+    /** Current authenticated transport grant, used to pin realtime reconnects. */
+    machineTransportGrant(machineId: string): MachineTransportGrant | undefined {
+        return getCachedHostedGrant(machineId);
     }
 
-    openPluginStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> | undefined {
-        return this.client?.pluginStream?.(args);
+    openVoiceStream(args: Record<string, unknown>): Promise<ByteStreamTransport | undefined> | undefined {
+        return this.client?.voiceStream?.(args);
     }
 
     async request<T extends import('@trymuxr/contract').RequestType>(

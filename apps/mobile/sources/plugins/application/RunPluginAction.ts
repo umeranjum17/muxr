@@ -71,7 +71,7 @@ export function validatePluginAction(value: unknown, context: PluginActionContex
         const kind = action.type === 'attachment' ? 'attachment' : action.target;
         throw new Error(`Plugin action ${kind} needs session context`);
     }
-    if (action.type === 'capability' && capabilityFor(action.name, context.manifest) === undefined) {
+    if (action.type === 'capability' && capabilityFor(action.name) === undefined) {
         throw new Error(`Plugin action capability is unavailable: ${action.name}`);
     }
     return action;

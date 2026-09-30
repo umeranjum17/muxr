@@ -588,11 +588,6 @@ async function main(): Promise<void> {
                                 await source.voiceStream({ deviceId, channel, ...(sessionId === undefined ? {} : { sessionId }), transport: linkStreamTransport(stream) });
                             },
                         },
-                        pluginStreams: {
-                            attach: async ({ stream, ...params }) => {
-                                await source.pluginStream({ ...params, transport: linkStreamTransport(stream) });
-                            },
-                        },
                         onDesktopConnection: host.setLinkDesktopConnection,
                         onDeviceConnection: host.setLinkDeviceConnection,
                         onDeviceRevoked: (deviceId, removed) => host.closeDeviceDesktopSessions(deviceId, removed),

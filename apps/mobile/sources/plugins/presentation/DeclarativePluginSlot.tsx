@@ -220,7 +220,7 @@ type DeclarativeSessionAction = (
     | { kind: 'list'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginNativeContribution }
     | { kind: 'capability'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginNativeContribution }
     | { kind: 'data'; key: string; label: string; pluginId: string; manifestHash: string; contribution: PluginDataCard }
-) & { quickAction: boolean };
+);
 
 /** Placement belongs to the declaration, not to a list of bundled plugin ids. */
 export function useDeclarativeSessionActions(cwd?: string): DeclarativeSessionAction[] {
@@ -228,21 +228,20 @@ export function useDeclarativeSessionActions(cwd?: string): DeclarativeSessionAc
     useSlotContributions('session.pills');
     const entries = pluginSnapshot();
     return React.useMemo(() => entries.flatMap<DeclarativeSessionAction>(({ summary, manifest }) => manifest.contributions.flatMap<DeclarativeSessionAction>((contribution) => {
-        const quickAction = 'quickAction' in contribution && contribution.quickAction === true;
         if ('type' in contribution && contribution.type === 'screen-button' && contribution.slot === 'session.header.trailing' && cwd !== undefined && cwd !== '') {
-            return [{ kind: 'screen', quickAction, key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), icon: contribution.icon, pluginId: summary.pluginId, contentId: contribution.contentContributionId }];
+            return [{ kind: 'screen', key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), icon: contribution.icon, pluginId: summary.pluginId, contentId: contribution.contentContributionId }];
         }
         if ('type' in contribution && contribution.type === 'native' && contribution.primitive === 'item-list'
             && (contribution.slot === 'session.header.trailing' || contribution.slot === 'session.pills')) {
-            return [{ kind: 'list', quickAction, key: `${summary.pluginId}:${contribution.id}`, label: contribution.title === undefined ? summary.name : resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
+            return [{ kind: 'list', key: `${summary.pluginId}:${contribution.id}`, label: contribution.title === undefined ? summary.name : resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
         }
         if ('type' in contribution && contribution.type === 'native' && contribution.primitive === 'icon-button'
             && contribution.slot === 'session.header.trailing') {
-            return [{ kind: 'capability', quickAction, key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.accessibilityLabel!), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
+            return [{ kind: 'capability', key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.accessibilityLabel!), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
         }
         if ('type' in contribution && contribution.type === 'data-card'
             && (contribution.slot === 'session.header.trailing' || contribution.slot === 'session.pills')) {
-            return [{ kind: 'data', quickAction, key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
+            return [{ kind: 'data', key: `${summary.pluginId}:${contribution.id}`, label: resolvePluginText(contribution.title), pluginId: summary.pluginId, manifestHash: summary.manifestHash, contribution }];
         }
         return [];
     })).sort((left, right) => left.label.localeCompare(right.label)), [cwd, entries]);
