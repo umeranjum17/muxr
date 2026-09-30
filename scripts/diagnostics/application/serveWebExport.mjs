@@ -66,7 +66,7 @@ createServer(async (req, res) => {
         else if (hashedAsset(path)) cacheControl = 'public, max-age=31536000, immutable';
         res.writeHead(200, {
             'content-type': mime[extname(path)] ?? 'application/octet-stream',
-            'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+            'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss: blob:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
             'x-content-type-options': 'nosniff',
             'referrer-policy': 'no-referrer',
             'cache-control': cacheControl,
@@ -78,7 +78,7 @@ createServer(async (req, res) => {
             res.writeHead(200, {
                 'content-type': 'text/html',
                 'cache-control': 'no-store',
-                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss: blob:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
                 'x-content-type-options': 'nosniff',
                 'referrer-policy': 'no-referrer',
             });
