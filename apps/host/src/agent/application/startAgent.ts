@@ -1,13 +1,6 @@
-import { homedir } from 'node:os';
 import { MISSING_CWD_ERROR_PREFIX, startWasAccepted, type SessionStartResult } from '@trymuxr/contract';
 import type { SessionStartOptions } from './sessionSource.js';
-
-/** Clients that never learned the machine's home directory send a literal `~`. */
-export function expandHome(cwd: string, home = homedir()): string {
-    if (cwd === '~') return home;
-    if (cwd.startsWith('~/')) return `${home}/${cwd.slice(2)}`;
-    return cwd;
-}
+import { homePath } from '../../platform/homePath.js';
 
 export type StartAgentCommand = SessionStartOptions;
 
@@ -30,7 +23,7 @@ export async function startAgent(
     workspace: StartAgentWorkspace,
     command: StartAgentCommand,
 ): Promise<StartAgentResult> {
-    const cwd = expandHome(command.cwd);
+    const cwd = homePath(command.cwd);
     if (!workspace.exists(cwd)) {
         if (command.createCwd !== true) {
             return { ok: false, error: `${MISSING_CWD_ERROR_PREFIX}${cwd}` };
