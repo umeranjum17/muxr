@@ -529,6 +529,7 @@ export const HomeDock = React.memo(({
     const [showMoreAgents, setShowMoreAgents] = React.useState(false);
     const [catalogCheck, setCatalogCheck] = React.useState(0);
     const agentSelectionInitialized = React.useRef(false);
+    const agentWasExplicitlySelected = React.useRef(false);
     const machines = useAllMachines({ includeOffline: true });
     const sessions = useSessions();
     const connectionMachineId = getCachedConnectionSettings().machineId;
@@ -599,7 +600,7 @@ export const HomeDock = React.memo(({
             setHostAgentKinds(resolved.options);
             const activeAgent = useNewSessionDraft.getState().agentType;
             const activeAvailable = activeAgent === 'shell' || resolved.options.some((option) => option.kind === activeAgent && option.availability === 'installed');
-            if (agentSelectionInitialized.current && activeAvailable) return;
+            if ((agentSelectionInitialized.current || agentWasExplicitlySelected.current) && activeAvailable) return;
             agentSelectionInitialized.current = true;
             const preferred = defaultAgentKind(resolved.options, preferredAgent);
             setAgentType((preferred ?? 'shell') as NewSessionAgentType);
@@ -789,6 +790,7 @@ export const HomeDock = React.memo(({
     }, [finishCloseFocusMode, focusPresentation]);
 
     const selectAgent = React.useCallback((agent: NewSessionAgentType) => {
+        agentWasExplicitlySelected.current = true;
         setAgentType(agent);
     }, [setAgentType]);
 
