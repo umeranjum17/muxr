@@ -422,7 +422,7 @@ attaches to: the installed binary and `main.jsbundle` SHA-256 must match the
 
 Pairing uses the normal QR v2 consent path: a host-minted short code resolved
 through the shared pairing crypto, then the deep-link consent screen and the app
-handshake. Manual code entry is not exercised, and `pairingTransport` says so.
+handshake. Manual code entry is not exercised, and `describeRoute` from `@byokit/ui-core` says so.
 The shell target is proved from the control subprocess lifecycle via
 `FAKE_HERDR_LOG`, not a thumbnail `pane.read` — a pane that renders is not the
 same fact as a shell that ran.

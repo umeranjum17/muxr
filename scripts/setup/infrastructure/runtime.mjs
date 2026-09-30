@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import nacl from 'tweetnacl';
-import QRCode from 'qrcode';
+import { qrText } from '@byokit/ui-core/link';
 import { spawnSync } from 'node:child_process';
 import {
     chmodSync,
@@ -42,9 +42,14 @@ export async function printTerminalQr(value) {
         print('QR omitted in append-only/plain output; use the exact pairing string below.');
         return;
     }
-    const qr = await QRCode.toString(value, { type: 'utf8', margin: 4, errorCorrectionLevel: 'M' });
+    // Half-block text rows from the kit (same QR, quiet border of 4 as before).
+    // The kit trims trailing spaces, so pad back to the full matrix width: a
+    // ragged right edge would eat the quiet zone the phone's scanner needs.
+    // QR sides are always odd, and each text row covers two module rows, so
+    // the side is lines*2-1; padding is a no-op if the kit ever stops trimming.
+    const qr = qrText(value, { border: 4 });
     const lines = qr.split('\n');
-    const width = Math.max(...lines.map((line) => [...line].length));
+    const width = lines.length * 2 - 1;
     const tooWide = process.stdout.columns !== undefined && width > process.stdout.columns;
     // Pairing prints the exact string, save location, and waiting state after
     // the QR. Keep those rows plus the complete quiet zone visible together.
@@ -58,7 +63,7 @@ export async function printTerminalQr(value) {
     const indent = process.stdout.columns !== undefined
         ? Math.max(0, Math.floor((process.stdout.columns - width) / 2))
         : 0;
-    print(qr.split('\n').map((line) => `${' '.repeat(indent)}\x1b[47m\x1b[30m${line}\x1b[0m`).join('\n'));
+    print(lines.map((line) => `${' '.repeat(indent)}\x1b[47m\x1b[30m${line.padEnd(width)}\x1b[0m`).join('\n'));
 }
 export function env(name) {
     return process.env[name]?.trim() || undefined;

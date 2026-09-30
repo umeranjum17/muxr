@@ -19,7 +19,8 @@ import { machineSpawnNewSession } from '@/catalog/ops';
 import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { MultiTextInput, type MultiTextInputHandle } from '@/components/MultiTextInput';
 import { getCachedHostedGrant } from '@/pairing/e2ee';
-import { getCachedConnectionSettings, pairingTransport } from '@/connection';
+import { getCachedConnectionSettings } from '@/connection';
+import { describeRoute } from '@byokit/ui-core/route';
 import { loadCollaborationIntent } from '@/collaboration';
 
 function formatNames(names: string[]): string {
@@ -443,7 +444,7 @@ export default function MachineDetailScreen() {
                 <ItemGroup title={t('machine.machineGroup')}>
                         {relayUrl && (
                             <>
-                                <Item title="Transport" subtitle={pairingTransport(relayUrl) ?? 'Relay'} />
+                                <Item title="Transport" subtitle={describeRoute(relayUrl) ?? 'Relay'} />
                                 <Item title="Relay" subtitle={relayUrl} subtitleLines={0} />
                             </>
                         )}

@@ -1,10 +1,11 @@
 import * as React from 'react';
-import { pairingConsentCopy } from '../infrastructure/pairingPlatform';
+import { consentWords, pairingView } from '@byokit/ui-core/link';
+import { pairingDeviceKind } from '../infrastructure/pairingPlatform';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
 import { linkPairMachineName, pairOverLink } from './linkPairing';
-import { looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
+import { linkOfferRole, looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
 import { deliverScannedPairingLink } from './deliverScannedPairing';
@@ -41,17 +42,23 @@ export function useHostedPairing() {
  * over the machine's own link both land.
  */
 export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>, options: { tunnelPort?: number } = {}): Promise<boolean> {
-    const copy = pairingConsentCopy();
+    const device = pairingDeviceKind();
+    const role = linkOfferRole(scanned);
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
-    const approved = await Modal.confirm(`Pair with ${machineName}?`, copy.confirmation, { confirmText: 'Pair' });
+    const confirmation = role === undefined
+        ? `${device === 'browser' ? 'This browser' : 'This phone'} will receive the access shown on the pairing screen. Only continue if you just ran ${device === 'browser' ? '`muxr pair --browser`' : '`muxr pair`'} on that computer.`
+        : consentWords({ hostName: machineName, role, device, detail: pairLinkDetail(device, role) });
+    const approved = await Modal.confirm(
+        `Pair with ${machineName}?`,
+        confirmation,
+        { confirmText: 'Pair' },
+    );
     if (!approved) return false;
     const grant = await pairOverLink(scanned, {
         ...options,
         onWords: (words) => {
-            void Modal.alert(
-                'Compare the two words',
-                copy.comparison(words),
-            );
+            const view = pairingView({ phase: 'compare', hostName: machineName, words, device });
+            void Modal.alert(view.title, view.words);
         },
     });
     // Activation runs through the shared path so a pinned voice session and a
@@ -78,6 +85,17 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
     }
     await auth.login(paired.credential, paired.secretKey);
     return true;
+}
+
+function pairLinkDetail(device: 'phone' | 'browser', role: 'control' | 'view'): string {
+    if (role === 'view') {
+        return device === 'browser'
+            ? 'Only continue if you just ran `muxr pair --browser-view` on that computer.'
+            : 'Only continue if you just ran `muxr pair` on that computer.';
+    }
+    return device === 'browser'
+        ? 'It receives the access shown on the pairing screen. Only continue if you just ran `muxr pair --browser` on that computer.'
+        : 'It can also read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr. Only continue if you just ran `muxr pair` on that computer.';
 }
 
 /*

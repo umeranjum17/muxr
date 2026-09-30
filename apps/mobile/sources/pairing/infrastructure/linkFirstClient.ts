@@ -1,4 +1,5 @@
 import { DeviceLink, LINK_WORDS, LinkError, PublicLinkError, type LinkStatus } from '@byokit/link';
+import { describeRoute } from '@byokit/ui-core/route';
 import {
     checkHostProtocol,
     isPluginsInvalidatedFrame,
@@ -80,16 +81,6 @@ function protocolMismatchMessage(reason: 'host-too-old' | 'host-too-new', hostVe
     return reason === 'host-too-old'
         ? `Update needed: Your computer runs ${computer}, which is too old for this app. Update muxr on the computer, then reconnect.`
         : `Update needed: Your computer runs ${computer}, which is newer than this app supports. Update the app, then reconnect.`;
-}
-
-function relayRoute(url: string): string {
-    try {
-        const host = new URL(url).hostname;
-        if (host.endsWith('.ts.net') || /^100\.(6[4-9]|[78]\d|9\d|1[01]\d|12[0-7])\./.test(host)) return 'Tailscale';
-        if (host.endsWith('.trycloudflare.com')) return 'Cloudflare tunnel';
-        if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) return 'Local or private network';
-    } catch { /* A malformed route is unreachable too. */ }
-    return 'relay';
 }
 
 /** One byokit link, including its terminal, desktop, voice and push streams. */
@@ -471,7 +462,7 @@ export class LinkFirstClient implements SessionClient {
         if (stored === undefined || this.closed) return;
         this.lastHealthCheck = Date.now();
         const generation = this.healthGeneration;
-        const route = relayRoute(stored.relayUrl);
+        const route = describeRoute(stored.relayUrl) ?? 'relay';
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 3_000);
         let message: string;
