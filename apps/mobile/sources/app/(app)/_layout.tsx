@@ -61,6 +61,10 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="notification"
+                options={{ headerShown: false }}
+            />
+            <Stack.Screen
                 name="new-agent"
                 options={{
                     headerShown: false,

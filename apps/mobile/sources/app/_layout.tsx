@@ -34,6 +34,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { AsyncLock } from '@/utils/lock';
 import { watchAgentLifecycle } from '@/herd';
 import { navigateToSession } from '@/herd';
+import { getCachedConnectionSettings } from '@/connection';
 import { useTauriZoom } from '@/hooks/useTauriZoom';
 import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
@@ -380,12 +381,11 @@ export default function RootLayout() {
                 return;
             }
 
-            const watched = watchAgentLifecycle({ notification: {
-                ...response,
-                notification: { ...response.notification, request: {
-                    ...response.notification.request, content: { ...response.notification.request.content, data },
-                } },
-            } });
+            const watched = watchAgentLifecycle({ notificationData: data, activeMachineId: getCachedConnectionSettings().machineId });
+            if (watched.selectMachine) {
+                router.push('/settings');
+                return;
+            }
             console.log(`[PUSH ROUTING] Computed route: ${watched.agentRoute ?? 'null'}`);
             if (!watched.agentRoute) {
                 console.log('[PUSH ROUTING] No session route found in notification.request.content.data');

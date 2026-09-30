@@ -34,8 +34,10 @@ self.addEventListener('notificationclick', (event) => {
     const payload = event.notification.data || {};
     const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId : '';
     let targetUrl = '/';
-    if (typeof payload.url === 'string' && payload.url.startsWith('/')) targetUrl = payload.url;
-    else if (sessionId !== '') targetUrl = `/session/${encodeURIComponent(sessionId)}`;
+    const machineId = typeof payload.machineId === 'string' ? payload.machineId : '';
+    if (machineId !== '' && sessionId !== '') {
+        targetUrl = `/notification?machineId=${encodeURIComponent(machineId)}&sessionId=${encodeURIComponent(sessionId)}`;
+    }
 
     event.waitUntil((async () => {
         const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

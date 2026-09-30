@@ -151,8 +151,8 @@ describe('push rides the byokit link relay', () => {
             const paired = [{ machineId: 'machine-push-test', deviceKey: { secretKey: deviceSecret.toString('base64') } }];
             const opened = openLifecycleNotice(envelope, paired);
             expect(opened.title).toBe('Ship it');
-            const response = { notification: { request: { content: { data: opened.data } } } };
-            expect(watchAgentLifecycle({ notification: response }).agentRoute).toBe('s1');
+            expect(watchAgentLifecycle({ notificationData: opened.data, activeMachineId: 'machine-push-test' }).agentRoute).toBe('s1');
+            expect(watchAgentLifecycle({ notificationData: opened.data, activeMachineId: 'machine-B' })).toEqual({ agentRoute: null, selectMachine: true });
             expect(openLifecycleNotice(envelope, [{ ...paired[0], deviceKey: { secretKey: randomBytes(32).toString('base64') } }])).toEqual({
                 title: 'Agent update', body: 'An agent has an update.', data: {},
             });
@@ -177,7 +177,17 @@ describe('push rides the byokit link relay', () => {
             expect(shown[0].options.body).toBe('Maria needs attention.');
             workerHandlers.get('notificationclick')!({ notification: { data: shown[0].options.data, close: () => undefined }, waitUntil });
             await pending;
-            expect(target).toBe('/session/s1');
+            expect(target).toBe('/notification?machineId=machine-push-test&sessionId=s1');
+            const tapParams = new URL(target, 'https://app.test').searchParams;
+            const tapData = { machineId: tapParams.get('machineId'), sessionId: tapParams.get('sessionId') };
+            expect(watchAgentLifecycle({ notificationData: tapData, activeMachineId: 'machine-B' })).toEqual({ agentRoute: null, selectMachine: true });
+            expect(watchAgentLifecycle({ notificationData: tapData, activeMachineId: 'machine-push-test' })).toEqual({ agentRoute: 's1', selectMachine: false });
+            worker.clients.matchAll = async () => [{ navigate: async (url: string) => { target = url; }, focus: async () => undefined }] as never;
+            target = '';
+            workerHandlers.get('notificationclick')!({ notification: { data: shown[0].options.data, close: () => undefined }, waitUntil });
+            await pending;
+            expect(target).toBe('/notification?machineId=machine-push-test&sessionId=s1');
+
 
 
             // An important-only device is never woken for done noise.
