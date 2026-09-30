@@ -142,6 +142,38 @@ keep their quotas rather than having them reset.
   Revocation removes its grant and closes the device link. It does not rotate a
   shared data key; each link has its own Noise session keys.
 
+  If the machine's secret keys were exposed, replace them. Every device pinned
+  the old key, so all of them pair again afterwards. Rotation stops a running
+  muxr service, replaces the keys, retires inbound peer records, restarts the
+  service only if it was running, then waits for the relay and retires the old
+  host registration. If the service was stopped, keep the relay available
+  separately for retirement. Stop any foreground muxr host first;
+  rotation refuses while its local sockets still accept connections. Inbound
+  peer collaborations are retired with their grants and can be set up again
+  after phone pairing:
+
+  ```bash
+  muxr devices rotate-keys --unpair-all   # new signing, box and data keys; the relay forgets the old host
+  muxr pair
+  ```
+
+  If the host was started with `--data-dir <dir>`, pass the same flag to
+  `muxr devices rotate-keys --unpair-all --data-dir <dir>`. Rotation prints the
+  directory used for socket checks and peer retirement. Directory resolution
+  follows the host: flag, `MUXR_DATA_DIR`, `config.json`, then the default.
+
+  Machines enrolled on a remote relay cannot use this command: that relay pins
+  the signing key. Ask the relay owner for a fresh enrollment instead.
+
+  If key replacement or peer cleanup fails, the service remains stopped.
+  Resolve the storage failure and complete rotation before starting it again.
+  If replacement already succeeded, retain the printed old host ID so its
+  registration can still be retired; another rotation targets the current keys.
+
+  If relay retirement fails, the replacement keys remain in place. The error names
+  the old host ID; restore relay access and retry the reported DELETE with the
+  relay owner credential to remove that registration.
+
 ## Docker relay
 
 The [Dockerfile](../Dockerfile) is a relay-only image. From the repo root:
