@@ -669,6 +669,7 @@ describe('on-device dictation flow', () => {
     });
 
     it('speaks an agent-stop report only while realtime watching is active', async () => {
+        let previous: Record<string, unknown> = {};
         const notifyObserver = () => {
             const observerState = {
                 lifecycleEvents: mocks.lifecycleEvents,
@@ -679,7 +680,8 @@ describe('on-device dictation flow', () => {
                 voicePendingReports: mocks.voicePending,
                 voiceReportScopeGeneration: 1,
             };
-            for (const listener of mocks.storageListeners) listener(observerState, observerState);
+            for (const listener of mocks.storageListeners) listener(observerState, previous);
+            previous = observerState;
         };
         act(() => { renderer = TestRenderer.create(React.createElement(PluginHarness)); });
         const working = { eventId: 'settle-working', sessionId: 'session-a', state: 'working', agentName: 'Nia', taskTitle: 'Ship the report' };
@@ -702,7 +704,8 @@ describe('on-device dictation flow', () => {
         await vi.advanceTimersByTimeAsync(1_500);
         mocks.lifecycleEvents = [settled('settle-active-done'), activeWorking];
         notifyObserver();
-        await vi.advanceTimersByTimeAsync(1_500);
+        // Reported when the event lands, not on the next 1.5 s interval tick.
+        await vi.advanceTimersByTimeAsync(0);
         expect(reported('settle-active-done')).toBe(true);
     });
 

@@ -69,6 +69,7 @@ vi.mock('@/catalog', () => ({ loadAppConfig: () => ({}) }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 
 import { FirstRunConnection } from './FirstRunConnection';
+import { Modal } from '@/modal';
 
 function texts(root: any): string[] {
     return root.findAllByType('Text').map((node: any) => {
@@ -122,6 +123,19 @@ describe('guided first-connection chooser', () => {
         expect(routerPush).toHaveBeenCalledWith('/pair');
         press(renderer.root, 'Connect over SSH');
         expect(routerPush).toHaveBeenCalledWith('/pair?route=ssh');
+        TestRenderer.act(() => { renderer.unmount(); });
+    });
+
+    it('offers browser pairing by pasted link and opens the link prompt', async () => {
+        platformOs = 'web';
+        let renderer: any;
+        TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
+        expect(texts(renderer.root)).toContain('Paste the pairing link');
+        expect(texts(renderer.root)).toContain('Run one command on your computer, then paste the browser pairing link.');
+        press(renderer.root, 'Paste the pairing link. Recommended. Steps: Run one command on your computer, then paste the browser pairing link.');
+        await TestRenderer.act(async () => {});
+        expect(Modal.prompt).toHaveBeenCalledWith('Enter pairing string', expect.stringContaining('muxr pair --browser'), expect.any(Object));
+        expect(scanQr).not.toHaveBeenCalled();
         TestRenderer.act(() => { renderer.unmount(); });
     });
 });
