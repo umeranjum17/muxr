@@ -9,6 +9,7 @@ await checkWizard();
 async function checkWizard() {
     const { mock } = await import('node:test');
     const os = await import('node:os');
+    const childProcess = await import('node:child_process');
     const readline = await import('node:readline');
     const { EventEmitter } = await import('node:events');
     const scratch = mkdtempSync(join(process.cwd(), '.wizard-check-'));
@@ -31,10 +32,12 @@ async function checkWizard() {
     const forbidden = () => { throw new Error('Unexpected setup side effect'); };
     try {
         mock.module('node:os', { namedExports: {
+            ...os,
             userInfo: os.userInfo,
             networkInterfaces: () => lan ? { wifi: [{ family: 'IPv4', internal: false, address: lan }] } : {},
         } });
         mock.module('node:child_process', { namedExports: {
+            ...childProcess,
             spawnSync: (name, args) => {
                 assert.ok(['wizard-fixture-herdr', 'cloudflared'].includes(name), `Unexpected command: ${name}`);
                 if (name === 'cloudflared') return { status: null, error: { code: 'ENOENT' } };
@@ -43,6 +46,7 @@ async function checkWizard() {
             },
         } });
         mock.module('node:readline', { namedExports: {
+            ...readline,
             emitKeypressEvents: readline.emitKeypressEvents,
             createInterface: () => Object.assign(new EventEmitter(), {
                 question: (message, reply) => {

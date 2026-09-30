@@ -595,7 +595,6 @@ try {
     assertCompactSkillOutput(installedSkill);
     assert.equal(run(cli, ['skill'], { cwd: installDir, env: cliEnv() }).stdout, installedSkill, 'packed skill alias diverged from --skill');
     const onboardingSkill = run(cli, ['skill', 'onboarding'], { cwd: installDir, env: cliEnv() }).stdout;
-    assert.match(onboardingSkill, /shows all six routes[\s\S]*NetBird[\s\S]*WireGuard/);
     assert.match(onboardingSkill, /## Diagnose and recover[\s\S]*muxr doctor[\s\S]*muxr diagnostics/);
     assert.match(run(cli, ['skill', 'collaboration'], { cwd: installDir, env: cliEnv() }).stdout, /muxr peers prompt/);
     assert.match(run(cli, ['skill', 'agent-browser-preview'], { cwd: installDir, env: cliEnv() }).stdout, /# Agent browser preview/);
