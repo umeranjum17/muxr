@@ -16,7 +16,7 @@ links:
 
 muxr called Inbox, Attachments, Changes, Voice, and the rest "plugins" while each still owned a private React component in the APK (`muxr.attachments`, `muxr.inbox-content`, …). That caste is the confusion. There are not two kinds of plugin, and muxr ships no add-on packages: every plugin composes the same compiled primitives. Kernel stays small and snappy; file bytes and git lists are pulled when a pill opens, never pushed down the session event path.
 
-The power this unlocks: the product-owned xAI, OpenAI Realtime, and Gemini Live adapters each adapt speech-to-speech behind the same provider-neutral `voice.stream`. Exactly one runs at a time. Every provider uses the same generic PCM channel and phone kernel; the phone never names a provider or owns optional Voice policy.
+The power this unlocks: `@byokit/realtime` supplies xAI, OpenAI Realtime, Gemini Live, and Codex Voice speech-to-speech engines behind muxr's provider-neutral `voice.stream`. Exactly one runs at a time. The phone uses generic PCM or WebRTC transport and never names a provider or owns optional Voice policy.
 
 ## Approach
 
