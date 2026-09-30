@@ -56,3 +56,4 @@ apps/mobile/sources/components/artifact/preview.bundle.bin
 /perf/.active-probe-*.lock/
 
 apps/mobile/public/pushNotice.bundle.js
+/data/
