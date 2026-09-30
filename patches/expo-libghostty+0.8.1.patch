@@ -1401,7 +1401,7 @@ index 3f3eeb2..2e53ab7 100644
                  }
              }
  
-+            /// Prime core's link hover state at the touch-down point; the
++            /// Probe with the activation modifier so core recognizes links. The
 +            /// MOUSE_OVER_LINK action reports the result asynchronously.
 +            func primeHoverLink(at point: CGPoint) {
 +                guard let surface else { return }
@@ -1409,7 +1409,7 @@ index 3f3eeb2..2e53ab7 100644
 +                surface.sendMousePos(
 +                    x: Double(point.x),
 +                    y: Double(point.y),
-+                    mods: ghostty_input_mods_e(rawValue: 0)
++                    mods: ghostty_input_mods_e(rawValue: GHOSTTY_MODS_SUPER.rawValue)
 +                )
 +            }
 +
