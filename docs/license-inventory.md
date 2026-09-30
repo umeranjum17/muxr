@@ -62,7 +62,8 @@ under an earlier license keep the rights that accompanied those copies.
 and also bundles the relay entry (`apps/relay/dist/main.js`) so `muxr self-host`
 can run from the packed CLI. The external runtime dependency list is owned by
 [`runtimeDependencies` in pack.mjs](../scripts/release/application/pack.mjs).
-Packing audits both bundled and external dependencies and generates
+Dependencies outside that selection, including `@byokit/usage`, are bundled
+when imported. Packing audits both bundled and external dependencies and generates
 `THIRD_PARTY_LICENSES.json` with their versions, licenses, distribution status
 and optional platform packages; full license texts are copied to `LICENSES/npm`.
 Use that generated inventory for the release's exact dependency facts.
