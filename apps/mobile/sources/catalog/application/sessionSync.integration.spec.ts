@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent } from '@trymuxr/contract';
+import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent, SessionEvent } from '@trymuxr/contract';
 import type { Session } from '../domain/sessionTypes';
 import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
@@ -15,6 +15,10 @@ import { loadLocalSettings, loadSpacePins } from './persistence';
 
 const request = vi.fn();
 const refreshSessions = vi.fn();
+const hostSync = vi.hoisted(() => ({
+    request: vi.fn(),
+    event: undefined as undefined | ((sessionId: string, event: SessionEvent) => void),
+}));
 const mmkvValues = vi.hoisted(() => {
     Object.assign(globalThis, { __DEV__: false });
     return new Map<string, string>();
@@ -33,8 +37,23 @@ const voiceMocks = vi.hoisted(() => ({
 
 vi.mock('@/connection', () => ({
     getCachedConnectionSettings: () => ({ machineId: 'machine' }),
+    DEFAULT_CONNECTION: {},
 }));
 vi.mock('./sync', () => ({ sync: { request, refreshSessions } }));
+vi.mock('@/pairing/client', () => ({
+    LinkFirstClient: class {
+        state = 'open';
+        isLive() { return true; }
+        onStateChange() {}
+        onEvent(listener: typeof hostSync.event) { hostSync.event = listener; }
+        connect() {}
+        request = hostSync.request;
+    },
+}));
+vi.mock('@/pairing/e2ee', () => ({ getCachedHostedGrant: () => ({ machineId: 'machine' }) }));
+vi.mock('../infrastructure/encryption/encryption', () => ({ Encryption: {} }));
+vi.mock('@/modal', () => ({ Modal: {} }));
+vi.mock('@/watch/lifecycleAlert', () => ({ alertAgent: vi.fn(), dismissAgentAlert: vi.fn() }));
 vi.mock('@/../modules/voice-overlay', () => ({
     startVoiceService: () => true,
     stopVoiceService: () => undefined,
@@ -116,6 +135,49 @@ describe('session sync flow', () => {
         storage.getState().setLifecycleScope('test-authority:machine');
         storage.getState().resetLifecycleCatalog();
         mmkvValues.clear();
+    });
+
+    it('quit-agent-keeps-shell while a reported launch failure stays on the retired route', async () => {
+        const { sync: realSync } = await vi.importActual<typeof import('./sync')>('./sync');
+        const tree = (sessionId: string, agentStatus: AgentLifecycle, promptable: boolean): HerdrTreeWorkspace[] => [{
+            workspaceId: 'quit-workspace', focused: true, agentStatus,
+            tabs: [{ tabId: 'quit-tab', focused: true, agentStatus,
+                panes: [{ paneId: 'quit-pane', tabId: 'quit-tab', sessionId, focused: true, agentStatus, promptable }],
+            }],
+        }];
+        const agentRoute = 'quit-agent';
+        const shellRoute = 'shell:quit-pane';
+        let hostTree = tree(agentRoute, 'idle', true);
+        hostSync.request.mockImplementation(async (method: string) => {
+            if (method === 'herdr.tree') return { workspaces: hostTree, connected: true };
+            throw Object.assign(new Error('That agent is no longer available.'), { code: 'agent-unavailable' });
+        });
+        storage.setState({ sessionErrors: {}, herdrWorkspaces: [], sessionsLoaded: false });
+        storage.getState().applySessions([sessionInfoToSession({
+            id: agentRoute, paneId: 'quit-pane', cwd: '/work', messageCount: 0, firstMessage: '',
+            agentKind: 'pi', agentStatus: 'idle', promptable: true,
+        })]);
+        await realSync.refreshHerdTree();
+        hostTree = tree(shellRoute, 'idle', false);
+        hostSync.event!(agentRoute, { type: 'session.removed' });
+        await vi.waitFor(() => {
+            expect(storage.getState().herdrWorkspaces[0]?.tabs[0]?.panes[0]?.sessionId).toBe(shellRoute);
+        });
+        expect(storage.getState().sessionErrors[agentRoute]).toBeUndefined();
+        expect(storage.getState().sessions[agentRoute]).toBeUndefined();
+        await expect(realSync.request('session.open', { sessionId: agentRoute })).rejects.toMatchObject({ code: 'agent-unavailable' });
+        expect(storage.getState().sessionErrors[agentRoute]).toBeUndefined();
+
+        hostTree = tree(agentRoute, 'starting', false);
+        await realSync.refreshHerdTree();
+        const message = 'Pi is not installed on Umer. Install Pi in a terminal on Umer, then try again.';
+        hostSync.event!(agentRoute, { type: 'session.error', message });
+        hostTree = tree(shellRoute, 'idle', false);
+        hostSync.event!(agentRoute, { type: 'session.removed' });
+        await vi.waitFor(() => {
+            expect(storage.getState().herdrWorkspaces[0]?.tabs[0]?.panes[0]?.sessionId).toBe(shellRoute);
+        });
+        expect(storage.getState().sessionErrors[agentRoute]).toBe(message);
     });
 
     it('admits encrypted updates and removes task control envelopes at the mobile boundary', () => {
