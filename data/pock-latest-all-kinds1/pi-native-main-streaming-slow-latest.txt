@@ -1,0 +1,24 @@
+ PI NATIVE 014 Sun pillar standing
+ straight after sunset.
+ PI NATIVE 015 Altocumulus in
+ regular rounded patches.
+ PI NATIVE 016 Mackerel sky ribbed
+ across the whole dome.
+ PI NATIVE 017 Altostratus greying
+ the sun to a smear.
+ PI NATIVE 018 Shadows gone soft
+ without any rain yet.
+ PI NATIVE 019 Nimbostratus flat,
+ featureless, and wet.
+ PI NATIVE 020 Rain steady with no
+ visible structure.
+ PI NATIVE 021 Cumulonimbus anvil
+ sheared downwind.
+ PI NATIVE 022 Tower sharp-edged
+ while still growing.
+ PI NATIVE 023 Softening top means
+ the updraft is dying.
+ PI NATIVE 024 Overshooting top
+ punching past the anvil.
+ PI NATIVE 025 Mammatus pouches
+ hanging under the spread.

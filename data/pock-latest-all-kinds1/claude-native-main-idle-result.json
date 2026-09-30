@@ -1,0 +1,16 @@
+[
+  {
+    "gesture": "slow",
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": true,
+    "codexStillBack": false
+  },
+  {
+    "gesture": "fling",
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": true,
+    "codexStillBack": false
+  }
+]

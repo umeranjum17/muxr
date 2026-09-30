@@ -12,9 +12,9 @@ npm install -g --ignore-scripts @trymuxr/cli
 muxr
 ```
 
-The interactive onboarding inspects the machine without changing it. It shows
-all six connection routes together, explains each requirement, and recommends
-the healthy current route or a detected route. You then choose
+See [CLI startup guidance](../README.md#install) for first-time and later launches.
+The interactive onboarding inspects the machine without changing it and offers
+the [connection route choices](#reaching-the-relay-from-your-phone). You then choose
 whether to host the control/view-only web client and sync agent integrations.
 After a final **Apply setup** confirmation, muxr
 starts the selected relay and host, then:

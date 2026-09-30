@@ -737,9 +737,6 @@ try {
     const promptSmoke = await runTty(`${process.execPath} ${promptSmokePath}`, cliEnv(), '\u0003', 20_000, undefined, 'never', 'Cancel prompt');
     assert.equal(promptSmoke.code, 0, promptSmoke.output);
     assert.doesNotMatch(promptSmoke.output, /unsettled top-level await|SyntaxError/);
-    const menuCancel = await runTty(cli, cliEnv(), '\u0003', 20_000, undefined, 'never', 'What would you like to do?');
-    assert.ok(menuCancel.code === 0 || menuCancel.code === 130, menuCancel.output);
-    assert.doesNotMatch(menuCancel.output, /Get started\s+ muxr setup/, 'cancelling the menu printed command help');
     const inspectHome = join(scratch, 'inspect-home');
     mkdirSync(inspectHome, { recursive: true });
     const inspectBefore = filesSnapshot(inspectHome);
@@ -813,6 +810,9 @@ try {
 
     const configBefore = readFileSync(join(home, '.config', 'herdr', 'config.toml'), 'utf8');
     run(cli, ['setup', ...setupArgs], { cwd: installDir, env });
+    const menuCancel = await runTty(cli, cliEnv(), '\u0003', 20_000, undefined, 'never', 'What would you like to do?');
+    assert.ok(menuCancel.code === 0 || menuCancel.code === 130, menuCancel.output);
+    assert.doesNotMatch(menuCancel.output, /Get started\s+ muxr setup/, 'cancelling the menu printed command help');
     const manifestAfterFirst = readFileSync(join(home, '.muxr', 'setup-manifest.json'), 'utf8');
     const freshManifest = JSON.parse(manifestAfterFirst);
     assert.equal(readFileSync(instructionPath, 'utf8'), initialInstructions, 'fresh setup rewrote agent instructions');

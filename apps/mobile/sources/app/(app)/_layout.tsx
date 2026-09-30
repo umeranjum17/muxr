@@ -8,6 +8,7 @@ import { isRunningOnMac } from '@/utils/platform';
 import { useUnistyles } from 'react-native-unistyles';
 import { t } from '@/text';
 import { MobileGlassBackdrop } from '@/components/MobileGlass';
+import { PlanAccountsOverlay } from '@/plans/ui';
 
 export const unstable_settings = {
     initialRouteName: 'index',
@@ -188,6 +189,12 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
+                name="settings/accounts"
+                options={{
+                    headerTitle: 'Accounts',
+                }}
+            />
+            <Stack.Screen
                 name="changelog"
                 options={{
                     headerShown: true,
@@ -212,6 +219,7 @@ export default function RootLayout() {
                 }}
             />
         </Stack>
+            <PlanAccountsOverlay />
         </View>
     );
 }

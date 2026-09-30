@@ -14,7 +14,7 @@ src/
   requests/{application,infrastructure}/
   diagnostics/{infrastructure}/
   desktop/{domain,application,infrastructure}/
-  plans/                          plan accounts: store, identity, auto, list/move surface
+  plans/                          plan accounts: store, identity, auto, sign-in and management
 ```
 
 Each module exposes `index.ts`. Other modules import that file, not internals.
@@ -29,7 +29,7 @@ Use cases: [USE_CASES.md](./USE_CASES.md).
 
 **Peer start surface** (`peer/domain`): a peer cannot start with parent/worktree/kinds/createCwd/planAccount, and cwd must sit inside approved roots. Prompt/start/watch require a mutation receipt.
 
-**Plan Account** (`plans/`): records hold name, provider and folder only — never credential contents; identity comes from the tools' own status commands. Below two accounts per provider `plans.list` omits the provider and `session.start` carries nothing new. A move resumes the same conversation after verifying the env arrived; two accounts never write one conversation.
+**Plan Account** (`plans/`): credential and identity invariants live in [`planStore.ts`](plans/planStore.ts); the wire contract lives in [`RequestMap`](../../../packages/contract/src/control-plane/domain/requests.ts). User-facing account selection, sign-in and moving are documented in the [README](../../../README.md#switch-between-subscription-accounts).
 
 ## Layers
 

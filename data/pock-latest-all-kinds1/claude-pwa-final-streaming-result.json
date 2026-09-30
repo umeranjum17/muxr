@@ -1,0 +1,36 @@
+[
+  {
+    "gesture": "slow",
+    "scroll": {
+      "max_offset_from_bottom": 0,
+      "offset_from_bottom": 0,
+      "viewport_rows": 44
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": false,
+    "codexStillBack": false,
+    "firstLines": [
+      "  too.",
+      "  CLAUDE PWA FINAL 028 Some creosote clones are",
+      "  thousands of years old."
+    ]
+  },
+  {
+    "gesture": "fling",
+    "scroll": {
+      "max_offset_from_bottom": 0,
+      "offset_from_bottom": 0,
+      "viewport_rows": 44
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": false,
+    "codexStillBack": false,
+    "firstLines": [
+      "  a meter of the ground.",
+      "  CLAUDE PWA FINAL 053 Ventifacts are rocks shaped by",
+      "  blowing sand."
+    ]
+  }
+]

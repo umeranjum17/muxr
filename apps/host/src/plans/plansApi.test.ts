@@ -7,7 +7,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv } from './plansApi.js';
+import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
 import { autoTermsAcknowledged, loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
 
 const mockState = vi.hoisted(() => ({ failRename: false }));
@@ -182,6 +182,9 @@ it('auto picks the roomier account and says which in one line', async () => {
     expect(provider.accounts.map((account) => account.roomLeftPercent)).toEqual([30, 60]);
     expect(provider.auto.accountId).toBe('pa_work');
     expect(provider.auto.reason).toBe('Right now that\'s Work: 60% left this week');
+    claudeSnapshot(second, 95, 99);
+    expect((await resolvePlanLaunch(env, 'auto', 'claude'))?.id).toBe('found-claude');
+    expect((await resolvePlanLaunch(env, 'pa_work', 'claude'))?.id).toBe('pa_work');
 });
 
 it('reads one stalled provider without waiting on the other', async () => {

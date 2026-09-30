@@ -588,18 +588,20 @@ function planWindows(id: PlanId, raw: unknown, nowMs: number): UsageWindowVM[] {
 /** Windows for one account's env: the same reader Usage uses for the main
  *  account, pointed at that sign-in's folder. In-process only; nothing is
  *  shown, stored under another account, or sent anywhere but the provider.
- *  A fresh-enough stored reading answers; a failed read falls back to the
- *  last good one, honestly aged by the caller. */
-export async function planAccountWindows(id: PlanId, env: NodeJS.ProcessEnv): Promise<UsageWindowVM[]> {
+ *  `refresh: true` bypasses cache reads and writes for Plan Account selection;
+ *  only derived room hints leave that path. Otherwise a fresh-enough stored
+ *  reading answers, and a failed read falls back to the last good one,
+ *  honestly aged by the caller. */
+export async function planAccountWindows(id: PlanId, env: NodeJS.ProcessEnv, { refresh = false }: { refresh?: boolean } = {}): Promise<UsageWindowVM[]> {
     if (id !== 'claude' && id !== 'codex') return [];
     const nowMs = Date.now();
     const fingerprint = planAccounts(env)[id];
-    const stored = fingerprint === undefined ? undefined : readPlans(env)[id]?.[fingerprint];
+    const stored = refresh || fingerprint === undefined ? undefined : readPlans(env)[id]?.[fingerprint];
     if (stored !== undefined && nowMs - stored.at < PLAN_MIN_READ_MS) return planWindows(id, stored.raw, nowMs);
     const raw = id === 'claude' ? await claudePlanLimits(env) : await codexUsage(env);
     const vms = planWindows(id, raw, nowMs);
     if (vms.length > 0) {
-        if (fingerprint !== undefined) savePlans(env, { [id]: { [fingerprint]: { at: nowMs, raw } } });
+        if (!refresh && fingerprint !== undefined) savePlans(env, { [id]: { [fingerprint]: { at: nowMs, raw } } });
         return vms;
     }
     if (stored !== undefined && nowMs - stored.at <= PLAN_LAST_KNOWN_MS && planStillConnected(id, env)) {

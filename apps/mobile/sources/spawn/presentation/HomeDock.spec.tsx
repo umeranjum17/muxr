@@ -58,6 +58,8 @@ vi.mock('../application/useNewSessionDraft', () => {
 });
 vi.mock('@/plugins/ui', () => ({ PluginSlot: () => null }));
 vi.mock('@/conversation/ui', () => ({ RealtimeTalkButton: () => null }));
+vi.mock('@/plans', () => ({ useAccountLine: () => null }));
+vi.mock('@/plans/ui', () => ({ AccountSheet: () => null }));
 vi.mock('@/catalog/store', () => ({
     useAllMachines: () => [], useSessions: () => [], useSocketStatus: () => ({ status: 'disconnected' }),
 }));
