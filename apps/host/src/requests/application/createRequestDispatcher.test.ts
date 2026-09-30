@@ -1,10 +1,10 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure } from '@trymuxr/contract';
 import { createRequestDispatcher } from './createRequestDispatcher.js';
-import { createFakeSessionSource, type SessionSource } from '../../agent/index.js';
+import { agentToolPath, createFakeSessionSource, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
 import { HerdrKit } from '@byokit/herdr';
 import { AgentCatalog } from './agentCatalog.js';
@@ -226,21 +226,31 @@ describe('explicit layout close dispatcher flow', () => {
 describe('host capability catalog', () => {
     it('reports installed agents and default-folder sign-in, caches checks, and refreshes after sign-in', async () => {
         const home = mkdtempSync(join(tmpdir(), 'muxr-catalog-'));
-        const bin = join(home, 'bin');
-        mkdirSync(bin);
-        const env = { ...process.env, HOME: home, PATH: bin, CLAUDE_CONFIG_DIR: '', CODEX_HOME: '' };
+        const bin = join(home, '.local', 'bin');
+        mkdirSync(bin, { recursive: true });
+        const env = { ...process.env, HOME: home, PATH: join(home, 'empty-path'), CLAUDE_CONFIG_DIR: '', CODEX_HOME: '' };
         const claude = join(bin, 'claude');
         writeFileSync(claude, `#!${process.execPath}
 const fs = require('node:fs');
+const loggedIn = !fs.existsSync(process.env.HOME + '/signed-out');
 fs.appendFileSync(process.env.HOME + '/calls', process.env.CLAUDE_CONFIG_DIR + '\\n');
-console.log(JSON.stringify({loggedIn: !fs.existsSync(process.env.HOME + '/signed-out'), email: 'umer@example.test', plan: 'lab'}));
+console.log(JSON.stringify({loggedIn, email: 'umer@example.test', plan: 'lab'}));
 `);
         const codex = join(bin, 'codex');
         writeFileSync(codex, `#!${process.execPath}
+const fs = require('node:fs');
 const readline = require('node:readline');
 readline.createInterface({input: process.stdin}).on('line', line => {
     const request = JSON.parse(line);
-    console.log(JSON.stringify({id: request.id, result: request.id === 1 ? {} : {account: null}}));
+    const reply = () => {
+        if (request.id === 2 && fs.existsSync(process.env.HOME + '/hold-codex')) {
+            fs.writeFileSync(process.env.HOME + '/codex-pending', '');
+            setTimeout(reply, 10);
+            return;
+        }
+        console.log(JSON.stringify({id: request.id, result: request.id === 1 ? {} : {account: null}}));
+    };
+    reply();
 });
 `);
         chmodSync(claude, 0o755);
@@ -248,7 +258,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         const kit = new HerdrKit({ mode: 'adopt', bin: 'herdr', socketPath: join(home, 'unused.sock') });
         const source = {
             async agentKinds() { return ['pi', 'claude', 'codex', 'grok']; },
-            async installedAgentKinds(kinds: string[]) { return kit.installedAgentKinds(kinds, { path: [bin] }); },
+            async installedAgentKinds(kinds: string[]) { return kit.installedAgentKinds(kinds, { path: agentToolPath(env) }); },
         } as unknown as SessionSource;
         const { dispatch, refreshAgentCatalog } = createRequestDispatcher({
             source,
@@ -277,10 +287,23 @@ readline.createInterface({input: process.stdin}).on('line', line => {
             await expect(dispatch({ ...request, params: { refresh: true } }, 'device-1'))
                 .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'no' } } } });
             expect(readFileSync(join(home, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(2);
-            rmSync(join(home, 'signed-out'));
+            writeFileSync(join(home, 'hold-codex'), '');
             refreshAgentCatalog();
-            await expect(dispatch(request, 'device-1'))
+            const background = dispatch(request, 'device-2');
+            refreshAgentCatalog();
+            await vi.waitFor(() => {
+                expect(existsSync(join(home, 'codex-pending'))).toBe(true);
+                expect(readFileSync(join(home, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(3);
+            });
+            rmSync(join(home, 'signed-out'));
+            const refreshed = dispatch({ ...request, params: { refresh: true } }, 'device-1');
+            rmSync(join(home, 'hold-codex'));
+            await expect(background)
+                .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'no' } } } });
+            await expect(refreshed)
                 .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'yes' } } } });
+            expect(readFileSync(join(home, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(4);
+            expect(await dispatch(request, 'device-2')).toEqual(await refreshed);
             writeFileSync(claude, `#!${process.execPath}\nconsole.log('status unavailable');\n`);
             await expect(dispatch({ ...request, params: { refresh: true } }, 'device-1'))
                 .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'unknown' } } } });

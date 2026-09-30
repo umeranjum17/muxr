@@ -307,13 +307,18 @@ function execFileExitCode(error: { code?: unknown } | null): number | null {
     return null;
 }
 
-const AGENT_TOOL_PATH = [
-    ...(process.env.PATH ?? '').split(delimiter),
-    join(homedir(), '.local', 'bin'),
-    join(homedir(), '.local', 'share', 'mise', 'shims'),
-    join(homedir(), '.npm-global', 'bin'),
-    '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin',
-].filter(Boolean);
+export function agentToolPath(env: NodeJS.ProcessEnv = process.env): string[] {
+    const home = env.HOME || homedir();
+    return [
+        ...(env.PATH ?? '').split(delimiter),
+        join(home, '.local', 'bin'),
+        join(home, '.local', 'share', 'mise', 'shims'),
+        join(home, '.npm-global', 'bin'),
+        '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin',
+    ].filter(Boolean);
+}
+
+const AGENT_TOOL_PATH = agentToolPath();
 
 function executableOnPath(command: string): boolean {
     const candidates = COMMAND_ALIASES[command] ?? [command];

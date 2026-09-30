@@ -1,5 +1,6 @@
 import type { RequestResult } from '@trymuxr/contract';
-import type { SessionSource } from '../../agent/index.js';
+import { agentToolPath, type SessionSource } from '../../agent/index.js';
+import { delimiter } from 'node:path';
 import { claudeIdentity, codexIdentity, defaultPlanFolder } from '../../plans/index.js';
 
 type Catalog = RequestResult<'herdr.agentKinds'>;
@@ -17,7 +18,11 @@ export class AgentCatalog {
     ) {}
 
     async read(refresh = false): Promise<Catalog> {
-        if (this.pending !== undefined) return this.pending;
+        if (this.pending !== undefined) {
+            if (!refresh) return this.pending;
+            await this.pending.catch(() => undefined);
+            return this.read(true);
+        }
         if (!refresh && this.cached !== undefined && Date.now() - this.checkedAt < CACHE_MS) return this.cached;
         this.pending = this.collect();
         try {
@@ -34,12 +39,13 @@ export class AgentCatalog {
      * lookup is retried by the next request rather than retaining stale state. */
     refresh(): void {
         this.checkedAt = 0;
-        void this.read(true).catch(() => { this.cached = undefined; });
+        void this.read().catch(() => { this.cached = undefined; });
     }
 
     private async collect(): Promise<Catalog> {
         const kinds = await this.source.agentKinds();
         const installed = await this.source.installedAgentKinds(kinds);
+        const env = { ...this.env, PATH: agentToolPath(this.env).join(delimiter) };
         const readiness: NonNullable<Catalog['readiness']> = {};
         await Promise.all(kinds.map(async (kind) => {
             const state: NonNullable<Catalog['readiness']>[string] = { signedIn: 'unknown' };
@@ -52,7 +58,7 @@ export class AgentCatalog {
             }
             if (kind !== 'claude' && kind !== 'codex') return;
             const identity = kind === 'claude' ? claudeIdentity : codexIdentity;
-            const result = await identity(defaultPlanFolder(kind, this.env), this.env);
+            const result = await identity(defaultPlanFolder(kind, env), env);
             if (result.statusKnown === false) return;
             state.signedIn = result.signedIn ? 'yes' : 'no';
             if (!result.signedIn) state.signInHint = `On your computer run \`${kind}\`, sign in, then check again.`;
