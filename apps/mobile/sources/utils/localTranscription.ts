@@ -145,7 +145,8 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
     };
 
     const read = async (context: WhisperContext, to: number, live: boolean) => {
-        const from = live ? previewFrom : 0;
+        const requestedFrom = live ? Math.max(previewFrom, to - LIVE_WINDOW_BYTES) : 0;
+        const from = live ? requestedFrom + (requestedFrom % 2) : requestedFrom;
         const audio = live ? audioRange(from, to) : pcm16ChunksToArrayBuffer(chunks);
         const job = context.transcribeData(audio, {
             language,
