@@ -22,8 +22,8 @@ import { PreviewLeaseTracker } from './previewLease.js';
 
 /** One top-level window the keeper sees on a pane's screen.
  *
- * The 0.2.0 keeper reports `class` as one string (or null), not an array:
- * accept both, because the wire owns the shape, not this interface. */
+ * The keeper may report `class` as one string (or null), not an array: accept
+ * both, because the wire owns the shape, not this interface. */
 export interface PreviewScreenWindow {
     title?: string | null;
     class?: string[] | string | null;
