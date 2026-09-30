@@ -137,7 +137,7 @@ export function AddAccountSheet() {
                         onPress={() => {
                             if (firstTerms) seen.set(termsKey(provider), true);
                             setBusy(true);
-                            void flows.open(provider);
+                            void flows.open(provider).finally(() => { if (samePlanConnection(connection)) setBusy(false); });
                         }}
                     />
                     <GhostButton label="Cancel" onPress={close} />

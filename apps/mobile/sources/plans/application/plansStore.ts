@@ -32,6 +32,7 @@ interface PlansState {
     connection: PlanConnection;
     /** Null until the host answers, and on a host without accounts. */
     list: PlansList | null;
+    discovery: 'pending' | 'ready' | 'unsupported' | 'failed';
     /** The person's pick per provider: an account id or Auto. */
     choices: Record<string, string>;
     /** Auto picks at launch; off, the dock keeps the account picked last. */
@@ -43,6 +44,7 @@ interface PlansState {
 export const usePlansStore = create<PlansState>()((set, get) => ({
     connection: connectionNow(),
     list: null,
+    discovery: 'pending',
     choices: loadChoices(),
     autoOn: saved.getBoolean(AUTO_OFF_KEY) !== true,
     choose: (provider, choice) => {
@@ -74,7 +76,7 @@ export function planConnection(): PlanConnection {
     const previous = usePlansStore.getState().connection;
     const current = connectionNow();
     if (previous.machineId === current.machineId && previous.relayUrl === current.relayUrl && previous.token === current.token) return previous;
-    usePlansStore.setState({ connection: current, list: null, choices: loadChoices() });
+    usePlansStore.setState({ connection: current, list: null, discovery: 'pending', choices: loadChoices() });
     return current;
 }
 
@@ -89,11 +91,34 @@ export function refreshPlans(connection = planConnection()): Promise<void> {
     if (!samePlanConnection(connection)) return Promise.resolve();
     if (inflight?.connection === connection) return inflight.promise;
     const promise = sync.request('plans.list', {}, 60_000)
-        .then((list) => { if (samePlanConnection(connection)) usePlansStore.setState({ list: Array.isArray(list?.providers) ? list : null }); })
-        .catch(() => { if (samePlanConnection(connection)) usePlansStore.setState({ list: null }); })
+        .then((list) => {
+            if (!samePlanConnection(connection)) return;
+            if (!Array.isArray(list?.providers)) throw new Error('The computer returned an invalid account list.');
+            usePlansStore.setState({ list, discovery: 'ready' });
+        })
+        .catch((error) => {
+            if (!samePlanConnection(connection)) return;
+            if ((error as { code?: unknown }).code === 'host-contract-mismatch') {
+                usePlansStore.setState({ list: null, discovery: 'unsupported' });
+            } else if (usePlansStore.getState().discovery !== 'ready') {
+                usePlansStore.setState({ discovery: 'failed' });
+            }
+        })
         .finally(() => { if (inflight?.promise === promise) inflight = null; });
     inflight = { connection, promise };
     return promise;
+}
+
+export async function waitForPlanDiscovery(agentKind: string, connection: PlanConnection): Promise<void> {
+    assertPlanConnection(connection);
+    const provider = providerForAgent(agentKind);
+    if (provider === null) return;
+    if (usePlansStore.getState().discovery === 'pending') await refreshPlans(connection);
+    assertPlanConnection(connection);
+    const { discovery, choices, autoOn } = usePlansStore.getState();
+    if (discovery === 'failed' && (choices[provider] !== undefined || autoOn)) {
+        throw new Error('Could not check accounts on this computer. Reconnect and try again.');
+    }
 }
 
 /** Keeps the accounts current while something that shows them is mounted. */

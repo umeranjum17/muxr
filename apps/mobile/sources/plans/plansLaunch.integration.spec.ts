@@ -16,7 +16,7 @@ vi.mock('react-native-mmkv', () => ({
     },
 }));
 
-const { planConnection, planAccountForLaunch, refreshPlans, usePlansStore } = await import('./application/plansStore');
+const { planConnection, planAccountForLaunch, refreshPlans, waitForPlanDiscovery, usePlansStore } = await import('./application/plansStore');
 
 const claude = (overrides: Partial<Record<'work' | 'side', { signedIn: boolean }>> = {}): PlanProviderAccounts => ({
     provider: 'claude',
@@ -32,8 +32,19 @@ const claude = (overrides: Partial<Record<'work' | 'side', { signedIn: boolean }
 describe('which account a launch carries', () => {
     it('follows Auto, the person\'s pick, sign-outs and old hosts, and stays silent with one account', async () => {
         // Codex has one account, so the host omits it: those launches carry nothing new.
-        request.mockResolvedValueOnce({ providers: [claude()] });
-        await refreshPlans();
+        let answerInitial!: (value: unknown) => void;
+        request.mockImplementationOnce(() => new Promise((resolve) => { answerInitial = resolve; }));
+        const initialRead = refreshPlans();
+        let launchReady = false;
+        const initialLaunch = waitForPlanDiscovery('claude', planConnection()).then(() => { launchReady = true; });
+        await Promise.resolve();
+        expect(launchReady).toBe(false);
+        answerInitial({ providers: [claude()] });
+        await initialRead;
+        await initialLaunch;
+        const initialCalls = request.mock.calls.length;
+        await waitForPlanDiscovery('claude', planConnection());
+        expect(request.mock.calls).toHaveLength(initialCalls);
         expect(planAccountForLaunch('claude')).toBe('auto');
         expect(planAccountForLaunch('pi')).toBe('auto');
         usePlansStore.getState().setAutoOn(false);
@@ -91,7 +102,13 @@ describe('which account a launch carries', () => {
         await expect(moveAgent('original', 'pa_work')).rejects.toMatchObject({ code: 'plan-move-start-failed' });
 
         // A host without plans.list answers an error: every launch is today's.
-        request.mockRejectedValueOnce(new Error('host-contract-mismatch'));
+        connection.machineId = 'computer-c';
+        planConnection();
+        usePlansStore.getState().choose('claude', 'pa_work');
+        request.mockRejectedValueOnce(new Error('link disconnected'));
+        await expect(waitForPlanDiscovery('claude', planConnection())).rejects.toThrow('Could not check accounts');
+
+        request.mockRejectedValueOnce(Object.assign(new Error('host-contract-mismatch'), { code: 'host-contract-mismatch' }));
         await refreshPlans();
         expect(planAccountForLaunch('claude')).toBeUndefined();
     });
