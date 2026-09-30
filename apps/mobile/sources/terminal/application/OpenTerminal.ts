@@ -55,7 +55,7 @@ export interface TerminalChannel {
     sendBytes: (base64: string) => void;
     resize: (cols: number, rows: number) => void;
     /** Scroll the real pane. Positive lines go back (up), negative go forward. */
-    scroll: (lines: number, at?: { column: number; row: number }) => void;
+    scroll: (lines: number, at: { column: number; row: number }) => void;
     /** Retry now: resets backoff and re-attaches unless the stream is live or closed. */
     /** Pass true only for a user's explicit same-pane takeover action. */
     reconnect: (explicitTakeover?: boolean) => void;
@@ -624,15 +624,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         scroll: (lines, at) => {
             const n = Math.abs(Math.trunc(lines));
             if (n === 0) return; // herdr rejects lines:0
-            // Latest has no pointer. Target the transcript, as gestures do:
-            // a program may ignore wheel reports over its header or footer.
-            const cell = at ?? { column: Math.floor(current.cols / 2), row: Math.floor(current.rows / 2) };
             send({
                 type: 'terminal.scroll',
                 direction: lines > 0 ? 'up' : 'down',
                 lines: n,
-                column: Math.max(0, Math.trunc(cell.column)),
-                row: Math.max(0, Math.trunc(cell.row)),
+                column: Math.max(0, Math.trunc(at.column)),
+                row: Math.max(0, Math.trunc(at.row)),
             });
         },
         recordFrameWritten: () => {
