@@ -93,6 +93,9 @@ try {
     check('relay index.html revalidates', cacheControl(index) === 'no-store', cacheControl(index));
     const csp = index.headers.get('content-security-policy') || '';
     check('relay web carries strict CSP', csp.includes("default-src 'self'") && csp.includes('wasm-unsafe-eval'), csp.slice(0, 60));
+    check('relay web allows local photo reads without widening network access',
+        csp.split(';').map((directive) => directive.trim()).find((directive) => directive.startsWith('connect-src '))
+            === "connect-src 'self' ws: wss: blob:", csp);
     // The sandboxed same-origin preview frame must be embeddable; frames from any other origin stay blocked.
     check('relay web CSP frames only itself', csp.includes("frame-src 'self'") && csp.includes("frame-ancestors 'none'"), csp);
     check('relay web allows self camera/mic', (index.headers.get('permissions-policy') || '').includes('camera=(self)'), index.headers.get('permissions-policy'));
@@ -147,6 +150,10 @@ try {
     });
     const staticBase = `http://127.0.0.1:${staticPort}`;
     const staticWasm = await get(staticBase, '/canvaskit.wasm');
+    const staticCsp = staticWasm.headers.get('content-security-policy') || '';
+    check('serveWebExport allows local photo reads without widening network access',
+        staticCsp.split(';').map((directive) => directive.trim()).find((directive) => directive.startsWith('connect-src '))
+            === "connect-src 'self' ws: wss: blob:", staticCsp);
     check('serveWebExport wasm is application/wasm', staticWasm.status === 200 && contentType(staticWasm) === 'application/wasm', contentType(staticWasm));
     check('serveWebExport fixed-name wasm revalidates', staticWasm.status === 200 && !cacheControl(staticWasm).includes('immutable'), cacheControl(staticWasm));
     const staticEntry = await get(staticBase, '/sw.js');
