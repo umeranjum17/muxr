@@ -8,9 +8,9 @@
     "dependencies": {
         "@byokit/accounts": "0.6.0",
         "@byokit/seal": "0.2.0",
-        "@byokit/herdr": "0.1.6",
-        "@byokit/link": "0.4.0",
-        "@byokit/relay": "0.3.0",
+        "@byokit/herdr": "0.1.10",
+        "@byokit/link": "0.6.0",
+        "@byokit/relay": "0.4.2",
         "@desklink/host": "0.2.0",
         "@trymuxr/contract": "0.1.0",
         "@trymuxr/crypto": "0.1.0",
