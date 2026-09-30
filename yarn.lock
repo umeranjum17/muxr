@@ -1099,10 +1099,10 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
-"@byokit/accounts@0.6.0":
-  version "0.6.0"
-  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.6.0.tgz#7cad9c185a88c5f4370d5b4c22eae53de7b9dbca"
-  integrity sha512-iYTD8zC6MZNdEUdp81hIvT5gubumX9epKoBnSW2ZZ9rNabo0wykb5mJ+TJOFpkl5UXA9CYT6/cwaqfhvD38puw==
+"@byokit/accounts@0.8.0":
+  version "0.8.0"
+  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.8.0.tgz#12651e5fd10a4f4fbbba39465ee012aac2d8b0c8"
+  integrity sha512-0JQ7WE9XcqsGaXF9zoBN8dImo/21DDOMfYtcpAZ798RWFUX0j4a98QtLLNWLTpBdNfPXmXbd6akyLAmISF+GCA==
   dependencies:
     "@earendil-works/pi-ai" "0.87.1"
 
