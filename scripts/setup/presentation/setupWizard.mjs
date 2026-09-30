@@ -1,3 +1,4 @@
+import { tailscaleState } from '@byokit/reach';
 import { spawnSync } from 'node:child_process';
 import { networkInterfaces, userInfo } from 'node:os';
 import { intro, heading, status, note, outro, prompt, select, withSpinner, withFullscreen, setupStep, completeFullscreen, BACK } from './ui.mjs';
@@ -11,7 +12,7 @@ import { enrollMachine } from '../application/enrollMachine.mjs';
 import { listMachines } from '../application/listMachines.mjs';
 import { revokeMachine } from '../application/revokeMachine.mjs';
 import { selfhostPublicSummary, sharedMachineCount } from '../infrastructure/selfhostRelay.mjs';
-import { inspectTailscaleServeRoot, runTailscale, selfhostPath, tailscaleBin } from '../infrastructure/selfhost.mjs';
+import { inspectTailscaleServeRoot, reachTailscaleOptions, selfhostPath, tailscaleBin } from '../infrastructure/selfhost.mjs';
 import { advertisedUrlForMode, connectionLabel, ingressPlan, modeAllowsBrowserHosting } from '../domain/dist/index.js';
 import { relayPortFromEnv } from '../infrastructure/runtime.mjs';
 
@@ -94,32 +95,16 @@ const TAILSCALE_INSTALL_URL = 'https://tailscale.com/download';
 const TAILSCALE_UP_HINT = process.platform === 'darwin' ? 'open Tailscale and sign in' : 'sudo tailscale up --operator=$USER';
 const CLOUDFLARED_INSTALL_URL = 'https://github.com/cloudflare/cloudflared/releases';
 
-// One probe: `tailscale status --json` carries the IP, DNS name, and backend
-// state, so a logged-out or stopped node is reported as such instead of the
-// blanket "installed, not connected".
-function probeTailscale() {
-    const probe = runTailscale(['status', '--json'], { encoding: 'utf8' });
-    const result = {
-        ok: probe.status === 0,
-        output: (probe.stdout || probe.stderr || '').trim(),
-        missing: probe.error?.code === 'ENOENT',
-        errorCode: probe.error?.code,
-    };
-    if (result.missing) return { installed: false, connected: false, detail: `not installed — ${TAILSCALE_INSTALL_URL}` };
-    let parsed;
-    try { parsed = JSON.parse(result.output); } catch { parsed = undefined; }
-    const backend = typeof parsed?.BackendState === 'string' ? parsed.BackendState : undefined;
-    const dnsName = parsed?.Self?.DNSName?.replace(/\.$/, '') || undefined;
-    const ips = Array.isArray(parsed?.Self?.TailscaleIPs) ? parsed.Self.TailscaleIPs.filter((ip) => typeof ip === 'string') : [];
-    const ip = ips.find((candidate) => candidate.includes('.'));
-    const connected = result.ok && backend === 'Running' && ip !== undefined;
-    if (connected) return { installed: true, connected, ip, dnsName, backend };
-    let reason;
-    if (backend !== undefined && backend !== 'Running') reason = `backend state ${backend}`;
-    else if (result.errorCode !== undefined) reason = `tailscale status failed (${result.errorCode})`;
-    else if (result.ok) reason = 'no tailnet address assigned yet';
-    else reason = result.output.split('\n')[0] || 'tailscale status failed';
-    return { installed: true, connected: false, ip, dnsName, backend, detail: `${reason} — try ${TAILSCALE_UP_HINT}` };
+async function probeTailscale() {
+    const state = await tailscaleState(reachTailscaleOptions());
+    if (!state.installed) return { installed: false, connected: false, detail: `not installed — ${TAILSCALE_INSTALL_URL}` };
+    const ip = state.ips.find((candidate) => candidate.includes('.'));
+    const backend = state.backendState;
+    const connected = state.reason === undefined && backend === 'Running' && ip !== undefined;
+    if (connected) return { installed: true, connected, ip, dnsName: state.dnsName, backend };
+    const reason = backend !== undefined && backend !== 'Running'
+        ? `backend state ${backend}` : state.reason ?? 'no tailnet address assigned yet';
+    return { installed: true, connected: false, ip, dnsName: state.dnsName, backend, detail: `${reason} — try ${TAILSCALE_UP_HINT}` };
 }
 
 function probeCloudflared() {
@@ -133,12 +118,12 @@ function probeCloudflared() {
     return { installed: true, ok: result.ok, detail };
 }
 
-export function probeMachine() {
+export async function probeMachine() {
     const binary = herdr();
     const herdrVersion = command(binary, ['--version']);
     const integration = herdrVersion.ok ? command(binary, ['integration', 'status']) : { ok: false, output: '' };
     const agents = integrationSummary(integration);
-    const tailscale = probeTailscale();
+    const tailscale = await probeTailscale();
     const routes = classifyNetworkRoutes(networkInterfaces(), tailscale.ip);
     return {
         herdr: { installed: !herdrVersion.missing, working: herdrVersion.ok, version: herdrVersion.output.split('\n')[0], running: herdrVersion.ok && herdrServerIsReady(binary) },
@@ -469,7 +454,7 @@ async function applyTailscaleConnect(found) {
         }
         up = spawnSync('sudo', [tailscaleBin() || 'tailscale', 'up', ...(operator ? [`--operator=${operator}`] : [])], { stdio: 'inherit', timeout: 300_000 });
     }
-    found.tailscale = probeTailscale();
+    found.tailscale = await probeTailscale();
     if (found.tailscale.connected) status('Tailscale', `connected — ${found.tailscale.ip}`, 'ok');
     else status('Tailscale', `${found.tailscale.detail ?? 'still not connected'}${up.status ? ` (connect command exited ${up.status})` : ''}`, 'warn');
     return found.tailscale.connected;

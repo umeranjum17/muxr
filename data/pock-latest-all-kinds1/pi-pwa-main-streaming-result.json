@@ -1,0 +1,36 @@
+[
+  {
+    "gesture": "slow",
+    "scroll": {
+      "max_offset_from_bottom": 1115,
+      "offset_from_bottom": 19,
+      "viewport_rows": 44
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": true,
+    "codexStillBack": false,
+    "firstLines": [
+      " 181. The best time to plant was always earlier.",
+      "",
+      " PI-STREAM-END"
+    ]
+  },
+  {
+    "gesture": "fling",
+    "scroll": {
+      "max_offset_from_bottom": 1135,
+      "offset_from_bottom": 15,
+      "viewport_rows": 44
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": false,
+    "codexStillBack": false,
+    "firstLines": [
+      " PI LIVE 007 Wind steady from the west all afternoon.",
+      " PI LIVE 008 Treeline ends abruptly at the shoulder.",
+      " PI LIVE 009 Lichen orange on the north-facing rock."
+    ]
+  }
+]

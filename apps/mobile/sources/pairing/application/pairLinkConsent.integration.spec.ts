@@ -1,3 +1,4 @@
+import { offerText } from '@byokit/link';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pairLinkOffer } from './usePairing';
 
@@ -32,7 +33,8 @@ vi.mock('./PairMachine', () => ({ pairMachine: async () => ({ ok: false }) }));
 vi.mock('./deliverScannedPairing', () => ({ deliverScannedPairingLink: async () => undefined }));
 
 function linkOffer(payload: Record<string, unknown>): string {
-    return `byokit-link:1:${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
+    return offerText({ v: 1, host: Buffer.alloc(32, 1).toString('base64url'), ticket: Buffer.alloc(16, 2).toString('base64url'),
+        urls: ['wss://relay.example.test/link/v1/host'], expires: Date.now() + 120_000, name: 'Desk', ...payload });
 }
 
 beforeEach(() => {

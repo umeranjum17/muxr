@@ -1,0 +1,36 @@
+[
+  {
+    "gesture": "slow",
+    "scroll": {
+      "max_offset_from_bottom": 0,
+      "offset_from_bottom": 0,
+      "viewport_rows": 44
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": false,
+    "codexStillBack": false,
+    "firstLines": [
+      "  CLAUDE LIVE 011 Scree slides underfoot on steep",
+      "  slopes.",
+      "  CLAUDE LIVE 012 Talus fields hold boulders the size"
+    ]
+  },
+  {
+    "gesture": "fling",
+    "scroll": {
+      "max_offset_from_bottom": 0,
+      "offset_from_bottom": 0,
+      "viewport_rows": 44
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": false,
+    "codexStillBack": false,
+    "firstLines": [
+      "  early morning.",
+      "  CLAUDE LIVE 034 Glacial flour turns lakes turquoise.",
+      "  CLAUDE LIVE 035 Moraines mark where glaciers once"
+    ]
+  }
+]

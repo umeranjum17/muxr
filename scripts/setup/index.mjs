@@ -29,6 +29,7 @@ export { pairDevice } from './application/pairDevice.mjs';
 export { approveScreenSharing } from './application/approveScreenSharing.mjs';
 export { listDevices } from './application/listDevices.mjs';
 export { revokeDevice } from './application/revokeDevice.mjs';
+export { rotateMachineKeys } from './application/rotateMachineKeys.mjs';
 export { enrollMachine } from './application/enrollMachine.mjs';
 export { listMachines } from './application/listMachines.mjs';
 export { revokeMachine } from './application/revokeMachine.mjs';
@@ -66,7 +67,6 @@ export {
     inspectTailscaleServeRoot,
     persistOwnedServeIngress,
     readSelfhostState,
-    runTailscale,
     selfhostConfigured,
     selfhostControlBase,
     selfhostCredential,

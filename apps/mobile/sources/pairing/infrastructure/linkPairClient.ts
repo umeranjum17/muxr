@@ -9,6 +9,7 @@ import {
     keyPairFrom,
     pairWithOffer,
     pendingGrant,
+    parseOffer,
     unb64url,
     type DeviceGrant as LinkDeviceGrant,
 } from '@byokit/link';
@@ -68,6 +69,7 @@ export function provenLinkGrant(answer: LinkPairAnswer, key: { publicKey: Uint8A
         dataKey: '',
         ingressKey: '',
         relayUrl: answer.relayUrl,
+        linkUrl: answer.linkUrl,
         machineName: answer.machineName,
         source: 'selfhost',
     };
@@ -78,9 +80,9 @@ export function isBrowserLinkOffer(scanned: string): boolean {
 }
 
 /** The machine display name for consent, parsed for display only; the pairing itself re-validates. */
-export function linkOfferName(scanned: string, deviceName: string): string | undefined {
+export function linkOfferName(scanned: string): string | undefined {
     try {
-        return pendingGrant(scanned, { name: deviceName, key: linkKeyPair() }).hostName;
+        return parseOffer(scanned, 0).name;
     } catch {
         return undefined;
     }

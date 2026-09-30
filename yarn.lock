@@ -1106,21 +1106,21 @@
   dependencies:
     "@earendil-works/pi-ai" "0.87.1"
 
-"@byokit/herdr@0.1.2":
-  version "0.1.2"
-  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.2.tgz#71bc7a40ba1a4e8e04e1c8b04a1b98f7aa567cf9"
-  integrity sha512-zjV74M+gTTxmjJwHmpjmk68IbTN8eQIGgI5gXDKVMefXbVt4Gq62Ht9PtfYdRNuY74FVkwbbo/xk9NG2IxgIxg==
+"@byokit/herdr@0.1.6":
+  version "0.1.6"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.6.tgz#cf415b22e46b6d98aba2b12ebbb3593c13c33e6a"
+  integrity sha512-OxzEYSVI++8zF4ZMDdhxQZ5hUyc4Yl4O9q0cKCLM0mc3IFqLiPs9lD80mEr+s7iFnrnZhfkpqKO6bGKxsIorww==
   dependencies:
-    "@byokit/link" "0.3.2"
-    "@byokit/reach" "0.2.0"
-    "@byokit/relay" "0.2.1"
-    "@byokit/seal" "0.1.0"
+    "@byokit/link" "0.4.0"
+    "@byokit/reach" "0.3.0"
+    "@byokit/relay" "0.3.0"
+    "@byokit/seal" "0.2.0"
     ws "8.21.3"
 
-"@byokit/link@0.3.2":
-  version "0.3.2"
-  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.3.2.tgz#3c76572c48db3a88547d009f2347e2d9ef8e612a"
-  integrity sha512-RqZLsj7uWlffDjzXQqVLWq+028I1gmXgMwV9gUKRqMiObW0s4AKFqofpyMeK0TJXQS6/GBWP3N2p6gRhnPscfg==
+"@byokit/link@0.4.0":
+  version "0.4.0"
+  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.4.0.tgz#c1932e4fbf2388fd273abbfc7a95eeeb25497fca"
+  integrity sha512-WpSLY1mjndljkHITe/EmBgR3oCA62ixMzRLKv+I3o2nW5ejtnCCt6EbN6c6aexejLBHwr5xF0NwqmfzHH+MvVg==
   dependencies:
     "@noble/ciphers" "2.4.0"
     b4a "1.9.0"
@@ -1129,27 +1129,27 @@
     sodium-native "5.1.0"
     sodium-universal "5.0.1"
 
-"@byokit/reach@0.2.0":
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.2.0.tgz#8f129494f7ce460fef37d8cf790cbf4203127aaf"
-  integrity sha512-yWbxHg7g9nAhlOUanpgmgLqTCgEVnzUnRlzyvUc2Kems0uUMS+bv/bSJpvdxkHcMKK3t0zKlR2kWIXdXAXq9Ow==
+"@byokit/reach@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.3.0.tgz#8e56cefd4f9f2a1c68906f9c152d403c1ccc40a3"
+  integrity sha512-FTdSfKXXUg768dMfh1qD3AMZ84LTU1OyOgtorgZhTQlneR4FePNUP6VsMG/0RhxtKMBQMzc8muyKGYd6lgTMAw==
   dependencies:
     bonjour-service "^1.4.4"
     react-native-zeroconf "0.14.0"
 
-"@byokit/relay@0.2.1":
-  version "0.2.1"
-  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.2.1.tgz#87605edf7f67a1337f3ece9b37a9da3068d1115b"
-  integrity sha512-h9n0qjMl6cDCvSCti+LHr9/7Uv+Yxu8NQogySE+JFOgQS7oNZyitPwURgnJUQ8vxpAyeE4+TzNtV50spGeGNHQ==
+"@byokit/relay@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.3.0.tgz#69684de0589b078302efbef797676c34f88ea3b5"
+  integrity sha512-e3GuGgSZGmjPi9ahdgphvzMN6PbWs84JMPscf6z7TweDiXeARgV5HrBKi7EyXkMbqiPm908qf4tS7Le2mqi1Og==
   dependencies:
-    "@byokit/link" "0.3.2"
+    "@byokit/link" "0.4.0"
     web-push "3.6.7"
     ws "8.21.3"
 
-"@byokit/seal@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@byokit/seal/-/seal-0.1.0.tgz#1b44210ad466200b015e479a45cdfe885cc1499d"
-  integrity sha512-SSYeuho0On9p6QfTaxJe8cQ1yZXIvNlO9Pj226E0VmuQaviOclJvtEswxu9RCwsdavz+1x4KIyfD/MYm7LFy6g==
+"@byokit/seal@0.2.0":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@byokit/seal/-/seal-0.2.0.tgz#09af4067a8ba786163dcc871e962c4a7322250cf"
+  integrity sha512-rtXgruUruBr9V/6G0LajOFpPfSisOLv7Rc/BRlfRy3SS1QXYCkobj3xDiow9nIcrQUpORoYKH0Xn3UdWo1ufVQ==
   dependencies:
     "@noble/ciphers" "2.4.0"
     "@noble/curves" "2.4.0"
@@ -9085,11 +9085,6 @@ tsx@^4.20.4:
     esbuild "~0.28.0"
   optionalDependencies:
     fsevents "~2.3.3"
-
-tweetnacl@^1.0.3:
-  version "1.0.3"
-  resolved "https://registry.yarnpkg.com/tweetnacl/-/tweetnacl-1.0.3.tgz#ac0af71680458d8a6378d0d0d050ab1407d35596"
-  integrity sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw==
 
 type-detect@4.0.8:
   version "4.0.8"

@@ -60,22 +60,15 @@ under an earlier license keep the rights that accompanied those copies.
 
 `pack.mjs` bundles `apps/host` plus the muxr contract and crypto workspaces,
 and also bundles the relay entry (`apps/relay/dist/main.js`) so `muxr self-host`
-can run from the packed CLI. It declares these external runtime packages:
-
-| Package | License | Native binary | Distribution |
-|---|---|---:|---|
-| `ws` | MIT | No | external npm dependency |
-| `tweetnacl` | Unlicense | No | external npm dependency |
-| `@byokit/ui-core` | Apache-2.0 | No | external npm dependency |
-| `web-push` | MPL-2.0 | No | external npm dependency |
-| `bonjour-service` | MIT | No | external npm dependency |
-| `ccusage` | MIT | Through its optional per-platform packages | external npm dependency |
-| `@desklink/host` | Apache-2.0 | Through its optional `@desklink/host-linux-x64-gnu` ([Desktop engine](#desktop-engine)) | external npm dependency, exact version |
-
-There are currently no third-party packages inlined into `host.js` and no
-native binaries in the npm artifact itself; the native executables arrive as
-the optional platform packages above, which `THIRD_PARTY_LICENSES.json` lists
-with the package that brings them in. The one file exception is the vendored
+can run from the packed CLI. The external runtime dependency list is owned by
+[`runtimeDependencies` in pack.mjs](../scripts/release/application/pack.mjs).
+Packing audits both bundled and external dependencies and generates
+`THIRD_PARTY_LICENSES.json` with their versions, licenses, distribution status
+and optional platform packages; full license texts are copied to `LICENSES/npm`.
+Use that generated inventory for the release's exact dependency facts.
+Packing fails on copyleft or unknown/non-approved dependency licenses.
+Desktop native packaging is described under [Desktop engine](#desktop-engine).
+The vendored file exception is
 `resources/scrcpy/scrcpy-server-v4.0` (Genymobile scrcpy, Apache-2.0, pinned
 SHA-256): a Dalvik jar the host pushes onto a task-owned emulator at preview
 time. It never executes on the host, so it is data, not a native binary in

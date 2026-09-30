@@ -1,6 +1,6 @@
-import nacl from 'tweetnacl';
+import { box, openAuthBox } from '@byokit/seal';
 import { inspectPeerGrantConstraints, parseDeviceKind, type DeviceKind, type PeerCapability } from '@trymuxr/contract/peer';
-import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from '../infrastructure/encoding.js';
+import { decodeUtf8, encodeUtf8, fromBase64, toBase64 } from '../infrastructure/encoding.js';
 import { grantAuthority, grantHasExpired, parseDeviceAuthority, peerConstraintMessage, type DeviceAuthority, type DeviceGrant, type SealedDeviceGrant } from '../domain/deviceGrant.js';
 import { signDetached, verifyDetached } from '../infrastructure/identity.js';
 import { toKeyBytes, type KeyPair } from '../infrastructure/keys.js';
@@ -55,7 +55,7 @@ export function createDeviceGrant(params: {
     toKeyBytes(devicePublicKey, 'grant devicePublicKey');
     toKeyBytes(params.machineKey.secretKey, 'grant machineKey.secretKey');
     const signingSecret = fromBase64(params.machineSigningSecretKey);
-    if (signingSecret.length !== nacl.sign.secretKeyLength) {
+    if (signingSecret.length !== 64) {
         throw new Error('grant: machineSigningSecretKey must be a 64-byte ed25519 secret key');
     }
     const capabilities = params.capabilities === undefined ? undefined : [...params.capabilities];
@@ -66,8 +66,8 @@ export function createDeviceGrant(params: {
         ...(capabilities === undefined ? {} : { capabilities }),
         ...(allowedCwds === undefined ? {} : { allowedCwds }),
     }, 'create');
-    // tweetnacl ed25519 secret keys append the public key in the last 32 bytes.
-    const machineSigningPublicKey = toBase64(signingSecret.subarray(nacl.sign.publicKeyLength));
+    // The kit's 64-byte Ed25519 secret key appends the public key after the seed.
+    const machineSigningPublicKey = toBase64(signingSecret.subarray(32));
     const authority = grantAuthority({
         ...(params.deviceKind === undefined ? {} : { deviceKind: params.deviceKind }),
         ...(params.authority === undefined ? {} : { authority: params.authority }),
@@ -87,12 +87,11 @@ export function createDeviceGrant(params: {
         ingressKey: toBase64(toKeyBytes(params.ingressKey, 'grant ingressKey')),
     };
     const plaintext = encodeUtf8(JSON.stringify(grant));
-    const nonce = nacl.randomBytes(nacl.box.nonceLength);
-    const box = nacl.box(plaintext, nonce, fromBase64(devicePublicKey), fromBase64(params.machineKey.secretKey));
+    const sealed = box(plaintext, fromBase64(devicePublicKey), fromBase64(params.machineKey.secretKey));
     return {
         v: 1,
         sender: params.machineKey.publicKey,
-        box: toBase64(concatBytes(nonce, box)),
+        box: toBase64(sealed),
         signer: machineSigningPublicKey,
         sig: signDetached(plaintext, params.machineSigningSecretKey),
     };
@@ -122,10 +121,8 @@ export function verifyDeviceGrant(
     if (grant.signer !== opts.pinnedMachineSigningPublicKey) throw new Error('grant: signer is not the pinned machine key');
     toKeyBytes(opts.deviceKey.secretKey, 'grant deviceKey.secretKey');
     const boxBytes = fromBase64(grant.box);
-    if (boxBytes.length < nacl.box.nonceLength) throw new Error('grant: malformed box');
-    const nonce = boxBytes.subarray(0, nacl.box.nonceLength);
-    const ciphertext = boxBytes.subarray(nacl.box.nonceLength);
-    const opened = nacl.box.open(ciphertext, nonce, fromBase64(grant.sender), fromBase64(opts.deviceKey.secretKey));
+    if (boxBytes.length < 24) throw new Error('grant: malformed box');
+    const opened = openAuthBox(boxBytes, fromBase64(grant.sender), fromBase64(opts.deviceKey.secretKey));
     if (opened === null) throw new Error('grant: decryption failed (not addressed to this device key)');
     if (!verifyDetached(opened, grant.sig, opts.pinnedMachineSigningPublicKey)) {
         throw new Error('grant: signature verification failed');

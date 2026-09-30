@@ -179,6 +179,10 @@ even if an older snapshot was in flight.
 
 Beyond the session basics, the host exposes herdr's topology to the app:
 
+- `herdr.agentKinds` — the host agent catalog; see
+  [`RequestMap`](../packages/contract/src/control-plane/domain/requests.ts) for
+  the wire fields and [`AgentCatalog`](../apps/host/src/requests/application/agentCatalog.ts)
+  for sign-in privacy and refresh semantics.
 - `herdr.tree` — workspaces → tabs → panes with agent kind/status/title and the
   muxr session id for panes hosting agents, plus each workspace's creation
   `order`, its bounded display-only producer `tokens`, and its worktree
@@ -275,6 +279,17 @@ after showing him the plan.
 
 Notifications open the app; requests travel over the authenticated link.
 They never synthesize a plaintext answer.
+
+The host seals each lifecycle notice separately to the recipient's raw device
+box key using `@byokit/seal`. Task title, agent name, event kind and machine/session
+scope stay inside the sealed notice; the relay and push provider receive generic
+alert text and ciphertext. Clients open notices with stored paired grants and
+fall back to generic text when opening fails. The browser service worker reads
+paired grants through `pairing/infrastructure/webSecureStore.ts` to open notices;
+approval still runs in the app over the authenticated link. Native pre-display
+decryption is not implemented; see [notification presentation](../README.md).
+Browser taps carry decrypted scope in the `/notification` URL fragment, never
+an HTTP query, and the app checks the originating machine before navigation.
 
 ## What the relay does
 

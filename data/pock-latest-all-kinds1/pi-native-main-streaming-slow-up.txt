@@ -1,0 +1,24 @@
+ and bright white.
+ PI NATIVE 004 Shadow of one cloud
+ crossing the whole valley.
+ PI NATIVE 005 Stratus low enough to
+ touch the hilltop.
+ PI NATIVE 006 Fog is stratus that
+ reached the ground.
+ PI NATIVE 007 Cirrus thin and
+ fibrous, high and cold.
+ PI NATIVE 008 Ice crystals, not
+ droplets, at that altitude.
+ PI NATIVE 009 Mare's tails curving
+ with the upper wind.
+ PI NATIVE 010 Cirrus thickening
+ means weather in a day.
+ PI NATIVE 011 Halo round the sun
+ through cirrostratus.
+ PI NATIVE 012 Twenty-two degrees,
+ always the same ring.
+ PI NATIVE 013 Sun dogs bright
+ either side of the low sun.
+ PI NATIVE 014 Sun pillar standing
+ straight after sunset.
+ PI NATIVE 015 Altocumulus in

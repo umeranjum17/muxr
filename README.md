@@ -40,6 +40,8 @@ muxr is the control surface built natively for the phone: the full agent lifecyc
 
 Open the same live terminal the agent owns on your computer, with native Ghostty rendering, scrollback, and sticky modifier keys. A floating control and a key row you can reorder keep actions within reach, and the composer keeps attachments and dictation beside the prompt. When a blocked Claude Code or Codex agent shows numbered answers, tap one instead of finding its key. Tap a printed link to open, copy, or insert it into the prompt.
 
+After scrolling back, tap **Latest** to return toward the live output. Update the host alongside the app to use this control. **Still catching up** means the host has not established completion; tap again to retry. Typing, scrolling, or refreshing the terminal clears that pending feedback.
+
 <p align="center">
   <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="Claude Code asking to run npm test in muxr's terminal, with its numbered answers as tap targets above the tabs row and key row" width="300" /></picture></a>
 </p>
@@ -153,6 +155,8 @@ Tap the mic in the composer and speak. In the app, speech is transcribed on your
 - **Settings** — under Appearance, choose a theme, terminal text size, and terminal colors; the browser terminal also offers System or IBM Plex Mono. Gestures lists terminal actions and the swipe and zoom choices. Under Notifications, choose alerts for agents needing you or finishing; enable browser notifications in the web app or manage permission and sound in your phone's system settings.
 - **Desktop control (Linux)** — see **Peek at your computer** above. Remote desktop needs a Linux x64 host today (macOS later; Arm servers build the engine from source), and a cloud server needs the virtual-display packages once. Android and web have desktop clients; on iPhone, open Computer in the web app (native iOS support is not yet available). [Remote desktop setup and limits](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server) · [Host engine](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md)
 - **[Extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
+
+Relay alerts on a sleeping native app show “Agent update”; the task title appears once the app runs. Browser alerts can show the task title before you open the app. If an alert belongs to another computer, tapping it opens Settings so you can select that computer.
 
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
 
