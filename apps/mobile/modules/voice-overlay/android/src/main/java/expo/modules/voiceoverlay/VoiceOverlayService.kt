@@ -21,7 +21,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.lang.ref.WeakReference
 
-/** Keeps the microphone legal while voice is live and owns the herd Live Update. */
+/** Keeps the microphone legal while voice is live and keeps the herd connection alive. */
 class VoiceOverlayService : Service() {
   companion object {
     const val ACTION_START = "voiceOverlay.start"
@@ -326,22 +326,6 @@ class VoiceOverlayService : Service() {
       PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 
-    private fun shortStatus(activeVoice: Boolean): String? {
-      if (activeVoice) return when {
-        voiceMuted -> "Muted"
-        voiceState == "speaking" -> "Speak"
-        voiceState == "thinking" -> "Think"
-        else -> "Live"
-      }
-      return when (herdMode) {
-        "attention" -> "Needs"
-        "working" -> if (herdCount == 0) null else if (herdCount in 1..9) "$herdCount busy" else "Busy"
-        "offline" -> "Offline"
-        "connecting" -> "Linking"
-        else -> null
-      }
-    }
-
     private fun voiceStatus(): String = when {
       voiceMuted -> "Microphone muted"
       voiceState == "speaking" -> "Speaking"
@@ -398,7 +382,7 @@ class VoiceOverlayService : Service() {
     private fun buildNotification(context: Context, activeVoice: Boolean): Notification {
       ensureChannels(context)
       val event = !activeVoice && pendingEventAlert
-      val promote = activeVoice || herdMode == "working" || herdMode == "attention"
+      val ongoing = activeVoice || herdMode == "working" || herdMode == "attention"
       val title = if (activeVoice && voiceName.isNotBlank()) "Voice with $voiceName"
         else if (activeVoice) "muxr Voice" else herdTitle()
       val body = if (activeVoice) voiceStatus() else herdBody()
@@ -413,10 +397,8 @@ class VoiceOverlayService : Service() {
         .setSilent(!event)
         .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
         .setPublicVersion(publicNotification(context, if (activeVoice) voiceStatus() else publicHerdStatus(), activeVoice))
-        .setOngoing(promote)
-        .setRequestPromotedOngoing(promote)
-        .setAutoCancel(!promote)
-      shortStatus(activeVoice)?.let(builder::setShortCriticalText)
+        .setOngoing(ongoing)
+        .setAutoCancel(!ongoing)
       if (activeVoice) {
         builder
           .setWhen(voiceStartedAt)
