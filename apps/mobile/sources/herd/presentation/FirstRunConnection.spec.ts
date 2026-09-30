@@ -2,21 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 
-/*
- * Flow tests for the guided first-connection chooser: the chooser precedes any
- * QR action and previews both route shapes, the recommended route walks
- * Run → Scan one step at a time with back returning to the chooser, the QR
- * claim wiring stays intact, and the SSH-fluent route is directly reachable.
- * The pairing and scanner hooks are mocked at their module seam — the claim
- * journey itself is proven end to end against a real relay elsewhere — so
- * these tests pin exactly the wiring this screen owns.
- */
-
 let platformOs: 'android' | 'web' = 'android';
 const routerPush = vi.fn();
-const hostedPair = vi.fn(async (_url: string) => undefined);
 const scanQr = vi.fn(async () => undefined);
-let scanOnScanned: ((url: string) => void) | undefined;
+const dismissScanner = vi.fn(async () => undefined);
+const pairingAlert = vi.fn();
+let scanOnScanned: ((event: { data: string }) => void) | undefined;
 
 const theme = vi.hoisted(() => ({
     colors: {
@@ -33,6 +24,8 @@ const theme = vi.hoisted(() => ({
 }));
 
 vi.mock('react-native', () => ({
+    AppState: { currentState: 'active' },
+    Share: { share: vi.fn(async () => undefined) },
     Platform: { get OS() { return platformOs; } },
     View: 'View',
     Text: 'Text',
@@ -46,21 +39,35 @@ vi.mock('react-native-unistyles', () => ({
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: routerPush }) }));
-vi.mock('@/pairing', () => ({
-    useHostedPairing: () => hostedPair,
-    usePairQrScanner: (onScanned: (url: string) => void) => {
-        scanOnScanned = onScanned;
-        return scanQr;
+vi.mock('@/pairing', async () => {
+    const { useHostedPairing, usePairQrScanner } = await import('@/pairing/application/usePairing');
+    return { useHostedPairing, usePairQrScanner };
+});
+vi.mock('expo-camera', () => ({
+    CameraView: {
+        isModernBarcodeScannerAvailable: true,
+        onModernBarcodeScanned: (onScanned: (event: { data: string }) => void) => {
+            scanOnScanned = onScanned;
+            return { remove: vi.fn() };
+        },
+        launchScanner: () => scanQr(),
+        dismissScanner: () => dismissScanner(),
     },
 }));
+vi.mock('@/pairing/application/useCheckCameraPermissions', () => ({ useCheckScannerPermissions: () => async () => true }));
+vi.mock('@/account/ui', () => ({ useAuth: () => ({}) }));
+vi.mock('@/pairing/application/linkPairing', () => ({ linkPairMachineName: vi.fn(), pairOverLink: vi.fn() }));
+vi.mock('@/pairing/application/PairMachine', () => ({ pairMachine: vi.fn() }));
+vi.mock('@/pairing/infrastructure/pairingPlatform', () => ({
+    pairingDeviceKind: () => platformOs === 'web' ? 'browser' : 'phone',
+}));
 vi.mock('@/connection', () => ({ sshTunnelAvailable: () => platformOs === 'android' }));
-vi.mock('@/modal', () => ({ Modal: { prompt: vi.fn(async () => undefined) } }));
+vi.mock('@/modal', () => ({ Modal: { prompt: vi.fn(async () => undefined), alert: (...args: unknown[]) => pairingAlert(...args) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: vi.fn() }));
 vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn(async () => true) }));
 vi.mock('@/catalog', () => ({ loadAppConfig: () => ({}) }));
 vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 
-import { Modal } from '@/modal';
 import { FirstRunConnection } from './FirstRunConnection';
 
 function texts(root: any): string[] {
@@ -84,102 +91,37 @@ describe('guided first-connection chooser', () => {
     beforeEach(() => {
         platformOs = 'android';
         routerPush.mockClear();
-        hostedPair.mockClear();
         scanQr.mockClear();
+        dismissScanner.mockClear();
+        pairingAlert.mockClear();
     });
 
-    it('shows both route shapes before any QR action, each previewing its steps', () => {
-        platformOs = 'android';
+    it('opens Scan directly, rejects old codes, routes current offers to consent, and keeps manual and SSH entry visible', async () => {
         let renderer: any;
-        TestRenderer.act(() => {
-            renderer = TestRenderer.create(React.createElement(FirstRunConnection));
-        });
+        TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
         const visible = texts(renderer.root);
-        expect(visible).toContain('Pair with a QR code');
-        expect(visible).toContain('Recommended · ~1 min');
+        expect(visible).toContain('Recommended');
+        expect(visible).toContain('npm install -g --ignore-scripts @trymuxr/cli@latest && muxr');
+        expect(visible).toContain('Type the pairing code');
         expect(visible).toContain('Connect over SSH');
-        // The previews teach the shape of each path before committing.
-        expect(visible.some((text) => text.includes('Run one command') && text.includes('Scan the QR'))).toBe(true);
-        expect(visible.some((text) => text.includes('Host') && text.includes('no QR'))).toBe(true);
-        expect(visible.some((text) => text.includes('Other ways to connect'))).toBe(true);
-        // No scan action and no SSH form before a route is chosen.
-        expect(buttons(renderer.root).some((node) => node.props.accessibilityLabel === 'I ran it — scan the QR')).toBe(false);
-        expect(texts(renderer.root)).not.toContain('SSH host');
-    });
-
-    it('walks Run → Scan with the QR in its own state, and back returns toward the chooser', () => {
-        let renderer: any;
-        TestRenderer.act(() => {
-            renderer = TestRenderer.create(React.createElement(FirstRunConnection));
-        });
-        press(renderer.root, 'Pair with a QR code. Recommended · ~1 min. Steps: 1 Run one command  →  2 Scan the QR  →  3 Done');
-
-        // Run step: the exact host command under the progress rail, no scan yet.
-        const run = texts(renderer.root);
-        expect(run).toContain('muxr');
-        expect(run).toContain('Step 1 · On your computer');
-        expect(run).toContain('Run');
-        expect(run).toContain('Scan');
-        expect(run).toContain('Review');
-
-        // Advance to the scan step: the bounded viewfinder is the resting
-        // state; the camera opens only from its explicit action.
-        TestRenderer.act(() => {
-            press(renderer.root, 'I ran it — scan the QR');
-        });
-        expect(scanQr).not.toHaveBeenCalled();
-        const scan = texts(renderer.root);
-        expect(scan.some((text) => text.includes('Point this phone at the QR'))).toBe(true);
-        press(renderer.root, 'Open the scanner');
+        press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        await TestRenderer.act(async () => {});
         expect(scanQr).toHaveBeenCalledTimes(1);
-        press(renderer.root, 'Paste a pairing string instead');
-        expect(Modal.prompt).toHaveBeenCalledWith('Enter pairing string', expect.stringContaining('`muxr pair`'), expect.anything());
-        expect(Modal.prompt).not.toHaveBeenCalledWith('Enter pairing string', expect.stringContaining('`muxr pair --browser`'), expect.anything());
-
-        // "Different route" from the scan step returns toward the run step.
-        press(renderer.root, '← Different route');
-        expect(texts(renderer.root)).toContain('Step 1 · On your computer');
-
-        // And from the run step, back lands on the chooser again.
-        press(renderer.root, '← Different route');
-        expect(texts(renderer.root)).toContain('Connect over SSH');
-    });
-
-    it('keeps the QR claim intact: the scanner hands the scanned link to hosted pairing', () => {
-        let renderer: any;
-        TestRenderer.act(() => {
-            renderer = TestRenderer.create(React.createElement(FirstRunConnection));
-        });
-        press(renderer.root, 'Pair with a QR code. Recommended · ~1 min. Steps: 1 Run one command  →  2 Scan the QR  →  3 Done');
-        press(renderer.root, 'I ran it — scan the QR');
-        press(renderer.root, 'Open the scanner');
-        expect(scanQr).toHaveBeenCalledTimes(1);
-
-        // The scanner delivers the short link into the existing hosted pairing
-        // flow — unchanged confirm, grant, and login downstream.
-        TestRenderer.act(() => {
-            scanOnScanned!('wss://relay.example:8792?pair=7KDM4-QXP7N');
-        });
-        expect(hostedPair).toHaveBeenCalledWith('wss://relay.example:8792?pair=7KDM4-QXP7N');
-    });
-
-    it('opens the SSH fields route directly from the chooser', () => {
-        let renderer: any;
-        TestRenderer.act(() => {
-            renderer = TestRenderer.create(React.createElement(FirstRunConnection));
-        });
-        press(renderer.root, 'Connect over SSH. Steps: 1 Host  →  2 User  →  3 Key — no QR.');
+        await TestRenderer.act(async () => { scanOnScanned!({ data: 'wss://relay?pair=abc' }); });
+        expect(dismissScanner).toHaveBeenCalledTimes(1);
+        expect(routerPush).not.toHaveBeenCalled();
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code expired', expect.stringContaining('Update muxr on both devices, run `muxr pair`'));
+        pairingAlert.mockClear();
+        press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        await TestRenderer.act(async () => {});
+        const offer = 'byokit-link:1:offer';
+        await TestRenderer.act(async () => { scanOnScanned!({ data: offer }); });
+        expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer } });
+        expect(pairingAlert).not.toHaveBeenCalled();
+        press(renderer.root, 'Type the pairing code');
+        expect(routerPush).toHaveBeenCalledWith('/pair');
+        press(renderer.root, 'Connect over SSH');
         expect(routerPush).toHaveBeenCalledWith('/pair?route=ssh');
-    });
-
-    it('offers no SSH tile where the SSH transport does not exist', () => {
-        platformOs = 'web';
-        let renderer: any;
-        TestRenderer.act(() => {
-            renderer = TestRenderer.create(React.createElement(FirstRunConnection));
-        });
-        const visible = texts(renderer.root);
-        expect(visible).toContain('Pair with a QR code');
-        expect(visible).not.toContain('Connect over SSH');
+        TestRenderer.act(() => { renderer.unmount(); });
     });
 });
