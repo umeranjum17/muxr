@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
 import { planPaneAccount, rememberPlanPane } from '../../plans/planSignIn.js';
@@ -173,7 +173,8 @@ function fakeHerdr(dir: string, cwd: string) {
         });
         socket.on('error', () => {});
     });
-    const socketPath = join(dir, 'herdr.sock');
+    // Unix socket paths must fit sun_path even in deeply nested gate worktrees.
+    const socketPath = relative(process.cwd(), join(dir, 'herdr.sock'));
     server.listen(socketPath);
     return {
         socketPath,

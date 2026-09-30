@@ -20,4 +20,3 @@ export function useAccountLine(agentKind: string): AccountLine | null {
         return entry === undefined ? null : choiceLine(entry, effectiveChoice(entry, stored, autoOn));
     }, [list, provider, stored, autoOn]);
 }
-

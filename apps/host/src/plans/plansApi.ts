@@ -1,9 +1,8 @@
 /**
  * Plan Accounts: the host surface behind `plans.*`.
  *
- * The feature is invisible below two accounts per provider: a provider with
- * fewer known sign-ins is omitted from `plans.list`, so a one-account
- * machine sees nothing new. `session.start` carries nothing then either.
+ * A provider with fewer than two known sign-ins is omitted from `plans.list`:
+ * the dock carries no account choice then. Settings can still add an account.
  */
 import { existsSync } from 'node:fs';
 import type { PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
@@ -180,7 +179,6 @@ export async function resolvePlanLaunch(
     return identity.signedIn ? record : undefined;
 }
 
-/** Launch env for a `session.start.planAccount` id. P3 merges it into the new pane. */
 export function resolvePlanEnv(env: NodeJS.ProcessEnv, accountId: string): Record<string, string> {
     return planLaunchEnv(resolvePlanRecord(env, accountId));
 }

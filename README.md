@@ -100,6 +100,16 @@ See what's left in each plan window, when it resets, and whether you're on pace 
   <picture><source srcset="docs/assets/readme/usage.webp" type="image/webp"><img src="docs/assets/readme/usage.jpg" alt="Usage limits showing remaining session and weekly amounts, reset times, and projected run-out" width="300" /></picture>
 </p>
 
+### Switch between subscription accounts
+
+Open **Settings → Accounts** to add a Claude or ChatGPT (Codex) account on the connected computer. muxr opens the provider's own sign-in in a new tab, using a private folder for the added account. Finish signing in there; muxr closes the tab and asks you to name the account. The folder shares conversation history with the computer's main sign-in so conversations can resume across accounts; credentials stay in the provider's folder on your computer.
+
+With two or more accounts for the selected provider, the new-agent dock shows an **Account** row under Agent. Open it to choose a named account or **Auto**, which picks the signed-in account with the most room left at launch and explains its pick. Signed-out accounts offer **Sign in** and are never picked. Auto shows a one-time note that it may use either account; it does not rotate accounts during a conversation. With one account per provider, the dock and Agent picker stay as before and launches carry no account choice.
+
+In a running agent's menu, choose **Move to another account**. The sheet marks the current account **Now** and preselects the signed-in alternative with the most room left. Claude Code, Codex and Pi can resume a published conversation in the same tab; moving stops the current step, and the new account reads the conversation once from the start. A **Moved to X** notice confirms the change.
+
+**Settings → Accounts** also lets you rename accounts, sign in again, remove added accounts, and turn Auto off to keep the last chosen account. The computer's own sign-in is marked **found on this computer** and cannot be removed here. Removing an added account deletes its private sign-in folder; shared conversation history stays.
+
 ### Review before it ships
 
 Open the real diff and read every changed line in the working tree, the index, or the whole branch before you tell the agent to ship it, without waiting to get back to your desk.

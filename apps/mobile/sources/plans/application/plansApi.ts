@@ -38,7 +38,7 @@ export function signInState(accountId: string, connection = planConnection()): P
     return requestPlan(connection, 'plans.status', { accountId }).then((answer) => answer.account);
 }
 
-/** Stop waiting: the host closes the sign-in tab, and drops a new account that never signed in. */
+/** Cancel the tracked sign-in through `plans.cancel`, then refresh accounts. */
 export async function cancelSignIn(accountId: string, connection = planConnection()): Promise<void> {
     await requestPlan(connection, 'plans.cancel', { accountId });
     await refreshPlans(connection);

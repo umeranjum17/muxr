@@ -70,9 +70,8 @@ export async function preparePlanSignIn(
     return { record, created: true };
 }
 
-/** The open sign-in tab per account, and whether its folder is new: a new
- *  one that never signed in goes when the person cancels. In memory only; a
- *  restarted host leaves the tab to the person. */
+/** Tracks the tab and folder ownership for `plans.cancel` (see RequestMap).
+ *  In memory only; a restarted host leaves the tab to the person. */
 const signInTabs = new Map<string, { paneId: string; created: boolean; completionPath: string }>();
 const signInOperations = new Map<string, Promise<unknown>>();
 

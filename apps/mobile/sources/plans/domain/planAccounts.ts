@@ -86,8 +86,7 @@ export function runningOn(entry: PlanProviderAccounts, recorded: string | undefi
         ?? (recorded === undefined ? entry.accounts.find((account) => account.foundOnComputer) : undefined);
 }
 
-/** Name suggestions after a sign-in: the host's own first, then Work/Personal
- *  as the email reads, then the email's domain and the email itself. */
+/** Suggest familiar account names instead of numbering provider sign-ins. */
 export function nameSuggestions(account: PlanAccount, taken: readonly string[]): string[] {
     const email = account.email;
     const domain = email?.split('@')[1]?.toLowerCase();
