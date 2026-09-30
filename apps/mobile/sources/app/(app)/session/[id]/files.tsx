@@ -6,6 +6,8 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { CodeCore, PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/CodeCore';
 import { filesList, filesRead, filesRepos } from '@/catalog/ops';
+import { useHerdrTree, useSession } from '@/catalog/store';
+import { herdrPaneForSession } from '@/herd';
 
 type Repos = Awaited<ReturnType<typeof filesRepos>>;
 type Listing = Awaited<ReturnType<typeof filesList>>;
@@ -18,8 +20,28 @@ type Preview = Awaited<ReturnType<typeof filesRead>>;
  * it, and an explicit root must be a repository open in some session.
  */
 export default function FilesScreen() {
-    const { id: sessionId } = useLocalSearchParams<{ id: string }>();
+    const { id: sessionId, paneId: routedPaneId } = useLocalSearchParams<{ id: string; paneId?: string }>();
     const { theme } = useUnistyles();
+    const originalSession = useSession(sessionId);
+    const { workspaces } = useHerdrTree();
+    const originalPane = herdrPaneForSession(workspaces, sessionId);
+    const discoveredPaneId = routedPaneId ?? originalSession?.metadata?.paneId ?? originalPane?.paneId;
+    const [anchor, setAnchor] = React.useState({ route: sessionId, paneId: discoveredPaneId });
+    React.useEffect(() => {
+        setAnchor((previous) => {
+            if (previous.route !== sessionId) return { route: sessionId, paneId: discoveredPaneId };
+            if (discoveredPaneId === undefined || discoveredPaneId === previous.paneId) return previous;
+            return { route: sessionId, paneId: discoveredPaneId };
+        });
+    }, [sessionId, discoveredPaneId]);
+    // A provisional launch route can disappear; retain its pane as Herdr
+    // publishes the settled route so this screen resumes without reopening.
+    const pane = workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) => tab.panes))
+        .find((candidate) => anchor.route === sessionId && candidate.paneId === anchor.paneId);
+    const resolvedSessionId = pane?.sessionId ?? sessionId;
+    const session = useSession(resolvedSessionId);
+    const waitingForAgent = session === null || session.metadata?.agentStatus === 'starting'
+        || pane?.agentStatus === 'starting';
     const [repos, setRepos] = React.useState<Repos | undefined>(undefined);
     const [root, setRoot] = React.useState<string | undefined>(undefined);
     const [path, setPath] = React.useState('');
@@ -29,6 +51,7 @@ export default function FilesScreen() {
     const [error, setError] = React.useState<string | undefined>(undefined);
 
     React.useEffect(() => {
+        if (waitingForAgent) return;
         let cancelled = false;
         setLoading(true);
         filesRepos()
@@ -45,13 +68,13 @@ export default function FilesScreen() {
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, []);
+    }, [waitingForAgent, resolvedSessionId]);
 
     React.useEffect(() => {
-        if (root === undefined) { setListing(undefined); return; }
+        if (waitingForAgent || root === undefined) { setListing(undefined); return; }
         let cancelled = false;
         setLoading(true);
-        filesList(sessionId, { root, ...(path === '' ? {} : { path }) })
+        filesList(resolvedSessionId, { root, ...(path === '' ? {} : { path }) })
             .then((result) => {
                 if (cancelled) return;
                 setListing(result);
@@ -65,14 +88,14 @@ export default function FilesScreen() {
                 if (!cancelled) setLoading(false);
             });
         return () => { cancelled = true; };
-    }, [sessionId, root, path]);
+    }, [waitingForAgent, resolvedSessionId, root, path]);
 
     const openPreview = React.useCallback((nodePath: string) => {
-        if (root === undefined) return;
+        if (waitingForAgent || root === undefined) return;
         setLoading(true);
         // The tree speaks repo-relative paths; the preview endpoint resolves
         // them inside the root, symlinks included.
-        filesRead(sessionId, { root, path: nodePath })
+        filesRead(resolvedSessionId, { root, path: nodePath })
             .then((result) => {
                 setPreview(result);
                 setError(undefined);
@@ -81,7 +104,17 @@ export default function FilesScreen() {
                 setError(cause instanceof Error ? cause.message : String(cause));
             })
             .finally(() => setLoading(false));
-    }, [sessionId, root]);
+    }, [waitingForAgent, resolvedSessionId, root]);
+
+    if (waitingForAgent) {
+        return <>
+            <Stack.Screen options={{ title: 'Files' }} />
+            <View style={styles.waiting} accessibilityRole="progressbar" accessibilityLabel="Waiting for agent">
+                <ActivityIndicator color={theme.colors.textSecondary} />
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>Waiting for the agent to finish starting…</Text>
+            </View>
+        </>;
+    }
 
     const title = preview !== undefined
         ? preview.name
@@ -175,6 +208,7 @@ export default function FilesScreen() {
 
 const styles = StyleSheet.create({
     screen: { flex: 1 },
+    waiting: { flex: 1, padding: 16, gap: 12, alignItems: 'center', justifyContent: 'center' },
     content: { padding: 16, gap: 4 },
     row: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 4, paddingVertical: 8, borderRadius: 8 },
     back: { marginTop: 12, flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', padding: 8, borderRadius: 8 },
