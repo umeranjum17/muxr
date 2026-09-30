@@ -186,7 +186,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     close(): Promise<void>;
 } {
     const { source, domain, machineId, hostVersion } = options;
-    const movingPlanSessions = new Set<string>();
+    let planMoveInProgress = false;
 
     /** The session cwd is host-injected: a caller can never choose it. */
     const changesInput = async (sessionId: string, root?: string): Promise<{ sessionId: string; cwd: string; root?: string }> => {
@@ -588,10 +588,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return removePlanAccount(process.env, params.accountId);
         }),
         'plans.move': async (params) => {
-            if (movingPlanSessions.has(params.sessionId)) {
-                throw Object.assign(new Error('An account move is already in progress for this agent.'), { code: 'plan-move-in-progress' });
+            if (planMoveInProgress) {
+                throw Object.assign(new Error('Another move is in progress.'), { code: 'plan-move-in-progress' });
             }
-            movingPlanSessions.add(params.sessionId);
+            planMoveInProgress = true;
             try {
                 const selected = resolvePlanRecord(process.env, params.accountId);
                 const record = await resolvePlanLaunch(process.env, params.accountId, selected.provider);
@@ -624,7 +624,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     throw error;
                 }
             } finally {
-                movingPlanSessions.delete(params.sessionId);
+                planMoveInProgress = false;
             }
         },
         'plans.add': async (params) => {
