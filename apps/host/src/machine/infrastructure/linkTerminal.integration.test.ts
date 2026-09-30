@@ -16,7 +16,7 @@ import { DeviceLink, hostId, keyPairFrom, type DeviceGrant, type LinkStatus } fr
 import type { HostFrame } from '@trymuxr/contract';
 import { generateKeyPair, generateSigningKeyPair } from '@trymuxr/crypto';
 import { startRelay } from '@muxr/relay';
-import { PluginStreamManager, TerminalManager, type VoiceStreamTransport } from '../../agent/index.js';
+import { VoiceStreamManager, TerminalManager, type VoiceStreamTransport } from '../../agent/index.js';
 import { LinkEndpoint } from './linkEndpoint.js';
 import type { MachineCryptoState } from '../domain/crypto.js';
 
@@ -193,17 +193,6 @@ setInterval(() => {}, 1000);
         const dir = mkdtempSync(join(tmpdir(), 'muxr-link-terminal-'));
         cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
         const herdrBin = writeFakeHerdr(dir);
-        writeFileSync(join(dir, 'plugin.mjs'), `
-let input = '';
-process.stdin.on('data', (chunk) => {
-    input += chunk;
-    for (let nl = input.indexOf('\\n'); nl >= 0; nl = input.indexOf('\\n')) {
-        const frame = JSON.parse(input.slice(0, nl));
-        input = input.slice(nl + 1);
-        if (frame.type === 'realtime.audio') process.stdout.write(JSON.stringify({ type: 'realtime.state', state: 'connected', detail: 'plugin heard phone' }) + '\\n');
-    }
-});
-`);
         const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
         cleanups.push(() => void relay.close());
         const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
@@ -242,7 +231,7 @@ process.stdin.on('data', (chunk) => {
         const voiceEntry = join(voiceRoot, 'stream.mjs');
         mkdirSync(voiceRoot, { recursive: true });
         writeFileSync(voiceEntry, `import readline from 'node:readline';\nconst input = readline.createInterface({ input: process.stdin });\ninput.on('line', (line) => { const frame = JSON.parse(line); if (frame.type === 'realtime.audio') process.stdout.write(JSON.stringify({ type: 'realtime.transcript', role: 'user', text: 'voice frame received' }) + '\\n'); });\n`);
-        const voiceRuntime = new PluginStreamManager({});
+        const voiceRuntime = new VoiceStreamManager({});
         cleanups.push(() => voiceRuntime.closeAll());
 
         const terminals = new TerminalManager({
@@ -252,8 +241,6 @@ process.stdin.on('data', (chunk) => {
             openTerminal: openTerminalFor(herdrBin),
         });
         cleanups.push(() => terminals.closeAll());
-        const plugins = new PluginStreamManager({});
-        cleanups.push(() => plugins.closeAll());
 
         const endpoint = await LinkEndpoint.open({
             relayUrl,
@@ -271,7 +258,7 @@ process.stdin.on('data', (chunk) => {
             },
             voiceStreams: {
                 attach: ({ deviceId, channel, sessionId, stream }) => voiceRuntime.attach({
-                    target: { pluginId: 'voice-test', pluginRoot: voiceRoot, entry: 'stream.mjs' },
+                    target: { providerId: 'voice-test', runtimeRoot: voiceRoot, entry: 'stream.mjs' },
                     channel,
                     stateDir: join(dir, 'voice-state'),
                     ...(sessionId === undefined ? {} : { sessionId }),
@@ -285,21 +272,6 @@ process.stdin.on('data', (chunk) => {
                     signal: new AbortController().signal,
                     onClosed: () => undefined,
                 }),
-            },
-            pluginStreams: {
-                attach: async ({ stream, channel, deviceId }) => {
-                    const transport: VoiceStreamTransport = {
-                        set onData(listener: VoiceStreamTransport['onData']) { stream.onData = listener; },
-                        set onEnd(listener: VoiceStreamTransport['onEnd']) { stream.onEnd = listener; },
-                        write: (chunk) => stream.write(chunk),
-                        end: (error) => stream.end(error),
-                    };
-                    await plugins.attach({
-                        target: { pluginId: 'fixture', pluginRoot: dir, entry: 'plugin.mjs' },
-                        channel, deviceId, stateDir: join(dir, 'plugin-state'), transport,
-                        signal: new AbortController().signal, onClosed: () => undefined,
-                    });
-                },
             },
         });
         expect(endpoint).toBeDefined();
@@ -467,23 +439,6 @@ process.stdin.on('data', (chunk) => {
 
         expect(linkAttachMs).toBeLessThan(5_000);
 
-        // The same authenticated link carries a third-party plugin process;
-        // there is no ticket, relay /stream socket, or hosted envelope.
-        const pluginStream = await link.stream('plugin', {
-            pluginId: 'fixture', manifestHash: 'fixture-hash', contributionId: 'voice', channel: 'rs_plugin_test',
-        });
-        const pluginReply = new Promise<string>((resolve) => {
-            let text = '';
-            pluginStream.onData = (chunk) => {
-                text += Buffer.from(chunk).toString('utf8');
-                const nl = text.indexOf('\n');
-                if (nl >= 0) resolve(text.slice(0, nl));
-            };
-        });
-        await pluginStream.write(`${JSON.stringify({ type: 'realtime.audio', data: 'AAA=' })}\n`);
-        const pluginFrame = JSON.parse(await once(pluginReply, 5_000, 'plugin reply'));
-        expect(pluginFrame).toMatchObject({ type: 'realtime.state', state: 'connected', detail: 'plugin heard phone' });
-        pluginStream.end();
         link.stop();
     });
 });

@@ -40,10 +40,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('react-native', () => ({ AppState: { addEventListener: vi.fn() } }));
-vi.mock('@/plugins/openPluginStream', () => ({
+vi.mock('../infrastructure/realtimeStream', () => ({
     captureStreamTransport: mocks.captureStream,
     openRealtimeStream: mocks.openStream,
-    refreshPluginStreamSnapshot: mocks.refreshStream,
+    refreshRealtimeStreamSnapshot: mocks.refreshStream,
 }));
 vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/../modules/voice-overlay', () => mocks.pcm);
@@ -73,7 +73,7 @@ function fakeStream(): FakeStream {
     return stream;
 }
 
-const asPluginStream = (stream: FakeStream) => ({
+const asRealtimeStream = (stream: FakeStream) => ({
     send: stream.send,
     start: stream.start,
     close: stream.close,
@@ -163,8 +163,8 @@ describe('generic realtime stream session', () => {
         let grantGeneration = 0;
         mocks.refreshStream.mockImplementation(async (snapshot) => ({ ...snapshot, token: `grant-generation-${++grantGeneration}` }));
         mocks.openStream
-            .mockResolvedValueOnce(asPluginStream(stream))
-            .mockResolvedValueOnce(asPluginStream(reconnected));
+            .mockResolvedValueOnce(asRealtimeStream(stream))
+            .mockResolvedValueOnce(asRealtimeStream(reconnected));
         const statuses: Array<[string, string | undefined]> = [];
         const turns: Array<[string, string]> = [];
         const handle = startRealtimeSession({
@@ -363,7 +363,7 @@ describe('generic realtime stream session', () => {
         stream.start.mockImplementation(() => {
             stream.frames.forEach((listener) => listener({ type: 'realtime.webrtc.start', dataChannelLabel: 'events-channel' }));
         });
-        mocks.openStream.mockResolvedValue(asPluginStream(stream));
+        mocks.openStream.mockResolvedValue(asRealtimeStream(stream));
         const statuses: string[] = [];
         const turns: string[] = [];
         const handle = startRealtimeSession({
@@ -447,7 +447,7 @@ describe('generic realtime stream session', () => {
 
     it('hands an armed local VAD recording to realtime without losing its buffered opening', async () => {
         const stream = fakeStream();
-        mocks.openStream.mockResolvedValue(asPluginStream(stream));
+        mocks.openStream.mockResolvedValue(asRealtimeStream(stream));
         mocks.vad.acquireRealtimeCapture.mockReturnValue({
             pending: ['cHJlcm9sbCE=', 'c3BlZWNo'], ready: Promise.resolve(), release: vi.fn(),
         });
@@ -463,7 +463,7 @@ describe('generic realtime stream session', () => {
 
     it('does not reconnect an intentional provider hang-up', async () => {
         const stream = fakeStream();
-        mocks.openStream.mockResolvedValue(asPluginStream(stream));
+        mocks.openStream.mockResolvedValue(asRealtimeStream(stream));
         const statuses: Array<[string, string | undefined]> = [];
         startRealtimeSession({ target: { machineId: 'machine-a', sessionId: 's1' }, onStatus: (s, d) => { statuses.push([s, d]); }, onTurn: vi.fn() });
         await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledOnce());

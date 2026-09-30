@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, expect, it } from 'vitest';
-import { PluginStreamManager } from './pluginStreamManager.js';
+import { VoiceStreamManager } from './voiceStreamManager.js';
 
 /**
  * Realtime voice regression: a provider reply bursts multi-megabyte audio far
@@ -30,8 +30,8 @@ process.stdin.once('data', () => {
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-it('closes a plugin stream whose incoming frame never terminates', async () => {
-    const manager = new PluginStreamManager({});
+it('closes a voice stream whose incoming frame never terminates', async () => {
+    const manager = new VoiceStreamManager({});
     let closed = false;
     const transport = {
         onData: (_chunk: Uint8Array) => {},
@@ -40,7 +40,7 @@ it('closes a plugin stream whose incoming frame never terminates', async () => {
         end: () => { closed = true; transport.onEnd(); },
     };
     await manager.attach({
-        target: { pluginId: 'voice-test', pluginRoot: root, entry: 'plugin.mjs' },
+        target: { providerId: 'voice-test', runtimeRoot: root, entry: 'plugin.mjs' },
         channel: 'rs_unterminated_test',
         stateDir: join(root, 'oversized-state'),
         signal: new AbortController().signal,
@@ -58,7 +58,7 @@ it('delivers a bursty provider reply completely and in order through a slow link
     let done: () => void;
     const finished = new Promise<void>((resolve) => { done = resolve; });
 
-    const manager = new PluginStreamManager({});
+    const manager = new VoiceStreamManager({});
     const transport = {
         onData: (_chunk: Uint8Array) => {},
         onEnd: (_error?: string) => {},
@@ -74,7 +74,7 @@ it('delivers a bursty provider reply completely and in order through a slow link
         end: () => {},
     };
     await manager.attach({
-        target: { pluginId: 'voice-test', pluginRoot: root, entry: 'plugin.mjs' },
+        target: { providerId: 'voice-test', runtimeRoot: root, entry: 'plugin.mjs' },
         channel: 'rs_burst_test',
         stateDir: join(root, 'state'),
         signal: new AbortController().signal,

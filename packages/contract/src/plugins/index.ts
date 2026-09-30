@@ -23,7 +23,6 @@ export type {
     PluginSummary,
     PluginToolbarButton,
     PluginRpcCapability,
-    PluginStreamCapability,
     PluginRpcMode,
     PluginContextRequest,
     PluginPublicAttentionContext,

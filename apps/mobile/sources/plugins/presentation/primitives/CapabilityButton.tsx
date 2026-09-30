@@ -17,7 +17,7 @@ export function CapabilityButton({ context, contribution, pluginId, manifestHash
     const realtime = useRealtimeSessionState();
     const capability = contribution.capability!;
     const manifest = pluginSnapshot().find((entry) => entry.summary.pluginId === pluginId && entry.summary.manifestHash === manifestHash)?.manifest;
-    const handler = manifest === undefined ? undefined : capabilityFor(capability, manifest);
+    const handler = manifest === undefined ? undefined : capabilityFor(capability);
     const available = handler !== undefined;
     const icon = contribution.icon!;
     const label = resolvePluginText(contribution.accessibilityLabel!);

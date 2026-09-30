@@ -18,7 +18,7 @@ A plugin can be:
 
 If you have built a Pi extension, the workflow should feel familiar. The important mobile difference is that external extensions compose muxr's native components instead of downloading React or JavaScript into the app.
 
-> **Status:** protocol v1 ships the immutable catalog, explicit disable/revoke, static `settings.sections`, context-bound `session.toolbar` actions, manifest-declared `host.rpc`/`host.stream`, typed native slots, declarative terminal key rows, navigation/settings items, data cards, and declarative `navigation.content` screens. Native slots compose compiled **primitives** through a validated compatibility table. Enabling a Herdr plugin is the trust decision; enabled plugins appear on connected phones by default. The broader hook table remains under [`decisions/0005-pi-like-extension-runtime.md`](decisions/0005-pi-like-extension-runtime.md).
+> **Status:** protocol v1 ships the immutable catalog, explicit disable/revoke, static `settings.sections`, context-bound `session.toolbar` actions, manifest-declared `host.rpc`, typed native slots, declarative terminal key rows, navigation/settings items, data cards, and declarative `navigation.content` screens. Native slots compose compiled **primitives** through a validated compatibility table. Enabling a Herdr plugin is the trust decision; enabled plugins appear on connected phones by default. The broader hook table remains under [`decisions/0005-pi-like-extension-runtime.md`](decisions/0005-pi-like-extension-runtime.md).
 
 ## Smallest extension
 
@@ -146,10 +146,9 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `events` | a trigger: when app state changes, run a kernel action | JSON |
 | `shortcuts` | an Android launcher shortcut | JSON; bundled entries require an app rebuild |
 | `host.rpc` | a bounded one-shot backend entrypoint | JSON + `.mjs` |
-| `host.stream` | a persistent provider adapter over bounded NDJSON frames | `.mjs` |
 | `navigation.primary` | a navigation destination; product chrome decides where it renders (home chips, sidebar tools) and in what order | JSON (`navigation-item`) |
 | `navigation.content` | the screen that destination opens | JSON (`screen`) or primitive |
-| `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet; a card may set `contentContributionId` to open a declared `navigation.content` screen. The Right-now card is host product code fed by the `usage.now` request, not a plugin contribution: the retired `"product": "right-now"` data-card marker is ignored, and every `home.cards` contribution keeps the generic data card | JSON (`data-card`) |
+| `home.cards` | a Home card, or `"presentation": "sheet"` for a pill that opens a bottom sheet; a card may set `contentContributionId` to open a declared `navigation.content` screen. The Right-now card is host product code fed by the `usage.now` request, not a plugin contribution; every `home.cards` contribution uses the generic data card | JSON (`data-card`) |
 | `session.header.trailing` | a session action; the pane menu renders it as a row | JSON (`data-card` or `screen-button`) or primitive |
 | `session.pills` | a session action; the pane menu renders it as a row | JSON (`data-card`) or primitive |
 | `session.toolbar` | a pane-menu command that runs a declared Herdr action | JSON (`button`) |
@@ -168,15 +167,12 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 | `item-list` | `home.cards`, `navigation.content`, `session.header.trailing`, `session.pills` | none | required read `source`; optional `title`, `icon`, `accessibilityLabel`, and `refreshIntervalMs` (5,000–300,000) |
 | `collection` | `navigation.content` | none | required read `source`; optional `title`, `emptyTitle`, `emptyMessage`, `icon` |
 | `icon-button` | home/session composer slots and `session.header.trailing` | none | required `capability`, `icon`, and `accessibilityLabel`; optional `indicator: "realtime-session"` |
-| `realtime-session-overlay` | `app.overlay` | none | none |
 | `tree-sheet` | `session.overlay` | `sessionId`, `visible`, `onClose`, `openMenu` | required read `source`; optional `title` |
 | `dictate` | home and session composer trailing | `getText`, `setText` | none |
 
-Declaring `realtime-session-overlay` records that a capability needs the product's voice surface; the product mounts that overlay itself, so the declaration paints nothing.
 
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
 
-Session actions appear under the header's three-dot pane menu. A session `screen-button`, or an `item-list`/`icon-button` native contribution in a supported session action slot, may set `"quickAction": true` on the contribution (not inside `params`). The flag stays accepted; its panel target is gone, and the floating terminal control that replaced it is product code that reads no plugin contributions, so quick and non-quick actions alike render as pane-menu rows — every declared action remains reachable there.
 
 ```json
 { "slot": "session.pills", "id": "files", "type": "native", "primitive": "item-list",
@@ -186,7 +182,6 @@ Session actions appear under the header's three-dot pane menu. A session `screen
 
 Its read RPC returns up to 50 rows. Each row has a unique `id` (255 UTF-8 bytes), `title` (255), optional `subtitle` (512), optional Ionicon `icon` (64-character identifier), optional `group` (40 bytes; rows sharing a group render as one titled section in first-seen order), optional `progress` (`{ "value": 0..1, "tone": ... }`, rendered as a thin fill bar under the row), up to three compact `metadata` entries (`label` and `value`, 40 bytes each, optional `tone` — the first entry renders as the row's emphasized figure), and an optional validated `action`; rows without one render read-only. A response may also include up to four sheet-level `actions`, each with unique `id`, `label` (40 bytes), optional `icon`, and a validated action, plus an optional `badge` (`{ "value": string (12 bytes), "tone": ... }`) that replaces the row count in the collapsed pill with one glanceable figure. Set `minMuxrVersion: 8` when sheet-level actions are essential; older phones safely ignore optional response fields. The phone bounds and sanitizes every value, drops duplicate ids, and discards malformed metadata or invalid actions. Returning no rows and no sheet actions hides the control. This is generic presentation data: a git plugin may return `+12` / `−3`, while an attachment plugin may choose MIME-aware icons without any feature branch in the app.
 
-Not implemented yet, do not write manifests against them: `theme.tokens`, `session.header.leading`, `session.status`, `session.footer`, `command.palette`, `notifications.channels`.
 
 Unknown slots are skipped rather than fatal, so a newer manifest never crashes an older app. `muxr plugin check` warns when it skips one.
 
@@ -443,7 +438,6 @@ Plugins do not own OS permission or foreground-service lifetime. A future notifi
 
 A Herdr backend runs unsandboxed as your computer user. Installing one is equivalent to trusting local code. muxr's declarative UI limits what reaches the phone; it does not sandbox the backend.
 
-Approved `host.stream` children receive one short-lived broker token for that stream. The token is least-ambient routing: unapproved plugins, and plugins without a stream contribution, do not receive direct broker access, active calls are aborted when the stream exits, and peer credentials never enter the provider protocol or environment. It is not isolation from malicious code explicitly enabled as the same host user, which can read user files and inspect other same-user processes. Hostile-local-plugin isolation requires a separate OS sandbox architecture.
 
 Enabling or linking a Herdr plugin is the user's trust decision. Every enabled plugin is available to connected phones by default; a phone can explicitly disable it, and disable/revoke remains authoritative. Manifest or authority changes refresh the immutable snapshot and hash but do not trigger per-device reapproval.
 
@@ -612,23 +606,9 @@ validates shape; `plugin call` proves wiring.
 { "schemaVersion": 1, "pluginId": "you.thing", "minMuxrVersion": 8, "contributions": [] }
 ```
 
-`minMuxrVersion` is optional and is preserved when the host parses the manifest. UI version 15's product Right now card is retired: the Right-now card is host product code fed by the `usage.now` request, the `"product": "right-now"` data-card marker is ignored, and `muxr plugin check` no longer rejects anything over it. UI version 14 adds the declarative `limits` node (with an `emptyText` fallback for windowless payloads), row `icon`/`meta` identity fields, runtime-bound tones (`tonePath`) on `text`, `badge`, `progress` and `row`, runtime-bound field values (`valuePath`) on switch/select fields, and an optional agent-mark `glyph` id on tab strip entries, resolved against the app's bundled agent marks with a ringed-monogram fallback. `muxr plugin check` rejects a manifest that uses 14-only nodes without declaring it, and warns on screen node types it does not recognize (unknown nodes are skipped silently at runtime so old apps tolerate new manifests). UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 9 adds provider-neutral `host.stream` contributions and strict encrypted stream transport. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; and defines capability actions, Android launcher shortcuts, the realtime indicator, and singleton realtime-overlay cardinality. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
+`minMuxrVersion` is optional and is preserved when the host parses the manifest. The Right-now card is host product code fed by `usage.now`. UI version 14 adds the declarative `limits` node (with an `emptyText` fallback for windowless payloads), row `icon`/`meta` identity fields, runtime-bound tones (`tonePath`) on `text`, `badge`, `progress` and `row`, runtime-bound field values (`valuePath`) on switch/select fields, and an optional agent-mark `glyph` id on tab strip entries, resolved against the app's bundled agent marks with a ringed-monogram fallback. `muxr plugin check` rejects a manifest that uses 14-only nodes without declaring it, and warns on screen node types it does not recognize (unknown nodes are skipped silently at runtime so old apps tolerate new manifests). UI version 12 allows generic `item-list` rows to omit actions for honest read-only status and metric lists; actionable rows still require a validated closed action. UI version 11 adds the bounded declarative `code` node and syntax highlighting for source previews and native unified diffs. UI version 10 adds the generic declarative `tree` node: per-folder expand/collapse, expand/collapse-all controls, optional lazy `host.rpc` children, closed leaf actions, and folder selection into an existing form field. UI version 8 adds bounded per-row icons/metadata and optional sheet-level actions to the generic `item-list` response. UI version 7 adds plugin-owned `navigation-item.badge` read sources and singleton tree-sheet cardinality. UI version 6 adds bounded localized values for every user-visible manifest string and runtime Android launcher projection for shortcut contributions. UI version 5 removes `url-chip`; adds bounded active-only refresh and presentation parameters to `item-list`; and defines capability actions, Android launcher shortcuts. UI version 4 added source-driven grouped collections/tree sheets and allow-listed public RPC context. Each phone compares it with its own `MUXR_UI_VERSION`; an older app lists the plugin as unavailable with an update message and refuses to mount its contributions instead of quietly rendering partial UI.
 
-## Capabilities
-
-`capabilities` maps a semantic feature name to a `host.rpc` or `host.stream` contribution id. The app looks up features by name so core surfaces never hard-code a plugin id:
-
-```json
-"capabilities": {
-  "example.session": "session"
-}
-```
-
-```json
-{ "slot": "host.stream", "id": "session", "type": "stream", "entry": "stream.mjs" }
-```
-
-### Agent close policy
+## Agent close policy
 
 Agent close is host code (`session.stop` calls the close ladder in
 `apps/host/src/agent/infrastructure/agentClose.ts` directly on the live Herdr
@@ -644,16 +624,8 @@ returns exactly one of:
 
 The backend reads fresh Herdr topology before every mutation. Pane close needs no broader confirmation; tab, workspace, and worktree-group scopes each need their own explicit confirmation. If Herdr refuses an attempted scope after a race, the next confirmation must be strictly broader than both that attempt and the scope already confirmed. A failed revalidation returns Retry or an error, never `alreadyGone`; only a live snapshot that no longer contains the target may report it already closed. Cancel sends no request.
 
-A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
+Phone effects (`speech.wake`, `voice.start`) are compiled into the app and referenced from events or shortcuts as `{ "action": { "type": "capability", "name": "voice.start" } }`. An unregistered phone-effect name is skipped. Realtime voice is product code: the host integrates `@byokit/realtime` behind the typed `voice.*` methods. See [Voice setup](VOICE-SETUP.md) for provider selection and transport details.
 
-Realtime voice is **not** a plugin: it is product code. The host integrates `@byokit/realtime` behind the typed `voice.*` methods; see [Voice setup](VOICE-SETUP.md) for provider selection and transport details.
-
-Realtime voice does not use this capability map: its `voice.*` surface is a typed product host request, so no plugin id, capability name, or manifest hash is involved. See [Voice setup](VOICE-SETUP.md).
-
-Names are dotted ids; values must be contribution ids that exist in the same manifest. This semantic map resolves backend RPCs and streams. It is not a phone effect. Phone effects (`speech.wake`, `voice.start`) are
-compiled into the app and referenced from events or shortcuts as
-`{ "action": { "type": "capability", "name": "voice.start" } }`. An unregistered
-phone-effect name is skipped, not fatal.
 
 ## Screen buttons
 
