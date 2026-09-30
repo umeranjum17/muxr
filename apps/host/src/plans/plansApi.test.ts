@@ -40,7 +40,7 @@ echo '{"id":1,"result":{}}'
 read -r line
 base="\${CODEX_HOME##*/}"
 if [[ "$line" == *rateLimits* ]]; then
-  if [[ "$base" == *-out ]]; then echo '{"id":2,"result":{"rateLimitsByLimitId":{}}}';
+  if [[ -f "$CODEX_HOME/fail" || "$base" == *-out ]]; then echo '{"id":2,"result":{"rateLimitsByLimitId":{}}}';
   elif [[ "$base" == tight ]]; then echo "{\\"id\\":2,\\"result\\":{\\"rateLimitsByLimitId\\":{\\"plan\\":{\\"limitName\\":\\"Codex\\",\\"primary\\":{\\"usedPercent\\":90,\\"windowDurationMins\\":10080,\\"resetsAt\\":1893456000}}}}}";
   else echo "{\\"id\\":2,\\"result\\":{\\"rateLimitsByLimitId\\":{\\"plan\\":{\\"limitName\\":\\"Codex\\",\\"primary\\":{\\"usedPercent\\":25,\\"windowDurationMins\\":10080,\\"resetsAt\\":1893456000}}}}}"; fi
 elif [[ "$base" == *-out ]]; then echo '{"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}';
@@ -57,6 +57,12 @@ beforeEach(() => {
     env = {
         ...process.env,
         HOME: root,
+        XDG_DATA_HOME: join(root, 'share'),
+        CODEX_HOME: join(root, '.codex'),
+        CLAUDE_CONFIG_DIR: join(root, '.claude'),
+        PI_AGENT_DIR: join(root, 'pi'),
+        OPENCODE_AUTH_CONTENT: undefined,
+        MUXR_CCUSAGE_BIN: '/bin/false',
         MUXR_HOME: join(root, 'muxr'),
         PATH: `${bin}${process.env.PATH === undefined ? '' : `:${process.env.PATH}`}`,
     };
@@ -148,16 +154,28 @@ it('never deletes the plans root itself when a record points at it', async () =>
     expect(loadPlanAccounts(env).map((record) => record.id)).toEqual(['pa_work']);
 });
 
-it('lists two codex sign-ins through the stub app-server', async () => {
+it('keeps selected Codex sign-ins separate through switches and failed reads', async () => {
     const home = join(root, '.codex');
     mkdirSync(home, { recursive: true });
-    const second = join(root, 'muxr', 'plans', 'codex', 'other');
+    writeFileSync(join(home, 'auth.json'), JSON.stringify({ tokens: { access_token: 'fixture-a' } }));
+    const second = join(root, 'muxr', 'plans', 'codex', 'tight');
     mkdirSync(second, { recursive: true });
-    savePlanAccounts(env, [{ id: 'pa_x', provider: 'codex', name: 'Other', folder: second, found: false }]);
+    writeFileSync(join(second, 'auth.json'), JSON.stringify({ tokens: { access_token: 'fixture-b' } }));
+    savePlanAccounts(env, [{ id: 'pa_x', provider: 'codex', name: 'Tight', folder: second, found: false }]);
     const listed = await listPlans(env);
     expect(listed.providers.map((entry) => entry.provider)).toEqual(['codex']);
-    expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual(['.codex@example.com', 'other@example.com']);
-    expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 75]);
+    expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual(['.codex@example.com', 'tight@example.com']);
+    expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
+    const { collectUsage } = await import('../usage/index.js');
+    const selected = { ...env, ...resolvePlanEnv(env, 'pa_x') };
+    expect((await collectUsage({ provider: 'codex' }, selected)).limits.windows.map((window) => window.used)).toEqual([90]);
+    expect((await collectUsage({ provider: 'codex' }, { ...env, CODEX_HOME: home })).limits.windows.map((window) => window.used)).toEqual([25]);
+    writeFileSync(join(second, 'fail'), '');
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 120_000).toISOString();
+    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
+    writeFileSync(join(second, 'auth.json'), JSON.stringify({ tokens: { account_id: 'fixture-new-account' } }));
+    const failed = await collectUsage({ provider: 'codex', refresh: true }, { ...selected, MUXR_USAGE_NOW: env.MUXR_USAGE_NOW });
+    expect(failed.limits.windows).toEqual([]);
 });
 
 /** P2: room left per account plus the Auto rule, from snapshots the same
