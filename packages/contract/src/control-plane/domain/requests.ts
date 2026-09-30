@@ -349,7 +349,7 @@ export interface RequestMap extends PeerRequestMap {
             label?: string;
             /** Explicit concise task identity. Never derived from terminal output. */
             taskTitle?: string;
-            /** A Plan Account id from `plans.list`; the launch runs on that sign-in. Unknown ids fail. */
+            /** A Plan Account id from `plans.list`, or `auto` to choose at launch. Unknown ids fail; signed-out picks use the computer's sign-in. */
             planAccount?: string;
             /** Create the session inside a new git worktree of the repo at cwd. */
             worktree?: { branch?: string; base?: string };
@@ -380,7 +380,18 @@ export interface RequestMap extends PeerRequestMap {
         params: { applicationId: string; sessionId?: string };
         result: { title: string; sessionId: string };
     };
-    'herdr.agentKinds': { params: Record<string, never>; result: { kinds: string[]; installed?: string[] } };
+    'herdr.agentKinds': {
+        params: { refresh?: boolean };
+        result: {
+            kinds: string[];
+            installed?: string[];
+            readiness?: Record<string, {
+                signedIn: 'yes' | 'no' | 'unknown';
+                installHint?: string;
+                signInHint?: string;
+            }>;
+        };
+    };
     /** Immutable native UI plugin catalog. Safe to enumerate from read-only clients. */
     'plugin.list': {
         params: Record<string, never>;
@@ -797,8 +808,8 @@ export interface RequestMap extends PeerRequestMap {
 
     // --- plan accounts --------------------------------------------------------
     // Product-owned. One sign-in to a provider plan an agent can run on (see
-    // `PlanAccount`). Providers with fewer than two known accounts are omitted,
-    // so a one-account machine sees nothing new. An older host has no handler
+    // `PlanAccount`). Providers with fewer than two known accounts are omitted
+    // from the list. An older host has no handler
     // and answers host-contract-mismatch, which the app treats as no accounts.
     /** Every provider with two or more known sign-ins, with room hints when read. `autoTermsNote` is the one-time Auto note the app shows until acknowledged. */
     'plans.list': { params: Record<string, never>; result: { providers: PlanProviderAccounts[]; autoTermsAcknowledged: boolean; autoTermsNote: string } };
@@ -816,8 +827,22 @@ export interface RequestMap extends PeerRequestMap {
      * Move a running agent onto another account of a provider it already uses.
      * The conversation resumes in place; the result names the session to show,
      * which is the same session when its route rebinds and the new one otherwise.
+     * Only one move may run on a host at a time, through account association
+     * persistence; concurrent requests fail with `plan-move-in-progress`.
      */
     'plans.move': { params: { sessionId: string; accountId: string }; result: { sessionId: string } };
+    /**
+     * Open the provider's own sign-in in a new tab: a fresh private folder for
+     * a new account, or the account's own folder to sign in again. The person
+     * signs in inside the real tool; the tab is the returned session.
+     */
+    'plans.add': { params: { provider: string; accountId?: string }; result: { accountId: string; sessionId: string } };
+    /** One account as its tool reports it now, polled while the person signs in. Once signed in, its sign-in tab closes. */
+    'plans.status': { params: { accountId: string }; result: { account: PlanAccount } };
+    /** Stop waiting for a sign-in: its tracked tab closes, and an account created for that tab is removed. */
+    'plans.cancel': { params: { accountId: string }; result: { removed: boolean } };
+    /** The account a running agent was started or moved on; absent means the computer's own sign-in. */
+    'plans.agent': { params: { sessionId: string }; result: { accountId?: string } };
 
     // --- realtime voice -------------------------------------------------------
     // Product-owned. The provider adapters are internal host modules, so these

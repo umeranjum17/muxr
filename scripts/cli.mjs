@@ -666,6 +666,10 @@ async function relayMenu() {
 
 const input = process.argv.slice(2);
 if (input[0] === undefined && process.stdin.isTTY && process.stdout.isTTY) {
+    if (readMenuState() === undefined) {
+        const code = await dispatch('setup', []);
+        if (typeof code === 'number' && code !== 0) process.exitCode = code;
+    }
     for (;;) {
         const state = await printState();
         const sharedRelay = state?.relayRole === 'shared';

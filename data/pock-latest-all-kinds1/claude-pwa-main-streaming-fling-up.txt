@@ -1,0 +1,44 @@
+❯ Continue this terminal scrolling lab without tools…
+  168. Planting the right tree in the right place
+       prevents problems.
+  169. Small trees transplant better than large ones.
+  170. Bare-root trees are planted while dormant.
+  171. New trees need deep water, not frequent sips.
+  172. Stakes should come off after a year.
+  173. Tight ties cut into growing bark.
+  174. Autumn is prime tree-planting season.
+  175. Winter shows off the shape of branches.
+  176. Buds for next spring form in late summer.
+  177. Terminal bud scars mark each year's growth.
+  178. Counting bud scars dates young twigs.
+  179. A tree's full story is written in wood.
+  180. The best time to plant a tree was twenty years
+       ago; the second best is today.
+
+  CLAUDE-STREAM-END
+
+✻ Baked for 37s · done 7:39 AM
+
+❯ Terminal scroll lab only, no tools or file edits.
+  Write 180 separate short lines beginning CLAUDE
+  LIVE 001, CLAUDE LIVE 002, etc, with short mountain
+  observations. End with CLAUDE-STREAM-END. Begin
+  directly with the answer.
+
+● CLAUDE LIVE 001 Air thins noticeably above three
+  thousand meters.
+  CLAUDE LIVE 002 Temperature drops about six degrees
+  Celsius per thousand meters of climb.
+  CLAUDE LIVE 003 Summits often make their own
+  weather.
+  CLAUDE LIVE 004 Afternoon thunderstorms build over
+  peaks in summer.
+  CLAUDE LIVE 005 An early start beats the afternoon
+  lightning.
+  CLAUDE LIVE Jump to bottom (ctrl+End) ↓ farther you
+
+────────────────────────────────────────── ultracode ─
+❯
+──────────────────────────────────────────────────────
+  …/3/pockit fm/pock-latest-all-kinds1  ?  | Opus 5…
+  ⏵⏵ bypass permissions on · gh auth login for PR

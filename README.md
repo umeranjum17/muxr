@@ -40,6 +40,8 @@ muxr is the control surface built natively for the phone: the full agent lifecyc
 
 Open the same live terminal the agent owns on your computer, with native Ghostty rendering, scrollback, and sticky modifier keys. A floating control and a key row you can reorder keep actions within reach, and the composer keeps attachments and dictation beside the prompt. When a blocked Claude Code or Codex agent shows numbered answers, tap one instead of finding its key. Tap a printed link to open, copy, or insert it into the prompt.
 
+After scrolling back, tap **Latest** to return toward the live output. Update the host alongside the app to use this control. **Still catching up** means the host has not established completion; tap again to retry. Typing, scrolling, or refreshing the terminal clears that pending feedback.
+
 <p align="center">
   <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="Claude Code asking to run npm test in muxr's terminal, with its numbered answers as tap targets above the tabs row and key row" width="300" /></picture></a>
 </p>
@@ -100,6 +102,18 @@ See what's left in each plan window, when it resets, and whether you're on pace 
   <picture><source srcset="docs/assets/readme/usage.webp" type="image/webp"><img src="docs/assets/readme/usage.jpg" alt="Usage limits showing remaining session and weekly amounts, reset times, and projected run-out" width="300" /></picture>
 </p>
 
+### Switch between subscription accounts
+
+Open **Settings → Accounts** to add a Claude or ChatGPT (Codex) account on the connected computer. muxr opens the provider's own sign-in in a new tab, using a private folder for the added account. Finish signing in there; muxr closes the tab and asks you to name the account. The folder shares conversation history with the computer's main sign-in so conversations can resume across accounts; credentials stay in the provider's folder on your computer.
+
+With two or more accounts for the selected provider, the new-agent dock shows an **Account** row under Agent. Open it to choose a named account or **Auto**, which picks the signed-in account with the most room left at launch and explains its pick. Signed-out accounts offer **Sign in** and are never picked. Auto shows a one-time note that it may use either account; it does not rotate accounts during a conversation. With one account per provider, the dock and Agent picker stay as before and launches carry no account choice.
+
+If a saved account is no longer signed in, the dock falls back to Auto. With Auto off, it prefers the computer's signed-in account, then another signed-in account if available. If an account signs out after selection but before launch, the host uses the computer's own sign-in. Starting waits for initial account discovery; a temporary discovery failure blocks a saved or Auto choice until accounts can be checked.
+
+In a running agent's menu, choose **Move to another account**. The sheet marks the current account **Now** and preselects the signed-in alternative with the most room left. Claude Code, Codex and Pi can resume a published conversation in the same tab; moving stops the current step, and the new account reads the conversation once from the start. A **Moved to X** notice confirms the change.
+
+**Settings → Accounts** also lets you rename accounts, sign in again, remove added accounts, and turn Auto off to keep the last chosen account. The computer's own sign-in is marked **found on this computer** and cannot be removed here. Removing an added account deletes its private sign-in folder; shared conversation history stays.
+
 ### Review before it ships
 
 Open the real diff and read every changed line in the working tree, the index, or the whole branch before you tell the agent to ship it, without waiting to get back to your desk.
@@ -142,6 +156,8 @@ Tap the mic in the composer and speak. In the app, speech is transcribed on your
 - **Desktop control (Linux)** — see **Peek at your computer** above. Remote desktop needs a Linux x64 host today (macOS later; Arm servers build the engine from source), and a cloud server needs the virtual-display packages once. Android and web have desktop clients; on iPhone, open Computer in the web app (native iOS support is not yet available). [Remote desktop setup and limits](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server) · [Host engine](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md)
 - **[Extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
+Relay alerts on a sleeping native app show “Agent update”; the task title appears once the app runs. Browser alerts can show the task title before you open the app. If an alert belongs to another computer, tapping it opens Settings so you can select that computer.
+
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
 
 ## The whole party, in one place
@@ -166,6 +182,8 @@ You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. mux
 npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
+
+In a terminal, `muxr` opens guided setup immediately when this computer has no saved setup. After setup, it opens the maintenance menu, where advanced options remain available. Without an interactive terminal, bare `muxr` prints command help; use explicit commands for automation.
 
 Want the newest build? Install it with `npm install -g --ignore-scripts @trymuxr/cli@nightly` and take its APK from the [nightly channel](https://trymuxr.com/downloads/nightly). The **Android app** installs alongside a stable one rather than replacing it, so you can keep both on the phone. On your computer both channels are the same CLI, so switching npm tags replaces the host you already run rather than adding a second one. Beta and dev are retired: moving across is that one install, and an older binary will not upgrade itself to a `-nightly` version.
 

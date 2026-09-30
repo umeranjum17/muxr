@@ -1,9 +1,8 @@
 /**
  * Plan Accounts: the host surface behind `plans.*`.
  *
- * The feature is invisible below two accounts per provider: a provider with
- * fewer known sign-ins is omitted from `plans.list`, so a one-account
- * machine sees nothing new. `session.start` carries nothing then either.
+ * A provider with fewer than two known sign-ins is omitted from `plans.list`:
+ * the dock carries no account choice then. Settings can still add an account.
  */
 import { existsSync } from 'node:fs';
 import type { PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
@@ -67,7 +66,7 @@ async function providerRooms(
         const name = record.name.trim() === '' ? suggestPlanName(identity.email, provider) : record.name;
         // Room left from the same reader Usage uses, pointed at this sign-in.
         const windows = identity.signedIn
-            ? await planAccountWindows(provider, { ...env, [folderVar]: record.folder })
+            ? await planAccountWindows(provider, { ...env, [folderVar]: record.folder }, { refresh: true })
             : [];
         const tight = tightestRoomWindow(windows);
         return {
@@ -90,23 +89,23 @@ async function providerRooms(
     return { accounts: reads.map((read) => read.account), rooms: reads.map((read) => read.room) };
 }
 
+function providerRecords(provider: PlanProvider, env: NodeJS.ProcessEnv): PlanAccountRecord[] {
+    const stored = loadPlanAccounts(env);
+    const own = stored.filter((record) => record.provider === provider);
+    const folder = defaultPlanFolder(provider, env);
+    if (!existsSync(folder) || own.some((record) => record.folder === folder)) return own;
+    const found: PlanAccountRecord = { id: `found-${provider}`, provider, name: '', folder, found: true };
+    savePlanAccounts(env, [found, ...stored]);
+    return [found, ...own];
+}
+
 export const AUTO_TERMS_NOTE = 'Auto may use either of a provider\'s accounts.';
 
 export async function listPlans(
     env: NodeJS.ProcessEnv = process.env,
     deps: PlansDeps = {},
 ): Promise<{ providers: PlanProviderAccounts[]; autoTermsAcknowledged: boolean; autoTermsNote: string }> {
-    const stored = loadPlanAccounts(env);
-    const perProvider = new Map(PLAN_PROVIDERS.map((provider) => {
-        const own = stored.filter((record) => record.provider === provider);
-        const found = defaultPlanFolder(provider, env);
-        const records = existsSync(found) && !own.some((record) => record.folder === found)
-            ? [{ id: `found-${provider}`, provider, name: '', folder: found, found: true }, ...own]
-            : own;
-        return [provider, records] as const;
-    }));
-    const merged = PLAN_PROVIDERS.flatMap((provider) => perProvider.get(provider) ?? []);
-    if (merged.length !== stored.length) savePlanAccounts(env, merged);
+    const perProvider = new Map(PLAN_PROVIDERS.map((provider) => [provider, providerRecords(provider, env)]));
     const reads = await Promise.all(PLAN_PROVIDERS.map(async (provider): Promise<PlanProviderAccounts | undefined> => {
         const { accounts, rooms } = await providerRooms(provider, perProvider.get(provider) ?? [], env, deps);
         if (accounts.length < 2) return undefined;
@@ -151,7 +150,35 @@ export function resolvePlanRecord(env: NodeJS.ProcessEnv, accountId: string): Pl
     return record;
 }
 
-/** Launch env for a `session.start.planAccount` id. P3 merges it into the new pane. */
+export async function resolvePlanLaunch(
+    env: NodeJS.ProcessEnv,
+    selection: string,
+    kind: string | undefined,
+    deps: PlansDeps = {},
+): Promise<PlanAccountRecord | undefined> {
+    let record: PlanAccountRecord;
+    if (selection === 'auto') {
+        const provider = kind === 'codex' ? 'codex' : 'claude';
+        if (kind !== 'claude' && kind !== 'codex' && kind !== 'pi') {
+            throw Object.assign(new Error('Choose a provider agent for Auto.'), { code: 'plan-kind-mismatch' });
+        }
+        const records = providerRecords(provider, env);
+        if (records.length < 2) return undefined;
+        const { rooms } = await providerRooms(provider, records, env, deps);
+        const { accountId } = choosePlanAccount(rooms, PLAN_LABELS[provider]);
+        if (accountId === undefined) return undefined;
+        record = resolvePlanRecord(env, accountId);
+    } else {
+        record = resolvePlanRecord(env, selection);
+    }
+    const kinds = record.provider === 'claude' ? ['claude', 'pi'] : ['codex', 'pi'];
+    if (kind !== undefined && kind !== 'shell' && !kinds.includes(kind)) {
+        throw Object.assign(new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${kind} one.`), { code: 'plan-kind-mismatch' });
+    }
+    const identity = await identify(record.provider, record.folder, env, deps);
+    return identity.signedIn ? record : undefined;
+}
+
 export function resolvePlanEnv(env: NodeJS.ProcessEnv, accountId: string): Record<string, string> {
     return planLaunchEnv(resolvePlanRecord(env, accountId));
 }

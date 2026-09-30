@@ -23,6 +23,8 @@ export interface StoredHostedGrant extends DeviceGrant {
     machineBoxPublicKey: string;
     credential: string;
     relayUrl: string;
+    /** Proven dial address returned by the pairing host. */
+    linkUrl?: string;
     /** Human-readable pairing name; never expose the internal machine id as UI copy. */
     machineName?: string;
     /** 'selfhost' when paired against a user-run relay (no account, no control plane). */
@@ -75,7 +77,7 @@ export async function reconnectViaDiscoveredRelay(machineId: string, relayUrl: s
     const current = await loadHostedGrant(machineId);
     if (current === undefined) return false;
     if (!await probeDiscoveredRelay(current, relayUrl)) return false;
-    await storeGrant({ ...current, relayUrl });
+    await storeGrant({ ...current, relayUrl, linkUrl: undefined });
     await saveConnectionSettings({ ...settings, relayUrl });
     return true;
 }
@@ -104,7 +106,7 @@ export async function pairOverLink(scanned: string, options: { onWords?: (words:
 
 /** The pairing machine display name for consent, parsed for display only; the pairing itself re-validates. */
 export async function linkPairMachineName(scanned: string): Promise<string | undefined> {
-    return linkOfferName(scanned, pairingDeviceName());
+    return linkOfferName(scanned);
 }
 
 async function resumePendingLinkPairing(pending: PendingLinkPair): Promise<StoredHostedGrant | undefined> {

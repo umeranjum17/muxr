@@ -67,7 +67,6 @@ export {
     inspectTailscaleServeRoot,
     persistOwnedServeIngress,
     readSelfhostState,
-    runTailscale,
     selfhostConfigured,
     selfhostControlBase,
     selfhostCredential,

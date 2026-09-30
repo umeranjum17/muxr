@@ -51,6 +51,7 @@ export interface SessionStartOptions {
     planAccount?: string;
     /** Internal launch env for that account: merged into the new pane's env. Absent means today's launch. */
     planEnv?: Record<string, string>;
+    signIn?: string;
     worktree?: { branch?: string; base?: string };
     /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
     kinds?: string[];

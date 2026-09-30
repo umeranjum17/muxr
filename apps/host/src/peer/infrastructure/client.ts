@@ -1,3 +1,4 @@
+import { linkUrl } from '@byokit/relay/device';
 import WebSocket from 'ws';
 import { DeviceLink, LinkError, hostId, type DeviceGrant as LinkGrant, type LinkStatus } from '@byokit/link';
 import { nextRequestId, type HostFrame, type RequestParams, type RequestResult } from '@trymuxr/contract';
@@ -63,14 +64,12 @@ export class NodePeerClient implements PeerClientTransport {
         if (grant.deviceKind !== 'peer') throw new Error('peer grant has the wrong device kind');
         if (grant.machineId !== options.machineId) throw new Error('peer grant has the wrong target machine');
         const hostKey = Buffer.from(options.sealedGrant.sender, 'base64');
-        const relay = new URL(options.relayUrl.replace(/^ws/i, 'http'));
-        const scheme = relay.protocol === 'https:' ? 'wss' : 'ws';
         const linkGrant: LinkGrant = {
             v: 1,
             secretKey: Buffer.from(options.peerKey.secretKey, 'base64').toString('base64url'),
             host: hostKey.toString('base64url'),
             hostName: options.machineId,
-            urls: [`${scheme}://${relay.host}/link/v1/${hostId(hostKey)}`],
+            urls: [linkUrl(options.relayUrl, hostId(hostKey))],
             device: { id: options.peerDeviceId, name: 'Peer computer', role: 'control' },
         };
         this.link = new DeviceLink(linkGrant, {

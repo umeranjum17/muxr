@@ -7,6 +7,8 @@ import { activeSessionClient } from '@/connection/sessionClientRef';
 import { clearRegisteredPushToken, loadRegisteredPushToken, saveRegisteredPushToken } from '@/catalog/application/persistence';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { storage } from '@/catalog/store';
+import { listPairedGrants } from '@/pairing';
+import { isSealedLifecyclePush, openLifecycleNotice } from './openLifecycleNotice';
 
 let registering: Promise<boolean> | null = null;
 let pendingNotificationLevel: LifecycleNotificationLevel | null = null;
@@ -28,6 +30,31 @@ export function acknowledgeLifecyclePush(data: unknown): boolean {
     if (machineId === '') return false;
     storage.getState().acknowledgeLifecyclePush(eventId, machineId);
     return true;
+}
+
+export async function openNativeLifecyclePush(data: unknown): Promise<Record<string, unknown>> {
+    if (!isSealedLifecyclePush(data)) return data as Record<string, unknown>;
+    const grants = await listPairedGrants().catch(() => []);
+    const notice = openLifecycleNotice(data, grants);
+    return { ...notice.data, data: notice.data };
+}
+
+export async function receiveLifecyclePush(notification: Notifications.Notification): Promise<void> {
+    const payload = notification.request.content.data;
+    if (!isSealedLifecyclePush(payload)) {
+        acknowledgeLifecyclePush(payload);
+        return;
+    }
+    const grants = await listPairedGrants().catch(() => []);
+    const notice = openLifecycleNotice(payload, grants);
+    const data = { ...notice.data, data: notice.data };
+    if (!acknowledgeLifecyclePush(data)) return;
+    await Notifications.dismissNotificationAsync(notification.request.identifier);
+    await Notifications.scheduleNotificationAsync({
+        identifier: notification.request.identifier,
+        content: { title: notice.title, body: notice.body, data },
+        trigger: null,
+    });
 }
 
 async function subscribeNativePush(token: string, level: LifecycleNotificationLevel): Promise<boolean> {

@@ -16,6 +16,7 @@ vi.mock('@/catalog/application/persistence', () => ({
     saveRegisteredPushToken: (token: string) => { persistence.token = token; },
 }));
 vi.mock('@/utils/microphonePermissions', () => ({ requestNotificationPermission: async () => true }));
+vi.mock('@/pairing', () => ({ listPairedGrants: async () => [] }));
 vi.mock('@/catalog/store', () => ({
     storage: { getState: () => ({ localSettings: { lifecycleNotificationLevel: 'important' } }) },
 }));

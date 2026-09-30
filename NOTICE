@@ -34,13 +34,6 @@ ws — https://github.com/websockets/ws
 The published host uses ws as an external runtime dependency.
 
 --------------------------------------------------------------------------------
-tweetnacl — https://github.com/dchest/tweetnacl-js
-
-  Public domain / Unlicense
-
-Provides X25519 key agreement and XSalsa20-Poly1305 authenticated encryption.
-
---------------------------------------------------------------------------------
 OpenAI Whisper, whisper.cpp, and whisper.rn
 
   https://github.com/openai/whisper

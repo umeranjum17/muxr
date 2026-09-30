@@ -94,9 +94,7 @@ const WHEEL_RUSH_ROWS = 100;
 /**
  * A program that stops repainting while its wheel turns has reached the end
  * it was turned toward: the rest of the rows owed would only keep a working
- * agent's wheel spinning at its live edge. Latest asks for more rows than it
- * counted -- output keeps arriving while the phone reads back -- and relies on
- * this to stop at the bottom.
+ * agent's wheel spinning at its live edge.
  */
 const WHEEL_STILL_MS = 500;
 
@@ -232,8 +230,11 @@ export class TerminalManager {
         };
 
         let finished = false;
+        let bottomGeneration = 0;
+        let bottomRunning = false;
         // Rows still owed to a program's wheel, positive toward 'up'.
         let wheelRows = 0;
+        let wheelReachedEnd = false;
         let wheelAt: Pick<ScrollInput, 'column' | 'row'> = {};
         let wheelTimer: ReturnType<typeof setTimeout> | undefined;
         let paintedAt = 0;
@@ -250,6 +251,7 @@ export class TerminalManager {
         const finish = (reason?: string): void => {
             if (finished) return;
             finished = true;
+            bottomGeneration++;
             removeInput();
             clearTimeout(wheelTimer);
             wheelTimer = undefined;
@@ -308,6 +310,33 @@ export class TerminalManager {
             if (!this.authorized(attachment)) return;
             if (text.trim().length === 0) return;
             try {
+                bottomGeneration++;
+                if (bottomRunning) {
+                    bottomRunning = false;
+                    wheelRows = 0;
+                    clearTimeout(wheelTimer);
+                    wheelTimer = undefined;
+                }
+                const input = JSON.parse(text) as { type?: unknown; requestId?: unknown; cols?: number; rows?: number };
+                if (input.type === 'terminal.resize' && Number.isInteger(input.cols) && Number.isInteger(input.rows) && input.cols! > 0 && input.rows! > 0) {
+                    attachment.cols = input.cols!;
+                    attachment.rows = input.rows!;
+                }
+                if (input.type === 'terminal.bottom') {
+                    if (typeof input.requestId !== 'string' || input.requestId.length === 0 || input.requestId.length > 256) return;
+                    const requestId = input.requestId;
+                    bottomRunning = true;
+                    wheelRows = 0;
+                    clearTimeout(wheelTimer);
+                    wheelTimer = undefined;
+                    const generation = bottomGeneration;
+                    void goToBottom(generation, requestId).catch(() => {
+                        if (!finished && bottomGeneration === generation && this.authorized(attachment)) this.sendResult(socket, params.channel, { type: 'terminal.bottom-state', requestId, state: 'catching-up' });
+                    }).finally(() => {
+                        if (bottomGeneration === generation) bottomRunning = false;
+                    });
+                    return;
+                }
                 const scroll = scrollInput(text);
                 const lines = Number(scroll?.lines);
                 if (scroll !== undefined && attachment.herdrOwnsScroll === false && (scroll.direction === 'up' || scroll.direction === 'down')
@@ -343,6 +372,7 @@ export class TerminalManager {
             if (finished || wheelRows === 0 || childExited) return;
             if (!pumping && Date.now() - paintedAt > WHEEL_STILL_MS) {
                 wheelRows = 0;
+                wheelReachedEnd = true;
                 return;
             }
             const now = Date.now();
@@ -362,6 +392,54 @@ export class TerminalManager {
                 return;
             }
             if (wheelRows !== 0) wheelTimer = setTimeout(turnWheel, WHEEL_TICK_MS);
+        };
+
+        const goToBottom = async (generation: number, requestId: string): Promise<void> => {
+            const deadline = Date.now() + 3_000;
+            const active = (): boolean => !finished && !childExited
+                && bottomGeneration === generation && this.authorized(attachment);
+            const result = (state: 'complete' | 'catching-up'): void => {
+                if (active()) this.sendResult(socket, params.channel, { type: 'terminal.bottom-state', requestId, state });
+            };
+            result('catching-up');
+            const read = this.options.readPaneScroll;
+            if (read === undefined) return;
+            while (active() && Date.now() < deadline) {
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                const scroll = await Promise.race([
+                    read(attachment.paneId),
+                    new Promise<undefined>((resolve) => {
+                        timer = setTimeout(() => resolve(undefined), Math.max(0, deadline - Date.now()));
+                    }),
+                ]).finally(() => clearTimeout(timer));
+                if (!active()) return;
+                if (scroll === undefined) break;
+                if (scroll.maxOffsetFromBottom === 0) {
+                    wheelReachedEnd = false;
+                    wheelRows = -MAX_WHEEL_ROWS;
+                    wheelAt = { column: Math.floor(attachment.cols / 2), row: Math.floor(attachment.rows / 2) };
+                    paintedAt = Date.now();
+                    turnWheel();
+                    while (active() && wheelRows !== 0 && Date.now() < deadline) {
+                        await new Promise((resolve) => setTimeout(resolve, SCROLL_STATE_SETTLE_MS));
+                    }
+                    if (!active()) return;
+                    if (wheelReachedEnd) { result('complete'); return; }
+                    wheelRows = 0;
+                    break;
+                }
+                if (scroll.offsetFromBottom === 0) {
+                    attachment.scrollOffsetFromBottom = 0;
+                    attachment.herdrOwnsScroll = true;
+                    this.sendResult(socket, params.channel, { type: 'terminal.scroll-state', offsetFromBottom: 0, maxOffsetFromBottom: scroll.maxOffsetFromBottom });
+                    result('complete');
+                    return;
+                }
+                session.send(JSON.stringify({ type: 'terminal.scroll', direction: 'down', lines: Math.min(scroll.offsetFromBottom, MAX_WHEEL_ROWS) }));
+                await new Promise((resolve) => setTimeout(resolve, SCROLL_STATE_SETTLE_MS));
+            }
+            result('catching-up');
+            this.scheduleScrollState(attachment);
         };
 
         // Await each link write before reading more from Herdr. LinkStream's

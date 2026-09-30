@@ -1,4 +1,3 @@
-import nacl from 'tweetnacl';
 import type { PeerDescriptorClaims, SignedPeerDescriptor } from '@trymuxr/contract/peer';
 import { encodeUtf8, fromBase64, toBase64 } from '../infrastructure/encoding.js';
 import { signDetached, verifyDetached } from '../infrastructure/identity.js';
@@ -33,8 +32,8 @@ function validatePeerDescriptorClaims(claims: PeerDescriptorClaims): void {
         if (typeof value !== 'string' || value === '') throw new Error(`peer descriptor: ${name} required`);
     }
     if (claims.sourceMachineId === claims.targetMachineId) throw new Error('peer descriptor: source and target must differ');
-    if (fromBase64(claims.sourceMachineSigningPublicKey).length !== nacl.sign.publicKeyLength
-        || fromBase64(claims.targetMachineSigningPublicKey).length !== nacl.sign.publicKeyLength) {
+    if (fromBase64(claims.sourceMachineSigningPublicKey).length !== 32
+        || fromBase64(claims.targetMachineSigningPublicKey).length !== 32) {
         throw new Error('peer descriptor: signing keys must be 32-byte ed25519 keys');
     }
     toKeyBytes(claims.peerPublicKey, 'peer descriptor public key');
@@ -59,11 +58,11 @@ export function createSignedPeerDescriptor(params: {
     sourcePlatform?: string;
 }): SignedPeerDescriptor {
     const secret = fromBase64(params.sourceMachineSigningSecretKey);
-    if (secret.length !== nacl.sign.secretKeyLength) throw new Error('peer descriptor: signing secret must be a 64-byte ed25519 key');
+    if (secret.length !== 64) throw new Error('peer descriptor: signing secret must be a 64-byte ed25519 key');
     const claims: PeerDescriptorClaims = {
         v: 1,
         sourceMachineId: params.sourceMachineId,
-        sourceMachineSigningPublicKey: toBase64(secret.subarray(nacl.sign.publicKeyLength)),
+        sourceMachineSigningPublicKey: toBase64(secret.subarray(32)),
         targetMachineId: params.targetMachineId,
         targetMachineSigningPublicKey: params.targetMachineSigningPublicKey,
         peerPublicKey: params.peerPublicKey,
@@ -95,7 +94,7 @@ export function verifySignedPeerDescriptor(
         || descriptor.claims.expiresAt - descriptor.claims.preparedAt > PEER_DESCRIPTOR_MAX_TTL_MS;
     if (windowIsInvalid) throw new Error('peer descriptor: invalid validity window');
     const signature = fromBase64(descriptor.signature);
-    const signatureIsInvalid = signature.length !== nacl.sign.signatureLength
+    const signatureIsInvalid = signature.length !== 64
         || !verifyDetached(peerDescriptorBytes(descriptor.claims), descriptor.signature, descriptor.claims.sourceMachineSigningPublicKey);
     if (signatureIsInvalid) throw new Error('peer descriptor: signature verification failed');
     return descriptor.claims;

@@ -5,6 +5,9 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | Capability | Use case | Domain owner | Adapters |
 |---|---|---|---|
 | Start an Agent | `agent/application/startAgent.ts` | Agent identity (Route authorizes; names never do) | `session.start` dispatcher |
+| Choose a Plan Account at launch | `plans/plansApi.ts` (`resolvePlanLaunch`) | Plan Account | `session.start` dispatcher |
+| Add or sign in to a Plan Account | `plans/planSignIn.ts` | Plan Account | `plans.add`, `plans.status`, `plans.cancel` |
+| Manage or move Plan Accounts | `plans/plansApi.ts`, `agent/infrastructure/herdrSessionSource.ts` | Plan Account / Agent Route | `plans.list`, `plans.rename`, `plans.remove`, `plans.move`, `plans.agent`, `plans.acknowledgeAutoTerms` |
 | Prompt an Agent | `agent/application/promptAgent.ts` | Agent Route | `session.prompt` |
 | Open an Agent | `agent/application/openAgent.ts` | Agent Route | `session.open` |
 | Read an Agent session | `agent/application/readAgentSession.ts` | Agent Route | `session.status`, `pane.read`, `session.readFile` |
@@ -13,6 +16,7 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | Stop / abort / reload | `agent/application/stopAgent.ts` | Agent Route | `session.stop`, `session.abort`, `session.reload` |
 | Answer a blocked Agent | `agent/application/answerAgent.ts` | Agent Route | `session.answer` |
 | List Agents | `agent/application/listAgents.ts` | Agent | `session.list`, `client.hello` |
+| Check installed agents and default sign-in | `requests/application/agentCatalog.ts` | Herdr installed kinds, Plan Identity | `herdr.agentKinds` (cached; `refresh` checks again), phone connect |
 | Report a Lifecycle Event | `agent/application/reportAgentOutcome.ts` | Lifecycle rollup | Herdr session source |
 | Run a plugin action | `agent/application/runPluginAction.ts` | Device Grant (view-only reads) | `plugin.*` |
 | Open / close a terminal | `agent/application/openTerminal.ts` | Device Grant observe/control | Relay `terminal.attach` / `terminal.detach`; link stream through `machine/infrastructure/linkEndpoint.ts` |

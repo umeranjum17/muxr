@@ -1,11 +1,13 @@
-import { existsSync, mkdtempSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure } from '@trymuxr/contract';
 import { createRequestDispatcher } from './createRequestDispatcher.js';
-import { createFakeSessionSource, type SessionSource } from '../../agent/index.js';
+import { agentToolPath, createFakeSessionSource, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
+import { HerdrKit } from '@byokit/herdr';
+import { AgentCatalog } from './agentCatalog.js';
 
 function dispatcherWithSpy(): { dispatch: ReturnType<typeof createRequestDispatcher>['dispatch']; started: string[] } {
     const started: string[] = [];
@@ -222,20 +224,93 @@ describe('explicit layout close dispatcher flow', () => {
 });
 
 describe('host capability catalog', () => {
-    it('reports launchable agents and the actual host platform', async () => {
+    it('reports installed agents and default-folder sign-in, caches checks, and refreshes after sign-in', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-catalog-'));
+        const bin = join(home, '.local', 'bin');
+        mkdirSync(bin, { recursive: true });
+        const env = { ...process.env, HOME: home, PATH: join(home, 'empty-path'), CLAUDE_CONFIG_DIR: '', CODEX_HOME: '' };
+        const claude = join(bin, 'claude');
+        writeFileSync(claude, `#!${process.execPath}
+const fs = require('node:fs');
+const loggedIn = !fs.existsSync(process.env.HOME + '/signed-out');
+fs.appendFileSync(process.env.HOME + '/calls', process.env.CLAUDE_CONFIG_DIR + '\\n');
+console.log(JSON.stringify({loggedIn, email: 'umer@example.test', plan: 'lab'}));
+`);
+        const codex = join(bin, 'codex');
+        writeFileSync(codex, `#!${process.execPath}
+const fs = require('node:fs');
+const readline = require('node:readline');
+readline.createInterface({input: process.stdin}).on('line', line => {
+    const request = JSON.parse(line);
+    const reply = () => {
+        if (request.id === 2 && fs.existsSync(process.env.HOME + '/hold-codex')) {
+            fs.writeFileSync(process.env.HOME + '/codex-pending', '');
+            setTimeout(reply, 10);
+            return;
+        }
+        console.log(JSON.stringify({id: request.id, result: request.id === 1 ? {} : {account: null}}));
+    };
+    reply();
+});
+`);
+        chmodSync(claude, 0o755);
+        chmodSync(codex, 0o755);
+        const kit = new HerdrKit({ mode: 'adopt', bin: 'herdr', socketPath: join(home, 'unused.sock') });
         const source = {
-            async agentKinds() { return ['pi', 'claude', 'codex']; },
-            async installedAgentKinds() { return ['claude']; },
+            async agentKinds() { return ['pi', 'claude', 'codex', 'grok']; },
+            async installedAgentKinds(kinds: string[]) { return kit.installedAgentKinds(kinds, { path: agentToolPath(env) }); },
         } as unknown as SessionSource;
-        const { dispatch } = createRequestDispatcher({
+        const { dispatch, refreshAgentCatalog } = createRequestDispatcher({
             source,
+            agentCatalog: new AgentCatalog(source, env),
             domain: {} as never,
             machineId: 'm1',
             machineName: 'Build Mac',
             hostVersion: '0.0.0',
         });
-        await expect(dispatch({ type: 'herdr.agentKinds', requestId: 'catalog', params: {} } as never, 'device-1'))
-            .resolves.toMatchObject({ ok: true, data: { kinds: ['pi', 'claude', 'codex'], installed: ['claude'] } });
+        try {
+            const request = { type: 'herdr.agentKinds', requestId: 'catalog', params: {} } as const;
+            const result = await dispatch(request, 'device-1');
+            expect(result).toMatchObject({ ok: true, data: {
+                kinds: ['pi', 'claude', 'codex', 'grok'], installed: ['claude', 'codex'],
+                readiness: {
+                    claude: { signedIn: 'yes' },
+                    codex: { signedIn: 'no', signInHint: 'On your computer run `codex`, sign in, then check again.' },
+                    pi: { signedIn: 'unknown', installHint: 'Installs on first start' },
+                    grok: { signedIn: 'unknown' },
+                },
+            } });
+            expect(JSON.stringify(result)).not.toMatch(/umer@example|email|plan|token/);
+            writeFileSync(join(home, 'signed-out'), '');
+            expect(await dispatch(request, 'device-2')).toEqual(result);
+            expect(readFileSync(join(home, 'calls'), 'utf8')).toBe(join(home, '.claude') + '\n');
+            await expect(dispatch({ ...request, params: { refresh: true } }, 'device-1'))
+                .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'no' } } } });
+            expect(readFileSync(join(home, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(2);
+            writeFileSync(join(home, 'hold-codex'), '');
+            refreshAgentCatalog();
+            const background = dispatch(request, 'device-2');
+            refreshAgentCatalog();
+            await vi.waitFor(() => {
+                expect(existsSync(join(home, 'codex-pending'))).toBe(true);
+                expect(readFileSync(join(home, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(3);
+            });
+            rmSync(join(home, 'signed-out'));
+            const refreshed = dispatch({ ...request, params: { refresh: true } }, 'device-1');
+            rmSync(join(home, 'hold-codex'));
+            await expect(background)
+                .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'no' } } } });
+            const afterSignIn = await refreshed;
+            expect(afterSignIn).toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'yes' } } } });
+            expect(JSON.stringify(afterSignIn)).not.toMatch(/umer@example|email|plan|token/);
+            expect(readFileSync(join(home, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(4);
+            expect(await dispatch(request, 'device-2')).toEqual(afterSignIn);
+            writeFileSync(claude, `#!${process.execPath}\nconsole.log('status unavailable');\n`);
+            await expect(dispatch({ ...request, params: { refresh: true } }, 'device-1'))
+                .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'unknown' } } } });
+        } finally {
+            rmSync(home, { recursive: true, force: true });
+        }
         await expect(dispatch({ type: 'machines.list', requestId: 'machines', params: {} } as never, 'device-1'))
             .resolves.toMatchObject({
                 ok: true,
@@ -453,6 +528,29 @@ describe('plan account launch and move', () => {
     process.env.HOME = home;
     process.env.MUXR_HOME = join(home, 'muxr');
 
+    const savedPath = process.env.PATH;
+    beforeAll(() => {
+        const bin = join(home, 'bin');
+        mkdirSync(bin);
+        writeFileSync(join(bin, 'herdr'), `#!/bin/sh
+exit 0
+`, { mode: 0o755 });
+        writeFileSync(join(bin, 'claude'), `#!/bin/sh
+echo '{"loggedIn":true,"email":"work@example.com"}'
+`, { mode: 0o755 });
+        writeFileSync(join(bin, 'codex'), `#!/bin/sh
+read line
+echo '{"id":1,"result":{}}'
+read line
+echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
+`, { mode: 0o755 });
+        process.env.PATH = `${bin}:${savedPath ?? ''}`;
+    });
+    afterAll(() => {
+        if (savedPath === undefined) delete process.env.PATH;
+        else process.env.PATH = savedPath;
+    });
+
     it('starts on the stored account env, and refuses unknown ids, squads and kind mismatches', async () => {
         const { savePlanAccounts } = await import('../../plans/planStore.js');
         const folder = join(home, 'muxr', 'plans', 'claude', 'work');
@@ -461,6 +559,7 @@ describe('plan account launch and move', () => {
         savePlanAccounts(process.env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }]);
         const starts: unknown[] = [];
         const source = {
+            async list() { return [{ id: 's1' }]; },
             async start(options: unknown) {
                 starts.push(options);
                 return { info: { id: 's1' }, acceptance: { outcome: 'accepted', state: 'starting', agentName: 'n' } };
@@ -502,6 +601,7 @@ describe('plan account launch and move', () => {
             savePlanAccounts(process.env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }]);
             const starts: unknown[] = [];
             const source = {
+                async list() { return [{ id: 's1' }]; },
                 async start(options: unknown) {
                     starts.push(options);
                     return { info: { id: 's1' }, acceptance: { outcome: 'accepted', state: 'starting', agentName: 'n' } };
@@ -525,7 +625,7 @@ describe('plan account launch and move', () => {
         }
     });
 
-    it('moves through the session source and names the account when the start fails', async () => {
+    it('keeps account moves exclusive through persistence and names the account when the start fails', async () => {
         const { savePlanAccounts } = await import('../../plans/planStore.js');
         const home2 = mkdtempSync(join(tmpdir(), 'muxr-plans-move-'));
         const keepHome = process.env.HOME;
@@ -535,16 +635,45 @@ describe('plan account launch and move', () => {
         try {
             savePlanAccounts(process.env, [{ id: 'pa_w', provider: 'codex', name: 'Work', folder: join(home2, 'c'), found: false }]);
             const moves: unknown[] = [];
+            let finishMove!: () => void;
+            const moveFinished = new Promise<void>((resolve) => { finishMove = resolve; });
+            let moveStarted!: () => void;
+            const moveStarting = new Promise<void>((resolve) => { moveStarted = resolve; });
+            let finishPersistence!: () => void;
+            const persistenceFinished = new Promise<void>((resolve) => { finishPersistence = resolve; });
+            let persistenceStarted!: () => void;
+            const persistenceStarting = new Promise<void>((resolve) => { persistenceStarted = resolve; });
             const source = {
                 async movePlanAccount(options: unknown) {
                     moves.push(options);
-                    return { sessionId: 'moved' };
+                    moveStarted();
+                    await moveFinished;
+                    return { sessionId: 's2' };
+                },
+                async list() {
+                    persistenceStarted();
+                    await persistenceFinished;
+                    return [{ id: 's2', paneId: 'w1:p2' }];
                 },
             } as unknown as SessionSource;
             const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
-            const moved = await dispatch({ type: 'plans.move', requestId: 'm1', params: { sessionId: 's1', accountId: 'pa_w' } });
-            expect(moved).toMatchObject({ ok: true, data: { sessionId: 'moved' } });
+            const moving = dispatch({ type: 'plans.move', requestId: 'm1', params: { sessionId: 's1', accountId: 'pa_w' } });
+            await moveStarting;
+            expect(await dispatch({ type: 'plans.move', requestId: 'overlap', params: { sessionId: 'other-agent', accountId: 'pa_w' } }))
+                .toMatchObject({ ok: false, code: 'plan-move-in-progress', error: 'Another move is in progress.' });
+            finishMove();
+            await persistenceStarting;
+            expect(await dispatch({ type: 'plans.move', requestId: 'persisting', params: { sessionId: 's2', accountId: 'pa_w' } }))
+                .toMatchObject({ ok: false, code: 'plan-move-in-progress', error: 'Another move is in progress.' });
+            finishPersistence();
+            expect(await moving).toMatchObject({ ok: true, data: { sessionId: 's2' } });
+            expect(moves).toHaveLength(1);
             expect(moves[0]).toMatchObject({ sessionId: 's1', provider: 'codex' });
+            expect(await dispatch({ type: 'plans.agent', requestId: 'current', params: { sessionId: 's2' } }))
+                .toMatchObject({ ok: true, data: { accountId: 'pa_w' } });
+            expect(await dispatch({ type: 'plans.move', requestId: 'next', params: { sessionId: 's2', accountId: 'pa_w' } }))
+                .toMatchObject({ ok: true });
+            expect(moves).toHaveLength(2);
 
             const failing = {
                 async movePlanAccount() {
@@ -553,8 +682,110 @@ describe('plan account launch and move', () => {
             } as unknown as SessionSource;
             const { dispatch: dispatchFailing } = createRequestDispatcher({ source: failing, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
             const failed = await dispatchFailing({ type: 'plans.move', requestId: 'm2', params: { sessionId: 's1', accountId: 'pa_w' } });
-            expect(failed).toMatchObject({ ok: false });
+            expect(failed).toMatchObject({ ok: false, code: 'plan-move-start-failed' });
             expect(String((failed as { error: string }).error)).toContain("Couldn't start on Work");
+            expect(failed).not.toHaveProperty('sessionId');
+
+            const exposed = {
+                async movePlanAccount() {
+                    throw Object.assign(new Error('The move did not finish. An extra copy is open; you can close it from its pane.'), {
+                        code: 'plan-move-extra-copy', paneId: 'w1:p3',
+                    });
+                },
+                async list() { return [{ id: 'moved', paneId: 'w1:p2' }, { id: 'extra', paneId: 'w1:p3' }]; },
+            } as unknown as SessionSource;
+            const { dispatch: dispatchExposed } = createRequestDispatcher({ source: exposed, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+            const unfinished = await dispatchExposed({ type: 'plans.move', requestId: 'm3', params: { sessionId: 'moved', accountId: 'pa_w' } });
+            expect(unfinished).toMatchObject({ ok: false, code: 'plan-move-extra-copy' });
+            expect(unfinished).not.toHaveProperty('paneId');
+            expect(await dispatchExposed({ type: 'plans.agent', requestId: 'a1', params: { sessionId: 'extra' } }))
+                .toMatchObject({ ok: true, data: { accountId: 'pa_w' } });
+            expect(await dispatchExposed({ type: 'plans.agent', requestId: 'a2', params: { sessionId: 'moved' } }))
+                .toMatchObject({ ok: true, data: { accountId: 'pa_w' } });
+        } finally {
+            if (keepHome === undefined) delete process.env.HOME;
+            else process.env.HOME = keepHome;
+            if (keepMuxr === undefined) delete process.env.MUXR_HOME;
+            else process.env.MUXR_HOME = keepMuxr;
+        }
+    });
+
+    it('keeps sign-in tabs closable: id fallback, stale-tab close, failed-launch cleanup', async () => {
+        const { loadPlanAccounts, savePlanAccounts } = await import('../../plans/planStore.js');
+        const home4 = mkdtempSync(join(tmpdir(), 'muxr-plans-signin-'));
+        const keepHome = process.env.HOME;
+        const keepMuxr = process.env.MUXR_HOME;
+        process.env.HOME = home4;
+        process.env.MUXR_HOME = join(home4, 'muxr');
+        try {
+            savePlanAccounts(process.env, [{ id: 'pa_s', provider: 'claude', name: 'Side', folder: join(home4, 'c'), found: false }]);
+            const sessions: Array<{ id: string; paneId: string }> = [];
+            const stopped: string[] = [];
+            let launches = 0;
+            let closeUnavailable = false;
+            const source = {
+                async start() {
+                    launches += 1;
+                    // The first launch reports no paneId at all, like a source that only knows the tab id.
+                    const info = launches === 1 ? { id: 'tab-1' } : { id: `tab-${launches}`, paneId: `w9:p${launches}` };
+                    sessions.push({ id: info.id, paneId: (info as { paneId?: string }).paneId ?? info.id });
+                    return { info };
+                },
+                async list() { return sessions.map((session) => ({ ...session })); },
+                async stop(id: string) {
+                    if (closeUnavailable) return { status: 'retryable', message: 'Try again.' };
+                    stopped.push(id);
+                    const at = sessions.findIndex((session) => session.id === id);
+                    if (at >= 0) sessions.splice(at, 1);
+                    return { status: 'closed' };
+                },
+            } as unknown as SessionSource;
+            const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+
+            // Pane-id fallback: the tab is still found by its session id and closed on cancel.
+            const added = await dispatch({ type: 'plans.add', requestId: 'a1', params: { provider: 'claude', accountId: 'pa_s' } });
+            expect(added).toMatchObject({ ok: true });
+            closeUnavailable = true;
+            expect(await dispatch({ type: 'plans.cancel', requestId: 'c0', params: { accountId: 'pa_s' } })).toMatchObject({ ok: false });
+            expect(sessions).toHaveLength(1);
+            closeUnavailable = false;
+            const cancelled = await dispatch({ type: 'plans.cancel', requestId: 'c1', params: { accountId: 'pa_s' } });
+            expect(stopped).toEqual(['tab-1']);
+            expect(cancelled).toMatchObject({ ok: true, data: { removed: false } });
+
+            // A second sign-in closes the still-open first tab before tracking the new one.
+            await Promise.all([
+                dispatch({ type: 'plans.add', requestId: 'a2', params: { provider: 'claude', accountId: 'pa_s' } }),
+                dispatch({ type: 'plans.add', requestId: 'a3', params: { provider: 'claude', accountId: 'pa_s' } }),
+            ]);
+            expect(stopped).toEqual(['tab-1', 'tab-2']);
+            await dispatch({ type: 'plans.cancel', requestId: 'c2', params: { accountId: 'pa_s' } });
+            expect(stopped).toEqual(['tab-1', 'tab-2', 'tab-3']);
+
+            // A launch that fails after creating the record leaves no phantom behind.
+            let failedStarts = 0;
+            let createdFolder: string | undefined;
+            let folderPresentAtStart = false;
+            let recordsAtStart: string[] = [];
+            const failing = {
+                async start() {
+                    failedStarts += 1;
+                    const records = loadPlanAccounts(process.env);
+                    recordsAtStart = records.map((record) => record.id);
+                    createdFolder = records.find((record) => record.id !== 'pa_s')?.folder;
+                    folderPresentAtStart = createdFolder !== undefined && existsSync(createdFolder);
+                    throw new Error('herdr is down');
+                },
+            } as unknown as SessionSource;
+            const { dispatch: dispatchFailing } = createRequestDispatcher({ source: failing, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+            const failed = await dispatchFailing({ type: 'plans.add', requestId: 'a4', params: { provider: 'claude' } });
+            expect(failed).toMatchObject({ ok: false });
+            expect(failedStarts).toBe(1);
+            expect(recordsAtStart).toHaveLength(2);
+            expect(recordsAtStart).toContain('pa_s');
+            expect(folderPresentAtStart).toBe(true);
+            expect(loadPlanAccounts(process.env).map((record) => record.id)).toEqual(['pa_s']);
+            expect(existsSync(createdFolder!)).toBe(false);
         } finally {
             if (keepHome === undefined) delete process.env.HOME;
             else process.env.HOME = keepHome;

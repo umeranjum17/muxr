@@ -321,12 +321,17 @@ describe('ArtifactWatcher', () => {
             child.on('close', (code) => resolve({ code, stdout, stderr }));
         });
         try {
-            await expect(runShare()).resolves.toEqual({ code: 0, stdout: 'Shared pixel.png\n', stderr: '' });
+            // A backstop scan may publish the newly created, still-empty pane.
+            // Publication counts therefore cannot identify a completed share.
+            mkdirSync(join(root, paneId), { recursive: true });
             await waitFor(1);
+            expect(emits.at(-1)?.artifacts).toEqual([]);
+            await expect(runShare()).resolves.toEqual({ code: 0, stdout: 'Shared pixel.png\n', stderr: '' });
+            await expect.poll(() => emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(['pixel.png']);
             writeFileSync(join(root, paneId, 'notes.md'), 'ordinary watched drop');
-            await waitFor(2);
+            await expect.poll(() => emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel.png']);
             await expect(runShare()).resolves.toEqual({ code: 0, stdout: 'Shared pixel-1.png\n', stderr: '' });
-            await waitFor(3);
+            await expect.poll(() => emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
 
             expect(emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
             expect(readdirSync(join(root, paneId)).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);

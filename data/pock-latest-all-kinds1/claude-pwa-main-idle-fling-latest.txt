@@ -1,0 +1,44 @@
+  152. Bradford pears split at weak crotches.
+  153. Bradford pear blossoms smell unpleasant.
+  154. Narrow branch angles trap bark and weaken the
+       joint.
+  155. Wide branch angles hold more weight.
+  156. Lightning can explode sap into steam.
+  157. Lightning scars spiral down the trunk.
+  158. Tall lone trees attract lightning.
+  159. Leaning trees grow reaction wood.
+  160. Conifers push from below; hardwoods pull from
+       above.
+  161. Tree height is limited by how far water can be
+       lifted.
+  162. Canopy shyness leaves gaps between crowns.
+  163. Understory trees tolerate deep shade.
+  164. Gaps from fallen giants spark a race for light.
+  165. Pioneer species colonize burned land first.
+  166. Birch and aspen give way to longer-lived trees.
+  167. Climax forests change slowly over centuries.
+  168. Planting the right tree in the right place
+       prevents problems.
+  169. Small trees transplant better than large ones.
+  170. Bare-root trees are planted while dormant.
+  171. New trees need deep water, not frequent sips.
+  172. Stakes should come off after a year.
+  173. Tight ties cut into growing bark.
+  174. Autumn is prime tree-planting season.
+  175. Winter shows off the shape of branches.
+  176. Buds for next spring form in late summer.
+  177. Terminal bud scars mark each year's growth.
+  178. Counting bud scars dates young twigs.
+  179. A tree's full story is written in wood.
+  180. The best time to plant a tree was twenty years
+       ago; the second best is today.
+
+  CLAUDE-STREAM-END
+
+✻ Baked for 37s · done 7:39 AM
+
+────────────────────────────────────────── ultracode ─
+❯ Write 200 numbered observations about birds, one pe…
+──────────────────────────────────────────────────────
+  …/3/pockit fm/pock-latest-all-kinds1  ?  | Opus 5…
+  ⏵⏵ bypass permissions on · gh auth login for PR
