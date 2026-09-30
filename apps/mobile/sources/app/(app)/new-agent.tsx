@@ -10,10 +10,13 @@
 import * as React from 'react';
 import {
     ActivityIndicator,
+    Keyboard,
+    Platform,
     Pressable,
     ScrollView,
     View,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -231,6 +234,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
 }));
 
+// The browser keeps its own keyboard inset (useWebViewport); native needs the aware view.
+const FormScrollView = Platform.OS === 'web' ? ScrollView : KeyboardAwareScrollView;
+
 export default function NewAgentScreen() {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
@@ -249,6 +255,24 @@ export default function NewAgentScreen() {
     const [workspaces, setWorkspaces] = React.useState<HerdrTreeWorkspace[]>([]);
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState<string | undefined>(undefined);
+
+    // Folder suggestions sit under the path field; lift the Directory section to
+    // the top while typing so the keyboard never covers them.
+    const scrollRef = React.useRef<ScrollView>(null);
+    const directoryRef = React.useRef<View>(null);
+    const directoryY = React.useRef(0);
+    const typingPath = React.useRef(false);
+    const showDirectory = React.useCallback(() => {
+        // react-native-web reports layout only on resize, so its y goes stale when the agent grid above settles.
+        if (Platform.OS === 'web') (directoryRef.current as unknown as HTMLElement | null)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        else scrollRef.current?.scrollTo({ y: directoryY.current, animated: true });
+    }, []);
+    React.useEffect(() => {
+        const shown = Keyboard.addListener('keyboardDidShow', () => {
+            if (typingPath.current) showDirectory();
+        });
+        return () => shown.remove();
+    }, [showDirectory]);
 
     React.useEffect(() => {
         if (!canControl) return undefined;
@@ -367,7 +391,7 @@ export default function NewAgentScreen() {
                 </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <FormScrollView ref={(node: ScrollView | null) => { scrollRef.current = node; }} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
                 {/* --- Agent grid (multi-select -> squad) ---------------------- */}
                 <View>
                     <View style={styles.sectionLabelRow}>
@@ -444,11 +468,20 @@ export default function NewAgentScreen() {
                 </View>
 
                 {/* --- Directory ---------------------------------------------- */}
-                <View>
+                <View ref={directoryRef} onLayout={({ nativeEvent }) => { directoryY.current = nativeEvent.layout.y; }}>
                     <View style={styles.sectionLabelRow}>
                         <Text style={styles.sectionLabel}>DIRECTORY</Text>
                     </View>
-                    <DirectoryPicker value={cwd} onChange={setCwd} recent={recent} />
+                    <DirectoryPicker
+                        value={cwd}
+                        onChange={setCwd}
+                        recent={recent}
+                        onFocus={() => {
+                            typingPath.current = true;
+                            showDirectory();
+                        }}
+                        onBlur={() => { typingPath.current = false; }}
+                    />
                 </View>
 
                 {/* --- Join a running workspace -------------------------------- */}
@@ -530,7 +563,7 @@ export default function NewAgentScreen() {
                         </Text>
                     )}
                 </Pressable>
-            </ScrollView>
+            </FormScrollView>
         </View>
     );
 }

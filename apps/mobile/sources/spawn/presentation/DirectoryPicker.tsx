@@ -143,9 +143,11 @@ interface DirectoryPickerProps {
     value: string;
     onChange: (path: string) => void;
     recent: string[];
+    onFocus?: () => void;
+    onBlur?: () => void;
 }
 
-export function DirectoryPicker({ value, onChange, recent }: DirectoryPickerProps) {
+export function DirectoryPicker({ value, onChange, recent, onFocus, onBlur }: DirectoryPickerProps) {
     const { theme } = useUnistyles();
     const [listing, setListing] = React.useState<Listing | undefined>(undefined);
     const [loading, setLoading] = React.useState(false);
@@ -226,6 +228,8 @@ export function DirectoryPicker({ value, onChange, recent }: DirectoryPickerProp
                     ref={inputRef}
                     value={value}
                     onChangeText={onChange}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
                     placeholder="/home/you/project"
                     placeholderTextColor={theme.colors.input.placeholder}
                     autoCapitalize="none"
