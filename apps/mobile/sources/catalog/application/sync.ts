@@ -348,7 +348,12 @@ class MuxrSync {
             storage.getState().updateSession(sessionId, applyStatusToSession(session, event.status));
         }
 
+        if (event.type === 'session.error') {
+            storage.getState().setSessionError(sessionId, event.message);
+        }
+
         if (event.type === 'session.created') {
+            storage.getState().setSessionError(sessionId, null);
             storage.getState().applySessions([sessionInfoToSession(event.session)]);
         }
 

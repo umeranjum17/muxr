@@ -378,6 +378,7 @@ export interface CreateHerdrSessionSourceOptions {
     /** Relay HTTP base for best-effort push notify (ws://... -> http://...). */
     relayUrl?: string;
     machineId?: string;
+    machineName?: string;
     artifactsDir?: string;
     hostHttpPort?: number;
     /** Machine token (MUXR_RELAY_TOKEN); authorizes /v1/push/notify. */
@@ -855,14 +856,16 @@ export async function createHerdrSessionSource(
         }
     }
 
-    function sweepStaleLaunches(): void {
+    async function sweepStaleLaunches(): Promise<void> {
         for (const paneId of [...pendingLaunchByPane.keys()]) {
-            const live = agentsByPane.has(paneId) || panesById.has(paneId);
-            if (live) {
+            if (agentsByPane.has(paneId)) {
                 seenLaunchPane.add(paneId);
                 continue;
             }
             if (!seenLaunchPane.has(paneId)) continue;
+            const pending = pendingLaunchByPane.get(paneId)!;
+            const binding = routes.all().find((row) => herdrAgentSessionKey(row.agentSession) === herdrAgentSessionKey(pending));
+            if (binding !== undefined) await reportLaunchFailure(paneId, pending.agent, binding.route);
             forgetLaunch(paneId);
         }
     }
@@ -1339,7 +1342,7 @@ export async function createHerdrSessionSource(
     async function syncDiscovery(treesSince: number): Promise<void> {
         rehydratePendingLaunches();
         adoptPublishedLaunches();
-        sweepStaleLaunches();
+        await sweepStaleLaunches();
         restoreInFlightLaunches();
         const liveRefs: HerdrAgentSessionRef[] = [];
         const seenRefs = new Set<string>();
@@ -1515,11 +1518,6 @@ export async function createHerdrSessionSource(
         void refreshSnapshot().then(emitAllStates).catch(() => {});
     });
 
-    function herdrStartRetryable(error: unknown): boolean {
-        const message = error instanceof Error ? error.message : '';
-        return message.includes('agent_pane_unavailable') || message.includes('agent_pane_busy');
-    }
-
     function rememberLaunch(paneId: string, kind: string, launchName: string): HerdrAgentSessionRef {
         const requested = publicAgentKind(kind);
         const pending = muxrLaunchSession(requested ?? 'agent', launchName);
@@ -1543,24 +1541,27 @@ export async function createHerdrSessionSource(
     }
 
     async function startManagedAgent(paneId: string, kind: string, launchName: string, args?: string[]): Promise<void> {
-        const deadline = Date.now() + 5_000;
-        let lastError: unknown;
-        while (Date.now() < deadline) {
-            try {
-                const started = await client.call<{ agent?: AgentRecord }>(
-                    'agent.start',
-                    { name: launchName, kind, pane_id: paneId, timeout_ms: 60_000, ...(args === undefined ? {} : { args }) },
-                    70_000,
-                );
-                recordStartedAgent(paneId, kind, launchName, started.agent);
-                return;
-            } catch (error) {
-                lastError = error;
-                if (!herdrStartRetryable(error)) throw error;
-                await sleep(150);
-            }
+        await client.kit.startAgent({
+            kind, name: launchName, cwd: panesById.get(paneId)?.cwd ?? homedir(),
+            place: { pane: paneId }, timeoutMs: 60_000,
+            ...(args === undefined ? {} : { args }),
+        });
+        recordStartedAgent(paneId, kind, launchName);
+    }
+
+    async function reportLaunchFailure(paneId: string, kind: string, sessionId: string): Promise<void> {
+        let text = '';
+        if (panesById.has(paneId)) {
+            try { text = (await client.kit.read(paneId, { lines: 20 })).text; }
+            catch { /* A removed pane or failed read still gets the generic launch error. */ }
         }
-        throw lastError instanceof Error ? lastError : new Error('herdr agent.start failed');
+        const label = kind === 'pi' ? 'Pi' : kind;
+        const computer = sanitizeDisplayText(options.machineName ?? 'this computer');
+        const missing = text.includes(`${kind}: command not found`) || text.includes(`command not found: ${kind}`);
+        const message = missing
+            ? `${label} is not installed on ${computer}. Install ${label} in a terminal on ${computer}, then try again.`
+            : `${label} could not start on ${computer}. Open a terminal on ${computer} and run ${kind} to see the error, then try again.`;
+        publish(sessionId, { type: 'session.error', message });
     }
 
     /** The rc caveat: a login shell may override the env Herdr was given. A
@@ -1631,6 +1632,7 @@ export async function createHerdrSessionSource(
         while (Date.now() < deadline) {
             await refreshSnapshot();
             const agent = agentsByPane.get(paneId);
+            if (agent === undefined && !pendingLaunchByPane.has(paneId)) throw new Error('Herdr dropped the agent launch.');
             const detected = publicAgentKind(agent?.agent ?? undefined) ?? publicAgentKind(publishedAgentSession(agent)?.agent);
             // Codex 0.159 never publishes a session: the requested kind on the pane stands in.
             const published = publishedAgentSession(agent)
@@ -1670,6 +1672,8 @@ export async function createHerdrSessionSource(
         } catch (error) {
             // Shutdown cancels confirmation; it is not a rejected launch.
             if (disposed) return;
+            // The route may already have been retired when Herdr dropped its launch record.
+            if (routes.get(sessionId) !== undefined) await reportLaunchFailure(paneId, kind, sessionId);
             forgetLaunch(paneId);
             const current = currentSession(sessionId);
             if (current !== undefined) {
