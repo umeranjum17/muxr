@@ -49,6 +49,8 @@ export interface TerminalChannel {
     onScrollState: (listener: (state: { offsetFromBottom: number; maxOffsetFromBottom: number }) => void) => () => void;
     /** Pane state; 'unconfirmed' while the host is silent — see TerminalChannelState. */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
+    bottom: () => void;
+    onBottomState: (listener: (state: 'complete' | 'catching-up') => void) => () => void;
     sendText: (text: string) => void;
     sendBytes: (base64: string) => void;
     resize: (cols: number, rows: number) => void;
@@ -117,6 +119,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const predictedDataListeners = new Set<(base64: string) => void>();
     const closeListeners = new Set<(reason?: string) => void>();
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
+    const bottomListeners = new Set<(state: 'complete' | 'catching-up') => void>();
     const scrollStateListeners = new Set<(state: { offsetFromBottom: number; maxOffsetFromBottom: number }) => void>();
     // Until the host has answered for this pane, nothing is known about its
     // scrollback -- which is not the same as knowing it has none.
@@ -370,6 +373,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                     recordTerminalFirstFrame(Date.now() - started);
                 }
                 deliverFrameBytes(bytes);
+            } else if (type === 'terminal.bottom-state') {
+                const state = (frame as { state?: unknown }).state;
+                if (state === 'complete' || state === 'catching-up') {
+                    for (const listener of bottomListeners) listener(state);
+                }
             } else if (type === 'terminal.scroll-state') {
                 applyScrollStateFrame(frame);
             } else if (type === 'terminal.closed') {
@@ -561,6 +569,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             closeListeners.add(listener);
             if (closedByHost) listener(lastCloseReason);
             return () => closeListeners.delete(listener);
+        },
+        bottom: () => send({ type: 'terminal.bottom' }),
+        onBottomState: (listener) => {
+            bottomListeners.add(listener);
+            return () => bottomListeners.delete(listener);
         },
         onScrollState: (listener) => {
             scrollStateListeners.add(listener);

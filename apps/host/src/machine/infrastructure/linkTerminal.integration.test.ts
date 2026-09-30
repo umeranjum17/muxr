@@ -29,10 +29,10 @@ const toB64url = (valueBase64: string): string => Buffer.from(valueBase64, 'base
  * like a full-screen program -- it repaints on a wheel report only while there
  * is transcript left that way (100 rows), and logs every report it is handed.
  */
-function writeFakeHerdr(dir: string): string {
+function writeFakeHerdr(dir: string, ownsScroll = false): string {
     const bin = join(dir, 'fake-herdr.mjs');
     writeFileSync(bin, `#!/usr/bin/env node
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 const pane = args[3];
 const option = (name) => { const i = args.indexOf(name); return i === -1 ? undefined : Number(args[i + 1]); };
@@ -43,6 +43,8 @@ const send = (frame) => process.stdout.write(JSON.stringify(frame) + '\\n');
 send({ type: 'terminal.frame', full: true, bytes: b64(\`SCREEN \${pane} \${cols}x\${rows}\`) });
 let buffer = '';
 let back = 0;
+const scrollFile = ${JSON.stringify(join(dir, 'scroll.json'))};
+const ownsScroll = ${ownsScroll};
 const wheelLog = ${JSON.stringify(join(dir, 'wheel.log'))};
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
@@ -61,6 +63,15 @@ process.stdin.on('data', (chunk) => {
             send({ type: 'terminal.frame', bytes: b64(\`SCREEN \${pane} \${cols}x\${rows}\`) });
         } else if (frame.type === 'terminal.scroll') {
             appendFileSync(wheelLog, frame.direction + ' ' + Date.now() + '\\n');
+            if (ownsScroll) {
+                const state = JSON.parse(readFileSync(scrollFile, 'utf8'));
+                state.offsetFromBottom += state.burst;
+                state.burst = 0;
+                state.offsetFromBottom = Math.max(0, state.offsetFromBottom - frame.lines);
+                writeFileSync(scrollFile, JSON.stringify(state));
+                send({ type: 'terminal.frame', bytes: b64('OFFSET ' + state.offsetFromBottom) });
+                continue;
+            }
             const moved = frame.direction === 'up' ? Math.min(100, back + frame.lines) : Math.max(0, back - frame.lines);
             if (moved === back) continue;
             back = moved;
@@ -138,6 +149,43 @@ setInterval(() => {}, 1000);
             const timer = setInterval(() => { if (sent === 200) { clearInterval(timer); resolve(); } }, 10);
         }), 3000, 'stream resume');
         expect(sent).toBe(200);
+    });
+
+    it('finishes Latest against the pane after output outruns the phone offset', { timeout: 10_000 }, async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-terminal-bottom-'));
+        cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+        const scrollFile = join(dir, 'scroll.json');
+        writeFileSync(scrollFile, JSON.stringify({ offsetFromBottom: 100, maxOffsetFromBottom: 5_000, burst: 2_500 }));
+        const manager = new TerminalManager({
+            resolvePane: async () => 'pane-1',
+            focusSession: async () => undefined,
+            readPaneScroll: async () => JSON.parse(readFileSync(scrollFile, 'utf8')),
+            openTerminal: openTerminalFor(writeFakeHerdr(dir, true)),
+        });
+        cleanups.push(() => manager.closeAll());
+        let input!: (line: string) => void;
+        const results: Array<{ type: string; state?: string }> = [];
+        const socket = {
+            isOpen: true,
+            send: (line: string) => { results.push(JSON.parse(line)); },
+            onLine: (listener: (line: string) => void) => { input = listener; return () => undefined; },
+            onEnd: () => () => undefined,
+            close: () => undefined,
+        };
+        await manager.attach({ sessionId: 's1', channel: 'bottom', cols: 20, rows: 5, socket });
+        input(JSON.stringify({ type: 'terminal.bottom' }));
+        await once(new Promise<void>((resolve) => {
+            const timer = setInterval(() => {
+                if (results.some((frame) => frame.type === 'terminal.bottom-state' && frame.state === 'complete')) {
+                    clearInterval(timer);
+                    resolve();
+                }
+            }, 10);
+            cleanups.push(() => clearInterval(timer));
+        }), 4_000, 'Latest completion');
+        expect(JSON.parse(readFileSync(scrollFile, 'utf8')).offsetFromBottom).toBe(0);
+        expect(results).toContainEqual({ type: 'terminal.bottom-state', state: 'catching-up' });
+        expect(readFileSync(join(dir, 'wheel.log'), 'utf8').trim().split('\n')).toHaveLength(2);
     });
 
     it('carries terminal and voice streams over the byokit link', { timeout: 60_000 }, async () => {

@@ -77,8 +77,8 @@ export interface TerminalScrollFrame {
     row?: number;
 }
 
-export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame;
-export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame | TerminalScrollStateFrame;
+export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame | { type: 'terminal.bottom' };
+export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame | TerminalScrollStateFrame | { type: 'terminal.bottom-state'; state: 'complete' | 'catching-up' };
 
 /** Random channel id for a link terminal stream. */
 export function newTerminalChannel(): string {
