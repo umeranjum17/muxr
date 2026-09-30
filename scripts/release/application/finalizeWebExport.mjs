@@ -26,8 +26,9 @@ export const INSTALL_META = [
     '<meta name="apple-mobile-web-app-capable" content="yes">',
     '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">',
     '<meta name="apple-mobile-web-app-title" content="muxr">',
+    '<link rel="icon" type="image/svg+xml" href="/favicon.svg">',
     '<link rel="manifest" href="/manifest.webmanifest">',
-    '<link rel="apple-touch-icon" href="/icon-192.png">',
+    '<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">',
 ];
 const START = '<!-- muxr:install-meta -->';
 const END = '<!-- /muxr:install-meta -->';
@@ -42,6 +43,7 @@ export function finalizeWebExport(html) {
         throw new Error(`index.html has ${viewports.length} viewport metas; expected exactly one`);
     }
     let next = html.replace(viewports[0], VIEWPORT);
+    next = next.replace(/<link\b[^>]*rel="icon"[^>]*>/g, '');
     next = next.replace(new RegExp(`\\s*${START}[\\s\\S]*?${END}\\s*`), '');
     return next.replace('</head>', `\n${START}\n${INSTALL_META.join('\n')}\n${END}\n</head>`);
 }

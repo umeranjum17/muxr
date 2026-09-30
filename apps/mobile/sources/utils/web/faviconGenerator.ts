@@ -2,7 +2,7 @@
  * Simple utility for switching between normal and active favicons
  */
 
-const FAVICON_NORMAL = '/favicon.ico';
+const FAVICON_NORMAL = '/favicon.svg';
 const FAVICON_ACTIVE = '/favicon-active.ico';
 
 /**
@@ -16,10 +16,11 @@ function setFavicon(url: string) {
     if (!link) {
         link = document.createElement('link');
         link.rel = 'icon';
-        link.type = 'image/x-icon';
         document.head.appendChild(link);
     }
     
+    link.type = url.endsWith('.svg') ? 'image/svg+xml' : 'image/x-icon';
+
     // Force reload by adding timestamp
     link.href = url + '?t=' + Date.now();
 }

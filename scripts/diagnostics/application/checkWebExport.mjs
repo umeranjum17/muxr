@@ -102,7 +102,7 @@ if (!existsSync(distIndex)) {
     const distHtml = read(distIndex);
     check('dist index links the manifest', distHtml.includes('<link rel="manifest" href="/manifest.webmanifest">'));
     check('dist index theme-color', distHtml.includes('name="theme-color"'));
-    check('dist index iOS web-app metadata', distHtml.includes('apple-mobile-web-app-capable') && distHtml.includes('rel="apple-touch-icon" href="/icon-192.png"'));
+    check('dist index iOS web-app metadata', distHtml.includes('apple-mobile-web-app-capable') && distHtml.includes('rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png"'));
     check('dist index viewport resizes content for the keyboard', /<meta name="viewport" content="[^"]*interactive-widget=resizes-content[^"]*"/.test(distHtml));
     check('dist index has exactly one viewport meta', (distHtml.match(/<meta name="viewport"/g) ?? []).length === 1);
     check('dist index carries no inline scripts (CSP script-src self)', !/<script(?![^>]*\bsrc=)[^>]*>[^<]/.test(distHtml));
