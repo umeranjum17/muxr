@@ -172,7 +172,8 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl) {
                 for (const claim of claims.values()) {
                     clearTimeout(claim.timer);
                     if (claim.answered && !claim.verified) {
-                        await claim.rollback();
+                        try { await claim.rollback(); }
+                        catch (error) { failure = error instanceof Error ? error.message : String(error); }
                         await endpoint.rejectPairedDevice(claim.grantId);
                     }
                 }
@@ -284,7 +285,7 @@ async function servePairing(state, req, device, claims, done, intent, admit) {
     claim.deviceId = record.deviceId;
     claim.grantId = device.id;
     clearTimeout(claim.timer);
-    claim.rollback ??= () => {
+    claim.rollback ??= () => withSelfhostRotationLock(async () => {
         if (!created) return;
         const current = readSelfhostState();
         if (current?.machine?.id !== state.machine.id) return;
@@ -294,7 +295,7 @@ async function servePairing(state, req, device, claims, done, intent, admit) {
             current.machine.crypto.devices = devices;
             writeSelfhostState(current);
         }
-    };
+    });
     claim.timer = setTimeout(() => {
         done.reject(new Error('pairing did not complete: the phone never reached this machine over the link. Start muxr here, then run `muxr pair` again.'));
     }, VERIFY_DEADLINE_MS);

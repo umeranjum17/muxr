@@ -7,6 +7,7 @@ import { hostId } from '@byokit/link';
 import { waitForRelay } from './waitForRelay.mjs';
 import { linkLabClient, requestLab } from './linkLabClient.mjs';
 import { machineIdentity } from '../../setup/index.mjs';
+import { writeSelfhostCrypto } from '../../../apps/host/dist/machine/infrastructure/selfhostCrypto.js';
 
 const root = mkdtempSync(join(tmpdir(), 'muxr-key-rotation-'));
 const home = join(root, 'muxr');
@@ -80,6 +81,10 @@ try {
         if (after[key] === before[key]) throw new Error(`${key} was not replaced`);
     }
     if (after.keyVersion !== before.keyVersion + 1 || after.devices.length !== 0) throw new Error('rotation kept the old version or pairings');
+    let rejected = false;
+    try { writeSelfhostCrypto(join(home, 'selfhost.json'), before); }
+    catch { rejected = true; }
+    if (!rejected || readState().machine.crypto.boxPublicKey !== after.boxPublicKey) throw new Error('a stale host commit restored the retired keys');
     if ((await hosts()).some((host) => host.id === hostOf(before))) throw new Error('relay still admits the old host key');
     await until(() => device.status !== 'online', 'old pairing drops off the retired host');
 

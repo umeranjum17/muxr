@@ -9,7 +9,7 @@ import { PaneScreens } from './desktop/index.js';
 import { startHost } from './host.js';
 import { LinkPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
-import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint } from './machine/index.js';
+import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint, writeSelfhostCrypto } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
 import { muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
 import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
@@ -217,10 +217,6 @@ function atomicWriteJson(path: string, value: unknown): void {
     renameSync(temporary, path);
 }
 
-function writeSelfhostAuth(auth: SelfhostState): void {
-    atomicWriteJson(selfhostFile(), auth);
-}
-
 function readAuthStates() {
     try { return readSelfhostAuth(); }
     catch (error) {
@@ -356,8 +352,8 @@ async function main(): Promise<void> {
         const cryptoAdapter = {
             get: (): MachineCryptoState => selfhostAuth!.machine.crypto,
             commit: async (next: MachineCryptoState): Promise<void> => {
+                writeSelfhostCrypto(selfhostFile(), next);
                 selfhostAuth!.machine.crypto = next;
-                writeSelfhostAuth(selfhostAuth!);
                 if (next.keyVersion !== hostedE2ee.keyVersion || next.dataKey !== hostedE2ee.dataKey) {
                     hostedE2ee.keyVersion = next.keyVersion;
                     hostedE2ee.dataKey = next.dataKey;
@@ -528,7 +524,7 @@ async function main(): Promise<void> {
                             if (state === undefined || device === undefined) throw new Error('link: device no longer trusted');
                             if (level === undefined) delete device.pushLevel;
                             else device.pushLevel = level;
-                            writeSelfhostAuth(state);
+                            writeSelfhostCrypto(selfhostFile(), state.machine.crypto);
                         },
                         // Pending relay unsubscribes persist here, so removing a
                         // device while the relay is down still stops its pushes
