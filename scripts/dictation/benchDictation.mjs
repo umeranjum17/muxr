@@ -7,6 +7,7 @@
  *   node scripts/dictation/benchDictation.mjs candidates.json [--fixtures manifest.json] [--repeats 3] [--speed 3] [--only id,id] [--model path] [--json out.json]
  */
 import { spawn, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -29,7 +30,9 @@ const SOURCES = [
 
 function buildBench() {
     const version = JSON.parse(readFileSync(join(WHISPER_RN, 'package.json'), 'utf8')).version;
-    const out = join(ROOT, 'node_modules/.cache/dictation-bench', version);
+    const source = join(HERE, 'whisperBench.cpp');
+    const sourceHash = createHash('sha256').update(readFileSync(source)).digest('hex');
+    const out = join(ROOT, 'node_modules/.cache/dictation-bench', `${version}-${sourceHash}`);
     const binary = join(out, 'whisperBench');
     if (existsSync(binary)) return binary;
     mkdirSync(out, { recursive: true });
@@ -37,7 +40,7 @@ function buildBench() {
     const arch = process.arch === 'arm64' ? 'arm' : 'x86';
     const flags = ['-O3', '-DNDEBUG', '-march=native', '-D_GNU_SOURCE', '-DWSP_GGML_USE_CPU', '-DWSP_GGML_USE_CPU_REPACK', '-pthread', `-I${cpp}`, `-I${cpp}/ggml-cpu`];
     const files = [...SOURCES, `ggml-cpu/arch/${arch}/quants.c`, `ggml-cpu/arch/${arch}/repack.cpp`].map((file) => join(cpp, file));
-    files.push(join(HERE, 'whisperBench.cpp'));
+    files.push(source);
     console.error(`building whisperBench from whisper.rn ${version}…`);
     const objects = files.map((file, index) => {
         const object = join(out, `${index}-${basename(file)}.o`);
@@ -54,16 +57,35 @@ async function openWhisper(binary, model) {
     const child = spawn(binary, [model], { stdio: ['pipe', 'pipe', 'inherit'] });
     let buffered = '';
     const waiting = [];
+    let failure;
+    const fail = (error) => {
+        failure ??= error;
+        while (waiting.length) waiting.shift().reject(failure);
+    };
+    child.on('error', (error) => fail(error));
+    child.on('exit', (code, signal) => {
+        fail(new Error(`whisperBench exited (${signal ?? code})${model ? ` while loading ${model}` : ''}`));
+    });
     child.stdout.on('data', (data) => {
         buffered += data;
         let newline;
         while ((newline = buffered.indexOf('\n')) >= 0) {
             const line = buffered.slice(0, newline);
             buffered = buffered.slice(newline + 1);
-            waiting.shift()(JSON.parse(line));
+            try {
+                const reply = JSON.parse(line);
+                if (reply.code !== undefined && reply.code !== 0) throw new Error(`whisper_full_parallel failed with code ${reply.code}`);
+                const pending = waiting.shift();
+                if (pending) pending.resolve(reply);
+            } catch (error) {
+                fail(error);
+                child.kill();
+            }
         }
     });
-    const next = () => new Promise((resolve) => waiting.push(resolve));
+    const next = () => failure
+        ? Promise.reject(failure)
+        : new Promise((resolve, reject) => waiting.push({ resolve, reject }));
     await next();
     return {
         async read(pcm, options) {
