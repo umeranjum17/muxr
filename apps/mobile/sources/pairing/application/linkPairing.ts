@@ -31,6 +31,12 @@ export interface StoredHostedGrant extends DeviceGrant {
     source?: 'selfhost';
 }
 
+export class LinkPairingRecoveryError extends Error {
+    constructor(message: string, readonly recovery: 'saved' | 'pending') {
+        super(message);
+    }
+}
+
 export async function loadHostedGrant(machineId: string): Promise<StoredHostedGrant | undefined> {
     return (await loadGrants())[machineId];
 }
@@ -125,19 +131,22 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
     let stored: StoredHostedGrant | undefined;
     try {
         await claimLinkPairing(pending, { ...options, onProven: async (answer, key) => {
-            stored = provenLinkGrant(answer, key);
-            await storeGrant(stored);
+            const grant = provenLinkGrant(answer, key);
+            await storeGrant(grant);
+            stored = grant;
         } });
+        if (stored === undefined) throw new Error('the computer did not prove this pairing');
+        await deletePendingPair();
+        return stored;
     } catch (cause) {
         const failure = pairingFailure(cause);
+        if (stored !== undefined) throw new LinkPairingRecoveryError(failure.message, 'saved');
         if (Date.now() - pending.startedAt > 4 * 60_000 || failure.discard) {
             await deletePendingPair();
+            throw new Error(failure.message);
         }
-        throw new Error(failure.message);
+        throw new LinkPairingRecoveryError(failure.message, 'pending');
     }
-    if (stored === undefined) throw new Error('the computer did not prove this pairing');
-    await deletePendingPair();
-    return stored;
 }
 
 export async function clearHostedE2ee(): Promise<void> {

@@ -9,7 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { linkPairMachineName, looksLikeLinkOffer } from '@/pairing/e2ee';
+import { LinkPairingRecoveryError, linkPairMachineName, looksLikeLinkOffer } from '@/pairing/e2ee';
 import { pairLinkConsent, pairLinkOffer, usePairQrScanner, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
@@ -133,12 +133,19 @@ export default function PairScreen() {
         if (looksLikeLinkOffer(url.trim())) {
             const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput);
             if (tunnel !== undefined && !tunnel.ok) throw new Error(tunnel.message);
-            const paired = await pairLinkOffer(url.trim(), auth, {
-                tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,
-                // The Pair button on this screen is the single consent.
-                confirm: async () => true,
-                onProgress: setProgress,
-            });
+            let paired: boolean;
+            try {
+                paired = await pairLinkOffer(url.trim(), auth, {
+                    tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,
+                    confirm: async () => true,
+                    onProgress: setProgress,
+                });
+            } catch (cause) {
+                if (tunnel !== undefined) await stopSshTunnel();
+                if (!(cause instanceof LinkPairingRecoveryError)) throw cause;
+                router.replace(cause.recovery === 'saved' ? '/settings' : '/');
+                return;
+            }
             if (!paired) {
                 if (tunnel !== undefined) await stopSshTunnel();
                 // The claim already saved the grant and consumed the code;

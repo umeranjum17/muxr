@@ -1,6 +1,7 @@
 import { offerText } from '@byokit/link';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pairLinkOffer } from './usePairing';
+import { listPairedGrants, resumePendingHostedPairing } from './linkPairing';
 
 const harness = vi.hoisted(() => ({
     device: 'phone' as 'phone' | 'browser',
@@ -8,6 +9,8 @@ const harness = vi.hoisted(() => ({
     approved: false,
     alerts: [] as string[],
     activated: false,
+    loseAcknowledgement: false,
+    secrets: new Map<string, string>(),
     confirms: [] as Array<{ title: string; body: string }>,
 }));
 
@@ -25,13 +28,39 @@ vi.mock('@/modal', () => ({
 }));
 vi.mock('../infrastructure/pairingPlatform', () => ({
     pairingDeviceKind: () => harness.device,
+    pairingDeviceName: () => 'Phone',
+    assertSupportedOffer: () => undefined,
 }));
-vi.mock('./linkPairing', () => ({
-    linkPairMachineName: async () => harness.machineName,
-    pairOverLink: async (_scanned: string, options: { onWords: (words: string) => void }) => {
+vi.mock('../infrastructure/linkGrant', () => ({ probeDiscoveredRelay: vi.fn() }));
+vi.mock('@/connection', () => ({
+    getCachedConnectionSettings: vi.fn(),
+    loadConnectionSettingsAsync: vi.fn(),
+    saveConnectionSettings: vi.fn(),
+}));
+vi.mock('../infrastructure/nativeSecretStore', () => ({
+    getNativeSecret: async (key: string) => harness.secrets.get(key) ?? null,
+    setNativeSecret: async (key: string, value: string) => { harness.secrets.set(key, value); },
+    deleteNativeSecret: async (key: string) => { harness.secrets.delete(key); },
+}));
+vi.mock('../infrastructure/webSecureStore', () => ({}));
+vi.mock('react-native', () => ({ Platform: { OS: 'android' } }));
+vi.mock('../infrastructure/linkPairClient', () => ({
+    linkOfferName: () => harness.machineName,
+    newPairingSecretKey: () => 'key',
+    pairingFailure: (cause: Error) => ({ message: cause.message, discard: false }),
+    provenLinkGrant: () => ({
+        machineId: 'desk', machineName: harness.machineName,
+        credential: 'credential', deviceKey: { secretKey: 'key' }, keyVersion: 1,
+    }),
+    claimLinkPairing: async (_pending: unknown, options: {
+        mode: string;
+        onWords?: (words: string) => void;
+        onProven: (answer: unknown, key: unknown) => Promise<void>;
+    }) => {
         if (!harness.approved) throw new Error('must not pair after the user declines');
-        options.onWords('spark castle');
-        return { machineName: harness.machineName };
+        options.onWords?.('spark castle');
+        await options.onProven({}, {});
+        if (harness.loseAcknowledgement && options.mode === 'claim') throw new Error('acknowledgement lost');
     },
 }));
 vi.mock('./useCheckCameraPermissions', () => ({ useCheckScannerPermissions: () => async () => true }));
@@ -50,6 +79,7 @@ beforeEach(() => {
     harness.activated = false;
     harness.device = 'phone';
     harness.machineName = 'Desk';
+    harness.loseAcknowledgement = false;
 });
 
 describe('pairLinkOffer consent', () => {
@@ -110,4 +140,18 @@ it('pairs after one screen consent, shows words inline, and activates without an
     expect(harness.activated).toBe(true);
     expect(login).toHaveBeenCalledWith('credential', 'key');
     expect(harness.alerts).toHaveLength(0);
+
+    harness.loseAcknowledgement = true;
+    await expect(pairLinkOffer(linkOffer({ role: 'control', name: 'Desk' }), { login } as never, {
+        confirm: consent,
+    })).rejects.toMatchObject({ message: 'acknowledgement lost', recovery: 'saved' });
+    expect(await listPairedGrants()).toEqual([expect.objectContaining({ machineName: 'Desk' })]);
+    expect(await resumePendingHostedPairing()).toMatchObject({ machineName: 'Desk' });
+
+    harness.loseAcknowledgement = false;
+    login.mockRejectedValueOnce(new Error('login failed'));
+    await expect(pairLinkOffer(linkOffer({ role: 'control', name: 'Desk' }), { login } as never, {
+        confirm: consent,
+    })).rejects.toMatchObject({ message: 'login failed', recovery: 'saved' });
+    expect(await listPairedGrants()).toEqual([expect.objectContaining({ machineName: 'Desk' })]);
 });

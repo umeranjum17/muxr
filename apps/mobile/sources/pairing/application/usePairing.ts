@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
-import { linkPairMachineName, pairOverLink } from './linkPairing';
+import { LinkPairingRecoveryError, linkPairMachineName, pairOverLink } from './linkPairing';
 import { hostedPairingDuration, linkOfferRole, looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
@@ -63,32 +63,36 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
             options.onProgress?.(view);
         },
     });
-    // Activation runs through the shared path so a pinned voice session and a
-    // previous machine's SSH credential are handled exactly like relay pairing.
-    const paired = await pairMachine({ grant });
-    if (!paired.ok && paired.reason === 'voice-pinned') {
-        const switchApproved = await Modal.confirm(
-            'End voice and switch?',
-            'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
-            { confirmText: 'End voice and switch', destructive: true },
-        );
-        if (!switchApproved) return false;
-        const retried = await pairMachine({ grant, endVoiceIfPinned: true });
-        if (!retried.ok) {
-            Modal.alert('Pairing failed', 'Pairing failed');
+    try {
+        // Activation runs through the shared path so a pinned voice session and a
+        // previous machine's SSH credential are handled exactly like relay pairing.
+        const paired = await pairMachine({ grant });
+        if (!paired.ok && paired.reason === 'voice-pinned') {
+            const switchApproved = await Modal.confirm(
+                'End voice and switch?',
+                'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
+                { confirmText: 'End voice and switch', destructive: true },
+            );
+            if (!switchApproved) return false;
+            const retried = await pairMachine({ grant, endVoiceIfPinned: true });
+            if (!retried.ok) {
+                Modal.alert('Pairing failed', 'Pairing failed');
+                return false;
+            }
+            options.onProgress?.(pairingView({ phase: 'paired', hostName: machineName, device }));
+            await auth.login(retried.credential, retried.secretKey);
+            return true;
+        }
+        if (!paired.ok) {
+            Modal.alert('Pairing failed', paired.message ?? 'Pairing failed');
             return false;
         }
         options.onProgress?.(pairingView({ phase: 'paired', hostName: machineName, device }));
-        await auth.login(retried.credential, retried.secretKey);
+        await auth.login(paired.credential, paired.secretKey);
         return true;
+    } catch (cause) {
+        throw new LinkPairingRecoveryError(cause instanceof Error ? cause.message : String(cause), 'saved');
     }
-    if (!paired.ok) {
-        Modal.alert('Pairing failed', paired.message ?? 'Pairing failed');
-        return false;
-    }
-    options.onProgress?.(pairingView({ phase: 'paired', hostName: machineName, device }));
-    await auth.login(paired.credential, paired.secretKey);
-    return true;
 }
 
 function pairLinkDetail(device: 'phone' | 'browser', role: 'control' | 'view'): string {
