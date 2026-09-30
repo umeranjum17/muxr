@@ -170,7 +170,6 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 | `dictate` | home and session composer trailing | `getText`, `setText` | none |
 
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
-
 ```json
 { "slot": "session.pills", "id": "files", "type": "native", "primitive": "item-list",
   "params": { "title": "Files", "icon": "attach-outline",
@@ -621,7 +620,7 @@ returns exactly one of:
 
 The backend reads fresh Herdr topology before every mutation. Pane close needs no broader confirmation; tab, workspace, and worktree-group scopes each need their own explicit confirmation. If Herdr refuses an attempted scope after a race, the next confirmation must be strictly broader than both that attempt and the scope already confirmed. A failed revalidation returns Retry or an error, never `alreadyGone`; only a live snapshot that no longer contains the target may report it already closed. Cancel sends no request.
 
-For phone effects, see [Events](#events). Realtime voice is product code: the host integrates `@byokit/realtime` behind the typed `voice.*` methods. See [Voice setup](VOICE-SETUP.md) for provider selection and transport details.
+For phone effects, see [Events](#events). Phone effects (`speech.wake`, `voice.start`) are compiled into the app and referenced from events or shortcuts as `{ "action": { "type": "capability", "name": "voice.start" } }`. An unregistered phone-effect name is skipped. Realtime voice is product code: the host integrates `@byokit/realtime` behind the typed `voice.*` methods. See [Voice setup](VOICE-SETUP.md) for provider selection and transport details.
 
 ## Screen buttons
 

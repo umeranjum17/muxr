@@ -581,6 +581,12 @@ async function streamDesktop(stream: LinkStream, req: LinkRequest, grant: Grant,
     finally { options.onDesktopConnection?.(connectionId, false); }
 }
 
+/**
+ * The device's terminal pane over a link stream: the stream open IS the attach.
+ * The first line back is the same `result` shape a terminal.attach request gets
+ * (ok with the pane, or the attach error with its code, e.g. `takeover`), then
+ * herdr's NDJSON flows both ways until the stream ends.
+ */
 async function streamVoice(stream: LinkStream, req: LinkRequest, grant: Grant, options: LinkEndpointOptions): Promise<void> {
     const args = req.args as { channel?: unknown; sessionId?: unknown } | null;
     if (!trusted(grant, options.currentCrypto())) throw new PublicLinkError('voice: device is no longer trusted');
