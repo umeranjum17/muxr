@@ -252,11 +252,17 @@ export function terminalPathCandidates(raw: string): string[] {
     }
     const words = text.split(' ');
     const candidates: string[] = [];
-    for (let count = words.length; count > 0 && candidates.length < 6; count--) {
+    const candidateAt = (count: number) => {
         const candidate = words.slice(0, count).join(' ')
             .replace(/(?::\d+){1,2}:?$/, '')
             .replace(/[.,;:!?'"`)\]}>]+$/, '')
             .trimEnd();
+        return candidate;
+    };
+    const complete = candidateAt(words.length);
+    if (complete !== '') candidates.push(complete);
+    for (let count = words.length - 1, trims = 0; count > 0 && trims < 6; count--, trims++) {
+        const candidate = candidateAt(count);
         if (candidate !== '' && !candidates.includes(candidate)) candidates.push(candidate);
     }
     return candidates;
