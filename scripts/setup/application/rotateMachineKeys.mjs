@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { hostId } from '@byokit/link';
-import { error, machineIdentity, print, run } from '../infrastructure/runtime.mjs';
+import { error, flagValue, machineIdentity, print, run } from '../infrastructure/runtime.mjs';
 import { readSelfhostState, selfhostControlBase, selfhostCredential, selfhostRelayHealthy, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { daemonIsRunning, runDaemon } from '../infrastructure/daemon.mjs';
 import { hostEntry } from '../infrastructure/paths.mjs';
@@ -27,7 +27,10 @@ export async function rotateMachineKeys(args = []) {
             const wasRunning = daemonIsRunning();
             if (wasRunning && await runDaemon(['stop']) !== 0) throw new Error('could not stop the muxr service; machine keys were not rotated');
             try {
-                const peers = run(process.execPath, [hostEntry(), '--retire-machine-peers']);
+                const dataDir = flagValue(args, '--data-dir');
+                const peerArgs = [hostEntry(), '--retire-machine-peers'];
+                if (dataDir !== undefined) peerArgs.push('--data-dir', dataDir);
+                const peers = run(process.execPath, peerArgs);
                 if (!peers.ok) throw new Error(peers.stderr || 'could not retire machine peer relationships');
                 print(peers.stdout);
                 const fresh = machineIdentity(undefined).crypto;

@@ -43,7 +43,7 @@ async function stop(child) {
     await exited;
 }
 
-const rotate = (...flags) => spawnSync(process.execPath, ['scripts/cli.mjs', 'devices', 'rotate-keys', ...flags], { env, encoding: 'utf8' });
+const rotate = (...flags) => spawnSync(process.execPath, ['scripts/cli.mjs', 'devices', 'rotate-keys', '--data-dir', join(root, 'host'), ...flags], { env: { ...env, MUXR_DATA_DIR: join(root, 'unused-host') }, encoding: 'utf8' });
 const readState = () => JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8'));
 const hostOf = (crypto) => hostId(Buffer.from(crypto.boxPublicKey, 'base64'));
 const authorizePeer = async (device) => {

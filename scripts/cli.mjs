@@ -106,7 +106,7 @@ const COMMAND_HELP = {
     'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n`,
     config: `muxr config init [--dry-run] [--yes]\nmuxr config check\n\ninit walks through machine name, mode, relay URL, and host port, shows the JSON it will write to $MUXR_HOME/config.json, and asks before overwriting. Without a terminal it prints what it would do and exits. check validates a hand-edited file and reports the path and offending key. Absent or partial files fall back per key; malformed files refuse to start. Precedence per setting: explicit flag beats environment beats config file beats default.\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
-    devices: `muxr devices list\nmuxr devices revoke <number|name>\nmuxr devices rotate-keys --unpair-all   replace the machine signing, box and data keys; every device pairs again\n`,
+    devices: `muxr devices list\nmuxr devices revoke <number|name>\nmuxr devices rotate-keys --unpair-all [--data-dir <dir>]   replace the machine signing, box and data keys; every device pairs again\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
     plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
     'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
@@ -474,7 +474,7 @@ async function dispatch(command, args = []) {
         if (deviceCommand === 'list') return listDevices();
         if (deviceCommand === 'revoke') return revokeDevice(deviceArgs);
         if (deviceCommand === 'rotate-keys') return rotateMachineKeys(deviceArgs);
-        process.stderr.write('usage: muxr devices list | muxr devices revoke <number|name> | muxr devices rotate-keys --unpair-all\n');
+        process.stderr.write('usage: muxr devices list | muxr devices revoke <number|name> | muxr devices rotate-keys --unpair-all [--data-dir <dir>]\n');
         return 1;
     }
     if (command === 'machines') {

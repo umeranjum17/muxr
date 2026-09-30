@@ -155,6 +155,11 @@ keep their quotas rather than having them reset.
   muxr pair
   ```
 
+  If the host was started with `--data-dir <dir>`, pass the same flag to
+  `muxr devices rotate-keys --unpair-all --data-dir <dir>`. Rotation prints the
+  directory used for socket checks and peer retirement. Directory resolution
+  follows the host: flag, `MUXR_DATA_DIR`, `config.json`, then the default.
+
   If retirement fails, the replacement keys remain in place. The error names
   the old host ID; restore relay access and retry the reported DELETE with the
   relay owner credential to remove that registration.

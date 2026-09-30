@@ -324,7 +324,7 @@ async function main(): Promise<void> {
             });
         }
         const retired = await retireMachinePeers(join(dataDir, 'peer'));
-        process.stdout.write(`  ✓ ${retired} inbound peer relationship(s) retired\n`);
+        process.stdout.write(`  ✓ ${retired} inbound peer relationship(s) retired in ${dataDir}\n`);
         return;
     }
     const hostVersion = resolveHostVersion() ?? '0.0.0';
