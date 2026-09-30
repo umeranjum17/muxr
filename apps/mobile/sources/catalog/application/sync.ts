@@ -531,18 +531,29 @@ class MuxrSync {
         let tree = await this.request('herdr.tree', {});
         const liveRoutes = new Set(tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) =>
             tab.panes.map((pane) => pane.sessionId))));
-        const startingRoutes = storage.getState().herdrWorkspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) =>
-            tab.panes.filter((pane) => pane.agentStatus === 'starting' && pane.sessionId !== undefined)
+        const agentRoutes = storage.getState().herdrWorkspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) =>
+            tab.panes.filter((pane) => pane.sessionId !== undefined && !pane.sessionId.startsWith('shell:'))
                 .map((pane) => pane.sessionId!)));
-        const missingLaunches = startingRoutes.filter((route) => !liveRoutes.has(route));
-        if (missingLaunches.length > 0) {
-            await Promise.all(missingLaunches.map((sessionId) =>
+        const missingRoutes = agentRoutes.filter((route) => !liveRoutes.has(route));
+        if (missingRoutes.length > 0) {
+            await Promise.all(missingRoutes.map((sessionId) =>
                 this.request('session.open', { sessionId }).catch(() => undefined)));
             tree = await this.request('herdr.tree', {});
         }
         // Requests can cross when a done frame and a newer working frame arrive
         // close together. Only the latest canonical read may update the UI.
         if (request === this.herdrTreeRequest) {
+            if ((tree as { connected?: boolean }).connected === true) {
+                for (const workspace of tree.workspaces) {
+                    for (const tab of workspace.tabs) {
+                        for (const pane of tab.panes) {
+                            if (pane.sessionId !== undefined && agentRecovered(pane)) {
+                                storage.getState().setSessionError(pane.sessionId, null);
+                            }
+                        }
+                    }
+                }
+            }
             this.confirmedHomeTree = { request, workspaces: tree.workspaces };
             storage.getState().applyHerdrTree(tree.workspaces);
             if (storage.getState().sessionsLoaded && this.hasTransport()) {
