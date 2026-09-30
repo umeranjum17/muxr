@@ -17,7 +17,7 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - In a second empty npm prefix, download `https://raw.githubusercontent.com/umeranjum17/muxr/main/install.sh` completely, run it with the exact release version, and verify it installs the same CLI without sudo or lifecycle scripts.
    - Fail if undocumented secrets, private packages, maintainer paths, or unpublished npm commands are required.
 3. **Start the self-hosted product**
-   - Run `muxr setup` in the isolated HOME; do not run a second undocumented startup command.
+   - Run bare `muxr` in a terminal in the isolated HOME and confirm it opens setup directly, following [CLI startup guidance](../README.md#install); do not run a second undocumented startup command. For the convenience installer, verify the terminal handoff and non-interactive fallback in the [installer contract](specs/npm-backed-installer.md#decision).
    - Confirm relay health, host connection, owner-only state permissions, and a visible QR plus short two-minute pairing string.
 4. **Pair a fresh phone**
    - Install the exact release build on a factory-reset emulator.
