@@ -9,7 +9,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.os.bundleOf
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -236,32 +235,6 @@ class VoiceOverlayModule : Module() {
         notification["muted"] as? Boolean ?: false,
         notification["agents"] as? List<Map<String, Any?>> ?: emptyList(),
       )
-    }
-
-    Function("supportsPromotedNotifications") {
-      Build.VERSION.SDK_INT >= 36
-    }
-
-    Function("canPostPromotedNotifications") {
-      val context = context() ?: return@Function false
-      Build.VERSION.SDK_INT < 36 || NotificationManagerCompat.from(context).canPostPromotedNotifications()
-    }
-
-    Function("openPromotedNotificationSettings") {
-      val context = context() ?: return@Function false
-      if (Build.VERSION.SDK_INT < 36) return@Function false
-      val promotion = Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
-        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      val fallback = Intent(
-        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-        Uri.parse("package:${context.packageName}"),
-      ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      runCatching {
-        context.startActivity(if (promotion.resolveActivity(context.packageManager) != null) promotion else fallback)
-        true
-      }.onFailure { Log.w(TAG, "Opening Live Updates settings failed", it) }
-        .getOrDefault(false)
     }
 
     Function("openBackgroundActivitySettings") {

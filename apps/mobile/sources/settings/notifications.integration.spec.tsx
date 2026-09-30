@@ -23,10 +23,10 @@ vi.mock('@/pairing/e2ee', () => ({ getCachedHostedGrant: () => ({ credential: 'c
 vi.mock('@/utils/microphonePermissions', () => ({ requestNotificationPermission: vi.fn() }));
 vi.mock('@/utils/nativePushNotifications', () => ({ registerNativePushNotifications: vi.fn(), updateNativePushNotificationLevel: vi.fn() }));
 vi.mock('@/../modules/voice-overlay', () => ({
-    supportsPromotedNotifications: () => false,
-    canPostPromotedNotifications: () => false,
+    supportsLiveActivities: () => false,
+    canPostLiveActivities: () => false,
     openBackgroundActivitySettings: vi.fn(),
-    openPromotedNotificationSettings: vi.fn(),
+    openLiveActivitySettings: vi.fn(),
 }));
 vi.mock('@/settings', () => ({ browserNotificationSummary: (browser: string) => browser }));
 vi.mock('@/modal', () => ({ Modal: { confirm: vi.fn() } }));

@@ -23,7 +23,7 @@ import { desktopAvailable } from '@desklink/react-native/availability';
 import { changesList } from '@/catalog/ops';
 import { Modal } from '@/modal';
 import * as Clipboard from 'expo-clipboard';
-import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
+import { storage, useHerdrTree, useLocalSettingMutable, useSession, useSessionError, useSessionGitStatus, useSessions, useSocketStatus } from '@/catalog/store';
 import { sessionStop } from '@/catalog/ops';
 import { registerArtifactUpdateHandler, sync } from '@/catalog/sync';
 import { resolveMessageModeMeta } from '@/catalog';
@@ -73,6 +73,7 @@ import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { useIsFocused } from '@react-navigation/native';
 import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
+import { TerminalFailure } from './TerminalFailure';
 import { DictateAction, DictationStrip, useComposerDictation } from '@/components/ComposerDictation';
 import { getCachedConnectionSettings } from '@/connection';
 import { displayLink } from '../domain/TerminalLink';
@@ -194,6 +195,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         transform: [{ translateY: railHeight.value + insets.bottom * railProgress.value + settledRaise.value }],
     }), [insets.bottom]);
     const session = useSession(props.id);
+    const sessionError = useSessionError(props.id);
     // The agent's browser stays on screen as it closes, so the view can say so.
     const livePreview = session?.metadata?.preview;
     const lastPreview = React.useRef(livePreview);
@@ -1146,6 +1148,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const headerLifecycleLabel = headerLifecycle === 'unknown' || headerLifecycle === 'idle' ? undefined : HERD_STATUS_LABELS[headerLifecycle];
     return (
         <ScopedTheme name="dark"><DarkSurface>{(theme) => {
+            if (sessionError !== undefined) return <TerminalFailure message={sessionError} onHome={() => router.replace('/')} />;
             const headerStatus = agentStatusColor(headerLifecycle, theme);
             const tabPanes = currentTab?.panes ?? [];
             const paneIndex = tabPanes.findIndex((pane) => pane.sessionId === props.id);
