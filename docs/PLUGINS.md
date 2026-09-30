@@ -644,9 +644,7 @@ returns exactly one of:
 
 The backend reads fresh Herdr topology before every mutation. Pane close needs no broader confirmation; tab, workspace, and worktree-group scopes each need their own explicit confirmation. If Herdr refuses an attempted scope after a race, the next confirmation must be strictly broader than both that attempt and the scope already confirmed. A failed revalidation returns Retry or an error, never `alreadyGone`; only a live snapshot that no longer contains the target may report it already closed. Cancel sends no request.
 
-A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
-
-Realtime voice is **not** a plugin: it is product code. The host integrates `@byokit/realtime` behind the typed `voice.*` methods; see [Voice setup](VOICE-SETUP.md) for provider selection and transport details.
+Realtime voice is product code and does not use this plugin stream process. Its transport ownership and frame details are documented in [Voice setup](VOICE-SETUP.md) and the [native voice transport spec](specs/native-voice-transport.md).
 
 Realtime voice does not use this capability map: its `voice.*` surface is a typed product host request, so no plugin id, capability name, or manifest hash is involved. See [Voice setup](VOICE-SETUP.md).
 

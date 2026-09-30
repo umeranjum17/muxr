@@ -1,6 +1,6 @@
 # muxr realtime voice providers
 
-Realtime voice is product code. The app talks to typed `voice.*` host methods; `@byokit/realtime` owns the speech-to-speech engine, provider session, signaling, and bounded tool bridge. Muxr's host code selects providers, holds credentials, and supplies product prompts, tools, workspace context, and lifecycle policy. There is no plugin catalog entry, manifest hash, or per-device plugin approval anywhere in this path. The mobile kernel owns microphone permission, foreground-service ordering, PCM capture/playback, and WebRTC media.
+Realtime voice is product code. The app talks to typed `voice.*` host methods; `@byokit/realtime` owns the speech-to-speech engine, provider session, signaling, bounded tool bridge, and provider-blind phone call client. Muxr's host code selects providers, holds credentials, and supplies product prompts, tools, workspace context, and lifecycle policy. The phone supplies audio ports and app control; muxr owns microphone permission, foreground-service ordering, VAD-aware PCM capture, and native playback, while the kit owns the WebRTC peer and call lifecycle. There is no plugin catalog entry, manifest hash, or per-device plugin approval anywhere in this path. See [the native voice transport spec](specs/native-voice-transport.md) for transport details.
 
 ## Setup
 
