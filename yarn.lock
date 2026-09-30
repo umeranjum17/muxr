@@ -1106,6 +1106,11 @@
   dependencies:
     "@earendil-works/pi-ai" "0.87.1"
 
+"@byokit/dictation@0.2.0":
+  version "0.2.0"
+  resolved "https://registry.yarnpkg.com/@byokit/dictation/-/dictation-0.2.0.tgz#549f581e38b73a0b2c8fe6db4b4473421afea27b"
+  integrity sha512-HW1jiWCxp49cRRKIEGGj8sQbl2c7geNwKmlFOlRFXBjtVW1nTabu8CR+a/lzAQqdpFN1WwmEkfrYtXW8y3pxIg==
+
 "@byokit/herdr@0.1.10":
   version "0.1.10"
   resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.10.tgz#d1856bcbf8e95af3057484157e452b98f8f93343"
