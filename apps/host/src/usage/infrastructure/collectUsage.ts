@@ -439,7 +439,7 @@ function claudeVMs(raw: unknown, nowMs: number): UsageWindowVM[] {
 /** Windows for one account's env: the same reader Usage uses for the main
  *  account, pointed at that sign-in's folder. In-process only; nothing is
  *  shown, stored under another account, or sent anywhere but the provider.
- *  `refresh: true` bypasses Claude cache reads and writes for Plan Account selection;
+ *  `refresh: true` bypasses cache reads and writes for Plan Account selection;
  *  only derived room hints leave that path. Otherwise a fresh-enough stored
  *  reading answers, and a failed read falls back to the last good one,
  *  honestly aged by the caller. */
@@ -447,7 +447,7 @@ export async function planAccountWindows(id: PlanId, env: NodeJS.ProcessEnv, { r
     if (id !== 'claude' && id !== 'codex') return [];
     const nowMs = nowDate(env).getTime();
     if (id === 'codex') {
-        const reading = await readPlan(planReader(env), sourcesFor(env).codex, nowMs);
+        const reading = await readPlan(planReader(env), sourcesFor(env).codex, nowMs, { refresh });
         return reading?.windows.map((window) => toVM(window, nowMs)) ?? [];
     }
     const fingerprint = planAccounts(env).claude;

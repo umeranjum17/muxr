@@ -1,7 +1,7 @@
 /** App-owned source discovery; the kit never discovers a sign-in or executable. */
 import { usage, type Usage, type Source, type Reading, type Code } from '@byokit/usage';
-import { accessSync, constants, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { accessSync, constants, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import type { PlanId } from '../domain/activity.js';
 import { piAgentDir } from './tokenLedger.js';
@@ -170,6 +170,15 @@ export function planLabel(provider: 'opencode' | 'zai', code: Code | undefined):
     return labels[provider][code ?? 'good'] ?? `${provider === 'opencode' ? 'OpenCode Go' : 'Z.ai'} limits unavailable · try again shortly`;
 }
 
-export function readPlan(reader: Usage, source: Source | undefined, nowMs: number): Promise<Reading | undefined> {
-    return source === undefined ? Promise.resolve(undefined) : reader.read(source, { nowMs });
+export async function readPlan(reader: Usage, source: Source | undefined, nowMs: number, { refresh = false }: { refresh?: boolean } = {}): Promise<Reading | undefined> {
+    if (source === undefined) return undefined;
+    if (!refresh) return reader.read(source, { nowMs });
+    // Account selection needs a fresh hint without reading or updating the
+    // standing account cache. The kit owns the isolated read and its storage.
+    const stateDir = mkdtempSync(join(tmpdir(), 'muxr-usage-refresh-'));
+    try {
+        return await usage({ stateDir, salt: 'muxr/usage/account' }).read(source, { nowMs });
+    } finally {
+        rmSync(stateDir, { recursive: true, force: true });
+    }
 }
