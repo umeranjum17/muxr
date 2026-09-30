@@ -6,7 +6,11 @@ import { claudeIdentity, codexIdentity, defaultPlanFolder } from '../../plans/in
 type Catalog = RequestResult<'herdr.agentKinds'>;
 const CACHE_MS = 30_000;
 
-/** One host-owned cache shared by every picker and connected device. */
+/** One host-owned cache shared by every picker and connected device.
+ * Default-folder identity checks contribute only sign-in state: email and
+ * plan details must never enter this catalog. Unsupported or unavailable
+ * checks remain unknown. Explicit refresh waits for pending work, then checks
+ * again so a pre-sign-in collection cannot answer Check again. */
 export class AgentCatalog {
     private cached: Catalog | undefined;
     private checkedAt = 0;
