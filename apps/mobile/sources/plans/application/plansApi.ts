@@ -47,7 +47,7 @@ export function agentAccount(sessionId: string): Promise<string | undefined> {
 }
 
 export async function moveAgent(sessionId: string, accountId: string): Promise<{ sessionId: string }> {
-    const result = await sync.request('plans.move', { sessionId, accountId });
+    const result = await sync.request('plans.move', { sessionId, accountId }, 240_000);
     await refreshPlans();
     return result;
 }

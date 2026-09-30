@@ -62,7 +62,7 @@ let inflight: Promise<void> | null = null;
 
 /** Ask the host again. An older host has no `plans.list`, so nothing shows. */
 export function refreshPlans(): Promise<void> {
-    inflight ??= sync.request('plans.list', {})
+    inflight ??= sync.request('plans.list', {}, 60_000)
         .then((list) => usePlansStore.setState({ list: Array.isArray(list?.providers) ? list : null }))
         .catch(() => usePlansStore.setState({ list: null }))
         .finally(() => { inflight = null; });
