@@ -129,7 +129,7 @@ async function checkWizard() {
             relayUrl: 'ws://192.168.1.8:18792', relayPort: 18792,
         };
         tailscaleConnected = true;
-        const connected = await run(['', '1', '1', '1']);
+        const connected = await run(['', '1', '1', '1', '1']);
         recommended(connected, 'Tailscale — works anywhere');
         for (const title of ['Tailscale — works anywhere', 'Tailscale — direct (phone app only)', 'Private network you already use', 'Same Wi-Fi', 'Cloudflare', 'Your own server']) {
             assert.ok(connected.includes(title), `Missing route: ${title}`);
@@ -141,7 +141,7 @@ async function checkWizard() {
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
         for (const blocked of ['occupied', 'disabled']) {
             serveStatus = blocked;
-            const direct = await run(['', '1', '1']);
+            const direct = await run(['', '1', '1', '1']);
             recommended(direct, 'Tailscale — direct (phone app only)');
             assert.match(direct, /Connection: Direct Tailscale on port 18792/);
             assert.deepEqual(calls, [], 'Blocked Serve mutated setup');
