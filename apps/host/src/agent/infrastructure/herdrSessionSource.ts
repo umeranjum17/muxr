@@ -1729,8 +1729,10 @@ export async function createHerdrSessionSource(
         while (Date.now() < deadline) {
             await refreshSnapshot();
             const agent = agentsByPane.get(paneId);
-            const published = publishedAgentSession(agent);
-            const detected = publicAgentKind(agent?.agent ?? undefined) ?? publicAgentKind(published?.agent);
+            const detected = publicAgentKind(agent?.agent ?? undefined) ?? publicAgentKind(publishedAgentSession(agent)?.agent);
+            // Codex 0.159 never publishes a session: the requested kind on the pane stands in.
+            const published = publishedAgentSession(agent)
+                ?? (requested !== undefined && detected === requested ? herdrPaneSession(requested, paneId) : undefined);
             if (published !== undefined && requested !== undefined && detected !== undefined && detected !== requested) {
                 throw Object.assign(
                     new Error(`herdr: agent_kind_mismatch: expected ${requested}, detected ${detected}`),

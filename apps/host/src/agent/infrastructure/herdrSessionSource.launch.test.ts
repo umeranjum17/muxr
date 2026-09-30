@@ -254,19 +254,32 @@ describe('phone launch before herdr detects the agent', () => {
             pane = treePane(await source.herdrTree(), 'w1:p1');
             expect(pane).toMatchObject({ agentKind: 'claude', sessionId });
 
+            // Codex 0.159: herdr detects the kind but never publishes a session. The launch still confirms on its route.
+            const codex = await source.start({ cwd, kind: 'codex' });
+            if (!('info' in codex)) throw new Error('launch rejected');
+            Object.assign(herdr.agents[1]!, { agent: 'codex' });
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            const launched = Date.now();
+            vi.spyOn(Date, 'now').mockImplementation(() => launched + 61_000);
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            vi.restoreAllMocks();
+            await source.refreshHerdr();
+            expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ agentKind: 'codex', sessionId: codex.info.id, promptable: true });
+            expect(removedSessions).not.toContain(codex.info.id);
+
             // A launch herdr never detects: the stand-in kind expires with the launch window,
             // and a later refresh (which rehydrates the pending launch from its route) cannot revive it.
             const failed = await source.start({ cwd, kind: 'codex' });
             if (!('info' in failed)) throw new Error('launch rejected');
             await source.refreshHerdr();
-            expect(treePane(await source.herdrTree(), 'w1:p2').agentKind).toBe('codex');
+            expect(treePane(await source.herdrTree(), 'w1:p3').agentKind).toBe('codex');
             const now = Date.now();
             vi.spyOn(Date, 'now').mockImplementation(() => now + 300_000);
-            expect(treePane(await source.herdrTree(), 'w1:p2').agentKind).toBeUndefined();
+            expect(treePane(await source.herdrTree(), 'w1:p3').agentKind).toBeUndefined();
             await source.refreshHerdr();
             await new Promise((resolve) => setTimeout(resolve, 300));
             expect(removedSessions).toContain(failed.info.id);
-            expect(treePane(await source.herdrTree(), 'w1:p2').agentKind).toBeUndefined();
+            expect(treePane(await source.herdrTree(), 'w1:p3').agentKind).toBeUndefined();
             expect(treePane(await source.herdrTree(), 'w1:p1').agentKind).toBe('claude');
         } finally {
             unsubscribe();
