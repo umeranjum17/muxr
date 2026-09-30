@@ -82,13 +82,15 @@ function parseEventBlock(block) {
 }
 
 /**
- * Kit gaps in 0.6.0: respond has no response byte bound or redirect policy and
- * treats response.incomplete as success. This fetch guard owns those admission
- * rules and stream cleanup only; the kit owns headers, request shape, SSE output
+ * Kit gaps in 0.6.0: respond has no parallel_tool_calls option, response byte
+ * bound or redirect policy and treats response.incomplete as success. This fetch
+ * guard adds that option and owns admission and stream cleanup; the kit owns
+ * headers, the remaining request shape, SSE output
  * parsing and provider errors. No output is executed until respond succeeds.
  */
 async function planningFetch(url, options, ownReader) {
-    const response = await fetch(url, { ...options, redirect: 'error' });
+    const requestBody = JSON.stringify({ ...JSON.parse(options.body), parallel_tool_calls: false });
+    const response = await fetch(url, { ...options, body: requestBody, redirect: 'error' });
     if (!response.body) return response;
     const reader = response.body.getReader();
     let released = false;

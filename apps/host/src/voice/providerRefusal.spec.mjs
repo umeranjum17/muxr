@@ -937,6 +937,7 @@ describe('providerRefusal', () => {
                 expect.objectContaining({ type: 'function_call_output', call_id: 'call_fixture', output: expect.stringContaining('Queued:') }),
             ]));
             expect(planningRequests[0].tool_choice).toBe('auto');
+            expect(planningRequests.every((request) => request.parallel_tool_calls === false)).toBe(true);
             expect(planningRequests[0].reasoning.effort).toBe('low');
             const summaryRequest = { type: 'delegation.created', item: { type: 'delegation', target: 'client', id: 'summary-request', content: [{ type: 'input_text', text: JSON.stringify({ name: 'read_work_context', arguments: { agent: 'John' } }) }] } };
             flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(summaryRequest) });
