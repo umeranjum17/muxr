@@ -76,7 +76,7 @@ Nearby mDNS discovery is only a locator for an already-paired native app; it
 never grants a new device access. A new phone still needs a one-time link offer, and the PWA cannot scan local
 mDNS advertisements.
 
-Before applying Serve, the wizard checks that it is available and not already owned. A timeout or invalid JSON response is inconclusive, so muxr keeps Serve recommended and lets the bounded Apply decide. Only proven disabled or occupied Serve changes the recommendation; muxr then preserves the existing state and offers direct Tailscale.
+Before applying Serve, the wizard checks that it is available and not already owned. A timeout or invalid JSON response is inconclusive and does not disqualify Serve from the recommendation policy above; the bounded Apply decides whether it works. Proven disabled or occupied Serve is unavailable in the picker; muxr preserves the existing state and offers direct Tailscale.
 
 ### Direct SSH from Android
 
