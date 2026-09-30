@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { respond } from '@byokit/accounts';
-import { voiceTools } from './toolRuntime.mjs';
+import { voiceTools } from './voiceTools.mjs';
 import { appControlInstructions, cleanProviderProse, safeVoiceToolFailure, voiceCoordinationInstructions } from './coordinatorPolicy.mjs';
 
 /**
