@@ -4,13 +4,14 @@
  *
  * `expo export` with `web.output: "single"` renders its own SPA template
  * and never consults a +html.tsx, so the install metadata the PWA needs
- * (manifest link, Apple web-app meta, touch icon, the keyboard-resizing
+ * (manifest link, Apple web-app meta, touch icon, favicon, the keyboard-resizing
  * viewport) has to be written into the built file. This runs right after
  * the export as part of `web:export`, so every consumer of dist/ -- the
  * self-host deploy, the demo, the diagnostics -- receives the same shell.
  *
- * Idempotent: a re-run replaces its own block. Fails closed: an index.html
- * without the shape it expects (one <head>, one viewport meta) aborts the
+ * Idempotent: a re-run replaces its own block and Expo's favicon link, leaving
+ * one icon link for the runtime attention switcher to update. Fails closed:
+ * an index.html without the shape it expects (one <head>, one viewport meta) aborts the
  * export rather than shipping a shell that would install without a manifest.
  * Adds no scripts, so the CSP (script-src 'self') is untouched.
  */
@@ -26,8 +27,9 @@ export const INSTALL_META = [
     '<meta name="apple-mobile-web-app-capable" content="yes">',
     '<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">',
     '<meta name="apple-mobile-web-app-title" content="muxr">',
+    '<link rel="icon" type="image/svg+xml" href="/favicon.svg">',
     '<link rel="manifest" href="/manifest.webmanifest">',
-    '<link rel="apple-touch-icon" href="/icon-192.png">',
+    '<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">',
 ];
 const START = '<!-- muxr:install-meta -->';
 const END = '<!-- /muxr:install-meta -->';
@@ -42,6 +44,7 @@ export function finalizeWebExport(html) {
         throw new Error(`index.html has ${viewports.length} viewport metas; expected exactly one`);
     }
     let next = html.replace(viewports[0], VIEWPORT);
+    next = next.replace(/<link\b[^>]*rel="icon"[^>]*>/g, '');
     next = next.replace(new RegExp(`\\s*${START}[\\s\\S]*?${END}\\s*`), '');
     return next.replace('</head>', `\n${START}\n${INSTALL_META.join('\n')}\n${END}\n</head>`);
 }
