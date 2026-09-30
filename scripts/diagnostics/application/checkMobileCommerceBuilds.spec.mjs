@@ -1,18 +1,24 @@
-/**
- * The commerce-build guard bans the removed singular hosted-account screen
- * (settings/account) but must not trip on the plans route settings/accounts.
- * Drives the single pattern the check itself uses, so the two cannot drift.
- */
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { hostedAccountUxPattern } from './hostedAccountUxPattern.mjs';
+import { checkHostedAccountRoutes } from './hostedAccountUxPattern.mjs';
 
-describe('hosted-account UX guard', () => {
-    it('still bans the removed singular settings/account screen', () => {
-        expect(hostedAccountUxPattern.test("router.push('/settings/account')")).toBe(true);
-    });
-
-    it('passes the plans settings/accounts route', () => {
-        expect(hostedAccountUxPattern.test("router.push('/settings/accounts')")).toBe(false);
-        expect(hostedAccountUxPattern.test('name="settings/accounts"')).toBe(false);
+describe('hosted-account route guard', () => {
+    it('allows plans routes and rejects the removed hosted-account route', () => {
+        const app = mkdtempSync(join(process.cwd(), '.commerce-routes-'));
+        try {
+            const settings = join(app, '(app)', 'settings');
+            mkdirSync(settings, { recursive: true });
+            writeFileSync(join(settings, 'accounts.tsx'), 'export default function Accounts() {}');
+            expect(() => checkHostedAccountRoutes(app)).not.toThrow();
+            writeFileSync(join(settings, 'account.tsx'), 'export default function Account() {}');
+            expect(() => checkHostedAccountRoutes(app)).toThrow('still exposes hosted-account UX');
+            rmSync(join(settings, 'account.tsx'));
+            mkdirSync(join(settings, 'account'));
+            writeFileSync(join(settings, 'account', 'index.tsx'), 'export default function Account() {}');
+            expect(() => checkHostedAccountRoutes(app)).toThrow('still exposes hosted-account UX');
+        } finally {
+            rmSync(app, { recursive: true, force: true });
+        }
     });
 });

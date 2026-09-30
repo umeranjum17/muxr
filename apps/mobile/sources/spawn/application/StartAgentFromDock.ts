@@ -8,6 +8,7 @@ import type { NewSessionAgentType } from '@/catalog';
 import type { AttachmentPreview } from '@/catalog';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
+import { planConnection, samePlanConnection } from '@/plans';
 
 export type StartAgentFromDockCommand = {
     machine: Machine | undefined;
@@ -35,6 +36,7 @@ async function promptWithAttachmentPaths(
     sessionId: string,
     prompt: string,
     previews: unknown[],
+    connection: ReturnType<typeof planConnection>,
 ): Promise<string> {
     if (previews.length === 0) return prompt;
     const attachments = [];
@@ -45,12 +47,14 @@ async function promptWithAttachmentPaths(
             data: encodeBase64(await readFileBytes(preview.uri)),
         });
     }
+    if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
     const saved = await sync.request('session.saveAttachments', { sessionId, attachments });
     return [prompt.trim(), ...saved.savedPaths].filter((part) => part !== '').join(' ');
 }
 
 /** Spawn from the Dock: Machine, directory, Worktree, and Agent Kind are already chosen. */
 export async function startAgentFromDock(command: StartAgentFromDockCommand): Promise<StartAgentFromDockResult> {
+    const connection = planConnection();
     const machine = command.machine;
     if (!machine) return { ok: false, reason: 'no-machine', message: 'Please select a machine' };
     if (!isMachineOnline(machine)) return { ok: false, reason: 'offline', message: 'Machine is offline' };
@@ -66,6 +70,7 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
         spawnDirectory = command.worktree.existingPath() ?? command.directory;
     }
 
+    if (!samePlanConnection(connection)) return { ok: false, reason: 'failed', message: 'The computer changed. Start again.' };
     const result = await machineSpawnNewSession({
         machineId: machine.id,
         directory: spawnDirectory,
@@ -73,6 +78,7 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
         agent: command.providerKind,
         ...(command.planAccount === undefined ? {} : { planAccount: command.planAccount }),
     });
+    if (!samePlanConnection(connection)) return { ok: false, reason: 'failed', message: 'The computer changed. Start again.' };
     if (result.type === 'error') return { ok: false, reason: 'failed', message: result.errorMessage };
     if (result.type !== 'success') {
         return { ok: false, reason: 'needs-directory', directory: result.directory, message: result.directory };
@@ -84,7 +90,8 @@ export async function startAgentFromDock(command: StartAgentFromDockCommand): Pr
     command.onRouteReady?.(result.sessionId);
     if (command.prompt || command.attachments.length > 0) {
         try {
-            const text = await promptWithAttachmentPaths(result.sessionId, command.prompt, command.attachments);
+            const text = await promptWithAttachmentPaths(result.sessionId, command.prompt, command.attachments, connection);
+            if (!samePlanConnection(connection)) throw new Error('The computer changed. Start again.');
             await sync.sendMessage(result.sessionId, text, { source: 'new_session' });
         } catch (error) {
             return {

@@ -6,7 +6,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { hapticsLight } from '@/components/haptics';
 import { AUTO, chosenAccount, providerForAgent, providerName } from '../domain/planAccounts';
-import { refreshPlans, useProviderChoice, usePlansStore } from '../application/plansStore';
+import { planConnection, samePlanConnection, refreshPlans, useProviderChoice, usePlansStore } from '../application/plansStore';
 import { acknowledgeAutoTerms } from '../application/plansApi';
 import { useAccountFlows } from './AccountFlows';
 import { AccountRow, Divider, FootAction, Note, SheetLede, SheetTitle, SignInPill, Strong, styles } from './accountParts';
@@ -36,24 +36,27 @@ export function AccountSheet({ visible, agentKind, agentName, onClose, onLeave }
     // On a short screen (the 270 × 594 reference phone) the lede would push
     // Manage accounts under the fold; the Auto row already says what it does.
     const short = useWindowDimensions().height < 640;
+    const connection = planConnection();
     const { entry, choice } = useProviderChoice(agentKind);
     // Auto may pick either account from here on: the host's plain note shows
     // on the first opening only, and stays for that opening once seen.
     const unseenNote = usePlansStore((state) => (state.list?.autoTermsAcknowledged === false ? state.list.autoTermsNote : undefined));
     const [termsNote, setTermsNote] = React.useState<string>();
-    React.useEffect(() => { if (visible) void refreshPlans(); }, [visible]);
+    React.useEffect(() => { setTermsNote(undefined); }, [connection]);
+    React.useEffect(() => { if (visible) void refreshPlans(connection); }, [visible, connection]);
     const hasEntry = entry !== undefined;
     React.useEffect(() => {
         if (!visible) { setTermsNote(undefined); return; }
         if (!hasEntry || unseenNote === undefined || unseenNote === '') return;
         setTermsNote(unseenNote);
-        void acknowledgeAutoTerms().catch(() => {});
-    }, [visible, hasEntry, unseenNote]);
+        void acknowledgeAutoTerms(connection).catch(() => {});
+    }, [visible, hasEntry, unseenNote, connection]);
     const choose = usePlansStore((state) => state.choose);
     const flows = useAccountFlows(onLeave);
     const provider = providerForAgent(agentKind);
     if (entry === undefined || provider === null) return null;
     const pick = (next: string) => {
+        if (!samePlanConnection(connection)) return;
         hapticsLight();
         choose(provider, next);
         onClose();

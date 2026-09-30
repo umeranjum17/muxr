@@ -6,7 +6,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
-import { acknowledgeAutoTerms, planAccountForLaunch, unseenAutoTerms } from '@/plans';
+import { planConnection, samePlanConnection, acknowledgeAutoTerms, planAccountForLaunch, unseenAutoTerms } from '@/plans';
 
 function pathForeignToHome(path: string, homeDir: string): boolean {
     if (path === '~' || (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path))) return false;
@@ -20,6 +20,7 @@ export async function startSessionFromDraft(options: {
     navigateToSession: (sessionId: string) => void;
     blank?: boolean;
 }): Promise<string | null> {
+    const connection = planConnection();
     const draft = useNewSessionDraft.getState();
     const machineId = getCachedConnectionSettings().machineId || draft.selectedMachineId;
     const machine = options.machines.find((candidate) => candidate.id === machineId);
@@ -40,15 +41,16 @@ export async function startSessionFromDraft(options: {
     const termsNote = planAccount === 'auto' ? unseenAutoTerms() : undefined;
     if (termsNote !== undefined) {
         const approved = await Modal.confirm('Auto accounts', termsNote, { cancelText: 'Cancel', confirmText: 'Continue' });
-        if (!approved) return null;
+        if (!approved || !samePlanConnection(connection)) return null;
         try {
-            await acknowledgeAutoTerms();
+            await acknowledgeAutoTerms(connection);
         } catch {
             Modal.alert('Auto accounts', 'Could not save that the note was shown. Try again.');
             return null;
         }
     }
     for (;;) {
+        if (!samePlanConnection(connection)) return null;
         const result = await startAgentFromDock({
             machine,
             directory: absolutePath,
@@ -59,6 +61,7 @@ export async function startSessionFromDraft(options: {
             createCwd,
             ...(planAccount === undefined ? {} : { planAccount }),
         });
+        if (!samePlanConnection(connection)) return null;
         if (result.ok) {
             if (!blank) {
                 draft.setInput('');
@@ -74,7 +77,7 @@ export async function startSessionFromDraft(options: {
                 `The directory '${result.directory}' does not exist. Would you like to create it?`,
                 { cancelText: t('common.cancel'), confirmText: t('common.create') },
             );
-            if (!approved) return null;
+            if (!approved || !samePlanConnection(connection)) return null;
             createCwd = true;
             continue;
         }

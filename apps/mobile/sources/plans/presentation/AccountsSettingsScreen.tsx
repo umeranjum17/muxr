@@ -9,7 +9,7 @@ import { Switch } from '@/components/Switch';
 import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { providerEntry, providerName, type PlanAccount } from '../domain/planAccounts';
-import { usePlans, usePlansStore } from '../application/plansStore';
+import { planConnection, samePlanConnection, usePlans, usePlansStore } from '../application/plansStore';
 import { planFailure, removeAccount, renameAccount } from '../application/plansApi';
 import { useAccountFlows } from './AccountFlows';
 import { Pill } from './accountParts';
@@ -24,6 +24,7 @@ export function AccountsSettingsScreen() {
     const { theme } = useUnistyles();
     const list = usePlans();
     const flows = useAccountFlows();
+    const connection = planConnection();
     const autoOn = usePlansStore((state) => state.autoOn);
     const setAutoOn = usePlansStore((state) => state.setAutoOn);
 
@@ -34,27 +35,26 @@ export function AccountsSettingsScreen() {
             required: true,
             maxLength: 40,
         });
-        if (name === null || name.trim() === '' || name.trim() === account.name) return;
-        await renameAccount(account.id, name.trim()).catch((error) => Modal.alert("Couldn't rename", planFailure(error)));
+        if (!samePlanConnection(connection) || name === null || name.trim() === '' || name.trim() === account.name) return;
+        await renameAccount(account.id, name.trim(), connection).catch((error) => samePlanConnection(connection) && Modal.alert("Couldn't rename", planFailure(error)));
     };
 
     const remove = async (account: PlanAccount) => {
-        // A found account is only forgotten; its sign-in stays on the computer.
+        if (account.foundOnComputer) return;
         const confirmed = await Modal.confirm(
-            account.foundOnComputer ? `Forget ${account.name}?` : `Remove ${account.name}?`,
-            account.foundOnComputer
-                ? 'muxr stops offering it. Its sign-in stays on this computer, untouched.'
-                : `This signs ${account.name} out on this computer. Your conversations stay.`,
-            { confirmText: account.foundOnComputer ? 'Forget' : 'Remove', destructive: true },
+            `Remove ${account.name}?`,
+            `This signs ${account.name} out on this computer. Your conversations stay.`,
+            { confirmText: 'Remove', destructive: true },
         );
-        if (!confirmed) return;
-        await removeAccount(account.id).catch((error) => Modal.alert("Couldn't remove", planFailure(error)));
+        if (!confirmed || !samePlanConnection(connection)) return;
+        await removeAccount(account.id, connection).catch((error) => samePlanConnection(connection) && Modal.alert("Couldn't remove", planFailure(error)));
     };
 
-    const actions = (account: PlanAccount) => Modal.alert(account.name, account.email, [
-        { text: 'Rename', onPress: () => void rename(account) },
-        { text: 'Sign in again', onPress: () => flows.signIn(account) },
-        { text: account.foundOnComputer ? 'Forget' : 'Remove', style: 'destructive', onPress: () => void remove(account) },
+    const actions = (account: PlanAccount) => Modal.alert(account.name,
+        [account.email, account.foundOnComputer ? "This is the computer's own sign-in." : undefined].filter(Boolean).join('\n'), [
+        { text: 'Rename', onPress: () => { if (samePlanConnection(connection)) void rename(account); } },
+        { text: 'Sign in again', onPress: () => { if (samePlanConnection(connection)) flows.signIn(account); } },
+        ...(account.foundOnComputer ? [] : [{ text: 'Remove', style: 'destructive' as const, onPress: () => void remove(account) }]),
         { text: 'Cancel', style: 'cancel' },
     ]);
 

@@ -977,7 +977,7 @@ export type ClientRequest = {
 
 export type RequestResponse =
     | { type: 'result'; requestId: string; ok: true; data: unknown }
-    | { type: 'result'; requestId: string; ok: false; error: string; code?: string };
+    | { type: 'result'; requestId: string; ok: false; error: string; code?: string; sessionId?: string };
 
 export type HerdrRenameTarget = 'agent' | 'pane' | 'tab' | 'workspace';
 /** Longest name a rename accepts; Herdr caps an agent's at 32. */

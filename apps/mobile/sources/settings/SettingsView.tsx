@@ -351,6 +351,7 @@ export const SettingsView = React.memo(function SettingsView({
                     icon={<Ionicons name="speedometer-outline" size={29} color="#5856D6" />}
                     onPress={() => router.push('/usage' as any)}
                 />
+                {/* Authorized exception (firstmate 020): Settings keeps Accounts so a second account can be added. */}
                 {accountsAvailable && <Item
                     title="Accounts"
                     subtitle="Run agents on more than one Claude or ChatGPT plan"

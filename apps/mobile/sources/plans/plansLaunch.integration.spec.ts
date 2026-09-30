@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PlanProviderAccounts } from '@trymuxr/contract';
 
 const request = vi.fn();
+const connection = vi.hoisted(() => ({ machineId: 'computer-a', relayUrl: 'ws://lab', token: 'fake' }));
+vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => connection }));
 const stored = vi.hoisted(() => new Map<string, string | boolean>());
 
 vi.mock('@/catalog/sync', () => ({ sync: { request } }));
-vi.mock('@/catalog/store', () => ({ useSocketStatus: () => ({ status: 'connected' }) }));
+vi.mock('@/catalog/store', () => ({ storage: { subscribe: () => () => {} }, useSocketStatus: () => ({ status: 'connected' }) }));
 vi.mock('react-native-mmkv', () => ({
     MMKV: class {
         getString(key: string) { return stored.get(key) as string | undefined; }
@@ -14,7 +16,7 @@ vi.mock('react-native-mmkv', () => ({
     },
 }));
 
-const { planAccountForLaunch, refreshPlans, usePlansStore } = await import('./application/plansStore');
+const { planConnection, planAccountForLaunch, refreshPlans, usePlansStore } = await import('./application/plansStore');
 
 const claude = (overrides: Partial<Record<'work' | 'side', { signedIn: boolean }>> = {}): PlanProviderAccounts => ({
     provider: 'claude',
@@ -60,6 +62,33 @@ describe('which account a launch carries', () => {
         request.mockResolvedValueOnce({ providers: [claude()] });
         await refreshPlans();
         expect(planAccountForLaunch('claude')).toBe('found-claude');
+
+        usePlansStore.getState().setAutoOn(true);
+        const original = planConnection();
+        let answerOld!: (value: unknown) => void;
+        request.mockImplementationOnce(() => new Promise((resolve) => { answerOld = resolve; }));
+        const oldRead = refreshPlans();
+        connection.machineId = 'computer-b';
+        expect(planAccountForLaunch('claude')).toBeUndefined();
+        request.mockResolvedValueOnce({ providers: [claude()] });
+        await refreshPlans();
+        const { renameAccount, acknowledgeAutoTerms, moveAgent } = await import('./application/plansApi');
+        const count = request.mock.calls.length;
+        await expect(renameAccount('found-claude', 'Wrong computer', original)).rejects.toThrow('computer changed');
+        expect(request.mock.calls).toHaveLength(count);
+        answerOld({ providers: [] });
+        await oldRead;
+        expect(planAccountForLaunch('claude')).toBe('auto');
+        let acknowledgeOld!: () => void;
+        request.mockImplementationOnce(() => new Promise<void>((resolve) => { acknowledgeOld = resolve; }));
+        const acknowledgment = acknowledgeAutoTerms();
+        connection.machineId = 'computer-a';
+        planConnection();
+        acknowledgeOld();
+        await expect(acknowledgment).rejects.toThrow('computer changed');
+        const recovery = Object.assign(new Error('Move failed'), { code: 'plan-move-start-failed', sessionId: 'surviving-shell' });
+        request.mockRejectedValueOnce(recovery);
+        await expect(moveAgent('original', 'pa_work')).rejects.toMatchObject({ sessionId: 'surviving-shell' });
 
         // A host without plans.list answers an error: every launch is today's.
         request.mockRejectedValueOnce(new Error('host-contract-mismatch'));

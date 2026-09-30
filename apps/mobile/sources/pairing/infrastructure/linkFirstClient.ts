@@ -522,7 +522,11 @@ export class LinkFirstClient implements SessionClient {
         if (typeof value === 'object' && value !== null && (value as { type?: unknown }).type === 'result') {
             const result = value as Extract<HostFrame, { type: 'result' }>;
             if (result.ok) return result.data as RequestResult<T>;
-            throw linkRequestFailure(type, String(result.error), typeof result.code === 'string' ? result.code : undefined);
+            const error = linkRequestFailure(type, String(result.error), typeof result.code === 'string' ? result.code : undefined);
+            if (type === 'plans.move' && result.code === 'plan-move-start-failed' && typeof result.sessionId === 'string') {
+                Object.assign(error, { sessionId: result.sessionId });
+            }
+            throw error;
         }
         throw new Error(`unexpected host reply over the link: ${type}`);
     }

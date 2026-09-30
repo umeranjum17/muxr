@@ -11,7 +11,7 @@ import { Typography } from '@/constants/Typography';
 import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
 import { nameSuggestions, providerEntry, providerName, type PlanAccount } from '../domain/planAccounts';
-import { refreshPlans, usePlansStore } from '../application/plansStore';
+import { planConnection, samePlanConnection, refreshPlans, usePlansStore } from '../application/plansStore';
 import { cancelSignIn, planFailure, renameAccount, signInState, startSignIn } from '../application/plansApi';
 import { GhostButton, Note, Pill, PrimaryButton, SheetLede, SheetTitle, Strong, styles as parts } from './accountParts';
 
@@ -32,6 +32,12 @@ export const useFlows = create<FlowState>()(() => ({ adding: null, pending: null
 
 let opening: { cancelled: boolean } | null = null;
 
+usePlansStore.subscribe((state, previous) => {
+    if (state.connection === previous.connection) return;
+    opening = null;
+    useFlows.setState({ adding: null, pending: null, naming: null, notice: null });
+});
+
 const seen = new MMKV();
 const termsKey = (provider: string) => `plans-terms-seen:${provider}`;
 
@@ -43,8 +49,10 @@ export function showNotice(title: string, detail: string, overSession = false): 
  *  modal the flow starts from before the app moves to the sign-in tab. */
 export function useAccountFlows(leave?: () => void) {
     const router = useRouter();
+    const connection = planConnection();
     return React.useMemo(() => {
         const open = async (provider: string, account?: PlanAccount) => {
+            if (!samePlanConnection(connection)) return;
             if (opening !== null || useFlows.getState().pending !== null) {
                 Modal.alert('Sign-in is already open', 'Finish or cancel that sign-in before opening another.');
                 return;
@@ -52,11 +60,13 @@ export function useAccountFlows(leave?: () => void) {
             const attempt = { cancelled: false };
             opening = attempt;
             try {
-                const started = await startSignIn(provider, account?.id);
+                const started = await startSignIn(provider, account?.id, connection);
+                if (!samePlanConnection(connection)) return;
                 const pending = { ...started, provider, again: account !== undefined };
                 if (attempt.cancelled) {
                     useFlows.setState({ pending: { ...pending, cancelled: true } });
-                    await cancelSignIn(started.accountId);
+                    await cancelSignIn(started.accountId, connection);
+                    if (!samePlanConnection(connection)) return;
                     if (useFlows.getState().pending?.accountId === started.accountId) useFlows.setState({ pending: null });
                     return;
                 }
@@ -64,30 +74,32 @@ export function useAccountFlows(leave?: () => void) {
                 leave?.();
                 navigateToSession(router, started.sessionId);
             } catch (error) {
+                if (!samePlanConnection(connection)) return;
                 if (!attempt.cancelled) useFlows.setState({ adding: null });
                 Modal.alert(`Couldn't open ${providerName(provider)} sign-in`, planFailure(error));
             } finally {
-                opening = null;
+                if (opening === attempt) opening = null;
             }
         };
         return {
-            add: (provider: string) => { if (opening !== null) opening.cancelled = true; leave?.(); useFlows.setState({ adding: provider }); },
+            add: (provider: string) => { if (!samePlanConnection(connection)) return; if (opening !== null) opening.cancelled = true; leave?.(); useFlows.setState({ adding: provider }); },
             signIn: (account: PlanAccount) => { void open(account.provider, account); },
             open,
         };
-    }, [leave, router]);
+    }, [leave, router, connection]);
 }
 
 /** Step one: what is about to happen, in three lines, and the terms note once. */
 export function AddAccountSheet() {
     const provider = useFlows((state) => state.adding);
+    const connection = planConnection();
     const flows = useAccountFlows();
     const [busy, setBusy] = React.useState(false);
     // A short screen keeps the three steps' titles and loses their detail, so
     // the button stays on screen.
     const short = useWindowDimensions().height < 640;
     const close = () => { if (opening !== null) opening.cancelled = true; useFlows.setState({ adding: null }); };
-    React.useEffect(() => { if (provider === null) setBusy(false); }, [provider]);
+    React.useEffect(() => { if (provider === null) setBusy(false); }, [provider, connection]);
     if (provider === null) return <OptionSheet visible={false} title="" options={[]} onSelect={() => {}} onClose={close} body={<View />} />;
     const name = providerName(provider);
     // Once per provider, the plain terms note; after that only the reassurance.
@@ -143,7 +155,9 @@ export function SignInBanner({ bottom }: { bottom: number }) {
     const { theme } = useUnistyles();
     const router = useRouter();
     const pending = useFlows((state) => state.pending);
+    const connection = planConnection();
     const [cancelling, setCancelling] = React.useState(false);
+    React.useEffect(() => { setCancelling(false); }, [connection]);
     const path = usePathname();
     const pathRef = React.useRef(path);
     pathRef.current = path;
@@ -153,8 +167,9 @@ export function SignInBanner({ bottom }: { bottom: number }) {
         if (pending === null || pending.cancelled) return;
         let stopped = false;
         const tick = async () => {
-            const account = await signInState(pending.accountId).catch(() => null);
-            if (stopped || useFlows.getState().pending !== pending) return;
+            if (!samePlanConnection(connection) || useFlows.getState().pending !== pending) return;
+            const account = await signInState(pending.accountId, connection).catch(() => null);
+            if (!samePlanConnection(connection) || stopped || useFlows.getState().pending !== pending) return;
             if (account?.signedIn) {
                 // The host has closed the tab: step back off it, then name the account.
                 const sessionPath = `/session/${pending.sessionId}`;
@@ -167,19 +182,21 @@ export function SignInBanner({ bottom }: { bottom: number }) {
         };
         let timer = setTimeout(tick, POLL_MS);
         return () => { stopped = true; clearTimeout(timer); };
-    }, [pending, router]);
+    }, [pending, router, connection]);
 
     if (pending === null || (!here && !pending.cancelled)) return null;
     const cancel = async () => {
-        if (cancelling) return;
+        if (cancelling || useFlows.getState().pending !== pending || !samePlanConnection(connection)) return;
         setCancelling(true);
         const cancelled = { ...pending, cancelled: true };
         useFlows.setState({ pending: cancelled });
         try {
-            await cancelSignIn(pending.accountId);
+            await cancelSignIn(pending.accountId, connection);
+            if (!samePlanConnection(connection)) return;
             if (useFlows.getState().pending === cancelled) useFlows.setState({ pending: null });
             if (decodeURIComponent(pathRef.current) === `/session/${pending.sessionId}` && router.canGoBack()) router.back();
         } catch (error) {
+            if (!samePlanConnection(connection)) return;
             Modal.alert("Couldn't cancel sign-in", planFailure(error));
         } finally {
             setCancelling(false);
@@ -209,6 +226,7 @@ export function SignInBanner({ bottom }: { bottom: number }) {
 export function NameAccountSheet() {
     const { theme } = useUnistyles();
     const naming = useFlows((state) => state.naming);
+    const connection = planConnection();
     const list = usePlansStore((state) => state.list);
     const [name, setName] = React.useState('');
     const [saving, setSaving] = React.useState(false);
@@ -231,14 +249,16 @@ export function NameAccountSheet() {
     if (account === undefined) return <OptionSheet visible={false} title="" options={[]} onSelect={() => {}} onClose={close} body={<View />} />;
     const trimmed = name.trim();
     const save = async () => {
-        if (trimmed === '' || saving) return;
+        if (trimmed === '' || saving || useFlows.getState().naming !== naming || !samePlanConnection(connection)) return;
         setSaving(true);
         try {
             // A new account's name is only a suggestion until saved.
-            if (trimmed !== account.name || !naming?.again) await renameAccount(account.id, trimmed);
+            if (trimmed !== account.name || !naming?.again) await renameAccount(account.id, trimmed, connection);
+            if (!samePlanConnection(connection)) return;
             close();
             showNotice(naming?.again ? `${trimmed} is signed in` : `Added ${trimmed}`, `${providerName(account.provider)} accounts: ${[...others.map((other) => other.name), trimmed].sort().join(', ')}`);
         } catch (error) {
+            if (!samePlanConnection(connection)) return;
             setSaving(false);
             Modal.alert("Couldn't save the name", planFailure(error));
         }

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { hostedAccountUxPattern } from './hostedAccountUxPattern.mjs';
+import { checkHostedAccountRoutes } from './hostedAccountUxPattern.mjs';
 
 const root = process.cwd();
 const mobile = join(root, 'apps', 'mobile');
@@ -96,14 +96,7 @@ assert.match(androidManifest, /<intent-filter android:autoVerify="true">[\s\S]*?
 const voiceManifest = readFileSync(join(mobile, 'modules', 'voice-overlay', 'android', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 assert.match(voiceManifest, /FOREGROUND_SERVICE_DATA_SYNC/);
 assert.match(voiceManifest, /foregroundServiceType="microphone\|dataSync"/);
-assert.equal(existsSync(join(mobile, 'sources', 'app', '(app)', 'settings', 'account.tsx')), false, 'stale hosted-account screen is still shipped');
-for (const path of [
-    join(mobile, 'sources', 'app', '(app)', '_layout.tsx'),
-    join(mobile, 'sources', 'settings', 'SettingsView.tsx'),
-    join(mobile, 'sources', 'components', 'CommandPalette', 'CommandPaletteProvider.tsx'),
-]) {
-    assert.doesNotMatch(readFileSync(path, 'utf8'), hostedAccountUxPattern, `${path} still exposes hosted-account UX`);
-}
+checkHostedAccountRoutes(join(mobile, 'sources', 'app'));
 
 for (const path of [join(root, 'package.json'), join(mobile, 'package.json')]) {
     assert.doesNotMatch(readFileSync(path, 'utf8'), /revenuecat|react-native-purchases/i, `${path} still declares native/store commerce`);

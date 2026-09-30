@@ -8,7 +8,7 @@ import { OptionSheet } from '@/components/OptionSheet';
 import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
 import { bestMoveTarget, isLow, runningOn, type PlanAccount } from '../domain/planAccounts';
-import { refreshPlans, usePlans, useProviderChoice } from '../application/plansStore';
+import { planConnection, samePlanConnection, refreshPlans, usePlans, usePlansStore, useProviderChoice, type PlanConnection } from '../application/plansStore';
 import { agentAccount, moveAgent, planFailure } from '../application/plansApi';
 import { showNotice, useAccountFlows } from './AccountFlows';
 import { AccountRow, Note, Pill, PrimaryButton, SheetLede, SheetTitle, SignInPill, styles as parts } from './accountParts';
@@ -16,9 +16,13 @@ import { AccountRow, Note, Pill, PrimaryButton, SheetLede, SheetTitle, SignInPil
 /** The agents an account can carry, by the names the dock gives them. */
 const AGENT_NAMES: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', pi: 'Pi' };
 
-interface Moving { sessionId: string; agentKind: string; working: boolean; currentId?: string }
+interface Moving { connection: PlanConnection; sessionId: string; agentKind: string; working: boolean; currentId?: string }
 
 const useMoving = create<{ moving: Moving | null }>()(() => ({ moving: null }));
+
+usePlansStore.subscribe((state, previous) => {
+    if (state.connection !== previous.connection) useMoving.setState({ moving: null });
+});
 
 /**
  * One row in a running agent's menu, and only when its provider has another
@@ -32,25 +36,26 @@ export function MoveAccountRow({ sessionId, agentKind, working, onOpen }: {
 }) {
     const { theme } = useUnistyles();
     usePlans();
+    const connection = planConnection();
     const { entry } = useProviderChoice(agentKind ?? '');
-    const [recorded, setRecorded] = React.useState<{ sessionId: string; id?: string } | null>(null);
+    const [recorded, setRecorded] = React.useState<{ connection: PlanConnection; sessionId: string; id?: string } | null>(null);
     const known = entry !== undefined;
     React.useEffect(() => {
         if (!known) return;
         let live = true;
         setRecorded(null);
-        void agentAccount(sessionId).then((id) => { if (live) setRecorded({ sessionId, id }); }).catch((error) => {
-            if (live) Modal.alert("Couldn't find the current account", planFailure(error));
+        void agentAccount(sessionId, connection).then((id) => { if (live && samePlanConnection(connection)) setRecorded({ connection, sessionId, id }); }).catch((error) => {
+            if (live && samePlanConnection(connection)) Modal.alert("Couldn't find the current account", planFailure(error));
         });
         return () => { live = false; };
-    }, [known, sessionId]);
+    }, [known, sessionId, connection]);
     if (agentKind === undefined || entry === undefined) return null;
-    const current = recorded?.sessionId === sessionId ? runningOn(entry, recorded.id) : undefined;
+    const current = recorded?.connection === connection && recorded.sessionId === sessionId ? runningOn(entry, recorded.id) : undefined;
     return (
         <Pressable
             disabled={current === undefined}
             accessibilityState={{ disabled: current === undefined }}
-            onPress={() => { if (current === undefined) return; onOpen(); useMoving.setState({ moving: { sessionId, agentKind, working, currentId: current?.id } }); }}
+            onPress={() => { if (current === undefined) return; onOpen(); useMoving.setState({ moving: { connection, sessionId, agentKind, working, currentId: current?.id } }); }}
             accessibilityRole="button"
             accessibilityLabel={`Move to another account${current ? `, on ${current.name}` : ''}${current?.roomLeftPercent !== undefined ? `, ${current.roomLeftPercent}% left` : ''}`}
             style={({ pressed }) => [styles.menuRow, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh }]}
@@ -80,7 +85,7 @@ export function MoveSheet() {
     const { entry } = useProviderChoice(moving?.agentKind ?? '');
     const flows = useAccountFlows();
     const accounts: PlanAccount[] = entry?.accounts ?? [];
-    const current = accounts.find((account) => account.id === moving?.currentId);
+    const current = moving === null || entry === undefined ? undefined : runningOn(entry, moving.currentId);
     const best = bestMoveTarget(accounts, current?.id);
     // Said only when true of every account, the one it runs on included.
     const roomiest = best?.roomLeftPercent !== undefined
@@ -112,15 +117,33 @@ export function MoveSheet() {
                 'Moving stops the current step. The conversation carries on from there.',
                 { cancelText: 'Wait', confirmText: `Move to ${target.name}` },
             );
-            if (!go) return;
+            if (!go || !samePlanConnection(moving.connection)) return;
         }
         setBusy(true);
         try {
-            const result = await moveAgent(moving.sessionId, target.id);
+            const result = await moveAgent(moving.sessionId, target.id, moving.connection);
+            if (!samePlanConnection(moving.connection)) return;
             close();
             if (result.sessionId !== moving.sessionId) navigateToSession(router, result.sessionId);
             showNotice(`Moved to ${target.name}`, `Same conversation${current ? ` · ${current.name} is free again` : ''}`, true);
         } catch (error) {
+            if (!samePlanConnection(moving.connection)) return;
+            const recovery = (error as { sessionId?: unknown }).sessionId;
+            if (typeof recovery === 'string' && recovery !== moving.sessionId) {
+                let currentId: string | undefined;
+                try {
+                    currentId = await agentAccount(recovery, moving.connection);
+                } catch {
+                    if (!samePlanConnection(moving.connection)) return;
+                    close();
+                    navigateToSession(router, recovery);
+                    Modal.alert("Couldn't move", planFailure(error));
+                    return;
+                }
+                if (!samePlanConnection(moving.connection)) return;
+                useMoving.setState({ moving: { ...moving, sessionId: recovery, currentId } });
+                navigateToSession(router, recovery);
+            }
             setBusy(false);
             const said = planFailure(error);
             // A failed start may have left the conversation elsewhere; the host's sentence says where.

@@ -164,7 +164,9 @@ function fail(requestId: string, error: unknown, code?: string): RequestResponse
 
 function fromCaught(requestId: string, error: unknown): RequestResponse {
     const code = (error as { code?: unknown }).code;
-    return fail(requestId, error, typeof code === 'string' ? code : undefined);
+    const response = fail(requestId, error, typeof code === 'string' ? code : undefined);
+    const sessionId = (error as { sessionId?: unknown }).sessionId;
+    return code === 'plan-move-start-failed' && typeof sessionId === 'string' ? { ...response, sessionId } : response;
 }
 
 type UseCaseResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
