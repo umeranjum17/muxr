@@ -10,7 +10,7 @@ function assertNoHostedAccountRoutes(routes) {
     }
 }
 
-export function checkHostedAccountRoutes(appDirectory) {
+export function hostedAccountUxPattern(appDirectory) {
     const routes = readdirSync(appDirectory, { recursive: true, withFileTypes: true })
         .filter((entry) => entry.isFile() && /\.[jt]sx?$/.test(entry.name))
         .map((entry) => join(entry.parentPath.slice(appDirectory.length), entry.name).replace(/(?:\.(?:android|ios|native|web))?\.[jt]sx?$/, ''));

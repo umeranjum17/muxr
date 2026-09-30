@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { checkHostedAccountRoutes } from './hostedAccountUxPattern.mjs';
+import { hostedAccountUxPattern } from './hostedAccountUxPattern.mjs';
 
 const root = process.cwd();
 const mobile = join(root, 'apps', 'mobile');
@@ -96,7 +96,7 @@ assert.match(androidManifest, /<intent-filter android:autoVerify="true">[\s\S]*?
 const voiceManifest = readFileSync(join(mobile, 'modules', 'voice-overlay', 'android', 'src', 'main', 'AndroidManifest.xml'), 'utf8');
 assert.match(voiceManifest, /FOREGROUND_SERVICE_DATA_SYNC/);
 assert.match(voiceManifest, /foregroundServiceType="microphone\|dataSync"/);
-checkHostedAccountRoutes(join(mobile, 'sources', 'app'));
+hostedAccountUxPattern(join(mobile, 'sources', 'app'));
 
 for (const path of [join(root, 'package.json'), join(mobile, 'package.json')]) {
     assert.doesNotMatch(readFileSync(path, 'utf8'), /revenuecat|react-native-purchases/i, `${path} still declares native/store commerce`);
