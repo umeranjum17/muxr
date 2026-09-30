@@ -332,7 +332,7 @@ describe('link session sync flow', () => {
 
         health.mockRejectedValueOnce(new Error('network unreachable'));
         (await dial()).fire('offline');
-        await vi.waitFor(() => expect(harness.socketError).toContain('Tailscale could not reach'));
+        await vi.waitFor(() => expect(harness.socketError).toContain('Private network could not reach'));
         expect(harness.socketError).not.toContain('Pair again:');
 
         (await dial()).fire('removed');
