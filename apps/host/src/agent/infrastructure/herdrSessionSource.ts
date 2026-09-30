@@ -216,7 +216,7 @@ export async function reportHerdrActionFailure(
 const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
 const MAX_PLUGIN_INVOCATIONS_TOTAL = 1_024;
 
-/** Outlasts a full launch: agent.start (70s) plus confirmLaunch's two 60s gates. */
+/** Outlasts kit startAgent plus confirmLaunch's two readiness gates. */
 const ACTIVE_LAUNCH_MS = 200_000;
 
 function publicAgentKind(kind: string | undefined): string | undefined {
