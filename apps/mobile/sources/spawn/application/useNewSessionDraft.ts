@@ -1,7 +1,8 @@
 /**
  * Zustand store for new session draft state, backed by MMKV.
  * Persists the user's last-used configuration (machine, path, agent, model, permissions, etc.)
- * so the new session screen restores the same defaults on next visit.
+ * Pickers validate the saved agent against the host catalog before using it
+ * as an initial choice; see README.md's agent picker guidance for default rules.
  */
 import { create } from 'zustand';
 import {
