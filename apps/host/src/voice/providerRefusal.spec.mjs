@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
@@ -756,18 +756,20 @@ describe('providerRefusal', () => {
     it('keeps Codex OAuth host-only while bounding signaling and lifecycle frames', async () => {
         const requests = [];
         const planningRequests = [];
+        const callFixture = await readFile(new URL('./fixtures/delegation-call.sse', import.meta.url), 'utf8');
+        const answerFixture = await readFile(new URL('./fixtures/delegation-answer.sse', import.meta.url), 'utf8');
         const server = createServer((request, response) => {
             let body = '';
             request.on('data', (chunk) => { body += chunk; });
             request.on('end', () => {
                 const parsed = JSON.parse(body);
-                if (request.url === '/responses') {
+                if (request.url === '/codex/responses') {
                     planningRequests.push(parsed);
                     const latestRequest = parsed.input.filter((entry) => entry.type === 'message' && entry.role === 'user').at(-1);
-                    if (latestRequest?.content?.[0]?.text === 'Ask John for an update.') {
+                    if (['Ask John for an update.', 'Ask John for an incomplete update.'].includes(latestRequest?.content?.[0]?.text)) {
                         const item = { id: 'failed_fixture', type: 'function_call', call_id: 'failed_call', name: 'prompt_agent', arguments: JSON.stringify({ agent: 'John', text: 'Report your status.' }) };
                         response.writeHead(200, { 'content-type': 'text/event-stream' });
-                        response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: 'response.failed', response: { error: { message: 'Fixture provider refusal' } } })}\n\n`);
+                        response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: latestRequest.content[0].text.includes('incomplete') ? 'response.incomplete' : 'response.failed', response: { error: { message: 'Fixture provider refusal' }, incomplete_details: { reason: 'max_output_tokens' }, output: [item] } })}\n\n`);
                         return;
                     }
                     if (latestRequest?.content?.[0]?.text === 'Ping the agent I was using for a progress update and blockers.') {
@@ -789,11 +791,8 @@ describe('providerRefusal', () => {
                         return;
                     }
                     const answered = parsed.input.some((item) => item.type === 'function_call_output');
-                    const item = answered
-                        ? { id: 'message_fixture', type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Queued: instruction for Jane.' }] }
-                        : { id: 'function_fixture', type: 'function_call', call_id: 'call_fixture', name: 'prompt_agent', arguments: JSON.stringify({ agent: 'Jane', text: 'Explain the review delay.' }) };
                     response.writeHead(200, { 'content-type': 'text/event-stream' });
-                    response.end(`data: ${JSON.stringify({ type: 'response.output_item.done', item })}\n\ndata: ${JSON.stringify({ type: 'response.completed', response: { id: 'response_fixture', status: 'completed', output: [item] } })}\n\n`);
+                    response.end(answered ? answerFixture : callFixture);
                     return;
                 }
                 requests.push({ headers: request.headers, body: parsed });
@@ -809,10 +808,15 @@ describe('providerRefusal', () => {
         const address = server.address();
         if (!address || typeof address === 'string') throw new Error('Codex signaling fixture did not bind');
         const account = 'acct-test';
-        const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: account } })).toString('base64url');
+        const payload = Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600, 'https://api.openai.com/auth': { chatgpt_account_id: account } })).toString('base64url');
         const token = `e30.${payload}.test-signature`;
         const codexState = await mkdtemp(join(tmpdir(), 'muxr-voice-codex-state-'));
         await selectProvider(codexState, 'codex');
+        for (const [folder, boundAccount] of [['signed-in', account], ['mismatched', 'different-account']]) {
+            const home = join(codexState, folder);
+            await mkdir(home, { mode: 0o700 });
+            await writeFile(join(home, 'auth.json'), JSON.stringify({ tokens: { access_token: token, account_id: boundAccount } }), { mode: 0o600 });
+        }
         const reads = [];
         const mutations = [];
         const agent = { sessionId: 'pp_summary_private', cwd: codexState, agentName: 'John', taskTitle: 'Repair voice', agentKind: 'codex', agentStatus: 'idle', promptable: true };
@@ -830,19 +834,27 @@ describe('providerRefusal', () => {
         await coordinator.start();
         const access = coordinator.issueCapability({ provider: 'muxr.voice', sessionId: agent.sessionId, cwd: codexState });
         const spawnProvider = (boundAccount = account) => {
+            const env = {
+                ...process.env,
+                NODE_ENV: 'test',
+                HOME: codexState,
+                CLAUDE_CONFIG_DIR: codexState,
+                MUXR_HOME: codexState,
+                MUXR_TEST_CODEX_SIGNALING_URL: `http://127.0.0.1:${address.port}/signal`,
+                MUXR_TEST_CODEX_RESPONSES_URL: `http://127.0.0.1:${address.port}/codex/responses`,
+                CODEX_HOME: join(codexState, boundAccount === account ? 'signed-in' : 'mismatched'),
+                MUXR_TEST_CODEX_BIN: join(codexState, 'unused-codex'),
+                MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
+                MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
+            };
+            for (const key of ['HOME', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'MUXR_HOME']) {
+                expect(typeof env[key], key).toBe('string');
+                const path = resolve(env[key]);
+                expect(path === codexState || path.startsWith(`${codexState}${sep}`), key).toBe(true);
+            }
             const child = spawn(process.execPath, [streamEntry], {
                 cwd: fileURLToPath(new URL('../../..', import.meta.url)),
-                env: {
-                    ...process.env,
-                    NODE_ENV: 'test',
-                    MUXR_HOME: codexState,
-                    MUXR_TEST_CODEX_SIGNALING_URL: `http://127.0.0.1:${address.port}/signal`,
-                    MUXR_TEST_CODEX_RESPONSES_URL: `http://127.0.0.1:${address.port}/responses`,
-                    MUXR_TEST_CODEX_TOKEN: token,
-                    MUXR_TEST_CODEX_ACCOUNT_ID: boundAccount,
-                    MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
-                    MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
-                },
+                env,
                 stdio: ['pipe', 'pipe', 'pipe'],
             });
             const frames = [];
@@ -918,6 +930,15 @@ describe('providerRefusal', () => {
             expect(mutations).toEqual([{ sessionId: reviewer.sessionId, text: 'Explain the review delay.\n\ncame from a real-time agent' }]);
             expect(planningRequests[0].model).toBe('gpt-5.6-sol');
             expect(planningRequests[0].tools.every((tool) => tool.type === 'function')).toBe(true);
+            // The kit round-trips its function output into the next Responses
+            // turn; the real coordinator's receipt must reach the planner.
+            expect(planningRequests[1].input).toEqual(expect.arrayContaining([
+                expect.objectContaining({ type: 'function_call', call_id: 'call_fixture', name: 'prompt_agent' }),
+                expect.objectContaining({ type: 'function_call_output', call_id: 'call_fixture', output: expect.stringContaining('Queued:') }),
+            ]));
+            expect(planningRequests[0].tool_choice).toBe('auto');
+            expect(planningRequests.every((request) => request.parallel_tool_calls === false)).toBe(true);
+            expect(planningRequests[0].reasoning.effort).toBe('low');
             const summaryRequest = { type: 'delegation.created', item: { type: 'delegation', target: 'client', id: 'summary-request', content: [{ type: 'input_text', text: JSON.stringify({ name: 'read_work_context', arguments: { agent: 'John' } }) }] } };
             flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify(summaryRequest) });
             const summary = await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
@@ -974,6 +995,12 @@ describe('providerRefusal', () => {
             } }) });
             await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
                 .map((frame) => JSON.parse(frame.data)).some((frame) => frame.delegation_item_id === 'failed-delegation'), 'Provider refusal did not return');
+            expect(mutations).toHaveLength(2);
+            flow.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                ...followUp.item, id: 'incomplete-delegation', content: [{ type: 'input_text', text: 'Ask John for an incomplete update.' }],
+            } }) });
+            await waitFor(() => flow.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                .map((frame) => JSON.parse(frame.data)).some((frame) => frame.delegation_item_id === 'incomplete-delegation'), 'Incomplete response did not return');
             expect(mutations).toHaveLength(2);
             // One user utterance retransmitted by the provider: fresh item and
             // handoff ids under one user turn share one planner run, one
