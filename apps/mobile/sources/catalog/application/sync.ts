@@ -528,7 +528,18 @@ class MuxrSync {
             storage.getState().applyHerdrTree([]);
             return { workspaces: [], herdrConnected: undefined };
         }
-        const tree = await this.request('herdr.tree', {});
+        let tree = await this.request('herdr.tree', {});
+        const liveRoutes = new Set(tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) =>
+            tab.panes.map((pane) => pane.sessionId))));
+        const startingRoutes = storage.getState().herdrWorkspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) =>
+            tab.panes.filter((pane) => pane.agentStatus === 'starting' && pane.sessionId !== undefined)
+                .map((pane) => pane.sessionId!)));
+        const missingLaunches = startingRoutes.filter((route) => !liveRoutes.has(route));
+        if (missingLaunches.length > 0) {
+            await Promise.all(missingLaunches.map((sessionId) =>
+                this.request('session.open', { sessionId }).catch(() => undefined)));
+            tree = await this.request('herdr.tree', {});
+        }
         // Requests can cross when a done frame and a newer working frame arrive
         // close together. Only the latest canonical read may update the UI.
         if (request === this.herdrTreeRequest) {
@@ -830,6 +841,13 @@ class MuxrSync {
             }
             return data;
         } catch (error) {
+            if (type === 'session.open' && typeof error === 'object' && error !== null
+                && 'code' in error && error.code === 'agent-unavailable') {
+                const { sessionId } = params as import('@trymuxr/contract').RequestParams<'session.open'>;
+                if (storage.getState().sessionErrors[sessionId] === undefined) {
+                    storage.getState().setSessionError(sessionId, 'That agent is no longer available. Go back to Home and start it again.');
+                }
+            }
             recordTrackedRpc(type, { ok: false, error }, Date.now() - started);
             throw error;
         }
