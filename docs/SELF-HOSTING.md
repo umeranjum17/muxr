@@ -142,6 +142,15 @@ keep their quotas rather than having them reset.
   Revocation removes its grant and closes the device link. It does not rotate a
   shared data key; each link has its own Noise session keys.
 
+  If the machine's secret keys were exposed, replace them. Every device pinned
+  the old key, so all of them pair again afterwards:
+
+  ```bash
+  muxr devices rotate-keys --unpair-all   # new signing, box and data keys; the relay forgets the old host
+  muxr restart
+  muxr pair
+  ```
+
 ## Docker relay
 
 The [Dockerfile](../Dockerfile) is a relay-only image. From the repo root:

@@ -1,0 +1,99 @@
+/** Rotating the machine keys retires the old host on the relay and ends every pairing; a fresh pairing works. */
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { hostId } from '@byokit/link';
+import { waitForRelay } from './waitForRelay.mjs';
+import { linkLabClient, requestLab } from './linkLabClient.mjs';
+import { machineIdentity } from '../../setup/index.mjs';
+
+const root = mkdtempSync(join(tmpdir(), 'muxr-key-rotation-'));
+const home = join(root, 'muxr');
+const children = [];
+const env = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1' };
+for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_URL', 'MUXR_MACHINE_ID', 'MUXR_RELAY_AUTH']) delete env[key];
+
+async function until(check, what, timeout = 20_000) {
+    const deadline = Date.now() + timeout;
+    for (;;) {
+        if (await check()) return;
+        if (Date.now() > deadline) throw new Error(`timed out: ${what}`);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+}
+
+function launch(args, extra = {}) {
+    const child = spawn(process.execPath, args, { env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
+    let output = '';
+    child.stdout.on('data', (part) => { output += part; });
+    child.stderr.on('data', (part) => { output += part; });
+    child.output = () => output;
+    children.push(child);
+    return child;
+}
+
+async function stop(child) {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    child.kill('SIGTERM');
+    await exited;
+}
+
+const rotate = (...flags) => spawnSync(process.execPath, ['scripts/cli.mjs', 'devices', 'rotate-keys', ...flags], { env, encoding: 'utf8' });
+const readState = () => JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8'));
+const hostOf = (crypto) => hostId(Buffer.from(crypto.boxPublicKey, 'base64'));
+
+try {
+    const relay = launch(['apps/relay/dist/main.js'], {
+        MUXR_RELAY_PORT: '0', MUXR_RELAY_DATA_DIR: join(root, 'relay'), MUXR_RELAY_MDNS: '0',
+    });
+    const port = await waitForRelay(relay);
+    const owner = JSON.parse(readFileSync(join(root, 'relay', 'mint-secret'), 'utf8'));
+    const hosts = () => fetch(`http://127.0.0.1:${port}/relay/v1/hosts`, { headers: { authorization: `Bearer ${owner}` } })
+        .then((response) => response.json()).then((body) => body.hosts ?? []);
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, 'selfhost.json'), `${JSON.stringify({ version: 1, machine: { ...machineIdentity(undefined), name: 'Rotation machine' },
+        relayPort: port, relayUrl: `ws://127.0.0.1:${port}`, relayLocation: 'local', relayRole: 'single-machine',
+        connectionMode: 'lan', webEnabled: false, mintSecret: owner })}\n`, { mode: 0o600 });
+    const socketPath = join(root, 'host', 'pair.sock');
+    const start = async () => {
+        const host = launch(['apps/host/dist/main.js', '--fake'], { MUXR_MODE: 'selfhost', MUXR_DATA_DIR: join(root, 'host') });
+        await until(() => host.output().includes('link relay: online'), 'link host online');
+        await until(() => existsSync(socketPath), 'host pairing socket');
+        return host;
+    };
+
+    const first = await start();
+    const device = await linkLabClient(socketPath);
+    await requestLab(device, 'machines.list');
+    const before = readState().machine.crypto;
+    if (before.devices.length !== 1) throw new Error('lab device was not paired');
+
+    if (rotate().status === 0 || readState().machine.crypto.boxSecretKey !== before.boxSecretKey) {
+        throw new Error('rotation ran without --unpair-all');
+    }
+    const rotated = rotate('--unpair-all');
+    if (rotated.status !== 0) throw new Error(`rotation failed: ${rotated.stderr}`);
+    const after = readState().machine.crypto;
+    for (const key of ['signingSecretKey', 'signingPublicKey', 'boxSecretKey', 'boxPublicKey', 'dataKey']) {
+        if (after[key] === before[key]) throw new Error(`${key} was not replaced`);
+    }
+    if (after.keyVersion !== before.keyVersion + 1 || after.devices.length !== 0) throw new Error('rotation kept the old version or pairings');
+    if ((await hosts()).some((host) => host.id === hostOf(before))) throw new Error('relay still admits the old host key');
+    await until(() => device.status !== 'online', 'old pairing drops off the retired host');
+
+    await stop(first);
+    await start();
+    await until(async () => (await hosts()).some((host) => host.id === hostOf(after) && host.online), 'new host key online on the relay');
+    if ((await hosts()).some((host) => host.id === hostOf(before))) throw new Error('restarted host re-enrolled the old key');
+    if (device.status === 'online') throw new Error('old pairing reached the rotated host');
+    device.stop();
+    const repaired = await linkLabClient(socketPath);
+    try { await requestLab(repaired, 'machines.list'); }
+    finally { repaired.stop(); }
+    process.stdout.write('PASS: key rotation retires the old host key, ends old pairings, and a fresh pairing works\n');
+} finally {
+    await Promise.all(children.map(stop));
+    rmSync(root, { recursive: true, force: true });
+}
