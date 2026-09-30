@@ -550,7 +550,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
         }
     });
 
-    it('moves through the session source and names the account when the start fails', async () => {
+    it('keeps account moves exclusive through persistence and names the account when the start fails', async () => {
         const { savePlanAccounts } = await import('../../plans/planStore.js');
         const home2 = mkdtempSync(join(tmpdir(), 'muxr-plans-move-'));
         const keepHome = process.env.HOME;
@@ -560,17 +560,45 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
         try {
             savePlanAccounts(process.env, [{ id: 'pa_w', provider: 'codex', name: 'Work', folder: join(home2, 'c'), found: false }]);
             const moves: unknown[] = [];
+            let finishMove!: () => void;
+            const moveFinished = new Promise<void>((resolve) => { finishMove = resolve; });
+            let moveStarted!: () => void;
+            const moveStarting = new Promise<void>((resolve) => { moveStarted = resolve; });
+            let finishPersistence!: () => void;
+            const persistenceFinished = new Promise<void>((resolve) => { finishPersistence = resolve; });
+            let persistenceStarted!: () => void;
+            const persistenceStarting = new Promise<void>((resolve) => { persistenceStarted = resolve; });
             const source = {
                 async movePlanAccount(options: unknown) {
                     moves.push(options);
-                    return { sessionId: 'moved' };
+                    moveStarted();
+                    await moveFinished;
+                    return { sessionId: 's1' };
                 },
-                async list() { return [{ id: 'moved', paneId: 'w1:p2' }]; },
+                async list() {
+                    persistenceStarted();
+                    await persistenceFinished;
+                    return [{ id: 's1', paneId: 'w1:p2' }];
+                },
             } as unknown as SessionSource;
             const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
-            const moved = await dispatch({ type: 'plans.move', requestId: 'm1', params: { sessionId: 's1', accountId: 'pa_w' } });
-            expect(moved).toMatchObject({ ok: true, data: { sessionId: 'moved' } });
+            const moving = dispatch({ type: 'plans.move', requestId: 'm1', params: { sessionId: 's1', accountId: 'pa_w' } });
+            await moveStarting;
+            expect(await dispatch({ type: 'plans.move', requestId: 'overlap', params: { sessionId: 's1', accountId: 'pa_w' } }))
+                .toMatchObject({ ok: false, code: 'plan-move-in-progress' });
+            finishMove();
+            await persistenceStarting;
+            expect(await dispatch({ type: 'plans.move', requestId: 'persisting', params: { sessionId: 's1', accountId: 'pa_w' } }))
+                .toMatchObject({ ok: false, code: 'plan-move-in-progress' });
+            finishPersistence();
+            expect(await moving).toMatchObject({ ok: true, data: { sessionId: 's1' } });
+            expect(moves).toHaveLength(1);
             expect(moves[0]).toMatchObject({ sessionId: 's1', provider: 'codex' });
+            expect(await dispatch({ type: 'plans.agent', requestId: 'current', params: { sessionId: 's1' } }))
+                .toMatchObject({ ok: true, data: { accountId: 'pa_w' } });
+            expect(await dispatch({ type: 'plans.move', requestId: 'next', params: { sessionId: 's1', accountId: 'pa_w' } }))
+                .toMatchObject({ ok: true });
+            expect(moves).toHaveLength(2);
 
             const failing = {
                 async movePlanAccount() {

@@ -186,6 +186,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     close(): Promise<void>;
 } {
     const { source, domain, machineId, hostVersion } = options;
+    const movingPlanSessions = new Set<string>();
 
     /** The session cwd is host-injected: a caller can never choose it. */
     const changesInput = async (sessionId: string, root?: string): Promise<{ sessionId: string; cwd: string; root?: string }> => {
@@ -587,35 +588,43 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return removePlanAccount(process.env, params.accountId);
         }),
         'plans.move': async (params) => {
-            const selected = resolvePlanRecord(process.env, params.accountId);
-            const record = await resolvePlanLaunch(process.env, params.accountId, selected.provider);
-            if (record === undefined) throw new Error('Sign in to that account before moving.');
-            if (source.movePlanAccount === undefined) {
-                throw Object.assign(
-                    new Error('This host cannot move between plan accounts yet; update the host first.'),
-                    { code: 'host-contract-mismatch' },
-                );
+            if (movingPlanSessions.has(params.sessionId)) {
+                throw Object.assign(new Error('An account move is already in progress for this agent.'), { code: 'plan-move-in-progress' });
             }
+            movingPlanSessions.add(params.sessionId);
             try {
-                const moved = await source.movePlanAccount({
-                    sessionId: params.sessionId,
-                    provider: record.provider,
-                    folder: record.folder,
-                });
-                await rememberPane(await planPaneOf(moved.sessionId), record.id);
-                return moved;
-            } catch (error) {
-                const exposed = error as { code?: unknown; paneId?: unknown };
-                if (exposed.code === 'plan-move-extra-copy' && typeof exposed.paneId === 'string') {
-                    await rememberPane(exposed.paneId, record.id);
+                const selected = resolvePlanRecord(process.env, params.accountId);
+                const record = await resolvePlanLaunch(process.env, params.accountId, selected.provider);
+                if (record === undefined) throw new Error('Sign in to that account before moving.');
+                if (source.movePlanAccount === undefined) {
+                    throw Object.assign(
+                        new Error('This host cannot move between plan accounts yet; update the host first.'),
+                        { code: 'host-contract-mismatch' },
+                    );
                 }
-                if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
-                    const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
-                    throw Object.assign(new Error(`Couldn't start on ${name}. The original conversation is still running. Try again.`), {
-                        code: 'plan-move-start-failed',
+                try {
+                    const moved = await source.movePlanAccount({
+                        sessionId: params.sessionId,
+                        provider: record.provider,
+                        folder: record.folder,
                     });
+                    await rememberPane(await planPaneOf(moved.sessionId), record.id);
+                    return moved;
+                } catch (error) {
+                    const exposed = error as { code?: unknown; paneId?: unknown };
+                    if (exposed.code === 'plan-move-extra-copy' && typeof exposed.paneId === 'string') {
+                        await rememberPane(exposed.paneId, record.id);
+                    }
+                    if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
+                        const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
+                        throw Object.assign(new Error(`Couldn't start on ${name}. The original conversation is still running. Try again.`), {
+                            code: 'plan-move-start-failed',
+                        });
+                    }
+                    throw error;
                 }
-                throw error;
+            } finally {
+                movingPlanSessions.delete(params.sessionId);
             }
         },
         'plans.add': async (params) => {
