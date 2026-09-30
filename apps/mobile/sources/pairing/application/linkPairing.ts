@@ -32,8 +32,13 @@ export interface StoredHostedGrant extends DeviceGrant {
 }
 
 export class LinkPairingRecoveryError extends Error {
-    constructor(message: string, readonly recovery: 'saved' | 'pending') {
+    constructor(message: string, readonly recovery: { pending: PendingLinkPair } | { grant: StoredHostedGrant }) {
         super(message);
+    }
+
+    resume(tunnelPort?: number): Promise<StoredHostedGrant> {
+        if ('grant' in this.recovery) return Promise.resolve(this.recovery.grant);
+        return completeLinkPairing(this.recovery.pending, { mode: 'resume', tunnelPort });
     }
 }
 
@@ -135,18 +140,21 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
             await storeGrant(grant);
             stored = grant;
         } });
-        if (stored === undefined) throw new Error('the computer did not prove this pairing');
-        await deletePendingPair();
-        return stored;
     } catch (cause) {
         const failure = pairingFailure(cause);
-        if (stored !== undefined) throw new LinkPairingRecoveryError(failure.message, 'saved');
         if (Date.now() - pending.startedAt > 4 * 60_000 || failure.discard) {
             await deletePendingPair();
             throw new Error(failure.message);
         }
-        throw new LinkPairingRecoveryError(failure.message, 'pending');
+        throw new LinkPairingRecoveryError(failure.message, { pending });
     }
+    if (stored === undefined) throw new Error('the computer did not prove this pairing');
+    try {
+        await deletePendingPair();
+    } catch (cause) {
+        throw new LinkPairingRecoveryError(pairingFailure(cause).message, { grant: stored });
+    }
+    return stored;
 }
 
 export async function clearHostedE2ee(): Promise<void> {

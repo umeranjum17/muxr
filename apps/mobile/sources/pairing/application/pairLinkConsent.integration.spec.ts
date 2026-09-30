@@ -1,14 +1,15 @@
 import { offerText } from '@byokit/link';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pairLinkOffer } from './usePairing';
-import { listPairedGrants, resumePendingHostedPairing } from './linkPairing';
+import { LinkPairingRecoveryError, listPairedGrants } from './linkPairing';
 
 const harness = vi.hoisted(() => ({
     device: 'phone' as 'phone' | 'browser',
     machineName: 'Desk',
     approved: false,
     alerts: [] as string[],
-    activated: false,
+    settings: { mode: 'hosted', machineId: '', relayUrl: '', token: '' },
+    attempts: [] as Array<{ mode: string; key: string; tunnelPort?: number }>,
     loseAcknowledgement: false,
     secrets: new Map<string, string>(),
     confirms: [] as Array<{ title: string; body: string }>,
@@ -33,9 +34,10 @@ vi.mock('../infrastructure/pairingPlatform', () => ({
 }));
 vi.mock('../infrastructure/linkGrant', () => ({ probeDiscoveredRelay: vi.fn() }));
 vi.mock('@/connection', () => ({
-    getCachedConnectionSettings: vi.fn(),
+    getCachedConnectionSettings: () => harness.settings,
+    forgetSshCredential: vi.fn(),
     loadConnectionSettingsAsync: vi.fn(),
-    saveConnectionSettings: vi.fn(),
+    saveConnectionSettings: async (settings: typeof harness.settings) => { harness.settings = settings; },
 }));
 vi.mock('../infrastructure/nativeSecretStore', () => ({
     getNativeSecret: async (key: string) => harness.secrets.get(key) ?? null,
@@ -49,14 +51,16 @@ vi.mock('../infrastructure/linkPairClient', () => ({
     newPairingSecretKey: () => 'key',
     pairingFailure: (cause: Error) => ({ message: cause.message, discard: false }),
     provenLinkGrant: () => ({
-        machineId: 'desk', machineName: harness.machineName,
+        machineId: 'desk', machineName: harness.machineName, relayUrl: 'ws://desk', source: 'selfhost',
         credential: 'credential', deviceKey: { secretKey: 'key' }, keyVersion: 1,
     }),
-    claimLinkPairing: async (_pending: unknown, options: {
+    claimLinkPairing: async (pending: { secretKey: string }, options: {
+        tunnelPort?: number;
         mode: string;
         onWords?: (words: string) => void;
         onProven: (answer: unknown, key: unknown) => Promise<void>;
     }) => {
+        harness.attempts.push({ mode: options.mode, key: pending.secretKey, tunnelPort: options.tunnelPort });
         if (!harness.approved) throw new Error('must not pair after the user declines');
         options.onWords?.('spark castle');
         await options.onProven({}, {});
@@ -64,7 +68,10 @@ vi.mock('../infrastructure/linkPairClient', () => ({
     },
 }));
 vi.mock('./useCheckCameraPermissions', () => ({ useCheckScannerPermissions: () => async () => true }));
-vi.mock('./PairMachine', () => ({ pairMachine: async () => { harness.activated = true; return { ok: true, credential: 'credential', secretKey: 'key' }; } }));
+vi.mock('@/conversation/session', () => ({
+    realtimeMachineSwitchGuard: () => ({ allowed: true }),
+    stopRealtimeSession: vi.fn(),
+}));
 vi.mock('./deliverScannedPairing', () => ({ deliverScannedPairingLink: async () => undefined }));
 
 function linkOffer(payload: Record<string, unknown>): string {
@@ -76,7 +83,8 @@ beforeEach(() => {
     harness.confirms.length = 0;
     harness.alerts.length = 0;
     harness.approved = false;
-    harness.activated = false;
+    harness.settings = { mode: 'hosted', machineId: '', relayUrl: '', token: '' };
+    harness.attempts.length = 0;
     harness.device = 'phone';
     harness.machineName = 'Desk';
     harness.loseAcknowledgement = false;
@@ -137,21 +145,42 @@ it('pairs after one screen consent, shows words inline, and activates without an
         expect.objectContaining({ phase: 'compare', words: 'spark castle' }),
         expect.objectContaining({ phase: 'paired', title: 'This phone is paired with Desk.' }),
     ]);
-    expect(harness.activated).toBe(true);
+    expect(harness.settings.machineId).toBe('desk');
     expect(login).toHaveBeenCalledWith('credential', 'key');
     expect(harness.alerts).toHaveLength(0);
 
+    const offer = linkOffer({ role: 'control', name: 'Desk' });
     harness.loseAcknowledgement = true;
-    await expect(pairLinkOffer(linkOffer({ role: 'control', name: 'Desk' }), { login } as never, {
+    const interrupted = await pairLinkOffer(offer, { login } as never, {
         confirm: consent,
-    })).rejects.toMatchObject({ message: 'acknowledgement lost', recovery: 'saved' });
+        tunnelPort: 8792,
+    }).catch((cause: unknown) => cause);
+    expect(interrupted).toMatchObject({ message: 'acknowledgement lost', recovery: { pending: { secretKey: 'key' } } });
+    if (!(interrupted instanceof LinkPairingRecoveryError)) throw interrupted;
     expect(await listPairedGrants()).toEqual([expect.objectContaining({ machineName: 'Desk' })]);
-    expect(await resumePendingHostedPairing()).toMatchObject({ machineName: 'Desk' });
+    const applyRoute = vi.fn(async () => undefined);
+    expect(await pairLinkOffer(offer, { login } as never, {
+        recovery: interrupted,
+        tunnelPort: 8792,
+        onActivated: applyRoute,
+    })).toBe(true);
+    expect(harness.attempts.slice(-2)).toEqual([
+        { mode: 'claim', key: 'key', tunnelPort: 8792 },
+        { mode: 'resume', key: 'key', tunnelPort: 8792 },
+    ]);
+    expect(applyRoute.mock.invocationCallOrder[0]).toBeLessThan(login.mock.invocationCallOrder.at(-1)!);
 
     harness.loseAcknowledgement = false;
     login.mockRejectedValueOnce(new Error('login failed'));
-    await expect(pairLinkOffer(linkOffer({ role: 'control', name: 'Desk' }), { login } as never, {
+    const loginFailure = await pairLinkOffer(offer, { login } as never, {
         confirm: consent,
-    })).rejects.toMatchObject({ message: 'login failed', recovery: 'saved' });
-    expect(await listPairedGrants()).toEqual([expect.objectContaining({ machineName: 'Desk' })]);
+    }).catch((cause: unknown) => cause);
+    expect(loginFailure).toMatchObject({ message: 'login failed', recovery: { grant: { machineId: 'desk' } } });
+    if (!(loginFailure instanceof LinkPairingRecoveryError)) throw loginFailure;
+    expect(harness.settings.machineId).toBe('desk');
+    const attemptsBeforeLoginRecovery = harness.attempts.length;
+    expect(await pairLinkOffer(offer, { login } as never, { recovery: loginFailure })).toBe(true);
+    expect(harness.attempts).toHaveLength(attemptsBeforeLoginRecovery);
+    expect(harness.confirms).toHaveLength(0);
+    expect(harness.alerts).toHaveLength(0);
 });

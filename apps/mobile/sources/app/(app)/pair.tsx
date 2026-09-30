@@ -20,7 +20,7 @@ import { Modal } from '@/modal';
 type PairState =
     | { phase: 'confirm'; url: string; machineName: string; linkOffer?: boolean }
     | { phase: 'working'; url: string; machineName: string; linkOffer?: boolean }
-    | { phase: 'error'; message: string; url?: string; machineName?: string };
+    | { phase: 'error'; message: string; url?: string; machineName?: string; recovery?: LinkPairingRecoveryError };
 
 const SSH_PAIRING_STEPS = [
     'On the computer, run `muxr pair` — it prints a one-time link offer.',
@@ -128,34 +128,26 @@ export default function PairScreen() {
         return () => { cancelled = true; subscription.remove(); };
     }, [routePairUrl, browser, sshRoute, reviewPairing]);
 
-    const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
+    const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput, recovery?: LinkPairingRecoveryError) => {
         // Link offers pair over the running machine; Direct SSH uses its own route.
         if (looksLikeLinkOffer(url.trim())) {
             const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput);
             if (tunnel !== undefined && !tunnel.ok) throw new Error(tunnel.message);
-            let paired: boolean;
             try {
-                paired = await pairLinkOffer(url.trim(), auth, {
+                await pairLinkOffer(url.trim(), auth, {
                     tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,
+                    recovery,
                     confirm: async () => true,
                     onProgress: setProgress,
+                    onActivated: async () => {
+                        if (sshInput === undefined || !tunnel?.ok) return;
+                        const applied = await applySshAfterPairing(sshInput, { hostKey: tunnel.hostKey });
+                        if (!applied.ok) throw new Error(applied.message);
+                    },
                 });
             } catch (cause) {
-                if (tunnel !== undefined) await stopSshTunnel();
-                if (!(cause instanceof LinkPairingRecoveryError)) throw cause;
-                router.replace(cause.recovery === 'saved' ? '/settings' : '/');
-                return;
-            }
-            if (!paired) {
-                if (tunnel !== undefined) await stopSshTunnel();
-                // The claim already saved the grant and consumed the code;
-                // recovery must use saved pairing rather than offer Pair again.
-                router.replace('/settings');
-                return;
-            }
-            if (sshInput !== undefined && tunnel?.ok) {
-                const applied = await applySshAfterPairing(sshInput, { hostKey: tunnel.hostKey });
-                if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
+                if (!(cause instanceof LinkPairingRecoveryError) && recovery === undefined && tunnel !== undefined) await stopSshTunnel();
+                throw cause;
             }
             router.replace('/');
             return;
@@ -192,14 +184,16 @@ export default function PairScreen() {
             return;
         }
         const { url, machineName } = state;
+        const recovery = state.phase === 'error' ? state.recovery : undefined;
         setProgress(undefined);
         setState({ phase: 'working', url, machineName: machineName ?? 'this machine' });
-        void pair(url, parsedInput.input).catch((cause) => {
+        void pair(url, parsedInput.input, recovery).catch((cause) => {
             setState({
                 phase: 'error',
                 message: cause instanceof Error ? cause.message : String(cause),
                 url,
                 machineName,
+                recovery: cause instanceof LinkPairingRecoveryError ? cause : recovery,
             });
         });
     }, [state, pair, sshInput]);
@@ -215,9 +209,10 @@ export default function PairScreen() {
     }, [pairingValue, sshInput, reviewPairing]);
 
     const cancel = React.useCallback(() => {
+        if (sshRoute) void stopSshTunnel();
         if (openedFromSettings) router.back();
         else router.replace('/');
-    }, [openedFromSettings, router]);
+    }, [openedFromSettings, router, sshRoute]);
 
     // The switcher's Fast pairing segment: from first-run, pop back to the
     // chooser; from a settings entry, the fast route lives on Home.
@@ -276,7 +271,7 @@ export default function PairScreen() {
                 ) : state?.phase === 'error' && state.url !== undefined ? (
                     <>
                         <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
-                        <ActionButton title="Try again" icon="refresh-outline" onPress={confirm} />
+                        <ActionButton title={state.recovery === undefined ? 'Try again' : 'Resume pairing'} icon="refresh-outline" onPress={confirm} />
                         <ActionButton title="Enter another code" icon="keypad-outline" onPress={() => setState(undefined)} />
                         <ActionButton title="Back" variant="secondary" onPress={cancel} />
                     </>
