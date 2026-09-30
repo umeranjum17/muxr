@@ -140,8 +140,8 @@ export default function PairScreen() {
                 onProgress: setProgress,
             });
             if (!paired) {
-                setState((current) => current?.url === url ? { phase: 'confirm', url, machineName: current.machineName ?? 'your computer' } : current);
                 if (tunnel !== undefined) await stopSshTunnel();
+                router.replace('/settings');
                 return;
             }
             if (sshInput !== undefined && tunnel?.ok) {
