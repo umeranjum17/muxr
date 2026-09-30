@@ -32,6 +32,18 @@
                 {
                     "title": "Guided setup after installation",
                     "detail": "Installing muxr on the computer opens guided setup directly, so you can connect your phone without finding a separate setup command."
+                },
+                {
+                    "title": "Replace your computer’s pairing keys",
+                    "detail": "If your self-hosted computer’s keys were exposed, replace them with muxr devices rotate-keys --unpair-all. Every device must pair again once after rotating, and inbound computer collaborations must be set up again."
+                },
+                {
+                    "title": "Check agent sign-in readiness",
+                    "detail": "The computer reports whether supported agents are installed and signed in, with hints for installing or signing in when needed."
+                },
+                {
+                    "title": "Private agent alerts",
+                    "detail": "Agent lifecycle alerts keep task titles encrypted through the relay. Tapping an alert opens its agent on the right computer; if another computer is selected, Settings opens so you can select the one that sent it."
                 }
             ],
             "fixes": [
@@ -95,7 +107,8 @@
                 "A self-hosted computer and relay are required. Installations from before the private-link cutover must update both products and pair again once.",
                 "The prebuilt desktop engine needs Linux x64 with glibc 2.36 or newer; Arm hosts need a source build. Viewing and control work on Android and web; native iOS is not supported yet. Wayland input control needs a one-time permission.",
                 "Transient blank terminal frames around an explicit keyboard resize remain a known limitation.",
-                "This is a candidate for acceptance. npm latest and Play production are not updated by building it; a successful build does not prove phone, microphone or desktop behaviour."
+                "This is a candidate for acceptance. npm latest and Play production are not updated by building it; a successful build does not prove phone, microphone or desktop behaviour.",
+                "Alerts on a sleeping native app show “Agent update”; the task title appears once the app runs. Browser alerts can show the task title before you open the app."
             ]
         },
         {

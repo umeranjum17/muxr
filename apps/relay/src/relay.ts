@@ -105,7 +105,7 @@ export async function startRelay(options: RelayOptions): Promise<RelayHandle> {
             res.writeHead(200, {
                 'content-type': mime[extname(path).toLowerCase()] ?? 'application/octet-stream',
                 'cache-control': entry || entryFallback ? 'no-store' : hashed ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate',
-                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+                'content-security-policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss: blob:; media-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
                 'permissions-policy': 'camera=(self), microphone=(self), geolocation=()',
                 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer',
             });

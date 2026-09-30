@@ -37,6 +37,7 @@ import { navigateToSession } from '@/herd';
 import { getCachedConnectionSettings } from '@/connection';
 import { useTauriZoom } from '@/hooks/useTauriZoom';
 import { useTauriDrag } from '@/hooks/useTauriDrag';
+import { useWebViewport } from '@/hooks/useWebViewport';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
 import { KernelNotifications } from '@/herd/ui';
 import { notificationResponseKey } from '@/watch/lifecycleAlert';
@@ -228,6 +229,7 @@ function getDevWebQueryCredentials(): AuthCredentials | null {
 export default function RootLayout() {
     useTauriZoom();
     useTauriDrag();
+    useWebViewport();
     const router = useRouter();
     const { theme } = useUnistyles();
     const navigationTheme = React.useMemo(() => {
