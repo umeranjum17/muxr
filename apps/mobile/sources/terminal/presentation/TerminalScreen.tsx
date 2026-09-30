@@ -79,6 +79,7 @@ import { displayLink } from '../domain/TerminalLink';
 import { TerminalLinkMenu, terminalLinkCardFits, type LinkAction } from './TerminalLinkMenu';
 import { openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
 import { humanError } from '@/utils/errors';
+import { MoveAccountRow } from '@/plans/ui';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
 import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
@@ -1912,6 +1913,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t('usage.title')}</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
+                                    {canControl && <MoveAccountRow sessionId={props.id} agentKind={paneKind} working={paneLifecycle === 'working'} onOpen={() => setActionsOpen(false)} />}
                                     {canControl && <DeclarativeSessionActions actions={declaredActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
                                     {canControl && (
                                         <View>

@@ -719,13 +719,7 @@ export async function createHerdrSessionSource(
     const paneByAgentRoute = new Map<string, string>();
     const pendingCreatedRoutes = new Set<string>();
     const pendingLaunchByPane = new Map<string, HerdrAgentSessionRef>();
-    const moveRetainedRoutes = new Map<string, HerdrAgentSessionRef>();
-    const planAccountByPane = new Map<string, string>();
-
-    function planFolderFromEnv(env: Record<string, string> | undefined): string | undefined {
-        const folder = env?.CLAUDE_CONFIG_DIR ?? env?.CODEX_HOME;
-        return folder === undefined || folder === '' ? undefined : folder;
-    }
+    const stagedMovePanes = new Set<string>();
     /** Launches this host is still confirming. Herdr reports no kind until it
      * detects the process, so the phone would show the pane as a shell; the
      * requested kind stands in until adoption, failure, or the deadline. */
@@ -770,9 +764,19 @@ export async function createHerdrSessionSource(
 
     /** The route identity: Herdr's session, else the pending launch, else the pane of an agent Herdr detected. */
     function agentSession(agent: AgentRecord | undefined): HerdrAgentSessionRef | undefined {
-        if (agent === undefined) return undefined;
+        if (agent === undefined || stagedMovePanes.has(agent.pane_id)) return undefined;
         const kind = publicAgentKind(agent.agent ?? undefined);
-        return publishedAgentSession(agent)
+        const published = publishedAgentSession(agent);
+        if (published !== undefined && kind !== undefined) {
+            const route = routes.route(published);
+            const owner = route === undefined ? undefined : paneByAgentRoute.get(route);
+            const ownerSession = owner === undefined ? undefined : publishedAgentSession(agentsByPane.get(owner));
+            if (owner !== agent.pane_id && ownerSession !== undefined
+                && herdrAgentSessionKey(ownerSession) === herdrAgentSessionKey(published)) {
+                return herdrPaneSession(kind, agent.pane_id);
+            }
+        }
+        return published
             ?? pendingLaunchByPane.get(agent.pane_id)
             ?? (kind === undefined ? undefined : herdrPaneSession(kind, agent.pane_id));
     }
@@ -820,14 +824,20 @@ export async function createHerdrSessionSource(
 
     function adoptPublishedLaunches(): void {
         for (const [paneId, pending] of pendingLaunchByPane) {
-            const real = publishedAgentSession(agentsByPane.get(paneId));
-            if (real === undefined || !shouldAdoptPublishedLaunch(pending, real)) continue;
+            if (stagedMovePanes.has(paneId)) continue;
+            const agent = agentsByPane.get(paneId);
+            const real = publishedAgentSession(agent);
+            const visible = agentSession(agent);
+            if (real === undefined || visible === undefined
+                || herdrAgentSessionKey(real) !== herdrAgentSessionKey(visible)
+                || !shouldAdoptPublishedLaunch(pending, real)) continue;
             routes.adopt(pending, real);
             forgetLaunch(paneId);
         }
         // An agent listed by its pane keeps that route once Herdr publishes its session.
         for (const agent of agentsByPane.values()) {
-            const real = publishedAgentSession(agent);
+            if (stagedMovePanes.has(agent.pane_id)) continue;
+            const real = agentSession(agent);
             if (real === undefined || isMuxrLaunchSession(real) || typeof agent.agent !== 'string') continue;
             routes.adopt(herdrPaneSession(agent.agent, agent.pane_id), real);
         }
@@ -939,7 +949,7 @@ export async function createHerdrSessionSource(
             }
         }
         for (const pane of panesById.values()) {
-            if (!agentsByPane.has(pane.pane_id)) {
+            if (!agentsByPane.has(pane.pane_id) && !stagedMovePanes.has(pane.pane_id)) {
                 sessions.push({ sessionId: shellRoute(pane.pane_id), paneId: pane.pane_id, pane });
             }
         }
@@ -950,7 +960,7 @@ export async function createHerdrSessionSource(
         if (sessionId.startsWith(SHELL_ROUTE_PREFIX)) {
             const paneId = sessionId.slice(SHELL_ROUTE_PREFIX.length);
             const pane = panesById.get(paneId);
-            return pane === undefined || agentsByPane.has(paneId)
+            return pane === undefined || agentsByPane.has(paneId) || stagedMovePanes.has(paneId)
                 ? undefined
                 : { sessionId, paneId, pane };
         }
@@ -1340,17 +1350,12 @@ export async function createHerdrSessionSource(
             seenRefs.add(key);
             liveRefs.push(ref);
         }
-        for (const pending of pendingLaunchByPane.values()) {
+        for (const [paneId, pending] of pendingLaunchByPane) {
+            if (stagedMovePanes.has(paneId)) continue;
             const key = herdrAgentSessionKey(pending);
             if (seenRefs.has(key)) continue;
             seenRefs.add(key);
             liveRefs.push(pending);
-        }
-        for (const retained of moveRetainedRoutes.values()) {
-            const key = herdrAgentSessionKey(retained);
-            if (seenRefs.has(key)) continue;
-            seenRefs.add(key);
-            liveRefs.push(retained);
         }
         for (const binding of routes.reconcile(liveRefs)) removeRouteState(binding.route);
 
@@ -1366,9 +1371,6 @@ export async function createHerdrSessionSource(
         for (const [route, paneId] of paneByAgentRoute) {
             if (!panesById.has(paneId)) paneByAgentRoute.delete(route);
         }
-        for (const paneId of planAccountByPane.keys()) {
-            if (!panesById.has(paneId)) planAccountByPane.delete(paneId);
-        }
         for (const [paneId, close] of statusWatches) {
             if (agentsByPane.has(paneId)) continue;
             close();
@@ -1382,7 +1384,7 @@ export async function createHerdrSessionSource(
 
         const currentShells = new Set(
             [...panesById.values()]
-                .filter((pane) => !agentsByPane.has(pane.pane_id))
+                .filter((pane) => !agentsByPane.has(pane.pane_id) && !stagedMovePanes.has(pane.pane_id))
                 .map((pane) => shellRoute(pane.pane_id)),
         );
         for (const route of knownShells) {
@@ -1569,7 +1571,8 @@ export async function createHerdrSessionSource(
         const deadline = Date.now() + 15_000;
         for (;;) {
             try {
-                const result = await client.kit.read(paneId, { source: 'recent', lines: 40 });
+                // Unwrapped: on a phone-width split the echoed folder path wraps.
+                const result = await client.kit.read(paneId, { source: 'recent_unwrapped', lines: 40 });
                 const readings = (result.text ?? '')
                     .split('\n')
                     .map((entry) => entry.trim())
@@ -1584,113 +1587,8 @@ export async function createHerdrSessionSource(
         }
     }
 
-    async function rollbackPlanMove(rollback: {
-        sessionId: string;
-        paneId: string;
-        screen: PaneScreen | undefined;
-        kind: string;
-        args: string[];
-        varName: string;
-        originalFolder: string | null;
-        targetFolder: string;
-        started: boolean;
-        cause: unknown;
-    }): Promise<Error> {
-        const failed = (message: string, sessionId?: string): Error =>
-            Object.assign(new Error(message), {
-                code: 'plan-move-start-failed',
-                cause: rollback.cause,
-                ...(sessionId === undefined ? {} : { sessionId }),
-            });
-        const releaseMoveRoute = (): void => {
-            moveRetainedRoutes.delete(rollback.sessionId);
-            paneByAgentRoute.delete(rollback.sessionId);
-            routes.remove(rollback.sessionId);
-            removeRouteState(rollback.sessionId);
-        };
-        const keepPaneSession = async (): Promise<{ sessionId: string; listed: boolean } | undefined> => {
-            if (!rollback.started) forgetLaunch(rollback.paneId);
-            await refreshSnapshot().catch(() => undefined);
-            const listed = bindListedPane(rollback.paneId);
-            if (listed === undefined) forgetLaunch(rollback.paneId);
-            else {
-                planAccountByPane.set(rollback.paneId, rollback.targetFolder);
-                void confirmLaunch(rollback.paneId, rollback.kind, listed.sessionId);
-            }
-            const sessionId = listed?.sessionId ?? currentSession(shellRoute(rollback.paneId))?.sessionId;
-            return sessionId === undefined ? undefined : { sessionId, listed: listed !== undefined };
-        };
-        if (rollback.originalFolder === null) {
-            releaseMoveRoute();
-            const live = await keepPaneSession();
-            if (live === undefined) return failed('The move did not complete and no live session remains. Go back and start again.');
-            return live.listed
-                ? failed('The move did not complete. The new account is running here: try again or go back.', live.sessionId)
-                : failed('The move did not complete, and the original sign-in could not be confirmed, so the conversation was not resumed there. The tab stays as a shell: try again or go back.', live.sessionId);
-        }
-        forgetLaunch(rollback.paneId);
-        const screen = await screens?.allocate();
-        let split: { pane?: { pane_id?: string } } | undefined;
-        try {
-            split = await client.call<{ pane?: { pane_id?: string } }>('pane.split', {
-                direction: 'right',
-                target_pane_id: rollback.paneId,
-                env: {
-                    ...paneEnvironment(screen),
-                    ...(rollback.originalFolder ? { [rollback.varName]: rollback.originalFolder } : {}),
-                },
-                focus: false,
-            });
-        } catch {
-            split = undefined;
-        }
-        const rollbackPaneId = split?.pane?.pane_id;
-        if (rollbackPaneId === undefined) {
-            screens?.releaseScreen(screen);
-            releaseMoveRoute();
-            const live = await keepPaneSession();
-            if (live === undefined) return failed('The agent did not start on the new account, and the move could not be undone. Go back and start again.');
-            return live.listed
-                ? failed('The agent did not start on the new account, and the move could not be undone. The new account is running here: try again or go back.', live.sessionId)
-                : failed('The agent did not start on the new account, and the move could not be undone. The tab stays as a shell: try again or go back.', live.sessionId);
-        }
-        try {
-            await client.call('pane.close', { pane_id: rollback.paneId });
-        } catch {
-            releaseMoveRoute();
-            const live = await keepPaneSession();
-            if (live === undefined) return failed('The failed pane could not be closed, so the original account was not resumed. Go back and start again.');
-            return live.listed
-                ? failed('The failed pane could not be closed, so the original account was not resumed. The new account is running here: try again or go back.', live.sessionId)
-                : failed('The failed pane could not be closed, so the original account was not resumed. The tab stays as a shell: try again or go back.', live.sessionId);
-        }
-        planAccountByPane.delete(rollback.paneId);
-        screens?.releaseScreen(rollback.screen);
-        screens?.bind(screen, rollbackPaneId);
-        await tagSpawn(rollbackPaneId, rollback.sessionId);
-        const launchName = `pp_${randomBytes(8).toString('hex')}`;
-        seedLaunchPane(rollbackPaneId, { pane_id: rollbackPaneId });
-        rememberLaunch(rollbackPaneId, rollback.kind, launchName);
-        let found: { sessionId: string };
-        try {
-            await startManagedAgent(rollbackPaneId, rollback.kind, launchName, rollback.args);
-            found = await waitForListedAgent(rollbackPaneId, 5_000);
-        } catch {
-            forgetLaunch(rollbackPaneId);
-            moveRetainedRoutes.delete(rollback.sessionId);
-            forgetClosedSession(rollback.sessionId, rollback.paneId);
-            await refreshSnapshot().catch(() => undefined);
-            const shell = currentSession(shellRoute(rollbackPaneId))?.sessionId;
-            return failed('The agent did not start on the new account, and the original account did not resume. The tab stays as a shell: try again or go back.', shell);
-        }
-        void confirmLaunch(rollbackPaneId, rollback.kind, found.sessionId);
-        moveRetainedRoutes.delete(rollback.sessionId);
-        planAccountByPane.set(rollbackPaneId, rollback.originalFolder);
-        if (found.sessionId !== rollback.sessionId) forgetClosedSession(rollback.sessionId, rollback.paneId);
-        return failed('The new account did not take over. It is back on the original account: try again or go back.', found.sessionId);
-    }
-
     function bindListedPane(paneId: string): CurrentSession | undefined {
+        if (stagedMovePanes.has(paneId)) return undefined;
         restoreInFlightPane(paneId);
         const agent = agentsByPane.get(paneId);
         const pane = panesById.get(paneId);
@@ -1723,7 +1621,7 @@ export async function createHerdrSessionSource(
         throw new Error('Herdr did not publish the current Agent Name and session.');
     }
 
-    async function waitForMatchingKind(paneId: string, kind: string, timeoutMs: number): Promise<CurrentSession> {
+    async function waitForMatchingKind(paneId: string, kind: string, timeoutMs: number, requireConversation = false): Promise<void> {
         const requested = publicAgentKind(kind);
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
@@ -1732,7 +1630,7 @@ export async function createHerdrSessionSource(
             const detected = publicAgentKind(agent?.agent ?? undefined) ?? publicAgentKind(publishedAgentSession(agent)?.agent);
             // Codex 0.159 never publishes a session: the requested kind on the pane stands in.
             const published = publishedAgentSession(agent)
-                ?? (requested !== undefined && detected === requested ? herdrPaneSession(requested, paneId) : undefined);
+                ?? (!requireConversation && requested !== undefined && detected === requested ? herdrPaneSession(requested, paneId) : undefined);
             if (published !== undefined && requested !== undefined && detected !== undefined && detected !== requested) {
                 throw Object.assign(
                     new Error(`herdr: agent_kind_mismatch: expected ${requested}, detected ${detected}`),
@@ -1740,6 +1638,7 @@ export async function createHerdrSessionSource(
                 );
             }
             if (published !== undefined && (requested === undefined || detected === requested)) {
+                if (stagedMovePanes.has(paneId) && panesById.has(paneId)) return;
                 const pending = pendingLaunchByPane.get(paneId);
                 if (pending !== undefined && shouldAdoptPublishedLaunch(pending, published)) {
                     routes.adopt(pending, published);
@@ -1748,7 +1647,7 @@ export async function createHerdrSessionSource(
                 const session = bindListedPane(paneId);
                 if (session !== undefined) {
                     await routes.flush();
-                    return session;
+                    return;
                 }
             }
             await sleep(200);
@@ -1926,7 +1825,6 @@ export async function createHerdrSessionSource(
     function forgetClosedSession(sessionId: string, paneId?: string): void {
         const resolvedPaneId = paneId ?? closePaneId(sessionId);
         if (resolvedPaneId !== undefined) {
-            planAccountByPane.delete(resolvedPaneId);
             forgetLaunch(resolvedPaneId);
             statusWatches.get(resolvedPaneId)?.();
             statusWatches.delete(resolvedPaneId);
@@ -2089,15 +1987,22 @@ export async function createHerdrSessionSource(
         }
         screens?.bind(screen, paneId);
 
-        if (kind === 'shell') {
-            await refreshSnapshot();
-            const shell = currentSession(shellRoute(paneId));
-            if (shell === undefined) return earlyFailure();
-            emitState(shell.sessionId);
-            return snapshotFor(shell, true);
-        }
-
         try {
+            for (const [name, folder] of Object.entries(startOptions.planEnv ?? {})) {
+                if (!await checkPaneEnv(paneId, name, folder)) {
+                    throw new Error('The selected account did not reach the new pane.');
+                }
+            }
+            if (kind === 'shell') {
+                await refreshSnapshot();
+                const shell = currentSession(shellRoute(paneId));
+                if (shell === undefined) return earlyFailure();
+                if (startOptions.signIn !== undefined) {
+                    await client.call('pane.send_text', { pane_id: paneId, text: `${startOptions.signIn}\n` });
+                }
+                emitState(shell.sessionId);
+                return snapshotFor(shell, true);
+            }
             const launchName = `pp_${randomBytes(8).toString('hex')}`;
             seedLaunchPane(paneId, {
                 pane_id: paneId,
@@ -2112,8 +2017,6 @@ export async function createHerdrSessionSource(
             rememberLaunch(paneId, kind, launchName);
             await startManagedAgent(paneId, kind, launchName);
             const session = bindListedPane(paneId) ?? await waitForListedAgent(paneId, 5_000);
-            const launchedFolder = planFolderFromEnv(startOptions.planEnv);
-            if (launchedFolder !== undefined) planAccountByPane.set(paneId, launchedFolder);
             const publishedKind = publicAgentKind(kind);
             options.onAgentLaunchDiagnostic?.('ok', {
                 ...(publishedKind === undefined ? {} : { kind: publishedKind }),
@@ -2124,7 +2027,6 @@ export async function createHerdrSessionSource(
             void confirmLaunch(paneId, kind, session.sessionId);
             return snapshotFor(session, true);
         } catch (error) {
-            planAccountByPane.delete(paneId);
             forgetLaunch(paneId);
             await refreshSnapshot().catch(() => undefined);
             const gate = launchMissGate(paneId);
@@ -3109,11 +3011,10 @@ export async function createHerdrSessionSource(
             }
         },
 
-        /** Move a running agent onto another sign-in: split with that
-         *  account's env, check it arrived, close the old pane so two
-         *  accounts never write one conversation, then resume it. The route
-         *  store is keyed by conversation, so the resumed agent usually keeps
-         *  its session; otherwise the result names the new one to follow. */
+        /** Keep the original authoritative while the replacement resumes the
+         *  conversation and becomes interactive. Staging hides the replacement
+         *  from discovery until the original closes; failed cleanup exposes it
+         *  as an extra copy so the person can close it. */
         async movePlanAccount(moveOptions: { sessionId: string; provider: string; folder: string }): Promise<{ sessionId: string }> {
             const kinds = PLAN_ACCOUNT_KINDS[moveOptions.provider] ?? [];
             const record = await resolvePane(moveOptions.sessionId);
@@ -3153,63 +3054,78 @@ export async function createHerdrSessionSource(
                 screens?.releaseScreen(screen);
                 throw new Error('herdr: pane.split returned no pane');
             }
+            stagedMovePanes.add(newPaneId);
             screens?.bind(screen, newPaneId);
             const varName = moveOptions.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
-            const originalFolder = planAccountByPane.get(record.paneId) ?? null;
-            if (!await checkPaneEnv(newPaneId, varName, moveOptions.folder)) {
-                await client.call('pane.close', { pane_id: newPaneId }).catch(() => undefined);
-                screens?.releaseScreen(screen);
-                throw Object.assign(
-                    new Error(`The account did not reach the new pane: a shell startup file may override ${varName}.`),
-                    { code: 'plan-move-env-mismatch' },
-                );
-            }
-            moveRetainedRoutes.set(record.sessionId, conversation);
+            const name = record.agent?.name ?? undefined;
             try {
-                await client.call('pane.close', { pane_id: record.paneId });
+                if (!await checkPaneEnv(newPaneId, varName, moveOptions.folder)) {
+                    throw Object.assign(
+                        new Error(`The account did not reach the new pane: a shell startup file may override ${varName}.`),
+                        { code: 'plan-move-env-mismatch' },
+                    );
+                }
+                await tagSpawn(newPaneId, record.sessionId);
+                const launchName = `pp_${randomBytes(8).toString('hex')}`;
+                seedLaunchPane(newPaneId, { pane_id: newPaneId });
+                rememberLaunch(newPaneId, kind, launchName);
+                try {
+                    await startManagedAgent(newPaneId, kind, launchName, args);
+                    await waitForMatchingKind(newPaneId, kind, 60_000, true);
+                    await waitForInteractiveAgent(newPaneId, 60_000);
+                    if (!panesById.has(newPaneId) || publishedAgentSession(agentsByPane.get(newPaneId)) === undefined) {
+                        throw new Error('The replacement did not publish its conversation.');
+                    }
+                } catch (error) {
+                    throw Object.assign(new Error('The new account did not start. The original conversation is still running. Try again.'), {
+                        code: 'plan-move-start-failed', cause: error,
+                    });
+                }
+                try {
+                    await client.call('pane.close', { pane_id: record.paneId });
+                } catch (error) {
+                    throw Object.assign(new Error('The old pane could not be closed, so the move was aborted. Try again.'), {
+                        code: 'plan-move-close-failed', cause: error,
+                    });
+                }
             } catch (error) {
-                await client.call('pane.close', { pane_id: newPaneId }).catch(() => undefined);
+                try {
+                    await client.call('pane.close', { pane_id: newPaneId });
+                } catch (cleanupError) {
+                    forgetLaunch(newPaneId);
+                    stagedMovePanes.delete(newPaneId);
+                    bindListedPane(newPaneId);
+                    await refreshSnapshot().catch(() => undefined);
+                    emitAllStates();
+                    throw Object.assign(new Error('The move did not finish. An extra copy is open; you can close it from its pane.'), {
+                        code: 'plan-move-extra-copy', paneId: newPaneId, cause: cleanupError,
+                    });
+                }
+                agentsByPane.delete(newPaneId);
+                panesById.delete(newPaneId);
+                forgetLaunch(newPaneId);
+                stagedMovePanes.delete(newPaneId);
                 screens?.releaseScreen(screen);
-                moveRetainedRoutes.delete(record.sessionId);
-                throw Object.assign(
-                    new Error('The old pane could not be closed, so the move was aborted before anything started on the new account. Try again.'),
-                    { code: 'plan-move-close-failed', cause: error },
-                );
+                await refreshSnapshot();
+                throw error;
             }
-            planAccountByPane.delete(record.paneId);
+            agentsByPane.delete(record.paneId);
+            panesById.delete(record.paneId);
+            forgetLaunch(newPaneId);
+            stagedMovePanes.delete(newPaneId);
+            const found = bindListedPane(newPaneId)!;
             forgetLaunch(record.paneId);
             statusWatches.get(record.paneId)?.();
             statusWatches.delete(record.paneId);
             lifecycleEpochByPane.delete(record.paneId);
             artifacts.dropPane(record.paneId);
-            await tagSpawn(newPaneId, record.sessionId);
-            const launchName = `pp_${randomBytes(8).toString('hex')}`;
-            seedLaunchPane(newPaneId, { pane_id: newPaneId });
-            rememberLaunch(newPaneId, kind, launchName);
-            let found: { sessionId: string };
-            let started = false;
-            try {
-                await startManagedAgent(newPaneId, kind, launchName, args);
-                started = true;
-                found = bindListedPane(newPaneId) ?? await waitForListedAgent(newPaneId, 5_000);
-            } catch (error) {
-                throw await rollbackPlanMove({
-                    sessionId: record.sessionId,
-                    paneId: newPaneId,
-                    screen,
-                    kind,
-                    args,
-                    varName,
-                    originalFolder,
-                    targetFolder: moveOptions.folder,
-                    started,
-                    cause: error,
-                });
-            }
-            void confirmLaunch(newPaneId, kind, found.sessionId);
-            moveRetainedRoutes.delete(record.sessionId);
-            planAccountByPane.set(newPaneId, moveOptions.folder);
             if (found.sessionId !== record.sessionId) forgetClosedSession(record.sessionId, record.paneId);
+            const named = (async () => {
+                if (name !== undefined) await renameInHerdr(client, 'agent', newPaneId, name);
+                await refreshSnapshot();
+                emitAllStates();
+            })().catch(() => undefined);
+            await Promise.race([named, sleep(8_000)]);
             return { sessionId: found.sessionId };
         },
 
