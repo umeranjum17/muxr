@@ -15,13 +15,21 @@ async function checkWizard() {
     const scratch = mkdtempSync(join(process.cwd(), '.wizard-check-'));
     process.env.MUXR_HOME = join(scratch, 'state');
     process.env.HERDR_BIN = 'wizard-fixture-herdr';
+    process.env.MUXR_TAILSCALE_BIN = 'wizard-fixture-tailscale';
     process.env.MUXR_NO_TUI = '1';
     process.env.NO_COLOR = '1';
-    delete process.env.MUXR_RELAY_PORT;
+    process.env.MUXR_RELAY_PORT = '18792';
+    process.env.HOME = join(scratch, 'home');
+    process.env.XDG_CONFIG_HOME = join(scratch, 'config');
+    process.env.XDG_DATA_HOME = join(scratch, 'data');
+    process.env.XDG_STATE_HOME = join(scratch, 'system-state');
+    process.env.XDG_CACHE_HOME = join(scratch, 'cache');
     Object.defineProperty(process.stdin, 'isTTY', { value: true });
     Object.defineProperty(process.stdout, 'isTTY', { value: true });
     let lan;
     let tailscaleInstalled = true;
+    let tailscaleConnected = false;
+    let serveStatus = 'free';
     let answers = [];
     let calls = [];
     let output = '';
@@ -30,22 +38,41 @@ async function checkWizard() {
     const boundary = (path, namedExports) => mock.module(new URL(path, import.meta.url).href, { namedExports });
     const record = (name, args) => { calls.push([name, args]); return 0; };
     const forbidden = () => { throw new Error('Unexpected setup side effect'); };
+    const tailscaleCommand = (args) => {
+        if (!tailscaleInstalled) return { status: null, error: { code: 'ENOENT' }, stdout: '', stderr: '' };
+        if (args.join(' ') === 'status --json') return { status: 0, stdout: JSON.stringify({
+            BackendState: tailscaleConnected ? 'Running' : 'NeedsLogin',
+            Self: tailscaleConnected ? { DNSName: 'umer.tailnet.ts.net.', TailscaleIPs: ['100.64.0.8'] } : {},
+        }), stderr: '' };
+        assert.deepEqual(args, ['serve', 'status', '--json']);
+        if (serveStatus === 'disabled') return { status: 1, stdout: '', stderr: 'Serve is not enabled on your tailnet' };
+        return { status: 0, stdout: JSON.stringify(serveStatus === 'occupied' ? {
+            Web: { 'umer.tailnet.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:9999' } } } },
+        } : {}), stderr: '' };
+    };
     try {
-        mock.module('node:os', { namedExports: {
+        mock.module('node:os', { defaultExport: { ...os }, namedExports: {
             ...os,
-            userInfo: os.userInfo,
+            userInfo: () => ({ ...os.userInfo(), username: 'Umer', homedir: process.env.HOME }),
             networkInterfaces: () => lan ? { wifi: [{ family: 'IPv4', internal: false, address: lan }] } : {},
         } });
-        mock.module('node:child_process', { namedExports: {
+        mock.module('node:child_process', { defaultExport: { ...childProcess }, namedExports: {
             ...childProcess,
+            execFile: (name, args, options, reply) => {
+                assert.equal(name, 'wizard-fixture-tailscale');
+                const result = tailscaleCommand(args);
+                const error = result.error ?? (result.status === 0 ? null : { code: result.status });
+                queueMicrotask(() => reply(error, result.stdout, result.stderr));
+            },
             spawnSync: (name, args) => {
+                if (name === 'wizard-fixture-tailscale') return tailscaleCommand(args);
                 assert.ok(['wizard-fixture-herdr', 'cloudflared'].includes(name), `Unexpected command: ${name}`);
                 if (name === 'cloudflared') return { status: null, error: { code: 'ENOENT' } };
                 assert.ok(['--version', 'integration status'].includes(args.join(' ')));
                 return { status: 0, stdout: args[0] === '--version' ? 'herdr fixture' : 'pi: not installed', stderr: '' };
             },
         } });
-        mock.module('node:readline', { namedExports: {
+        mock.module('node:readline', { defaultExport: { ...readline }, namedExports: {
             ...readline,
             emitKeypressEvents: readline.emitKeypressEvents,
             createInterface: () => Object.assign(new EventEmitter(), {
@@ -57,20 +84,9 @@ async function checkWizard() {
                 close() {},
             }),
         } });
-        boundary('../infrastructure/runtime.mjs', { relayPortFromEnv: () => undefined });
         boundary('../infrastructure/herdr.mjs', {
             herdrServerIsReady: () => true,
             runLocalPrerequisites: async (args) => record('prerequisites', args),
-        });
-        boundary('../infrastructure/selfhost.mjs', {
-            runTailscale: (args) => {
-                assert.deepEqual(args, ['status', '--json']);
-                if (!tailscaleInstalled) return { status: null, error: { code: 'ENOENT' } };
-                return { status: 0, stdout: JSON.stringify({ BackendState: 'NeedsLogin' }) };
-            },
-            inspectTailscaleServeRoot: forbidden,
-            tailscaleBin: forbidden,
-            selfhostPath: () => join(scratch, 'state', 'selfhost.json'),
         });
         boundary('../infrastructure/selfhostRelay.mjs', {
             selfhostPublicSummary: async () => undefined,
@@ -103,6 +119,29 @@ async function checkWizard() {
             assert.ok(lines[0].includes(title), `Expected ${title}: ${lines[0]}`);
         };
 
+        // Connected Tailscale uses real Serve inspection; its blocked sibling
+        // routes must select direct Tailscale without applying any changes.
+        tailscaleConnected = true;
+        const connected = await run(['', '1', '1', '1']);
+        recommended(connected, 'Tailscale — works anywhere');
+        for (const title of ['Tailscale — works anywhere', 'Tailscale — direct (phone app only)', 'Private network you already use', 'Same Wi-Fi', 'Cloudflare', 'Your own server']) {
+            assert.ok(connected.includes(title), `Missing route: ${title}`);
+        }
+        assert.ok(connected.indexOf('Same Wi-Fi') < connected.indexOf('Temporary public link (Cloudflare)'));
+        assert.deepEqual([...connected.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
+            ['1', '2', '3', '4', '5', '6'].map((step) => [step, '7']));
+        assert.match(connected, /Connection: Tailscale/);
+        assert.deepEqual(calls, [], 'Cancellation mutated setup');
+        for (const blocked of ['occupied', 'disabled']) {
+            serveStatus = blocked;
+            const direct = await run(['', '1', '1']);
+            recommended(direct, 'Tailscale — direct (phone app only)');
+            assert.match(direct, /Connection: Direct Tailscale on port 18792/);
+            assert.deepEqual(calls, [], 'Blocked Serve mutated setup');
+        }
+        tailscaleConnected = false;
+        serveStatus = 'free';
+
         // Accept the picker default, then cancel at review: signed-out
         // Tailscale must lose to ready Wi-Fi, but win when Wi-Fi is absent.
         lan = '192.168.1.8';
@@ -124,7 +163,7 @@ async function checkWizard() {
         assert.deepEqual(calls.map(([name]) => name), ['prerequisites', 'start', 'screen', 'pair', 'inspect']);
         assert.deepEqual(calls.find(([name]) => name === 'pair')[1], ['--browser']);
         assert.deepEqual(calls.find(([name]) => name === 'start')[1], [
-            '--port', '8792', '--connection-mode', 'external', '--reconfigure',
+            '--port', '18792', '--connection-mode', 'external', '--reconfigure',
             '--advertise', 'wss://relay.example', '--web', '--yes',
         ]);
 
@@ -137,5 +176,5 @@ async function checkWizard() {
         mock.restoreAll();
         rmSync(scratch, { recursive: true, force: true });
     }
-    process.stdout.write('setup wizard: signed-out routes, external fallback, completed steps, and empty agent status passed\n');
+    process.stdout.write('setup wizard: connected/blocked/signed-out routes, external fallback, cancellation, completed steps, and empty agent status passed\n');
 }
