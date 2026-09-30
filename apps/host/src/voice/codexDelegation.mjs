@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { respond } from '@byokit/accounts';
 import { voiceTools } from './toolRuntime.mjs';
 import { appControlInstructions, cleanProviderProse, safeVoiceToolFailure, voiceCoordinationInstructions } from './coordinatorPolicy.mjs';
 
@@ -70,15 +71,9 @@ function messageItem(role, text) {
     return { type: 'message', role, content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text }] };
 }
 
-function itemText(item) {
-    return (Array.isArray(item?.content) ? item.content : [])
-        .map((part) => (typeof part?.text === 'string' ? part.text : ''))
-        .join(' ').trim();
-}
-
 /** One SSE data block -> parsed event, or null for comments/keep-alives/bad JSON. */
 function parseEventBlock(block) {
-    const data = block.split('\n')
+    const data = block.split(/\r\n|\r|\n/)
         .filter((line) => line.startsWith('data:'))
         .map((line) => line.slice(5).trim())
         .join('\n');
@@ -86,115 +81,108 @@ function parseEventBlock(block) {
     try { return JSON.parse(data); } catch { return null; }
 }
 
-async function providerErrorDetail(response) {
-    const reader = response.body?.getReader();
-    if (!reader) return '';
-    const chunks = [];
-    let bytes = 0;
-    try {
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            bytes += value.byteLength;
-            if (bytes > 8192) return '';
-            chunks.push(value);
-        }
-        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        return cleanProviderProse(body?.error?.message ?? body?.detail ?? body?.error?.code, '', 200);
-    } catch {
-        return '';
-    } finally {
-        await reader.cancel().catch(() => undefined);
-        reader.releaseLock();
-    }
-}
-
 /**
- * Streams one planning turn. Returns { items, terminal } where terminal.kind is
- * 'completed' on success, otherwise one of 'failed' | 'incomplete' (provider
- * terminal events), 'http' (non-2xx), 'unreachable' (connection failure),
- * 'disconnected' (stream ended without a terminal event), or the caller-facing
- * 'cancelled' | 'timeout'. No output item authorizes a tool until the planning
- * response completes successfully.
+ * Kit gaps in 0.6.0: respond has no response byte bound or redirect policy and
+ * treats response.incomplete as success. This fetch guard owns those admission
+ * rules and stream cleanup only; the kit owns headers, request shape, SSE output
+ * parsing and provider errors. No output is executed until respond succeeds.
  */
-async function planTurn({ credential, input, model, signal }) {
-    let response;
-    try {
-        response = await fetch(RESPONSES_URL, {
-            method: 'POST',
-            redirect: 'error',
-            headers: {
-                Authorization: `Bearer ${credential.token}`,
-                'chatgpt-account-id': credential.account,
-                'Content-Type': 'application/json',
-                Accept: 'text/event-stream',
-                'User-Agent': 'muxr-voice-delegation/1.0',
-                originator: 'muxr-voice-delegation',
-            },
-            body: JSON.stringify({
-                model,
-                instructions: PLANNER_INSTRUCTIONS,
-                input,
-                tools: catalog,
-                tool_choice: 'auto',
-                parallel_tool_calls: false,
-                store: false,
-                stream: true,
-                reasoning: { effort: 'low' },
-            }),
-            signal,
-        });
-    } catch (error) {
-        if (signal.aborted) return { items: [], terminal: { kind: signal.reason?.name === 'TimeoutError' ? 'timeout' : 'cancelled' } };
-        return { items: [], terminal: { kind: 'unreachable' } };
-    }
-    if (!response.ok || !response.body) {
-        const detail = await providerErrorDetail(response);
-        return { items: [], terminal: { kind: 'http', status: response.status, detail } };
-    }
-    const items = [];
+async function planningFetch(url, options, ownReader) {
+    const response = await fetch(url, { ...options, redirect: 'error' });
+    if (!response.body) return response;
     const reader = response.body.getReader();
+    let released = false;
+    const release = () => {
+        if (released) return;
+        released = true;
+        reader.releaseLock();
+    };
+    const cancel = async (reason) => {
+        if (released) return;
+        await reader.cancel(reason).catch(() => undefined);
+        release();
+    };
+    ownReader(cancel);
+    const assertComplete = (block) => {
+        const event = parseEventBlock(block);
+        if (event?.type === 'response.incomplete' || event?.type === 'response.failed') {
+            throw new Error('Codex planning response did not complete.');
+        }
+        return event?.type === 'response.completed';
+    };
     const decoder = new TextDecoder();
     let bytes = 0;
     let buffer = '';
-    let terminal = null;
-    const finish = (kind, detail) => { terminal = { kind, ...(detail ? { detail } : {}) }; };
-    try {
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            bytes += value.byteLength;
-            if (bytes > RESPONSE_MAX_BYTES) return { items: [], terminal: { kind: 'oversized' } };
-            buffer += decoder.decode(value, { stream: true });
-            let separator;
-            while ((separator = /\r?\n\r?\n/.exec(buffer)) !== null) {
-                const event = parseEventBlock(buffer.slice(0, separator.index));
-                buffer = buffer.slice(separator.index + separator[0].length);
-                if (!event || typeof event.type !== 'string') continue;
-                if (event.type === 'response.output_item.done' && event.item) items.push(event.item);
-                else if (event.type === 'response.completed') {
-                    if (items.length === 0 && Array.isArray(event.response?.output)) items.push(...event.response.output);
-                    finish('completed');
-                } else if (event.type === 'response.failed') {
-                    finish('failed', cleanProviderProse(event.response?.error?.message ?? event.response?.error?.code, '', 200));
-                } else if (event.type === 'response.incomplete') {
-                    finish('incomplete', cleanProviderProse(event.response?.incomplete_details?.reason, '', 80));
-                } else if (event.type === 'error') {
-                    finish('failed', cleanProviderProse(event.message, '', 200));
+    let completed = false;
+    const body = new ReadableStream({
+        async pull(controller) {
+            try {
+                const { done, value } = await reader.read();
+                if (done) {
+                    if (response.ok) assertComplete(buffer + decoder.decode());
+                    release();
+                    controller.close();
+                    return;
                 }
-                if (terminal) break;
+                bytes += value.byteLength;
+                if (bytes > (response.ok ? RESPONSE_MAX_BYTES : 8192)) throw new Error('Codex planning response exceeded its bound.');
+                if (response.ok) {
+                    buffer += decoder.decode(value, { stream: true });
+                    let separator;
+                    while ((separator = /\r\n\r\n|\n\n|\r\r/.exec(buffer)) !== null) {
+                        completed = assertComplete(buffer.slice(0, separator.index));
+                        buffer = buffer.slice(separator.index + separator[0].length);
+                        if (completed) break;
+                    }
+                }
+                controller.enqueue(value);
+                if (completed) {
+                    await cancel();
+                    controller.close();
+                }
+            } catch (error) {
+                await cancel();
+                controller.error(error);
             }
-            if (terminal) break;
-        }
+        },
+        cancel,
+    });
+    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
+async function planTurn({ credential, input, model, signal }) {
+    let cancelResponse;
+    let httpStatus;
+    try {
+        const result = await respond({
+            access: credential.token,
+            accountId: credential.account,
+            model,
+            instructions: PLANNER_INSTRUCTIONS,
+            input,
+            tools: catalog,
+            tool_choice: 'auto',
+            reasoning: { effort: 'low' },
+            originator: 'muxr-voice-delegation',
+            // Production destination is the kit default. Only the admitted
+            // loopback fixture receives an override, with the kit's path suffix.
+            ...(process.env.NODE_ENV === 'test' ? { base: RESPONSES_URL.replace(/\/codex\/responses$/, '') } : {}),
+            fetch: async (url, options) => {
+                const response = await planningFetch(url, options, (cancel) => { cancelResponse = cancel; });
+                if (!response.ok) httpStatus = response.status;
+                return response;
+            },
+            signal,
+        });
+        return { items: result.output, text: result.text, terminal: { kind: 'completed' } };
     } catch (error) {
-        return { items, terminal: { kind: signal.aborted ? (signal.reason?.name === 'TimeoutError' ? 'timeout' : 'cancelled') : 'disconnected' } };
+        if (signal.aborted) return { items: [], terminal: { kind: signal.reason?.name === 'TimeoutError' ? 'timeout' : 'cancelled' } };
+        if (httpStatus) return { items: [], terminal: { kind: 'http', status: httpStatus, detail: cleanProviderProse(error.message, '', 200) } };
+        return { items: [], terminal: { kind: 'failed' } };
     } finally {
-        await reader.cancel().catch(() => undefined);
-        reader.releaseLock();
+        // 0.6.0 respond waits for EOF and does not cancel on SSE parse errors.
+        await cancelResponse?.();
     }
-    // A stream that ends without a terminal event is an error, never a result.
-    if (!terminal) finish('disconnected');
-    return { items, terminal };
 }
 
 const receiptAnswer = (executed) => executed
@@ -264,7 +252,7 @@ export function createCodexDelegation({ getCredential, runTool } = {}) {
         const signal = AbortSignal.any([lifetime.signal, deadline, ...(callerSignal ? [callerSignal] : [])]);
         const executed = [];
         for (let turn = 0; turn < MAX_MODEL_TURNS; turn++) {
-            const { items, terminal } = await planTurn({ credential, input: history, model: DEFAULT_MODEL, signal: AbortSignal.any([signal, AbortSignal.timeout(TURN_TIMEOUT_MS)]) });
+            const { items, text, terminal } = await planTurn({ credential, input: history, model: DEFAULT_MODEL, signal: AbortSignal.any([signal, AbortSignal.timeout(TURN_TIMEOUT_MS)]) });
             if (terminal.kind !== 'completed') {
                 // Cancelled or timed out: run nothing new; report what already executed.
                 if (terminal.kind === 'cancelled' || terminal.kind === 'timeout') {
@@ -279,7 +267,6 @@ export function createCodexDelegation({ getCredential, runTool } = {}) {
             const calls = items.filter((item) => item?.type === 'function_call');
             if (calls.some((call) => typeof call.call_id !== 'string' || !call.call_id || call.call_id.length > 160
                 || typeof call.arguments !== 'string' || byteLength(call.arguments) > MAX_REQUEST_BYTES)) return failureAnswer(executed);
-            const text = items.filter((item) => item?.type === 'message').map(itemText).join(' ').trim();
             if (calls.length === 0) {
                 const answer = cleanProviderProse(text, executed.length > 0 ? `Results — ${receiptAnswer(executed)}` : 'No answer was produced, and no action was performed.', ANSWER_MAX_CHARS);
                 pushCapped(history, messageItem('assistant', answer));

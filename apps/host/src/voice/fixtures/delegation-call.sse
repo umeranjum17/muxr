@@ -1,0 +1,6 @@
+: Sanitized Responses protocol fixture; no live account data.
+
+data: {"type":"response.output_item.done","item":{"id":"function_fixture","type":"function_call","call_id":"call_fixture","name":"prompt_agent","arguments":"{\"agent\":\"Jane\",\"text\":\"Explain the review delay.\"}"}}
+
+data: {"type":"response.completed","response":{"id":"response_fixture","status":"completed","output":[{"id":"function_fixture","type":"function_call","call_id":"call_fixture","name":"prompt_agent","arguments":"{\"agent\":\"Jane\",\"text\":\"Explain the review delay.\"}"}]}}
+

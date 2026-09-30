@@ -7,6 +7,7 @@
  * into this process for one signaling request and never enters muxr frames,
  * arguments, logs, environment, or storage.
  */
+import { claims } from '@byokit/accounts';
 import { spawn, spawnSync } from 'node:child_process';
 import { lstatSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -115,10 +116,12 @@ async function boundedResponseBody(response) {
     return Buffer.concat(chunks).toString('utf8');
 }
 
+// Kit gap (@byokit/accounts 0.6.0): fileStore is Pi-shaped and keepFresh uses
+// Pi OAuth, not an explicit Codex CLI folder/app-server. Keep only that adapter
+// here until the kit can own the passed CODEX_HOME without migrating its store.
 let authRefresh;
 
 async function refreshCodexAuthOnce() {
-    if (process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_CODEX_TOKEN) return;
     const { promise, resolve, reject } = Promise.withResolvers();
     const child = spawn(CODEX_BIN, ['app-server', '--listen', 'stdio://'], { stdio: ['pipe', 'pipe', 'ignore'] });
     let output = '';
@@ -185,7 +188,7 @@ async function refreshCodexAuth() {
 
 function tokenAccountId(token) {
     try {
-        const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'));
+        const payload = claims(token);
         return payload['https://api.openai.com/auth']?.chatgpt_account_id;
     } catch { return undefined; }
 }
@@ -203,7 +206,7 @@ function bindCredential(token, account) {
 
 function tokenExpiry(token) {
     try {
-        const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'));
+        const payload = claims(token);
         return typeof payload.exp === 'number' && Number.isFinite(payload.exp) ? payload.exp : undefined;
     } catch { return undefined; }
 }
@@ -236,9 +239,6 @@ async function readCodexCredential() {
 }
 
 async function codexCredential() {
-    if (process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_CODEX_TOKEN) {
-        return bindCredential(process.env.MUXR_TEST_CODEX_TOKEN, process.env.MUXR_TEST_CODEX_ACCOUNT_ID);
-    }
     let credential = await readCodexCredential();
     if (needsTokenRefresh(credential.token)) {
         await refreshCodexAuth();
@@ -451,8 +451,7 @@ export function start() {
  * to store; the settings screen reports the login instead.
  */
 export function status() {
-    const binary = process.env.MUXR_CODEX_BIN?.trim() || 'codex';
-    const login = spawnSync(binary, ['login', 'status'], { encoding: 'utf8', timeout: 10_000, maxBuffer: 256 * 1024 });
+    const login = spawnSync(CODEX_BIN, ['login', 'status'], { encoding: 'utf8', timeout: 10_000, maxBuffer: 256 * 1024 });
     const authenticated = login.status === 0 && /logged in using chatgpt/i.test(`${login.stdout}${login.stderr}`);
     let privateStore = false;
     try {

@@ -1,0 +1,6 @@
+: Sanitized Responses protocol fixture; no live account data.
+
+data: {"type":"response.output_item.done","item":{"id":"message_fixture","type":"message","role":"assistant","content":[{"type":"output_text","text":"Queued: instruction for Jane."}]}}
+
+data: {"type":"response.completed","response":{"id":"response_fixture","status":"completed","output":[{"id":"message_fixture","type":"message","role":"assistant","content":[{"type":"output_text","text":"Queued: instruction for Jane."}]}]}}
+
