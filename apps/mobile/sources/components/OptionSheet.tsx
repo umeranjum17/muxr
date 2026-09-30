@@ -98,6 +98,8 @@ export function OptionSheet({
         [models, provider, search],
     );
     const sheetCap = Math.min(windowHeight * 0.82, windowHeight - safeArea.top - 24);
+    // The handle and title above a body; a body that draws its own title only pays for the handle.
+    const bodyCap = sheetCap - (title === '' ? 40 : 108);
     const showSearch = !!onSubmitCustom || models.length > SEARCH_THRESHOLD;
     const typed = search.trim();
     const custom = onSubmitCustom && typed.length > 0 && !models.some((model) => model.name === typed)
@@ -188,8 +190,8 @@ export function OptionSheet({
 
                     {body ? (
                         virtualizedBody
-                            ? <View style={{ height: Math.min(sheetCap - 108, virtualizedBodyHeight ?? sheetCap - 108) }}>{body}</View>
-                            : <ScrollView style={{ maxHeight: sheetCap - 108 }}>{body}</ScrollView>
+                            ? <View style={{ height: Math.min(bodyCap, virtualizedBodyHeight ?? bodyCap) }}>{body}</View>
+                            : <ScrollView style={{ maxHeight: bodyCap }}>{body}</ScrollView>
                     ) : (
                     <View style={styles.body}>
                         {providers.length > 1 && (
