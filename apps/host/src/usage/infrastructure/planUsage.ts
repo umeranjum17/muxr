@@ -175,10 +175,15 @@ export async function readPlan(reader: Usage, source: Source | undefined, nowMs:
     if (!refresh) return reader.read(source, { nowMs });
     // Account selection needs a fresh hint without reading or updating the
     // standing account cache. The kit owns the isolated read and its storage.
-    const stateDir = mkdtempSync(join(tmpdir(), 'muxr-usage-refresh-'));
+    let stateDir: string;
+    try {
+        stateDir = mkdtempSync(join(tmpdir(), 'muxr-usage-refresh-'));
+    } catch { return undefined; }
     try {
         return await usage({ stateDir, salt: 'muxr/usage/account' }).read(source, { nowMs });
     } finally {
-        rmSync(stateDir, { recursive: true, force: true });
+        try {
+            rmSync(stateDir, { recursive: true, force: true });
+        } catch {}
     }
 }
