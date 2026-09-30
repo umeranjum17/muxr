@@ -6,13 +6,18 @@ import { refreshPlans, usePlansStore } from './plansStore';
 /** Opens the provider's own sign-in in a new tab, in a fresh private space
  *  (or the account's own, to sign in again). The tab is the returned session. */
 export function startSignIn(provider: string, accountId?: string) {
-    return sync.request('plans.add', { provider, ...(accountId === undefined ? {} : { accountId }) });
+    return sync.request('plans.add', { provider, ...(accountId === undefined ? {} : { accountId }) }, 60_000);
 }
 
 /** The one-time Auto note has been shown; the host never lists it as unseen again. */
 export async function acknowledgeAutoTerms(): Promise<void> {
+    await sync.request('plans.acknowledgeAutoTerms', {});
     usePlansStore.setState((state) => (state.list === null ? {} : { list: { ...state.list, autoTermsAcknowledged: true } }));
-    await sync.request('plans.acknowledgeAutoTerms', {}).catch(() => {});
+}
+
+export function unseenAutoTerms(): string | undefined {
+    const list = usePlansStore.getState().list;
+    return list?.autoTermsAcknowledged === false ? list.autoTermsNote : undefined;
 }
 
 /** The account being signed in, as its tool reports it now. */
@@ -39,13 +44,6 @@ export async function removeAccount(accountId: string): Promise<void> {
 /** The account a running agent is on, when muxr put it on one. */
 export function agentAccount(sessionId: string): Promise<string | undefined> {
     return sync.request('plans.agent', { sessionId }).then((answer) => answer.accountId);
-}
-
-/** How much the move re-reads: the conversation's size, when the host knows it. */
-export function conversationTokens(sessionId: string): Promise<number | undefined> {
-    return sync.request('session.status', { sessionId })
-        .then((status) => status.contextUsage?.tokens ?? undefined)
-        .catch(() => undefined);
 }
 
 export async function moveAgent(sessionId: string, accountId: string): Promise<{ sessionId: string }> {

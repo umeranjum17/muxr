@@ -6,7 +6,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
-import { planAccountForLaunch } from '@/plans';
+import { acknowledgeAutoTerms, planAccountForLaunch, unseenAutoTerms } from '@/plans';
 
 function pathForeignToHome(path: string, homeDir: string): boolean {
     if (path === '~' || (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path))) return false;
@@ -37,6 +37,17 @@ export async function startSessionFromDraft(options: {
 
     let createCwd = false;
     const planAccount = planAccountForLaunch(draft.agentType);
+    const termsNote = planAccount === 'auto' ? unseenAutoTerms() : undefined;
+    if (termsNote !== undefined) {
+        const approved = await Modal.confirm('Auto accounts', termsNote, { cancelText: 'Cancel', confirmText: 'Continue' });
+        if (!approved) return null;
+        try {
+            await acknowledgeAutoTerms();
+        } catch {
+            Modal.alert('Auto accounts', 'Could not save that the note was shown. Try again.');
+            return null;
+        }
+    }
     for (;;) {
         const result = await startAgentFromDock({
             machine,

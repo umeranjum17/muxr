@@ -59,6 +59,7 @@ import {
     removePlanAccount,
     signInTab,
     forgetSignInTab,
+    withPlanSignIn,
     renamePlanAccount,
     resolvePlanRecord,
     resolvePlanLaunch,
@@ -301,8 +302,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return presentAttachmentItems(listing.artifacts);
         },
         'session.start': async (params) => {
-            const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, ...start } =
-                params as typeof params & { planEnv?: unknown };
+            const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, signIn: _signIn, ...start } =
+                params as typeof params & { planEnv?: unknown; signIn?: unknown };
             if (planAccount !== undefined && (start.kinds !== undefined || start.members !== undefined)) {
                 throw Object.assign(
                     new Error('A squad cannot start on one plan account. Start its agents separately.'),
@@ -581,7 +582,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plans.list': () => listPlans(process.env),
         'plans.acknowledgeAutoTerms': async () => acknowledgeAutoTerms(process.env),
         'plans.rename': async (params) => renamePlanAccount(process.env, params.accountId, params.name),
-        'plans.remove': async (params) => removePlanAccount(process.env, params.accountId),
+        'plans.remove': (params) => withPlanSignIn(params.accountId, async () => {
+            await closeSignInTab(params.accountId);
+            return removePlanAccount(process.env, params.accountId);
+        }),
         'plans.move': async (params) => {
             const selected = resolvePlanRecord(process.env, params.accountId);
             const record = await resolvePlanLaunch(process.env, params.accountId, selected.provider);
@@ -618,35 +622,39 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             }
         },
         'plans.add': async (params) => {
-            const { record, created } = preparePlanSignIn(process.env, params.provider, params.accountId);
-            let previous: { created: boolean } | undefined;
-            try {
-                previous = await closeSignInTab(record.id);
-                const started = useCaseData(await startAgent({
-                    exists: existsSync,
-                    create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
-                    start: (command) => source.start(command),
-                }, { cwd: homedir(), ...planSignInLaunch(record) }));
-                if (!('info' in started)) throw new Error(`Couldn't open ${PLAN_LABELS[record.provider]} sign-in. Try again.`);
-                rememberSignInTab(record.id, started.info.paneId ?? started.info.id, created || previous?.created === true);
-                return { accountId: record.id, sessionId: started.info.id };
-            } catch (error) {
-                if (created || previous?.created === true) removePlanAccount(process.env, record.id);
-                throw error;
-            }
+            const prepared = params.accountId === undefined ? await preparePlanSignIn(process.env, params.provider) : undefined;
+            const accountId = params.accountId ?? prepared!.record.id;
+            return withPlanSignIn(accountId, async () => {
+                const { record, created } = prepared ?? await preparePlanSignIn(process.env, params.provider, accountId);
+                let previous: { created: boolean } | undefined;
+                try {
+                    previous = await closeSignInTab(record.id);
+                    const { launch, completionPath } = planSignInLaunch(process.env, record);
+                    const started = useCaseData(await startAgent({
+                        exists: existsSync,
+                        create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
+                        start: (command) => source.start(command),
+                    }, { cwd: homedir(), ...launch }));
+                    if (!('info' in started)) throw new Error(`Couldn't open ${PLAN_LABELS[record.provider]} sign-in. Try again.`);
+                    rememberSignInTab(record.id, started.info.paneId ?? started.info.id, created || previous?.created === true, completionPath);
+                    return { accountId: record.id, sessionId: started.info.id };
+                } catch (error) {
+                    if (created || previous?.created === true) removePlanAccount(process.env, record.id);
+                    throw error;
+                }
+            });
         },
-        'plans.status': async (params) => {
+        'plans.status': (params) => withPlanSignIn(params.accountId, async () => {
             const status = await planAccountStatus(process.env, params.accountId);
-            // Signed in: the tool's tab has done its job, so muxr closes it.
             if (status.account.signedIn) await closeSignInTab(params.accountId);
             return status;
-        },
-        'plans.cancel': async (params) => {
+        }),
+        'plans.cancel': (params) => withPlanSignIn(params.accountId, async () => {
             const tab = await closeSignInTab(params.accountId);
             if (tab?.created !== true) return { removed: false };
             removePlanAccount(process.env, params.accountId);
             return { removed: true };
-        },
+        }),
         'plans.agent': async (params) => planPaneAccount(process.env, await planPaneOf(params.sessionId)),
         'voice.status': () => voiceStatus(),
         'voice.provider.list': () => voiceProviderList(),

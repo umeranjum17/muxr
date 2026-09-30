@@ -9,7 +9,7 @@ import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
 import { bestMoveTarget, isLow, runningOn, type PlanAccount } from '../domain/planAccounts';
 import { refreshPlans, usePlans, useProviderChoice } from '../application/plansStore';
-import { agentAccount, conversationTokens, moveAgent, planFailure } from '../application/plansApi';
+import { agentAccount, moveAgent, planFailure } from '../application/plansApi';
 import { showNotice, useAccountFlows } from './AccountFlows';
 import { AccountRow, Note, Pill, PrimaryButton, SheetLede, SheetTitle, SignInPill, styles as parts } from './accountParts';
 
@@ -72,13 +72,6 @@ export function MoveAccountRow({ sessionId, agentKind, working, onOpen }: {
     );
 }
 
-/** "about 140k tokens", when the host knows the conversation's size. */
-function tokensWords(tokens: number | undefined): string {
-    if (tokens === undefined || !Number.isFinite(tokens) || tokens <= 0) return '';
-    if (tokens >= 1_000_000) return `about ${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M tokens`;
-    return `about ${Math.max(1, Math.round(tokens / 1000))}k tokens`;
-}
-
 /** The move itself: the roomiest other account preselected, the current one
  *  marked Now, and the cost said plainly. Mounted once in the overlay. */
 export function MoveSheet() {
@@ -93,7 +86,6 @@ export function MoveSheet() {
     const roomiest = best?.roomLeftPercent !== undefined
         && accounts.every((account) => !account.signedIn || (account.roomLeftPercent ?? -1) <= best.roomLeftPercent!);
     const [picked, setPicked] = React.useState<string | null>(null);
-    const [tokens, setTokens] = React.useState<number | undefined>();
     const [busy, setBusy] = React.useState(false);
     // The short reference phone keeps the accounts, the cost and the button on screen.
     const short = useWindowDimensions().height < 640;
@@ -101,12 +93,8 @@ export function MoveSheet() {
     React.useEffect(() => {
         setPicked(null);
         setBusy(false);
-        setTokens(undefined);
         if (moving === null) return;
         void refreshPlans();
-        let live = true;
-        void conversationTokens(moving.sessionId).then((count) => { if (live) setTokens(count); });
-        return () => { live = false; };
     }, [moving]);
 
     const close = () => useMoving.setState({ moving: null });
@@ -141,7 +129,6 @@ export function MoveSheet() {
         }
     };
 
-    const cost = tokensWords(tokens);
     return (
         <OptionSheet
             visible
@@ -167,7 +154,7 @@ export function MoveSheet() {
                     ))}
                     {target !== undefined && (
                         <Note icon="time-outline">
-                            {target.name} reads this conversation once from the start{cost ? `, ${cost} of its limit,` : ''} because nothing is saved up for it yet. After that it costs the same as usual.
+                            {target.name} reads this conversation once from the start. After that it costs the same as usual.
                         </Note>
                     )}
                     <PrimaryButton

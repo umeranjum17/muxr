@@ -2100,6 +2100,9 @@ export async function createHerdrSessionSource(
                 await refreshSnapshot();
                 const shell = currentSession(shellRoute(paneId));
                 if (shell === undefined) return earlyFailure();
+                if (startOptions.signIn !== undefined) {
+                    await client.call('pane.send_text', { pane_id: paneId, text: `${startOptions.signIn}\n` });
+                }
                 emitState(shell.sessionId);
                 return snapshotFor(shell, true);
             }
@@ -2126,7 +2129,7 @@ export async function createHerdrSessionSource(
             });
             transition(session, 'starting', 'start-requested');
             emitState(session.sessionId);
-            if (startOptions.signIn !== true) void confirmLaunch(paneId, kind, session.sessionId);
+            void confirmLaunch(paneId, kind, session.sessionId);
             return snapshotFor(session, true);
         } catch (error) {
             planAccountByPane.delete(paneId);

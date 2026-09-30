@@ -3,3 +3,4 @@
  *  in `./ui`. */
 export { planAccountForLaunch, usePlanAccountsAvailable } from './application/plansStore';
 export { useAccountLine, type AccountLine } from './application/accountHints';
+export { acknowledgeAutoTerms, unseenAutoTerms } from './application/plansApi';

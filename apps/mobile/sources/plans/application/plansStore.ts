@@ -44,7 +44,9 @@ export const usePlansStore = create<PlansState>()((set, get) => ({
     setAutoOn: (on) => {
         const { choices: previous, list } = get();
         const choices = { ...previous };
-        if (!on) {
+        if (on) {
+            for (const provider of Object.keys(choices)) choices[provider] = AUTO;
+        } else {
             for (const entry of list?.providers ?? []) {
                 if (effectiveChoice(entry, choices[entry.provider], true) !== AUTO) continue;
                 choices[entry.provider] = entry.auto.accountId ?? effectiveChoice(entry, undefined, false);

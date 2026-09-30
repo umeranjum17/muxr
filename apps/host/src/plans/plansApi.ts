@@ -90,23 +90,23 @@ async function providerRooms(
     return { accounts: reads.map((read) => read.account), rooms: reads.map((read) => read.room) };
 }
 
+function providerRecords(provider: PlanProvider, env: NodeJS.ProcessEnv): PlanAccountRecord[] {
+    const stored = loadPlanAccounts(env);
+    const own = stored.filter((record) => record.provider === provider);
+    const folder = defaultPlanFolder(provider, env);
+    if (!existsSync(folder) || own.some((record) => record.folder === folder)) return own;
+    const found: PlanAccountRecord = { id: `found-${provider}`, provider, name: '', folder, found: true };
+    savePlanAccounts(env, [found, ...stored]);
+    return [found, ...own];
+}
+
 export const AUTO_TERMS_NOTE = 'Auto may use either of a provider\'s accounts.';
 
 export async function listPlans(
     env: NodeJS.ProcessEnv = process.env,
     deps: PlansDeps = {},
 ): Promise<{ providers: PlanProviderAccounts[]; autoTermsAcknowledged: boolean; autoTermsNote: string }> {
-    const stored = loadPlanAccounts(env);
-    const perProvider = new Map(PLAN_PROVIDERS.map((provider) => {
-        const own = stored.filter((record) => record.provider === provider);
-        const found = defaultPlanFolder(provider, env);
-        const records = existsSync(found) && !own.some((record) => record.folder === found)
-            ? [{ id: `found-${provider}`, provider, name: '', folder: found, found: true }, ...own]
-            : own;
-        return [provider, records] as const;
-    }));
-    const merged = PLAN_PROVIDERS.flatMap((provider) => perProvider.get(provider) ?? []);
-    if (merged.length !== stored.length) savePlanAccounts(env, merged);
+    const perProvider = new Map(PLAN_PROVIDERS.map((provider) => [provider, providerRecords(provider, env)]));
     const reads = await Promise.all(PLAN_PROVIDERS.map(async (provider): Promise<PlanProviderAccounts | undefined> => {
         const { accounts, rooms } = await providerRooms(provider, perProvider.get(provider) ?? [], env, deps);
         if (accounts.length < 2) return undefined;
@@ -163,8 +163,10 @@ export async function resolvePlanLaunch(
         if (kind !== 'claude' && kind !== 'codex' && kind !== 'pi') {
             throw Object.assign(new Error('Choose a provider agent for Auto.'), { code: 'plan-kind-mismatch' });
         }
-        const plans = await listPlans(env, deps);
-        const accountId = plans.providers.find((entry) => entry.provider === provider)?.auto.accountId;
+        const records = providerRecords(provider, env);
+        if (records.length < 2) return undefined;
+        const { rooms } = await providerRooms(provider, records, env, deps);
+        const { accountId } = choosePlanAccount(rooms, PLAN_LABELS[provider]);
         if (accountId === undefined) return undefined;
         record = resolvePlanRecord(env, accountId);
     } else {

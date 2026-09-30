@@ -284,7 +284,7 @@ export async function machineSpawnNewSession(options: SpawnSessionOptions): Prom
             ...(input.parentAgentRoute === undefined ? {} : { parentSessionId: input.parentAgentRoute }),
             ...(input.kind === undefined ? {} : { kind: input.kind }),
             ...(options.planAccount === undefined ? {} : { planAccount: options.planAccount }),
-        }),
+        }, options.planAccount === undefined ? undefined : 180_000),
         waitUntilListed: refreshUntilSessionVisible,
         missingDirectory: (message) => message.includes(MISSING_CWD_ERROR_PREFIX),
     });

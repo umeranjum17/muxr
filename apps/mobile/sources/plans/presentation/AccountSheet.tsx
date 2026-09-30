@@ -47,7 +47,7 @@ export function AccountSheet({ visible, agentKind, agentName, onClose, onLeave }
         if (!visible) { setTermsNote(undefined); return; }
         if (!hasEntry || unseenNote === undefined || unseenNote === '') return;
         setTermsNote(unseenNote);
-        void acknowledgeAutoTerms();
+        void acknowledgeAutoTerms().catch(() => {});
     }, [visible, hasEntry, unseenNote]);
     const choose = usePlansStore((state) => state.choose);
     const flows = useAccountFlows(onLeave);

@@ -7,8 +7,10 @@
  * Which account each running agent is on is remembered here too, so the
  * phone can say "On Personal" and offer a move to the others.
  */
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { join } from 'node:path';
 import type { PlanAccount } from '@trymuxr/contract';
 import { claudeIdentity, codexIdentity } from './planIdentity.js';
@@ -24,17 +26,19 @@ import {
     type PlanProvider,
 } from './planStore.js';
 
+const execFileAsync = promisify(execFile);
+
 const SHARED_WITH_MAIN: Record<PlanProvider, string[]> = {
     claude: ['projects'],
     codex: ['sessions'],
 };
 
 /** A fresh sign-in space, or the account's own to sign in again. */
-export function preparePlanSignIn(
+export async function preparePlanSignIn(
     env: NodeJS.ProcessEnv,
     provider: string,
     accountId?: string,
-): { record: PlanAccountRecord; created: boolean } {
+): Promise<{ record: PlanAccountRecord; created: boolean }> {
     if (provider !== 'claude' && provider !== 'codex') {
         throw Object.assign(new Error('Only Claude and ChatGPT accounts can be added.'), { code: 'plan-provider-unsupported' });
     }
@@ -45,10 +49,21 @@ export function preparePlanSignIn(
     }
     const folder = join(plansDir(env), provider, randomBytes(8).toString('hex'));
     mkdirSync(folder, { recursive: true, mode: 0o700 });
-    // Only ever links inside muxr's own folder; muxr never writes the main sign-in.
-    for (const entry of SHARED_WITH_MAIN[provider]) {
-        const main = join(defaultPlanFolder(provider, env), entry);
-        if (existsSync(main)) symlinkSync(main, join(folder, entry));
+    try {
+        for (const entry of SHARED_WITH_MAIN[provider]) {
+            const main = join(defaultPlanFolder(provider, env), entry);
+            mkdirSync(main, { recursive: true, mode: 0o700 });
+            symlinkSync(main, join(folder, entry));
+        }
+        const folderVar = provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
+        await execFileAsync('herdr', ['integration', 'install', provider], {
+            env: { ...env, [folderVar]: folder },
+            timeout: 15_000,
+            maxBuffer: 64 * 1024,
+        });
+    } catch {
+        rmSync(folder, { recursive: true, force: true });
+        throw Object.assign(new Error("Couldn't prepare the account's Herdr hooks. Try again."), { code: 'plan-integration-failed' });
     }
     const record: PlanAccountRecord = { id: newPlanAccountId(), provider, name: '', folder, found: false };
     savePlanAccounts(env, [...loadPlanAccounts(env), record]);
@@ -58,29 +73,45 @@ export function preparePlanSignIn(
 /** The open sign-in tab per account, and whether its folder is new: a new
  *  one that never signed in goes when the person cancels. In memory only; a
  *  restarted host leaves the tab to the person. */
-const signInTabs = new Map<string, { paneId: string; created: boolean }>();
+const signInTabs = new Map<string, { paneId: string; created: boolean; completionPath: string }>();
+const signInOperations = new Map<string, Promise<unknown>>();
 
-export function rememberSignInTab(accountId: string, paneId: string, created: boolean): void {
-    signInTabs.set(accountId, { paneId, created });
+export function withPlanSignIn<T>(accountId: string, action: () => Promise<T>): Promise<T> {
+    const result = (signInOperations.get(accountId) ?? Promise.resolve()).then(action, action);
+    signInOperations.set(accountId, result);
+    return result.finally(() => {
+        if (signInOperations.get(accountId) === result) signInOperations.delete(accountId);
+    });
 }
 
-export function signInTab(accountId: string): { paneId: string; created: boolean } | undefined {
-    const tab = signInTabs.get(accountId);
-    return tab;
+export function rememberSignInTab(accountId: string, paneId: string, created: boolean, completionPath: string): void {
+    signInTabs.set(accountId, { paneId, created, completionPath });
+}
+
+export function signInTab(accountId: string) {
+    return signInTabs.get(accountId);
 }
 
 export function forgetSignInTab(accountId: string, paneId: string): void {
-    if (signInTabs.get(accountId)?.paneId === paneId) signInTabs.delete(accountId);
+    const tab = signInTabs.get(accountId);
+    if (tab?.paneId !== paneId) return;
+    rmSync(tab.completionPath, { force: true });
+    signInTabs.delete(accountId);
 }
 
-/** What the sign-in tab runs: the provider's own tool, pointed at the folder.
- *  A fresh folder opens straight onto the tool's own sign-in screen. */
-export function planSignInLaunch(record: PlanAccountRecord): { kind: string; label: string; planEnv: Record<string, string>; signIn: true } {
+export function planSignInLaunch(env: NodeJS.ProcessEnv, record: PlanAccountRecord): { completionPath: string; launch: { kind: string; label: string; signIn: string; planEnv: Record<string, string> } } {
+    mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
+    const completionPath = join(plansDir(env), `signin-${randomBytes(12).toString('hex')}`);
+    const quotedPath = "'" + completionPath.replaceAll("'", "'\\''") + "'";
+    const login = record.provider === 'claude' ? 'claude auth login --claudeai' : 'codex login --device-auth';
     return {
-        kind: record.provider,
-        label: `Sign in · ${PLAN_LABELS[record.provider]}`,
-        signIn: true,
-        planEnv: record.provider === 'claude' ? { CLAUDE_CONFIG_DIR: record.folder } : { CODEX_HOME: record.folder },
+        completionPath,
+        launch: {
+            kind: 'shell',
+            label: `Sign in · ${PLAN_LABELS[record.provider]}`,
+            signIn: `${login} && (umask 077; printf complete > ${quotedPath})`,
+            planEnv: record.provider === 'claude' ? { CLAUDE_CONFIG_DIR: record.folder } : { CODEX_HOME: record.folder },
+        },
     };
 }
 
@@ -99,7 +130,7 @@ export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: strin
             ...(identity.email === undefined ? {} : { email: identity.email }),
             ...(identity.plan === undefined ? {} : { plan: identity.plan }),
             ...(record.found ? { foundOnComputer: true as const } : {}),
-            signedIn: identity.signedIn,
+            signedIn: identity.signedIn && (signInTabs.get(accountId) === undefined || existsSync(signInTabs.get(accountId)!.completionPath)),
         },
     };
 }

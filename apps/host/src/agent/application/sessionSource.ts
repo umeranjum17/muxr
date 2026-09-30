@@ -51,10 +51,7 @@ export interface SessionStartOptions {
     planAccount?: string;
     /** Internal launch env for that account: merged into the new pane's env. Absent means today's launch. */
     planEnv?: Record<string, string>;
-    /** Internal: a Plan Account's sign-in tab. Its tool publishes no conversation
-     *  until the person has signed in, so the launch stays pending (and the tab
-     *  reachable) instead of failing after a minute; muxr closes it once signed in. */
-    signIn?: boolean;
+    signIn?: string;
     worktree?: { branch?: string; base?: string };
     /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
     kinds?: string[];

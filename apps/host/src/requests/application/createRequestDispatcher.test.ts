@@ -630,8 +630,10 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             expect(cancelled).toMatchObject({ ok: true, data: { removed: false } });
 
             // A second sign-in closes the still-open first tab before tracking the new one.
-            await dispatch({ type: 'plans.add', requestId: 'a2', params: { provider: 'claude', accountId: 'pa_s' } });
-            await dispatch({ type: 'plans.add', requestId: 'a3', params: { provider: 'claude', accountId: 'pa_s' } });
+            await Promise.all([
+                dispatch({ type: 'plans.add', requestId: 'a2', params: { provider: 'claude', accountId: 'pa_s' } }),
+                dispatch({ type: 'plans.add', requestId: 'a3', params: { provider: 'claude', accountId: 'pa_s' } }),
+            ]);
             expect(stopped).toEqual(['tab-1', 'tab-2']);
             await dispatch({ type: 'plans.cancel', requestId: 'c2', params: { accountId: 'pa_s' } });
             expect(stopped).toEqual(['tab-1', 'tab-2', 'tab-3']);

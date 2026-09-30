@@ -36,8 +36,9 @@ describe('which account a launch carries', () => {
         expect(planAccountForLaunch('pi')).toBe('auto');
         usePlansStore.getState().setAutoOn(false);
         expect(planAccountForLaunch('claude')).toBe('pa_work');
-        usePlansStore.getState().choose('claude', 'auto');
+        usePlansStore.getState().setAutoOn(true);
         expect(usePlansStore.getState().autoOn).toBe(true);
+        expect(planAccountForLaunch('claude')).toBe('auto');
         expect(planAccountForLaunch('codex')).toBeUndefined();
         expect(planAccountForLaunch('gemini')).toBeUndefined();
 
