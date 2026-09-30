@@ -582,6 +582,23 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             expect(failed).toMatchObject({ ok: false, code: 'plan-move-start-failed' });
             expect(String((failed as { error: string }).error)).toContain("Couldn't start on Work");
             expect(failed).not.toHaveProperty('sessionId');
+
+            const exposed = {
+                async movePlanAccount() {
+                    throw Object.assign(new Error('The move did not finish. An extra copy is open; you can close it from its pane.'), {
+                        code: 'plan-move-extra-copy', paneId: 'w1:p3',
+                    });
+                },
+                async list() { return [{ id: 'moved', paneId: 'w1:p2' }, { id: 'extra', paneId: 'w1:p3' }]; },
+            } as unknown as SessionSource;
+            const { dispatch: dispatchExposed } = createRequestDispatcher({ source: exposed, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
+            const unfinished = await dispatchExposed({ type: 'plans.move', requestId: 'm3', params: { sessionId: 'moved', accountId: 'pa_w' } });
+            expect(unfinished).toMatchObject({ ok: false, code: 'plan-move-extra-copy' });
+            expect(unfinished).not.toHaveProperty('paneId');
+            expect(await dispatchExposed({ type: 'plans.agent', requestId: 'a1', params: { sessionId: 'extra' } }))
+                .toMatchObject({ ok: true, data: { accountId: 'pa_w' } });
+            expect(await dispatchExposed({ type: 'plans.agent', requestId: 'a2', params: { sessionId: 'moved' } }))
+                .toMatchObject({ ok: true, data: { accountId: 'pa_w' } });
         } finally {
             if (keepHome === undefined) delete process.env.HOME;
             else process.env.HOME = keepHome;

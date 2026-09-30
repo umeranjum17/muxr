@@ -394,6 +394,7 @@ describe('a plan-account move', () => {
             await expect(moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' }))
                 .rejects.toMatchObject({
                     code: 'plan-move-extra-copy',
+                    paneId: 'p2',
                     message: 'The move did not finish. An extra copy is open; you can close it from its pane.',
                 });
             const listed = await source.list();

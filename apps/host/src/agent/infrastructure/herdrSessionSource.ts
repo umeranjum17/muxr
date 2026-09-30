@@ -3108,7 +3108,7 @@ export async function createHerdrSessionSource(
                     await refreshSnapshot().catch(() => undefined);
                     emitAllStates();
                     throw Object.assign(new Error('The move did not finish. An extra copy is open; you can close it from its pane.'), {
-                        code: 'plan-move-extra-copy', cause: cleanupError,
+                        code: 'plan-move-extra-copy', paneId: newPaneId, cause: cleanupError,
                     });
                 }
                 agentsByPane.delete(newPaneId);

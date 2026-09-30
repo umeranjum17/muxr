@@ -605,6 +605,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 await rememberPane(await planPaneOf(moved.sessionId), record.id);
                 return moved;
             } catch (error) {
+                const exposed = error as { code?: unknown; paneId?: unknown };
+                if (exposed.code === 'plan-move-extra-copy' && typeof exposed.paneId === 'string') {
+                    await rememberPane(exposed.paneId, record.id);
+                }
                 if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
                     const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
                     throw Object.assign(new Error(`Couldn't start on ${name}. The original conversation is still running. Try again.`), {

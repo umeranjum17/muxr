@@ -6,7 +6,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
-import { planConnection, samePlanConnection, acknowledgeAutoTerms, planAccountForLaunch, unseenAutoTerms } from '@/plans';
+import { planConnection, samePlanConnection, refreshPlans, acknowledgeAutoTerms, planAccountForLaunch, unseenAutoTerms } from '@/plans';
 
 function pathForeignToHome(path: string, homeDir: string): boolean {
     if (path === '~' || (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path))) return false;
@@ -37,6 +37,8 @@ export async function startSessionFromDraft(options: {
     );
 
     let createCwd = false;
+    await refreshPlans(connection);
+    if (!samePlanConnection(connection)) return null;
     const planAccount = planAccountForLaunch(draft.agentType);
     const termsNote = planAccount === 'auto' ? unseenAutoTerms() : undefined;
     if (termsNote !== undefined) {
