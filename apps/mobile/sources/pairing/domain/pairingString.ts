@@ -1,3 +1,4 @@
+import { parseOffer, type PairOffer } from '@byokit/link';
 import { decodeBase64 } from '@/encryption/base64';
 
 const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
@@ -171,12 +172,10 @@ export function prepareHostedPairingInput(value: string): string {
     return parsed.pairing.url;
 }
 
-function linkOfferDisplay(url: string): Record<string, unknown> | undefined {
+function linkOfferDisplay(url: string): PairOffer | undefined {
     if (!looksLikeLinkOffer(url)) return undefined;
-    try {
-        const payload = url.slice(url.indexOf('byokit-link:1:') + 'byokit-link:1:'.length);
-        return JSON.parse(new TextDecoder().decode(decodeBase64(payload, 'base64url'))) as Record<string, unknown>;
-    } catch { return undefined; }
+    try { return parseOffer(url, 0); }
+    catch { return undefined; }
 }
 
 function pairingAuthorityOf(url: string): PairingAuthority {

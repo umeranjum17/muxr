@@ -943,7 +943,7 @@ try {
     assert.notEqual(hungDoctor.status, 0, 'doctor accepted an unresponsive Herdr server');
     assert.ok(Date.now() - hungProbeStarted < 3_000, 'unresponsive Herdr blocked doctor');
     const wizardUrl = `file://${join(installDir, 'node_modules', '@trymuxr', 'cli', 'setup/presentation/setupWizard.mjs')}`;
-    const deadInspection = run(process.execPath, ['--input-type=module', '-e', `import {probeMachine} from ${JSON.stringify(wizardUrl)}; console.log(JSON.stringify(probeMachine().herdr))`], { cwd: installDir, env });
+    const deadInspection = run(process.execPath, ['--input-type=module', '-e', `import {probeMachine} from ${JSON.stringify(wizardUrl)}; console.log(JSON.stringify((await probeMachine()).herdr))`], { cwd: installDir, env });
     assert.equal(JSON.parse(deadInspection.stdout).running, false, 'onboarding accepted a stopped Herdr server');
     const restarted = run(cli, ['daemon', 'restart'], { cwd: installDir, env });
     assert.ok(existsSync(fakeServerState), 'daemon restart did not recover a stopped Herdr server');

@@ -1,7 +1,6 @@
 /** Runnable proof that the E2EE codec round-trips and rejects tampering. */
 
 import assert from 'node:assert/strict';
-import nacl from 'tweetnacl';
 import {
     createDeviceGrant,
     createSignedPeerDescriptor,
@@ -14,16 +13,18 @@ import {
     grantAuthority,
     grantIsPeer,
     grantHasExpired,
+    openPeerInstallBundle,
+    sealPeerInstallBundle,
 } from './index.js';
 
-const dataRoot = nacl.randomBytes(32);
+const dataRoot = crypto.getRandomValues(new Uint8Array(32));
 
 // --- machine identity + device grants ---------------------------------------
 
 const machineSigning = generateSigningKeyPair();
 const machineX = generateKeyPair();
 const deviceX = generateKeyPair();
-const ingressRoot = nacl.randomBytes(32);
+const ingressRoot = crypto.getRandomValues(new Uint8Array(32));
 const targetSigning = generateSigningKeyPair();
 const preparedPeer = generateKeyPair();
 const peerDescriptor = createSignedPeerDescriptor({
@@ -107,8 +108,25 @@ assert.throws(() => createDeviceGrant({
     capabilities: ['list', 'read', 'status', 'watch', 'prompt'],
 }), /broad authority/, 'peer grants reject control authority');
 
-// Grant negative cases.
+// Grant and install bundle negative cases.
 const wrongPinned = generateSigningKeyPair().publicKey;
+const installBundle = sealPeerInstallBundle({
+    payload: {
+        v: 1, relationshipId: 'peer-install-1', targetMachineId: 'm2',
+        targetMachineSigningPublicKey: targetSigning.publicKey, relayUrl: 'wss://relay.example.test',
+        peerDeviceId: 'peer-1', grant: peerGrant,
+        capabilities: ['list', 'read', 'status', 'watch', 'prompt'], issuedAt: Date.now(),
+    },
+    targetMachineSigningSecretKey: targetSigning.secretKey,
+    targetMachineKey: machineX,
+    peerPublicKey: preparedPeer.publicKey,
+});
+const installOptions = { peerKey: preparedPeer, pinnedTargetMachineSigningPublicKey: targetSigning.publicKey };
+assert.equal(openPeerInstallBundle(installBundle, installOptions).peerDeviceId, openedPeerGrant.deviceId);
+assert.throws(() => openPeerInstallBundle(installBundle, { ...installOptions, pinnedTargetMachineSigningPublicKey: wrongPinned }), /pinned/, 'install bundles reject the wrong machine authority');
+const sealedInstall = JSON.parse(installBundle);
+assert.throws(() => openPeerInstallBundle(JSON.stringify({ ...sealedInstall, box: tamperBase64(sealedInstall.box) }), installOptions), /decryption/, 'tampered install boxes fail');
+assert.throws(() => openPeerInstallBundle(JSON.stringify({ ...sealedInstall, sig: signDetached(Buffer.from('different bundle'), targetSigning.secretKey) }), installOptions), /signature/, 'tampered install signatures fail');
 assert.throws(() => verifyDeviceGrant(grant, { pinnedMachineSigningPublicKey: wrongPinned, deviceKey: deviceX }), /pinned/, 'wrong pinned key fails');
 assert.throws(() => verifyDeviceGrant(grant, { pinnedMachineSigningPublicKey: machineSigning.publicKey, deviceKey: generateKeyPair() }), /decryption/, 'wrong device key fails');
 assert.throws(() => verifyDeviceGrant(grant, { pinnedMachineSigningPublicKey: machineSigning.publicKey, deviceKey: deviceX, deviceId: 'dev-2' }), /device id mismatch/, 'device id binding fails');
@@ -137,4 +155,4 @@ function tamperBase64(value: string): string {
     return value.slice(0, at) + (value[at] === 'A' ? 'B' : 'A') + value.slice(at + 1);
 }
 
-process.stdout.write('PASS: crypto selfCheck (signed grants, peer descriptors)\n');
+process.stdout.write('PASS: crypto selfCheck (signed grants, peer descriptors, install bundles)\n');

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
-import nacl from 'tweetnacl';
+import { signDetached } from '@byokit/seal';
 import { parsePendingRemote, pairingIntentFromSelfhostFlags } from '../domain/dist/index.js';
 import {
     api,
@@ -73,7 +73,7 @@ export async function connectEnrollment(args = []) {
         const reuseIdentity = existing?.relayLocation === 'remote' && publicRelayUrl(existing.relayUrl) === enrollment.relay;
         const identity = machineIdentity(reuseIdentity ? existing : undefined);
         const message = Buffer.from(`muxr-enroll-v2\n${enrollment.id}\n${enrollment.relay}\n${identity.crypto.signingPublicKey}\n${identity.crypto.boxPublicKey}`, 'utf8');
-        const proof = Buffer.from(nacl.sign.detached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
+        const proof = Buffer.from(signDetached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
         const enrollmentBase = env('MUXR_REMOTE_CONTROL_BASE')?.replace(/\/$/, '') ?? enrollment.relay.replace(/^wss:/, 'https:');
         const claimed = await api(enrollmentBase, `/v1/selfhost/enrollments/${encodeURIComponent(enrollment.id)}/claim`, {
             method: 'POST',

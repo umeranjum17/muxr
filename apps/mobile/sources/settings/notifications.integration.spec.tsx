@@ -38,6 +38,7 @@ vi.mock('@/components/Switch', () => ({ Switch: (props: Record<string, unknown>)
 import NotificationSettingsScreen from '../app/(app)/settings/notifications';
 import { refreshPushState, updateWebPushNotificationLevel } from '@/utils/pushNotifications';
 import { setActiveSessionClient } from '@/connection/sessionClientRef';
+import { openLifecycleNotice } from '@/utils/openLifecycleNotice';
 
 let rendered: ReturnType<typeof TestRenderer.create> | undefined;
 
@@ -123,7 +124,12 @@ it('keeps the visible switches, relay order, and worker admission in sync', asyn
     const shown = vi.fn(async () => {});
     let cacheFailure: 'open' | 'match' | 'text' | null = null;
     vm.runInNewContext(readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf8'), {
-        self: { addEventListener: (name: string, listener: (event: any) => void) => { listeners[name] = listener; }, registration: { showNotification: shown } },
+        importScripts: () => undefined,
+        self: {
+            addEventListener: (name: string, listener: (event: any) => void) => { listeners[name] = listener; },
+            openLifecyclePush: async (payload: unknown) => openLifecycleNotice(payload, []),
+            registration: { showNotification: shown },
+        },
         caches: { open: async () => {
             if (cacheFailure === 'open') throw new Error('cache open failed');
             return { match: async (key: string) => {
