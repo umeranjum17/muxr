@@ -10,10 +10,13 @@
 import * as React from 'react';
 import {
     ActivityIndicator,
+    Keyboard,
+    Platform,
     Pressable,
     ScrollView,
     View,
 } from 'react-native';
+import { KeyboardAwareScrollView, useKeyboardState } from 'react-native-keyboard-controller';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -231,6 +234,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     },
 }));
 
+// The browser keeps its own keyboard inset (useWebViewport); native needs the aware view.
+const FormScrollView = Platform.OS === 'web' ? ScrollView : KeyboardAwareScrollView;
+
 export default function NewAgentScreen() {
     const { theme } = useUnistyles();
     const insets = useSafeAreaInsets();
@@ -249,6 +255,32 @@ export default function NewAgentScreen() {
     const [workspaces, setWorkspaces] = React.useState<HerdrTreeWorkspace[]>([]);
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState<string | undefined>(undefined);
+    const [scrollHeight, setScrollHeight] = React.useState(0);
+    const [isTypingPath, setIsTypingPath] = React.useState(false);
+    const keyboardHeight = useKeyboardState((state) => state.height);
+
+    const scrollRef = React.useRef<ScrollView>(null);
+    const directoryRef = React.useRef<View>(null);
+    const directoryY = React.useRef(0);
+    const pickerY = React.useRef(0);
+    const typingPath = React.useRef(false);
+    const showPicker = React.useCallback(() => {
+        const y = directoryY.current + pickerY.current;
+        // Keep the directory input at the top so the list has room above the keyboard.
+        // RN-web layout y goes stale after the viewport resizes, so use the DOM position there.
+        if (Platform.OS === 'web') (directoryRef.current as unknown as HTMLElement | null)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        else scrollRef.current?.scrollTo({ y, animated: true });
+    }, []);
+    React.useEffect(() => {
+        const shown = Keyboard.addListener('keyboardDidShow', () => {
+            if (typingPath.current) requestAnimationFrame(showPicker);
+        });
+        return () => shown.remove();
+    }, [showPicker]);
+    // The browser has no keyboard events; its viewport shrinks instead, so pin again once it settles.
+    React.useEffect(() => {
+        if (Platform.OS === 'web' && isTypingPath) showPicker();
+    }, [isTypingPath, scrollHeight, showPicker]);
 
     React.useEffect(() => {
         if (!canControl) return undefined;
@@ -367,7 +399,15 @@ export default function NewAgentScreen() {
                 </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <FormScrollView
+                ref={(node: ScrollView | null) => { scrollRef.current = node; }}
+                onLayout={({ nativeEvent }) => setScrollHeight(nativeEvent.layout.height)}
+                // A reloading listing changes the content height and can clamp the scroll; pin the field again.
+                onContentSizeChange={() => { if (typingPath.current && Platform.OS !== 'web') showPicker(); }}
+                // Web gets no keyboard padding, so leave room below for the field to reach the top.
+                contentContainerStyle={[styles.content, Platform.OS === 'web' && isTypingPath && { paddingBottom: scrollHeight }]}
+                keyboardShouldPersistTaps="handled"
+            >
                 {/* --- Agent grid (multi-select -> squad) ---------------------- */}
                 <View>
                     <View style={styles.sectionLabelRow}>
@@ -444,11 +484,27 @@ export default function NewAgentScreen() {
                 </View>
 
                 {/* --- Directory ---------------------------------------------- */}
-                <View>
+                <View onLayout={({ nativeEvent }) => { directoryY.current = nativeEvent.layout.y; }}>
                     <View style={styles.sectionLabelRow}>
                         <Text style={styles.sectionLabel}>DIRECTORY</Text>
                     </View>
-                    <DirectoryPicker value={cwd} onChange={setCwd} recent={recent} />
+                    <View ref={directoryRef} onLayout={({ nativeEvent }) => { pickerY.current = nativeEvent.layout.y; }}>
+                        <DirectoryPicker
+                            value={cwd}
+                            onChange={setCwd}
+                            recent={recent}
+                            room={isTypingPath && scrollHeight > 0 ? scrollHeight - (Platform.OS === 'web' ? 0 : keyboardHeight) : undefined}
+                            onFocus={() => {
+                                typingPath.current = true;
+                                setIsTypingPath(true);
+                                showPicker();
+                            }}
+                            onBlur={() => {
+                                typingPath.current = false;
+                                setIsTypingPath(false);
+                            }}
+                        />
+                    </View>
                 </View>
 
                 {/* --- Join a running workspace -------------------------------- */}
@@ -530,7 +586,7 @@ export default function NewAgentScreen() {
                         </Text>
                     )}
                 </Pressable>
-            </ScrollView>
+            </FormScrollView>
         </View>
     );
 }
