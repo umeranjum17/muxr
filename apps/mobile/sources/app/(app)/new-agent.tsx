@@ -300,7 +300,11 @@ export default function NewAgentScreen() {
                 setCatalog(resolved.options);
                 setCatalogSource(resolved.authoritative ? 'host' : 'unknown');
                 const preferred = defaultAgentKind(resolved.options, useNewSessionDraft.getState().agentType);
-                setSelected(preferred ? new Set([preferred]) : new Set());
+                const installed = new Set(resolved.options.filter((option) => option.availability === 'installed').map((option) => option.kind));
+                setSelected((previous) => {
+                    const retained = new Set([...previous].filter((kind) => installed.has(kind)));
+                    return retained.size > 0 ? retained : new Set(preferred ? [preferred] : []);
+                });
             })
             .catch(() => { if (live) setCatalogSource('fallback'); });
         return () => {
