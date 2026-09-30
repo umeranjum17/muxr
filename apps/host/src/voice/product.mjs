@@ -1,18 +1,17 @@
 /**
  * Realtime voice, as product code.
  *
- * The provider adapters under ./providers are internal and swappable: this
- * module is the only surface the host and the app call, and it resolves the
- * selected adapter from the fixed table in ./provider.mjs. Nothing here is a
- * plugin contribution, so there is no catalog, approval, or manifest hash in
- * the voice path.
+ * The engines are @byokit/realtime's: this module is the only surface the host
+ * and the app call, and it resolves the selected engine from the fixed table in
+ * ./provider.mjs. Nothing here is a plugin contribution, so there is no catalog,
+ * approval, or manifest hash in the voice path.
  */
 import { reportAgentOutcome } from './coordinatorPolicy.mjs';
 import { providerSecret } from './providerSecret.mjs';
 import { PROVIDERS, providerById, selectProvider, selectedProvider } from './provider.mjs';
 
 /** Secrets are per provider, so the store is resolved from the current selection. */
-function secretFor(provider) {
+export function secretFor(provider) {
     if (provider.secret === undefined) return undefined;
     return providerSecret(provider.secret, {
         notDirectory: `${provider.keyLabel} key store must be a real directory`,
@@ -42,7 +41,7 @@ export async function voiceProviderDescribe(id) {
     const selected = selectedProvider();
     const secret = secretFor(provider);
     const readiness = secret === undefined
-        ? await (await import(`./providers/${provider.id}.mjs`)).status()
+        ? await (await import('./codex.mjs')).status()
         : await secret.statusPayload();
     return {
         ...providerEntry(provider, selected),
@@ -57,7 +56,7 @@ export async function voiceStatus() {
     // An adapter without a key store authenticates some other way and owns its
     // own check; loading it is only worth the import cost in that case.
     const status = secret === undefined
-        ? await (await import(`./providers/${provider.id}.mjs`)).status()
+        ? await (await import('./codex.mjs')).status()
         : await secret.statusPayload();
     return { ...status, providerId: provider.id, providerName: provider.name, keyLabel: provider.keyLabel };
 }
