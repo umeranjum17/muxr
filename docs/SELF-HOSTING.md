@@ -69,7 +69,7 @@ Automation uses:
 | `--tailscale-direct` | Uses the tailnet IP directly. |
 | *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
 | *(choose Same Wi-Fi)* | Local network address. Phone must be on the same trusted network. |
-| *(choose Direct SSH in the Android app)* | Pair through the host's loopback relay over SSH; see [Direct SSH from Android](#direct-ssh-from-android). |
+| *(choose Direct SSH in the native app)* | Pair through the host's loopback relay over SSH; see [Direct SSH](#direct-ssh). |
 
 For either Tailscale route, connect the phone to the same tailnet before pairing.
 Nearby mDNS discovery is only a locator for an already-paired native app; it
@@ -78,14 +78,14 @@ mDNS advertisements.
 
 Before applying Serve, the wizard checks that it is available and not already owned. A timeout or invalid JSON response is inconclusive and does not disqualify Serve from the recommendation policy above; the bounded Apply decides whether it works. Proven disabled or occupied Serve is unavailable in the picker; muxr preserves the existing state and offers direct Tailscale.
 
-### Direct SSH from Android
+### Direct SSH
 
-Direct SSH is an Android-native alternative to Tailscale, not a replacement for it. Set it up either way:
+Direct SSH is an Android and iOS native alternative to Tailscale, not a replacement for it. Set it up either way:
 
 - **While pairing:** choose **Connect over SSH** on the pairing screen, enter the machine's SSH details, and paste the offer from `muxr pair`. muxr opens the SSH forward before dialing the pairing link even if the advertised relay URL is unreachable from the phone. Compare the confirmation words and approve on the computer. If the offer expires, run `muxr pair` again.
 - **After pairing:** open **Settings → Connection & updates → Direct SSH** and save the SSH details.
 
-Either way, enter the machine's SSH host, SSH username and port, and the relay port as seen from the machine's loopback (normally `8792`). Choose either a password or an OpenSSH private key; credentials stay in the device secure store and are never written to muxr settings, logs, or the repository. A newly entered credential is checked with a separate SSH sign-in before pairing or replacing a saved credential, even when a tunnel to that host is already open. A rejected credential leaves the live tunnel alone. Use an RSA or ECDSA host key and login key: Ed25519 is not supported by this build yet, and muxr says so explicitly instead of failing to connect.
+Either way, enter the machine's SSH host, SSH username and port, and the relay port as seen from the machine's loopback (normally `8792`). Choose either a password or an OpenSSH private key; credentials stay in the device secure store and are never written to muxr settings, logs, or the repository. A newly entered credential is checked with a separate SSH sign-in before pairing or replacing a saved credential, even when a tunnel to that host is already open. A rejected credential leaves the live tunnel alone. Use an RSA or ECDSA host key and login key for a route that works on both platforms. Android does not support Ed25519 yet.
 
 Once the SSH route is saved, muxr opens a device-local SSH forward to `127.0.0.1:<relay-port>`.
 The paired machine's session and stream traffic uses that forward even if its advertised
@@ -94,16 +94,16 @@ through the forwarded relay.
 Pairing and end-to-end encryption remain in force; see [the SSH transport decision](decisions/0006-ssh-loopback-transport.md)
 for the routing contract. The desktop can use this route too; see [remote desktop on a cloud server](#remote-desktop-on-a-cloud-server).
 
-Connection & updates also exports and installs the login key. The private key's public half — pasted on that screen or saved on this device — can be copied, shared, or saved as a `.pub` file for any algorithm, including Ed25519. For RSA and ECDSA keys, **Install public key** shows its exact shell command first and runs it only after you confirm: it appends the key to `~/.ssh/authorized_keys` on the paired computer's confirmed SSH account, preserves existing entries and permissions, skips a key that is already present, and records a guarded undo that refuses to roll back if `authorized_keys` changed after the install. Ed25519 stays export-only because the native SSH path cannot use it as a login key. Installation is native-Android only; the browser keeps pairing and relay access and says so instead.
+Connection & updates also exports and installs the login key. The private key's public half — pasted on that screen or saved on this device — can be copied, shared, or saved as a `.pub` file for any algorithm, including Ed25519. For RSA and ECDSA keys, **Install public key** shows its exact shell command first and runs it only after you confirm: it appends the key to `~/.ssh/authorized_keys` on the paired computer's confirmed SSH account, preserves existing entries and permissions, skips a key that is already present, and records a guarded undo that refuses to roll back if `authorized_keys` changed after the install. Ed25519 stays export-only in the key-install flow. Installation is available on native Android and iOS; the browser keeps pairing and relay access and says so instead.
 
-The first successful SSH connection pins the SSH server's `SHA256:` host-key fingerprint on this device. A changed fingerprint blocks the new connection and tells you to review the machine rather than silently trusting a replacement; an already-live tunnel is not closed by this check. The SSH user must be allowed to log in and the muxr relay must be listening on the configured loopback port. PWA and iPhone builds do not show this control because they do not have this native SSH implementation; use Tailscale, a private network, Same Wi-Fi, or your own stable WSS endpoint there.
+The first successful SSH connection pins the SSH server's `SHA256:` host-key fingerprint on this device. A changed fingerprint blocks the new connection and tells you to review the machine rather than silently trusting a replacement; an already-live tunnel is not closed by this check. The SSH user must be allowed to log in and the muxr relay must be listening on the configured loopback port. PWA does not show this control because browsers cannot open native SSH connections; use Tailscale, a private network, Same Wi-Fi, or your own stable WSS endpoint there.
 
 SSH forwards the loopback relay for pairing and control; it does not authorize a device, replace a grant, or remove E2EE. The desktop picture and controls use WebRTC, not that relay: directly when the phone can reach the computer, or over TCP through a second forward on the same SSH connection when it cannot, so a phone that can reach only SSH (port 22) still views and controls the desktop. Tailscale needs less per-device credential setup and reconnects without a separate SSH session; see the [route picker](#reaching-the-relay-from-your-phone) for its recommendation policy.
 
 ### Remote desktop on a cloud server
 
 A cloud server reached only over SSH can show its desktop on the phone: the
-Android app carries the picture and controls inside the same SSH connection as
+native app carries the picture and controls inside the same SSH connection as
 the terminal, so port 22 is the only inbound port the server needs.
 
 1. Install muxr on the server and run `muxr`; the relay stays on its loopback.
@@ -118,7 +118,7 @@ the terminal, so port 22 is the only inbound port the server needs.
    On a machine without a Wayland session, muxr uses its X display. To choose
    yourself, set `MUXR_DESKTOP_SOURCE=x11` (optionally with
    `MUXR_DESKTOP_X11_DISPLAY=:99`) or `MUXR_DESKTOP_SOURCE=portal`.
-3. Pair the Android app with **Connect over SSH** ([Direct SSH from Android](#direct-ssh-from-android)),
+3. Pair the native app with **Connect over SSH** ([Direct SSH](#direct-ssh)),
    open an agent, and tap **Computer**.
 
 The prebuilt desktop engine supports Linux x64 (glibc 2.36 or newer) and macOS
