@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { listDir } from './listDir.js';
 
@@ -21,11 +21,13 @@ async function fixture(): Promise<string> {
     await writeFile(join(root, 'zetawt', '.git'), 'gitdir: ../../.git/worktrees/zeta\n');
     await mkdir(join(root, '.hidden'));
     await writeFile(join(root, 'notes.txt'), 'x');
+    await symlink(join(root, 'alpha'), join(root, 'linked'));
+    await symlink(join(root, 'notes.txt'), join(root, 'linkedfile'));
     return root;
 }
 
 describe('listDir', () => {
-    it('lists directories only, alpha-sorted, dot-dirs hidden, repo flagged', async () => {
+    it('lists directories (symlinked ones too) only, alpha-sorted, dot-dirs hidden, repo flagged', async () => {
         const root = await fixture();
 
         const result = await listDir(root);
@@ -36,6 +38,7 @@ describe('listDir', () => {
         expect(result.entries).toEqual([
             { name: 'alpha', repo: false },
             { name: 'alpharepo', repo: true }, // .git directory
+            { name: 'linked', repo: false }, // symlink to a directory; the file link stays out
             { name: 'zeta', repo: false },
             { name: 'zetawt', repo: true }, // .git file (worktree)
         ]);
@@ -58,6 +61,15 @@ describe('listDir', () => {
 
         const missing = await listDir(join(root, 'nope'));
         expect(missing).toEqual({ path: join(root, 'nope'), parent: root, exists: false, entries: [] });
+    });
+
+    it('reads a relative path from home, not the host cwd (launchd starts the host in /)', async () => {
+        const root = await fixture();
+
+        const result = await listDir(`${relative(homedir(), root)}/`);
+
+        expect(result.path).toBe(root);
+        expect(result.entries.map((entry) => entry.name)).toContain('alpha');
     });
 
     it('defaults to home when no path is given', async () => {
