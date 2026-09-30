@@ -30,4 +30,3 @@ undefined
       Tests  1 failed (1)
    Start at  09:41:01
    Duration  582ms (transform 274ms, setup 0ms, import 335ms, tests 72ms, environment 0ms)
-

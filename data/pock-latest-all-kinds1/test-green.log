@@ -11,4 +11,3 @@ Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
       Tests  1 passed (1)
    Start at  07:29:25
    Duration  1.95s (transform 177ms, setup 0ms, import 220ms, tests 1.63s, environment 0ms)
-

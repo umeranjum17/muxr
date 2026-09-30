@@ -60,4 +60,3 @@ Number of calls: 4
       Tests  1 failed (1)
    Start at  07:28:09
    Duration  410ms (transform 157ms, setup 0ms, import 201ms, tests 72ms, environment 0ms)
-
