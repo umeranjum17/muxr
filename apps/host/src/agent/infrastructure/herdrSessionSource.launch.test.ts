@@ -1,6 +1,6 @@
 import { createHook } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -667,6 +667,12 @@ describe('source close lets the process exit', () => {
                 await new Promise((resolve) => setTimeout(resolve, 10));
             }
             expect(guards.size).toBe(0);
+            // Launch confirmation is still sleeping when close runs. Shutdown
+            // must not turn its cancellation into a failed launch and erase
+            // the durable route after dispose has flushed it.
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            const routes = JSON.parse(readFileSync(join(dir, 'data', 'herdr-routes.json'), 'utf8'));
+            expect(routes.bindings).toEqual([expect.objectContaining({ route: started.info.id })]);
         } finally {
             hook.disable();
             await source.dispose();
