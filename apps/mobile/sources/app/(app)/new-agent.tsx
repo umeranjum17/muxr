@@ -16,7 +16,7 @@ import {
     ScrollView,
     View,
 } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import { KeyboardAwareScrollView, useKeyboardState } from 'react-native-keyboard-controller';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -255,24 +255,26 @@ export default function NewAgentScreen() {
     const [workspaces, setWorkspaces] = React.useState<HerdrTreeWorkspace[]>([]);
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState<string | undefined>(undefined);
+    const [scrollHeight, setScrollHeight] = React.useState(0);
+    const [isTypingPath, setIsTypingPath] = React.useState(false);
+    const keyboardHeight = useKeyboardState((state) => state.height);
 
-    // Folder suggestions sit under the path field; lift the Directory section to
-    // the top while typing so the keyboard never covers them.
     const scrollRef = React.useRef<ScrollView>(null);
     const directoryRef = React.useRef<View>(null);
     const directoryY = React.useRef(0);
+    const pickerY = React.useRef(0);
     const typingPath = React.useRef(false);
-    const showDirectory = React.useCallback(() => {
-        // react-native-web reports layout only on resize, so its y goes stale when the agent grid above settles.
+    const showPicker = React.useCallback(() => {
+        const y = directoryY.current + pickerY.current;
         if (Platform.OS === 'web') (directoryRef.current as unknown as HTMLElement | null)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-        else scrollRef.current?.scrollTo({ y: directoryY.current, animated: true });
+        else scrollRef.current?.scrollTo({ y, animated: true });
     }, []);
     React.useEffect(() => {
         const shown = Keyboard.addListener('keyboardDidShow', () => {
-            if (typingPath.current) showDirectory();
+            if (typingPath.current) showPicker();
         });
         return () => shown.remove();
-    }, [showDirectory]);
+    }, [showPicker]);
 
     React.useEffect(() => {
         if (!canControl) return undefined;
@@ -391,7 +393,7 @@ export default function NewAgentScreen() {
                 </Pressable>
             </View>
 
-            <FormScrollView ref={(node: ScrollView | null) => { scrollRef.current = node; }} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <FormScrollView ref={(node: ScrollView | null) => { scrollRef.current = node; }} onLayout={({ nativeEvent }) => setScrollHeight(nativeEvent.layout.height)} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
                 {/* --- Agent grid (multi-select -> squad) ---------------------- */}
                 <View>
                     <View style={styles.sectionLabelRow}>
@@ -468,20 +470,27 @@ export default function NewAgentScreen() {
                 </View>
 
                 {/* --- Directory ---------------------------------------------- */}
-                <View ref={directoryRef} onLayout={({ nativeEvent }) => { directoryY.current = nativeEvent.layout.y; }}>
+                <View onLayout={({ nativeEvent }) => { directoryY.current = nativeEvent.layout.y; }}>
                     <View style={styles.sectionLabelRow}>
                         <Text style={styles.sectionLabel}>DIRECTORY</Text>
                     </View>
-                    <DirectoryPicker
-                        value={cwd}
-                        onChange={setCwd}
-                        recent={recent}
-                        onFocus={() => {
-                            typingPath.current = true;
-                            showDirectory();
-                        }}
-                        onBlur={() => { typingPath.current = false; }}
-                    />
+                    <View ref={directoryRef} onLayout={({ nativeEvent }) => { pickerY.current = nativeEvent.layout.y; }}>
+                        <DirectoryPicker
+                            value={cwd}
+                            onChange={setCwd}
+                            recent={recent}
+                            room={isTypingPath && scrollHeight > 0 ? scrollHeight - (Platform.OS === 'web' ? 0 : keyboardHeight) : undefined}
+                            onFocus={() => {
+                                typingPath.current = true;
+                                setIsTypingPath(true);
+                                showPicker();
+                            }}
+                            onBlur={() => {
+                                typingPath.current = false;
+                                setIsTypingPath(false);
+                            }}
+                        />
+                    </View>
                 </View>
 
                 {/* --- Join a running workspace -------------------------------- */}
