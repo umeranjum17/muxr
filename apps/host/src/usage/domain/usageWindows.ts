@@ -4,10 +4,10 @@
  * surface reads only from them -- no surface ever sees a provider's raw
  * payload, so no provider can put its own dialect on the screen.
  *
- * Dialects end here. Sources report "how much used" (Claude, Z.ai, Go) or
- * "how much left" (quota-style percentRemaining feeds); normalizeWindow
- * accepts either one dialect as input and derives the other, so the pair can
- * never disagree. One verdict rule governs the card and each window row.
+ * The kit owns provider payload dialects; this module adds labels and pace
+ * to its normalized windows. normalizeWindow derives remaining from used
+ * (or the reverse), so the pair can never disagree. One verdict rule governs
+ * the card and each window row.
  */
 
 import type { UsageLimitsPayload, UsageLimitsWindow } from '@trymuxr/contract';
