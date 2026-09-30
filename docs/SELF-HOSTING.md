@@ -13,7 +13,7 @@ muxr
 ```
 
 See [CLI startup guidance](../README.md#install) for first-time and later launches.
-The interactive onboarding inspects the computer without changing it. Choose
+Local interactive setup inspects the computer without changing it. Choose
 how your phone connects in the [route picker](#reaching-the-relay-from-your-phone),
 then whether to host the control/view-only web client, what to pair, and whether
 to set up **Agent status updates**.
