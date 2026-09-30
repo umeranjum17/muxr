@@ -40,9 +40,9 @@ interface VoiceNative {
             agents: Array<{ id: string; name: string; status: string; focused: boolean }>;
         },
     ) => boolean;
-    supportsPromotedNotifications: () => boolean;
-    canPostPromotedNotifications: () => boolean;
-    openPromotedNotificationSettings: () => boolean;
+    supportsLiveActivities?: () => boolean;
+    canPostLiveActivities?: () => boolean;
+    openLiveActivitySettings?: () => boolean;
     openBackgroundActivitySettings: () => boolean;
     clearNotification: () => boolean;
     setVoiceGeneration?: (token: string) => void;
@@ -175,28 +175,17 @@ export function updateVoiceNotification(
     ) ?? false;
 }
 
-export function supportsPromotedNotifications(): boolean {
-    try {
-        return native?.supportsPromotedNotifications() ?? false;
-    } catch {
-        return false;
-    }
+/** iOS Live Activities remain separate from Android's BYOKit status chip. */
+export function supportsLiveActivities(): boolean {
+    return Platform.OS === 'ios' && (native?.supportsLiveActivities?.() ?? false);
 }
 
-export function canPostPromotedNotifications(): boolean {
-    try {
-        return native?.canPostPromotedNotifications() ?? true;
-    } catch {
-        return true;
-    }
+export function canPostLiveActivities(): boolean {
+    return Platform.OS === 'ios' && (native?.canPostLiveActivities?.() ?? false);
 }
 
-export function openPromotedNotificationSettings(): boolean {
-    try {
-        return native?.openPromotedNotificationSettings() ?? false;
-    } catch {
-        return false;
-    }
+export function openLiveActivitySettings(): void {
+    if (Platform.OS === 'ios') native?.openLiveActivitySettings?.();
 }
 
 export function openBackgroundActivitySettings(): boolean {

@@ -89,12 +89,12 @@ public final class VoiceOverlayModule: Module {
       }
       return ActivityAuthorizationInfo().areActivitiesEnabled
     }
-    Function("supportsPromotedNotifications") {
+    Function("supportsLiveActivities") {
       if #available(iOS 16.2, *) { return true }
       return false
     }
-    Function("canPostPromotedNotifications") { ActivityAuthorizationInfo().areActivitiesEnabled }
-    Function("openPromotedNotificationSettings") {
+    Function("canPostLiveActivities") { ActivityAuthorizationInfo().areActivitiesEnabled }
+    Function("openLiveActivitySettings") {
       guard let url = URL(string: UIApplication.openSettingsURLString) else { return false }
       Task { @MainActor in UIApplication.shared.open(url) }
       return true

@@ -64,8 +64,13 @@ vi.mock('react-native-mmkv', () => ({
 }));
 vi.mock('@/modal', () => ({ Modal: { confirm: async () => false } }));
 vi.mock('@/account/ui', () => ({ useAuth: () => ({ isAuthenticated: true }) }));
+vi.mock('expo-router', () => ({ useRouter: () => ({ canDismiss: () => false, dismissTo: () => undefined, push: () => undefined }) }));
+vi.mock('@/conversation', () => ({ startRealtimeCapability: async () => undefined }));
 vi.mock('@/conversation/session', () => ({
     boundRealtimeSession: () => null,
+    realtimeGeneration: () => 0,
+    applyRealtimeMuted: () => undefined,
+    stopRealtimeSession: () => undefined,
     useRealtimeMuted: () => false,
     useRealtimeSessionState: () => ({ state: 'disconnected' }),
     retryVadStandby: async () => undefined,
@@ -93,9 +98,6 @@ vi.mock('@/../modules/voice-overlay', () => ({
     startHerdKeepalive: () => true,
     stopHerdKeepalive: () => undefined,
     openBackgroundActivitySettings: () => undefined,
-    openPromotedNotificationSettings: () => undefined,
-    supportsPromotedNotifications: () => false,
-    canPostPromotedNotifications: () => false,
 }));
 vi.mock('@/connection', () => {
     const settings = { mode: 'hosted', relayUrl: 'ws://relay.test', machineId: 'machine-a', token: 'device', lastSessionCwd: '', recentSessionCwds: [] };

@@ -37,7 +37,7 @@ Primary gate: clean Linux VM plus a fresh API 36 Android emulator. Follow-up doc
    - Intentionally end the stream; verify it does not reconnect.
    - Revoke the emulator device and prove existing/new sockets fail while another authorized device remains valid.
 8. **Notifications and Android integration**
-   - Verify notification permission, working/attention lifecycle, promoted Live Update eligibility/settings behavior, launcher shortcuts, microphone foreground-service ordering, and clean stop.
+   - Verify notification permission, working/attention lifecycle, BYOKit status-chip settings behavior, launcher shortcuts, microphone foreground-service ordering, and clean stop.
    - Use a synthetic provider adapter for routine voice transport acceptance; a live paid-provider check is a separately approved release check.
 9. **Uninstall and cleanup**
    - Run documented integration/daemon uninstall commands.
