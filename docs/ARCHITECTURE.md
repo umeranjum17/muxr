@@ -280,8 +280,10 @@ The host seals each lifecycle notice separately to the recipient's raw device
 box key using `@byokit/seal`. Task title, agent name, event kind and machine/session
 scope stay inside the sealed notice; the relay and push provider receive generic
 alert text and ciphertext. Clients open notices with stored paired grants and
-fall back to generic text when opening fails. Native pre-display decryption is
-not implemented; see [notification presentation](../README.md).
+fall back to generic text when opening fails. The browser service worker reads
+paired grants through `pairing/infrastructure/webSecureStore.ts` to open notices;
+approval still runs in the app over the authenticated link. Native pre-display
+decryption is not implemented; see [notification presentation](../README.md).
 Browser taps carry decrypted scope in the `/notification` URL fragment, never
 an HTTP query, and the app checks the originating machine before navigation.
 

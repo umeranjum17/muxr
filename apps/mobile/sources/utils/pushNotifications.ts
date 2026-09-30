@@ -89,8 +89,9 @@ export async function refreshPushState(): Promise<PushState> {
 /**
  * Full subscribe flow: permission → register sw.js → request the VAPID public
  * key on the link → subscribe the push manager → register on the link.
- * Notification taps deep-link into the session, where approval runs under
- * the real grant; the worker never holds a credential.
+ * Worker key access and tap privacy are documented in
+ * docs/ARCHITECTURE.md#push-notifications. Approval runs in the app under
+ * the real grant.
  *
  * The active session's link grant authorizes both the key and registration.
  */
