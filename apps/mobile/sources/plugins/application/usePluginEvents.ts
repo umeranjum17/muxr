@@ -137,7 +137,7 @@ export function usePluginEvents(): void {
         let ready = catalogReady(initial);
         if (ready) tick();
         else resetUnavailable(initial);
-        const unsubscribe = storage.subscribe((snapshot) => {
+        const unsubscribe = storage.subscribe((snapshot, previous) => {
             const nextReady = catalogReady(snapshot);
             if (!nextReady) {
                 ready = false;
@@ -145,8 +145,13 @@ export function usePluginEvents(): void {
             } else if (!ready) {
                 ready = true;
                 tick();
+            } else if (snapshot.lifecycleEvents !== previous.lifecycleEvents) {
+                // A finished agent is reported as soon as its event lands,
+                // not on the next interval tick (up to 1.5 s later).
+                tick();
             }
         });
+        // Backstop for retries and sessions that leave the catalog.
         const timer = setInterval(tick, 1500);
         return () => {
             unsubscribe();
