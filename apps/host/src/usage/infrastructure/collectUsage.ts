@@ -395,8 +395,8 @@ const PLAN_MIN_READ_MS = 60_000;
 const PLAN_LAST_KNOWN_MS = 24 * 60 * 60_000;
 
 /** Claude fingerprints remain here: the kit exposes its parser, but no Claude
- *  Source or public fingerprint/store/backoff API. Account fingerprints already derived: the KDF is deliberately slow, and a
- *  collection asks for every provider's more than once. */
+ *  Source or public fingerprint/store/backoff API. The KDF is deliberately
+ *  slow, so repeated Claude account lookups reuse the derived fingerprint. */
 const fingerprints = new Map<string, string>();
 
 function accountFingerprint(id: PlanId, value: string): string {
@@ -631,8 +631,8 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     const sources = sourcesFor(env);
     // Every connected plan is read alongside local activity, not after it:
     // under load the activity count is the long pole, and the plans are what
-    // the Home card waits on. Codex limits load every time: the home card
-    // lists them whatever tab the details screen last showed.
+    // the Home card waits on. Codex participates regardless of the selected
+    // tab; the kit decides whether a recent reading can answer.
     const stored = readPlans(env);
     const recent = (id: PlanId) => NOW.getTime() - (storedReading(stored, accounts, id)?.at ?? Number.NEGATIVE_INFINITY) < PLAN_MIN_READ_MS;
     const planConnected: string[] = (['claude', 'opencode', 'zai'] as const).filter((id) => planStillConnected(id, env));
