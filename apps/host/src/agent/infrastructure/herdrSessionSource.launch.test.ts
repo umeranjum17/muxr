@@ -31,7 +31,8 @@ function fakeHerdr(dir: string, cwd: string) {
         holdStatusAck: boolean;
         releaseStatusAck?: () => void;
         delayAgentWaitMs: number;
-    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0 };
+        paneText: string;
+    } = { failSnapshot: false, failSnapshotAfterPrompt: false, snapshotCount: 0, holdNextSnapshot: false, holdStatusAck: false, delayAgentWaitMs: 0, paneText: '' };
     const pendingReplies = new Set<NodeJS.Timeout>();
     const heldStatusAcks: Array<() => void> = [];
     let next = 1;
@@ -162,6 +163,9 @@ function fakeHerdr(dir: string, cwd: string) {
                     case 'agent.prompt':
                         reply = { id, result: handleAgentPrompt(p) };
                         break;
+                    case 'pane.read':
+                        reply = { id, result: { read: { text: state.paneText } } };
+                        break;
                     case 'pane.close':
                         reply = { id, result: handlePaneClose() };
                         break;
@@ -212,6 +216,38 @@ function treePane(tree: { workspaces: HerdrTreeWorkspace[] }, paneId: string) {
 }
 
 describe('phone launch before herdr detects the agent', () => {
+    it('reports a missing Pi executable when Herdr drops the launch but keeps the shell pane', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-missing-'));
+        const herdr = fakeHerdr(dir, dir);
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath, dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'), hostHttpPort: 0, machineName: 'Umer',
+        });
+        const errors: string[] = [];
+        const removed: string[] = [];
+        const off = source.subscribe((id, event) => {
+            if (event.type === 'session.error') errors.push(event.message);
+            if (event.type === 'session.removed') removed.push(id);
+        });
+        try {
+            const started = await source.start({ cwd: dir, kind: 'pi' });
+            if (!('info' in started)) throw new Error('launch rejected');
+            await source.refreshHerdr();
+            expect(treePane(await source.herdrTree(), 'w1:p1').agentKind).toBe('pi');
+            herdr.state.paneText = 'bash: pi: command not found\n';
+            herdr.agents.splice(0);
+            await source.refreshHerdr();
+            expect(errors).toEqual(['Pi is not installed on Umer. Install Pi in a terminal on Umer, then try again.']);
+            expect(removed).toContain(started.info.id);
+            expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId: 'shell:w1:p1', promptable: false });
+            await source.refreshHerdr();
+            expect(errors).toHaveLength(1);
+        } finally {
+            off(); await source.close(); herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
     it('keeps the requested kind through the boot window and drops it once the launch gives up', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-'));
         const cwd = join(dir, 'repo');

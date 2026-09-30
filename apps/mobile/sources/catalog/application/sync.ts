@@ -70,6 +70,10 @@ function currentAgentName(sessionId: string): string {
     return treePane(sessionId)?.agentName ?? 'Agent';
 }
 
+function agentRecovered(state: Pick<SessionStatus, 'promptable' | 'agentStatus'>): boolean {
+    return state.promptable && state.agentStatus !== 'starting' && state.agentStatus !== 'failed';
+}
+
 function lifecycleCatalogUnavailable(error: unknown): boolean {
     return typeof error === 'object' && error !== null && 'code' in error
         && LIFECYCLE_CATALOG_UNAVAILABLE_CODES.has(String(error.code));
@@ -342,17 +346,24 @@ class MuxrSync {
         }
 
         if (event.type === 'status.update') {
+            if (agentRecovered(event.status)) storage.getState().setSessionError(sessionId, null);
             const session = storage.getState().sessions[sessionId];
             if (session === undefined) return;
             if (agentStatusUnchanged(session, event.status)) return;
             storage.getState().updateSession(sessionId, applyStatusToSession(session, event.status));
         }
 
+        if (event.type === 'session.error') {
+            storage.getState().setSessionError(sessionId, event.message);
+        }
+
         if (event.type === 'session.created') {
+            storage.getState().setSessionError(sessionId, null);
             storage.getState().applySessions([sessionInfoToSession(event.session)]);
         }
 
         if (event.type === 'session.updated') {
+            if (agentRecovered(event.session)) storage.getState().setSessionError(sessionId, null);
             this.queueSessionUpdate(sessionId, event.session);
             // Every surface names a pane from the tree. A Herdr rename or a
             // plugin's new title arrives only here, so re-read the tree when
@@ -521,6 +532,17 @@ class MuxrSync {
         // Requests can cross when a done frame and a newer working frame arrive
         // close together. Only the latest canonical read may update the UI.
         if (request === this.herdrTreeRequest) {
+            if ((tree as { connected?: boolean }).connected === true) {
+                for (const workspace of tree.workspaces) {
+                    for (const tab of workspace.tabs) {
+                        for (const pane of tab.panes) {
+                            if (pane.sessionId !== undefined && agentRecovered(pane)) {
+                                storage.getState().setSessionError(pane.sessionId, null);
+                            }
+                        }
+                    }
+                }
+            }
             this.confirmedHomeTree = { request, workspaces: tree.workspaces };
             storage.getState().applyHerdrTree(tree.workspaces);
             if (storage.getState().sessionsLoaded && this.hasTransport()) {
@@ -630,8 +652,7 @@ class MuxrSync {
     }
 
     private async loadSession(sessionId: string): Promise<void> {
-        const client = this.ensureClient();
-        const snapshot = await client.request('session.open', { sessionId });
+        const snapshot = await this.request('session.open', { sessionId });
         const opened = applyStatusToSession(sessionInfoToSession(snapshot.info, snapshot.status), snapshot.status);
         // updateSession no-ops when the session is not in the map yet (catalog
         // failed to load); a successful open is proof enough it exists.
@@ -803,6 +824,10 @@ class MuxrSync {
                     ? await paneReadGate.run(request)
                     : await request();
             recordTrackedRpc(type, { ok: true }, Date.now() - started);
+            if (type === 'session.open') {
+                const snapshot = data as import('@trymuxr/contract').RequestResult<'session.open'>;
+                if (agentRecovered(snapshot.status)) storage.getState().setSessionError(snapshot.info.id, null);
+            }
             return data;
         } catch (error) {
             recordTrackedRpc(type, { ok: false, error }, Date.now() - started);

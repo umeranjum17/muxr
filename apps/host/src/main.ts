@@ -454,6 +454,7 @@ async function main(): Promise<void> {
             routes,
             relayUrl,
             machineId,
+            machineName,
             onLinkAttention: (input) => linkEndpoint?.notifyAttention(input),
             artifactsDir: join(stateRoot, 'attachments', 'pane'),
             hostHttpPort: hostConfig.hostHttpPort,
