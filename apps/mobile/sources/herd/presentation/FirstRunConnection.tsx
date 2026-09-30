@@ -91,9 +91,9 @@ export function FirstRunConnection() {
     return (
         <View style={styles.section}>
             <RouteTile
-                title="Scan the QR on your computer"
+                title={browser ? 'Pair with a QR code' : 'Scan the QR on your computer'}
                 badge="Recommended"
-                preview="Point this phone at the QR shown by muxr on your computer."
+                preview={browser ? 'Run muxr on your computer, then paste the browser link.' : 'Point this phone at the QR shown by muxr on your computer.'}
                 onPress={() => {
                     if (browser) { void promptForPairingString(); return; }
                     void scanPairQr();
