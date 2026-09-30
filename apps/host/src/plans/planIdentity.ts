@@ -3,8 +3,9 @@
  *
  * Claude: `claude auth status` (JSON by default) with `CLAUDE_CONFIG_DIR`
  * pointed at the sign-in folder. Codex: app-server `account/read` with
- * `CODEX_HOME` pointed at the folder. muxr never opens `.credentials.json`
- * or `auth.json`: the tools decide whether the folder is signed in.
+ * `CODEX_HOME` pointed at the folder. Identity here comes from the tools;
+ * the usage reader separately opens credentials to scope plan readings.
+ * An unreadable credential file does not prevent listing the account.
  * Unavailable or unrecognised answers carry
  * `statusKnown: false`; `signedIn: false` alone is a confirmed sign-out.
  * Only identity (email, plan, signed-in) and that status marker leave these

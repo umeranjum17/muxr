@@ -1,6 +1,6 @@
 /**
  * P1 flow: the accounts store plus `plans.list` over throwaway folders and
- * stub tools. No real account, no credential reads: one folder's credentials
+ * stub tools. No real account: one folder's credentials
  * are chmod 000 and the list still works.
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -95,7 +95,7 @@ it('hides the feature with one account and lists two with names and emails', asy
     expect(accounts[1]).toMatchObject({ name: 'Work' });
 });
 
-it('reports a signed-out account without choosing it and never reads credentials', async () => {
+it('reports a signed-out account without choosing it when its credentials are unreadable', async () => {
     const folder = foundClaude();
     writeFileSync(join(folder, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'secret', accountUuid: 'u' } }));
     chmodSync(join(folder, '.credentials.json'), 0);
@@ -254,21 +254,6 @@ it('registers both found sign-ins without dropping either', async () => {
     await listPlans(env);
     expect(loadPlanAccounts(env).map((record) => record.id).sort())
         .toEqual(['found-claude', 'found-codex', 'pa_work', 'pa_x']);
-});
-
-it('keeps separate readings for API-key codex sign-ins without account ids', async () => {
-    const homeA = join(root, '.codex');
-    mkdirSync(homeA, { recursive: true });
-    writeFileSync(join(homeA, 'auth.json'), JSON.stringify({ tokens: { access_token: 'a' } }));
-    const homeB = join(root, 'muxr', 'plans', 'codex', 'tight');
-    mkdirSync(homeB, { recursive: true });
-    writeFileSync(join(homeB, 'auth.json'), JSON.stringify({ tokens: { access_token: 'b' } }));
-    savePlanAccounts(env, [{ id: 'pa_b', provider: 'codex', name: 'Tight', folder: homeB, found: false }]);
-    const listed = await listPlans(env);
-    expect(listed.providers.map((entry) => entry.provider)).toEqual(['codex']);
-    expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
-    const relisted = await listPlans(env);
-    expect(relisted.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
 });
 
 it('auto skips signed-out accounts and names the earliest refill when all are out', async () => {

@@ -11,6 +11,7 @@
         "@byokit/herdr": "0.1.10",
         "@byokit/link": "0.6.0",
         "@byokit/relay": "0.4.2",
+        "@byokit/usage": "0.1.0",
         "@desklink/host": "0.2.0",
         "@trymuxr/contract": "0.1.0",
         "@trymuxr/crypto": "0.1.0",
