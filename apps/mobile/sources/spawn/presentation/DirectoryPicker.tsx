@@ -226,7 +226,7 @@ export function DirectoryPicker({ value, onChange, recent }: DirectoryPickerProp
                     ref={inputRef}
                     value={value}
                     onChangeText={onChange}
-                    placeholder="/home/you/project"
+                    placeholder="~/project"
                     placeholderTextColor={theme.colors.input.placeholder}
                     autoCapitalize="none"
                     autoCorrect={false}
