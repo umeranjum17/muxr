@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, type Dirent } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -42,8 +42,13 @@ export async function listDir(
     // matching shell completion (typing `/.` reveals hidden entries).
     const lastSegment = (rawPath ?? '').split('/').filter(Boolean).pop() ?? '';
     const showDotDirs = lastSegment.startsWith('.');
-    const entries = dirents
-        .filter((entry) => entry.isDirectory() && (showDotDirs || !entry.name.startsWith('.')))
+    // A symlinked folder (macOS /tmp, /var, a ~/code link) is still a place to work.
+    const isFolder = async (entry: Dirent) => entry.isDirectory()
+        || (entry.isSymbolicLink() && (await stat(join(target, entry.name)).catch(() => undefined))?.isDirectory() === true);
+    const visible = dirents.filter((entry) => showDotDirs || !entry.name.startsWith('.'));
+    const folders = await Promise.all(visible.map(isFolder));
+    const entries = visible
+        .filter((_, index) => folders[index])
         .map((entry) => ({
             name: entry.name,
             // Worktrees keep a `.git` file; plain repos a `.git` directory.
