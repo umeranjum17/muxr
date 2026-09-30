@@ -109,12 +109,14 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const writePumpRef = React.useRef<TerminalWritePump | undefined>(undefined);
     const writeGenerationRef = React.useRef(0);
     const scrollGateRef = React.useRef<ReturnType<typeof createTerminalScrollGate> | undefined>(undefined);
+    const scrollStoppedRef = React.useRef(false);
     const scrollOriginRef = React.useRef<{ x: number; y: number; width: number; height: number } | undefined>(undefined);
     scrollGateRef.current ??= createTerminalScrollGate({
         send: (lines) => {
             const size = lastSizeRef.current;
+            if (size === null) return;
             const origin = scrollOriginRef.current;
-            channelRef.current?.scroll(lines, size === null ? undefined : {
+            channelRef.current?.scroll(lines, {
                 column: Math.min(size.cols - 1, Math.floor((origin ? origin.x / origin.width : .5) * size.cols)),
                 row: Math.min(size.rows - 1, Math.floor((origin ? origin.y / origin.height : .5) * size.rows)),
             });
@@ -163,6 +165,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
     const atDefaultZoom = safeFontIndex === DEFAULT_FONT_INDEX;
 
     const cancelCoalesce = (): void => {
+        scrollStoppedRef.current = true;
         writeGenerationRef.current += 1;
         void writePumpRef.current?.cancel();
         writePumpRef.current = undefined;
@@ -233,6 +236,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         return;
                     }
                     channelRef.current = channel;
+                    scrollStoppedRef.current = false;
+                    const requestBottom = channel.bottom.bind(channel);
+                    channel.bottom = () => {
+                        scrollStoppedRef.current = true;
+                        scrollGate.reset();
+                        requestBottom();
+                    };
                     void writePumpRef.current?.cancel();
                     let recoveryRequested = false;
                     let firstFrameWritten = false;
@@ -366,6 +376,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 if (viewport.width <= 0 || viewport.height <= 0) return;
                 // A new touch stops the old gesture; never deliver its queued
                 // travel to the newly touched editor/sidebar.
+                scrollStoppedRef.current = false;
                 scrollGate.beginGesture();
                 scrollOriginRef.current = { x: Math.max(0, nativeEvent.locationX), y: Math.max(0, nativeEvent.locationY), ...viewport };
             }}
@@ -392,7 +403,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 // holds nothing but repaint diffs; scrolling it shows garbage.
                 // Ghostty counts rows the way the finger moved, herdr counts
                 // them the way the text does, hence the negation.
-                onScroll={({ nativeEvent }) => scrollGate.queue(-nativeEvent.rows)}
+                onScroll={({ nativeEvent }) => {
+                    if (!scrollStoppedRef.current) scrollGate.queue(-nativeEvent.rows);
+                }}
                 onPinch={pinch}
                 onOpenLink={({ nativeEvent }) => {
                     if (props.onLinkPress !== undefined) { props.onLinkPress(nativeEvent.url); return; }

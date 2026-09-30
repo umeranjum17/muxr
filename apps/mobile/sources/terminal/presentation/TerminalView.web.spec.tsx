@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
+import type { TerminalChannel } from '../application/OpenTerminal';
 
 const link = vi.hoisted(() => ({
     options: null as null | { linkHandler: { activate: (event: MouseEvent, url: string) => void; hover?: (event: MouseEvent, url: string, range: { start: { x: number; y: number }; end: { x: number; y: number } }) => void; leave?: () => void } },
@@ -10,6 +11,8 @@ const link = vi.hoisted(() => ({
     aheadSize: null as null | { cols: number; rows: number },
     channel: null as null | object,
     writes: [] as Array<() => void>,
+    scroll: vi.fn(),
+    bottom: vi.fn(),
     grid: { cols: 80, cellWidth: 10, linkCol: 2 },
 }));
 
@@ -50,6 +53,7 @@ vi.mock('../application/OpenTerminal', () => {
     link.channel = {
         onData: (callback: (base64: string) => void) => { link.onData = callback; },
         onPredictedData() {}, onState: (callback: (state: string) => void) => { link.state = callback; callback('live'); },
+        scroll: link.scroll, bottom: link.bottom,
         onClose() {}, resize() {}, repaint: () => link.state?.('reconnecting'), sendText() {}, close() {},
     };
     return { openTerminal: () => Promise.resolve(link.channel) };
@@ -69,12 +73,14 @@ vi.mock('@/catalog/store', () => ({
 
 import { TerminalView } from './TerminalView.web';
 
-afterEach(() => { link.aheadSize = null; link.writes.length = 0; vi.useRealTimers(); vi.unstubAllGlobals(); });
+afterEach(() => { link.aheadSize = null; link.writes.length = 0; link.scroll.mockClear(); link.bottom.mockClear(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-it('resolves a held OSC 8 cell after repeat holds and unrelated output while taps keep their card', async () => {
+it('resolves a held OSC 8 cell after repeat holds and unrelated output while taps keep their card and Latest stops an active fling', async () => {
     vi.useFakeTimers();
     link.aheadSize = { cols: 100, rows: 24 };
-    const scheduled: Array<() => void> = [];
+    const scheduled = new Map<number, () => void>();
+    let nextFrame = 0;
+    const paint = () => { const due = [...scheduled.values()]; scheduled.clear(); for (const frame of due) frame(); };
     const listeners = new Map<string, (event: any) => void>();
     const rect = { left: 10, top: 5, width: 800, height: 432 };
     const screenRect = { ...rect };
@@ -109,15 +115,16 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
         }
     });
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
-    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { scheduled.push(callback); return scheduled.length; });
-    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    vi.stubGlobal('requestAnimationFrame', (callback: () => void) => { scheduled.set(++nextFrame, callback); return nextFrame; });
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => scheduled.delete(id));
     vi.stubGlobal('window', { devicePixelRatio: 1, addEventListener() {}, removeEventListener() {}, matchMedia: () => ({ addEventListener() {}, removeEventListener() {} }) });
     vi.stubGlobal('document', { addEventListener() {}, removeEventListener() {} });
     const reached = vi.fn();
     const firstFrameWritten = vi.fn();
+    let channel!: TerminalChannel;
     let renderer: ReturnType<typeof TestRenderer.create>;
     await TestRenderer.act(async () => {
-        renderer = TestRenderer.create(<TerminalView sessionId="pane" onLinkPress={reached} onFirstFrameWritten={firstFrameWritten} />, {
+        renderer = TestRenderer.create(<TerminalView sessionId="pane" onLinkPress={reached} onFirstFrameWritten={firstFrameWritten} onChannel={(opened) => { if (opened) channel = opened; }} />, {
             createNodeMock: ({ type, props }) => type === 'View' && props.style?.position !== 'relative' ? host : null,
         });
         await Promise.resolve();
@@ -133,13 +140,13 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
         listeners.get('touchend')!({ touches: [], cancelable: true, preventDefault() {} });
         link.onData!('eA==');
         expect(firstFrameWritten).not.toHaveBeenCalled();
-        for (const frame of scheduled.splice(0)) frame();
+        paint();
         expect(firstFrameWritten).not.toHaveBeenCalled();
         link.writes.shift()!();
         expect(firstFrameWritten).not.toHaveBeenCalled();
         link.state?.('live');
         link.onData!('eA==');
-        for (const frame of scheduled.splice(0)) frame();
+        paint();
         link.writes.shift()!();
         expect(firstFrameWritten).toHaveBeenCalledTimes(1);
         listeners.get('touchstart')!({ touches: [{ clientX: 34, clientY: 23 }] });
@@ -182,5 +189,29 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
         'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8',
         'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/plain',
     ]);
+    let clock = 1_000;
+    vi.stubGlobal('performance', { now: () => clock });
+    const touch = (y: number) => ({ touches: [{ clientX: 200, clientY: y }], preventDefault() {}, stopPropagation() {} });
+    TestRenderer.act(() => {
+        listeners.get('touchstart')!(touch(100));
+        clock += 16;
+        listeners.get('touchmove')!(touch(250));
+        listeners.get('touchend')!({ touches: [] });
+        paint();
+    });
+    expect(link.scroll).toHaveBeenCalled();
+    const beforeBottom = link.scroll.mock.calls.length;
+    expect(scheduled.size).toBeGreaterThan(0);
+    TestRenderer.act(() => channel.bottom());
+    expect(link.bottom).toHaveBeenCalledTimes(1);
+    TestRenderer.act(() => { for (let frame = 0; frame < 10; frame++) paint(); });
+    expect(link.scroll).toHaveBeenCalledTimes(beforeBottom);
+    TestRenderer.act(() => {
+        listeners.get('touchstart')!(touch(100));
+        clock += 16;
+        listeners.get('touchmove')!(touch(180));
+        paint();
+    });
+    expect(link.scroll.mock.calls.length).toBeGreaterThan(beforeBottom);
     TestRenderer.act(() => renderer!.unmount());
 });

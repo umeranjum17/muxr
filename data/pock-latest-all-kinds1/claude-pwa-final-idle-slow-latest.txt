@@ -1,0 +1,44 @@
+  CLAUDE FINAL 161 Beach cleanups remove tonnes of
+  debris.
+  CLAUDE FINAL 162 Fishing line tangles birds and
+  turtles.
+  CLAUDE FINAL 163 Cigarette butts are the most common
+  beach litter.
+  CLAUDE FINAL 164 Leave only footprints.
+  CLAUDE FINAL 165 Lifeguard flags signal surf
+  conditions.
+  CLAUDE FINAL 166 A red flag means high hazard.
+  CLAUDE FINAL 167 A purple flag warns of dangerous
+  marine life.
+  CLAUDE FINAL 168 Swim near lifeguard towers.
+  CLAUDE FINAL 169 Surfers read the swell forecast
+  every morning.
+  CLAUDE FINAL 170 Point breaks peel along a headland.
+  CLAUDE FINAL 171 Beach breaks shift with the
+  sandbars.
+  CLAUDE FINAL 172 Reef breaks form over coral or
+  rock.
+  CLAUDE FINAL 173 Tide changes turn some breaks on
+  and off.
+  CLAUDE FINAL 174 Fishermen cast into the troughs
+  between bars.
+  CLAUDE FINAL 175 Kites fly best in steady sea
+  breezes.
+  CLAUDE FINAL 176 Sunrise beaches are nearly empty.
+  CLAUDE FINAL 177 Sunset turns wet sand into a
+  mirror.
+  CLAUDE FINAL 178 The green flash can appear just as
+  the sun sets.
+  CLAUDE FINAL 179 The sound of waves calms most
+  people.
+  CLAUDE FINAL 180 Every tide redraws the beach.
+
+  CLAUDE-STREAM-END
+
+✻ Cogitated for 47s · done 8:09 AM
+
+────────────────────────────────────────── ultracode ─
+❯
+──────────────────────────────────────────────────────
+  …/3/pockit fm/pock-latest-all-kinds1  ?  | Opus 5…
+  ⏵⏵ bypass permissions on · gh auth login for PR
