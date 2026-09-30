@@ -1877,7 +1877,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                     {/* Files, git history, and prompt attachments are host product
                                         code now: these rows replace the retired add-on's session
                                         buttons and pill with no approval ceremony behind them. */}
-                                    <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/files`); }} accessibilityRole="button" accessibilityLabel="Files"
+                                    <Pressable onPress={() => {
+                                        setActionsOpen(false);
+                                        router.push({ pathname: '/session/[id]/files', params: {
+                                            id: props.id,
+                                            paneId: session?.metadata?.paneId ?? storedPane?.paneId,
+                                        } });
+                                    }} accessibilityRole="button" accessibilityLabel="Files"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="folder-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Files</Text>
