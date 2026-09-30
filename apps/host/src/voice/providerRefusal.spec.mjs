@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -1094,6 +1094,34 @@ describe('providerRefusal', () => {
             expect(refused.frames.at(-1).reason).toContain('account binding is inconsistent');
             expect(requests).toHaveLength(1);
             if (refused.child.exitCode === null) refused.child.kill('SIGKILL');
+
+            // Accounts only receives an in-memory bearer. The CLI still owns
+            // its file; successful signaling never migrates or rewrites it.
+            const credentialFile = join(codexState, 'signed-in', 'auth.json');
+            const savedCredential = await readFile(credentialFile, 'utf8');
+            expect(JSON.parse(savedCredential)).toEqual({ tokens: { access_token: token, account_id: account } });
+            const rejectedCredential = async (reason) => {
+                const rejected = spawnProvider();
+                try {
+                    rejected.send({ type: 'realtime.open' });
+                    await waitFor(() => rejected.frames.some((frame) => frame.type === 'realtime.webrtc.start'), 'credential fixture did not start');
+                    rejected.send({ type: 'realtime.webrtc.offer', sdp: 'v=0\r\na=offer' });
+                    await waitFor(() => rejected.frames.some((frame) => frame.type === 'realtime.closed'), 'unsafe or absent credential did not close');
+                    expect(rejected.frames.at(-1).reason).toContain(reason);
+                    expect(JSON.stringify(rejected.frames)).not.toContain(token);
+                    expect(requests).toHaveLength(1);
+                } finally {
+                    if (rejected.child.exitCode === null) rejected.child.kill('SIGKILL');
+                }
+            };
+            await chmod(credentialFile, 0o644);
+            await rejectedCredential('Codex credential file must be owner-only');
+            expect(await readFile(credentialFile, 'utf8')).toBe(savedCredential);
+            await rm(credentialFile);
+            await symlink(join(codexState, 'mismatched', 'auth.json'), credentialFile);
+            await rejectedCredential('Codex credential file must be owner-only');
+            await rm(credentialFile);
+            await rejectedCredential('Run codex login');
         } finally {
             await coordinator.close();
             await rm(codexState, { recursive: true, force: true });
