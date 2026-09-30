@@ -10,8 +10,8 @@ The desktop engine is **not** inlined into `host.js`. The artifact declares
 `@desklink/host` (Apache-2.0) as an exact-pinned runtime dependency, and that
 package declares its prebuilt engines as optional dependencies:
 `@desklink/host-linux-x64-gnu` for Linux x64 with glibc and
-`@desklink/host-darwin-arm64` for macOS arm64. npm installs only the matching platform.
-The Linux package is desklink's own Apache-2.0 build of its engine crate, made from
+`@desklink/host-darwin-arm64` for macOS arm64. npm installs only the matching
+platform. The Linux package is desklink's own Apache-2.0 build of its engine crate, made from
 pinned inputs by [`release/build-engine.sh`](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/release/build-engine.sh) in
 [umeranjum17/desklink](https://github.com/umeranjum17/desklink), and
 the matching platform package supplies the only native executable a muxr install
@@ -28,7 +28,8 @@ What the Linux executable contains:
 | Rust crates from `engine/Cargo.lock` | permissive licences checked by `release/notices.mjs`; exact set and texts in the platform package's generated `THIRD_PARTY_LICENSES.txt` | linked statically |
 
 What the Linux executable loads from the system at run time and does not ship:
-glibc (2.36 or newer), libstdc++ and libgcc_s (GCC Runtime Library Exception), libpipewire-0.3,
+glibc (2.36 or newer), libstdc++ and libgcc_s (GCC Runtime Library Exception),
+libpipewire-0.3,
 libxkbcommon and libevdev (MIT). It calls the XDG desktop portal over D-Bus
 rather than linking it. The platform package carries `THIRD_PARTY_LICENSES.txt`
 with every licence text above and `COPYRIGHT-rust-library.html` for the standard
