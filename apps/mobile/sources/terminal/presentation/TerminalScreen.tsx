@@ -121,9 +121,10 @@ const SCROLL_ANSWER_MS = 1_000;
 /** Rows counted back in a program that scrolls itself, by pane route, across its streams. */
 const ALT_SCROLL_BACK = new Map<string, number>();
 /**
- * Latest's reach past the rows counted back in a program that scrolls itself.
- * The count is only what the phone asked for: output an agent writes while it
- * is read back lands below, and such a program can drop the first wheel report
+ * Latest's reach past the last observed position. Output can land below while
+ * the phone reads back, making even Herdr's reported offset stale by the tap.
+ * Herdr clamps this reach on its own scrollback. A program that scrolls itself
+ * can also drop the first wheel report
  * after a change of direction (Claude Code does, as a guard against trackpad
  * jitter). Either left Latest short of the bottom it promised. The host stops
  * turning the wheel once the program stops repainting, so the reach costs
@@ -436,12 +437,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         const channel = channelRef.current;
         if (channel === undefined) return;
         if (hostHasScrollback.current) {
-            // Exactly the distance herdr reported, not an overshoot: a pane whose
-            // scrolling belongs to a program would receive that overshoot as
-            // thousands of wheel reports rather than as a clamp. The control
-            // stays until herdr confirms the viewport reached zero, because new
-            // output behind a parked viewport moves the live edge away.
-            if (scrollBack.current > 0) channel.scroll(-scrollBack.current);
+            // Herdr owns this scrollback, so it clamps the reach at the bottom
+            // without turning it into wheel reports. New output may have made
+            // the reported offset stale. Keep the control until Herdr confirms zero.
+            if (scrollBack.current > 0) channel.scroll(-(scrollBack.current + LATEST_REACH_ROWS));
             return;
         }
         if (altBack.current <= 0) return;

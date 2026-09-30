@@ -611,11 +611,15 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         scroll: (lines, at) => {
             const n = Math.abs(Math.trunc(lines));
             if (n === 0) return; // herdr rejects lines:0
+            // Latest has no pointer. Target the transcript, as gestures do:
+            // a program may ignore wheel reports over its header or footer.
+            const cell = at ?? { column: Math.floor(current.cols / 2), row: Math.floor(current.rows / 2) };
             send({
                 type: 'terminal.scroll',
                 direction: lines > 0 ? 'up' : 'down',
                 lines: n,
-                ...(at === undefined ? {} : { ...at, column: Math.max(0, Math.trunc(at.column)), row: Math.max(0, Math.trunc(at.row)) }),
+                column: Math.max(0, Math.trunc(cell.column)),
+                row: Math.max(0, Math.trunc(cell.row)),
             });
         },
         recordFrameWritten: () => {

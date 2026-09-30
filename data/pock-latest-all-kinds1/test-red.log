@@ -1,0 +1,63 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (apps/mobile/vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /home/umer/.treehouse/pockit-497a78/3/pockit
+
+ ❯ apps/mobile/sources/terminal/application/OpenTerminal.hosted.spec.ts (1 test | 1 failed) 72ms
+     × paints, writes and reattaches after a dropped stream without opening a relay socket 71ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  apps/mobile/sources/terminal/application/OpenTerminal.hosted.spec.ts > terminal link cutover > paints, writes and reattaches after a dropped stream without opening a relay socket
+AssertionError: expected "vi.fn()" to be called with arguments: [ Array(1) ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+-   "{\"type\":\"terminal.scroll\",\"direction\":\"down\",\"lines\":2030,\"column\":20,\"row\":6}",
++   "{\"type\":\"terminal.input\",\"text\":\"hello\"}",
+  ]
+
+  2nd vi.fn() call:
+
+  [
+-   "{\"type\":\"terminal.scroll\",\"direction\":\"down\",\"lines\":2030,\"column\":20,\"row\":6}",
++   "{\"type\":\"terminal.scroll\",\"direction\":\"up\",\"lines\":30,\"column\":10,\"row\":6}",
+  ]
+
+  3rd vi.fn() call:
+
+  [
+-   "{\"type\":\"terminal.scroll\",\"direction\":\"down\",\"lines\":2030,\"column\":20,\"row\":6}",
++   "{\"type\":\"terminal.resize\",\"cols\":40,\"rows\":12}",
+  ]
+
+  4th vi.fn() call:
+
+  [
+-   "{\"type\":\"terminal.scroll\",\"direction\":\"down\",\"lines\":2030,\"column\":20,\"row\":6}",
++   "{\"type\":\"terminal.scroll\",\"direction\":\"down\",\"lines\":2030}",
+  ]
+
+
+Number of calls: 4
+
+ ❯ apps/mobile/sources/terminal/application/OpenTerminal.hosted.spec.ts:48:35
+     46|         channel.resize(40, 12);
+     47|         channel.scroll(-2_030);
+     48|         expect(streams[0]!.write).toHaveBeenCalledWith(JSON.stringify(…
+       |                                   ^
+     49|         streams[0]!.end();
+     50|         await vi.waitFor(() => expect(streams).toHaveLength(2), { time…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  07:28:09
+   Duration  410ms (transform 157ms, setup 0ms, import 201ms, tests 72ms, environment 0ms)
+

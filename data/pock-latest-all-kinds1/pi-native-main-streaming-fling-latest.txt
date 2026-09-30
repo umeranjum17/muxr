@@ -1,0 +1,24 @@
+ PI NATIVE 046 Lasted ninety
+ seconds, then gone.
+ PI NATIVE 047 Fallstreak hole
+ punched clean through the layer.
+ PI NATIVE 048 Aircraft trail
+ crossing an older one.
+ PI NATIVE 049 Contrail persisting
+ means humid air aloft.
+ PI NATIVE 050 Contrail vanishing
+ means dry air up there.
+ PI NATIVE 051 Distrail cutting a
+ gap in thin cloud.
+ PI NATIVE 052 Ship tracks bright
+ over the cold ocean.
+ PI NATIVE 053 Stratocumulus sheet
+ broken into a grid.
+ PI NATIVE 054 Open cells over cold
+ water, closed over warm.
+ PI NATIVE 055 Cloud street aligned
+ with the wind.
+ PI NATIVE 056 Gliders working the
+ line all afternoon.
+ PI NATIVE 057 Von Kármán vortices
+ trailing an island.

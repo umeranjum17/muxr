@@ -39,6 +39,13 @@ describe('terminal link cutover', () => {
         await vi.waitFor(() => expect(painted).toEqual(['aGk=']));
         channel.sendText('hello');
         await vi.waitFor(() => expect(streams[0]!.write).toHaveBeenCalledWith(JSON.stringify({ type: 'terminal.input', text: 'hello' })));
+        // Drag targets its cell; Latest has no pointer and must still land in
+        // the transcript rather than a full-screen program's header.
+        channel.scroll(30, { column: 10, row: 6 });
+        expect(streams[0]!.write).toHaveBeenCalledWith(JSON.stringify({ type: 'terminal.scroll', direction: 'up', lines: 30, column: 10, row: 6 }));
+        channel.resize(40, 12);
+        channel.scroll(-2_030);
+        expect(streams[0]!.write).toHaveBeenCalledWith(JSON.stringify({ type: 'terminal.scroll', direction: 'down', lines: 2_030, column: 20, row: 6 }));
         streams[0]!.end();
         await vi.waitFor(() => expect(streams).toHaveLength(2), { timeout: 4000 });
         await vi.waitFor(() => expect(painted).toEqual(['aGk=', 'aGk=']));

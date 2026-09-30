@@ -1,0 +1,44 @@
+ PI FINAL 161 Saltmarsh creeks branching like veins.
+ PI FINAL 162 Channel dredged to keep the port open.
+ PI FINAL 163 Spoil dumped offshore, returning in a
+ decade.
+ PI FINAL 164 Delta building where the current
+ finally stops.
+ PI FINAL 165 Distributaries splitting and splitting
+ again.
+ PI FINAL 166 Sediment starved delta sinking instead.
+ PI FINAL 167 Dam upstream keeping the gravel from
+ the sea.
+ PI FINAL 168 Reservoir behind it filling with the
+ sediment.
+ PI FINAL 169 Cold water released from the dam base.
+ PI FINAL 170 Fish community changed for fifty miles.
+ PI FINAL 171 Hungry water below a dam cuts deeper.
+ PI FINAL 172 Flow release negotiated by the litre.
+ PI FINAL 173 Abstraction licence older than the
+ shortage.
+ PI FINAL 174 River taken for a city two counties
+ away.
+ PI FINAL 175 Catchment boundary follows no border.
+ PI FINAL 176 Treaty water measured at a single
+ gauge.
+ PI FINAL 177 Every drop belongs to someone
+ downstream.
+ PI FINAL 178 Same river never passes twice, as said.
+ PI FINAL 179 Water in the sea was in the hills last
+ month.
+ PI FINAL 180 Flow continues past the last
+ observation.
+
+ PI-STREAM-END
+
+
+ Terminal scroll lab only, no tools or edits. Write
+ 180 short lines beginning PI PWA FINAL 001, PI PWA
+ FINAL 002, etc describing forests. End with
+ PI-STREAM-END. Begin directly with your answer.
+
+
+ PI PWA FINAL 001 Canopy closed, floor dim at midday.
+ PI PWA FINAL 002 Light reaching the ground in moving
+ patches.

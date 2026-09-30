@@ -1,0 +1,44 @@
+❯ Continue this terminal scrolling lab without tools…
+  138. Old forests store more carbon than young
+       plantations.
+  139. Clearcuts erode quickly on slopes.
+  140. Tree roots hold riverbanks together.
+  141. Windbreaks shelter farm fields.
+  142. Hedgerows serve as wildlife corridors.
+  143. Leaves drop because trees seal them off at the
+       base.
+  144. Chlorophyll fades to reveal yellow pigments.
+  145. Red fall color is made fresh each autumn.
+  146. Drought dulls fall color.
+  147. Evergreens keep their needles for several
+       years.
+  148. Needles have waxy coats that resist freezing.
+  149. Snow bends birches into permanent arches.
+  150. Ice storms snap brittle branches.
+  151. Silver maples break easily in storms.
+  152. Bradford pears split at weak crotches.
+  153. Bradford pear blossoms smell unpleasant.
+  154. Narrow branch angles trap bark and weaken the
+       joint.
+  155. Wide branch angles hold more weight.
+  156. Lightning can explode sap into steam.
+  157. Lightning scars spiral down the trunk.
+  158. Tall lone trees attract lightning.
+  159. Leaning trees grow reaction wood.
+  160. Conifers push from below; hardwoods pull from
+       above.
+  161. Tree height is limited by how far water can be
+       lifted.
+  162. Canopy shyness leaves gaps between crowns.
+  163. Understory trees tolerate deep shade.
+  164. Gaps from fallen giants spark a race for light.
+  165. Pioneer species colonize burned land first.
+  166. Birch and aspen give way to longer-lived trees.
+  167. Climax forests change slowly over centuries.
+  168. Planti Jump to bottom (ctrl+End) ↓ t place
+
+────────────────────────────────────────── ultracode ─
+❯ Write 200 numbered observations about birds, one pe…
+──────────────────────────────────────────────────────
+  …/3/pockit fm/pock-latest-all-kinds1  ?  | Opus 5…
+  ⏵⏵ bypass permissions on · gh auth login for PR
