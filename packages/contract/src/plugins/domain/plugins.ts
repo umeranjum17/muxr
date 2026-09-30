@@ -136,14 +136,6 @@ export interface PluginRpcCapability {
     context?: PluginContextRequest[];
 }
 
-/** Persistent provider-neutral byte/control stream owned by a plugin backend. */
-export interface PluginStreamCapability {
-    slot: 'host.stream';
-    id: string;
-    type: 'stream';
-    entry: string;
-}
-
 /** One source of truth: the type and the runtime validator both derive from this. */
 export const NATIVE_SLOTS = [
     'app.overlay',
@@ -252,7 +244,6 @@ export const PRIMITIVE_SPECS = {
             indicator: { type: 'enum', values: ['realtime-session'] },
         },
     }),
-    'realtime-session-overlay': primitiveSpec({ slots: ['app.overlay'], requires: [], params: {}, maxContributions: 1, stableAcrossManifestRefresh: true }),
     'tree-sheet': primitiveSpec({
         slots: ['session.overlay'],
         requires: ['sessionId', 'visible', 'onClose', 'openMenu'],
@@ -275,8 +266,6 @@ export interface PluginNativeContribution {
     type: 'native';
     /** Widget compiled into the app. Not a plugin id. */
     primitive: PluginPrimitive;
-    /** Surface this session action directly in the floating quick controls. */
-    quickAction?: boolean;
     title?: PluginText;
     emptyTitle?: PluginText;
     emptyMessage?: PluginText;
@@ -664,10 +653,9 @@ export interface PluginScreenButton {
     title: PluginText;
     icon: string;
     contentContributionId: string;
-    quickAction?: boolean;
 }
 
-export type PluginContribution = PluginShortcut | PluginEventTrigger | PluginScreenButton | PluginSettingsSection | PluginToolbarButton | PluginRpcCapability | PluginStreamCapability | PluginNativeContribution | PluginTerminalKeyRow | PluginDataCard | PluginNavigationItem | PluginSettingsItem | PluginScreenContribution;
+export type PluginContribution = PluginShortcut | PluginEventTrigger | PluginScreenButton | PluginSettingsSection | PluginToolbarButton | PluginRpcCapability | PluginNativeContribution | PluginTerminalKeyRow | PluginDataCard | PluginNavigationItem | PluginSettingsItem | PluginScreenContribution;
 
 // --- bounds (host-enforced; single source of truth for host + mobile) -------
 

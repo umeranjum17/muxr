@@ -38,8 +38,7 @@ export type HerdrPlugin = {
 };
 
 type PluginCall = { method: string; entry: string; mode: PluginRpcMode; modeDeclared: boolean; context?: PluginContextRequest[] };
-type PluginStream = { entry: string };
-type Snapshot = { pluginRoot: string; manifest: PluginManifestV1; summary: Omit<PluginSummary, 'approved'>; actions: Map<string, string>; calls: Map<string, PluginCall>; streams: Map<string, PluginStream> };
+type Snapshot = { pluginRoot: string; manifest: PluginManifestV1; summary: Omit<PluginSummary, 'approved'>; actions: Map<string, string>; calls: Map<string, PluginCall> };
 type ParsedProjection = { pluginRoot: string; manifest: PluginManifestV1; canonical: string };
 export interface PluginBackendCallTarget extends PluginCall {
     pluginId: string;
@@ -190,20 +189,6 @@ export class PluginCatalog {
         return { ...call, pluginRoot: snapshot.pluginRoot };
     }
 
-    /** Return the validated stream contribution and plugin root from one active catalog snapshot. */
-    streamTarget(pluginId: string, manifestHash: string, contributionId: string): PluginStream & { pluginRoot: string } {
-        this.assertActive(pluginId, manifestHash);
-        const snapshot = this.snapshots.get(pluginId)!;
-        const stream = snapshot.streams.get(contributionId);
-        if (stream === undefined) throw new Error('plugin stream unavailable or changed');
-        return { ...stream, pluginRoot: snapshot.pluginRoot };
-    }
-
-    streamClaimsCapability(pluginId: string, manifestHash: string, contributionId: string, capability: string): boolean {
-        this.assertActive(pluginId, manifestHash);
-        return this.snapshots.get(pluginId)!.manifest.capabilities?.[capability] === contributionId;
-    }
-
     private assertActive(pluginId: string, manifestHash: string): void {
         if (manifestHash === '' || this.active.get(pluginId) !== manifestHash || !this.snapshots.has(pluginId)) {
             throw new Error('plugin manifest unavailable or changed');
@@ -251,14 +236,12 @@ async function loadPlugin(
         }
         const actions = new Map<string, string>();
         const calls = new Map<string, PluginCall>();
-        const streams = new Map<string, PluginStream>();
         for (const contribution of manifest.contributions) {
             if (contribution.slot === 'session.toolbar' && contribution.type === 'button') {
                 const actionId = contribution.action.actionId;
                 if (!actionCommands.has(actionId)) throw new Error(`plugin action is not declared by Herdr: ${actionId}`);
                 actions.set(contribution.id, actionId);
-            } else if (contribution.slot === 'host.stream') {
-                streams.set(contribution.id, { entry: contribution.entry });
+
             } else if (contribution.slot === 'host.rpc') {
                 calls.set(contribution.id, {
                     method: contribution.method,
@@ -291,7 +274,7 @@ async function loadPlugin(
         const authority = stableJson(authorityInput);
         const source = sourceOf(plugin.source, plugin, pluginRoot);
         const manifestHash = digest(`${APPROVAL_DOMAIN}\0${plugin.plugin_id}\0${sourceIdentity(source, pluginRoot)}\0${authority}\0${canonical}`);
-        return { pluginRoot, manifest, actions, calls, streams, summary: summaryOf(plugin, manifestHash, manifest.capabilities ?? {}, source, manifest) };
+        return { pluginRoot, manifest, actions, calls, summary: summaryOf(plugin, manifestHash, manifest.capabilities ?? {}, source, manifest) };
     } finally {
         await handle.close();
     }
@@ -313,7 +296,6 @@ function backendOnly(plugin: HerdrPlugin, warning?: string, pluginRoot = plugin.
         manifest: { schemaVersion: 1, pluginId: plugin.plugin_id, contributions: [] },
         actions: new Map(),
         calls: new Map(),
-        streams: new Map(),
         summary: warning === undefined ? summary : { ...summary, warnings: [warning, ...summary.warnings].slice(0, 4) },
     };
 }
@@ -339,7 +321,7 @@ function summaryOf(plugin: HerdrPlugin, manifestHash: string | undefined, capabi
         ...(manifestHash === undefined ? {} : { manifestHash }),
         capabilities,
         hasBackend: herdrBackendOf(plugin)
-            || manifest?.contributions.some((item) => item.slot === 'host.rpc' || item.slot === 'host.stream') === true,
+            || manifest?.contributions.some((item) => item.slot === 'host.rpc') === true,
         herdrBackend: herdrBackendOf(plugin),
         warnings: [...(compatWarning === undefined ? [] : [compatWarning]), ...inherited].slice(0, 4),
     };

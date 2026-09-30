@@ -104,7 +104,7 @@ type RequestContext = { deviceId: string; requestId: string; connectionId?: stri
 type Handler<T extends RequestType> = (params: RequestMap[T]['params'], context: RequestContext) => Promise<RequestResult<T>>;
 type NonPeerRequestType = Exclude<RequestType, PeerRequestType>;
 type PluginExecutionRequest = Extract<ClientRequest, {
-    type: 'plugin.approve' | 'plugin.invoke' | 'plugin.call' | 'plugin.stream';
+    type: 'plugin.approve' | 'plugin.invoke' | 'plugin.call';
 }>;
 
 const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
@@ -148,7 +148,6 @@ function isPluginExecutionRequest(request: ClientRequest): request is PluginExec
         case 'plugin.approve':
         case 'plugin.invoke':
         case 'plugin.call':
-        case 'plugin.stream':
             return true;
         default:
             return false;
@@ -339,7 +338,6 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plugin.approve': () => { throw new Error('authenticated device context required'); },
         'plugin.invoke': () => { throw new Error('authenticated device context required'); },
         'plugin.call': () => { throw new Error('authenticated device context required'); },
-        'plugin.stream': () => { throw new Error('authenticated device context required'); },
         'host.update': (params, context) => repairHost(params, context.deviceId),
         'desktop.capabilities': async (params) => {
             if (params.target !== undefined) {
@@ -715,9 +713,6 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 }
                 if (request.type === 'plugin.invoke') {
                     return fromUseCase(request.requestId, await runPluginAction(source, { action: 'invoke', deviceId, ...request.params }));
-                }
-                if (request.type === 'plugin.stream') {
-                    return fail(request.requestId, 'plugin stream requires a link stream');
                 }
                 return fromUseCase(request.requestId, await runPluginAction(source, { action: 'call', deviceId, ...request.params }));
             } catch (error) {

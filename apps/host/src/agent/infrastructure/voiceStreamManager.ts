@@ -1,11 +1,4 @@
-/**
- * Persistent plugin stream runtime.
- *
- * A manifest-declared `host.stream` contribution becomes one trusted local plugin
- * process behind a relay channel. Backend code is not OS-sandboxed. The relay and phone see only the generic
- * realtime NDJSON contract; provider auth and event translation stay inside
- * the plugin process.
- */
+/** Persistent product voice adapter transport over the authenticated link. */
 
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
@@ -56,12 +49,10 @@ function safeStreamReason(value: unknown): string {
         : bytes.subarray(0, MAX_REALTIME_CLOSE_REASON_BYTES).toString('utf8')).trim() || 'Voice stream unavailable.';
 }
 
-export interface PluginStreamTarget {
-    pluginId: string;
-    pluginRoot: string;
+export interface VoiceStreamTarget {
+    providerId: string;
+    runtimeRoot: string;
     entry: string;
-    peerBroker?: boolean;
-    codingCoordinator?: boolean;
 }
 
 interface StreamOptions {
@@ -148,13 +139,13 @@ interface Attachment {
     onClosed: () => void;
 }
 
-export class PluginStreamManager {
+export class VoiceStreamManager {
     private readonly attachments = new Map<string, Attachment>();
     private readonly attachingByDevice = new Map<string, number>();
     constructor(private readonly options: StreamOptions) {}
 
     async attach(params: {
-        target: PluginStreamTarget;
+        target: VoiceStreamTarget;
         channel: string;
         stateDir: string;
         sessionId?: string;
@@ -166,11 +157,11 @@ export class PluginStreamManager {
         onClosed: () => void;
         transport: VoiceStreamTransport;
     }): Promise<void> {
-        if (params.signal.aborted) throw new Error('plugin stream revoked');
+        if (params.signal.aborted) throw new Error('voice stream revoked');
         const deviceKey = params.deviceId ?? 'local';
         const activeForDevice = [...this.attachments.values()].filter((entry) => (entry.deviceId ?? 'local') === deviceKey).length;
         const attachingForDevice = this.attachingByDevice.get(deviceKey) ?? 0;
-        if (activeForDevice + attachingForDevice >= MAX_STREAMS_PER_DEVICE) throw new Error('plugin stream: device stream limit reached');
+        if (activeForDevice + attachingForDevice >= MAX_STREAMS_PER_DEVICE) throw new Error('voice stream: device stream limit reached');
         this.attachingByDevice.set(deviceKey, attachingForDevice + 1);
         try {
         mkdirSync(params.stateDir, { recursive: true, mode: 0o700 });
@@ -178,28 +169,23 @@ export class PluginStreamManager {
         const socket = new LinkStreamSocket(params.transport);
         if (params.signal.aborted) {
             socket.close();
-            throw new Error('plugin stream revoked');
+            throw new Error('voice stream revoked');
         }
 
         const processGroup = process.platform !== 'win32';
-        // Least-ambient routing only: unapproved/non-voice children do not receive
-        // this token. Enabled backends still run as the host user and are trusted
-        // local code; the token is not isolation from a malicious enabled plugin.
-        // The caller's own session travels with the capability, so the broker can
-        // name the sender through the host instead of trusting the plugin.
         const peerCaller = params.sessionId === undefined ? {} : { sessionId: params.sessionId };
-        const peerAccess = params.target.peerBroker === true ? this.options.peerBroker?.issueCapability(peerCaller) : undefined;
+        const peerAccess = this.options.peerBroker?.issueCapability(peerCaller);
         let codingAccess: RealtimeCoordinatorAccess | undefined;
-        if (params.target.codingCoordinator === true) {
+        if (this.options.codingCoordinator !== undefined) {
             codingAccess = this.options.codingCoordinator?.issueCapability({
-                provider: params.target.pluginId,
+                provider: params.target.providerId,
                 ...(params.sessionId === undefined ? {} : { sessionId: params.sessionId }),
                 ...(params.cwd === undefined ? {} : { cwd: params.cwd }),
             });
         }
         let child: ChildProcessWithoutNullStreams;
         try {
-            child = spawn(process.execPath, [join(params.target.pluginRoot, params.target.entry)], {
+            child = spawn(process.execPath, [join(params.target.runtimeRoot, params.target.entry)], {
                 cwd: process.cwd(),
                 detached: processGroup,
                 env: {
@@ -208,7 +194,7 @@ export class PluginStreamManager {
                     ...(process.env.MUXR_HOME ? { MUXR_HOME: process.env.MUXR_HOME } : {}),
                     ...(process.env.CODEX_HOME ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
                     ...(process.env.MUXR_CODEX_BIN ? { MUXR_CODEX_BIN: process.env.MUXR_CODEX_BIN } : {}),
-                    MUXR_PLUGIN_ID: params.target.pluginId,
+                    MUXR_PLUGIN_ID: params.target.providerId,
                     MUXR_PLUGIN_STATE_DIR: params.stateDir,
                     ...(peerAccess === undefined ? {} : {
                         MUXR_PEER_BROKER_SOCKET: peerAccess.socketPath,
@@ -234,7 +220,7 @@ export class PluginStreamManager {
         let stdoutPaused = false;
         let socketPaused = false;
         // Audio must never be dropped: a provider reply bursts several times
-        // faster than a slow phone downlink drains. Pause the plugin's stdout
+        // faster than a slow phone downlink drains. Pause the adapter's stdout
         // and let pipe backpressure hold the reply until the socket catches up.
         const resumeStdoutIfDrained = (): void => {
             if (!finished && stdoutPaused && socket.bufferedAmount <= MAX_STREAM_BUFFER_BYTES / 2) {
@@ -262,7 +248,7 @@ export class PluginStreamManager {
         const send = (frame: RealtimeHostFrame): boolean => {
             if (socket.readyState !== OPEN) return false;
             socket.send(encodeRealtimeFrame(frame), (error) => {
-                if (error) attachment.close('plugin stream disconnected');
+                if (error) attachment.close('voice stream disconnected');
                 else resumeStdoutIfDrained();
             });
             pauseStdoutIfNeeded();
@@ -296,7 +282,7 @@ export class PluginStreamManager {
         };
         const onAbort = (): void => {
             killChild();
-            finish('plugin revoked');
+            finish('voice stream revoked');
         };
         const attachment: Attachment = {
             channel: params.channel,
@@ -321,7 +307,7 @@ export class PluginStreamManager {
         params.signal.addEventListener('abort', onAbort, { once: true });
         if (params.signal.aborted) onAbort();
 
-        child.stdin.on('error', () => attachment.close('plugin stream input failed'));
+        child.stdin.on('error', () => attachment.close('voice stream input failed'));
         child.stderr.on('data', (chunk: Buffer) => {
             stderr = Buffer.concat([stderr, chunk]);
             if (stderr.length > 32 * 1024) stderr = stderr.subarray(stderr.length - 32 * 1024);
@@ -336,7 +322,7 @@ export class PluginStreamManager {
                 const line = stdout.subarray(offset, newline);
                 offset = newline + 1;
                 if (line.length > MAX_STREAM_LINE_BYTES) {
-                    attachment.close('plugin stream output exceeded its frame bound');
+                    attachment.close('voice stream output exceeded its frame bound');
                     return;
                 }
                 const text = line.toString('utf8');
@@ -349,20 +335,20 @@ export class PluginStreamManager {
                           ? { ...parsed, detail: safeStreamReason(parsed.detail) }
                           : parsed;
                     if (!send(frame)) {
-                        attachment.close('plugin stream disconnected');
+                        attachment.close('voice stream disconnected');
                         return;
                     }
                     if (frame.type === 'realtime.closed') gracefulCloseSent = true;
                     armIdle();
                 } catch {
-                    attachment.close('plugin stream emitted an invalid realtime frame');
+                    attachment.close('voice stream emitted an invalid realtime frame');
                     return;
                 }
             }
             stdout = offset === 0 ? stdout : Buffer.from(stdout.subarray(offset));
-            if (stdout.length > MAX_STREAM_LINE_BYTES) attachment.close('plugin stream output exceeded its frame bound');
+            if (stdout.length > MAX_STREAM_LINE_BYTES) attachment.close('voice stream output exceeded its frame bound');
         });
-        child.once('error', (error) => attachment.close(`plugin stream failed: ${safeStreamReason(error.message)}`));
+        child.once('error', (error) => attachment.close(`voice stream failed: ${safeStreamReason(error.message)}`));
         child.once('close', (code) => {
             // Never forward stack traces or local paths: keep one clean line.
             const rawDetail = stderr.toString('utf8').trim();
@@ -374,7 +360,7 @@ export class PluginStreamManager {
                     return;
                 }
                 if (detail === '') {
-                    attachment.close(`plugin stream exited (${code ?? 'signal'})`);
+                    attachment.close(`voice stream exited (${code ?? 'signal'})`);
                     return;
                 }
                 attachment.close(detail);
@@ -404,7 +390,7 @@ export class PluginStreamManager {
         socket.on('close', () => attachment.close());
         socket.on('error', () => attachment.close());
         socket.flushEarly();
-        if (finished) throw new Error('plugin stream disconnected before attach');
+        if (finished) throw new Error('voice stream disconnected before attach');
 
         try {
             const open: RealtimePluginOpenFrame = {
@@ -428,10 +414,6 @@ export class PluginStreamManager {
             if (remaining <= 0) this.attachingByDevice.delete(deviceKey);
             else this.attachingByDevice.set(deviceKey, remaining);
         }
-    }
-
-    detach(channel: string, reason?: string): void {
-        this.attachments.get(channel)?.close(reason);
     }
 
     closeSession(sessionId: string): void {
