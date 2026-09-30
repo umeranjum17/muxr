@@ -54,7 +54,8 @@ export async function hasSshCredential(machineId: string): Promise<boolean> {
     return (await getNativeSecret(credentialKey(machineId))) !== null;
 }
 
-async function readCredential(machineId: string): Promise<SshCredential | undefined> {
+export async function readSshCredential(machineId: string): Promise<SshCredential | undefined> {
+    if (!isSshTunnelSupported()) return undefined;
     const { getNativeSecret } = await import('@/pairing/secrets');
     const raw = await getNativeSecret(credentialKey(machineId));
     if (raw === null) return undefined;
@@ -68,7 +69,7 @@ async function readCredential(machineId: string): Promise<SshCredential | undefi
 /** Derive public metadata from the saved private key without exposing the private bytes. */
 export async function savedSshPublicKey(machineId: string): Promise<SshPublicKeyInfo | undefined> {
     if (!isSshTunnelSupported() || machineId === '') return undefined;
-    const credential = await readCredential(machineId);
+    const credential = await readSshCredential(machineId);
     if (credential?.privateKey === undefined) return undefined;
     const { sshPublicKeyFromPrivate } = await import('./sshPublicKey');
     return sshPublicKeyFromPrivate(credential.privateKey);
@@ -328,7 +329,7 @@ export async function executeSshCommand(machineId: string, target: SshTarget, co
     if (settings.selfhost !== true || settings.machineId !== machineId || !sameSshTarget(settings.ssh, target) || target.hostKey === undefined) {
         throw new SshConnectionError('ssh-configuration', 'The Direct SSH target changed. Review the target and command before trying again.', true);
     }
-    const credential = await readCredential(machineId);
+    const credential = await readSshCredential(machineId);
     if (credential === undefined) {
         throw new SshConnectionError('ssh-auth', `muxr has no saved SSH credential for ${target.username}@${target.host}. Add it in Connection settings.`, true);
     }
@@ -383,7 +384,7 @@ export async function sshRelayUrl(relayUrl: string, machineId: string, target: S
     if (pending === undefined) {
         pending = (async () => {
             try {
-                const credential = await readCredential(machineId);
+                const credential = await readSshCredential(machineId);
                 if (credential === undefined) {
                     throw new SshConnectionError('ssh-auth', `muxr has no saved SSH key or password for ${activeTarget.username}@${activeTarget.host}. Add it in Connection settings.`, true);
                 }

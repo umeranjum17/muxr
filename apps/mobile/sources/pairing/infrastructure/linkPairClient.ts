@@ -16,7 +16,7 @@ import {
 
 /**
  * The byokit pairing protocol, behind one port: application code asks this
- * adapter to claim an offer and receives the raw
+ * adapter to claim an offer or resume a pending pairing and receives the raw
  * machine answer. No application file imports @byokit/link, and nothing here
  * decides how the session channel is carried — that stays in LinkFirstClient.
  */
@@ -44,10 +44,10 @@ export function newPairingSecretKey(): string {
     return b64url(linkKeyPair().secretKey);
 }
 
-export function pairingFailure(cause: unknown): { message: string } {
+export function pairingFailure(cause: unknown): { message: string; discard: boolean } {
     const message = cause instanceof LinkError && cause.code in LINK_WORDS
         ? LINK_WORDS[cause.code] : cause instanceof Error ? cause.message : String(cause);
-    return { message };
+    return { message, discard: message === 'Your computer said no to this device.' || message.includes('run out') };
 }
 
 export function provenLinkGrant(answer: LinkPairAnswer, key: { publicKey: Uint8Array; secretKey: Uint8Array }): StoredHostedGrant {
@@ -117,12 +117,12 @@ function openLink(grant: LinkDeviceGrant, timeoutMs: number, route?: (url: strin
 }
 
 /**
- * Claim the offer, trade
+ * Claim the offer (fresh scan) or reconnect by key (resume), trade
  * `pair.complete` for the machine details, and prove this key over the
  * machine's real link. The proof only settles once the machine's link served
  * this key, so the caller learns the pairing truly reached the computer.
  */
-export async function claimLinkPairing(pending: LinkPairPending, options: { onWords?: (words: string) => void; tunnelPort?: number; onProven?: (answer: LinkPairAnswer, key: ReturnType<typeof keyPairFrom>) => Promise<void> }): Promise<LinkPairAnswer & { key: ReturnType<typeof keyPairFrom> }> {
+export async function claimLinkPairing(pending: LinkPairPending, options: { mode: 'claim' | 'resume'; onWords?: (words: string) => void; tunnelPort?: number; onProven?: (answer: LinkPairAnswer, key: ReturnType<typeof keyPairFrom>) => Promise<void> }): Promise<LinkPairAnswer & { key: ReturnType<typeof keyPairFrom> }> {
     const resolve = options.tunnelPort === undefined ? undefined : (url: string) => {
         const target = new URL(url);
         target.protocol = 'ws:';
@@ -130,15 +130,23 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { onWo
         return target.toString();
     };
     const key = keyPairFrom(unb64url(pending.secretKey));
+    const grant = pendingGrant(pending.scanned, { name: pending.name, key });
     let claim: LinkDeviceGrant;
     let wordsShown = false;
     try {
-        claim = await pairWithOffer(pending.scanned, {
-            name: pending.name,
-            key,
-            onWords: (words) => { wordsShown = true; options.onWords?.(words); },
-            ...(resolve === undefined ? {} : { resolve }),
-        });
+        if (options.mode === 'claim') {
+            // A fresh scan claims the single-use ticket; a resumed phone was
+            // already approved, so it reconnects by its key alone — the ticket
+            // burned on the first connection.
+            claim = await pairWithOffer(pending.scanned, {
+                name: pending.name,
+                key,
+                onWords: (words) => { wordsShown = true; options.onWords?.(words); },
+                ...(resolve === undefined ? {} : { resolve }),
+            });
+        } else {
+            claim = grant;
+        }
     } catch (cause) {
         if (wordsShown && cause instanceof LinkError && (cause.code === 'unreachable' || cause.code === 'timeout')) {
             throw new Error('The pairing link closed after the two words, before approval completed. Run `muxr pair` again and approve the fresh code before it expires.');
@@ -173,7 +181,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { onWo
         try { await pairing.request('pair.verified', {}, { timeoutMs: 10_000 }); }
         catch (cause) {
             if (cause instanceof LinkError && (cause.code === 'unreachable' || cause.code === 'timeout')) {
-                throw new Error('The phone reached the computer, but its pairing acknowledgement was lost. Scan a new code if the saved pairing cannot connect.');
+                throw new Error('The phone reached the computer, but its pairing acknowledgement was lost. Reopen muxr to resume the saved link.');
             }
             throw cause;
         }

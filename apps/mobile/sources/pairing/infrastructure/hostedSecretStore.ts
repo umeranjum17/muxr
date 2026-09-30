@@ -14,6 +14,7 @@ export interface PendingLinkPair {
     scanned: string;
     name: string;
     secretKey: string;
+    startedAt: number;
 }
 
 export async function readPendingPair(): Promise<PendingLinkPair | undefined> {

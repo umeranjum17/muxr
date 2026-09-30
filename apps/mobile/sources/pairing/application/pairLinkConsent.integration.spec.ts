@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pairLinkOffer } from './usePairing';
 import { listPairedGrants } from './linkPairing';
 import { readPendingPair } from '../infrastructure/hostedSecretStore';
+import { TokenStorage } from '@/account';
 import { probeDiscoveredRelay } from '../infrastructure/linkGrant';
 
 const harness = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const harness = vi.hoisted(() => ({
     loseAcknowledgement: false,
     failBeforeApproval: false,
     pairingClosed: false,
+    sshCredentials: new Map<string, { password: string }>(),
     secrets: new Map<string, string>(),
     confirms: [] as Array<{ title: string; body: string }>,
 }));
@@ -36,10 +38,15 @@ vi.mock('../infrastructure/pairingPlatform', () => ({
     pairingDeviceName: () => 'Phone',
     assertSupportedOffer: () => undefined,
 }));
-vi.mock('../infrastructure/linkGrant', () => ({ probeDiscoveredRelay: vi.fn(async () => true) }));
+vi.mock('../infrastructure/linkGrant', () => ({ probeDiscoveredRelay: vi.fn(async () => false) }));
+vi.mock('@/catalog/sync', () => ({ sync: { invalidateCatalog: vi.fn() }, syncCreate: vi.fn(async () => undefined) }));
 vi.mock('@/connection', () => ({
     getCachedConnectionSettings: () => harness.settings,
-    forgetSshCredential: vi.fn(),
+    forgetSshCredential: async (id: string) => { harness.sshCredentials.delete(id); },
+    readSshCredential: async (id: string) => harness.sshCredentials.get(id),
+    saveSshCredential: async (id: string, credential: { password: string }) => { harness.sshCredentials.set(id, credential); },
+    parseSshFields: (input: { host: string; password: string }) => ({ target: { host: input.host }, credential: { password: input.password } }),
+    pinSshHostKey: (_previous: unknown, target: unknown) => target,
     loadConnectionSettingsAsync: vi.fn(),
     saveConnectionSettings: async (settings: typeof harness.settings) => { harness.settings = settings; },
 }));
@@ -61,18 +68,19 @@ vi.mock('../infrastructure/linkPairClient', () => ({
     claimLinkPairing: async (pending: { secretKey: string }, options: {
         tunnelPort?: number;
         onWords?: (words: string) => void;
-        onProven: (answer: unknown, key: unknown) => Promise<void>;
+        onProven?: (answer: unknown, key: unknown) => Promise<void>;
     }) => {
         harness.attempts.push({ key: pending.secretKey, tunnelPort: options.tunnelPort });
         if (harness.pairingClosed) throw new Error('pairing session is closed');
         if (harness.failBeforeApproval) throw new Error('connection failed before approval');
         if (!harness.approved) throw new Error('must not pair after the user declines');
         options.onWords?.('spark castle');
-        await options.onProven({}, {});
+        await options.onProven?.({}, {});
         if (harness.loseAcknowledgement) {
             harness.pairingClosed = true;
             throw new Error('acknowledgement lost');
         }
+        return { key: {} };
     },
 }));
 vi.mock('./useCheckCameraPermissions', () => ({ useCheckScannerPermissions: () => async () => true }));
@@ -161,32 +169,38 @@ it('pairs after one screen consent, shows words inline, and activates without an
 
     const offer = linkOffer({ role: 'control', name: 'Desk' });
     harness.loseAcknowledgement = true;
-    const applyRoute = vi.fn(async () => undefined);
-    expect(await pairLinkOffer(offer, { login } as never, {
-        confirm: consent,
-        tunnelPort: 8792,
-        onActivated: applyRoute,
-    })).toBe(true);
-    expect(harness.pairingClosed).toBe(true);
-    expect(harness.attempts).toHaveLength(2);
-    expect(probeDiscoveredRelay).toHaveBeenCalledWith(
-        expect.objectContaining({ machineId: 'desk' }), 'ws://127.0.0.1:8792',
-    );
-    expect(applyRoute.mock.invocationCallOrder[0]).toBeLessThan(login.mock.invocationCallOrder.at(-1)!);
+    const settingsBeforeAmbiguousReply = harness.settings;
+    const loginsBeforeFailure = login.mock.calls.length;
+    await expect(pairLinkOffer(offer, { login } as never, { confirm: consent, tunnelPort: 8792 })).rejects.toThrow('acknowledgement lost');
+    expect(probeDiscoveredRelay).not.toHaveBeenCalled();
+    expect(harness.settings).toEqual(settingsBeforeAmbiguousReply);
     expect(await readPendingPair()).toBeUndefined();
+    expect(login).toHaveBeenCalledTimes(loginsBeforeFailure);
 
     harness.loseAcknowledgement = false;
     harness.pairingClosed = false;
     harness.failBeforeApproval = true;
-    const loginsBeforeFailure = login.mock.calls.length;
     await expect(pairLinkOffer(offer, { login } as never, { confirm: consent })).rejects.toThrow('connection failed before approval');
     expect(await readPendingPair()).toBeUndefined();
-    expect(login).toHaveBeenCalledTimes(loginsBeforeFailure);
 
     harness.failBeforeApproval = false;
+    const previousCredentials = { token: 'previous', secret: 'previous-key' };
+    const previousSettings = { mode: 'hosted', machineId: 'previous', relayUrl: 'ws://previous', token: '' };
+    harness.settings = previousSettings;
+    harness.sshCredentials.set('previous', { password: 'previous-password' });
+    await TokenStorage.setCredentials(previousCredentials);
+    const existingGrants = await listPairedGrants();
     login.mockRejectedValueOnce(new Error('login failed'));
-    await expect(pairLinkOffer(offer, { login } as never, { confirm: consent })).rejects.toThrow('login failed');
+    await expect(pairLinkOffer(offer, { login, credentials: previousCredentials } as never, {
+        confirm: consent,
+        sshInput: { host: 'desk', password: 'new-password' } as never,
+        sshHostKey: 'host-key',
+    })).rejects.toThrow('login failed');
+    expect(harness.settings).toEqual(previousSettings);
+    expect(await TokenStorage.getCredentials()).toEqual(previousCredentials);
+    expect(harness.sshCredentials.get('previous')).toEqual({ password: 'previous-password' });
+    expect(harness.sshCredentials.has('desk')).toBe(false);
+    expect(await listPairedGrants()).toEqual(existingGrants);
     expect(await readPendingPair()).toBeUndefined();
-    expect(await listPairedGrants()).toEqual([expect.objectContaining({ machineName: 'Desk' })]);
     expect(harness.alerts).toHaveLength(0);
 });

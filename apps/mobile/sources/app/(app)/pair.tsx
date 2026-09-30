@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { linkPairMachineName, looksLikeLinkOffer } from '@/pairing/e2ee';
 import { pairLinkConsent, pairLinkOffer, usePairQrScanner, type PairingProgress } from '@/pairing';
-import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
+import { establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
 import { Typography } from '@/constants/Typography';
@@ -138,11 +138,8 @@ export default function PairScreen() {
                     tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,
                     confirm: async () => true,
                     onProgress: setProgress,
-                    onActivated: async () => {
-                        if (sshInput === undefined || !tunnel?.ok) return;
-                        const applied = await applySshAfterPairing(sshInput, { hostKey: tunnel.hostKey });
-                        if (!applied.ok) throw new Error(applied.message);
-                    },
+                    sshInput,
+                    sshHostKey: tunnel?.ok ? tunnel.hostKey : undefined,
                 });
             } catch (cause) {
                 if (tunnel !== undefined) await stopSshTunnel();

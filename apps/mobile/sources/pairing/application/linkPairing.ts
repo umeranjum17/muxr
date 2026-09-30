@@ -82,14 +82,10 @@ export async function reconnectViaDiscoveredRelay(machineId: string, relayUrl: s
     return true;
 }
 
-export async function recoverSavedHostedPairing(): Promise<StoredHostedGrant | undefined> {
+/** Only an in-flight link offer can resume; old relay claims cannot. */
+export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | undefined> {
     const pending = await readPendingPair();
-    if (pending === undefined) return undefined;
-    await deletePendingPair();
-    const grants = await listPairedGrants();
-    const grant = grants.find((candidate) => candidate.deviceKey.secretKey.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') === pending.secretKey);
-    if (grant === undefined || !await probeDiscoveredRelay(grant, grant.relayUrl)) return undefined;
-    return grant;
+    return pending === undefined ? undefined : resumePendingLinkPairing(pending);
 }
 
 /**
@@ -97,13 +93,20 @@ export async function recoverSavedHostedPairing(): Promise<StoredHostedGrant | u
  * confirmation words while the person at the computer approves, then trade
  * `pair.complete` for the machine details and prove this device holds its key
  * over the machine's real link before anything is stored.
+ * The pending pairing is persisted before the first connection, so a process
+ * death resumes it rather than leaving the computer holding an unused grant.
  */
 export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void; tunnelPort?: number } = {}): Promise<StoredHostedGrant> {
     assertSupportedOffer(scanned);
     const secretKey = newPairingSecretKey();
-    const pending: PendingLinkPair = { scanned, name: pairingDeviceName(), secretKey };
+    const pending: PendingLinkPair = { scanned, name: pairingDeviceName(), secretKey, startedAt: Date.now() };
     await writePendingPair(pending);
-    return completeLinkPairing(pending, options);
+    try {
+        const answer = await claimLinkPairing(pending, { ...options, mode: 'claim' });
+        return provenLinkGrant(answer, answer.key);
+    } finally {
+        await deletePendingPair();
+    }
 }
 
 /** The pairing machine display name for consent, parsed for display only; the pairing itself re-validates. */
@@ -111,26 +114,35 @@ export async function linkPairMachineName(scanned: string): Promise<string | und
     return linkOfferName(scanned);
 }
 
-async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?: (words: string) => void; tunnelPort?: number }): Promise<StoredHostedGrant> {
+async function resumePendingLinkPairing(pending: PendingLinkPair): Promise<StoredHostedGrant | undefined> {
+    if (Date.now() - pending.startedAt > 4 * 60_000) {
+        await deletePendingPair();
+        return undefined;
+    }
+    try {
+        return await completeLinkPairing(pending, { mode: 'resume' });
+    } catch {
+        return undefined;
+    }
+}
+
+async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?: (words: string) => void; tunnelPort?: number; mode: 'claim' | 'resume' }): Promise<StoredHostedGrant> {
     let stored: StoredHostedGrant | undefined;
     try {
         await claimLinkPairing(pending, { ...options, onProven: async (answer, key) => {
-            const grant = provenLinkGrant(answer, key);
-            await storeGrant(grant);
-            stored = grant;
+            stored = provenLinkGrant(answer, key);
+            await storeGrant(stored);
         } });
-        if (stored === undefined) throw new Error('the computer did not prove this pairing');
-        return stored;
     } catch (cause) {
-        if (stored !== undefined) {
-            const saved = await loadHostedGrant(stored.machineId);
-            const relayUrl = options.tunnelPort === undefined ? saved?.relayUrl : `ws://127.0.0.1:${options.tunnelPort}`;
-            if (saved !== undefined && relayUrl !== undefined && await probeDiscoveredRelay(saved, relayUrl)) return saved;
+        const failure = pairingFailure(cause);
+        if (Date.now() - pending.startedAt > 4 * 60_000 || failure.discard) {
+            await deletePendingPair();
         }
-        throw new Error(pairingFailure(cause).message);
-    } finally {
-        await deletePendingPair();
+        throw new Error(failure.message);
     }
+    if (stored === undefined) throw new Error('the computer did not prove this pairing');
+    await deletePendingPair();
+    return stored;
 }
 
 export async function clearHostedE2ee(): Promise<void> {

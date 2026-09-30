@@ -5,7 +5,12 @@ import { useRouter } from 'expo-router';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
-import { linkPairMachineName, pairOverLink } from './linkPairing';
+import { TokenStorage } from '@/account';
+import { sync, syncCreate } from '@/catalog/sync';
+import { getCachedConnectionSettings, saveConnectionSettings, parseSshFields, pinSshHostKey, saveSshCredential, readSshCredential, forgetSshCredential, type SshFieldInput } from '@/connection';
+import { realtimeMachineSwitchGuard } from '@/conversation/session';
+import { storeGrant, deleteGrant } from '../infrastructure/grantStore';
+import { loadHostedGrant, linkPairMachineName, pairOverLink } from './linkPairing';
 import { hostedPairingDuration, linkOfferRole, looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
@@ -45,7 +50,8 @@ export type PairingProgress = ReturnType<typeof pairingView>;
 
 export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>, options: {
     tunnelPort?: number;
-    onActivated?: () => Promise<void>;
+    sshInput?: SshFieldInput;
+    sshHostKey?: string;
     confirm?: (title: string, words: string) => Promise<boolean>;
     onProgress?: (view: PairingProgress) => void;
 } = {}): Promise<boolean> {
@@ -64,24 +70,53 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
             options.onProgress?.(view);
         },
     });
-    // Activation runs through the shared path so a pinned voice session and a
-    // previous machine's SSH credential are handled exactly like relay pairing.
-    let paired = await pairMachine({ grant });
-    if (!paired.ok && paired.reason === 'voice-pinned') {
-        const switchApproved = await Modal.confirm(
+    const previousSettings = getCachedConnectionSettings();
+    const previousGrant = await loadHostedGrant(grant.machineId);
+    const previousCredentials = auth.credentials ?? null;
+    const previousSsh = await readSshCredential(previousSettings.machineId);
+    const previousTargetSsh = await readSshCredential(grant.machineId);
+    const parsedSsh = options.sshInput === undefined ? undefined : parseSshFields(options.sshInput);
+    if (parsedSsh !== undefined && 'error' in parsedSsh) throw new Error(parsedSsh.error);
+    const switchNeeded = !realtimeMachineSwitchGuard(grant.machineId).allowed;
+    if (switchNeeded) {
+        const approvedSwitch = await Modal.confirm(
             'End voice and switch?',
-            'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
+            'Realtime voice stays pinned to the computer where it started. Pairing will be discarded if you cancel.',
             { confirmText: 'End voice and switch', destructive: true },
         );
-        if (!switchApproved) throw new Error('Pairing is saved in Settings. Switch computers there when you are ready to end voice.');
-        paired = await pairMachine({ grant, endVoiceIfPinned: true });
+        if (!approvedSwitch) throw new Error('Pairing cancelled. Scan a new code when you are ready to switch.');
     }
-    if (!paired.ok) {
-        const message = paired.reason === 'failed' ? paired.message : undefined;
-        throw new Error(message ?? 'Pairing could not be activated. Scan a new code or select the saved computer in Settings.');
+    try {
+        if (!await TokenStorage.setCredentials({ token: grant.credential, secret: grant.deviceKey.secretKey })) throw new Error('Failed to save credentials');
+        let ssh = previousSettings.machineId === grant.machineId ? previousSettings.ssh : undefined;
+        if (parsedSsh !== undefined) {
+            await saveSshCredential(grant.machineId, parsedSsh.credential);
+            ssh = pinSshHostKey(ssh, parsedSsh.target);
+            if (ssh.hostKey === undefined && options.sshHostKey !== undefined) ssh = { ...ssh, hostKey: options.sshHostKey };
+        }
+        const paired = await pairMachine({ grant, endVoiceIfPinned: switchNeeded, ssh });
+        if (!paired.ok) {
+            const message = paired.reason === 'failed' ? paired.message : undefined;
+            throw new Error(message ?? 'Pairing could not be activated. Scan a new code.');
+        }
+        await storeGrant(grant);
+        await auth.login(paired.credential, paired.secretKey);
+    } catch (cause) {
+        await saveConnectionSettings(previousSettings);
+        if (previousGrant === undefined) await deleteGrant(grant.machineId);
+        else await storeGrant(previousGrant);
+        if (previousTargetSsh === undefined) await forgetSshCredential(grant.machineId);
+        else await saveSshCredential(grant.machineId, previousTargetSsh);
+        if (previousSsh !== undefined) await saveSshCredential(previousSettings.machineId, previousSsh);
+        if (previousCredentials === null) {
+            if (!await TokenStorage.removeCredentials()) throw new Error('Failed to discard pairing credentials');
+            sync.invalidateCatalog();
+        } else {
+            if (!await TokenStorage.setCredentials(previousCredentials)) throw new Error('Failed to restore credentials');
+            await syncCreate(previousCredentials);
+        }
+        throw cause;
     }
-    await options.onActivated?.();
-    await auth.login(paired.credential, paired.secretKey);
     options.onProgress?.(pairingView({ phase: 'paired', hostName: machineName, device }));
     return true;
 }
