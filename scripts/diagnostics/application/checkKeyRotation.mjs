@@ -1,4 +1,6 @@
 /** Rotating the machine keys retires the old host on the relay and ends every pairing; a fresh pairing works. */
+import { randomUUID } from 'node:crypto';
+import { createSignedPeerDescriptor, generateKeyPair } from '@trymuxr/crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,7 +14,7 @@ import { writeSelfhostCrypto } from '../../../apps/host/dist/machine/infrastruct
 const root = mkdtempSync(join(tmpdir(), 'muxr-key-rotation-'));
 const home = join(root, 'muxr');
 const children = [];
-const env = { ...process.env, MUXR_HOME: home, MUXR_NO_SERVICE_COMMANDS: '1' };
+const env = { ...process.env, MUXR_HOME: home, MUXR_DATA_DIR: join(root, 'host'), MUXR_NO_SERVICE_COMMANDS: '1' };
 for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_URL', 'MUXR_MACHINE_ID', 'MUXR_RELAY_AUTH']) delete env[key];
 
 async function until(check, what, timeout = 20_000) {
@@ -44,6 +46,25 @@ async function stop(child) {
 const rotate = (...flags) => spawnSync(process.execPath, ['scripts/cli.mjs', 'devices', 'rotate-keys', ...flags], { env, encoding: 'utf8' });
 const readState = () => JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8'));
 const hostOf = (crypto) => hostId(Buffer.from(crypto.boxPublicKey, 'base64'));
+const authorizePeer = async (device) => {
+    const source = machineIdentity(undefined);
+    const target = readState().machine;
+    const now = Date.now();
+    const descriptor = createSignedPeerDescriptor({
+        sourceMachineId: source.id, sourceMachineSigningSecretKey: source.crypto.signingSecretKey,
+        targetMachineId: target.id, targetMachineSigningPublicKey: target.crypto.signingPublicKey,
+        peerPublicKey: generateKeyPair().publicKey, preparedAt: now, expiresAt: now + 60_000,
+        nonce: randomUUID(), sourceName: 'Rotation peer',
+    });
+    const authorized = await requestLab(device, 'peer.authorize', {
+        descriptor, capabilities: ['list', 'read'],
+        mutation: { operationId: randomUUID(), notValidAfter: now + 60_000 },
+    });
+    const listed = await requestLab(device, 'peer.list');
+    const relationship = listed.peers.find((peer) => peer.peerDeviceId === authorized.peerDeviceId);
+    if (relationship?.state !== 'connected') throw new Error('peer authorization did not connect');
+    return relationship;
+};
 
 try {
     const relay = launch(['apps/relay/dist/main.js'], {
@@ -68,12 +89,16 @@ try {
     const first = await start();
     const device = await linkLabClient(socketPath);
     await requestLab(device, 'machines.list');
+    if (readState().machine.crypto.devices.length !== 1) throw new Error('lab device was not paired');
+    const peer = await authorizePeer(device);
     const before = readState().machine.crypto;
-    if (before.devices.length !== 1) throw new Error('lab device was not paired');
 
     if (rotate().status === 0 || readState().machine.crypto.boxSecretKey !== before.boxSecretKey) {
         throw new Error('rotation ran without --unpair-all');
     }
+    const active = rotate('--unpair-all');
+    if (active.status === 0 || !active.stderr.includes('stop the foreground muxr host')
+        || JSON.stringify(readState().machine.crypto) !== JSON.stringify(before)) throw new Error('rotation did not refuse the live foreground host');
     await stop(first);
     const rotated = rotate('--unpair-all');
     if (rotated.status !== 0) throw new Error(`rotation failed: ${rotated.stderr}`);
@@ -95,9 +120,18 @@ try {
     if (device.status === 'online') throw new Error('old pairing reached the rotated host');
     device.stop();
     const repaired = await linkLabClient(socketPath);
-    try { await requestLab(repaired, 'machines.list'); }
+    try {
+        await requestLab(repaired, 'machines.list');
+        const disconnected = await requestLab(repaired, 'peer.revoke', { relationshipId: peer.relationshipId,
+            mutation: { operationId: randomUUID(), notValidAfter: Date.now() + 60_000 } });
+        if (disconnected.state !== 'already-revoked') throw new Error('rotation did not retire the old peer relationship');
+        const freshPeer = await authorizePeer(repaired);
+        const freshDisconnect = await requestLab(repaired, 'peer.revoke', { relationshipId: freshPeer.relationshipId,
+            mutation: { operationId: randomUUID(), notValidAfter: Date.now() + 60_000 } });
+        if (freshDisconnect.state !== 'revoked') throw new Error('fresh peer collaboration could not disconnect');
+    }
     finally { repaired.stop(); }
-    process.stdout.write('PASS: key rotation retires the old host key, ends old pairings, and a fresh pairing works\n');
+    process.stdout.write('PASS: rotation refuses a live host, retires keys and peers, and re-pairing supports fresh collaboration\n');
 } finally {
     await Promise.all(children.map(stop));
     rmSync(root, { recursive: true, force: true });

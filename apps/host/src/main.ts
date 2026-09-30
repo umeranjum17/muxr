@@ -1,13 +1,14 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync, type StatWatcher } from 'node:fs';
 import type { Grant, LinkStream } from '@byokit/link';
 import { isPeerCapabilities, parseLifecycleNotificationLevel, relayControlUrl } from '@trymuxr/contract';
+import { createConnection } from 'node:net';
 import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
 import { PaneScreens } from './desktop/index.js';
 import { startHost } from './host.js';
-import { LinkPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
+import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
 import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint, writeSelfhostCrypto } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -224,6 +225,7 @@ function readAuthStates() {
         // Deterministic auth faults cannot heal by restarting. Transient I/O
         // errors remain failures so the service manager may retry.
         const code = (error as NodeJS.ErrnoException)?.code;
+        if (process.argv.includes('--retire-machine-peers')) process.exit(1);
         process.exit(error instanceof NonRecoverableAuthError || code === 'EACCES' || code === 'EPERM' ? 0 : 1);
     }
 }
@@ -297,6 +299,34 @@ if (mode === 'selfhost' && selfhostAuth === undefined) {
 const stateFilePolls: Array<StatWatcher | NodeJS.Timeout> = [];
 
 async function main(): Promise<void> {
+    if (process.argv.includes('--retire-machine-peers')) {
+        for (const socketPath of [join(dataDir, 'pair.sock'), join(dataDir, 'peer', 'broker.sock')]) {
+            if (!existsSync(socketPath)) continue;
+            const info = lstatSync(socketPath);
+            if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0) {
+                throw new Error('cannot verify host quiescence: unsafe muxr socket');
+            }
+            await new Promise<void>((resolve, reject) => {
+                const socket = createConnection(socketPath);
+                socket.once('connect', () => {
+                    socket.destroy();
+                    reject(new Error('stop the foreground muxr host before rotating machine keys'));
+                });
+                socket.once('error', (error: NodeJS.ErrnoException) => {
+                    socket.destroy();
+                    if (error.code === 'ENOENT' || error.code === 'ECONNREFUSED') resolve();
+                    else reject(new Error('cannot verify host quiescence; stop the foreground muxr host first'));
+                });
+                socket.setTimeout(1_000, () => {
+                    socket.destroy();
+                    reject(new Error('cannot verify host quiescence; stop the foreground muxr host first'));
+                });
+            });
+        }
+        const retired = await retireMachinePeers(join(dataDir, 'peer'));
+        process.stdout.write(`  ✓ ${retired} inbound peer relationship(s) retired\n`);
+        return;
+    }
     const hostVersion = resolveHostVersion() ?? '0.0.0';
     let diagnostics: HostDiagnosticsJournal | undefined;
     try { diagnostics = new HostDiagnosticsJournal(dataDir, hostVersion); }

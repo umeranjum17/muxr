@@ -145,7 +145,10 @@ keep their quotas rather than having them reset.
   If the machine's secret keys were exposed, replace them. Every device pinned
   the old key, so all of them pair again afterwards. Rotation stops a running
   muxr service, replaces the keys, starts it again, then waits for the relay
-  and retires the old host registration:
+  and retires the old host registration. Stop any foreground muxr host first;
+  rotation refuses while its local sockets still accept connections. Inbound
+  peer collaborations are retired with their grants and can be set up again
+  after phone pairing:
 
   ```bash
   muxr devices rotate-keys --unpair-all   # new signing, box and data keys; the relay forgets the old host

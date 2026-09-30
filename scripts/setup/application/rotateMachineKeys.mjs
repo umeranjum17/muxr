@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { hostId } from '@byokit/link';
-import { error, machineIdentity, print } from '../infrastructure/runtime.mjs';
+import { error, machineIdentity, print, run } from '../infrastructure/runtime.mjs';
 import { readSelfhostState, selfhostControlBase, selfhostCredential, selfhostRelayHealthy, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { daemonIsRunning, runDaemon } from '../infrastructure/daemon.mjs';
+import { hostEntry } from '../infrastructure/paths.mjs';
 import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
 
 const fingerprint = (publicKey) => createHash('sha256').update(publicKey).digest('hex').slice(0, 16);
@@ -26,6 +27,9 @@ export async function rotateMachineKeys(args = []) {
             const wasRunning = daemonIsRunning();
             if (wasRunning && await runDaemon(['stop']) !== 0) throw new Error('could not stop the muxr service; machine keys were not rotated');
             try {
+                const peers = run(process.execPath, [hostEntry(), '--retire-machine-peers']);
+                if (!peers.ok) throw new Error(peers.stderr || 'could not retire machine peer relationships');
+                print(peers.stdout);
                 const fresh = machineIdentity(undefined).crypto;
                 state.machine.publicKey = fresh.signingPublicKey;
                 state.machine.crypto = { ...fresh, keyVersion: old.keyVersion + 1 };
@@ -54,7 +58,7 @@ export async function rotateMachineKeys(args = []) {
             }
             print(`  ✓ old host ${oldHost} retired from the relay`);
         });
-        print('  next: pair each device again with `muxr pair`; linked peer computers must be re-authorized');
+        print('  next: pair each device again with `muxr pair`; inbound peer collaborations were retired and can be set up again');
         return 0;
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));

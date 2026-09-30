@@ -1,6 +1,6 @@
 import type { PeerClientRequest, PeerRequestResult } from '@trymuxr/contract';
 import type { MachinePendingRotation } from '../../machine/index.js';
-import type { StoredPendingAuthorization, StoredPeerRelationship } from '../infrastructure/store.js';
+import { PeerStore, type StoredPendingAuthorization, type StoredPeerRelationship } from '../infrastructure/store.js';
 
 export type RevokePeerAuthorityCommand = Extract<PeerClientRequest, { type: 'peer.revoke' }>['params'];
 export type RevokePeerAuthorityResult = PeerRequestResult<'peer.revoke'>;
@@ -56,4 +56,17 @@ export async function revokePeerAuthority(
     await fleet.finishPeerRevocation(pending);
     await fleet.store.putRelationship({ ...relationship, state: 'revoked', updatedAt: fleet.now() });
     return { state: 'revoked', revokedAt: fleet.now(), ...(relationship.authority === undefined ? {} : { authority: relationship.authority }) };
+}
+
+export async function retireMachinePeers(dataDir: string): Promise<number> {
+    const store = new PeerStore(dataDir);
+    let retired = 0;
+    for (const relationship of store.list().peers) {
+        if (relationship.direction !== 'inbound' || relationship.state === 'revoked') continue;
+        const stored = store.relationship(relationship.relationshipId) ?? relationship;
+        await store.putRelationship({ ...stored, state: 'revoked', updatedAt: Date.now() });
+        retired += 1;
+    }
+    if (store.pendingAuthorization() !== undefined) await store.putPendingAuthorization(undefined);
+    return retired;
 }
