@@ -1163,6 +1163,11 @@
     "@noble/curves" "2.4.0"
     "@noble/hashes" "2.4.0"
 
+"@byokit/statusbar@0.1.1":
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/@byokit/statusbar/-/statusbar-0.1.1.tgz#cbd9298829b4833c9db6c23459b05c2080fe7b4e"
+  integrity sha512-TcGsKu4QMTYgmyxeDMSwMo9err113QLFa5BlTVdLKV7dcB/UlhDIbNz470KPCk6v0TH4joiZECZecCbxS86i1g==
+
 "@byokit/ui-core@0.3.0":
   version "0.3.0"
   resolved "https://registry.yarnpkg.com/@byokit/ui-core/-/ui-core-0.3.0.tgz#948eb050e04ebddbf43243622e3c33a7d5fc40e0"

@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { homePath } from '../../platform/homePath.js';
 
 const TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_BYTES = 1_000_000;
@@ -16,7 +17,7 @@ export async function runMachineShell(
         execFile(
             process.env['SHELL'] ?? '/bin/sh',
             ['-lc', command],
-            { cwd, timeout: TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES },
+            { cwd: homePath(cwd), timeout: TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES },
             (error, stdout, stderr) => {
                 const code = (error as { code?: unknown } | null)?.code;
                 let exitCode = 1;

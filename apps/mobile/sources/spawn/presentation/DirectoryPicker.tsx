@@ -203,9 +203,9 @@ export function DirectoryPicker({ value, onChange, recent }: DirectoryPickerProp
         crumbsRef.current?.scrollToEnd({ animated: false });
     }, [listing?.path]);
 
-    const rows = (listing?.entries ?? []).filter(
-        (entry) => target.prefix === '' || entry.name.startsWith(target.prefix),
-    );
+    // Case-blind like the Mac's filesystem: `~/doc` still offers Documents.
+    const prefix = target.prefix.toLowerCase();
+    const rows = (listing?.entries ?? []).filter((entry) => entry.name.toLowerCase().startsWith(prefix));
     const crumbs = breadcrumbs(listing?.path);
 
     return (
