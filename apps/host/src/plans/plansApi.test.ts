@@ -1,6 +1,6 @@
 /**
  * P1 flow: the accounts store plus `plans.list` over throwaway folders and
- * stub tools. No real account, no credential reads: one folder's credentials
+ * stub tools. No real account: one folder's credentials
  * are chmod 000 and the list still works.
  */
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,11 +10,19 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
 import { autoTermsAcknowledged, loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
 
-const mockState = vi.hoisted(() => ({ failRename: false }));
+const mockState = vi.hoisted(() => ({ failRename: false, failRefreshAllocation: false, failRefreshCleanup: false }));
 vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal<typeof import('node:fs')>();
     return {
         ...actual,
+        mkdtempSync: (...args: Parameters<typeof actual.mkdtempSync>) => {
+            if (mockState.failRefreshAllocation && String(args[0]).includes('muxr-usage-refresh-')) throw new Error('temporary storage unavailable');
+            return actual.mkdtempSync(...args);
+        },
+        rmSync: (...args: Parameters<typeof actual.rmSync>) => {
+            actual.rmSync(...args);
+            if (mockState.failRefreshCleanup && String(args[0]).includes('muxr-usage-refresh-')) throw new Error('temporary cleanup failed');
+        },
         renameSync: (...args: Parameters<typeof actual.renameSync>) => {
             if (mockState.failRename) throw new Error('crash before rename');
             return actual.renameSync(...args);
@@ -40,7 +48,7 @@ echo '{"id":1,"result":{}}'
 read -r line
 base="\${CODEX_HOME##*/}"
 if [[ "$line" == *rateLimits* ]]; then
-  if [[ "$base" == *-out ]]; then echo '{"id":2,"result":{"rateLimitsByLimitId":{}}}';
+  if [[ -f "$CODEX_HOME/fail" || "$base" == *-out ]]; then echo '{"id":2,"result":{"rateLimitsByLimitId":{}}}';
   elif [[ "$base" == tight ]]; then echo "{\\"id\\":2,\\"result\\":{\\"rateLimitsByLimitId\\":{\\"plan\\":{\\"limitName\\":\\"Codex\\",\\"primary\\":{\\"usedPercent\\":90,\\"windowDurationMins\\":10080,\\"resetsAt\\":1893456000}}}}}";
   else echo "{\\"id\\":2,\\"result\\":{\\"rateLimitsByLimitId\\":{\\"plan\\":{\\"limitName\\":\\"Codex\\",\\"primary\\":{\\"usedPercent\\":25,\\"windowDurationMins\\":10080,\\"resetsAt\\":1893456000}}}}}"; fi
 elif [[ "$base" == *-out ]]; then echo '{"id":2,"result":{"account":null,"requiresOpenaiAuth":true}}';
@@ -57,12 +65,20 @@ beforeEach(() => {
     env = {
         ...process.env,
         HOME: root,
+        XDG_DATA_HOME: join(root, 'share'),
+        CODEX_HOME: join(root, '.codex'),
+        CLAUDE_CONFIG_DIR: join(root, '.claude'),
+        PI_AGENT_DIR: join(root, 'pi'),
+        OPENCODE_AUTH_CONTENT: undefined,
+        MUXR_CCUSAGE_BIN: '/bin/false',
         MUXR_HOME: join(root, 'muxr'),
         PATH: `${bin}${process.env.PATH === undefined ? '' : `:${process.env.PATH}`}`,
     };
 });
 
 afterEach(() => {
+    mockState.failRefreshAllocation = false;
+    mockState.failRefreshCleanup = false;
     rmSync(root, { recursive: true, force: true });
 });
 
@@ -95,7 +111,7 @@ it('hides the feature with one account and lists two with names and emails', asy
     expect(accounts[1]).toMatchObject({ name: 'Work' });
 });
 
-it('reports a signed-out account without choosing it and never reads credentials', async () => {
+it('reports a signed-out account without choosing it when its credentials are unreadable', async () => {
     const folder = foundClaude();
     writeFileSync(join(folder, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'secret', accountUuid: 'u' } }));
     chmodSync(join(folder, '.credentials.json'), 0);
@@ -148,16 +164,41 @@ it('never deletes the plans root itself when a record points at it', async () =>
     expect(loadPlanAccounts(env).map((record) => record.id)).toEqual(['pa_work']);
 });
 
-it('lists two codex sign-ins through the stub app-server', async () => {
+it('keeps selected Codex sign-ins separate through switches and failed reads', async () => {
     const home = join(root, '.codex');
     mkdirSync(home, { recursive: true });
-    const second = join(root, 'muxr', 'plans', 'codex', 'other');
+    writeFileSync(join(home, 'auth.json'), JSON.stringify({ tokens: { access_token: 'fixture-a' } }));
+    const second = join(root, 'muxr', 'plans', 'codex', 'tight');
     mkdirSync(second, { recursive: true });
-    savePlanAccounts(env, [{ id: 'pa_x', provider: 'codex', name: 'Other', folder: second, found: false }]);
+    writeFileSync(join(second, 'auth.json'), JSON.stringify({ tokens: { access_token: 'fixture-b' } }));
+    savePlanAccounts(env, [{ id: 'pa_x', provider: 'codex', name: 'Tight', folder: second, found: false }]);
     const listed = await listPlans(env);
     expect(listed.providers.map((entry) => entry.provider)).toEqual(['codex']);
-    expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual(['.codex@example.com', 'other@example.com']);
-    expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 75]);
+    expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual(['.codex@example.com', 'tight@example.com']);
+    expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
+    mockState.failRefreshAllocation = true;
+    const unavailable = (await listPlans(env)).providers[0]!.accounts;
+    expect(unavailable.map((account) => account.email)).toEqual(['.codex@example.com', 'tight@example.com']);
+    expect(unavailable.map((account) => account.signedIn)).toEqual([true, true]);
+    expect(unavailable.map((account) => account.roomLeftPercent)).toEqual([undefined, undefined]);
+    expect((await resolvePlanLaunch(env, 'pa_x', 'codex'))?.id).toBe('pa_x');
+    expect(await resolvePlanLaunch(env, 'auto', 'codex')).toBeDefined();
+    mockState.failRefreshAllocation = false;
+    mockState.failRefreshCleanup = true;
+    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
+    expect((await resolvePlanLaunch(env, 'auto', 'codex'))?.id).toBe('found-codex');
+    mockState.failRefreshCleanup = false;
+    const { collectUsage } = await import('../usage/index.js');
+    const selected = { ...env, ...resolvePlanEnv(env, 'pa_x') };
+    expect((await collectUsage({ provider: 'codex' }, selected)).limits.windows.map((window) => window.used)).toEqual([90]);
+    expect((await collectUsage({ provider: 'codex' }, { ...env, CODEX_HOME: home })).limits.windows.map((window) => window.used)).toEqual([25]);
+    writeFileSync(join(second, 'fail'), '');
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 120_000).toISOString();
+    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, undefined]);
+    expect((await collectUsage({ provider: 'codex', refresh: true }, { ...selected, MUXR_USAGE_NOW: env.MUXR_USAGE_NOW })).limits.windows.map((window) => window.used)).toEqual([90]);
+    writeFileSync(join(second, 'auth.json'), JSON.stringify({ tokens: { account_id: 'fixture-new-account' } }));
+    const failed = await collectUsage({ provider: 'codex', refresh: true }, { ...selected, MUXR_USAGE_NOW: env.MUXR_USAGE_NOW });
+    expect(failed.limits.windows).toEqual([]);
 });
 
 /** P2: room left per account plus the Auto rule, from snapshots the same
@@ -254,21 +295,6 @@ it('registers both found sign-ins without dropping either', async () => {
     await listPlans(env);
     expect(loadPlanAccounts(env).map((record) => record.id).sort())
         .toEqual(['found-claude', 'found-codex', 'pa_work', 'pa_x']);
-});
-
-it('keeps separate readings for API-key codex sign-ins without account ids', async () => {
-    const homeA = join(root, '.codex');
-    mkdirSync(homeA, { recursive: true });
-    writeFileSync(join(homeA, 'auth.json'), JSON.stringify({ tokens: { access_token: 'a' } }));
-    const homeB = join(root, 'muxr', 'plans', 'codex', 'tight');
-    mkdirSync(homeB, { recursive: true });
-    writeFileSync(join(homeB, 'auth.json'), JSON.stringify({ tokens: { access_token: 'b' } }));
-    savePlanAccounts(env, [{ id: 'pa_b', provider: 'codex', name: 'Tight', folder: homeB, found: false }]);
-    const listed = await listPlans(env);
-    expect(listed.providers.map((entry) => entry.provider)).toEqual(['codex']);
-    expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
-    const relisted = await listPlans(env);
-    expect(relisted.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
 });
 
 it('auto skips signed-out accounts and names the earliest refill when all are out', async () => {

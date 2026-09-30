@@ -3,6 +3,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 
+const logout = vi.hoisted(() => ({ path: '', reads: 0 }));
+vi.mock('node:fs', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('node:fs')>();
+    return {
+        ...actual,
+        readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+            const result = actual.readFileSync(...args);
+            if (args[0] === logout.path) {
+                logout.reads += 1;
+                actual.rmSync(logout.path);
+            }
+            return result;
+        },
+    };
+});
+
 /** A host with Claude and Z.ai connected and nothing else installed. */
 function host(): NodeJS.ProcessEnv {
     const home = mkdtempSync(join(tmpdir(), 'muxr-usage-'));
@@ -33,7 +49,7 @@ function provider(url: string, init?: RequestInit): Promise<Response> {
     return health === 'slow' ? new Promise((resolve) => setTimeout(() => resolve(answer()), 3_000)) : Promise.resolve(answer());
 }
 
-afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); vi.useRealTimers(); health = 'up'; });
+afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); vi.useRealTimers(); health = 'up'; logout.path = ''; logout.reads = 0; });
 
 it('keeps the aged Claude plan while its token expires and reads Claude Code renewal', async () => {
     const fetch = vi.fn(provider);
@@ -98,6 +114,19 @@ it('keeps every plan on the card through failed reads and paints the last good r
     expect(plans(healthy)).toEqual(['claude', 'zai']);
     expect(healthy.refreshing).toBeUndefined();
 
+    const { collectUsage } = await import('./collectUsage.js');
+    const claude = await collectUsage({ provider: 'claude' }, env);
+    expect(healthy.connected?.find(({ id }) => id === 'claude')?.windows.map(({ label, used, window }) => ({ label, used, window }))).toEqual(claude.limits.windows.map(({ label, used, window }) => ({ label, used, window })));
+    const plansFile = join(env.MUXR_HOME!, 'usage', 'plans-v1.json');
+    const saved = JSON.parse(readFileSync(plansFile, 'utf8')) as { plans: Record<string, Record<string, { at: number; raw: unknown }>> };
+    const legacy = Object.fromEntries(Object.entries(saved.plans).map(([id, entries]) => {
+        const [account, reading] = Object.entries(entries)[0]!;
+        return [id, { account, ...reading }];
+    }));
+    writeFileSync(plansFile, JSON.stringify({ plans: legacy }));
+    vi.resetModules();
+    ({ usageNow } = await import('./usageNow.js'));
+
     // Two minutes on, past the window in which a reading is simply reused,
     // both providers fail -- Anthropic rate-limits, Z.ai errors twice -- and
     // neither leaves the card: each stands on its last reading.
@@ -107,11 +136,23 @@ it('keeps every plan on the card through failed reads and paints the last good r
     expect(plans(failing)).toEqual(['claude', 'zai']);
     expect(failing.collecting).toBeUndefined();
 
+    expect(failing.connected?.find(({ id }) => id === 'claude')?.windows.map(({ used }) => used)).toEqual([10, 40]);
+    expect(failing.connected?.find(({ id }) => id === 'zai')?.windows.map(({ used }) => used)).toEqual([20]);
+    health = 'up';
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 240_000).toISOString();
+    const recovered = await usageNow(env, { refresh: true });
+    expect(plans(recovered)).toEqual(['claude', 'zai']);
+    const migrated = JSON.parse(readFileSync(plansFile, 'utf8')) as typeof saved;
+    expect(Object.keys(migrated.plans.claude!)).toEqual(Object.keys(saved.plans.claude!));
+    expect(Object.keys(migrated.plans.zai!)).toEqual(Object.keys(saved.plans.zai!));
+    expect(migrated.plans.claude![Object.keys(saved.plans.claude!)[0]!]!.raw).toEqual(CLAUDE);
+
     // A restarted host whose providers are slow paints the reading on disk
     // at once, says a refresh is running, and serves that refresh once it lands.
     vi.resetModules();
     ({ usageNow } = await import('./usageNow.js'));
     health = 'slow';
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 360_000).toISOString();
     const started = Date.now();
     const restarted = await usageNow(env, { refresh: true });
     expect(Date.now() - started).toBeLessThan(2_500);
@@ -233,4 +274,29 @@ it('answers the card and every Usage tab from one collection, and never lends a 
     expect(staleCard.capturedAt).toBe(staleTab.capturedAt);
     expect(staleCard.capturedAt).not.toBe(report.capturedAt);
     expect(fetch.mock.calls).toHaveLength(reads + 2);
+    health = 'up';
+    const authFile = join(env.XDG_DATA_HOME!, 'opencode', 'auth.json');
+    mkdirSync(join(env.XDG_DATA_HOME!, 'opencode'), { recursive: true });
+    writeFileSync(authFile, JSON.stringify({ 'opencode-go': { type: 'api', key: 'fixture-go-key' } }));
+    const { sourcesFor, planReader } = await import('./planUsage.js');
+    logout.path = authFile;
+    const selected = sourcesFor(env);
+    expect(logout.reads).toBe(1);
+    expect(selected.opencode).toEqual({ provider: 'opencode', key: 'fixture-go-key' });
+    expect(planReader(env).account(selected.opencode!)).toBeTypeOf('string');
+    expect(sourcesFor(env).opencode).toBeUndefined();
+    logout.path = '';
+    writeFileSync(authFile, JSON.stringify({ 'opencode-go': { type: 'api', key: 'fixture-disk-key' } }));
+    for (const override of ['{}', JSON.stringify({ 'opencode-go': { type: 'api', key: 'bad\0key' } })]) {
+        const invalid = { ...env, OPENCODE_AUTH_CONTENT: override };
+        expect(sourcesFor(invalid).opencode).toBeUndefined();
+        const remaining = await collectUsage({ provider: 'claude', refresh: true }, invalid);
+        expect(remaining.limits.windows.map(({ used }) => used)).toEqual([10, 40]);
+    }
+    writeFileSync(authFile, JSON.stringify({ 'opencode-go': { type: 'api', key: 'bad\0key' } }));
+    writeFileSync(join(env.PI_AGENT_DIR!, 'auth.json'), JSON.stringify({ zai: { type: 'api_key', key: 'bad\0key' } }));
+    expect(sourcesFor(env).opencode).toBeUndefined();
+    expect(sourcesFor(env).zai).toBeUndefined();
+    const malformed = await collectUsage({ provider: 'claude', refresh: true }, env);
+    expect(malformed.limits.windows.map(({ used }) => used)).toEqual([10, 40]);
 }, 20_000);
