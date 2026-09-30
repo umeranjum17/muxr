@@ -3,6 +3,8 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
+import { planPaneAccount, rememberPlanPane } from '../../plans/planSignIn.js';
+import { savePlanAccounts } from '../../plans/planStore.js';
 
 function fakeHerdr(dir: string, cwd: string) {
     const workspaces = [{ workspace_id: 'w1', label: cwd }];
@@ -20,7 +22,7 @@ function fakeHerdr(dir: string, cwd: string) {
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
-    const state = { failNextStart: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), echoOnlyReads: 0, answerFolder: undefined as string | undefined, promptPrefixedEcho: false };
+    const state = { nextWait: undefined as (() => Promise<void>) | undefined, failNextStart: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), echoOnlyReads: 0, answerFolder: undefined as string | undefined, promptPrefixedEcho: false };
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
     const sendTexts: Array<{ pane_id: unknown; text: unknown; live: boolean }> = [];
@@ -150,6 +152,15 @@ function fakeHerdr(dir: string, cwd: string) {
                     case 'agent.wait': {
                         calls.push({ method, detail: String(p.target) });
                         const agent = agents.find((row) => row.pane_id === p.target);
+                        const wait = state.nextWait;
+                        if (wait !== undefined) {
+                            state.nextWait = undefined;
+                            void wait().then(
+                                () => socket.end(`${JSON.stringify({ id, result: { agent } })}\n`),
+                                () => socket.end(`${JSON.stringify({ id, error: { code: 'not_ready', message: 'agent not ready' } })}\n`),
+                            );
+                            continue;
+                        }
                         reply = { id, result: { agent: agent === undefined ? {} : { ...agent, interactive_ready: true } } };
                         break;
                     }
@@ -209,9 +220,32 @@ describe('a plan-account move', () => {
             await source.refreshHerdr();
             const sessionId = (await source.list())[0]!.id;
             const original = structuredClone(herdr.agents[0]);
-            herdr.state.failNextStart = true;
-            await expect(moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' }))
-                .rejects.toMatchObject({ code: 'plan-move-start-failed' });
+            const env = { MUXR_HOME: join(dir, 'muxr') };
+            savePlanAccounts(env, [
+                { id: 'work', provider: 'claude', name: 'Work', folder: '/orig/claude', found: false },
+                { id: 'personal', provider: 'claude', name: 'Personal', folder: '/new/claude', found: false },
+            ]);
+            rememberPlanPane(env, 'p1', 'work', ['p1']);
+            let entered!: () => void;
+            const waiting = new Promise<void>((resolve) => { entered = resolve; });
+            let failReady!: () => void;
+            const readiness = new Promise<void>((_resolve, reject) => { failReady = () => reject(new Error('not ready')); });
+            herdr.state.nextWait = () => { entered(); return readiness; };
+            const moving = moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' });
+            const failed = expect(moving).rejects.toMatchObject({ code: 'plan-move-start-failed' });
+            await waiting;
+            try {
+                expect(herdr.agents).toHaveLength(2);
+                const listed = await source.list();
+                expect(listed.map((session) => session.paneId)).toEqual(['p1']);
+                expect((await source.open({ sessionId })).info.paneId).toBe('p1');
+                rememberPlanPane(env, 'other-pane', 'personal', listed.map((session) => session.paneId ?? session.id));
+                expect(planPaneAccount(env, 'p1')).toEqual({ accountId: 'work' });
+            } finally {
+                failReady();
+                await failed;
+            }
+            expect(planPaneAccount(env, 'p1')).toEqual({ accountId: 'work' });
             expect(herdr.agents).toEqual([original]);
             expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p1']);
             expect(herdr.calls.some((call) => call.method === 'pane.close' && call.detail === 'p1')).toBe(false);

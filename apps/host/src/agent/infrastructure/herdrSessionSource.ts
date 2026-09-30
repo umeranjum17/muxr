@@ -719,6 +719,7 @@ export async function createHerdrSessionSource(
     const paneByAgentRoute = new Map<string, string>();
     const pendingCreatedRoutes = new Set<string>();
     const pendingLaunchByPane = new Map<string, HerdrAgentSessionRef>();
+    const stagedMovePanes = new Set<string>();
     const planAccountByPane = new Map<string, string>();
 
     function planFolderFromEnv(env: Record<string, string> | undefined): string | undefined {
@@ -769,7 +770,7 @@ export async function createHerdrSessionSource(
 
     /** The route identity: Herdr's session, else the pending launch, else the pane of an agent Herdr detected. */
     function agentSession(agent: AgentRecord | undefined): HerdrAgentSessionRef | undefined {
-        if (agent === undefined) return undefined;
+        if (agent === undefined || stagedMovePanes.has(agent.pane_id)) return undefined;
         const kind = publicAgentKind(agent.agent ?? undefined);
         return publishedAgentSession(agent)
             ?? pendingLaunchByPane.get(agent.pane_id)
@@ -819,6 +820,7 @@ export async function createHerdrSessionSource(
 
     function adoptPublishedLaunches(): void {
         for (const [paneId, pending] of pendingLaunchByPane) {
+            if (stagedMovePanes.has(paneId)) continue;
             const real = publishedAgentSession(agentsByPane.get(paneId));
             if (real === undefined || !shouldAdoptPublishedLaunch(pending, real)) continue;
             routes.adopt(pending, real);
@@ -826,6 +828,7 @@ export async function createHerdrSessionSource(
         }
         // An agent listed by its pane keeps that route once Herdr publishes its session.
         for (const agent of agentsByPane.values()) {
+            if (stagedMovePanes.has(agent.pane_id)) continue;
             const real = publishedAgentSession(agent);
             if (real === undefined || isMuxrLaunchSession(real) || typeof agent.agent !== 'string') continue;
             routes.adopt(herdrPaneSession(agent.agent, agent.pane_id), real);
@@ -938,7 +941,7 @@ export async function createHerdrSessionSource(
             }
         }
         for (const pane of panesById.values()) {
-            if (!agentsByPane.has(pane.pane_id)) {
+            if (!agentsByPane.has(pane.pane_id) && !stagedMovePanes.has(pane.pane_id)) {
                 sessions.push({ sessionId: shellRoute(pane.pane_id), paneId: pane.pane_id, pane });
             }
         }
@@ -949,7 +952,7 @@ export async function createHerdrSessionSource(
         if (sessionId.startsWith(SHELL_ROUTE_PREFIX)) {
             const paneId = sessionId.slice(SHELL_ROUTE_PREFIX.length);
             const pane = panesById.get(paneId);
-            return pane === undefined || agentsByPane.has(paneId)
+            return pane === undefined || agentsByPane.has(paneId) || stagedMovePanes.has(paneId)
                 ? undefined
                 : { sessionId, paneId, pane };
         }
@@ -1339,7 +1342,8 @@ export async function createHerdrSessionSource(
             seenRefs.add(key);
             liveRefs.push(ref);
         }
-        for (const pending of pendingLaunchByPane.values()) {
+        for (const [paneId, pending] of pendingLaunchByPane) {
+            if (stagedMovePanes.has(paneId)) continue;
             const key = herdrAgentSessionKey(pending);
             if (seenRefs.has(key)) continue;
             seenRefs.add(key);
@@ -1375,7 +1379,7 @@ export async function createHerdrSessionSource(
 
         const currentShells = new Set(
             [...panesById.values()]
-                .filter((pane) => !agentsByPane.has(pane.pane_id))
+                .filter((pane) => !agentsByPane.has(pane.pane_id) && !stagedMovePanes.has(pane.pane_id))
                 .map((pane) => shellRoute(pane.pane_id)),
         );
         for (const route of knownShells) {
@@ -1579,6 +1583,7 @@ export async function createHerdrSessionSource(
     }
 
     function bindListedPane(paneId: string): CurrentSession | undefined {
+        if (stagedMovePanes.has(paneId)) return undefined;
         restoreInFlightPane(paneId);
         const agent = agentsByPane.get(paneId);
         const pane = panesById.get(paneId);
@@ -1611,7 +1616,7 @@ export async function createHerdrSessionSource(
         throw new Error('Herdr did not publish the current Agent Name and session.');
     }
 
-    async function waitForMatchingKind(paneId: string, kind: string, timeoutMs: number, requireConversation = false): Promise<CurrentSession> {
+    async function waitForMatchingKind(paneId: string, kind: string, timeoutMs: number, requireConversation = false): Promise<void> {
         const requested = publicAgentKind(kind);
         const deadline = Date.now() + timeoutMs;
         while (Date.now() < deadline) {
@@ -1628,6 +1633,7 @@ export async function createHerdrSessionSource(
                 );
             }
             if (published !== undefined && (requested === undefined || detected === requested)) {
+                if (stagedMovePanes.has(paneId) && panesById.has(paneId)) return;
                 const pending = pendingLaunchByPane.get(paneId);
                 if (pending !== undefined && shouldAdoptPublishedLaunch(pending, published)) {
                     routes.adopt(pending, published);
@@ -1636,7 +1642,7 @@ export async function createHerdrSessionSource(
                 const session = bindListedPane(paneId);
                 if (session !== undefined) {
                     await routes.flush();
-                    return session;
+                    return;
                 }
             }
             await sleep(200);
@@ -3043,10 +3049,10 @@ export async function createHerdrSessionSource(
                 screens?.releaseScreen(screen);
                 throw new Error('herdr: pane.split returned no pane');
             }
+            stagedMovePanes.add(newPaneId);
             screens?.bind(screen, newPaneId);
             const varName = moveOptions.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
             const name = record.agent?.name ?? undefined;
-            let found: CurrentSession;
             try {
                 if (!await checkPaneEnv(newPaneId, varName, moveOptions.folder)) {
                     throw Object.assign(
@@ -3062,11 +3068,9 @@ export async function createHerdrSessionSource(
                     await startManagedAgent(newPaneId, kind, launchName, args);
                     await waitForMatchingKind(newPaneId, kind, 60_000, true);
                     await waitForInteractiveAgent(newPaneId, 60_000);
-                    const replacement = bindListedPane(newPaneId);
-                    if (replacement === undefined || publishedAgentSession(replacement.agent) === undefined) {
+                    if (!panesById.has(newPaneId) || publishedAgentSession(agentsByPane.get(newPaneId)) === undefined) {
                         throw new Error('The replacement did not publish its conversation.');
                     }
-                    found = replacement;
                 } catch (error) {
                     throw Object.assign(new Error('The new account did not start. The original conversation is still running. Try again.'), {
                         code: 'plan-move-start-failed', cause: error,
@@ -3081,11 +3085,19 @@ export async function createHerdrSessionSource(
                 }
             } catch (error) {
                 await client.call('pane.close', { pane_id: newPaneId });
+                agentsByPane.delete(newPaneId);
+                panesById.delete(newPaneId);
                 forgetLaunch(newPaneId);
+                stagedMovePanes.delete(newPaneId);
                 screens?.releaseScreen(screen);
                 await refreshSnapshot();
                 throw error;
             }
+            agentsByPane.delete(record.paneId);
+            panesById.delete(record.paneId);
+            forgetLaunch(newPaneId);
+            stagedMovePanes.delete(newPaneId);
+            const found = bindListedPane(newPaneId)!;
             planAccountByPane.delete(record.paneId);
             forgetLaunch(record.paneId);
             statusWatches.get(record.paneId)?.();
