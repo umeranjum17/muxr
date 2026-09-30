@@ -7,9 +7,9 @@
  */
 import { scryptSync } from 'node:crypto';
 import { claudeWindows as parseClaudeWindows } from '@byokit/usage';
-import { planReader, sourcesFor, planLabel, readPlan, usageStateDir } from './planUsage.js';
+import { planReader, sourcesFor, planLabel, readPlan, readPlans, savePlans, type PlanReadings, type StoredPlanReading } from './planUsage.js';
 import { spawn } from 'node:child_process';
-import { accessSync, chmodSync, constants, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -394,12 +394,6 @@ const PLAN_MIN_READ_MS = 60_000;
  *  the card opens on it and the collection replaces it seconds later. */
 const PLAN_LAST_KNOWN_MS = 24 * 60 * 60_000;
 
-interface StoredPlanReading { at: number; raw: unknown }
-/** The last good reading of every plan, keyed per account fingerprint: two
- *  sign-ins of one provider keep separate readings, and one account's
- *  failure never costs the other its standing. */
-type PlanReadings = Partial<Record<PlanId, Record<string, StoredPlanReading>>>;
-
 /** Claude fingerprints remain here: the kit exposes its parser, but no Claude
  *  Source or public fingerprint/store/backoff API. Account fingerprints already derived: the KDF is deliberately slow, and a
  *  collection asks for every provider's more than once. */
@@ -432,57 +426,10 @@ function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
     return accounts;
 }
 
-/** Retained for Claude only. Preserve the kit-owned provider entries when
- *  merging a Claude update into the shared file. The kit owns every other
- *  provider's last-good lookup and persistence. */
-function readPlans(env: NodeJS.ProcessEnv): PlanReadings {
-    const saved = readJson(join(usageStateDir(env), 'plans-v1.json'), 256 * 1024)?.value;
-    if (!isRecord(saved) || !isRecord(saved.plans)) return {};
-    const plans: PlanReadings = {};
-    for (const id of PLAN_IDS) {
-        const entry = saved.plans[id];
-        if (!isRecord(entry)) continue;
-        const byAccount: Record<string, StoredPlanReading> = {};
-        if (typeof entry.account === 'string' && Number.isFinite(entry.at)) {
-            byAccount[entry.account] = { at: entry.at as number, raw: entry.raw };
-        }
-        for (const [fingerprint, reading] of Object.entries(entry)) {
-            if (fingerprint.length > 128 || !isRecord(reading) || !Number.isFinite(reading.at)) continue;
-            byAccount[fingerprint] = { at: reading.at as number, raw: reading.raw };
-        }
-        if (Object.keys(byAccount).length > 0) plans[id] = byAccount;
-    }
-    return plans;
-}
-
 function storedReading(stored: PlanReadings, accounts: Partial<Record<PlanId, string>>, id: PlanId): StoredPlanReading | undefined {
     const fingerprint = accounts[id];
     if (fingerprint === undefined) return undefined;
     return stored[id]?.[fingerprint];
-}
-
-/** Merge this collection's new readings into the file: another collection
- *  running beside it may have landed a reading this one did not. */
-function savePlans(env: NodeJS.ProcessEnv, updates: PlanReadings): void {
-    const path = join(usageStateDir(env), 'plans-v1.json');
-    const temporary = `${path}.${process.pid}.tmp`;
-    try {
-        const plans = readPlans(env);
-        for (const id of PLAN_IDS) {
-            const next = updates[id];
-            if (next === undefined) continue;
-            const current = plans[id] ?? {};
-            for (const [fingerprint, reading] of Object.entries(next)) {
-                if (reading.at >= (current[fingerprint]?.at ?? -Infinity)) current[fingerprint] = reading;
-            }
-            plans[id] = current;
-        }
-        const body = JSON.stringify({ plans });
-        if (Buffer.byteLength(body) > 256 * 1024) return;
-        mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
-        writeFileSync(temporary, body, { mode: 0o600 });
-        renameSync(temporary, path);
-    } catch { /* an unwritten reading only means the next failure has nothing to stand on */ }
 }
 
 function claudeVMs(raw: unknown, nowMs: number): UsageWindowVM[] {
