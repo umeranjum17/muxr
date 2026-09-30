@@ -30,7 +30,10 @@ export async function locateTerminalPath(
         return cwd ? [`${cwd}/${candidate}`] : [];
     });
     if (hostPaths.length === 0) return null;
-    const roots = (await filesRepos().catch(() => ({ repos: [] }))).repos.map((repo) => repo.root);
+    const repositories = input.observe
+        ? await filesRepos()
+        : await filesRepos().catch(() => ({ repos: [] }));
+    const roots = repositories.repos.map((repo) => repo.root);
     const repoOf = (path: string): TerminalPathTarget['repo'] => {
         const root = roots
             .filter((candidate) => path === candidate || path.startsWith(`${candidate}/`))
@@ -49,14 +52,22 @@ export async function locateTerminalPath(
                 : hostPath;
             const repo = repoOf(absolutePath);
             if (repo === undefined) continue;
-            if (await filesRead(input.sessionId, { root: repo.root, path: repo.relative }).then(() => true, () => false)) {
+            let isFile = true;
+            try {
+                await filesRead(input.sessionId, { root: repo.root, path: repo.relative });
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                if (message !== 'file unavailable' && message !== 'outside repository') throw error;
+                isFile = false;
+            }
+            if (isFile) {
                 return target('file', absolutePath);
             }
             const parent = repo.relative.split('/').slice(0, -1).join('/');
             const name = repo.relative.split('/').pop();
-            const listing = await filesList(input.sessionId, { root: repo.root, ...(parent === '' ? {} : { path: parent }) }).catch(() => null);
-            if (listing !== null && (repo.relative === '' || repo.relative === '.'
-                || listing.tree.some((node) => node.name === name && node.kind === 'folder'))) {
+            const listing = await filesList(input.sessionId, { root: repo.root, ...(parent === '' ? {} : { path: parent }) });
+            if (repo.relative === '' || repo.relative === '.'
+                || listing.tree.some((node) => node.name === name && node.kind === 'folder')) {
                 return target('folder', absolutePath);
             }
         }
