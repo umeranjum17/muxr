@@ -267,7 +267,7 @@ async function printState() {
     heading(`muxr ${versionString()}`);
     const state = readMenuState();
     if (state === undefined) {
-        status('this machine', 'is not set up yet — choose Set up this machine', 'warn');
+        status('this computer', 'is not set up yet — choose Set up this computer', 'warn');
         process.stdout.write('\n');
         return undefined;
     }
