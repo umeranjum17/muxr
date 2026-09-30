@@ -8,7 +8,7 @@
  * arguments, logs, environment, or storage.
  */
 import { claims } from '@byokit/accounts';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { lstatSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
@@ -449,9 +449,12 @@ export function start() {
  * Codex authenticates through an existing ChatGPT CLI login, so there is no key
  * to store; the settings screen reports the login instead.
  */
-export function status() {
-    const login = spawnSync(CODEX_BIN, ['login', 'status'], { encoding: 'utf8', timeout: 10_000, maxBuffer: 256 * 1024 });
-    const authenticated = login.status === 0 && /logged in using chatgpt/i.test(`${login.stdout}${login.stderr}`);
+export async function status() {
+    // Async: this runs in the host process, where a sync spawn stalls every
+    // link request for the length of `codex login status` (~40 ms, up to 10 s).
+    const login = await new Promise((resolve) => execFile(CODEX_BIN, ['login', 'status'], { encoding: 'utf8', timeout: 10_000, maxBuffer: 256 * 1024 },
+        (error, stdout, stderr) => resolve({ ok: !error, output: `${stdout}${stderr}` })));
+    const authenticated = login.ok && /logged in using chatgpt/i.test(login.output);
     let privateStore = false;
     try {
         const root = lstatSync(codexHome);
