@@ -720,12 +720,6 @@ export async function createHerdrSessionSource(
     const pendingCreatedRoutes = new Set<string>();
     const pendingLaunchByPane = new Map<string, HerdrAgentSessionRef>();
     const stagedMovePanes = new Set<string>();
-    const planAccountByPane = new Map<string, string>();
-
-    function planFolderFromEnv(env: Record<string, string> | undefined): string | undefined {
-        const folder = env?.CLAUDE_CONFIG_DIR ?? env?.CODEX_HOME;
-        return folder === undefined || folder === '' ? undefined : folder;
-    }
     /** Launches this host is still confirming. Herdr reports no kind until it
      * detects the process, so the phone would show the pane as a shell; the
      * requested kind stands in until adoption, failure, or the deadline. */
@@ -1377,9 +1371,6 @@ export async function createHerdrSessionSource(
         for (const [route, paneId] of paneByAgentRoute) {
             if (!panesById.has(paneId)) paneByAgentRoute.delete(route);
         }
-        for (const paneId of planAccountByPane.keys()) {
-            if (!panesById.has(paneId)) planAccountByPane.delete(paneId);
-        }
         for (const [paneId, close] of statusWatches) {
             if (agentsByPane.has(paneId)) continue;
             close();
@@ -1834,7 +1825,6 @@ export async function createHerdrSessionSource(
     function forgetClosedSession(sessionId: string, paneId?: string): void {
         const resolvedPaneId = paneId ?? closePaneId(sessionId);
         if (resolvedPaneId !== undefined) {
-            planAccountByPane.delete(resolvedPaneId);
             forgetLaunch(resolvedPaneId);
             statusWatches.get(resolvedPaneId)?.();
             statusWatches.delete(resolvedPaneId);
@@ -2027,8 +2017,6 @@ export async function createHerdrSessionSource(
             rememberLaunch(paneId, kind, launchName);
             await startManagedAgent(paneId, kind, launchName);
             const session = bindListedPane(paneId) ?? await waitForListedAgent(paneId, 5_000);
-            const launchedFolder = planFolderFromEnv(startOptions.planEnv);
-            if (launchedFolder !== undefined) planAccountByPane.set(paneId, launchedFolder);
             const publishedKind = publicAgentKind(kind);
             options.onAgentLaunchDiagnostic?.('ok', {
                 ...(publishedKind === undefined ? {} : { kind: publishedKind }),
@@ -2039,7 +2027,6 @@ export async function createHerdrSessionSource(
             void confirmLaunch(paneId, kind, session.sessionId);
             return snapshotFor(session, true);
         } catch (error) {
-            planAccountByPane.delete(paneId);
             forgetLaunch(paneId);
             await refreshSnapshot().catch(() => undefined);
             const gate = launchMissGate(paneId);
@@ -3103,7 +3090,6 @@ export async function createHerdrSessionSource(
                 } catch (cleanupError) {
                     forgetLaunch(newPaneId);
                     stagedMovePanes.delete(newPaneId);
-                    planAccountByPane.set(newPaneId, moveOptions.folder);
                     bindListedPane(newPaneId);
                     await refreshSnapshot().catch(() => undefined);
                     emitAllStates();
@@ -3124,13 +3110,11 @@ export async function createHerdrSessionSource(
             forgetLaunch(newPaneId);
             stagedMovePanes.delete(newPaneId);
             const found = bindListedPane(newPaneId)!;
-            planAccountByPane.delete(record.paneId);
             forgetLaunch(record.paneId);
             statusWatches.get(record.paneId)?.();
             statusWatches.delete(record.paneId);
             lifecycleEpochByPane.delete(record.paneId);
             artifacts.dropPane(record.paneId);
-            planAccountByPane.set(newPaneId, moveOptions.folder);
             if (found.sessionId !== record.sessionId) forgetClosedSession(record.sessionId, record.paneId);
             const named = (async () => {
                 if (name !== undefined) await renameInHerdr(client, 'agent', newPaneId, name);
