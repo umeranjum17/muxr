@@ -143,11 +143,12 @@ interface DirectoryPickerProps {
     value: string;
     onChange: (path: string) => void;
     recent: string[];
+    room?: number;
     onFocus?: () => void;
     onBlur?: () => void;
 }
 
-export function DirectoryPicker({ value, onChange, recent, onFocus, onBlur }: DirectoryPickerProps) {
+export function DirectoryPicker({ value, onChange, recent, room, onFocus, onBlur }: DirectoryPickerProps) {
     const { theme } = useUnistyles();
     const [listing, setListing] = React.useState<Listing | undefined>(undefined);
     const [loading, setLoading] = React.useState(false);
@@ -156,6 +157,7 @@ export function DirectoryPicker({ value, onChange, recent, onFocus, onBlur }: Di
     const fetchSeq = React.useRef(0);
     const crumbsRef = React.useRef<ScrollView>(null);
     const inputRef = React.useRef<TextInput>(null);
+    const [listY, setListY] = React.useState(0);
     // A browser moves focus to the tapped row, which closes the phone keyboard
     // after every step; hand focus back so completion keeps going.
     const typing = React.useRef(false);
@@ -220,6 +222,9 @@ export function DirectoryPicker({ value, onChange, recent, onFocus, onBlur }: Di
     const prefix = target.prefix.toLowerCase();
     const rows = (listing?.entries ?? []).filter((entry) => entry.name.toLowerCase().startsWith(prefix));
     const crumbs = breadcrumbs(listing?.path);
+    const listMaxHeight = room === undefined
+        ? undefined
+        : Math.min(ROW_HEIGHT * MAX_VISIBLE_ROWS, Math.max(ROW_HEIGHT * 2, room - listY - 8));
 
     return (
         <View>
@@ -289,7 +294,7 @@ export function DirectoryPicker({ value, onChange, recent, onFocus, onBlur }: Di
                 </ScrollView>
             )}
 
-            <View style={styles.listWindow}>
+            <View onLayout={({ nativeEvent }) => setListY(nativeEvent.layout.y)} style={[styles.listWindow, listMaxHeight === undefined ? undefined : { maxHeight: listMaxHeight }]}>
                 {loading ? (
                     <View style={styles.loading}>
                         <ActivityIndicator color={theme.colors.textSecondary} />
