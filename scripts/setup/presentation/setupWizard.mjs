@@ -188,8 +188,7 @@ const relayKind = (mode) => RELAY_KIND[mode] ?? mode;
 
 /**
  * Each route says what it costs and what it needs before it is chosen. A
- * route that is unavailable keeps its actual blocking reason instead of an
- * estimate.
+ * route that is unavailable explains what to install or connect before retrying.
  */
 function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconclusive' }) {
     const serveOccupied = serveRoot.status === 'occupied';

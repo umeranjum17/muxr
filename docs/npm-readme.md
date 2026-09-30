@@ -20,7 +20,7 @@ The convenience installer at `https://raw.githubusercontent.com/umeranjum17/muxr
 First run:
 
 1. Install muxr on Android from the [stable APK](https://trymuxr.com/downloads/stable/android), verified against the [stable checksum](https://trymuxr.com/downloads/stable/checksums): save it beside the APK as `SHA256SUMS` and run `sha256sum --ignore-missing -c SHA256SUMS`. The [nightly channel](https://trymuxr.com/downloads/nightly) publishes its own APK and checksum; verify against the channel you downloaded from. [Google Play testing](https://play.google.com/apps/testing/com.trymuxr.app) availability depends on Google review and testing access; on iOS, [TestFlight](https://testflight.apple.com/join/aJSbs8pN) build availability depends on Apple review and tester capacity.
-2. Run `muxr`. It checks the computer and shows all six routes together: Tailscale Serve, direct Tailscale, an existing private network such as NetBird or WireGuard, same Wi-Fi, a temporary Cloudflare tunnel, or your own WSS server. Unavailable routes explain what is missing; the healthy current route or a detected route is recommended.
+2. Run `muxr`. It checks the computer and guides you through the [connection route picker](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone).
 3. Review the short plan, choose **Apply setup**, then scan the one-use QR from the phone app.
 
 Nothing changes before **Apply setup**. Setup then verifies the connection and managed services without printing credentials. Run `muxr pair` anytime for a fresh QR.
@@ -60,7 +60,7 @@ muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]
                [--port <n>] [--relay-only|--host-only] [--web] [--yes]
 ```
 
-Interactive setup recommends the healthy current route or a detected route across all six routes; your own WSS server stays selectable. An inconclusive Tailscale Serve preflight remains advisory; only proven disabled or occupied Serve changes the recommendation. The relay cannot read session or terminal content; see the [pairing and security model](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#pairing-security-model) for transport details.
+See the [self-hosting guide](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone) for route requirements and the recommendation policy. The relay cannot read session or terminal content; see the [pairing and security model](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#pairing-security-model) for transport details.
 
 For a shared VPS relay, prefer interactive `muxr`. Automation equivalents are:
 
