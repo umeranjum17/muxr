@@ -235,7 +235,7 @@ export function DirectoryPicker({ value, onChange, recent, room, onFocus, onBlur
                     onChangeText={onChange}
                     onFocus={onFocus}
                     onBlur={onBlur}
-                    placeholder="/home/you/project"
+                    placeholder="~/project"
                     placeholderTextColor={theme.colors.input.placeholder}
                     autoCapitalize="none"
                     autoCorrect={false}
