@@ -9,7 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { LinkPairingRecoveryError, linkPairMachineName, looksLikeLinkOffer } from '@/pairing/e2ee';
+import { linkPairMachineName, looksLikeLinkOffer } from '@/pairing/e2ee';
 import { pairLinkConsent, pairLinkOffer, usePairQrScanner, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
@@ -20,7 +20,7 @@ import { Modal } from '@/modal';
 type PairState =
     | { phase: 'confirm'; url: string; machineName: string; linkOffer?: boolean }
     | { phase: 'working'; url: string; machineName: string; linkOffer?: boolean }
-    | { phase: 'error'; message: string; url?: string; machineName?: string; recovery?: LinkPairingRecoveryError };
+    | { phase: 'error'; message: string; machineName?: string };
 
 const SSH_PAIRING_STEPS = [
     'On the computer, run `muxr pair` — it prints a one-time link offer.',
@@ -90,13 +90,13 @@ export default function PairScreen() {
             const offer = raw.trim();
             setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
             void linkPairMachineName(offer).then((name) => {
-                if (name !== undefined) setState((current) => current?.url === offer ? { ...current, machineName: name } : current);
+                if (name !== undefined) setState((current) => current !== undefined && 'url' in current && current.url === offer ? { ...current, machineName: name } : current);
             }).catch(() => undefined);
             return;
         }
         setState({ phase: 'error', message: 'This pairing code is from an older muxr. Update muxr on both devices, run `muxr pair` on the computer, then scan its new link code.' });
     }, []);
-    const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
+    const scanPairQr = usePairQrScanner(reviewPairing, !browser);
     const switching = getCachedConnectionSettings().machineId !== '';
     const routePairUrl = typeof routeParams.offer === 'string' && looksLikeLinkOffer(routeParams.offer)
         ? routeParams.offer : undefined;
@@ -128,7 +128,7 @@ export default function PairScreen() {
         return () => { cancelled = true; subscription.remove(); };
     }, [routePairUrl, browser, sshRoute, reviewPairing]);
 
-    const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput, recovery?: LinkPairingRecoveryError) => {
+    const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
         // Link offers pair over the running machine; Direct SSH uses its own route.
         if (looksLikeLinkOffer(url.trim())) {
             const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput);
@@ -136,7 +136,6 @@ export default function PairScreen() {
             try {
                 await pairLinkOffer(url.trim(), auth, {
                     tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,
-                    recovery,
                     confirm: async () => true,
                     onProgress: setProgress,
                     onActivated: async () => {
@@ -146,7 +145,7 @@ export default function PairScreen() {
                     },
                 });
             } catch (cause) {
-                if (!(cause instanceof LinkPairingRecoveryError) && recovery === undefined && tunnel !== undefined) await stopSshTunnel();
+                if (tunnel !== undefined) await stopSshTunnel();
                 throw cause;
             }
             router.replace('/');
@@ -176,7 +175,7 @@ export default function PairScreen() {
     }, [sshRoute, sshHost, sshUsername, sshPort, sshRelayPort, sshPassword, sshPrivateKey, sshPassphrase]);
 
     const confirm = React.useCallback(() => {
-        if (state === undefined || (state.phase !== 'confirm' && state.phase !== 'error') || state.url === undefined) return;
+        if (state?.phase !== 'confirm') return;
         const parsedInput = sshInput();
         if (!parsedInput.ok) {
             setSshError(parsedInput.error);
@@ -184,16 +183,14 @@ export default function PairScreen() {
             return;
         }
         const { url, machineName } = state;
-        const recovery = state.phase === 'error' ? state.recovery : undefined;
+        setPairingValue('');
         setProgress(undefined);
         setState({ phase: 'working', url, machineName: machineName ?? 'this machine' });
-        void pair(url, parsedInput.input, recovery).catch((cause) => {
+        void pair(url, parsedInput.input).catch((cause) => {
             setState({
                 phase: 'error',
                 message: cause instanceof Error ? cause.message : String(cause),
-                url,
                 machineName,
-                recovery: cause instanceof LinkPairingRecoveryError ? cause : recovery,
             });
         });
     }, [state, pair, sshInput]);
@@ -221,7 +218,7 @@ export default function PairScreen() {
         else router.replace('/');
     }, [openedFromSettings, router]);
 
-    const manualForm = state === undefined || state.phase === 'error' && state.url === undefined;
+    const manualForm = state === undefined || state.phase === 'error';
     return (
         <View style={styles.screenWrap}>
         <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24 }]}
@@ -268,13 +265,6 @@ export default function PairScreen() {
                         <ActionButton title="Pair" icon="link-outline" onPress={confirm} />
                         <ActionButton title="Cancel" variant="secondary" onPress={cancel} />
                     </>
-                ) : state?.phase === 'error' && state.url !== undefined ? (
-                    <>
-                        <Text accessibilityRole="alert" style={styles.errorText}>{state.message}</Text>
-                        <ActionButton title={state.recovery === undefined ? 'Try again' : 'Resume pairing'} icon="refresh-outline" onPress={confirm} />
-                        <ActionButton title="Enter another code" icon="keypad-outline" onPress={() => setState(undefined)} />
-                        <ActionButton title="Back" variant="secondary" onPress={cancel} />
-                    </>
                 ) : (
                     <>
                         {state?.phase === 'error' && (
@@ -319,13 +309,13 @@ export default function PairScreen() {
                                 <SshField label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
                             </>
                         )}
-                        {!browser && openedFromSettings && !sshRoute && (
+                        {!browser && (openedFromSettings || state?.phase === 'error') && (
                             <>
-                                <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
+                                <ActionButton title={state?.phase === 'error' ? 'Scan a new code' : 'Scan pairing QR'} icon="qr-code-outline" onPress={() => void scanPairQr()} />
                                 <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
                             </>
                         )}
-                        {state?.phase === 'error' && state.url === undefined && !sshRoute && (
+                        {state?.phase === 'error' && !sshRoute && (
                             <View style={styles.explainer}>
                                 <Text style={styles.explainerText}>The pairing string is single-use and expires after a few minutes.</Text>
                                 <Text style={styles.explainerText}>Run `muxr pair` again for a fresh string, then retry.</Text>

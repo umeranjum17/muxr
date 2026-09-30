@@ -7,7 +7,7 @@ import { Typography } from '@/constants/Typography';
 import { MainView, FirstRunConnection } from '@/herd/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { Modal } from '@/modal';
-import { resumePendingHostedPairing } from '@/pairing/e2ee';
+import { recoverSavedHostedPairing } from '@/pairing/e2ee';
 import { getCachedConnectionSettings, saveConnectionSettings } from '@/connection';
 
 export default function Home() {
@@ -24,7 +24,7 @@ function NotAuthenticated() {
     React.useEffect(() => {
         if (pairing.current) return;
         pairing.current = true;
-        void resumePendingHostedPairing().then(async (grant) => {
+        void recoverSavedHostedPairing().then(async (grant) => {
             if (grant === undefined) return;
             await saveConnectionSettings({
                 ...getCachedConnectionSettings(),

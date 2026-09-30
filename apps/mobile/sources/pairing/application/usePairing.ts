@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
-import { LinkPairingRecoveryError, linkPairMachineName, pairOverLink } from './linkPairing';
+import { linkPairMachineName, pairOverLink } from './linkPairing';
 import { hostedPairingDuration, linkOfferRole, looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
@@ -45,7 +45,6 @@ export type PairingProgress = ReturnType<typeof pairingView>;
 
 export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof useAuth>, options: {
     tunnelPort?: number;
-    recovery?: LinkPairingRecoveryError;
     onActivated?: () => Promise<void>;
     confirm?: (title: string, words: string) => Promise<boolean>;
     onProgress?: (view: PairingProgress) => void;
@@ -53,42 +52,38 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
     const device = pairingDeviceKind();
     const machineName = (await linkPairMachineName(scanned)) ?? 'your computer';
     const confirmation = pairLinkConsent(scanned, machineName);
-    const approved = options.recovery !== undefined || await (options.confirm ?? ((title, words) => Modal.confirm(title, words, { confirmText: 'Pair' })))(
+    const approved = await (options.confirm ?? ((title, words) => Modal.confirm(title, words, { confirmText: 'Pair' })))(
         `Pair with ${machineName}?`,
         confirmation,
     );
     if (!approved) return false;
-    const grant = options.recovery === undefined ? await pairOverLink(scanned, {
+    const grant = await pairOverLink(scanned, {
         tunnelPort: options.tunnelPort,
         onWords: (words) => {
             const view = pairingView({ phase: 'compare', hostName: machineName, words, device });
             options.onProgress?.(view);
         },
-    }) : await options.recovery.resume(options.tunnelPort);
-    try {
-        // Activation runs through the shared path so a pinned voice session and a
-        // previous machine's SSH credential are handled exactly like relay pairing.
-        let paired = await pairMachine({ grant });
-        if (!paired.ok && paired.reason === 'voice-pinned') {
-            const switchApproved = await Modal.confirm(
-                'End voice and switch?',
-                'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
-                { confirmText: 'End voice and switch', destructive: true },
-            );
-            if (!switchApproved) throw new Error('Pairing is saved. Resume when you are ready to end voice and switch computers.');
-            paired = await pairMachine({ grant, endVoiceIfPinned: true });
-        }
-        if (!paired.ok) {
-            const message = paired.reason === 'failed' ? paired.message : undefined;
-            throw new Error(message ?? 'Pairing could not be activated. Resume the saved pairing to try again.');
-        }
-        await options.onActivated?.();
-        await auth.login(paired.credential, paired.secretKey);
-        options.onProgress?.(pairingView({ phase: 'paired', hostName: machineName, device }));
-        return true;
-    } catch (cause) {
-        throw new LinkPairingRecoveryError(cause instanceof Error ? cause.message : String(cause), { grant });
+    });
+    // Activation runs through the shared path so a pinned voice session and a
+    // previous machine's SSH credential are handled exactly like relay pairing.
+    let paired = await pairMachine({ grant });
+    if (!paired.ok && paired.reason === 'voice-pinned') {
+        const switchApproved = await Modal.confirm(
+            'End voice and switch?',
+            'Realtime voice stays pinned to the computer where it started. The new pairing is saved even if you switch later.',
+            { confirmText: 'End voice and switch', destructive: true },
+        );
+        if (!switchApproved) throw new Error('Pairing is saved in Settings. Switch computers there when you are ready to end voice.');
+        paired = await pairMachine({ grant, endVoiceIfPinned: true });
     }
+    if (!paired.ok) {
+        const message = paired.reason === 'failed' ? paired.message : undefined;
+        throw new Error(message ?? 'Pairing could not be activated. Scan a new code or select the saved computer in Settings.');
+    }
+    await options.onActivated?.();
+    await auth.login(paired.credential, paired.secretKey);
+    options.onProgress?.(pairingView({ phase: 'paired', hostName: machineName, device }));
+    return true;
 }
 
 function pairLinkDetail(device: 'phone' | 'browser', role: 'control' | 'view'): string {

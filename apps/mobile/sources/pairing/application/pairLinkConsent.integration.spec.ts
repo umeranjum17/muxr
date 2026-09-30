@@ -1,7 +1,9 @@
 import { offerText } from '@byokit/link';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { pairLinkOffer } from './usePairing';
-import { LinkPairingRecoveryError, listPairedGrants } from './linkPairing';
+import { listPairedGrants } from './linkPairing';
+import { readPendingPair } from '../infrastructure/hostedSecretStore';
+import { probeDiscoveredRelay } from '../infrastructure/linkGrant';
 
 const harness = vi.hoisted(() => ({
     device: 'phone' as 'phone' | 'browser',
@@ -9,8 +11,10 @@ const harness = vi.hoisted(() => ({
     approved: false,
     alerts: [] as string[],
     settings: { mode: 'hosted', machineId: '', relayUrl: '', token: '' },
-    attempts: [] as Array<{ mode: string; key: string; tunnelPort?: number }>,
+    attempts: [] as Array<{ key: string; tunnelPort?: number }>,
     loseAcknowledgement: false,
+    failBeforeApproval: false,
+    pairingClosed: false,
     secrets: new Map<string, string>(),
     confirms: [] as Array<{ title: string; body: string }>,
 }));
@@ -32,7 +36,7 @@ vi.mock('../infrastructure/pairingPlatform', () => ({
     pairingDeviceName: () => 'Phone',
     assertSupportedOffer: () => undefined,
 }));
-vi.mock('../infrastructure/linkGrant', () => ({ probeDiscoveredRelay: vi.fn() }));
+vi.mock('../infrastructure/linkGrant', () => ({ probeDiscoveredRelay: vi.fn(async () => true) }));
 vi.mock('@/connection', () => ({
     getCachedConnectionSettings: () => harness.settings,
     forgetSshCredential: vi.fn(),
@@ -56,15 +60,19 @@ vi.mock('../infrastructure/linkPairClient', () => ({
     }),
     claimLinkPairing: async (pending: { secretKey: string }, options: {
         tunnelPort?: number;
-        mode: string;
         onWords?: (words: string) => void;
         onProven: (answer: unknown, key: unknown) => Promise<void>;
     }) => {
-        harness.attempts.push({ mode: options.mode, key: pending.secretKey, tunnelPort: options.tunnelPort });
+        harness.attempts.push({ key: pending.secretKey, tunnelPort: options.tunnelPort });
+        if (harness.pairingClosed) throw new Error('pairing session is closed');
+        if (harness.failBeforeApproval) throw new Error('connection failed before approval');
         if (!harness.approved) throw new Error('must not pair after the user declines');
         options.onWords?.('spark castle');
         await options.onProven({}, {});
-        if (harness.loseAcknowledgement && options.mode === 'claim') throw new Error('acknowledgement lost');
+        if (harness.loseAcknowledgement) {
+            harness.pairingClosed = true;
+            throw new Error('acknowledgement lost');
+        }
     },
 }));
 vi.mock('./useCheckCameraPermissions', () => ({ useCheckScannerPermissions: () => async () => true }));
@@ -88,6 +96,8 @@ beforeEach(() => {
     harness.device = 'phone';
     harness.machineName = 'Desk';
     harness.loseAcknowledgement = false;
+    harness.failBeforeApproval = false;
+    harness.pairingClosed = false;
 });
 
 describe('pairLinkOffer consent', () => {
@@ -151,36 +161,32 @@ it('pairs after one screen consent, shows words inline, and activates without an
 
     const offer = linkOffer({ role: 'control', name: 'Desk' });
     harness.loseAcknowledgement = true;
-    const interrupted = await pairLinkOffer(offer, { login } as never, {
-        confirm: consent,
-        tunnelPort: 8792,
-    }).catch((cause: unknown) => cause);
-    expect(interrupted).toMatchObject({ message: 'acknowledgement lost', recovery: { pending: { secretKey: 'key' } } });
-    if (!(interrupted instanceof LinkPairingRecoveryError)) throw interrupted;
-    expect(await listPairedGrants()).toEqual([expect.objectContaining({ machineName: 'Desk' })]);
     const applyRoute = vi.fn(async () => undefined);
     expect(await pairLinkOffer(offer, { login } as never, {
-        recovery: interrupted,
+        confirm: consent,
         tunnelPort: 8792,
         onActivated: applyRoute,
     })).toBe(true);
-    expect(harness.attempts.slice(-2)).toEqual([
-        { mode: 'claim', key: 'key', tunnelPort: 8792 },
-        { mode: 'resume', key: 'key', tunnelPort: 8792 },
-    ]);
+    expect(harness.pairingClosed).toBe(true);
+    expect(harness.attempts).toHaveLength(2);
+    expect(probeDiscoveredRelay).toHaveBeenCalledWith(
+        expect.objectContaining({ machineId: 'desk' }), 'ws://127.0.0.1:8792',
+    );
     expect(applyRoute.mock.invocationCallOrder[0]).toBeLessThan(login.mock.invocationCallOrder.at(-1)!);
+    expect(await readPendingPair()).toBeUndefined();
 
     harness.loseAcknowledgement = false;
+    harness.pairingClosed = false;
+    harness.failBeforeApproval = true;
+    const loginsBeforeFailure = login.mock.calls.length;
+    await expect(pairLinkOffer(offer, { login } as never, { confirm: consent })).rejects.toThrow('connection failed before approval');
+    expect(await readPendingPair()).toBeUndefined();
+    expect(login).toHaveBeenCalledTimes(loginsBeforeFailure);
+
+    harness.failBeforeApproval = false;
     login.mockRejectedValueOnce(new Error('login failed'));
-    const loginFailure = await pairLinkOffer(offer, { login } as never, {
-        confirm: consent,
-    }).catch((cause: unknown) => cause);
-    expect(loginFailure).toMatchObject({ message: 'login failed', recovery: { grant: { machineId: 'desk' } } });
-    if (!(loginFailure instanceof LinkPairingRecoveryError)) throw loginFailure;
-    expect(harness.settings.machineId).toBe('desk');
-    const attemptsBeforeLoginRecovery = harness.attempts.length;
-    expect(await pairLinkOffer(offer, { login } as never, { recovery: loginFailure })).toBe(true);
-    expect(harness.attempts).toHaveLength(attemptsBeforeLoginRecovery);
-    expect(harness.confirms).toHaveLength(0);
+    await expect(pairLinkOffer(offer, { login } as never, { confirm: consent })).rejects.toThrow('login failed');
+    expect(await readPendingPair()).toBeUndefined();
+    expect(await listPairedGrants()).toEqual([expect.objectContaining({ machineName: 'Desk' })]);
     expect(harness.alerts).toHaveLength(0);
 });

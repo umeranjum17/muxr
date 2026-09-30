@@ -31,17 +31,6 @@ export interface StoredHostedGrant extends DeviceGrant {
     source?: 'selfhost';
 }
 
-export class LinkPairingRecoveryError extends Error {
-    constructor(message: string, readonly recovery: { pending: PendingLinkPair } | { grant: StoredHostedGrant }) {
-        super(message);
-    }
-
-    resume(tunnelPort?: number): Promise<StoredHostedGrant> {
-        if ('grant' in this.recovery) return Promise.resolve(this.recovery.grant);
-        return completeLinkPairing(this.recovery.pending, { mode: 'resume', tunnelPort });
-    }
-}
-
 export async function loadHostedGrant(machineId: string): Promise<StoredHostedGrant | undefined> {
     return (await loadGrants())[machineId];
 }
@@ -93,10 +82,14 @@ export async function reconnectViaDiscoveredRelay(machineId: string, relayUrl: s
     return true;
 }
 
-/** Only an in-flight link offer can resume; old relay claims cannot. */
-export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | undefined> {
+export async function recoverSavedHostedPairing(): Promise<StoredHostedGrant | undefined> {
     const pending = await readPendingPair();
-    return pending === undefined ? undefined : resumePendingLinkPairing(pending);
+    if (pending === undefined) return undefined;
+    await deletePendingPair();
+    const grants = await listPairedGrants();
+    const grant = grants.find((candidate) => candidate.deviceKey.secretKey.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') === pending.secretKey);
+    if (grant === undefined || !await probeDiscoveredRelay(grant, grant.relayUrl)) return undefined;
+    return grant;
 }
 
 /**
@@ -104,15 +97,13 @@ export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | 
  * confirmation words while the person at the computer approves, then trade
  * `pair.complete` for the machine details and prove this device holds its key
  * over the machine's real link before anything is stored.
- * The pending pairing is persisted before the first connection, so a process
- * death resumes it rather than leaving the computer holding an unused grant.
  */
 export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void; tunnelPort?: number } = {}): Promise<StoredHostedGrant> {
     assertSupportedOffer(scanned);
     const secretKey = newPairingSecretKey();
-    const pending: PendingLinkPair = { scanned, name: pairingDeviceName(), secretKey, startedAt: Date.now() };
+    const pending: PendingLinkPair = { scanned, name: pairingDeviceName(), secretKey };
     await writePendingPair(pending);
-    return completeLinkPairing(pending, { ...options, mode: 'claim' });
+    return completeLinkPairing(pending, options);
 }
 
 /** The pairing machine display name for consent, parsed for display only; the pairing itself re-validates. */
@@ -120,19 +111,7 @@ export async function linkPairMachineName(scanned: string): Promise<string | und
     return linkOfferName(scanned);
 }
 
-async function resumePendingLinkPairing(pending: PendingLinkPair): Promise<StoredHostedGrant | undefined> {
-    if (Date.now() - pending.startedAt > 4 * 60_000) {
-        await deletePendingPair();
-        return undefined;
-    }
-    try {
-        return await completeLinkPairing(pending, { mode: 'resume' });
-    } catch {
-        return undefined;
-    }
-}
-
-async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?: (words: string) => void; tunnelPort?: number; mode: 'claim' | 'resume' }): Promise<StoredHostedGrant> {
+async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?: (words: string) => void; tunnelPort?: number }): Promise<StoredHostedGrant> {
     let stored: StoredHostedGrant | undefined;
     try {
         await claimLinkPairing(pending, { ...options, onProven: async (answer, key) => {
@@ -140,21 +119,18 @@ async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?
             await storeGrant(grant);
             stored = grant;
         } });
+        if (stored === undefined) throw new Error('the computer did not prove this pairing');
+        return stored;
     } catch (cause) {
-        const failure = pairingFailure(cause);
-        if (Date.now() - pending.startedAt > 4 * 60_000 || failure.discard) {
-            await deletePendingPair();
-            throw new Error(failure.message);
+        if (stored !== undefined) {
+            const saved = await loadHostedGrant(stored.machineId);
+            const relayUrl = options.tunnelPort === undefined ? saved?.relayUrl : `ws://127.0.0.1:${options.tunnelPort}`;
+            if (saved !== undefined && relayUrl !== undefined && await probeDiscoveredRelay(saved, relayUrl)) return saved;
         }
-        throw new LinkPairingRecoveryError(failure.message, { pending });
-    }
-    if (stored === undefined) throw new Error('the computer did not prove this pairing');
-    try {
+        throw new Error(pairingFailure(cause).message);
+    } finally {
         await deletePendingPair();
-    } catch (cause) {
-        throw new LinkPairingRecoveryError(pairingFailure(cause).message, { grant: stored });
     }
-    return stored;
 }
 
 export async function clearHostedE2ee(): Promise<void> {
