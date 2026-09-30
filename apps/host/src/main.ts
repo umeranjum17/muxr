@@ -1,15 +1,16 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync, type StatWatcher } from 'node:fs';
 import type { Grant, LinkStream } from '@byokit/link';
 import { isPeerCapabilities, parseLifecycleNotificationLevel, relayControlUrl } from '@trymuxr/contract';
+import { createConnection } from 'node:net';
 import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
 import { PaneScreens } from './desktop/index.js';
 import { startHost } from './host.js';
-import { LinkPeerAuthority, PeerBroker, PeerRuntime } from './peer/index.js';
+import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from './peer/index.js';
 import type { MachineCryptoState } from './machine/index.js';
-import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint } from './machine/index.js';
+import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint, writeSelfhostCrypto } from './machine/index.js';
 import { HostDiagnosticsJournal } from './diagnostics/index.js';
 import { muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
 import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
@@ -217,10 +218,6 @@ function atomicWriteJson(path: string, value: unknown): void {
     renameSync(temporary, path);
 }
 
-function writeSelfhostAuth(auth: SelfhostState): void {
-    atomicWriteJson(selfhostFile(), auth);
-}
-
 function readAuthStates() {
     try { return readSelfhostAuth(); }
     catch (error) {
@@ -228,6 +225,7 @@ function readAuthStates() {
         // Deterministic auth faults cannot heal by restarting. Transient I/O
         // errors remain failures so the service manager may retry.
         const code = (error as NodeJS.ErrnoException)?.code;
+        if (process.argv.includes('--retire-machine-peers') || process.argv.includes('--check-host-stopped')) process.exit(1);
         process.exit(error instanceof NonRecoverableAuthError || code === 'EACCES' || code === 'EPERM' ? 0 : 1);
     }
 }
@@ -294,6 +292,7 @@ const peerRelayUrl = targetPeerRelayUrl(selfhostAuth, relayUrl);
 const token = selfhostAuth?.mintSecret ?? selfhostAuth?.machineCredential;
 if (mode === 'selfhost' && selfhostAuth === undefined) {
     process.stderr.write('selfhost mode requires muxr setup state; run `muxr doctor`\n');
+    if (process.argv.includes('--retire-machine-peers') || process.argv.includes('--check-host-stopped')) process.exit(1);
     process.exit(0);
 }
 
@@ -301,6 +300,39 @@ if (mode === 'selfhost' && selfhostAuth === undefined) {
 const stateFilePolls: Array<StatWatcher | NodeJS.Timeout> = [];
 
 async function main(): Promise<void> {
+    if (process.argv.includes('--retire-machine-peers') || process.argv.includes('--check-host-stopped')) {
+        for (const socketPath of [join(dataDir, 'pair.sock'), join(dataDir, 'peer', 'broker.sock')]) {
+            if (!existsSync(socketPath)) continue;
+            const info = lstatSync(socketPath);
+            if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid!() || (info.mode & 0o077) !== 0) {
+                throw new Error('cannot verify host quiescence: unsafe muxr socket');
+            }
+            await new Promise<void>((resolve, reject) => {
+                const socket = createConnection(socketPath);
+                socket.once('connect', () => {
+                    socket.destroy();
+                    reject(new Error('stop the foreground muxr host before rotating machine keys'));
+                });
+                socket.once('error', (error: NodeJS.ErrnoException) => {
+                    socket.destroy();
+                    if (error.code === 'ENOENT' || error.code === 'ECONNREFUSED') resolve();
+                    else reject(new Error('cannot verify host quiescence; stop the foreground muxr host first'));
+                });
+                socket.setTimeout(1_000, () => {
+                    socket.destroy();
+                    reject(new Error('cannot verify host quiescence; stop the foreground muxr host first'));
+                });
+            });
+        }
+        if (process.argv.includes('--check-host-stopped')) {
+            process.stdout.write(`  ✓ host stopped in ${dataDir}\n`);
+            return;
+        }
+        if (selfhostAuth === undefined) throw new Error('machine pairing state is required for peer retirement');
+        const retired = await retireMachinePeers(join(dataDir, 'peer'), selfhostAuth.machine.crypto);
+        process.stdout.write(`  ✓ ${retired} inbound peer relationship(s) retired in ${dataDir}\n`);
+        return;
+    }
     const hostVersion = resolveHostVersion() ?? '0.0.0';
     let diagnostics: HostDiagnosticsJournal | undefined;
     try { diagnostics = new HostDiagnosticsJournal(dataDir, hostVersion); }
@@ -356,8 +388,8 @@ async function main(): Promise<void> {
         const cryptoAdapter = {
             get: (): MachineCryptoState => selfhostAuth!.machine.crypto,
             commit: async (next: MachineCryptoState): Promise<void> => {
+                writeSelfhostCrypto(selfhostFile(), next);
                 selfhostAuth!.machine.crypto = next;
-                writeSelfhostAuth(selfhostAuth!);
                 if (next.keyVersion !== hostedE2ee.keyVersion || next.dataKey !== hostedE2ee.dataKey) {
                     hostedE2ee.keyVersion = next.keyVersion;
                     hostedE2ee.dataKey = next.dataKey;
@@ -528,7 +560,7 @@ async function main(): Promise<void> {
                             if (state === undefined || device === undefined) throw new Error('link: device no longer trusted');
                             if (level === undefined) delete device.pushLevel;
                             else device.pushLevel = level;
-                            writeSelfhostAuth(state);
+                            writeSelfhostCrypto(selfhostFile(), state.machine.crypto);
                         },
                         // Pending relay unsubscribes persist here, so removing a
                         // device while the relay is down still stops its pushes

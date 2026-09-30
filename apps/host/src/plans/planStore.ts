@@ -2,9 +2,9 @@
  * Plan Account store: which provider sign-ins muxr knows, and where they live.
  *
  * A record holds only `{id, provider, name, folder}`: never a password, key
- * or token. Identity and signed-in state always come fresh from the tool's
- * own status command (see `planIdentity.ts`); muxr never opens a credential
- * file to learn who an account is.
+ * or token. The store never persists identity or signed-in state; their source
+ * is the tool's own status command (see `planIdentity.ts`). muxr never opens a
+ * credential file to learn who an account is.
  */
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';

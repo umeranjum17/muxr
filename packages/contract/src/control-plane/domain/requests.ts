@@ -380,7 +380,18 @@ export interface RequestMap extends PeerRequestMap {
         params: { applicationId: string; sessionId?: string };
         result: { title: string; sessionId: string };
     };
-    'herdr.agentKinds': { params: Record<string, never>; result: { kinds: string[]; installed?: string[] } };
+    'herdr.agentKinds': {
+        params: { refresh?: boolean };
+        result: {
+            kinds: string[];
+            installed?: string[];
+            readiness?: Record<string, {
+                signedIn: 'yes' | 'no' | 'unknown';
+                installHint?: string;
+                signInHint?: string;
+            }>;
+        };
+    };
     /** Immutable native UI plugin catalog. Safe to enumerate from read-only clients. */
     'plugin.list': {
         params: Record<string, never>;
