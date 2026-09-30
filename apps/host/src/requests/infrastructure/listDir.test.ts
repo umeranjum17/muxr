@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { listDir } from './listDir.js';
 
@@ -58,6 +58,15 @@ describe('listDir', () => {
 
         const missing = await listDir(join(root, 'nope'));
         expect(missing).toEqual({ path: join(root, 'nope'), parent: root, exists: false, entries: [] });
+    });
+
+    it('reads a relative path from home, not the host cwd (launchd starts the host in /)', async () => {
+        const root = await fixture();
+
+        const result = await listDir(`${relative(homedir(), root)}/`);
+
+        expect(result.path).toBe(root);
+        expect(result.entries.map((entry) => entry.name)).toContain('alpha');
     });
 
     it('defaults to home when no path is given', async () => {
