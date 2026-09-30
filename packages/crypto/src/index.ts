@@ -4,9 +4,9 @@
  * Lives in a shared package, NOT in the relay, because the relay must never be
  * able to decrypt anything. Only the machine host and the client hold keys.
  *
- * Pure JS (tweetnacl) rather than node:crypto so the identical code runs in the
+ * Pure JS (@byokit/seal) rather than node:crypto so the identical code runs in the
  * daemon and in React Native. X25519 key agreement + XSalsa20-Poly1305 AEAD via
- * nacl.box, which is authenticated -- a tampered frame fails to open.
+ * the kit's authenticated box, which is authenticated -- a tampered frame fails to open.
  *
  * Peer install bundles and signed grants remain until their link-native
  * authority replaces those product-level proofs.

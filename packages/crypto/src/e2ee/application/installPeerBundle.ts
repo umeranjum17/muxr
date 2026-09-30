@@ -1,7 +1,7 @@
-import nacl from 'tweetnacl';
+import { box, openAuthBox } from '@byokit/seal';
 import { isPeerCapabilities, type PeerAuthorityMetadata, type PeerCapability } from '@trymuxr/contract/peer';
 import { isWebSocketRelayUrl } from '@trymuxr/contract/control-plane';
-import { concatBytes, decodeUtf8, encodeUtf8, fromBase64, toBase64 } from '../infrastructure/encoding.js';
+import { decodeUtf8, encodeUtf8, fromBase64, toBase64 } from '../infrastructure/encoding.js';
 import type { SealedDeviceGrant } from '../domain/deviceGrant.js';
 import { signDetached, verifyDetached } from '../infrastructure/identity.js';
 import { toKeyBytes, type KeyPair } from '../infrastructure/keys.js';
@@ -40,7 +40,7 @@ function validatePeerInstallBundle(payload: PeerInstallBundlePayload): void {
         if (typeof value !== 'string' || value === '') throw new Error(`peer bundle: ${name} required`);
     }
     if (!isWebSocketRelayUrl(payload.relayUrl)) throw new Error('peer bundle: relayUrl must use ws or wss');
-    if (fromBase64(payload.targetMachineSigningPublicKey).length !== nacl.sign.publicKeyLength) {
+    if (fromBase64(payload.targetMachineSigningPublicKey).length !== 32) {
         throw new Error('peer bundle: invalid target signing key');
     }
     if (!isPeerCapabilities(payload.capabilities)) throw new Error('peer bundle: invalid capabilities');
@@ -57,22 +57,16 @@ export function sealPeerInstallBundle(params: {
 }): string {
     validatePeerInstallBundle(params.payload);
     const signingSecret = fromBase64(params.targetMachineSigningSecretKey);
-    if (signingSecret.length !== nacl.sign.secretKeyLength) throw new Error('peer bundle: invalid signing secret');
+    if (signingSecret.length !== 64) throw new Error('peer bundle: invalid signing secret');
     toKeyBytes(params.targetMachineKey.secretKey, 'peer bundle target secret key');
     toKeyBytes(params.peerPublicKey, 'peer bundle recipient key');
     const plaintext = encodeUtf8(JSON.stringify(params.payload));
-    const nonce = nacl.randomBytes(nacl.box.nonceLength);
-    const ciphertext = nacl.box(
-        plaintext,
-        nonce,
-        fromBase64(params.peerPublicKey),
-        fromBase64(params.targetMachineKey.secretKey),
-    );
+    const ciphertext = box(plaintext, fromBase64(params.peerPublicKey), fromBase64(params.targetMachineKey.secretKey));
     const sealed: SealedPeerInstallBundle = {
         v: 1,
         sender: params.targetMachineKey.publicKey,
-        box: toBase64(concatBytes(nonce, ciphertext)),
-        signer: toBase64(signingSecret.subarray(nacl.sign.publicKeyLength)),
+        box: toBase64(ciphertext),
+        signer: toBase64(signingSecret.subarray(32)),
         sig: signDetached(plaintext, params.targetMachineSigningSecretKey),
     };
     return JSON.stringify(sealed);
@@ -89,14 +83,9 @@ export function openPeerInstallBundle(
     if (sealed === null || typeof sealed !== 'object' || sealed.v !== 1) throw new Error('peer bundle: unknown version');
     if (sealed.signer !== opts.pinnedTargetMachineSigningPublicKey) throw new Error('peer bundle: signer is not the pinned target key');
     toKeyBytes(opts.peerKey.secretKey, 'peer bundle recipient secret key');
-    const box = fromBase64(sealed.box);
-    if (box.length <= nacl.box.nonceLength) throw new Error('peer bundle: malformed box');
-    const opened = nacl.box.open(
-        box.subarray(nacl.box.nonceLength),
-        box.subarray(0, nacl.box.nonceLength),
-        fromBase64(sealed.sender),
-        fromBase64(opts.peerKey.secretKey),
-    );
+    const bundle = fromBase64(sealed.box);
+    if (bundle.length <= 24) throw new Error('peer bundle: malformed box');
+    const opened = openAuthBox(bundle, fromBase64(sealed.sender), fromBase64(opts.peerKey.secretKey));
     if (opened === null) throw new Error('peer bundle: decryption failed');
     if (!verifyDetached(opened, sealed.sig, opts.pinnedTargetMachineSigningPublicKey)) {
         throw new Error('peer bundle: signature verification failed');

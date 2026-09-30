@@ -17,7 +17,7 @@ import { hostId, unb64url } from '@byokit/link';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { hostMain, hostRoot, relayMain, waitForRelay } from './host.js';
 import { linkPair, machineIdentity, readSelfhostState } from './hostSetup.js';
-import nacl from 'tweetnacl';
+import { signDetached } from '@byokit/seal';
 
 const phone = { secure: new Map<string, string>(), local: new Map<string, string>() };
 
@@ -128,7 +128,7 @@ describe('a shared-relay machine joins the link through the owner enrolment', ()
         // The machine claims the control-plane enrolment (what `muxr connect` does).
         identity = machineIdentity(undefined);
         const message = Buffer.from(`muxr-enroll-v2\n${String(opened.body.enrollment_id)}\n${enrollRelay}\n${identity.crypto.signingPublicKey}\n${identity.crypto.boxPublicKey}`, 'utf8');
-        const proof = Buffer.from(nacl.sign.detached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
+        const proof = Buffer.from(signDetached(message, Buffer.from(identity.crypto.signingSecretKey, 'base64'))).toString('base64');
         const claimed = await json(base, `/v1/selfhost/enrollments/${encodeURIComponent(String(opened.body.enrollment_id))}/claim`, {
             method: 'POST',
             body: JSON.stringify({ claim: opened.body.claim, relay_url: enrollRelay,

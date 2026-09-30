@@ -14,6 +14,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DeviceLink, hostId, keyPairFrom, type DeviceGrant } from '@byokit/link';
 import { describe, expect, it } from 'vitest';
+import { openNotice } from '@byokit/seal';
+import { runInNewContext } from 'node:vm';
+import { openLifecycleNotice } from '../../../apps/mobile/sources/utils/openLifecycleNotice';
+import { watchAgentLifecycle } from '../../../apps/mobile/sources/herd/application/WatchAgentLifecycle';
 
 const expoSends: Array<Record<string, unknown>> = [];
 const capturedFetch: typeof fetch = async (url, init) => {
@@ -128,16 +132,67 @@ describe('push rides the byokit link relay', () => {
             });
             const blocked = await until(() => expoSends.at(-1), 'Expo delivery of the blocked notification');
             expect(blocked.to).toBe('ExponentPushToken[muxr-test-token]');
-            expect(blocked.title).toBe('Ship it');
-            expect(blocked.body).toBe('Maria needs attention.');
-            expect(blocked.collapseId).toBe('evt-1');
+            expect(blocked.title).toBe('Agent update');
+            expect(blocked.body).toBe('An agent has an update.');
+            expect(JSON.stringify(blocked)).not.toContain('Ship it');
+            expect(JSON.stringify(blocked)).not.toContain('Maria');
+            expect(blocked.collapseId).toMatch(/^[a-f0-9]{64}$/);
             expect(blocked.priority).toBe('high');
             // The phone claims lifecycle pushes by these nested fields.
-            const payload = blocked.data as { id: string; data: Record<string, unknown> };
+            const envelope = blocked.data as { id: string; data: Record<string, unknown> };
+            expect(Object.keys(envelope.data).sort()).toEqual(['sealed', 'v']);
+            const payload = openNotice(envelope.data, deviceSecret) as { title: string; body: string; data: Record<string, unknown> };
+            expect(payload.title).toBe('Ship it');
+            expect(payload.body).toBe('Maria needs attention.');
             expect(payload.data.presentationOwner).toBe('relay-push');
             expect(payload.data.eventId).toBe('evt-1');
             expect(payload.data.machineId).toBe('machine-push-test');
             expect(payload.data.agentName).toBe('Maria');
+            const paired = [{ machineId: 'machine-push-test', deviceKey: { secretKey: deviceSecret.toString('base64') } }];
+            const opened = openLifecycleNotice(envelope, paired);
+            expect(opened.title).toBe('Ship it');
+            expect(watchAgentLifecycle({ notificationData: opened.data, activeMachineId: 'machine-push-test' }).agentRoute).toBe('s1');
+            expect(watchAgentLifecycle({ notificationData: opened.data, activeMachineId: 'machine-B' })).toEqual({ agentRoute: null, selectMachine: true });
+            expect(openLifecycleNotice(envelope, [{ ...paired[0], deviceKey: { secretKey: randomBytes(32).toString('base64') } }])).toEqual({
+                title: 'Agent update', body: 'An agent has an update.', data: {},
+            });
+            const workerHandlers = new Map<string, (event: unknown) => void>();
+            const shown: Array<{ title: string; options: Record<string, unknown> }> = [];
+            let target = '';
+            const worker = {
+                addEventListener: (type: string, handler: (event: unknown) => void) => workerHandlers.set(type, handler),
+                openLifecyclePush: async (data: unknown) => openLifecycleNotice(data, paired),
+                registration: { showNotification: async (title: string, options: Record<string, unknown>) => { shown.push({ title, options }); } },
+                clients: { matchAll: async () => [], openWindow: async (url: string) => { target = url; } },
+            };
+            runInNewContext(readFileSync(new URL('../../../apps/mobile/public/sw.js', import.meta.url), 'utf8'), {
+                self: worker, importScripts: () => undefined,
+                caches: { open: async () => ({ match: async () => null }) },
+            });
+            let pending = Promise.resolve();
+            const waitUntil = (work: Promise<void>) => { pending = work; };
+            workerHandlers.get('push')!({ data: { json: () => envelope }, waitUntil });
+            await pending;
+            expect(shown[0].title).toBe('Ship it');
+            expect(shown[0].options.body).toBe('Maria needs attention.');
+            workerHandlers.get('notificationclick')!({ notification: { data: shown[0].options.data, close: () => undefined }, waitUntil });
+            await pending;
+            expect(target).toBe('/notification#machineId=machine-push-test&sessionId=s1');
+            const tapUrl = new URL(target, 'https://app.test');
+            expect(tapUrl.pathname + tapUrl.search).toBe('/notification');
+            const tapParams = new URLSearchParams(tapUrl.hash.slice(1));
+            const tapData = { machineId: tapParams.get('machineId'), sessionId: tapParams.get('sessionId') };
+            expect(watchAgentLifecycle({ notificationData: tapData, activeMachineId: 'machine-B' })).toEqual({ agentRoute: null, selectMachine: true });
+            expect(watchAgentLifecycle({ notificationData: tapData, activeMachineId: 'machine-push-test' })).toEqual({ agentRoute: 's1', selectMachine: false });
+            worker.clients.matchAll = async () => [{ navigate: async (url: string) => { target = url; }, focus: async () => undefined }] as never;
+            target = '';
+            workerHandlers.get('notificationclick')!({ notification: { data: shown[0].options.data, close: () => undefined }, waitUntil });
+            await pending;
+            expect(target).toBe('/notification#machineId=machine-push-test&sessionId=s1');
+            const focusedTapUrl = new URL(target, 'https://app.test');
+            expect(focusedTapUrl.pathname + focusedTapUrl.search).toBe('/notification');
+
+
 
             // An important-only device is never woken for done noise.
             endpoint.notifyAttention({
@@ -218,6 +273,25 @@ describe('push rides the byokit link relay', () => {
                     level: 'all',
                 },
             }, { timeoutMs: 5_000 });
+            const beforeFanout = expoSends.length;
+            endpoint.notifyAttention({ sessionId: 's1', eventId: 'evt-fanout', kind: 'blocked', machineId: 'machine-push-test', agentName: 'Maria', taskTitle: 'Ship it' });
+            await until(() => expoSends.length === beforeFanout + 2 ? true : undefined, 'both recipients receive sealed notices');
+            const fanout = expoSends.slice(beforeFanout);
+            expect(new Set(fanout.map((send) => send.collapseId)).size).toBe(2);
+            for (const send of fanout) {
+                const secret = send.to === 'ExponentPushToken[muxr-test-token]' ? deviceSecret : revokedSecret;
+                const other = send.to === 'ExponentPushToken[muxr-test-token]' ? revokedSecret : deviceSecret;
+                expect(openNotice((send.data as { data: unknown }).data, secret)).toMatchObject({ title: 'Ship it' });
+                expect(openNotice((send.data as { data: unknown }).data, other)).toBeNull();
+                expect(JSON.stringify(send)).not.toContain('Maria');
+            }
+            endpoint.notifyAttention({ sessionId: 's1', eventId: 'evt-all-done', kind: 'done', machineId: 'machine-push-test', agentName: 'Maria', taskTitle: 'Ship it' });
+            await until(() => expoSends.length === beforeFanout + 3 ? true : undefined, 'all-level recipient receives done');
+            expect(openNotice((expoSends.at(-1)!.data as { data: unknown }).data, revokedSecret)).toMatchObject({ body: 'Maria finished.' });
+            endpoint.notifyAttention({ sessionId: 's1', eventId: 'evt-all-failed', kind: 'failed', reasonCode: 'start-timeout', machineId: 'machine-push-test', agentName: 'Maria', taskTitle: 'Ship it' });
+            await until(() => expoSends.length === beforeFanout + 5 ? true : undefined, 'both recipients receive failed');
+            expect(openNotice((expoSends.at(-1)!.data as { data: unknown }).data,
+                expoSends.at(-1)!.to === 'ExponentPushToken[muxr-test-token]' ? deviceSecret : revokedSecret)).toMatchObject({ body: 'Maria could not start.' });
             const afterSecond = expoSends.length;
             await until(() => (expoSends.length >= afterSecond ? true : undefined), 'second registration recorded');
             const relayStore = () => readFileSync(join(dataDir, 'link-relay.json'), 'utf8');
@@ -248,7 +322,9 @@ describe('push rides the byokit link relay', () => {
                 });
                 const delivery = await until(() => expoSends.length > count ? expoSends.at(-1) : undefined, 'private title notification');
                 expect(delivery.title).toBe('Agent update');
-                expect((delivery.data as { data: Record<string, unknown> }).data).not.toHaveProperty('taskTitle');
+                const notice = openNotice((delivery.data as { data: unknown }).data, deviceSecret) as { title: string; data: Record<string, unknown> };
+                expect(notice.title).toBe('Agent update');
+                expect(notice.data).not.toHaveProperty('taskTitle');
                 expect(JSON.stringify(delivery)).not.toContain(unsafeTitle);
             }
             revokedLink.stop();

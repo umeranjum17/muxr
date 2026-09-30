@@ -75,23 +75,23 @@ export function getSessionRouteFromNotificationData(data: unknown): `/session/${
     return `/session/${encodeURIComponent(trimmedSessionId)}`;
 }
 
-export function getSessionRouteFromNotificationResponse(response: unknown): `/session/${string}` | null {
-    const contentData = getObjectValue(getObjectValue(getObjectValue(response, 'notification'), 'request'), 'content');
-    return getSessionRouteFromNotificationData(getObjectValue(contentData, 'data'));
-}
+export type WatchAgentLifecycleCommand = { notificationData: unknown; activeMachineId: string };
 
-export type WatchAgentLifecycleCommand = { notification: unknown };
-
-export type WatchAgentLifecycleResult = { agentRoute: string } | { agentRoute: null };
+export type WatchAgentLifecycleResult = { agentRoute: string | null; selectMachine: boolean };
 
 /** Resolve a Lifecycle Event notification to the Agent Route it names. */
 export function watchAgentLifecycle(command: WatchAgentLifecycleCommand): WatchAgentLifecycleResult {
-    const route = getSessionRouteFromNotificationResponse(command.notification);
-    if (!route) return { agentRoute: null };
+    const data = normalizeNotificationData(command.notificationData);
+    const machineId = getObjectValue(data, 'machineId');
+    if (typeof machineId === 'string' && machineId !== command.activeMachineId) {
+        return { agentRoute: null, selectMachine: true };
+    }
+    const route = getSessionRouteFromNotificationData(data);
+    if (!route) return { agentRoute: null, selectMachine: false };
     const encoded = route.replace(/^\/session\//, '');
     try {
-        return { agentRoute: decodeURIComponent(encoded) };
+        return { agentRoute: decodeURIComponent(encoded), selectMachine: false };
     } catch {
-        return { agentRoute: encoded };
+        return { agentRoute: encoded, selectMachine: false };
     }
 }

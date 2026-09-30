@@ -16,6 +16,7 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | Stop / abort / reload | `agent/application/stopAgent.ts` | Agent Route | `session.stop`, `session.abort`, `session.reload` |
 | Answer a blocked Agent | `agent/application/answerAgent.ts` | Agent Route | `session.answer` |
 | List Agents | `agent/application/listAgents.ts` | Agent | `session.list`, `client.hello` |
+| Check installed agents and default sign-in | `requests/application/agentCatalog.ts` | Herdr installed kinds, Plan Identity | `herdr.agentKinds` (cached; `refresh` checks again), phone connect |
 | Report a Lifecycle Event | `agent/application/reportAgentOutcome.ts` | Lifecycle rollup | Herdr session source |
 | Run a plugin action | `agent/application/runPluginAction.ts` | Device Grant (view-only reads) | `plugin.*` |
 | Open / close a terminal | `agent/application/openTerminal.ts` | Device Grant observe/control | Relay `terminal.attach` / `terminal.detach`; link stream through `machine/infrastructure/linkEndpoint.ts` |

@@ -9,7 +9,7 @@
     ],
     "scripts": {
         "postinstall": "patch-package && node scripts/diagnostics/application/syncIosFramework.mjs && node scripts/diagnostics/application/verifyNativePatches.mjs",
-        "build": "tsc --build && node apps/host/scripts/buildVoiceAdapters.mjs && node apps/mobile/scripts/buildArtifactPreview.mjs",
+        "build": "tsc --build && node apps/host/scripts/buildVoiceAdapters.mjs && node apps/mobile/scripts/buildArtifactPreview.mjs && node apps/mobile/scripts/buildPushNoticeWorker.mjs",
         "typecheck": "tsc --build --force",
     "perf": "node perf/releaseGate.mjs",
     "check": "node scripts/diagnostics/application/runSuite.mjs",
@@ -25,7 +25,7 @@
         "doctor": "node scripts/diagnostics/presentation/doctor.mjs",
         "worktrees:clean": "node scripts/diagnostics/application/cleanWorktrees.mjs",
         "web:deploy": "bash scripts/deployWebExport.sh",
-        "web:export": "cd apps/mobile && env -u MUXR_PUBLIC_BASE_URL -u EXPO_PUBLIC_MUXR_TOKEN -u EXPO_PUBLIC_MUXR_MACHINE_ID -u EXPO_PUBLIC_MUXR_MODE APP_ENV=production MUXR_DISTRIBUTION=self-host sh -c 'npm run setup-canvaskit && npm run setup-pdfjs && npm run setup-mermaid && npx expo export --platform web --clear && node ../../scripts/release/application/finalizeWebExport.mjs'",
+        "web:export": "cd apps/mobile && env -u MUXR_PUBLIC_BASE_URL -u EXPO_PUBLIC_MUXR_TOKEN -u EXPO_PUBLIC_MUXR_MACHINE_ID -u EXPO_PUBLIC_MUXR_MODE APP_ENV=production MUXR_DISTRIBUTION=self-host sh -c 'npm run setup-push && npm run setup-canvaskit && npm run setup-pdfjs && npm run setup-mermaid && npx expo export --platform web --clear && node ../../scripts/release/application/finalizeWebExport.mjs'",
         "web:export:selfhost": "npm run web:export",
         "pack": "yarn build && yarn web:export && node scripts/release/application/pack.mjs",
         "pack:smoke": "yarn build && yarn web:export && node scripts/diagnostics/application/checkHostTestScratch.mjs -- node scripts/diagnostics/application/checkPackageSmoke.mjs"
@@ -39,7 +39,8 @@
         "vitest": "4.1.11"
     },
     "dependencies": {
-        "@byokit/reach": "0.2.0",
+        "@byokit/seal": "0.2.0",
+        "@byokit/reach": "0.3.0",
         "@byokit/ui-core": "0.3.0",
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/addon-web-links": "^0.12.0",
