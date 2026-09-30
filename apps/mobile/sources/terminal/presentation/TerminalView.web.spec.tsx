@@ -13,6 +13,7 @@ const link = vi.hoisted(() => ({
     writes: [] as Array<() => void>,
     scroll: vi.fn(),
     bottom: vi.fn(),
+    blur: vi.fn(),
     grid: { cols: 80, cellWidth: 10, linkCol: 2 },
 }));
 
@@ -37,6 +38,7 @@ vi.mock('@xterm/xterm', () => ({
         options: unknown;
         constructor(options: typeof link.options) { this.options = options; link.options = options; }
         loadAddon() {}
+        blur() { link.blur(); }
         open() {}
         onRender() {}
         onData() {}
@@ -185,6 +187,8 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
     ]);
     link.options?.linkHandler.activate({ clientX: 34, clientY: 23 } as MouseEvent, 'https://example.test/osc8');
     link.plainTap?.({ clientX: 34, clientY: 23 } as MouseEvent, 'https://example.test/plain');
+    // A tapped link asks what to do; it never raises the phone keyboard.
+    expect(link.blur).toHaveBeenCalledTimes(2);
     expect(reached.mock.calls.map(([url]) => url)).toEqual([
         'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8',
         'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/plain',
