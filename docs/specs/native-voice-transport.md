@@ -23,11 +23,11 @@ Realtime voice currently routes microphone and playback through the React Native
 
 ## Target architecture
 
-Provider credentials and policy stay in the host voice adapters; the phone kernel stays provider-blind. What changes is where the audio pump lives and how the phone connects:
+Provider credentials and product policy stay in muxr's host integration; `@byokit/realtime` owns provider sessions and signaling, and the phone kernel stays provider-blind. What changes is where the audio pump lives and how the phone connects:
 
-1. **Two provider transport kinds share one adapter.** The existing `pcm-relay` adapters keep owning provider sockets and exchanging bounded PCM through the generic stream. The `webrtc` adapter owns only authenticated signaling and control; the mobile kernel owns the peer connection and sends media directly to the provider. Both sit behind the one selected product adapter (`voice.stream`), so provider selection remains dynamic and exactly one runs.
+1. **Two provider transport kinds share one engine interface.** The `@byokit/realtime` engines use either `pcm-relay` to exchange bounded PCM through the generic stream or `webrtc` for authenticated signaling and control; the mobile kernel owns the peer connection and sends media directly to the provider. Both sit behind the one selected product surface (`voice.stream`), so provider selection remains dynamic and exactly one runs.
 2. **Native audio kernel owns WebRTC media.** The kernel starts the Android microphone foreground service before opening the WebRTC track, then owns capture, Opus, remote playback, interruption handling, and teardown. React Native coordinates bounded offer/answer signaling and receives only state, transcript, and error events.
-3. **Credentials stay in the host adapter.** The phone sends a bounded SDP offer through the existing encrypted stream. The host authenticates, verifies the destination, returns the bounded SDP answer, and never sends provider credentials, account ids, private headers, or internal ids to the phone.
+3. **Credentials stay on the host.** The phone sends a bounded SDP offer through the existing encrypted stream. The host integration supplies credentials to the kit, which authenticates and returns the bounded SDP answer; provider credentials, account ids, private headers, and internal ids never reach the phone.
 
 ## Contract shape (public, bounded)
 
@@ -64,7 +64,7 @@ The same provider-neutral WebRTC kernel contract is used on iOS through `react-n
 
 - No provider credentials in the app binary or on the phone beyond a short-lived scoped token.
 - No STT+LLM+TTS pipeline; speech-to-speech stays streaming-native.
-- No provider-supplied audio code: the transport is kernel-owned, the host voice adapters supply policy and the descriptor.
+- No provider-supplied audio code: the transport is kernel-owned, and muxr's host integration supplies product policy and the descriptor to the kit.
 
 ## Revisions
 
