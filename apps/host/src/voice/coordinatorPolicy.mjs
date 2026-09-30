@@ -371,37 +371,22 @@ const redactCredentials = (value) => String(value ?? '')
     .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gi, '[credential redacted]')
     .replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/gi, '[credential redacted]');
 
+/** Internal ids a voice must never speak; the realtime kit applies them as its `redact`. */
+export const INTERNAL_REFERENCES = [
+    /\b(?:pph?_[a-z0-9]+|w[0-9A-Za-z]+:(?:p|t)[0-9A-Za-z]+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi,
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi,
+];
+
 export const cleanProviderProse = (value, fallback, max) => {
     const clean = redactCredentials(value)
-        .replace(/\b(?:pph?_[a-z0-9]+|w[0-9A-Za-z]+:(?:p|t)[0-9A-Za-z]+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal reference]')
-        .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal reference]')
+        .replace(INTERNAL_REFERENCES[0], '[internal reference]')
+        .replace(INTERNAL_REFERENCES[1], '[internal reference]')
         .replace(/(?<![A-Za-z0-9_/])\/(?!\/)(?:[^\s\/<>"']+\/)+[^\s\/<>"']+/gm, '[path hidden]')
         .replace(/\b[A-Za-z]:\\(?:[^\s\\]+\\)+[^\s,;]*/g, '[path hidden]')
         .replace(/[\u0000-\u001F\u007F<>`{}\\/]/g, ' ')
         .replace(/\s+/g, ' ').trim().slice(0, max);
     return clean || fallback;
 };
-
-/**
- * The provider explains a refusal in the HTTP body; the close code does not.
- * An out-of-credits 403 is otherwise indistinguishable from a dropped network,
- * and reporting only the code costs a debugging session to rediscover.
- */
-export function providerRefusal(status, body) {
-    let detail = '';
-    try {
-        const parsed = JSON.parse(body);
-        if (typeof parsed?.error === 'string') detail = parsed.error;
-        else if (typeof parsed?.error?.message === 'string') detail = parsed.error.message;
-        else if (typeof parsed?.error?.status === 'string') detail = parsed.error.status;
-        else if (typeof parsed?.code === 'string') detail = parsed.code;
-    } catch { /* not JSON: fall back to the raw body */ }
-    if (detail === '') detail = body.trim();
-    const safe = cleanProviderProse(detail, '', 300);
-    return safe === ''
-        ? `Voice provider refused the connection (HTTP ${status}).`
-        : `Voice provider refused the connection (HTTP ${status}): ${safe}`;
-}
 
 const safeTail = (value) => redactCredentials(value)
     .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')

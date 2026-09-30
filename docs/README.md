@@ -7,7 +7,7 @@ Start here, then follow one path.
 - [README](../README.md) — `npm install -g --ignore-scripts @trymuxr/cli`, then interactive `muxr`
 - [Self-hosting](SELF-HOSTING.md) — own relay, pairing, Tailscale/tunnels, Docker
 - [Native Android build](NATIVE-BUILD.md) — local EAS APK; Expo Go will not work
-- [Voice setup](VOICE-SETUP.md) — provider-neutral realtime voice, xAI adapter, dictation, platform bounds
+- [Voice setup](VOICE-SETUP.md) — provider-neutral realtime voice, provider setup, dictation, platform bounds
 
 ## Extend it
 

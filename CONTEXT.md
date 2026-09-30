@@ -149,7 +149,7 @@ A Herdr add-on a previous muxr release shipped and linked during setup. Current 
 _Avoid_: extension, package, add-on
 
 **Coordinator Policy**:
-The spoken-name, coding-tool, and redaction rules every realtime voice adapter must follow.
+The spoken-name, coding-tool, and redaction rules muxr supplies to realtime voice engines.
 _Avoid_: prompt, system prompt, provider policy
 
 **Ingress**:
