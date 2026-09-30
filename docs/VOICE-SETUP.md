@@ -4,16 +4,16 @@ Realtime voice is product code. The app talks to typed `voice.*` host methods; `
 
 ## Setup
 
-All four adapters ship inside `@trymuxr/cli` as `voice/` beside the host bundle:
+The host bundle selects one of four `@byokit/realtime` engines:
 
-| Adapter | Provider | Transport | Default | Credential |
+| Engine | Provider | Transport | Default | Credential |
 |---|---|---|---|---|
 | `xai` | xAI Grok | host-relayed PCM | | `~/.muxr/xai.key` |
 | `gemini` | Gemini Live | host-relayed PCM | | `~/.muxr/gemini.key` |
 | `openai` | OpenAI Realtime | host-relayed PCM | | `~/.muxr/openai.key` |
 | `codex` | Codex Voice (experimental) | mobile WebRTC | selected | owner-only local Codex ChatGPT OAuth |
 
-Exactly one adapter runs at a time. The selection is muxr's own state (`$MUXR_HOME/voice/provider`, owner-only), read by the `voice.provider.list` and `voice.provider.set` host methods. In the app, open **Settings → Voice & dictation** to switch. Grok, Gemini Live, and OpenAI Realtime collect their API key on the provider screen. Codex Voice uses the existing local `codex login`.
+Exactly one engine runs at a time. The selection is muxr's own state (`$MUXR_HOME/voice/provider`, owner-only), read by the `voice.provider.list` and `voice.provider.set` host methods. In the app, open **Settings → Voice & dictation** to switch. Grok, Gemini Live, and OpenAI Realtime collect their API key on the provider screen. Codex Voice uses the existing local `codex login`.
 
 Keys are entered in a masked native prompt and sent once through authenticated E2EE. Codex OAuth never enters a muxr frame, phone, process argument, log, or muxr storage. Provider choices survive `npm` upgrades and subsequent `muxr setup` runs; a selection made under the retired voice plugin is carried into `$MUXR_HOME/voice/provider` by setup.
 
@@ -21,11 +21,11 @@ Keys are entered in a masked native prompt and sent once through authenticated E
 
 ## Boundary
 
-The host exposes one product surface and never branches on a provider name above the adapter:
+The host exposes one product surface and keeps provider selection below the app-facing methods:
 
 - `voice.status` — reports whether the selected provider is configured;
-- `voice.provider.list` / `voice.provider.set` / `voice.provider.describe` — the adapter table;
-- `voice.key.set` / `voice.key.clear` — the machine-held key for the selected adapter;
+- `voice.provider.list` / `voice.provider.set` / `voice.provider.describe` — the engine table;
+- `voice.key.set` / `voice.key.clear` — the machine-held key for the selected engine;
 - `voice.stream` — a persistent provider-neutral realtime stream;
 - `voice.report` — bounded agent-stop wording.
 
