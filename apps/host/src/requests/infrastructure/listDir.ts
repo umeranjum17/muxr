@@ -1,7 +1,7 @@
 import { existsSync, type Dirent } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
+import { homePath } from '../../platform/homePath.js';
 
 const MAX_ENTRIES = 500;
 
@@ -18,10 +18,7 @@ export async function listDir(
     exists: boolean;
     entries: { name: string; repo: boolean }[];
 }> {
-    const home = homedir();
-    // Default is home; expand a leading ~; everything else resolves against the host cwd.
-    const requested = rawPath === undefined || rawPath === '' ? home : rawPath.replace(/^~(?=\/|$)/, home);
-    const target = resolve(requested);
+    const target = homePath(rawPath ?? '');
     const parent = dirname(target) === target ? null : dirname(target);
 
     let stats;
