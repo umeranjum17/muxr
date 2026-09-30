@@ -7,6 +7,7 @@
  * voice prompt and what a delegated request does.
  */
 import { claims } from '@byokit/accounts';
+import { delegationHandler } from '@byokit/realtime/node';
 import { execFile, spawn } from 'node:child_process';
 import { lstatSync, readFileSync } from 'node:fs';
 import { lstat, readFile } from 'node:fs/promises';
@@ -53,31 +54,34 @@ const DIRECT_PROMPT = /^(?:please\s+)?(?:ask|tell)\s+([a-z0-9_-]{1,32})\s+to\s+(
 const FURTHER_STEP = /\b(?:then|after|afterwards|also|and (?:ask|tell|ping|message|let|watch|check)|let me know|tell me|report|when|once|until)\b/i;
 
 /**
- * The `delegate` handler: the direct prompt path, else the bounded planner.
- * `runTool` runs catalogued tools; `open` is the host's realtime.open.
+ * The `delegate` handler: the kit runs structured requests on `actions`, the
+ * catalogued tools' bridge; prose takes the direct prompt path, else the bounded
+ * planner. `open` is the host's realtime.open.
  */
-export function codexDelegate({ open, runTool }) {
+export function codexDelegate({ open, actions }) {
     const knownAgents = new Set((Array.isArray(open?.publicContext?.sessions) ? open.publicContext.sessions : [])
         .map((session) => String(session?.agentName ?? '').toLowerCase()).filter(Boolean));
-    const coding = createCodexDelegation({ getCredential: codexCredential, runTool });
+    const coding = createCodexDelegation({ getCredential: codexCredential, runTool: actions.run });
     const directPrompt = (request) => {
         const match = DIRECT_PROMPT.exec(request.trim());
         if (!match || !knownAgents.has(match[1].toLowerCase()) || FURTHER_STEP.test(match[2]) || match[2].includes('\n')) return undefined;
         return { agent: match[1], text: match[2].trim() };
     };
     return {
-        async delegate({ request }, { id, signal }) {
-            const text = String(request ?? '');
-            const direct = directPrompt(text);
-            if (direct) {
-                const receipt = await coding.run(JSON.stringify({ name: 'prompt_agent', arguments: direct }), id, signal);
-                // Only an unresolved target sent nothing; every other receipt is final
-                // so an uncertain prompt is never sent twice.
-                if (!/^(?:I could not find an agent|More than one agent)/.test(receipt)) return receipt;
-            }
-            return coding.run(text, id, signal);
-        },
-        close: () => coding.close(),
+        delegate: delegationHandler({
+            bridge: actions,
+            async plan(request, { id, signal }) {
+                const direct = directPrompt(request);
+                if (direct) {
+                    const receipt = await actions.run('prompt_agent', direct, id, signal);
+                    // Only an unresolved target sent nothing; every other receipt is final
+                    // so an uncertain prompt is never sent twice.
+                    if (!/^(?:I could not find an agent|More than one agent)/.test(receipt)) return receipt;
+                }
+                return coding.run(request, id, signal);
+            },
+        }),
+        close: () => { coding.close(); actions.close(); },
     };
 }
 

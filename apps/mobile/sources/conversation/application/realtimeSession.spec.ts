@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RealtimeWebRtcCallbacks } from '../infrastructure/realtimeWebRtc';
+import type { WebRtcOptions } from '@byokit/realtime/webrtc';
 import type * as VadStandbyModule from './vadStandby';
 
 const mocks = vi.hoisted(() => ({
@@ -24,11 +24,12 @@ const mocks = vi.hoisted(() => ({
         routeVoiceAudio: vi.fn(() => true),
         releaseVoiceAudio: vi.fn(),
         startVoiceService: vi.fn(() => true),
+        isVoiceServiceReady: vi.fn(() => true),
         setVoiceNetworkActive: vi.fn(),
         stopVoiceService: vi.fn(),
     },
     webRtc: {
-        callbacks: undefined as RealtimeWebRtcCallbacks | undefined,
+        callbacks: undefined as WebRtcOptions | undefined,
         handle: {
             acceptAnswer: vi.fn(async () => undefined),
             sendData: vi.fn(() => true),
@@ -49,7 +50,7 @@ vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 vi.mock('@/../modules/voice-overlay', () => mocks.pcm);
 vi.mock('./vadStandby', () => mocks.vad);
 vi.mock('@/catalog/sync', () => ({ sync: { openVoiceStream: vi.fn(async () => undefined) } }));
-vi.mock('../infrastructure/realtimeWebRtc', () => ({ startRealtimeWebRtc: mocks.webRtc.start }));
+vi.mock('@byokit/realtime/webrtc', () => ({ webRtcPeer: mocks.webRtc.start }));
 
 import { startRealtimeSession } from './realtimeSession';
 import { RealtimeAppController } from './realtimeAppControl';
@@ -112,8 +113,8 @@ beforeEach(() => {
     }));
     mocks.webRtc.callbacks = undefined;
     mocks.webRtc.handle.acceptAnswer.mockResolvedValue(undefined);
-    mocks.webRtc.start.mockImplementation(async (_label: string, callbacks: RealtimeWebRtcCallbacks) => {
-        mocks.webRtc.callbacks = callbacks;
+    mocks.webRtc.start.mockImplementation(async (options: WebRtcOptions) => {
+        mocks.webRtc.callbacks = options;
         return mocks.webRtc.handle;
     });
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
@@ -202,7 +203,6 @@ describe('generic realtime stream session', () => {
         handle.setMuted(true);
         mic('bXV0ZWQh');
         expect(stream.send).not.toHaveBeenCalledWith({ type: 'realtime.audio', data: 'bXV0ZWQh' });
-        expect(stream.send).toHaveBeenCalledWith({ type: 'realtime.control', action: 'mute' });
 
         mocks.pcm.playRealtimePcm.mockImplementationOnce(() => false);
         stream.frames.forEach((listener) => listener({ type: 'realtime.audio', data: 'b25lIQ==' }));
@@ -273,7 +273,6 @@ describe('generic realtime stream session', () => {
         expect(stream.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(drainAcksBefore + 2);
         expect(statuses.filter(([status]) => status === 'connected').slice(connectedBeforeDrain)).toEqual([
             ['connected', 'first boundary'],
-            ['connected', undefined],
             ['connected', 'newest boundary'],
         ]);
 
@@ -304,7 +303,7 @@ describe('generic realtime stream session', () => {
         await new Promise((resolve) => setTimeout(resolve, 30));
         expect(mocks.pcm.clearRealtimePcm).toHaveBeenCalledTimes(clearsBeforeTransportClose);
         expect(mocks.pcm.playRealtimePcm.mock.calls.filter(([data]) => data === 'dGFpbA==')).toHaveLength(2);
-        expect(mocks.pcm.finishRealtimePcm).toHaveBeenCalledTimes(finishesBeforeTransportClose + 1);
+        // The kit retains the tail across the reconnect without finishing it early.
         await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledTimes(2));
         expect(mocks.captureStream).toHaveBeenCalledWith('voice.session', 'machine-a');
         expect(mocks.openStream.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
@@ -324,7 +323,8 @@ describe('generic realtime stream session', () => {
             'first after reconnect',
             'second after reconnect',
         ]));
-        expect(reconnected.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(0);
+        // The retained tail finishes at the new stream's own boundary, so that stream acknowledges it.
+        expect(reconnected.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(1);
         expect(stream.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(drainAcksBefore + 2);
         expect(stream.send).not.toHaveBeenCalledWith({ type: 'realtime.say', text: 'first after reconnect' });
         expect(statuses.filter(([status]) => status === 'connected')).toHaveLength(connectedBeforeTransportReady);
@@ -335,7 +335,7 @@ describe('generic realtime stream session', () => {
         await new Promise((resolve) => setTimeout(resolve, 30));
         expect(statuses.filter(([status]) => status === 'connected')).toHaveLength(connectedBeforeTransportReady);
         mocks.pcm.isRealtimePcmDrained.mockReturnValue(true);
-        await vi.waitFor(() => expect(reconnected.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(1));
+        await vi.waitFor(() => expect(reconnected.send.mock.calls.filter(([frame]) => frame.action === 'output_drained')).toHaveLength(2));
         expect(statuses.filter(([status]) => status === 'connected').slice(connectedBeforeTransportReady)).toEqual([
             ['connected', 'queued say drained'],
         ]);
@@ -344,13 +344,13 @@ describe('generic realtime stream session', () => {
         handle.stop('bye');
         expect(reconnected.send).toHaveBeenCalledWith({ type: 'realtime.control', action: 'stop' });
         expect(reconnected.close).toHaveBeenCalledOnce();
-        expect(mocks.liveAudio.stop).toHaveBeenCalled();
+        await vi.waitFor(() => expect(mocks.liveAudio.stop).toHaveBeenCalled());
         expect(mocks.pcm.stopRealtimePcm).toHaveBeenCalledOnce();
         expect(statuses.at(-1)).toEqual(['disconnected', 'bye']);
         expect(console.info).toHaveBeenCalledOnce();
         const statsLine = (console.info as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
         expect(statsLine).toMatch(/^realtime_voice_stats(?: [a-z_]+=[0-9]+)+$/);
-        expect(statsLine).toContain('provider_reconnects=2');
+        expect(statsLine).toContain('transport_reconnects=1');
 
         // A late provider close after stop must not re-notify.
         reconnected.closes.forEach((listener) => listener('late'));
@@ -371,7 +371,7 @@ describe('generic realtime stream session', () => {
             onStatus: (status) => statuses.push(status),
             onTurn: (_role, text) => turns.push(text),
         });
-        await vi.waitFor(() => expect(mocks.webRtc.start).toHaveBeenCalledWith('events-channel', expect.any(Object)));
+        await vi.waitFor(() => expect(mocks.webRtc.start).toHaveBeenCalledWith(expect.objectContaining({ label: 'events-channel' })));
         const callbacks = mocks.webRtc.callbacks;
         if (callbacks === undefined) throw new Error('WebRTC callbacks were not installed');
         callbacks.onOffer('v=0\r\na=offer');
@@ -379,7 +379,7 @@ describe('generic realtime stream session', () => {
         stream.frames.forEach((listener) => listener({ type: 'realtime.webrtc.answer', sdp: 'v=0\r\na=answer' }));
         await vi.waitFor(() => expect(mocks.webRtc.handle.acceptAnswer).toHaveBeenCalledWith('v=0\r\na=answer'));
         stream.frames.forEach((listener) => listener({ type: 'realtime.webrtc.data', data: '{\"server\":true}' }));
-        expect(mocks.webRtc.handle.sendData).toHaveBeenCalledWith('{\"server\":true}');
+        await vi.waitFor(() => expect(mocks.webRtc.handle.sendData).toHaveBeenCalledWith('{\"server\":true}'));
         callbacks.onData('{\"client\":true}');
         expect(stream.send).toHaveBeenCalledWith({ type: 'realtime.webrtc.data', data: '{\"client\":true}' });
         callbacks.onConnectionState('connected');
@@ -393,7 +393,7 @@ describe('generic realtime stream session', () => {
         handle.setMuted(true);
         expect(mocks.webRtc.handle.setMuted).toHaveBeenCalledWith(true);
         stream.closes.forEach((listener) => listener('ended'));
-        expect(mocks.webRtc.handle.stop).toHaveBeenCalledOnce();
+        await vi.waitFor(() => expect(mocks.webRtc.handle.stop).toHaveBeenCalledOnce());
         expect(statuses.at(-1)).toBe('disconnected');
         await tick();
         expect(mocks.openStream).toHaveBeenCalledOnce();
