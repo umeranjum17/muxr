@@ -256,6 +256,7 @@ export default function NewAgentScreen() {
     const [busy, setBusy] = React.useState(false);
     const [error, setError] = React.useState<string | undefined>(undefined);
     const [scrollHeight, setScrollHeight] = React.useState(0);
+    const [scrollY, setScrollY] = React.useState(0);
     const [isTypingPath, setIsTypingPath] = React.useState(false);
     const keyboardHeight = useKeyboardState((state) => state.height);
 
@@ -266,12 +267,14 @@ export default function NewAgentScreen() {
     const typingPath = React.useRef(false);
     const showPicker = React.useCallback(() => {
         const y = directoryY.current + pickerY.current;
+        // Keep the directory input at the top so the list has room above the keyboard.
+        // RN-web layout y goes stale after the viewport resizes, so use the DOM position there.
         if (Platform.OS === 'web') (directoryRef.current as unknown as HTMLElement | null)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
         else scrollRef.current?.scrollTo({ y, animated: true });
     }, []);
     React.useEffect(() => {
         const shown = Keyboard.addListener('keyboardDidShow', () => {
-            if (typingPath.current) showPicker();
+            if (typingPath.current) requestAnimationFrame(showPicker);
         });
         return () => shown.remove();
     }, [showPicker]);
@@ -393,7 +396,16 @@ export default function NewAgentScreen() {
                 </Pressable>
             </View>
 
-            <FormScrollView ref={(node: ScrollView | null) => { scrollRef.current = node; }} onLayout={({ nativeEvent }) => setScrollHeight(nativeEvent.layout.height)} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <FormScrollView
+                ref={(node: ScrollView | null) => { scrollRef.current = node; }}
+                onLayout={({ nativeEvent }) => setScrollHeight(nativeEvent.layout.height)}
+                onScroll={({ nativeEvent }) => {
+                    if (typingPath.current) setScrollY(nativeEvent.contentOffset.y);
+                }}
+                scrollEventThrottle={16}
+                contentContainerStyle={styles.content}
+                keyboardShouldPersistTaps="handled"
+            >
                 {/* --- Agent grid (multi-select -> squad) ---------------------- */}
                 <View>
                     <View style={styles.sectionLabelRow}>
@@ -479,7 +491,11 @@ export default function NewAgentScreen() {
                             value={cwd}
                             onChange={setCwd}
                             recent={recent}
-                            room={isTypingPath && scrollHeight > 0 ? scrollHeight - (Platform.OS === 'web' ? 0 : keyboardHeight) : undefined}
+                            room={isTypingPath && scrollHeight > 0
+                                ? Platform.OS === 'web'
+                                    ? scrollHeight
+                                    : scrollHeight - keyboardHeight - Math.max(0, directoryY.current + pickerY.current - scrollY)
+                                : undefined}
                             onFocus={() => {
                                 typingPath.current = true;
                                 setIsTypingPath(true);
