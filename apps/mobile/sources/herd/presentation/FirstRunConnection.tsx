@@ -71,7 +71,7 @@ export function FirstRunConnection() {
     const [copied, setCopied] = React.useState(false);
     const browser = Platform.OS === 'web';
     const processPairLink = useHostedPairing();
-    const scanPairQr = usePairQrScanner((offer) => router.push({ pathname: '/pair', params: { offer } }), !browser);
+    const scanPairQr = usePairQrScanner(processPairLink, !browser);
     // Direct SSH is an Android transport in this codebase; the tile is hidden
     // where the native module is absent rather than offered as a dead choice.
     const sshAvailable = !browser && sshTunnelAvailable();
