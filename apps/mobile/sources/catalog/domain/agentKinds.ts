@@ -1,6 +1,6 @@
-/** Safe offline fallback. Connected screens replace this with the bounded
- * catalog reported by the current Herdr host. Persistence keeps the superset so
- * an existing session remains readable while the host is offline. */
+/** Persistence keeps this superset so existing sessions remain readable offline.
+ * Missing host kinds also use it for install guidance, never as proof of
+ * installation; only the host's installed list makes a kind selectable. */
 export const FALLBACK_AGENT_KINDS = [
     'pi', 'claude', 'codex', 'gemini', 'cursor', 'devin', 'agy', 'cline', 'omp',
     'mastracode', 'opencode', 'copilot', 'kimi', 'kiro', 'droid', 'amp', 'grok',
