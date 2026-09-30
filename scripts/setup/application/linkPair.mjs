@@ -4,6 +4,7 @@ import { chmodSync, existsSync, lstatSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { hostId } from '@byokit/link';
+import { linkUrl } from '@byokit/relay/device';
 import { askVisible, base64, print, printTerminalQr } from '../infrastructure/runtime.mjs';
 import { pairingIntent } from '../domain/dist/index.js';
 import { readSelfhostState, selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
@@ -52,9 +53,7 @@ function aborted(signal) {
 
 /** The machine's link route on its own relay — where enrolled phones dial. */
 export function machineLinkUrl(relayUrl, machineBoxPublicKeyBase64) {
-    const relay = new URL(relayUrl.replace(/^ws/i, 'http'));
-    const scheme = relay.protocol === 'https:' ? 'wss' : 'ws';
-    return `${scheme}://${relay.host}/link/v1/${hostId(Buffer.from(machineBoxPublicKeyBase64, 'base64'))}`;
+    return linkUrl(relayUrl, hostId(Buffer.from(machineBoxPublicKeyBase64, 'base64')));
 }
 
 /**

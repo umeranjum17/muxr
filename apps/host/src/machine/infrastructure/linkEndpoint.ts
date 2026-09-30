@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/link';
-import { isExpoToken, RelayClient, type RelayClientStore } from '@byokit/relay';
+import { isExpoToken, linkUrl, ownerClient, RelayOwnerError, RelayClient, type RelayClientStore } from '@byokit/relay';
 import {
     lifecycleNotificationAllowed,
     parseClientFrame,
@@ -411,9 +411,7 @@ export class LinkEndpoint {
     offerPairing(pairing: NonNullable<LinkEndpoint['pairing']>, relayUrl: string, intent: { kind: 'native' | 'browser'; authority: 'control' | 'observe'; lifetime?: number; base?: string }): { text: string; expires: number } {
         if (this.pairing !== undefined && this.pairing !== pairing) throw new Error('another pairing is in progress');
         this.pairing = pairing;
-        const relay = new URL(relayUrl.replace(/^ws/i, 'http'));
-        const scheme = relay.protocol === 'https:' ? 'wss' : 'ws';
-        return this.host.offer({ urls: [`${scheme}://${relay.host}/link/v1/${this.host.id}`], role: intent.authority === 'observe' ? 'view' : 'control', kind: intent.kind,
+        return this.host.offer({ urls: [linkUrl(relayUrl, this.host.id)], role: intent.authority === 'observe' ? 'view' : 'control', kind: intent.kind,
             ...(intent.lifetime === undefined ? {} : { lifetime: intent.lifetime }), ...(intent.base === undefined ? {} : { base: intent.base }) });
     }
 
@@ -655,17 +653,15 @@ async function streamTerminal(stream: LinkStream, req: LinkRequest, grant: Grant
  * one-use enrolment the first time and never again. `false`: not the owner.
  */
 async function relayEnrolment(relayUrl: string, ownerToken: string, id: string, name: string): Promise<string | undefined | false> {
-    const base = relayControlUrl(relayUrl);
-    const headers = { authorization: `Bearer ${ownerToken}`, 'content-type': 'application/json' };
-    const listed = await fetch(new URL('/relay/v1/hosts', base), { headers });
-    if (listed.status === 403 || listed.status === 404) return false;
-    if (!listed.ok) throw new Error(`link: relay host list failed (${listed.status})`);
-    const hosts = await listed.json() as unknown;
-    const known = Array.isArray(hosts) ? hosts : (hosts as { hosts?: unknown }).hosts;
-    if (Array.isArray(known) && known.some((host) => (host as { id?: unknown }).id === id)) return undefined;
-    const created = await fetch(new URL('/relay/v1/enrolments', base), { method: 'POST', headers, body: JSON.stringify({ name }) });
-    if (!created.ok) throw new Error(`link: relay enrolment failed (${created.status})`);
-    const { token } = await created.json() as { token?: unknown };
-    if (typeof token !== 'string') throw new Error('link: relay enrolment returned no token');
-    return token;
+    const owner = ownerClient(relayControlUrl(relayUrl), ownerToken, {
+        fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(15_000) }),
+    });
+    let hosts;
+    try { hosts = await owner.hosts(); }
+    catch (cause) {
+        if (cause instanceof RelayOwnerError && (cause.status === 403 || cause.status === 404)) return false;
+        throw cause;
+    }
+    if (hosts.some((host) => host.id === id)) return undefined;
+    return (await owner.enrolment({ name })).token;
 }

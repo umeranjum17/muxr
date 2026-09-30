@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -6,7 +5,6 @@ import {
     serve,
     SERVE_OWNED_ERROR,
     tailscaleName,
-    tailscaleStatus,
     unserve,
 } from '@byokit/reach';
 import { parseConnection, publicRelayUrl } from '../domain/dist/index.js';
@@ -31,15 +29,6 @@ export function tailscaleBin() {
         join(home(), 'Applications', 'Tailscale.app', 'Contents', 'MacOS', 'Tailscale'),
         '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
     ].find((candidate) => executable(candidate));
-}
-
-export function runTailscale(args, options = {}) {
-    const { env: childEnv, timeout = 15_000, ...rest } = options;
-    return spawnSync(tailscaleBin() || 'tailscale', args, {
-        ...rest,
-        timeout,
-        env: { ...process.env, TAILSCALE_BE_CLI: '1', ...childEnv },
-    });
 }
 
 export const selfhostPath = () => join(stateDir(), 'selfhost.json');

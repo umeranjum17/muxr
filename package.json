@@ -39,7 +39,8 @@
         "vitest": "4.1.11"
     },
     "dependencies": {
-        "@byokit/reach": "0.2.0",
+        "@byokit/seal": "0.2.0",
+        "@byokit/reach": "0.3.0",
         "@byokit/ui-core": "0.3.0",
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/addon-web-links": "^0.12.0",

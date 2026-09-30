@@ -1,7 +1,6 @@
 /** Runnable proof that the E2EE codec round-trips and rejects tampering. */
 
 import assert from 'node:assert/strict';
-import nacl from 'tweetnacl';
 import {
     createDeviceGrant,
     createSignedPeerDescriptor,
@@ -16,14 +15,14 @@ import {
     grantHasExpired,
 } from './index.js';
 
-const dataRoot = nacl.randomBytes(32);
+const dataRoot = crypto.getRandomValues(new Uint8Array(32));
 
 // --- machine identity + device grants ---------------------------------------
 
 const machineSigning = generateSigningKeyPair();
 const machineX = generateKeyPair();
 const deviceX = generateKeyPair();
-const ingressRoot = nacl.randomBytes(32);
+const ingressRoot = crypto.getRandomValues(new Uint8Array(32));
 const targetSigning = generateSigningKeyPair();
 const preparedPeer = generateKeyPair();
 const peerDescriptor = createSignedPeerDescriptor({
