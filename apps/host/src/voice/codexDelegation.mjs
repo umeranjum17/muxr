@@ -297,21 +297,6 @@ export function createCodexDelegation({ getCredential, runTool } = {}) {
             if (typeof operationId !== 'string' || !operationId.trim() || operationId.length > MAX_OPERATION_ID_CHARS) {
                 return 'The delegation operation identity was invalid. No action was performed.';
             }
-            let structured;
-            try { structured = JSON.parse(request); } catch { structured = undefined; }
-            if (structured && typeof structured === 'object' && !Array.isArray(structured) && typeof structured.name === 'string') {
-                // Structured catalog JSON runs directly through the existing
-                // runtime: same authorization, bounds, dedupe and receipts.
-                const deadline = AbortSignal.timeout(RUN_DEADLINE_MS);
-                const combined = AbortSignal.any([lifetime.signal, deadline, ...(signal ? [signal] : [])]);
-                try {
-                    return String(await runTool(structured.name, structured.arguments ?? {}, operationId, combined));
-                } catch (error) {
-                    return combined.aborted
-                        ? 'The work request was cancelled. No action was performed.'
-                        : `${safeVoiceToolFailure(error, structured.name)} Tell the user this directly instead of promising to check again.`;
-                }
-            }
             try {
                 const deadline = AbortSignal.timeout(RUN_DEADLINE_MS);
                 const operation = planning.then(() => naturalTurn(request, operationId, signal, deadline));

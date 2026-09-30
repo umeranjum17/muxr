@@ -115,6 +115,12 @@ describe('voice stream on @byokit/realtime', () => {
             expect(lab.prompts).toEqual([{ sessionId: 'pp_review_private', text: 'rebase onto main.\n\ncame from a real-time agent' }]);
             expect(planning).toHaveLength(0);
 
+            // A structured request runs its catalogued tool without planning.
+            delegate('structured', JSON.stringify({ name: 'prompt_agent', arguments: { agent: 'John', text: 'Check the logs.' } }));
+            await waitFor(() => appended('structured'), 'structured request did not return');
+            expect(lab.prompts.at(-1)).toEqual({ sessionId: 'pp_summary_private', text: 'Check the logs.\n\ncame from a real-time agent' });
+            expect(planning).toHaveLength(0);
+
             // A further step keeps the planner.
             delegate('planned-steps', 'Ask Jane to rebase onto main, then tell me when it is done.');
             await waitFor(() => appended('planned-steps'), 'planned request did not return');
@@ -146,7 +152,11 @@ describe('voice stream on @byokit/realtime', () => {
             const exposed = lab.start(env);
             exposed.send(lab.open);
             await waitFor(() => exposed.frames.some((frame) => frame.type === 'realtime.closed'), 'exposed sign-in was not refused');
-            expect(exposed.frames).toEqual([{ type: 'realtime.closed', reason: 'Codex credential file must be owner-only in a non-writable store.' }]);
+            // Phone media starts while the kit resolves access; only the refusal follows it.
+            expect(exposed.frames).toEqual([
+                { type: 'realtime.webrtc.start', dataChannelLabel: 'oai-events' },
+                { type: 'realtime.closed', reason: 'Codex credential file must be owner-only in a non-writable store.' },
+            ]);
             expect(signaling).toHaveLength(1);
         } finally {
             voice.child.kill('SIGKILL');

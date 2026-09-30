@@ -43,8 +43,9 @@ Responses request and parses streamed tool calls and text output; muxr retains
 the bounded planning loop, conversation history and tool dispatch. Only the
 existing `voiceTools` function catalog is sent to the account-bound Codex
 Responses endpoint; no shell,
-filesystem, MCP or other execution tools are exposed. Structured tool calls still
-use the same dispatcher directly. This is delegated tool reasoning, not an
+filesystem, MCP or other execution tools are exposed. The kit's `delegationHandler`
+runs a structured `{ name, arguments }` request directly on the catalogued tools'
+bridge, and never plans it. This is delegated tool reasoning, not an
 STT/LLM/TTS replacement for the native speech-to-speech session.
 
 Pending targets and messages remain in bounded, in-memory conversation history.
@@ -60,9 +61,9 @@ is still being processed. The kit's ChatGPT route shares one in-flight or
 completed result for an identical trimmed request in that turn, including
 clarifications and failures, so a repeated handoff cannot confirm its own pending
 action or queue the message twice. A new user turn remains a new request, even
-when its words match an earlier one, and the kit cancels a delegation still
-running from an earlier turn. Codex holds a request's own user turn open until
-its result is appended, so only speech during a long delegation cancels it.
+when its words match an earlier one. An ordinary new turn leaves an earlier
+delegation running and reports its result; only an explicit interruption or
+closing the call cancels it.
 
 Reads have a 20-second deadline; mutations retain the existing 75-second
 coordination budget, and explicit lifecycle watches keep their declared bound. Repeated operation IDs reuse the same result and cannot execute a
@@ -83,9 +84,9 @@ existing Codex sign-ins remain usable if they pass `codex.mjs`'s credential
 checks. Codex owns its login file. `codex.mjs` refuses symlinked or non-regular
 credential files, files owned by another user or accessible to other
 users, and credential directories that are symlinked, owned by another user,
-or writable by other users; it does not repair or migrate them. The stream
-child resolves the sign-in before the call starts, so a missing or unsafe login
-keeps its remedy, and hands it to `@byokit/realtime` as the `plan` access; the
+or writable by other users; it does not repair or migrate them. The kit
+resolves the sign-in through `codex.mjs` as the `plan` access while the phone's
+media starts, and a missing or unsafe login still closes the call with its remedy; the
 kit's credential child owns the realtime-calls signaling and never frames the
 token. A small planner fetch guard sets `parallel_tool_calls: false` and retains
 response bounds, redirect rejection, reader cleanup and rejection of incomplete planning

@@ -55,6 +55,6 @@
         "access": "public"
     },
     "dependencies": {
-        "@byokit/realtime": "0.1.0"
+        "@byokit/realtime": "0.2.0"
     }
 }
