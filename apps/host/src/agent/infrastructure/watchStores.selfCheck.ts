@@ -130,6 +130,7 @@ async function runSelfCheck(): Promise<void> {
 
         restarted.unread.noteActivity('s-restart', '/tmp/restart');
         assert(restarted.unread.catalog().revision === unread3.revision + 1, 'unread revision keeps increasing after restart');
+        await waitForPersistedRevision(unreadPath, isRevisionFile, restarted.unread.catalog().revision);
 
         const attentionAfterRestart = restarted.attention.catalog();
         assert(
