@@ -2,6 +2,7 @@
 export * from './application/RunPluginAction';
 export * from './application/RunPluginShortcut';
 export * from './application/capabilityRegistry';
+export { openFileViewer } from './application/fileNavigationList';
 export * from './application/pluginDataInvalidation';
 export { dispatchPluginAction } from './application/pluginActions';
 export * from './application/pluginStore';

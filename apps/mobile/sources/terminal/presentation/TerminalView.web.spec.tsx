@@ -6,6 +6,7 @@ import type { TerminalChannel } from '../application/OpenTerminal';
 const link = vi.hoisted(() => ({
     options: null as null | { linkHandler: { activate: (event: MouseEvent, url: string) => void; hover?: (event: MouseEvent, url: string, range: { start: { x: number; y: number }; end: { x: number; y: number } }) => void; leave?: () => void } },
     plainTap: null as null | ((event: MouseEvent, url: string) => void),
+    paths: null as null | { provideLinks: (y: number, callback: (links: { text: string; range: unknown; activate: (event: MouseEvent, text: string) => void }[] | undefined) => void) => void },
     onData: null as null | ((base64: string) => void),
     state: null as null | ((state: string) => void),
     aheadSize: null as null | { cols: number; rows: number },
@@ -17,6 +18,7 @@ const link = vi.hoisted(() => ({
     grid: { cols: 80, cellWidth: 10, linkCol: 2 },
 }));
 
+const PATH_ROW = 'wrote ~/My Project/b c.txt now, see https://example.test/a/b';
 vi.mock('react-native', () => ({ View: 'View', Text: 'Text', StyleSheet: { create: (styles: unknown) => styles } }));
 vi.mock('@/theme', () => ({ terminalColorDefaults: { background: '#0c0c0b', foreground: '#fff', cursor: '#fff', selection: '#555', ansi: [] } }));
 vi.mock('@xterm/xterm', () => ({
@@ -30,6 +32,10 @@ vi.mock('@xterm/xterm', () => ({
                 getWidth: () => 1, getChars: () => col === link.grid.linkCol ? 'd' : ' ',
                 hasExtendedAttrs: () => col === link.grid.linkCol ? 1 : 0, extended: { get urlId() { return col === link.grid.linkCol ? 7 : 0; } },
             }),
+        } : row === 2 ? {
+            isWrapped: false,
+            translateToString: () => PATH_ROW,
+            getCell: (col: number) => col < PATH_ROW.length ? { getWidth: () => 1, getChars: () => PATH_ROW[col] } : undefined,
         } : undefined } };
         _core = {
             _oscLinkService: { getLinkData: (id: number) => id === 7 ? { uri: 'https://example.test/osc8' } : undefined },
@@ -39,6 +45,7 @@ vi.mock('@xterm/xterm', () => ({
         constructor(options: typeof link.options) { this.options = options; link.options = options; }
         loadAddon() {}
         blur() { link.blur(); }
+        registerLinkProvider(provider: typeof link.paths) { link.paths = provider; return { dispose() {} }; }
         open() {}
         onRender() {}
         onData() {}
@@ -193,6 +200,14 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
         'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/osc8',
         'https://example.test/osc8', 'https://example.test/osc8', 'https://example.test/plain',
     ]);
+    // A printed path reaches the same menu; a URL's own path stays the URL's.
+    let pathLinks: { text: string; range: unknown; activate: (event: MouseEvent, text: string) => void }[] | undefined;
+    link.paths?.provideLinks(3, (links) => { pathLinks = links; });
+    expect(pathLinks?.map(({ text, range }) => ({ text, range }))).toEqual([
+        { text: '~/My Project/b c.txt now', range: { start: { x: 7, y: 3 }, end: { x: 30, y: 3 } } },
+    ]);
+    pathLinks![0].activate({ clientX: 100, clientY: 60 } as MouseEvent, pathLinks![0].text);
+    expect(reached.mock.calls.at(-1)).toEqual(['~/My Project/b c.txt now', { x: 90, y: 55 }]);
     let clock = 1_000;
     vi.stubGlobal('performance', { now: () => clock });
     const touch = (y: number) => ({ touches: [{ clientX: 200, clientY: y }], preventDefault() {}, stopPropagation() {} });
