@@ -144,12 +144,17 @@ keep their quotas rather than having them reset.
 
   If the machine's secret keys were exposed, replace them. Every device pinned
   the old key, so all of them pair again afterwards. Rotation stops a running
-  muxr service and starts it again with the replacement keys:
+  muxr service, replaces the keys, starts it again, then waits for the relay
+  and retires the old host registration:
 
   ```bash
   muxr devices rotate-keys --unpair-all   # new signing, box and data keys; the relay forgets the old host
   muxr pair
   ```
+
+  If retirement fails, the replacement keys remain in place. The error names
+  the old host ID; restore relay access and retry the reported DELETE with the
+  relay owner credential to remove that registration.
 
 ## Docker relay
 
