@@ -110,7 +110,7 @@ export function agentReadinessLabel(option: AgentCatalogOption): string {
     }
     if (option.signedIn === 'yes') return 'Signed in';
     if (option.signedIn === 'no') return 'Needs sign-in';
-    return 'Sign-in unknown';
+    return 'Sign-in not checked';
 }
 
 export function defaultAgentKind(options: readonly AgentCatalogOption[], preferred?: string): string | null {

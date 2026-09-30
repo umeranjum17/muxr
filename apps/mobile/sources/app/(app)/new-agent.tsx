@@ -280,7 +280,6 @@ export default function NewAgentScreen() {
         if (option.availability !== 'installed') return;
         const kind = option.kind;
         setSelected((previous) => {
-            if (option.signedIn !== 'yes' || [...previous].some((kind) => catalog.find((entry) => entry.kind === kind)?.signedIn !== 'yes')) return new Set([kind]);
             const next = new Set(previous);
             if (next.has(kind)) {
                 if (next.size === 1) return previous; // never strand the picker empty
@@ -291,7 +290,7 @@ export default function NewAgentScreen() {
             }
             return next;
         });
-    }, [catalog]);
+    }, []);
 
     const kinds = [...selected];
     const squad = kinds.length > 1;
@@ -389,7 +388,7 @@ export default function NewAgentScreen() {
                     <View style={styles.grid}>
                         {visibleCatalog.map((option) => {
                             const isSelected = selected.has(option.kind);
-                            const available = option.availability === 'installed' && (!squad || option.signedIn === 'yes');
+                            const available = option.availability === 'installed';
                             const availability = agentReadinessLabel(option);
                             return (
                                 <Pressable
@@ -444,7 +443,7 @@ export default function NewAgentScreen() {
                     <Text style={[styles.squadHint, { marginTop: 10 }]}>
                         {squad
                             ? `Squad: ${kinds.map(agentName).join(' · ')}. One tab each, same workspace.`
-                            : 'Pick up to 4 signed-in agents to run them together as a squad.'}
+                            : 'Pick up to 4 agents to run them together as a squad.'}
                     </Text>
                 </View>
 
