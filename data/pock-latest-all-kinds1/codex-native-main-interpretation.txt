@@ -1,6 +1,0 @@
-The native main idle captures show Codex still parked in earlier gardening
-output instead of the newest mountain output. Codex labels that state
-"New activity · ↓ Bottom" and "New activity · enter/esc latest". The initial
-scratch classifier only recognized "Back to bottom" and therefore returned
-codexStillBack:false incorrectly. Both idle Latest results are FAIL.
-Use the raw terminal text and screenshots, not that initial classifier field.

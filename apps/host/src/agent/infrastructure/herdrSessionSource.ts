@@ -1425,6 +1425,7 @@ export async function createHerdrSessionSource(
     }
 
     async function refreshSnapshotOnce(): Promise<void> {
+        if (disposed) throw new Error('herdr: source disposed');
         const treesSince = Date.now();
         const lifecycleEpochAtStart = new Map(lifecycleEpochByPane);
         const result = await client.call<{
@@ -1435,6 +1436,7 @@ export async function createHerdrSessionSource(
                 tabs?: TabRecord[];
             };
         }>('session.snapshot');
+        if (disposed) throw new Error('herdr: source disposed');
         const nextAgents = new Map<string, AgentRecord>();
         const nextPanes = new Map<string, PaneRecord>();
         for (const incoming of result.snapshot?.agents ?? []) {
@@ -1477,6 +1479,7 @@ export async function createHerdrSessionSource(
     }
 
     function scheduleResnapshot(): void {
+        if (disposed) return;
         if (resnapshotRunning) {
             resnapshotQueued = true;
             return;
@@ -1665,6 +1668,8 @@ export async function createHerdrSessionSource(
             if (current === undefined) return;
             emitState(sessionId);
         } catch (error) {
+            // Shutdown cancels confirmation; it is not a rejected launch.
+            if (disposed) return;
             forgetLaunch(paneId);
             const current = currentSession(sessionId);
             if (current !== undefined) {

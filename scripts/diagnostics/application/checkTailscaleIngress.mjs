@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
+const {
     classifyNetworkRoutes,
     cleanupManagedIngress,
     continueWithDirectTailscale,
@@ -14,7 +14,7 @@ import {
     selfhostArgsFromSetupPlan,
     tailscaleBin,
     tailscaleIngress,
-} from '../../setup/index.mjs';
+} = await import('../../setup/index.mjs');
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-tailscale-'));
 const fake = join(scratch, 'tailscale');
@@ -63,7 +63,7 @@ try {
     const found = { tailscale: { connected: false }, private: routes.private, lan: routes.lan, cloudflared: { ok: false } };
     assert.equal(recommendedConnection(found, undefined, false, { status: 'inconclusive' }).mode, 'private');
     assert.equal(recommendedConnection(found, undefined, true, { status: 'inconclusive' }).mode, 'private');
-    assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'cloudflare');
+    assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
     assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
     const privateArgs = selfhostArgsFromSetupPlan({ mode: 'private', port: 8792, web: false, pairing: 'phone', found });
     assert.deepEqual(privateArgs.slice(-2), ['--advertise', 'ws://100.90.0.4:8792']);
