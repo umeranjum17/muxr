@@ -1,0 +1,24 @@
+› Terminal scroll lab only, no tool…
+  remain intensely cold.
+  CODEX NATIVE FINAL 023 Sea ice
+  floats above liquid water.
+  CODEX NATIVE FINAL 024 Icebergs
+  drift through cold oceans.
+  CODEX NATIVE FINAL 025 Most iceberg
+  volume lies underwater.
+  CODEX NATIVE FINAL 026 Melting ice
+  releases fresh water.
+  CODEX NATIVE FINAL 027 Ocean
+  salinity varies across locations.
+  CODEX NATIVE FINAL 028 Evaporation
+  leaves dissolved salts behind.
+  CODEX NATIVE FINAL 029 Rain
+  freshens the ocean surface.
+  CODEX NATIVE FINAL 030 Rivers
+  deliver sediment to coastal seas
+
+
+› Ask Codex to do anything
+
+  GPT-6.1-Sol medium · ~/.treehouse/…
+  ← for agents · ? for sho  ⚠ 1 · f2

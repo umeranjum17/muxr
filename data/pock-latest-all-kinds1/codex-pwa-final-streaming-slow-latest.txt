@@ -1,0 +1,44 @@
+
+› Terminal scroll lab only, no tools or edits. Write
+  180 short lines beginning CODEX FINAL 001, CODEX
+  FINAL 002, etc, describing rivers. End with CODEX-
+  STREAM-END. Begin directly with your answer.
+
+
+• CODEX FINAL 001 Rivers carry water toward lower
+  ground.
+  CODEX FINAL 002 Currents curl around exposed stones.
+  CODEX FINAL 003 Sunlight flickers across moving
+  water.
+  CODEX FINAL 004 Riverbanks frame the flowing
+  channel.
+  CODEX FINAL 005 Tributaries feed larger rivers.
+  CODEX FINAL 006 Rain can raise river levels.
+  CODEX FINAL 007 Shallow reaches reveal sandy
+  bottoms.
+  CODEX FINAL 008 Deep pools appear dark.
+  CODEX FINAL 009 Rapids tumble over uneven rock.
+  CODEX FINAL 010 Quiet stretches reflect passing
+  clouds.
+  CODEX FINAL 011 River bends reshape their banks.
+  CODEX FINAL 012 Silt settles where currents slow.
+  CODEX FINAL 013 Fallen branches drift downstream.
+  CODEX FINAL 014 Reeds sway along sheltered edges.
+  CODEX FINAL 015 Fish gather beneath overhanging
+  roots.
+  CODEX FINAL 016 Pebbles shine through clear water.
+  CODEX FINAL 017 Mud clouds rivers after storms.
+  CODEX FINAL 018 Waterfalls interrupt some river
+  courses.
+  CODEX FINAL 019 Mist rises above chilly water.
+  CODEX FINAL 020 Bridges connect opposite banks.
+  CODEX FINAL 021 River valleys guide winding roads.
+  CODEX FINAL 022 Ducks paddle across gentle currents.
+  CODEX FINAL 023 Herons wait beside shallow channels.
+  CODEX FINAL 024
+
+
+› Ask Codex to do anything
+
+  GPT-6.1-Sol medium · ~/.treehouse/pockit-497a78/3/p…
+  ← for agents · ? for shor  ⚠ 1 warning · f2 to view

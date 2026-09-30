@@ -3,7 +3,7 @@ title: npm-backed curl installer
 slug: npm-backed-installer
 status: tested
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-09-30
 owner: umer
 links:
   - ../../install.sh
@@ -24,12 +24,13 @@ The installer:
 
 - supports Linux and macOS hosts;
 - requires Node 22+ and npm already on PATH;
-- never installs Node, never invokes another remote installer, and never uses `sudo`;
+- never installs Node or uses `sudo` for the npm install; the guided setup it launches can install missing Herdr after confirmation;
 - accepts only a bounded version/tag token;
 - installs `@trymuxr/cli@<version>` with `--global --ignore-scripts`;
 - validates exactly `<npm-prefix>/bin/muxr`, never a stale binary elsewhere on PATH;
 - identifies a stale `muxr` earlier on PATH and tells users to put the installed prefix first before handing off;
-- ends by directing the user to the existing guided `muxr` setup.
+- launches the installed `<npm-prefix>/bin/muxr` when stdout is a terminal and `/dev/tty` is readable, taking stdin from `/dev/tty` so piped installers can hand off too; Ctrl-C lets the user defer setup;
+- otherwise leaves installation non-interactive and prints the instruction to run `muxr` later. CLI startup behavior is documented in [README](../../README.md#install).
 
 Documentation downloads the script completely to a `mktemp` file before execution. `curl | sh` is intentionally not shown because a truncated pipeline can execute partially and report the wrong status.
 

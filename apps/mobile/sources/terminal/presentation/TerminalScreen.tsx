@@ -121,16 +121,6 @@ const PANE_TABS_HEIGHT = 24;
 const SCROLL_ANSWER_MS = 1_000;
 /** Rows counted back in a program that scrolls itself, by pane route, across its streams. */
 const ALT_SCROLL_BACK = new Map<string, number>();
-/**
- * Latest's reach past the rows counted back in a program that scrolls itself.
- * The count is only what the phone asked for: output an agent writes while it
- * is read back lands below, and such a program can drop the first wheel report
- * after a change of direction (Claude Code does, as a guard against trackpad
- * jitter). Either left Latest short of the bottom it promised. The host stops
- * turning the wheel once the program stops repainting, so the reach costs
- * nothing at the bottom.
- */
-const LATEST_REACH_ROWS = 2_000;
 
 /**
  * The session is one dark surface: the terminal paints dark whatever the app
@@ -349,12 +339,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
-    /**
-     * How far herdr's viewport sits above the live edge, as herdr reports it.
-     * Where herdr owns scrollback this is authoritative and the request counter
-     * below is never consulted.
-     */
-    const scrollBack = React.useRef(0);
     const hostHasScrollback = React.useRef(false);
     /**
      * The old counting behaviour, retained only for alternate-screen panes:
@@ -366,6 +350,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
      * someone inside one that does.
      */
     const altBack = React.useRef(0);
+    const [catchingUp, setCatchingUp] = React.useState(false);
     const [showJump, setShowJump] = React.useState(false);
     const stopWatchingChannel = React.useRef<(() => void) | undefined>(undefined);
     React.useEffect(() => () => stopWatchingChannel.current?.(), []);
@@ -381,23 +366,26 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const onChannel = React.useCallback((channel: TerminalChannel | undefined) => {
         stopWatchingChannel.current?.();
         stopWatchingChannel.current = undefined;
-        scrollBack.current = 0;
         hostHasScrollback.current = false;
+        setCatchingUp(false);
         // A program's own scroll position outlives the stream that moved it:
         // coming back to its tab, the count is where it was left.
         altBack.current = ALT_SCROLL_BACK.get(paneRoute.current) ?? 0;
         if (channel !== undefined) {
             setShowJump(altBack.current > 0);
+            const stopBottom = channel.onBottomState((state) => {
+                setCatchingUp(state === 'catching-up');
+                if (state === 'complete') countBack(0);
+                else if (state === 'catching-up') setShowJump(true);
+            });
             const stopScrollState = channel.onScrollState(({ offsetFromBottom, maxOffsetFromBottom }) => {
                 if (maxOffsetFromBottom > 0) {
                     hostHasScrollback.current = true;
-                    scrollBack.current = offsetFromBottom;
                     countBack(0);
                     setShowJump(offsetFromBottom > 0);
                 } else {
                     if (hostHasScrollback.current) altBack.current = 0;
                     hostHasScrollback.current = false;
-                    scrollBack.current = 0;
                     countBack(altBack.current);
                 }
             });
@@ -426,6 +414,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 rawScroll(lines, at);
             };
             stopWatchingChannel.current = () => {
+                stopBottom();
                 stopScrollState();
                 stopAnswers();
             };
@@ -436,24 +425,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
         if (channel === undefined) return;
-        if (hostHasScrollback.current) {
-            // Exactly the distance herdr reported, not an overshoot: a pane whose
-            // scrolling belongs to a program would receive that overshoot as
-            // thousands of wheel reports rather than as a clamp. The control
-            // stays until herdr confirms the viewport reached zero, because new
-            // output behind a parked viewport moves the live edge away.
-            if (scrollBack.current > 0) channel.scroll(-scrollBack.current);
-            return;
-        }
-        if (altBack.current <= 0) return;
-        let remaining = altBack.current + LATEST_REACH_ROWS;
-        while (remaining > 0) {
-            const step = Math.min(remaining, 400);
-            channel.scroll(-step);
-            remaining -= step;
-        }
-        countBack(0);
-    }, [countBack]);
+        channel.bottom();
+    }, []);
     const showDialogMessage = React.useCallback(() => {
         if (channelRef.current === undefined) {
             router.push(`/session/${encodeURIComponent(props.id)}/history`);
@@ -1593,7 +1566,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                     })}
                                 >
                                     <Ionicons name="arrow-down" size={15} color={theme.colors.text} />
-                                    <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>Latest</Text>
+                                    <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>{catchingUp ? 'Still catching up' : 'Latest'}</Text>
                                 </Pressable>
                             </Animated.View>
                         )}

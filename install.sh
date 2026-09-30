@@ -51,4 +51,10 @@ if [ "$resolved" != "$muxr_bin" ]; then
     [ -z "$resolved" ] || printf '%s\n' "Your PATH currently resolves muxr to ${resolved}."
     printf '%s\n' "Put ${prefix}/bin first in PATH."
 fi
-printf '%s\n' 'Next: run `muxr` for guided setup.'
+# Piped installers have the script on stdin; setup needs the controlling terminal.
+if [ -t 1 ] && ( : < /dev/tty ) 2>/dev/null; then
+    printf '%s\n' 'Setting up this computer now — press Ctrl-C to do it later with `muxr`.'
+    "$muxr_bin" < /dev/tty
+else
+    printf '%s\n' 'Next: run `muxr` for guided setup.'
+fi

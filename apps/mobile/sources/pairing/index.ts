@@ -31,3 +31,5 @@ export {
     type PairingString,
     type PairingStringParse,
 } from './domain/pairingString';
+
+export { listPairedGrants } from './application/linkPairing';

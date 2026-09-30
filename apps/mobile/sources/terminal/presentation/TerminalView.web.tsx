@@ -252,6 +252,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 }
                 channel = opened;
                 channelRef.current = opened;
+                const requestBottom = opened.bottom.bind(opened);
+                opened.bottom = () => {
+                    stopScrolling();
+                    requestBottom();
+                };
                 onChannel?.(opened);
                 // Nothing re-scrolls on attach: the pane's viewport belongs to
                 // herdr, which reports it back on `terminal.scroll-state`.
@@ -392,11 +397,12 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             longPressLink = null;
         };
         let scrollAcc = 0;
-        let scrollScheduled = false;
+        let scrollFrame: number | undefined;
+        let momentumFrame: number | undefined;
         let velocity = 0;
         let momentumRunning = false;
         const emitScroll = (): void => {
-            scrollScheduled = false;
+            scrollFrame = undefined;
             if (disposed) return;
             const lines = Math.trunc(scrollAcc / cellHeight());
             if (lines === 0) return;
@@ -406,16 +412,16 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (lines !== clamped) scrollAcc = 0;
         };
         const scheduleScroll = (): void => {
-            if (scrollScheduled) return;
-            scrollScheduled = true;
-            requestAnimationFrame(emitScroll);
+            if (scrollFrame !== undefined) return;
+            scrollFrame = requestAnimationFrame(emitScroll);
         };
         const momentum = (): void => {
-            if (disposed || Math.abs(velocity) < 0.5) { momentumRunning = false; return; }
+            momentumFrame = undefined;
+            if (disposed || !momentumRunning || Math.abs(velocity) < 0.5) { momentumRunning = false; return; }
             scrollAcc += velocity;
             velocity *= 0.94;
             emitScroll();
-            requestAnimationFrame(momentum);
+            momentumFrame = requestAnimationFrame(momentum);
         };
         const onWheel = (event: WheelEvent): void => {
             event.preventDefault();
@@ -429,6 +435,19 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         let gesturePx = 0;
         let pinchStart = 0;
         let pinchDistance = 0;
+        const stopScrolling = (): void => {
+            if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame);
+            if (momentumFrame !== undefined) cancelAnimationFrame(momentumFrame);
+            scrollFrame = undefined;
+            momentumFrame = undefined;
+            scrollAcc = 0;
+            velocity = 0;
+            momentumRunning = false;
+            touchY = null;
+            gesturePx = 0;
+            pinchDistance = 0;
+            clearLongPress();
+        };
         const distance = (touches: TouchList): number => {
             if (touches.length < 2) return 0;
             const dx = touches[0]!.clientX - touches[1]!.clientX;
@@ -436,14 +455,10 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             return Math.hypot(dx, dy);
         };
         const onTouchStart = (event: TouchEvent): void => {
-            velocity = 0;
-            momentumRunning = false;
-            longPressLink = null;
+            stopScrolling();
             touchY = event.touches.length === 1 ? event.touches[0]!.clientY : null;
             touchX = event.touches.length === 1 ? event.touches[0]!.clientX : 0;
             touchT = performance.now();
-            scrollAcc = 0;
-            gesturePx = 0;
             if (event.touches.length === 1) {
                 const touch = event.touches[0]!;
                 longPressAt = { x: touch.clientX, y: touch.clientY };
@@ -515,7 +530,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             longPressPoint = null;
             if (!momentumRunning && Math.abs(velocity) >= 0.5) {
                 momentumRunning = true;
-                requestAnimationFrame(momentum);
+                momentumFrame = requestAnimationFrame(momentum);
             }
         };
         const onVisibility = (): void => {
@@ -531,6 +546,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
 
         return () => {
             disposed = true;
+            stopScrolling();
             restyle.current = undefined;
             clearTimeout(longPressTimer);
             window.removeEventListener('resize', resize);

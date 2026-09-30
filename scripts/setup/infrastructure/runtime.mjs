@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import nacl from 'tweetnacl';
+import { boxKeyPair, signingKeyPairFromSeed } from '@byokit/seal';
 import { qrText } from '@byokit/ui-core/link';
 import { spawnSync } from 'node:child_process';
 import {
@@ -202,8 +202,8 @@ export function machineIdentity(existing) {
     if (existing?.machine?.crypto?.signingPublicKey && existing?.machine?.crypto?.signingSecretKey
         && existing?.machine?.crypto?.boxPublicKey && existing?.machine?.crypto?.boxSecretKey
         && existing?.machine?.crypto?.dataKey && existing?.machine?.id) return existing.machine;
-    const signing = nacl.sign.keyPair();
-    const box = nacl.box.keyPair();
+    const signing = signingKeyPairFromSeed(randomBytes(32));
+    const box = boxKeyPair(randomBytes);
     const publicKey = base64(signing.publicKey);
     return {
         id: `machine-${hash(publicKey).slice(0, 16)}`,
@@ -214,7 +214,7 @@ export function machineIdentity(existing) {
             signingSecretKey: base64(signing.secretKey),
             boxPublicKey: base64(box.publicKey),
             boxSecretKey: base64(box.secretKey),
-            dataKey: base64(nacl.randomBytes(32)),
+            dataKey: base64(randomBytes(32)),
             keyVersion: 1,
             devices: [],
         },
@@ -256,4 +256,4 @@ export function relayPortFromEnv() {
     return parsed;
 }
 
-export { nacl, hostPlatform, createHash, randomBytes };
+export { hostPlatform, createHash, randomBytes };

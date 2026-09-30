@@ -1,0 +1,24 @@
+› Continue the terminal scrolling l…
+  58. Some trees flower before
+     producing leaves.
+
+  59. Others bloom beneath full
+     foliage.
+
+  60. Pine cones open as they dry.
+
+  61. Thick trunks store substantial
+     woody growth.
+
+  62. A forest canopy filters
+     sunlight.
+
+  63. Lower branches may die in deep
+     shade.
+
+       New activity · ↓ Bottom
+
+› Ask Codex to do anything
+
+  GPT-6.1-Sol medium · ~/.treehouse/…
+  New activity · enter/esc latest
