@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto';
+import { sealNotice } from '@byokit/seal';
+import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/link';
@@ -349,20 +350,19 @@ export class LinkEndpoint {
     }): void {
         if (input.agentName === undefined || this.client === undefined) return;
         const crypto = this.currentCrypto();
-        const to = this.host.devices().filter((grant) => {
+        const recipients = this.host.devices().filter((grant) => {
             if (!trusted(grant, crypto)) return false;
             const device = crypto?.devices.find((entry) => entry.deviceId === muxrDeviceIdOf(grant));
             return device?.pushLevel !== undefined && lifecycleNotificationAllowed(device.pushLevel, input.kind);
-        }).map((grant) => grant.id);
-        if (to.length === 0) return;
+        });
+        if (recipients.length === 0) return;
         const taskTitle = safeTaskTitle(input.taskTitle);
         const title = taskTitle ?? 'Agent update';
         const suffix = input.kind === 'failed' && COPY_SUFFIX.failed !== undefined && input.reasonCode !== undefined
             && ['start-launch-failed', 'start-timeout', 'squad-rolled-back', 'agent-unavailable'].includes(input.reasonCode)
             ? ' could not start.'
             : COPY_SUFFIX[input.kind];
-        void this.client.notify({
-            id: input.eventId,
+        const notice = {
             title,
             body: `${input.agentName}${suffix}`,
             data: {
@@ -375,11 +375,19 @@ export class LinkEndpoint {
                 machineId: input.machineId,
                 presentationOwner: 'relay-push',
             },
-            to,
-            urgency: input.kind === 'blocked' ? 'high' : 'normal',
-        }, { includeContent: true }).catch((cause: unknown) => {
-            process.stderr.write(`link: push notify failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
-        });
+        };
+        for (const grant of recipients) {
+            void this.client.notify({
+                id: createHash('sha256').update(JSON.stringify([input.eventId, grant.id])).digest('hex'),
+                title: 'Agent update',
+                body: 'An agent has an update.',
+                data: sealNotice(notice, Buffer.from(grant.key, 'base64url')),
+                to: [grant.id],
+                urgency: input.kind === 'blocked' ? 'high' : 'normal',
+            }, { includeContent: true }).catch((cause: unknown) => {
+                process.stderr.write(`link: push notify failed: ${cause instanceof Error ? cause.message : String(cause)}\n`);
+            });
+        }
     }
 
     private async pushRequest(frame: ClientFrame, grant: Grant, deviceId: string): Promise<HostFrame> {

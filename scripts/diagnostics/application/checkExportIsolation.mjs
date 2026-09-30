@@ -39,7 +39,7 @@ const fail = (message) => {
 
 const outDir = mkdtempSync(join(tmpdir(), 'muxr-export-canary-'));
 try {
-    const exported = spawnSync('sh', ['-c', 'npm run setup-canvaskit >/dev/null 2>&1 && npm run setup-pdfjs >/dev/null 2>&1 && npm run setup-mermaid >/dev/null 2>&1 && npx expo export --platform web --output-dir "$0" && node ../../scripts/release/application/finalizeWebExport.mjs "$0/index.html"', outDir], {
+    const exported = spawnSync('sh', ['-c', 'npm run setup-push >/dev/null 2>&1 && npm run setup-canvaskit >/dev/null 2>&1 && npm run setup-pdfjs >/dev/null 2>&1 && npm run setup-mermaid >/dev/null 2>&1 && npx expo export --platform web --output-dir "$0" && node ../../scripts/release/application/finalizeWebExport.mjs "$0/index.html"', outDir], {
         cwd: mobile,
         env: { ...process.env, APP_ENV: 'production', MUXR_DISTRIBUTION: 'self-host', ...CANARIES },
         encoding: 'utf8',

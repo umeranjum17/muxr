@@ -39,7 +39,7 @@ import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
 import { KernelNotifications } from '@/herd/ui';
 import { notificationResponseKey } from '@/watch/lifecycleAlert';
-import { acknowledgeLifecyclePush } from '@/utils/nativePushNotifications';
+import { acknowledgeLifecyclePush, openNativeLifecyclePush, receiveLifecyclePush } from '@/utils/nativePushNotifications';
 import { realtimeAppController } from '@/conversation/application/realtimeAppControl';
 
 // Configure notification handler — suppress push display when app is in foreground
@@ -255,7 +255,7 @@ export default function RootLayout() {
 
     React.useEffect(() => {
         const subscription = Notifications.addNotificationReceivedListener((notification) => {
-            acknowledgeLifecyclePush(notification.request.content.data);
+            void receiveLifecyclePush(notification).catch(() => undefined);
         });
         return () => subscription.remove();
     }, []);
@@ -318,7 +318,7 @@ export default function RootLayout() {
                         if (Platform.OS !== 'web') {
                             const presented = await Notifications.getPresentedNotificationsAsync().catch(() => []);
                             for (const notification of presented) {
-                                acknowledgeLifecyclePush(notification.request.content.data);
+                                await receiveLifecyclePush(notification);
                             }
                         }
                         await syncRestore(credentials);
@@ -371,7 +371,8 @@ export default function RootLayout() {
         }
 
         handledNotificationIds.current.add(responseId);
-        acknowledgeLifecyclePush(response.notification.request.content.data);
+        const data = await openNativeLifecyclePush(response.notification.request.content.data);
+        acknowledgeLifecyclePush(data);
 
         try {
             if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) {
@@ -379,7 +380,12 @@ export default function RootLayout() {
                 return;
             }
 
-            const watched = watchAgentLifecycle({ notification: response });
+            const watched = watchAgentLifecycle({ notification: {
+                ...response,
+                notification: { ...response.notification, request: {
+                    ...response.notification.request, content: { ...response.notification.request.content, data },
+                } },
+            } });
             console.log(`[PUSH ROUTING] Computed route: ${watched.agentRoute ?? 'null'}`);
             if (!watched.agentRoute) {
                 console.log('[PUSH ROUTING] No session route found in notification.request.content.data');

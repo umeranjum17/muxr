@@ -1,13 +1,4 @@
-/*
- * muxr web push service worker.
- *
- * Notification taps deep-link to the right session. The worker deliberately
- * never holds the device credential: the Open button opens the request
- * in the app, where the approval runs under the real device grant. A
- * reusable worker-side credential that could answer sessions (inject y/n)
- * is never issued — synthetic answers are also rejected outright when E2EE
- * is on (HTTP 410).
- */
+importScripts('/pushNotice.bundle.js');
 
 self.addEventListener('push', (event) => {
     let payload = {};
@@ -16,9 +7,8 @@ self.addEventListener('push', (event) => {
     } catch {
         payload = {};
     }
-    const title = typeof payload.title === 'string' && payload.title !== '' ? payload.title : 'muxr';
-    const body = typeof payload.body === 'string' ? payload.body : '';
     event.waitUntil((async () => {
+        const notice = await self.openLifecyclePush(payload);
         let level = null;
         try {
             const response = await (await caches.open('muxr-push-level')).match('/muxr-push-level');
@@ -26,10 +16,10 @@ self.addEventListener('push', (event) => {
         } catch {
             // An unreadable cache is an unknown preference, not an opt-out.
         }
-        if (level === 'off' || (level === 'important' && payload.kind === 'done')) return;
-        await self.registration.showNotification(title, {
-            body,
-            data: payload,
+        if (level === 'off' || (level === 'important' && notice.data.kind === 'done')) return;
+        await self.registration.showNotification(notice.title, {
+            body: notice.body,
+            data: notice.data,
             // The action deep-links to the blocked request; the approval
             // itself happens in the app under the device grant.
             actions: [

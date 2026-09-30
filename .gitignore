@@ -54,3 +54,5 @@ apps/mobile/sources/components/artifact/preview.bundle.bin
 # desktop proof scratch (relay data, logs, pids)
 .desklink-lab/
 /perf/.active-probe-*.lock/
+
+apps/mobile/public/pushNotice.bundle.js
