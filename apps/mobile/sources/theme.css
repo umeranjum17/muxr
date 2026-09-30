@@ -6,6 +6,25 @@ html, body, #root {
     height: 100dvh;
 }
 
+/* iOS zooms small text fields on focus and keeps that zoom after dismissal.
+   Cover every web input, including xterm's hidden textarea, while leaving
+   the person's pinch zoom available. RN's inline input sizes need overriding. */
+@supports (-webkit-touch-callout: none) {
+    input, textarea, select, .xterm .xterm-helper-textarea {
+        font-size: 16px !important;
+    }
+}
+
+/* Safari's keyboard resizes the visual viewport, not dvh or the layout
+   viewport. Keep all screens inside the visible area as it opens and closes. */
+#root.muxr-visual-viewport {
+    position: fixed;
+    top: var(--muxr-viewport-top);
+    left: 0;
+    right: 0;
+    height: var(--muxr-viewport-height);
+}
+
 /* Disable overscroll bounce / pull-to-refresh on the whole page.
    Prevents scroll-chaining from inner scrollable elements to the body. */
 html, body {
