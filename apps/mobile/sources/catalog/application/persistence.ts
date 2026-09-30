@@ -36,6 +36,7 @@ export interface NewSessionDraft {
     selectedMachineId: string | null;
     selectedPath: string | null;
     agentType: NewSessionAgentType;
+    agentTypeExplicit?: boolean;
     permissionMode: PermissionModeKey | null;
     modelMode: string | null;
     effortLevel: string | null;
@@ -203,6 +204,8 @@ export function loadNewSessionDraft(): NewSessionDraft | null {
             selectedMachineId,
             selectedPath,
             agentType,
+            // Older drafts have no provenance; preserve their saved choice.
+            agentTypeExplicit: parsed.agentTypeExplicit !== false,
             permissionMode,
             modelMode,
             effortLevel,
