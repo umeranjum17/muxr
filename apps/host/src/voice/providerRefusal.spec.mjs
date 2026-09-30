@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
@@ -834,19 +834,27 @@ describe('providerRefusal', () => {
         await coordinator.start();
         const access = coordinator.issueCapability({ provider: 'muxr.voice', sessionId: agent.sessionId, cwd: codexState });
         const spawnProvider = (boundAccount = account) => {
+            const env = {
+                ...process.env,
+                NODE_ENV: 'test',
+                HOME: codexState,
+                CLAUDE_CONFIG_DIR: codexState,
+                MUXR_HOME: codexState,
+                MUXR_TEST_CODEX_SIGNALING_URL: `http://127.0.0.1:${address.port}/signal`,
+                MUXR_TEST_CODEX_RESPONSES_URL: `http://127.0.0.1:${address.port}/codex/responses`,
+                CODEX_HOME: join(codexState, boundAccount === account ? 'signed-in' : 'mismatched'),
+                MUXR_TEST_CODEX_BIN: join(codexState, 'unused-codex'),
+                MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
+                MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
+            };
+            for (const key of ['HOME', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'MUXR_HOME']) {
+                expect(typeof env[key], key).toBe('string');
+                const path = resolve(env[key]);
+                expect(path === codexState || path.startsWith(`${codexState}${sep}`), key).toBe(true);
+            }
             const child = spawn(process.execPath, [streamEntry], {
                 cwd: fileURLToPath(new URL('../../..', import.meta.url)),
-                env: {
-                    ...process.env,
-                    NODE_ENV: 'test',
-                    MUXR_HOME: codexState,
-                    MUXR_TEST_CODEX_SIGNALING_URL: `http://127.0.0.1:${address.port}/signal`,
-                    MUXR_TEST_CODEX_RESPONSES_URL: `http://127.0.0.1:${address.port}/codex/responses`,
-                    CODEX_HOME: join(codexState, boundAccount === account ? 'signed-in' : 'mismatched'),
-                    MUXR_TEST_CODEX_BIN: join(codexState, 'unused-codex'),
-                    MUXR_VOICE_COORDINATOR_SOCKET: access.socketPath,
-                    MUXR_VOICE_COORDINATOR_CAPABILITY: access.capability,
-                },
+                env,
                 stdio: ['pipe', 'pipe', 'pipe'],
             });
             const frames = [];
