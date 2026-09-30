@@ -101,12 +101,7 @@ export async function pairOverLink(scanned: string, options: { onWords?: (words:
     const secretKey = newPairingSecretKey();
     const pending: PendingLinkPair = { scanned, name: pairingDeviceName(), secretKey, startedAt: Date.now() };
     await writePendingPair(pending);
-    try {
-        const answer = await claimLinkPairing(pending, { ...options, mode: 'claim' });
-        return provenLinkGrant(answer, answer.key);
-    } finally {
-        await deletePendingPair();
-    }
+    return completeLinkPairing(pending, { ...options, mode: 'claim' });
 }
 
 /** The pairing machine display name for consent, parsed for display only; the pairing itself re-validates. */
