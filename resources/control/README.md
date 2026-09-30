@@ -45,3 +45,39 @@ plugin, the CLI and the running host are the same release.
   which the pane offers, or `npm uninstall -g @trymuxr/cli`); finally Herdr's
   own plugin config and state directories, which Herdr never deletes
   (`herdr plugin config-dir muxr.control`).
+
+## Canonical source and marketplace mirror
+
+This directory owns the `muxr.control` manifest and launcher. The npm release
+ships it unchanged in `@trymuxr/cli/resources/control`. Change the launcher
+here; the `umeranjum17/muxr-herdr` marketplace repository is a distribution
+mirror, so people can still install it through herdr.dev/plugins.
+
+This is preparatory work: the mirror check is not currently enforced. A queued
+follow-up in `umeranjum17/muxr-herdr` will enable it on pull requests and pushes
+after the CLI release containing this verifier publishes. That follow-up must
+install the same exact CLI version its build installs, then run the verifier
+shipped in that package from the mirror's root:
+
+```sh
+npm install --prefix .canonical --no-save --ignore-scripts --no-audit --no-fund @trymuxr/cli@X.Y.Z
+node .canonical/node_modules/@trymuxr/cli/resources/control/check-copy.mjs .
+```
+
+Replace `X.Y.Z` with the mirror's pinned release version. A missing or different
+manifest fails the check. To update the mirror for a release, generate its
+manifest and commit it with the CLI version update:
+
+```sh
+node .canonical/node_modules/@trymuxr/cli/resources/control/check-copy.mjs --write .
+node .canonical/node_modules/@trymuxr/cli/resources/control/check-copy.mjs .
+```
+
+The generated manifest points every CLI action and pane at
+`./node_modules/@trymuxr/cli/resources/control/run.mjs`, where the mirror's build
+installs the package. Its version comes from the published CLI's `package.json`,
+so it matches the mirror's pinned release even when the canonical pack version
+differs. The canonical pack keeps its own version and local `./run.mjs` path. Do
+not copy the canonical manifest verbatim or edit the mirror's actions, panes or
+version independently. This checks the immutable release the mirror installs,
+without depending on the current pockit branch or changing the canonical launcher.
