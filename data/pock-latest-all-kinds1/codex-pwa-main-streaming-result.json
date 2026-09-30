@@ -1,0 +1,36 @@
+[
+  {
+    "gesture": "slow",
+    "scroll": {
+      "max_offset_from_bottom": 0,
+      "offset_from_bottom": 0,
+      "viewport_rows": 44
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": false,
+    "codexStillBack": true,
+    "firstLines": [
+      "\u203a Continue the terminal scrolling lab. Do not use to\u2026",
+      "",
+      "  147. Tree canopies create sheltered resting places."
+    ]
+  },
+  {
+    "gesture": "fling",
+    "scroll": {
+      "max_offset_from_bottom": 0,
+      "offset_from_bottom": 0,
+      "viewport_rows": 44
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": false,
+    "codexStillBack": true,
+    "firstLines": [
+      "\u203a Continue the terminal scrolling lab. Do not use to\u2026",
+      "  70. Heavy rain drips from leaf tips.",
+      ""
+    ]
+  }
+]

@@ -1,0 +1,36 @@
+[
+  {
+    "gesture": "slow",
+    "scroll": {
+      "max_offset_from_bottom": 1929,
+      "offset_from_bottom": 0,
+      "viewport_rows": 44
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": false,
+    "codexStillBack": false,
+    "firstLines": [
+      " line.",
+      " PI PWA FINAL 007 Fenced plot growing what the rest",
+      " cannot."
+    ]
+  },
+  {
+    "gesture": "fling",
+    "scroll": {
+      "max_offset_from_bottom": 1957,
+      "offset_from_bottom": 0,
+      "viewport_rows": 44
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": false,
+    "codexStillBack": false,
+    "firstLines": [
+      " PI PWA FINAL 022 Drumming carries further than the",
+      " bird.",
+      " PI PWA FINAL 023 Nest hole reused by something"
+    ]
+  }
+]

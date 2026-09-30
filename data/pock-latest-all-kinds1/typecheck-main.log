@@ -1,0 +1,5 @@
+yarn workspace v1.22.22
+yarn run v1.22.22
+$ tsc --noEmit
+Done in 2.05s.
+Done in 2.19s.

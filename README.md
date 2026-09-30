@@ -40,6 +40,8 @@ muxr is the control surface built natively for the phone: the full agent lifecyc
 
 Open the same live terminal the agent owns on your computer, with native Ghostty rendering, scrollback, and sticky modifier keys. A floating control and a key row you can reorder keep actions within reach, and the composer keeps attachments and dictation beside the prompt. When a blocked Claude Code or Codex agent shows numbered answers, tap one instead of finding its key. Tap a printed link to open, copy, or insert it into the prompt.
 
+After scrolling back, tap **Latest** to return toward the live output. Update the host alongside the app to use this control. **Still catching up** means the host has not established completion; tap again to retry. Typing, scrolling, or refreshing the terminal clears that pending feedback.
+
 <p align="center">
   <a href="https://trymuxr.com/#demo"><picture><source srcset="docs/assets/readme/terminal.webp" type="image/webp"><img src="docs/assets/readme/terminal.jpg" alt="Claude Code asking to run npm test in muxr's terminal, with its numbered answers as tap targets above the tabs row and key row" width="300" /></picture></a>
 </p>
@@ -178,6 +180,8 @@ You need [Node.js 22 or newer](https://nodejs.org/) on Linux, macOS, or WSL. mux
 npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
+
+In a terminal, `muxr` opens guided setup immediately when this computer has no saved setup. After setup, it opens the maintenance menu, where advanced options remain available. Without an interactive terminal, bare `muxr` prints command help; use explicit commands for automation.
 
 Want the newest build? Install it with `npm install -g --ignore-scripts @trymuxr/cli@nightly` and take its APK from the [nightly channel](https://trymuxr.com/downloads/nightly). The **Android app** installs alongside a stable one rather than replacing it, so you can keep both on the phone. On your computer both channels are the same CLI, so switching npm tags replaces the host you already run rather than adding a second one. Beta and dev are retired: moving across is that one install, and an older binary will not upgrade itself to a `-nightly` version.
 

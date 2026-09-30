@@ -1,0 +1,50 @@
+
+ RUN  v4.1.11 /home/umer/.no-mistakes/worktrees/7713ec930120/01M3R8NNB7M7DKGS5R3N9G2FMN
+
+stderr | apps/mobile/sources/terminal/presentation/TerminalView.scroll.spec.tsx > releases scroll travel on output and discards an active fling when Latest is requested
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+stderr | apps/mobile/sources/terminal/presentation/TerminalView.scroll.spec.tsx > releases scroll travel on output and discards an active fling when Latest is requested
+The current testing environment is not configured to support act(...)
+
+ ❯ apps/mobile/sources/terminal/presentation/TerminalView.scroll.spec.tsx (1 test | 1 failed) 13ms
+   × releases scroll travel on output and discards an active fling when Latest is requested 12ms
+stderr | apps/mobile/sources/terminal/presentation/TerminalView.web.spec.tsx > resolves a held OSC 8 cell after repeat holds and unrelated output while taps keep their card and Latest stops an active fling
+react-test-renderer is deprecated. See https://react.dev/warnings/react-test-renderer
+The current testing environment is not configured to support act(...)
+
+ ❯ apps/mobile/sources/terminal/presentation/TerminalView.web.spec.tsx (1 test | 1 failed) 14ms
+   × resolves a held OSC 8 cell after repeat holds and unrelated output while taps keep their card and Latest stops an active fling 13ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  apps/mobile/sources/terminal/presentation/TerminalView.scroll.spec.tsx > releases scroll travel on output and discards an active fling when Latest is requested
+AssertionError: expected "vi.fn()" to be called 2 times, but got 3 times
+ ❯ apps/mobile/sources/terminal/presentation/TerminalView.scroll.spec.tsx:76:26
+     74|     TestRenderer.act(() => { paint(); vi.advanceTimersByTime(500); pai…
+     75|     expect(state.bottom).toHaveBeenCalledTimes(1);
+     76|     expect(state.scroll).toHaveBeenCalledTimes(2);
+       |                          ^
+     77|     TestRenderer.act(() => surface.props.onTouchStart({ nativeEvent: {…
+     78|     scroll();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  apps/mobile/sources/terminal/presentation/TerminalView.web.spec.tsx > resolves a held OSC 8 cell after repeat holds and unrelated output while taps keep their card and Latest stops an active fling
+AssertionError: expected "vi.fn()" to be called 2 times, but got 12 times
+ ❯ apps/mobile/sources/terminal/presentation/TerminalView.web.spec.tsx:208:25
+    206|     expect(link.bottom).toHaveBeenCalledTimes(1);
+    207|     TestRenderer.act(() => { for (let frame = 0; frame < 10; frame++) …
+    208|     expect(link.scroll).toHaveBeenCalledTimes(beforeBottom);
+       |                         ^
+    209|     TestRenderer.act(() => {
+    210|         listeners.get('touchstart')!(touch(100));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed (2)
+   Start at  09:03:56
+   Duration  281ms (transform 251ms, setup 0ms, import 332ms, tests 27ms, environment 0ms)

@@ -2,20 +2,28 @@
 /**
  * Live terminal channel: the wire format for driving a herdr pane from a client.
  *
- * Same shape as the preview channel: the host joins a channel as `machine`, the
- * client joins the same channel as `client`, and the relay pipes NDJSON text
- * frames between them without parsing them. Kept off the envelope path on
+ * The paired client and host exchange NDJSON frames over a byokit link stream;
+ * the relay routes encrypted bytes without parsing them. Kept off the envelope path on
  * purpose -- terminal frames are a video-like stream and would evict the whole
  * replay log in seconds.
  *
- * The frames ARE herdr's own terminal-stream protocol: the host spawns
- * `herdr terminal session control <pane>` and forwards its stdout verbatim;
- * client input is written to that process's stdin verbatim. herdr's first
- * frames repaint the whole screen, so there is no separate "ready" handshake --
- * the relay holds those frames until the client connects.
+ * Output and ordinary input use herdr's terminal-stream protocol through the
+ * kit TerminalSession. The host adds scroll-state and bottom-completion frames;
+ * terminal.bottom is consumed by muxr, never forwarded verbatim to herdr.
+ * Herdr's first output frames repaint the whole screen.
+ *
+ * Bottom completion reads the actual Herdr viewport between bounded downward
+ * steps. Where a program owns scrolling, the host instead targets the grid's
+ * center with paced wheel reports and infers completion from repaint quiescence;
+ * it cannot confirm that program's transcript offset. The operation has a
+ * deadline and reports catching-up if completion cannot be established.
+ * Clients discard preceding gesture travel before requesting bottom. New input,
+ * scrolling, resize or detach cancels host completion. The client also clears
+ * pending status on repaint or transport retirement and ignores replies for
+ * canceled or superseded request ids; a timeout result remains until canceled.
  */
 
-/** Either direction, verbatim herdr protocol. host->client output. */
+/** host -> client: herdr terminal output. */
 export interface TerminalOutputFrame {
     type: 'terminal.frame';
     /** base64-encoded ANSI bytes. */
@@ -77,8 +85,8 @@ export interface TerminalScrollFrame {
     row?: number;
 }
 
-export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame;
-export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame | TerminalScrollStateFrame;
+export type TerminalClientFrame = TerminalInputFrame | TerminalResizeFrame | TerminalScrollFrame | { type: 'terminal.bottom'; requestId: string };
+export type TerminalHostFrame = TerminalOutputFrame | TerminalClosedFrame | TerminalScrollStateFrame | { type: 'terminal.bottom-state'; requestId: string; state: 'complete' | 'catching-up' };
 
 /** Random channel id for a link terminal stream. */
 export function newTerminalChannel(): string {

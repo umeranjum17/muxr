@@ -1,0 +1,26 @@
+[
+  {
+    "gesture": "slow",
+    "scroll": {
+      "max_offset_from_bottom": 2391,
+      "offset_from_bottom": 0,
+      "viewport_rows": 24
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": true,
+    "codexStillBack": false
+  },
+  {
+    "gesture": "fling",
+    "scroll": {
+      "max_offset_from_bottom": 2391,
+      "offset_from_bottom": 0,
+      "viewport_rows": 24
+    },
+    "moved": true,
+    "latestVisible": true,
+    "endVisible": true,
+    "codexStillBack": false
+  }
+]

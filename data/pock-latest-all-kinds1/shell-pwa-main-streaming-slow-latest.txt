@@ -1,0 +1,44 @@
+SHELL 578 live output for terminal scroll lab
+SHELL 579 live output for terminal scroll lab
+SHELL 580 live output for terminal scroll lab
+SHELL 581 live output for terminal scroll lab
+SHELL 582 live output for terminal scroll lab
+SHELL 583 live output for terminal scroll lab
+SHELL 584 live output for terminal scroll lab
+SHELL 585 live output for terminal scroll lab
+SHELL 586 live output for terminal scroll lab
+SHELL 587 live output for terminal scroll lab
+SHELL 588 live output for terminal scroll lab
+SHELL 589 live output for terminal scroll lab
+SHELL 590 live output for terminal scroll lab
+SHELL 591 live output for terminal scroll lab
+SHELL 592 live output for terminal scroll lab
+SHELL 593 live output for terminal scroll lab
+SHELL 594 live output for terminal scroll lab
+SHELL 595 live output for terminal scroll lab
+SHELL 596 live output for terminal scroll lab
+SHELL 597 live output for terminal scroll lab
+SHELL 598 live output for terminal scroll lab
+SHELL 599 live output for terminal scroll lab
+SHELL 600 live output for terminal scroll lab
+SHELL-LATEST-END
+
+pockit fm/pock-latest-all-kinds1  ? ❯ /home/umer/.tre
+ehouse/pockit-497a78/3/pockit/data/pock-latest-all-kin
+ds1/shell-output.sh
+SHELL 001 live output for terminal scroll lab
+SHELL 002 live output for terminal scroll lab
+SHELL 003 live output for terminal scroll lab
+SHELL 004 live output for terminal scroll lab
+SHELL 005 live output for terminal scroll lab
+SHELL 006 live output for terminal scroll lab
+SHELL 007 live output for terminal scroll lab
+SHELL 008 live output for terminal scroll lab
+SHELL 009 live output for terminal scroll lab
+SHELL 010 live output for terminal scroll lab
+SHELL 011 live output for terminal scroll lab
+SHELL 012 live output for terminal scroll lab
+SHELL 013 live output for terminal scroll lab
+SHELL 014 live output for terminal scroll lab
+SHELL 015 live output for terminal scroll lab
+SHELL 016 live output for terminal scroll lab
