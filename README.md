@@ -167,6 +167,8 @@ npm install -g --ignore-scripts @trymuxr/cli@latest
 muxr
 ```
 
+In a terminal, `muxr` opens guided setup immediately when this computer has no saved setup. After setup, it opens the maintenance menu, where advanced options remain available. Without an interactive terminal, bare `muxr` prints command help; use explicit commands for automation.
+
 Want the newest build? Install it with `npm install -g --ignore-scripts @trymuxr/cli@nightly` and take its APK from the [nightly channel](https://trymuxr.com/downloads/nightly). The **Android app** installs alongside a stable one rather than replacing it, so you can keep both on the phone. On your computer both channels are the same CLI, so switching npm tags replaces the host you already run rather than adding a second one. Beta and dev are retired: moving across is that one install, and an older binary will not upgrade itself to a `-nightly` version.
 
 Then install the mobile companion:
