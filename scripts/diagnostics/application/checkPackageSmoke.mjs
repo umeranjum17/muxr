@@ -580,11 +580,28 @@ try {
     mkdirSync(controlMirror);
     const controlManifest = readFileSync(join(installedPackage, 'resources/control/herdr-plugin.toml'));
     writeFileSync(join(controlMirror, 'herdr-plugin.toml'), controlManifest);
-    const checkControlCopy = () => spawnSync(process.execPath, [
-        join(installedPackage, 'resources/control/check-copy.mjs'), controlMirror,
+    const checkControlCopy = (...args) => spawnSync(process.execPath, [
+        join(installedPackage, 'resources/control/check-copy.mjs'), ...args, controlMirror,
     ], { encoding: 'utf8' });
-    assert.equal(checkControlCopy().status, 0, 'published verifier rejected an identical marketplace manifest');
-    writeFileSync(join(controlMirror, 'herdr-plugin.toml'), Buffer.concat([controlManifest, Buffer.from('\n# drift\n')]));
+    assert.equal(checkControlCopy().status, 1, 'published verifier accepted canonical paths in the marketplace layout');
+    assert.equal(checkControlCopy('--write').status, 0, 'published generator failed');
+    assert.equal(checkControlCopy().status, 0, 'published verifier rejected its generated marketplace manifest');
+    const marketplaceManifest = readFileSync(join(controlMirror, 'herdr-plugin.toml'), 'utf8');
+    const marketplaceCommands = [...marketplaceManifest.matchAll(/^command = (\[.*\])$/gm)].map((match) => JSON.parse(match[1]));
+    mkdirSync(join(controlMirror, 'node_modules', '@trymuxr'), { recursive: true });
+    symlinkSync(installedPackage, join(controlMirror, 'node_modules', '@trymuxr', 'cli'));
+    for (const command of marketplaceCommands.filter((command) => command[0] === 'node' && command[2] !== undefined)) {
+        assert.equal(command[1], './node_modules/@trymuxr/cli/resources/control/run.mjs');
+        assert.ok(existsSync(join(controlMirror, command[1])), 'marketplace runner missing');
+    }
+    const marketplaceStatus = marketplaceCommands.find((command) => command[2] === 'status');
+    const statusCli = join(scratch, 'control-status');
+    writeFileSync(statusCli, '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 });
+    assert.equal(run(process.execPath, marketplaceStatus.slice(1), {
+        cwd: controlMirror, env: { ...process.env, HOME: home, MUXR_HOME: join(home, '.muxr'), MUXR_BIN: statusCli },
+    }).stdout, 'status\n');
+    assert.deepEqual(readFileSync(join(installedPackage, 'resources/control/herdr-plugin.toml')), controlManifest, 'generation changed the canonical pack');
+    writeFileSync(join(controlMirror, 'herdr-plugin.toml'), `${marketplaceManifest}\n# drift\n`);
     const driftedControl = checkControlCopy();
     assert.equal(driftedControl.status, 1, 'published verifier accepted marketplace manifest drift');
     assert.match(driftedControl.stderr, /differs from @trymuxr\/cli/);
