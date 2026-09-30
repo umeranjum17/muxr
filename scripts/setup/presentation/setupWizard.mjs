@@ -240,23 +240,25 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
 
 export function recommendedConnection(found, current, tailscalePlanned, serveRoot) {
     if (current?.relayHealthy && current?.publicHealthy
-        && ['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(current.connectionMode)) {
+        && choices(found, tailscalePlanned, serveRoot).some((choice) => choice.value === current.connectionMode && !choice.disabled)) {
         return { mode: current.connectionMode, title: connectionLabel(current.connectionMode, current.relayUrl, current.relayPort), description: 'already configured and reachable' };
     }
-    if (found.tailscale.connected) {
+    if (!found.tailscale.connected) {
+        if (found.private) return {
+            mode: 'private',
+            title: `${found.private.provider} on ${found.private.interface}`,
+            description: 'use the private network already connected to this computer',
+        };
+        if (found.lan) return { mode: 'lan', title: 'Same Wi-Fi', description: 'works now while the phone and computer use this trusted network' };
+    }
+    if (found.tailscale.connected || tailscalePlanned) {
         const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
         return direct
             ? { mode: 'tailscale-direct', title: 'Tailscale — direct (phone app only)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
             : { mode: 'tailscale', title: 'Tailscale — works anywhere', description: 'both devices need the Tailscale app, signed in to the same account' };
     }
-    if (found.private) return {
-        mode: 'private',
-        title: `${found.private.provider} on ${found.private.interface}`,
-        description: 'use the private network already connected to this computer',
-    };
-    if (found.lan) return { mode: 'lan', title: 'Same Wi-Fi', description: 'works now while the phone and computer use this trusted network' };
     if (found.cloudflared.ok) return { mode: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'create a temporary public HTTPS route during Apply' };
-    return undefined;
+    return { mode: 'external', title: 'Your own server', description: 'use an existing secure (wss://) server you manage' };
 }
 
 const aborted = (value) => value === undefined || value === BACK;
@@ -309,15 +311,11 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         const connectionChoices = choices(found, tailscalePlanned, serveRoot).map((choice) => ({
             ...choice,
             title: `${choice.title}${choice.value === current?.connectionMode ? ' · current' : ''}`,
-            recommended: choice.value === proposal?.mode && !choice.disabled,
+            recommended: choice.value === proposal.mode && !choice.disabled,
         }));
         const preferred = connectionChoices.findIndex((choice) => choice.recommended);
-        if (preferred < 0) {
-            note('No ready route found. Connect this computer to your Wi-Fi, then rerun setup, or choose your own server.');
-        }
         note('Another VPN on your phone? Use Same Wi-Fi with its allow-local-network option, or pause that VPN to use Tailscale.');
-        const initial = preferred >= 0 ? preferred : Math.max(0, connectionChoices.findIndex((choice) => !choice.disabled));
-        mode = await select('How will your phone reach this computer?', connectionChoices, initial);
+        mode = await select('How will your phone reach this computer?', connectionChoices, preferred);
 
     }
     if (aborted(mode)) return undefined;
