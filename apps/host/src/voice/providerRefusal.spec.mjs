@@ -1086,6 +1086,31 @@ describe('providerRefusal', () => {
             expect(flow.frames.at(-2)).toEqual({ type: 'realtime.transcript', role: 'agent', text: 'Okay, stopping now.' });
             await waitFor(() => flow.child.exitCode !== null, `Codex provider did not exit: ${flow.errors.join('\n')}`);
 
+            // Codex relays the user's words. "Ask <known agent> to <message>"
+            // skips the planner; a request with a further step still plans.
+            const direct = spawnProvider();
+            try {
+                direct.send({ type: 'realtime.open', sessionId: agent.sessionId, publicContext: { sessions: [agent, reviewer].map(({ sessionId, agentName, taskTitle, agentKind, agentStatus }) => ({ sessionId, agentName, taskTitle, agentKind, agentStatus })) } });
+                await waitFor(() => direct.frames.some((frame) => frame.type === 'realtime.webrtc.start'), 'direct provider did not start');
+                const appended = (id) => direct.frames.filter((frame) => frame.type === 'realtime.webrtc.data')
+                    .map((frame) => JSON.parse(frame.data)).find((frame) => frame.delegation_item_id === id);
+                const planned = planningRequests.length;
+                direct.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                    type: 'delegation', target: 'client', id: 'direct-prompt', content: [{ type: 'input_text', text: 'Ask Jane to rebase onto main.' }],
+                } }) });
+                await waitFor(() => appended('direct-prompt'), 'direct prompt did not return');
+                expect(appended('direct-prompt').content[0].text).toBe('Queued: instruction for Jane.');
+                expect(mutations.at(-1)).toEqual({ sessionId: reviewer.sessionId, text: 'Rebase onto main.\n\ncame from a real-time agent' });
+                expect(planningRequests).toHaveLength(planned);
+                direct.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
+                    type: 'delegation', target: 'client', id: 'planned-steps', content: [{ type: 'input_text', text: 'Ask Jane to rebase onto main, then tell me when it is done.' }],
+                } }) });
+                await waitFor(() => appended('planned-steps'), 'multi-step request did not return');
+                expect(planningRequests.length).toBeGreaterThan(planned);
+            } finally {
+                if (direct.child.exitCode === null) direct.child.kill('SIGKILL');
+            }
+
             const refused = spawnProvider('acct-other');
             refused.send({ type: 'realtime.open' });
             await waitFor(() => refused.frames.some((frame) => frame.type === 'realtime.webrtc.start'), 'mismatch provider did not start');

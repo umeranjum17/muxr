@@ -52,6 +52,13 @@ ${JSON.stringify(voiceTools)}
 - End only when the user clearly says goodbye or asks you to stop listening.`;
 
 let currentContext = '';
+let knownAgents = new Set();
+// Codex relays the user's words as the delegation. A single "ask/tell <agent>
+// to <message>" for an agent in the startup roster needs no planning turn
+// (~3 s each), so it takes the structured prompt path. Anything that hints at
+// a further step stays with the planner.
+const DIRECT_PROMPT = /^(?:please\s+)?(?:ask|tell)\s+([a-z0-9_-]{1,32})\s+to\s+(.+?)[.!]*$/i;
+const FURTHER_STEP = /\b(?:then|after|afterwards|also|and (?:ask|tell|ping|message|let|watch|check)|let me know|tell me|report|when|once|until)\b/i;
 let activeDelegations = 0;
 const tools = createVoiceTools((frame) => {
     if (frame.type === 'realtime.state' && frame.state === 'connected' && activeDelegations > 0) {
@@ -339,7 +346,7 @@ async function delegate(event) {
     activeDelegations++;
     state('thinking');
     try {
-        entry.result = await coding.run(request, `codex:${id}`);
+        entry.result = await runDelegation(request, `codex:${id}`);
     } catch {
         entry.result = DELEGATION_FAILURE;
     } finally {
@@ -347,6 +354,24 @@ async function delegate(event) {
         deliverDelegation(entry);
         activeDelegations--;
     }
+}
+
+function directPrompt(request) {
+    const match = DIRECT_PROMPT.exec(request.trim());
+    if (!match || !knownAgents.has(match[1].toLowerCase()) || FURTHER_STEP.test(match[2]) || match[2].includes('\n')) return undefined;
+    const text = match[2].trim();
+    return { agent: match[1], text: `${text[0].toUpperCase()}${text.slice(1)}.` };
+}
+
+async function runDelegation(request, operationId) {
+    const direct = directPrompt(request);
+    if (direct) {
+        const receipt = await coding.run(JSON.stringify({ name: 'prompt_agent', arguments: direct }), operationId);
+        // Only an unresolved target sent nothing; every other receipt is final
+        // so an uncertain prompt is never sent twice.
+        if (!/^(?:I could not find an agent|More than one agent)/.test(receipt)) return receipt;
+    }
+    return coding.run(request, operationId);
 }
 
 function handleWebRtcData(data) {
@@ -432,6 +457,8 @@ async function main() {
     try { open = JSON.parse(first); } catch { throw new Error('realtime stream missing open frame'); }
     if (open?.type !== 'realtime.open') throw new Error('realtime stream expected realtime.open first');
     currentContext = workspaceContext(open);
+    knownAgents = new Set((Array.isArray(open?.publicContext?.sessions) ? open.publicContext.sessions : [])
+        .map((session) => String(session?.agentName ?? '').toLowerCase()).filter(Boolean));
     input.on('line', (line) => {
         if (!line.trim()) return;
         try { handleClientFrame(JSON.parse(line)); } catch { /* host validates frames before delivery */ }
