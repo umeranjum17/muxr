@@ -512,8 +512,13 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         await attach(true);
         assertOpen();
     } catch (error) {
-        close();
-        throw error;
+        if (closedByUser || command.signal?.aborted) {
+            close();
+            throw error;
+        }
+        // A restored route can attach before the machine link is ready.
+        // Keep the channel alive and use the same backoff as a dropped stream.
+        scheduleRetry();
     }
 
     const send = (frame: Record<string, unknown>): void => {

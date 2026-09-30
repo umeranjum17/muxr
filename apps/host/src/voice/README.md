@@ -35,7 +35,12 @@ forward app results to `tools.receive`, use `tools.state`, and close the runtime
 They inherit request bounds, deduplication, cancellation and failure reporting.
 
 `codexDelegation.mjs` handles Codex's natural-language client delegations with
-**GPT-5.6-Sol**, without a model fallback. `@byokit/accounts` owns each
+**GPT-5.6-Sol**, without a model fallback. A single “ask/tell <agent> to
+<instruction>” request for an agent in the session roster is sent directly to
+`prompt_agent`, avoiding a planning turn; requests with further steps, unknown
+targets, and other natural-language requests use the planner. The direct path
+preserves the instruction text after removing the addressing phrase.
+`@byokit/accounts` owns each
 Responses request and parses streamed tool calls and text output; muxr retains
 the bounded planning loop, conversation history and tool dispatch. Only the
 existing `voiceTools` function catalog is sent to the account-bound Codex
@@ -45,7 +50,7 @@ use the same dispatcher directly. This is delegated tool reasoning, not an
 STT/LLM/TTS replacement for the native speech-to-speech session.
 
 Pending targets and messages remain in bounded, in-memory conversation history.
-Natural-language planning is serialized; each request allows four model turns
+Natural-language planning is serialized; each planned request allows four model turns
 and eight tool calls, with a 340-second overall deadline that includes long
 agent watches. Closing voice aborts planning and active tools. A failed or
 incomplete provider response cannot authorize new actions, and an uncertain
