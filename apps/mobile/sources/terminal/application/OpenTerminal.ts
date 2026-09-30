@@ -32,6 +32,8 @@ import { getCachedHostedGrant } from '@/pairing/e2ee';
  */
 export type TerminalChannelState = 'connecting' | 'live' | 'reconnecting' | 'unconfirmed';
 
+export type TerminalBottomState = 'complete' | 'catching-up' | 'cancelled';
+
 export interface TerminalChannel {
     /** Count a successful native write. Stale after the channel finalizes. */
     recordFrameWritten: () => void;
@@ -50,7 +52,7 @@ export interface TerminalChannel {
     /** Pane state; 'unconfirmed' while the host is silent — see TerminalChannelState. */
     onState: (listener: (state: TerminalChannelState) => void) => () => void;
     bottom: () => void;
-    onBottomState: (listener: (state: 'complete' | 'catching-up') => void) => () => void;
+    onBottomState: (listener: (state: TerminalBottomState) => void) => () => void;
     sendText: (text: string) => void;
     sendBytes: (base64: string) => void;
     resize: (cols: number, rows: number) => void;
@@ -119,7 +121,16 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const predictedDataListeners = new Set<(base64: string) => void>();
     const closeListeners = new Set<(reason?: string) => void>();
     const stateListeners = new Set<(state: TerminalChannelState) => void>();
-    const bottomListeners = new Set<(state: 'complete' | 'catching-up') => void>();
+    const bottomListeners = new Set<(state: TerminalBottomState) => void>();
+    let bottomRequestId: string | undefined;
+    const publishBottomState = (state: TerminalBottomState): void => {
+        for (const listener of bottomListeners) listener(state);
+    };
+    const cancelBottom = (): void => {
+        if (bottomRequestId === undefined) return;
+        bottomRequestId = undefined;
+        publishBottomState('cancelled');
+    };
     const scrollStateListeners = new Set<(state: { offsetFromBottom: number; maxOffsetFromBottom: number }) => void>();
     // Until the host has answered for this pane, nothing is known about its
     // scrollback -- which is not the same as knowing it has none.
@@ -217,6 +228,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         // Automatic foreground/reconnect must not steal control back.
         // Only the user's visible retry action may reverse a takeover.
         closedByTakeover = reason === 'control moved to another device';
+        cancelBottom();
         closedByHost = true;
         lastCloseReason = reason;
         closedByUser = true;
@@ -307,7 +319,10 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
 
     /** Retire a transport without touching the reconnect machinery (replacement, close, failed attach). */
     const retireLink = (transport: ByteStreamTransport): void => {
-        if (linkWire === transport) linkWire = undefined;
+        if (linkWire === transport) {
+            cancelBottom();
+            linkWire = undefined;
+        }
         if (linkAckTransport === transport) linkAck?.({ ok: false, code: 'socket-error', streamLost: true });
         transport.close();
     };
@@ -374,9 +389,11 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
                 }
                 deliverFrameBytes(bytes);
             } else if (type === 'terminal.bottom-state') {
-                const state = (frame as { state?: unknown }).state;
-                if (state === 'complete' || state === 'catching-up') {
-                    for (const listener of bottomListeners) listener(state);
+                const result = frame as { state?: unknown; requestId?: unknown };
+                if (bottomRequestId === undefined || result.requestId !== bottomRequestId) return;
+                if (result.state === 'complete' || result.state === 'catching-up') {
+                    if (result.state === 'complete') bottomRequestId = undefined;
+                    publishBottomState(result.state);
                 }
             } else if (type === 'terminal.scroll-state') {
                 applyScrollStateFrame(frame);
@@ -441,6 +458,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             void received.then(() => {
                 if (firstFrameTimer !== undefined) clearTimeout(firstFrameTimer);
                 if (linkWire !== transport) return;
+                cancelBottom();
                 linkWire = undefined;
                 if (linkAck !== undefined) {
                     linkAck({ ok: false, code: 'socket-error', streamLost: true });
@@ -468,6 +486,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     }
 
     function close(): void {
+        cancelBottom();
         closedByUser = true;
         closedByTakeover = false;
         unwatchHost();
@@ -498,6 +517,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     }
 
     const send = (frame: Record<string, unknown>): void => {
+        if (frame.type !== 'terminal.bottom') cancelBottom();
         // A resize/scroll/close must not overtake keystrokes already waiting
         // in the microbatch.
         if (frame.type !== 'terminal.input') flushInput();
@@ -519,6 +539,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         else send({ type: 'terminal.input', bytes: encodeBase64(item.bytes) });
     };
     const queueInput = (item: QueuedInput): void => {
+        cancelBottom();
         const held = queuedInput;
         if (held === undefined) {
             queuedInput = item;
@@ -570,7 +591,12 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             if (closedByHost) listener(lastCloseReason);
             return () => closeListeners.delete(listener);
         },
-        bottom: () => send({ type: 'terminal.bottom' }),
+        bottom: () => {
+            flushInput();
+            bottomRequestId = nextRequestId('bottom');
+            publishBottomState('catching-up');
+            send({ type: 'terminal.bottom', requestId: bottomRequestId });
+        },
         onBottomState: (listener) => {
             bottomListeners.add(listener);
             return () => bottomListeners.delete(listener);
@@ -604,6 +630,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             send({ type: 'terminal.resize', cols, rows });
         },
         repaint: () => {
+            cancelBottom();
             // herdr sends a complete screen only on attach; everything after is
             // a diff against the screen it thinks we hold. So once the two
             // disagree -- a reflow, a font change, a dropped frame -- the cells

@@ -375,7 +375,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const stopBottom = channel.onBottomState((state) => {
                 setCatchingUp(state === 'catching-up');
                 if (state === 'complete') countBack(0);
-                else setShowJump(true);
+                else if (state === 'catching-up') setShowJump(true);
             });
             const stopScrollState = channel.onScrollState(({ offsetFromBottom, maxOffsetFromBottom }) => {
                 if (maxOffsetFromBottom > 0) {
@@ -401,7 +401,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             });
             const rawScroll = channel.scroll.bind(channel);
             channel.scroll = (lines, at) => {
-                setCatchingUp(false);
                 if (!hostHasScrollback.current) {
                     if (lines > 0) {
                         unanswered += lines;
@@ -425,7 +424,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
         if (channel === undefined) return;
-        setCatchingUp(true);
         channel.bottom();
     }, []);
     const showDialogMessage = React.useCallback(() => {

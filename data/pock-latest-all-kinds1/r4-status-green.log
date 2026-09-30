@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /home/umer/.no-mistakes/worktrees/7713ec930120/01M3R8NNB7M7DKGS5R3N9G2FMN
+
+
+ Test Files  2 passed (2)
+      Tests  2 passed (2)
+   Start at  09:41:02
+   Duration  2.13s (transform 357ms, setup 0ms, import 460ms, tests 1.87s, environment 0ms)
+

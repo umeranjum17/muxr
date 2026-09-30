@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /home/umer/.no-mistakes/worktrees/7713ec930120/01M3R8NNB7M7DKGS5R3N9G2FMN
+
+ ❯ apps/mobile/sources/terminal/application/OpenTerminal.hosted.spec.ts (1 test | 1 failed) 72ms
+     × paints, writes and reattaches after a dropped stream without opening a relay socket 72ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  apps/mobile/sources/terminal/application/OpenTerminal.hosted.spec.ts > terminal link cutover > paints, writes and reattaches after a dropped stream without opening a relay socket
+AssertionError: expected undefined to be 'catching-up' // Object.is equality
+
+- Expected:
+"catching-up"
+
++ Received:
+undefined
+
+ ❯ apps/mobile/sources/terminal/application/OpenTerminal.hosted.spec.ts:55:33
+     53|         };
+     54|         const firstBottom = requestBottom();
+     55|         expect(statuses.at(-1)).toBe('catching-up');
+       |                                 ^
+     56|         channel.sendText('interrupt');
+     57|         expect(statuses.at(-1)).toBe('cancelled');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  09:41:01
+   Duration  582ms (transform 274ms, setup 0ms, import 335ms, tests 72ms, environment 0ms)
+

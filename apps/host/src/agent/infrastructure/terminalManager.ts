@@ -317,19 +317,21 @@ export class TerminalManager {
                     clearTimeout(wheelTimer);
                     wheelTimer = undefined;
                 }
-                const input = JSON.parse(text) as { type?: unknown; cols?: number; rows?: number };
+                const input = JSON.parse(text) as { type?: unknown; requestId?: unknown; cols?: number; rows?: number };
                 if (input.type === 'terminal.resize' && Number.isInteger(input.cols) && Number.isInteger(input.rows) && input.cols! > 0 && input.rows! > 0) {
                     attachment.cols = input.cols!;
                     attachment.rows = input.rows!;
                 }
                 if (input.type === 'terminal.bottom') {
+                    if (typeof input.requestId !== 'string' || input.requestId.length === 0 || input.requestId.length > 256) return;
+                    const requestId = input.requestId;
                     bottomRunning = true;
                     wheelRows = 0;
                     clearTimeout(wheelTimer);
                     wheelTimer = undefined;
                     const generation = bottomGeneration;
-                    void goToBottom(generation).catch(() => {
-                        if (!finished && bottomGeneration === generation && this.authorized(attachment)) this.sendResult(socket, params.channel, { type: 'terminal.bottom-state', state: 'catching-up' });
+                    void goToBottom(generation, requestId).catch(() => {
+                        if (!finished && bottomGeneration === generation && this.authorized(attachment)) this.sendResult(socket, params.channel, { type: 'terminal.bottom-state', requestId, state: 'catching-up' });
                     }).finally(() => {
                         if (bottomGeneration === generation) bottomRunning = false;
                     });
@@ -392,12 +394,12 @@ export class TerminalManager {
             if (wheelRows !== 0) wheelTimer = setTimeout(turnWheel, WHEEL_TICK_MS);
         };
 
-        const goToBottom = async (generation: number): Promise<void> => {
+        const goToBottom = async (generation: number, requestId: string): Promise<void> => {
             const deadline = Date.now() + 3_000;
             const active = (): boolean => !finished && !childExited
                 && bottomGeneration === generation && this.authorized(attachment);
             const result = (state: 'complete' | 'catching-up'): void => {
-                if (active()) this.sendResult(socket, params.channel, { type: 'terminal.bottom-state', state });
+                if (active()) this.sendResult(socket, params.channel, { type: 'terminal.bottom-state', requestId, state });
             };
             result('catching-up');
             const read = this.options.readPaneScroll;

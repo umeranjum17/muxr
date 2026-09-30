@@ -173,7 +173,7 @@ setInterval(() => {}, 1000);
             close: () => undefined,
         };
         await manager.attach({ sessionId: 's1', channel: 'bottom', cols: 20, rows: 5, socket });
-        input(JSON.stringify({ type: 'terminal.bottom' }));
+        input(JSON.stringify({ type: 'terminal.bottom', requestId: 'burst-bottom' }));
         await once(new Promise<void>((resolve) => {
             const timer = setInterval(() => {
                 if (results.some((frame) => frame.type === 'terminal.bottom-state' && frame.state === 'complete')) {
@@ -184,7 +184,8 @@ setInterval(() => {}, 1000);
             cleanups.push(() => clearInterval(timer));
         }), 4_000, 'Latest completion');
         expect(JSON.parse(readFileSync(scrollFile, 'utf8')).offsetFromBottom).toBe(0);
-        expect(results).toContainEqual({ type: 'terminal.bottom-state', state: 'catching-up' });
+        expect(results).toContainEqual({ type: 'terminal.bottom-state', requestId: 'burst-bottom', state: 'catching-up' });
+        expect(results).toContainEqual({ type: 'terminal.bottom-state', requestId: 'burst-bottom', state: 'complete' });
         expect(readFileSync(join(dir, 'wheel.log'), 'utf8').trim().split('\n')).toHaveLength(2);
     });
 
