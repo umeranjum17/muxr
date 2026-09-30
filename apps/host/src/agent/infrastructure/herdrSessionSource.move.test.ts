@@ -30,7 +30,7 @@ function fakeHerdr(dir: string, cwd: string) {
     const state = { failNextStart: false, failSecondSplit: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), echoOnlyReads: 0, answerFolder: undefined as string | undefined, promptPrefixedEcho: false };
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
-    const sendTexts: Array<{ pane_id: unknown; text: unknown }> = [];
+    const sendTexts: Array<{ pane_id: unknown; text: unknown; live: boolean }> = [];
     let next = 2;
     let nextTab = 2;
     const server = createServer((socket) => {
@@ -85,7 +85,7 @@ function fakeHerdr(dir: string, cwd: string) {
                         break;
                     }
                     case 'pane.send_text': {
-                        sendTexts.push({ pane_id: p.pane_id, text: p.text });
+                        sendTexts.push({ pane_id: p.pane_id, text: p.text, live: agents.some((agent) => agent.pane_id === p.pane_id) });
                         const pane = panes.find((row) => row.pane_id === p.pane_id);
                         if (pane !== undefined) (pane.output as string[]).push(String(p.text));
                         reply = { id, result: {} };
@@ -223,11 +223,11 @@ describe('a plan-account move whose new-account start fails', () => {
             const error = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' })
                 .then(() => { throw new Error('move should have failed'); })
                 .catch((cause: unknown) => cause);
-            expect(error).toMatchObject({ code: 'plan-move-start-failed', sessionId });
+            expect(error).toMatchObject({ code: 'plan-move-start-failed', sessionId, planFolder: '/orig/claude' });
             expect(String((error as Error).message)).toContain('try again');
 
             expect(herdr.sendTexts.filter((sent) => String(sent.text).includes('MUXR_PLAN_ORIGIN_'))).toHaveLength(0);
-            expect(herdr.sendTexts.filter((sent) => sent.pane_id === 'p2')).toHaveLength(0);
+            expect(herdr.sendTexts.every((sent) => !sent.live)).toBe(true);
 
             const starts = herdr.calls.filter((call) => call.method === 'agent.start');
             const closeOfOld = herdr.calls.findIndex((call) => call.method === 'pane.close' && call.detail === 'p2');

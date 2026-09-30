@@ -21,29 +21,3 @@ export function useAccountLine(agentKind: string): AccountLine | null {
     }, [list, provider, stored, autoOn]);
 }
 
-/**
- * The Agent sheet's quiet second line under each agent that has a choice of
- * account. Options come back untouched (the same array) when there is none,
- * so one account per provider renders exactly as before.
- */
-export function useAccountHints<T extends { key: string; description?: string }>(options: T[]): T[] {
-    const list = usePlans();
-    const choices = usePlansStore((state) => state.choices);
-    const autoOn = usePlansStore((state) => state.autoOn);
-    return React.useMemo(() => {
-        let changed = false;
-        const next = options.map((option) => {
-            const provider = providerForAgent(option.key);
-            const entry = providerEntry(list, provider);
-            if (entry === undefined || provider === null) return option;
-            changed = true;
-            const line = choiceLine(entry, effectiveChoice(entry, choices[provider], autoOn));
-            // Pi runs on a Claude account only on a Claude model.
-            const words = option.key === 'pi'
-                ? `Claude models: ${line.value}`
-                : [line.value, line.detail].filter(Boolean).join(' · ');
-            return { ...option, description: words };
-        });
-        return changed ? next : options;
-    }, [options, list, choices, autoOn]);
-}

@@ -18,7 +18,7 @@ import { GhostButton, Note, Pill, PrimaryButton, SheetLede, SheetTitle, Strong, 
 const TOOL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' };
 const AGENTS: Record<string, string> = { claude: 'Claude Code or Pi on a Claude model', codex: 'Codex' };
 
-interface Pending { accountId: string; sessionId: string; provider: string; again: boolean }
+interface Pending { accountId: string; sessionId: string; provider: string; again: boolean; cancelled?: boolean }
 
 interface FlowState {
     adding: string | null;
@@ -29,6 +29,8 @@ interface FlowState {
 }
 
 export const useFlows = create<FlowState>()(() => ({ adding: null, pending: null, naming: null, notice: null }));
+
+let opening: { cancelled: boolean } | null = null;
 
 const seen = new MMKV();
 const termsKey = (provider: string) => `plans-terms-seen:${provider}`;
@@ -43,18 +45,33 @@ export function useAccountFlows(leave?: () => void) {
     const router = useRouter();
     return React.useMemo(() => {
         const open = async (provider: string, account?: PlanAccount) => {
+            if (opening !== null || useFlows.getState().pending !== null) {
+                Modal.alert('Sign-in is already open', 'Finish or cancel that sign-in before opening another.');
+                return;
+            }
+            const attempt = { cancelled: false };
+            opening = attempt;
             try {
                 const started = await startSignIn(provider, account?.id);
-                useFlows.setState({ adding: null, pending: { ...started, provider, again: account !== undefined } });
+                const pending = { ...started, provider, again: account !== undefined };
+                if (attempt.cancelled) {
+                    useFlows.setState({ pending: { ...pending, cancelled: true } });
+                    await cancelSignIn(started.accountId);
+                    if (useFlows.getState().pending?.accountId === started.accountId) useFlows.setState({ pending: null });
+                    return;
+                }
+                useFlows.setState({ adding: null, pending });
                 leave?.();
                 navigateToSession(router, started.sessionId);
             } catch (error) {
-                useFlows.setState({ adding: null });
+                if (!attempt.cancelled) useFlows.setState({ adding: null });
                 Modal.alert(`Couldn't open ${providerName(provider)} sign-in`, planFailure(error));
+            } finally {
+                opening = null;
             }
         };
         return {
-            add: (provider: string) => { leave?.(); useFlows.setState({ adding: provider }); },
+            add: (provider: string) => { if (opening !== null) opening.cancelled = true; leave?.(); useFlows.setState({ adding: provider }); },
             signIn: (account: PlanAccount) => { void open(account.provider, account); },
             open,
         };
@@ -69,7 +86,7 @@ export function AddAccountSheet() {
     // A short screen keeps the three steps' titles and loses their detail, so
     // the button stays on screen.
     const short = useWindowDimensions().height < 640;
-    const close = () => useFlows.setState({ adding: null });
+    const close = () => { if (opening !== null) opening.cancelled = true; useFlows.setState({ adding: null }); };
     React.useEffect(() => { if (provider === null) setBusy(false); }, [provider]);
     if (provider === null) return <OptionSheet visible={false} title="" options={[]} onSelect={() => {}} onClose={close} body={<View />} />;
     const name = providerName(provider);
@@ -126,17 +143,18 @@ export function SignInBanner({ bottom }: { bottom: number }) {
     const { theme } = useUnistyles();
     const router = useRouter();
     const pending = useFlows((state) => state.pending);
+    const [cancelling, setCancelling] = React.useState(false);
     const path = usePathname();
     const pathRef = React.useRef(path);
     pathRef.current = path;
     const here = pending !== null && decodeURIComponent(path) === `/session/${pending.sessionId}`;
 
     React.useEffect(() => {
-        if (pending === null) return;
+        if (pending === null || pending.cancelled) return;
         let stopped = false;
         const tick = async () => {
             const account = await signInState(pending.accountId).catch(() => null);
-            if (stopped) return;
+            if (stopped || useFlows.getState().pending !== pending) return;
             if (account?.signedIn) {
                 // The host has closed the tab: step back off it, then name the account.
                 const sessionPath = `/session/${pending.sessionId}`;
@@ -151,11 +169,21 @@ export function SignInBanner({ bottom }: { bottom: number }) {
         return () => { stopped = true; clearTimeout(timer); };
     }, [pending, router]);
 
-    if (!here) return null;
-    const cancel = () => {
-        useFlows.setState({ pending: null });
-        if (router.canGoBack()) router.back();
-        void cancelSignIn(pending.accountId);
+    if (pending === null || (!here && !pending.cancelled)) return null;
+    const cancel = async () => {
+        if (cancelling) return;
+        setCancelling(true);
+        const cancelled = { ...pending, cancelled: true };
+        useFlows.setState({ pending: cancelled });
+        try {
+            await cancelSignIn(pending.accountId);
+            if (useFlows.getState().pending === cancelled) useFlows.setState({ pending: null });
+            if (decodeURIComponent(pathRef.current) === `/session/${pending.sessionId}` && router.canGoBack()) router.back();
+        } catch (error) {
+            Modal.alert("Couldn't cancel sign-in", planFailure(error));
+        } finally {
+            setCancelling(false);
+        }
     };
     return (
         <Animated.View
@@ -166,12 +194,12 @@ export function SignInBanner({ bottom }: { bottom: number }) {
         >
             <Ionicons name="time-outline" size={20} color={theme.colors.textSecondary} />
             <View style={parts.rowCopy}>
-                <Text style={styles.bannerTitle}>Waiting for you to sign in</Text>
+                <Text style={styles.bannerTitle}>{pending.cancelled ? 'Sign-in cancellation pending' : 'Waiting for you to sign in'}</Text>
                 <Text style={parts.facts}>This tab closes itself when you're signed in.</Text>
             </View>
-            <Pressable onPress={cancel} accessibilityRole="button" accessibilityLabel="Cancel sign-in" hitSlop={8}
+            <Pressable disabled={cancelling} onPress={() => void cancel()} accessibilityRole="button" accessibilityLabel="Cancel sign-in" hitSlop={8}
                 style={({ pressed }) => [parts.pill, pressed && parts.pillPressed]}>
-                <Text style={parts.pillText}>Cancel</Text>
+                <Text style={parts.pillText}>{cancelling ? 'Cancelling…' : 'Cancel'}</Text>
             </Pressable>
         </Animated.View>
     );

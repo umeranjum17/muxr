@@ -57,9 +57,12 @@ import {
     rememberPlanPane,
     rememberSignInTab,
     removePlanAccount,
-    takeSignInTab,
+    signInTab,
+    forgetSignInTab,
     renamePlanAccount,
     resolvePlanRecord,
+    resolvePlanLaunch,
+    loadPlanAccounts,
 } from '../../plans/index.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
@@ -216,17 +219,26 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     const planPaneOf = async (sessionId: string): Promise<string> =>
         (await source.list()).find((session) => session.id === sessionId)?.paneId ?? sessionId;
 
+    const rememberPane = async (paneId: string, accountId: string): Promise<void> => {
+        const livePaneIds = (await source.list()).map((session) => session.paneId ?? session.id);
+        rememberPlanPane(process.env, paneId, accountId, livePaneIds);
+    };
+
     /** Close a sign-in tab muxr opened: its only pane, and the tab with it. */
     const closeSignInTab = async (accountId: string): Promise<{ created: boolean } | undefined> => {
-        const tab = takeSignInTab(accountId);
+        const tab = signInTab(accountId);
         if (tab === undefined) return undefined;
         const session = (await source.list()).find((candidate) => candidate.paneId === tab.paneId || candidate.id === tab.paneId);
         if (session !== undefined) {
-            const first = await source.stop(session.id, {}).catch(() => undefined);
-            if (first?.status === 'confirmationRequired' && first.scope === 'tab') {
-                await source.stop(session.id, { confirmedScope: 'tab' }).catch(() => undefined);
+            let result = await source.stop(session.id, {});
+            if (result.status === 'confirmationRequired' && result.scope === 'tab') {
+                result = await source.stop(session.id, { confirmedScope: 'tab' });
+            }
+            if (result.status !== 'closed') {
+                throw new Error("Couldn't close the sign-in tab. Try again.");
             }
         }
+        forgetSignInTab(accountId, tab.paneId);
         return tab;
     };
 
@@ -297,18 +309,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     { code: 'plan-squad-unsupported' },
                 );
             }
-            const record = planAccount === undefined ? undefined : resolvePlanRecord(process.env, planAccount);
-            if (record !== undefined) {
-                const kinds = record.provider === 'claude' ? ['claude', 'pi'] : ['codex', 'pi'];
-                // A shell pane may host anything, so the env rides along;
-                // a concrete agent of another provider is a real mismatch.
-                if (start.kind !== undefined && start.kind !== 'shell' && !kinds.includes(start.kind)) {
-                    throw Object.assign(
-                        new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${start.kind} one.`),
-                        { code: 'plan-kind-mismatch' },
-                    );
-                }
-            }
+            const record = planAccount === undefined ? undefined : await resolvePlanLaunch(process.env, planAccount, start.kind);
             const started = useCaseData(await startAgent({
                 exists: existsSync,
                 create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
@@ -317,7 +318,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 ...start,
                 ...(record === undefined ? {} : { planEnv: planLaunchEnv(record) }),
             }));
-            if (record !== undefined && 'info' in started) rememberPlanPane(process.env, started.info.paneId ?? started.info.id, record.id);
+            if (record !== undefined && 'info' in started) await rememberPane(started.info.paneId ?? started.info.id, record.id);
             return started;
         },
         'session.open': async (params) => useCaseData(await openAgent(source, params)),
@@ -582,7 +583,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plans.rename': async (params) => renamePlanAccount(process.env, params.accountId, params.name),
         'plans.remove': async (params) => removePlanAccount(process.env, params.accountId),
         'plans.move': async (params) => {
-            const record = resolvePlanRecord(process.env, params.accountId);
+            const selected = resolvePlanRecord(process.env, params.accountId);
+            const record = await resolvePlanLaunch(process.env, params.accountId, selected.provider);
+            if (record === undefined) throw new Error('Sign in to that account before moving.');
             if (source.movePlanAccount === undefined) {
                 throw Object.assign(
                     new Error('This host cannot move between plan accounts yet; update the host first.'),
@@ -595,12 +598,17 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     provider: record.provider,
                     folder: record.folder,
                 });
-                rememberPlanPane(process.env, await planPaneOf(moved.sessionId), record.id);
+                await rememberPane(await planPaneOf(moved.sessionId), record.id);
                 return moved;
             } catch (error) {
                 if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
                     const name = record.name.trim() === '' ? PLAN_LABELS[record.provider] : record.name;
                     const sessionId = (error as { sessionId?: unknown }).sessionId;
+                    const folder = (error as { planFolder?: unknown }).planFolder;
+                    const actual = loadPlanAccounts(process.env).find((account) => account.folder === folder);
+                    if (typeof sessionId === 'string' && actual !== undefined) {
+                        await rememberPane(await planPaneOf(sessionId), actual.id);
+                    }
                     throw Object.assign(new Error(`Couldn't start on ${name}. Try again or go back.`), {
                         code: 'plan-move-start-failed',
                         ...(typeof sessionId === 'string' ? { sessionId } : {}),
@@ -611,18 +619,19 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         },
         'plans.add': async (params) => {
             const { record, created } = preparePlanSignIn(process.env, params.provider, params.accountId);
+            let previous: { created: boolean } | undefined;
             try {
+                previous = await closeSignInTab(record.id);
                 const started = useCaseData(await startAgent({
                     exists: existsSync,
                     create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
                     start: (command) => source.start(command),
                 }, { cwd: homedir(), ...planSignInLaunch(record) }));
                 if (!('info' in started)) throw new Error(`Couldn't open ${PLAN_LABELS[record.provider]} sign-in. Try again.`);
-                await closeSignInTab(record.id);
-                rememberSignInTab(record.id, started.info.paneId ?? started.info.id, created);
+                rememberSignInTab(record.id, started.info.paneId ?? started.info.id, created || previous?.created === true);
                 return { accountId: record.id, sessionId: started.info.id };
             } catch (error) {
-                if (created) removePlanAccount(process.env, record.id);
+                if (created || previous?.created === true) removePlanAccount(process.env, record.id);
                 throw error;
             }
         },

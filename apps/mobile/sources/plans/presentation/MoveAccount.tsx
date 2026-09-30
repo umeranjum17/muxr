@@ -8,7 +8,7 @@ import { OptionSheet } from '@/components/OptionSheet';
 import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
 import { bestMoveTarget, isLow, runningOn, type PlanAccount } from '../domain/planAccounts';
-import { usePlans, useProviderChoice } from '../application/plansStore';
+import { refreshPlans, usePlans, useProviderChoice } from '../application/plansStore';
 import { agentAccount, conversationTokens, moveAgent, planFailure } from '../application/plansApi';
 import { showNotice, useAccountFlows } from './AccountFlows';
 import { AccountRow, Note, Pill, PrimaryButton, SheetLede, SheetTitle, SignInPill, styles as parts } from './accountParts';
@@ -33,19 +33,24 @@ export function MoveAccountRow({ sessionId, agentKind, working, onOpen }: {
     const { theme } = useUnistyles();
     usePlans();
     const { entry } = useProviderChoice(agentKind ?? '');
-    const [recorded, setRecorded] = React.useState<{ id?: string } | null>(null);
+    const [recorded, setRecorded] = React.useState<{ sessionId: string; id?: string } | null>(null);
     const known = entry !== undefined;
     React.useEffect(() => {
         if (!known) return;
         let live = true;
-        void agentAccount(sessionId).then((id) => { if (live) setRecorded({ id }); });
+        setRecorded(null);
+        void agentAccount(sessionId).then((id) => { if (live) setRecorded({ sessionId, id }); }).catch((error) => {
+            if (live) Modal.alert("Couldn't find the current account", planFailure(error));
+        });
         return () => { live = false; };
     }, [known, sessionId]);
     if (agentKind === undefined || entry === undefined) return null;
-    const current = recorded === null ? undefined : runningOn(entry, recorded.id);
+    const current = recorded?.sessionId === sessionId ? runningOn(entry, recorded.id) : undefined;
     return (
         <Pressable
-            onPress={() => { onOpen(); useMoving.setState({ moving: { sessionId, agentKind, working, currentId: current?.id } }); }}
+            disabled={current === undefined}
+            accessibilityState={{ disabled: current === undefined }}
+            onPress={() => { if (current === undefined) return; onOpen(); useMoving.setState({ moving: { sessionId, agentKind, working, currentId: current?.id } }); }}
             accessibilityRole="button"
             accessibilityLabel={`Move to another account${current ? `, on ${current.name}` : ''}${current?.roomLeftPercent !== undefined ? `, ${current.roomLeftPercent}% left` : ''}`}
             style={({ pressed }) => [styles.menuRow, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh }]}
@@ -98,6 +103,7 @@ export function MoveSheet() {
         setBusy(false);
         setTokens(undefined);
         if (moving === null) return;
+        void refreshPlans();
         let live = true;
         void conversationTokens(moving.sessionId).then((count) => { if (live) setTokens(count); });
         return () => { live = false; };

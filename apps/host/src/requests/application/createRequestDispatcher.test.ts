@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure } from '@trymuxr/contract';
 import { createRequestDispatcher } from './createRequestDispatcher.js';
 import { createFakeSessionSource, type SessionSource } from '../../agent/index.js';
@@ -453,6 +453,26 @@ describe('plan account launch and move', () => {
     process.env.HOME = home;
     process.env.MUXR_HOME = join(home, 'muxr');
 
+    const savedPath = process.env.PATH;
+    beforeAll(() => {
+        const bin = join(home, 'bin');
+        mkdirSync(bin);
+        writeFileSync(join(bin, 'claude'), `#!/bin/sh
+echo '{"loggedIn":true,"email":"work@example.com"}'
+`, { mode: 0o755 });
+        writeFileSync(join(bin, 'codex'), `#!/bin/sh
+read line
+echo '{"id":1,"result":{}}'
+read line
+echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
+`, { mode: 0o755 });
+        process.env.PATH = `${bin}:${savedPath ?? ''}`;
+    });
+    afterAll(() => {
+        if (savedPath === undefined) delete process.env.PATH;
+        else process.env.PATH = savedPath;
+    });
+
     it('starts on the stored account env, and refuses unknown ids, squads and kind mismatches', async () => {
         const { savePlanAccounts } = await import('../../plans/planStore.js');
         const folder = join(home, 'muxr', 'plans', 'claude', 'work');
@@ -461,6 +481,7 @@ describe('plan account launch and move', () => {
         savePlanAccounts(process.env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }]);
         const starts: unknown[] = [];
         const source = {
+            async list() { return [{ id: 's1' }]; },
             async start(options: unknown) {
                 starts.push(options);
                 return { info: { id: 's1' }, acceptance: { outcome: 'accepted', state: 'starting', agentName: 'n' } };
@@ -502,6 +523,7 @@ describe('plan account launch and move', () => {
             savePlanAccounts(process.env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }]);
             const starts: unknown[] = [];
             const source = {
+                async list() { return [{ id: 's1' }]; },
                 async start(options: unknown) {
                     starts.push(options);
                     return { info: { id: 's1' }, acceptance: { outcome: 'accepted', state: 'starting', agentName: 'n' } };
@@ -576,6 +598,7 @@ describe('plan account launch and move', () => {
             const sessions: Array<{ id: string; paneId: string }> = [];
             const stopped: string[] = [];
             let launches = 0;
+            let closeUnavailable = false;
             const source = {
                 async start() {
                     launches += 1;
@@ -586,6 +609,7 @@ describe('plan account launch and move', () => {
                 },
                 async list() { return sessions.map((session) => ({ ...session })); },
                 async stop(id: string) {
+                    if (closeUnavailable) return { status: 'retryable', message: 'Try again.' };
                     stopped.push(id);
                     const at = sessions.findIndex((session) => session.id === id);
                     if (at >= 0) sessions.splice(at, 1);
@@ -597,6 +621,10 @@ describe('plan account launch and move', () => {
             // Pane-id fallback: the tab is still found by its session id and closed on cancel.
             const added = await dispatch({ type: 'plans.add', requestId: 'a1', params: { provider: 'claude', accountId: 'pa_s' } });
             expect(added).toMatchObject({ ok: true });
+            closeUnavailable = true;
+            expect(await dispatch({ type: 'plans.cancel', requestId: 'c0', params: { accountId: 'pa_s' } })).toMatchObject({ ok: false });
+            expect(sessions).toHaveLength(1);
+            closeUnavailable = false;
             const cancelled = await dispatch({ type: 'plans.cancel', requestId: 'c1', params: { accountId: 'pa_s' } });
             expect(stopped).toEqual(['tab-1']);
             expect(cancelled).toMatchObject({ ok: true, data: { removed: false } });

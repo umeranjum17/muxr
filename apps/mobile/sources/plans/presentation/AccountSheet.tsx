@@ -6,7 +6,7 @@ import { useUnistyles } from 'react-native-unistyles';
 import { OptionSheet } from '@/components/OptionSheet';
 import { hapticsLight } from '@/components/haptics';
 import { AUTO, chosenAccount, providerForAgent, providerName } from '../domain/planAccounts';
-import { useProviderChoice, usePlansStore } from '../application/plansStore';
+import { refreshPlans, useProviderChoice, usePlansStore } from '../application/plansStore';
 import { acknowledgeAutoTerms } from '../application/plansApi';
 import { useAccountFlows } from './AccountFlows';
 import { AccountRow, Divider, FootAction, Note, SheetLede, SheetTitle, SignInPill, Strong, styles } from './accountParts';
@@ -41,6 +41,7 @@ export function AccountSheet({ visible, agentKind, agentName, onClose, onLeave }
     // on the first opening only, and stays for that opening once seen.
     const unseenNote = usePlansStore((state) => (state.list?.autoTermsAcknowledged === false ? state.list.autoTermsNote : undefined));
     const [termsNote, setTermsNote] = React.useState<string>();
+    React.useEffect(() => { if (visible) void refreshPlans(); }, [visible]);
     const hasEntry = entry !== undefined;
     React.useEffect(() => {
         if (!visible) { setTermsNote(undefined); return; }

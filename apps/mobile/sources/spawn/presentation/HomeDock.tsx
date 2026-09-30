@@ -36,7 +36,7 @@ import { type NewSessionAgentType } from '@/catalog';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { sync } from '@/catalog/sync';
 import { resolveAgentCatalog } from '@/catalog';
-import { useAccountHints, useAccountLine } from '@/plans';
+import { useAccountLine } from '@/plans';
 import { AccountSheet } from '@/plans/ui';
 import {
     applyWorktreeSelection,
@@ -612,7 +612,6 @@ export const HomeDock = React.memo(({
     const currentAgent = currentDockAgent(availableAgents, agentType);
     // Absent unless the agent's provider has two or more accounts.
     const accountLine = useAccountLine(agentType);
-    const agentSheetOptions = useAccountHints(availableAgents);
     const hasPrompt = prompt.trim().length > 0 || selectedImages.length > 0;
     const compact = useWindowDimensions().width < 330;
     const canSubmit = !isSubmitting && hasPrompt;
@@ -1113,7 +1112,7 @@ export const HomeDock = React.memo(({
                     <OptionSheet
                         visible={openSheet === 'agent'}
                         title="Agent"
-                        options={agentSheetOptions}
+                        options={availableAgents}
                         selectedKey={agentType}
                         onSelect={(agent) => selectAgent(agent.key as NewSessionAgentType)}
                         onClose={() => setOpenSheet(null)}

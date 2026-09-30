@@ -32,8 +32,12 @@ describe('which account a launch carries', () => {
         // Codex has one account, so the host omits it: those launches carry nothing new.
         request.mockResolvedValueOnce({ providers: [claude()] });
         await refreshPlans();
+        expect(planAccountForLaunch('claude')).toBe('auto');
+        expect(planAccountForLaunch('pi')).toBe('auto');
+        usePlansStore.getState().setAutoOn(false);
         expect(planAccountForLaunch('claude')).toBe('pa_work');
-        expect(planAccountForLaunch('pi')).toBe('pa_work');
+        usePlansStore.getState().choose('claude', 'auto');
+        expect(usePlansStore.getState().autoOn).toBe(true);
         expect(planAccountForLaunch('codex')).toBeUndefined();
         expect(planAccountForLaunch('gemini')).toBeUndefined();
 
@@ -41,13 +45,13 @@ describe('which account a launch carries', () => {
         usePlansStore.getState().choose('claude', 'found-claude');
         expect(planAccountForLaunch('claude')).toBe('found-claude');
         usePlansStore.getState().choose('claude', 'pa_side');
-        expect(planAccountForLaunch('claude')).toBe('pa_work');
+        expect(planAccountForLaunch('claude')).toBe('auto');
 
         // Picked account signs out: back to Auto's pick, not a dead launch.
         usePlansStore.getState().choose('claude', 'pa_work');
         request.mockResolvedValueOnce({ providers: [{ ...claude({ work: { signedIn: false } }), auto: { accountId: 'found-claude', reason: '' } }] });
         await refreshPlans();
-        expect(planAccountForLaunch('claude')).toBe('found-claude');
+        expect(planAccountForLaunch('claude')).toBe('auto');
 
         // Auto off with nothing pickable chosen: the computer's own sign-in.
         usePlansStore.getState().setAutoOn(false);

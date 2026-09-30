@@ -18,5 +18,5 @@ export { runPlanCommand, claudeIdentity, codexIdentity } from './planIdentity.js
 export type { PlanRoomAccount, PlanAutoChoice } from './planAuto.js';
 export { tightestRoomWindow, roomLabelFor, choosePlanAccount } from './planAuto.js';
 export type { PlansDeps } from './plansApi.js';
-export { AUTO_TERMS_NOTE, suggestPlanName, listPlans, acknowledgeAutoTerms, resolvePlanRecord, resolvePlanEnv, renamePlanAccount, removePlanAccount } from './plansApi.js';
-export { preparePlanSignIn, planSignInLaunch, planAccountStatus, rememberPlanPane, planPaneAccount, rememberSignInTab, takeSignInTab } from './planSignIn.js';
+export { AUTO_TERMS_NOTE, suggestPlanName, listPlans, acknowledgeAutoTerms, resolvePlanRecord, resolvePlanLaunch, resolvePlanEnv, renamePlanAccount, removePlanAccount } from './plansApi.js';
+export { preparePlanSignIn, planSignInLaunch, planAccountStatus, rememberPlanPane, planPaneAccount, rememberSignInTab, signInTab, forgetSignInTab } from './planSignIn.js';

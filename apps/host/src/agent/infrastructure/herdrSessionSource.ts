@@ -1601,7 +1601,7 @@ export async function createHerdrSessionSource(
             Object.assign(new Error(message), {
                 code: 'plan-move-start-failed',
                 cause: rollback.cause,
-                ...(sessionId === undefined ? {} : { sessionId }),
+                ...(sessionId === undefined ? {} : { sessionId, planFolder: planAccountByPane.get(currentSession(sessionId)?.paneId ?? '') }),
             });
         const releaseMoveRoute = (): void => {
             moveRetainedRoutes.delete(rollback.sessionId);
@@ -2090,15 +2090,19 @@ export async function createHerdrSessionSource(
         }
         screens?.bind(screen, paneId);
 
-        if (kind === 'shell') {
-            await refreshSnapshot();
-            const shell = currentSession(shellRoute(paneId));
-            if (shell === undefined) return earlyFailure();
-            emitState(shell.sessionId);
-            return snapshotFor(shell, true);
-        }
-
         try {
+            for (const [name, folder] of Object.entries(startOptions.planEnv ?? {})) {
+                if (!await checkPaneEnv(paneId, name, folder)) {
+                    throw new Error('The selected account did not reach the new pane.');
+                }
+            }
+            if (kind === 'shell') {
+                await refreshSnapshot();
+                const shell = currentSession(shellRoute(paneId));
+                if (shell === undefined) return earlyFailure();
+                emitState(shell.sessionId);
+                return snapshotFor(shell, true);
+            }
             const launchName = `pp_${randomBytes(8).toString('hex')}`;
             seedLaunchPane(paneId, {
                 pane_id: paneId,

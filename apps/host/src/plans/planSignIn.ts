@@ -24,14 +24,9 @@ import {
     type PlanProvider,
 } from './planStore.js';
 
-/** What a new folder shares with the main sign-in, never its credentials.
- *  History, so a move can resume what another account started; settings, so
- *  the person's hooks come along: Herdr learns which conversation an agent
- *  runs only from its hook there, and without it every launch on the account
- *  fails its start check. */
 const SHARED_WITH_MAIN: Record<PlanProvider, string[]> = {
-    claude: ['projects', 'settings.json'],
-    codex: ['sessions', 'config.toml', 'hooks.json'],
+    claude: ['projects'],
+    codex: ['sessions'],
 };
 
 /** A fresh sign-in space, or the account's own to sign in again. */
@@ -69,11 +64,13 @@ export function rememberSignInTab(accountId: string, paneId: string, created: bo
     signInTabs.set(accountId, { paneId, created });
 }
 
-/** Take the account's sign-in tab off the books; the caller closes the pane. */
-export function takeSignInTab(accountId: string): { paneId: string; created: boolean } | undefined {
+export function signInTab(accountId: string): { paneId: string; created: boolean } | undefined {
     const tab = signInTabs.get(accountId);
-    signInTabs.delete(accountId);
     return tab;
+}
+
+export function forgetSignInTab(accountId: string, paneId: string): void {
+    if (signInTabs.get(accountId)?.paneId === paneId) signInTabs.delete(accountId);
 }
 
 /** What the sign-in tab runs: the provider's own tool, pointed at the folder.
@@ -107,8 +104,6 @@ export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: strin
     };
 }
 
-const PANES_KEPT = 256;
-
 function panesPath(env: NodeJS.ProcessEnv): string {
     return join(plansDir(env), 'agent-panes-v1.json');
 }
@@ -125,8 +120,8 @@ function loadPanes(env: NodeJS.ProcessEnv): Array<[string, string]> {
 }
 
 /** Remember the account an agent was started or moved on, by its pane. */
-export function rememberPlanPane(env: NodeJS.ProcessEnv, paneId: string, accountId: string): void {
-    const kept = [...loadPanes(env).filter(([id]) => id !== paneId), [paneId, accountId] as [string, string]].slice(-PANES_KEPT);
+export function rememberPlanPane(env: NodeJS.ProcessEnv, paneId: string, accountId: string, livePaneIds: readonly string[]): void {
+    const kept = [...loadPanes(env).filter(([id]) => id !== paneId && livePaneIds.includes(id)), [paneId, accountId] as [string, string]];
     mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
     writeFileSync(panesPath(env), JSON.stringify(kept), { mode: 0o600 });
 }

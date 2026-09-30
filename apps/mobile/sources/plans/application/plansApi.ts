@@ -22,7 +22,7 @@ export function signInState(accountId: string): Promise<PlanAccount> {
 
 /** Stop waiting: the host closes the sign-in tab, and drops a new account that never signed in. */
 export async function cancelSignIn(accountId: string): Promise<void> {
-    await sync.request('plans.cancel', { accountId }).catch(() => {});
+    await sync.request('plans.cancel', { accountId });
     await refreshPlans();
 }
 
@@ -38,7 +38,7 @@ export async function removeAccount(accountId: string): Promise<void> {
 
 /** The account a running agent is on, when muxr put it on one. */
 export function agentAccount(sessionId: string): Promise<string | undefined> {
-    return sync.request('plans.agent', { sessionId }).then((answer) => answer.accountId).catch(() => undefined);
+    return sync.request('plans.agent', { sessionId }).then((answer) => answer.accountId);
 }
 
 /** How much the move re-reads: the conversation's size, when the host knows it. */

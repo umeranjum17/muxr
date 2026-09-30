@@ -55,17 +55,16 @@ export function chosenAccount(entry: PlanProviderAccounts, choice: string): Plan
 export function effectiveChoice(entry: PlanProviderAccounts | undefined, stored: string | undefined, autoOn = true): string {
     const signedIn = entry?.accounts.filter((account) => account.signedIn) ?? [];
     if (signedIn.some((account) => account.id === stored)) return stored!;
-    if (autoOn || stored === AUTO) return AUTO;
-    return (signedIn.find((account) => account.foundOnComputer) ?? signedIn[0])?.id ?? AUTO;
+    if (autoOn) return AUTO;
+    return (signedIn.find((account) => account.foundOnComputer) ?? signedIn[0])?.id ?? '';
 }
 
-/** The id `session.start` carries: the chosen account, Auto's pick for Auto. */
 export function launchAccount(entry: PlanProviderAccounts | undefined, stored: string | undefined, autoOn = true): string | undefined {
     if (entry === undefined) return undefined;
-    return chosenAccount(entry, effectiveChoice(entry, stored, autoOn))?.id;
+    const choice = effectiveChoice(entry, stored, autoOn);
+    return choice === '' ? undefined : choice;
 }
 
-/** The dock row and the agent sheet's second line: "Auto · Work", "72% left". */
 export function choiceLine(entry: PlanProviderAccounts, choice: string): { value: string; detail?: string } {
     const account = chosenAccount(entry, choice);
     let value = account?.name ?? 'Auto';

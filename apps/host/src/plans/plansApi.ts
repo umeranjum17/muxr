@@ -67,7 +67,7 @@ async function providerRooms(
         const name = record.name.trim() === '' ? suggestPlanName(identity.email, provider) : record.name;
         // Room left from the same reader Usage uses, pointed at this sign-in.
         const windows = identity.signedIn
-            ? await planAccountWindows(provider, { ...env, [folderVar]: record.folder })
+            ? await planAccountWindows(provider, { ...env, [folderVar]: record.folder }, { refresh: true })
             : [];
         const tight = tightestRoomWindow(windows);
         return {
@@ -149,6 +149,33 @@ export function resolvePlanRecord(env: NodeJS.ProcessEnv, accountId: string): Pl
         });
     }
     return record;
+}
+
+export async function resolvePlanLaunch(
+    env: NodeJS.ProcessEnv,
+    selection: string,
+    kind: string | undefined,
+    deps: PlansDeps = {},
+): Promise<PlanAccountRecord | undefined> {
+    let record: PlanAccountRecord;
+    if (selection === 'auto') {
+        const provider = kind === 'codex' ? 'codex' : 'claude';
+        if (kind !== 'claude' && kind !== 'codex' && kind !== 'pi') {
+            throw Object.assign(new Error('Choose a provider agent for Auto.'), { code: 'plan-kind-mismatch' });
+        }
+        const plans = await listPlans(env, deps);
+        const accountId = plans.providers.find((entry) => entry.provider === provider)?.auto.accountId;
+        if (accountId === undefined) return undefined;
+        record = resolvePlanRecord(env, accountId);
+    } else {
+        record = resolvePlanRecord(env, selection);
+    }
+    const kinds = record.provider === 'claude' ? ['claude', 'pi'] : ['codex', 'pi'];
+    if (kind !== undefined && kind !== 'shell' && !kinds.includes(kind)) {
+        throw Object.assign(new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${kind} one.`), { code: 'plan-kind-mismatch' });
+    }
+    const identity = await identify(record.provider, record.folder, env, deps);
+    return identity.signedIn ? record : undefined;
 }
 
 /** Launch env for a `session.start.planAccount` id. P3 merges it into the new pane. */

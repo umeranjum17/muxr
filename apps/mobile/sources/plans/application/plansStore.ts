@@ -36,13 +36,23 @@ export const usePlansStore = create<PlansState>()((set, get) => ({
     choices: loadChoices(),
     autoOn: saved.getBoolean(AUTO_OFF_KEY) !== true,
     choose: (provider, choice) => {
+        if (choice === AUTO && !get().autoOn) get().setAutoOn(true);
         const choices = { ...get().choices, [provider]: choice };
         saved.set(CHOICE_KEY, JSON.stringify(choices));
         set({ choices });
     },
     setAutoOn: (on) => {
+        const { choices: previous, list } = get();
+        const choices = { ...previous };
+        if (!on) {
+            for (const entry of list?.providers ?? []) {
+                if (effectiveChoice(entry, choices[entry.provider], true) !== AUTO) continue;
+                choices[entry.provider] = entry.auto.accountId ?? effectiveChoice(entry, undefined, false);
+            }
+        }
+        saved.set(CHOICE_KEY, JSON.stringify(choices));
         saved.set(AUTO_OFF_KEY, !on);
-        set({ autoOn: on });
+        set({ autoOn: on, choices });
     },
 }));
 
