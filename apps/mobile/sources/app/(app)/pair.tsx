@@ -84,7 +84,7 @@ export default function PairScreen() {
     const browser = Platform.OS === 'web';
     const PairScrollView = browser ? ScrollView : KeyboardAwareScrollView;
     const openedFromSettings = routeParams.source === 'settings';
-    const sshRoute = !browser && routeParams.route === 'ssh' && Platform.OS === 'android' && sshTunnelAvailable();
+    const sshRoute = !browser && routeParams.route === 'ssh' && sshTunnelAvailable();
     const reviewPairing = React.useCallback((raw: string) => {
         if (looksLikeLinkOffer(raw.trim())) {
             const offer = raw.trim();

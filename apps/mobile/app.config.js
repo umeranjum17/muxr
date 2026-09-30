@@ -206,6 +206,7 @@ export default {
             withMinimalAudioManifest,
             require("./plugins/withEinkCompatibility.js"),
             require("./plugins/withZeroconf.js"),
+            require("./plugins/withSshTunnel.js"),
             require("./plugins/withAppActions.js"),
             require("./plugins/withLiveActivities.js"),
             [

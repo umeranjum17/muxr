@@ -276,7 +276,7 @@ export default function ConnectionSettingsScreen() {
     }, [initial.machineId, sshPrivateKey]);
 
     React.useEffect(() => {
-        if (Platform.OS !== 'android' || initial.machineId === '') {
+        if (!sshTunnelAvailable() || initial.machineId === '') {
             setSshCredentialPresent(false);
             setInstallReceipt(undefined);
             return undefined;
@@ -324,7 +324,7 @@ export default function ConnectionSettingsScreen() {
         return () => { cancelled = true; };
     }, [settingsLoaded, initial.machineId]);
 
-    const sshSupported = Platform.OS === 'android' && initial.selfhost === true && sshTunnelAvailable();
+    const sshSupported = initial.selfhost === true && sshTunnelAvailable();
 
     const saveSsh = async () => {
         if (initial.selfhost !== true || initial.machineId === '') {
@@ -630,7 +630,7 @@ export default function ConnectionSettingsScreen() {
 
                 {sshSupported && <ItemGroup
                     title="Direct SSH"
-                    footer="Android native builds only. SSH forwards the host's loopback relay; pairing, device grants, and end-to-end encryption stay unchanged. The remote desktop comes through the same SSH connection. PWA and iPhone use Tailscale or another supported relay."
+                    footer="Android and iOS native builds. SSH forwards the host's loopback relay; pairing, device grants, and end-to-end encryption stay unchanged. The remote desktop comes through the same SSH connection. PWA uses Tailscale or another supported relay."
                 >
                     <Field label="SSH host" value={sshHost} onChange={(next) => { setSshHost(next); setPublicKeyCopied(false); }} placeholder="server.example.com or 192.168.1.20" />
                     <SshHostScan onPick={(host, port) => { setSshHost(host); if (port !== undefined && port !== 22) setSshPort(String(port)); }} />
@@ -705,7 +705,7 @@ export default function ConnectionSettingsScreen() {
                 </ItemGroup>}
                 {Platform.OS === 'web' && initial.selfhost === true && <ItemGroup
                     title="Direct SSH"
-                    footer="The browser cannot open SSH or private-key storage. Use the native Android app for public-key export, or copy the public key manually on the computer. No private-key field is shown here."
+                    footer="The browser cannot open SSH or private-key storage. Use the native app for public-key export, or copy the public key manually on the computer. No private-key field is shown here."
                 >
                     <Item
                         title="Direct SSH is unavailable in the browser"
