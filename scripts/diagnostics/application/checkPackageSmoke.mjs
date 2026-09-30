@@ -446,9 +446,7 @@ try {
     assert.ok(!listing.includes('package/plugins/panes/'), 'de-plugined panes plugin still shipped in npm artifact');
     assert.ok(listing.includes('package/voice/product.mjs'), 'Realtime voice product module missing from npm artifact');
     assert.ok(listing.includes('package/voice/stream.mjs'), 'Realtime voice adapter runtime missing from npm artifact');
-    for (const provider of ['xai', 'gemini', 'openai', 'codex']) {
-        assert.ok(listing.includes(`package/voice/providers/${provider}.mjs`), `${provider} voice adapter missing from npm artifact`);
-    }
+    assert.ok(listing.includes('package/voice/codex.mjs'), 'Codex Voice module missing from npm artifact');
     assert.ok(listing.includes('package/skills/muxr/SKILL.md'), 'muxr skill missing from npm artifact');
     assert.deepEqual(listing.filter((file) => /^package\/skills\/.*\/SKILL\.md$/.test(file)), ['package/skills/muxr/SKILL.md'], 'npm artifact must ship exactly one public skill');
     assert.ok(listing.includes('package/skills/muxr/references/plugins.md'), 'muxr skill references missing from npm artifact');
@@ -704,9 +702,11 @@ try {
     const packagedProviders = JSON.parse(run(process.execPath, ['-e', `const voice = await import(${JSON.stringify(join(packagedVoice, 'product.mjs'))});process.stdout.write(JSON.stringify(await voice.voiceProviderList()));`], { cwd: installDir, env: providerEnv }).stdout);
     assert.equal(packagedProviders.selected, 'codex', 'packaged voice must default to Codex');
     assert.equal(packagedProviders.providers.find((provider) => provider.id === 'codex').selected, true);
-    for (const id of ['xai', 'gemini', 'openai', 'codex']) {
-        assert.ok(existsSync(join(packagedVoice, 'providers', `${id}.mjs`)), `${id} adapter missing from the packaged voice runtime`);
-    }
+    // The engines are @byokit/realtime's: the packaged stream entry must load it
+    // (and accounts) from the installed runtime dependencies. Without an open
+    // frame it closes with its own reason, which proves every import resolved.
+    const voiceStart = run(process.execPath, [join(packagedVoice, 'stream.mjs')], { cwd: installDir, env: providerEnv, input: '' });
+    assert.deepEqual(JSON.parse(voiceStart.stdout), { type: 'realtime.closed', reason: 'realtime stream expected realtime.open first' }, `packaged voice runtime did not load: ${voiceStart.stderr}`);
     run(process.execPath, ['-e', `const { voiceProviderSet, voiceKeySet } = await import(${JSON.stringify(join(packagedVoice, 'product.mjs'))});await voiceProviderSet('xai');await voiceKeySet('smoke-key');`], { cwd: installDir, env: providerEnv });
     assert.equal(statSync(join(providerRoot, 'voice')).mode & 0o777, 0o700);
     assert.equal(statSync(join(providerRoot, 'xai.key')).mode & 0o777, 0o600);

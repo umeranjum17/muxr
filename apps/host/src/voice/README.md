@@ -1,10 +1,10 @@
 # muxr realtime voice
 
-Realtime voice is product code. `product.mjs` is the surface the host and the app call; the adapters under `providers/` provide native realtime speech-to-speech through Codex Voice, Grok, Gemini Live, or OpenAI Realtime. Provider policy and credentials stay on the connected machine; the phone uses generic PCM or WebRTC realtime transport.
+Realtime voice is product code. `product.mjs` is the surface the host and the app call; `@byokit/realtime` provides the native realtime speech-to-speech engines (ChatGPT voice for Codex Voice, Grok, Gemini Live, and OpenAI Realtime). Provider policy and credentials stay on the connected machine; the phone uses generic PCM or WebRTC realtime transport.
 
 Settings → Voice & dictation is the single provider picker. A machine with no saved choice defaults to Codex Voice (experimental); explicit saved choices and migrated legacy choices remain selected. Configure opens the selected provider’s setup screen. Codex uses the machine’s ChatGPT CLI login (`codex login`), not an API key. Login readiness does not guarantee realtime subscription entitlement. Other providers use owner-only API key files and secure prompts.
 
-`product.mjs` lists/selects providers and reports readiness. `stream.mjs` dispatches to the selected adapter. The native microphone foreground service must be ready before capture starts. No transcription/LLM/TTS fallback is used.
+`product.mjs` lists/selects providers and reports readiness. `stream.mjs` is the stream child: it reads the host's `realtime.open`, resolves the selected engine's credential (an owner-only key file, or the Codex login via `codex.mjs`), and runs the kit's `realtimeEngine` with muxr's prompt plus workspace context, tools, internal-id masks and hangup policy. The kit runs the provider in its own child with an empty environment. The native microphone foreground service must be ready before capture starts. No transcription/LLM/TTS fallback is used.
 
 ## Realtime work context and tools
 
@@ -24,15 +24,13 @@ This is a bounded coordination tool surface, not unrestricted access to every He
 
 ## Shared tool lifecycle
 
-`toolRuntime.mjs` is the provider-independent voice tool kernel. Every adapter
-uses its `voiceTools` catalog and `createVoiceTools` runtime. The existing
-host coordinator remains the authority for live membership, target resolution,
-reads, mutations and receipts; the mobile semantic controller remains the
-authority for phone navigation. Provider-specific audio and wire events stay in
-adapters. New adapters must translate calls into `tools.run`, return the result
-using their protocol, call `tools.answered` on a completed assistant transcript,
-forward app results to `tools.receive`, use `tools.state`, and close the runtime.
-They inherit request bounds, deduplication, cancellation and failure reporting.
+`voiceTools.mjs` holds the catalogue and one handler per tool. The kit's
+`toolBridge` owns request bounds, deduplication, cancellation and the answer
+watchdog; muxr supplies the per-tool budgets (`voiceToolTimeout`) and failure
+wording (`voiceToolFailure`). The host coordinator remains the authority for
+live membership, target resolution, reads, mutations and receipts; the mobile
+semantic controller, reached through the kit's `appBridge`, remains the
+authority for phone navigation.
 
 `codexDelegation.mjs` handles Codex's natural-language client delegations with
 **GPT-5.6-Sol**, without a model fallback. A single “ask/tell <agent> to
@@ -58,33 +56,38 @@ mutation is never automatically retried. Credentials remain host-only, redirects
 are rejected, and test mode requires an explicit loopback fixture endpoint.
 
 Codex may repeat a handoff with a fresh delegation ID while the same user turn
-is still being processed. An identical trimmed request in that turn shares one
-in-flight or completed result, including clarifications and failures. A repeated
-handoff cannot confirm its own pending action or queue the message twice. A new
-user turn remains a new request, even when its words match an earlier one.
+is still being processed. The kit's ChatGPT route shares one in-flight or
+completed result for an identical trimmed request in that turn, including
+clarifications and failures, so a repeated handoff cannot confirm its own pending
+action or queue the message twice. A new user turn remains a new request, even
+when its words match an earlier one, and the kit cancels a delegation still
+running from an earlier turn. Codex holds a request's own user turn open until
+its result is appended, so only speech during a long delegation cancels it.
 
 Reads have a 20-second deadline; mutations retain the existing 75-second
 coordination budget, and explicit lifecycle watches keep their declared bound. Repeated operation IDs reuse the same result and cannot execute a
 second mutation. The runtime stays thinking while a request is pending or a result
 awaits an answer; if no completed answer arrives within 20 seconds, it exposes an
-explicit error instead of silently returning to Listening. Adapter receipt of a
+explicit error instead of silently returning to Listening. Engine receipt of a
 transcript is a protocol observation, not proof of audible playback. Codex's
 protocol acknowledgement filler is disabled; native speech/audio is unchanged.
 
-The kit still has no explicit Codex CLI folder adapter: its `fileStore` uses
+`@byokit/accounts` still has no explicit Codex CLI folder adapter: its `fileStore` uses
 Pi credentials, requires a sealing adapter since accounts 0.8.0, and `keepFresh`
-uses Pi OAuth. The adapter therefore retains owner-only Codex folder reads,
+uses Pi OAuth. `codex.mjs` therefore retains owner-only Codex folder reads,
 app-server refresh and login status, using the
 kit's `claims` to decode token claims. muxr calls only `claims` and `respond`
 from accounts; neither host nor mobile creates an accounts credential store.
 Upgrading to accounts 0.9.0 therefore requires no accounts store migration;
-existing Codex sign-ins remain usable if they pass the adapter's credential
-checks. Codex owns its login file. The adapter refuses symlinked or non-regular
+existing Codex sign-ins remain usable if they pass `codex.mjs`'s credential
+checks. Codex owns its login file. `codex.mjs` refuses symlinked or non-regular
 credential files, files owned by another user or accessible to other
 users, and credential directories that are symlinked, owned by another user,
-or writable by other users; it does not repair or migrate them.
-Realtime SDP signaling also remains here because the kit has no realtime-calls
-helper. A small fetch guard sets `parallel_tool_calls: false` and retains
+or writable by other users; it does not repair or migrate them. The stream
+child resolves the sign-in before the call starts, so a missing or unsafe login
+keeps its remedy, and hands it to `@byokit/realtime` as the `plan` access; the
+kit's credential child owns the realtime-calls signaling and never frames the
+token. A small planner fetch guard sets `parallel_tool_calls: false` and retains
 response bounds, redirect rejection, reader cleanup and rejection of incomplete planning
 responses (also rejected by accounts 0.9.0). The kit waits for EOF and does not
 cancel the reader on parse errors; the guard closes it at completion or failure.
