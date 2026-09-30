@@ -178,12 +178,15 @@ export async function readPlan(reader: Usage, source: Source | undefined, nowMs:
     let stateDir: string;
     try {
         stateDir = mkdtempSync(join(tmpdir(), 'muxr-usage-refresh-'));
-    } catch { return undefined; }
+    } catch {
+        // Quota hints are optional; account identity and selection still work.
+        return undefined;
+    }
     try {
         return await usage({ stateDir, salt: 'muxr/usage/account' }).read(source, { nowMs });
     } finally {
         try {
             rmSync(stateDir, { recursive: true, force: true });
-        } catch {}
+        } catch { /* cleanup must not discard a successful quota hint */ }
     }
 }
