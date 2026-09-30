@@ -191,106 +191,106 @@ export function OptionSheet({
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
                 style={[styles.overlay, Platform.OS === 'web' && { paddingBottom: webKeyboardInset }]}
             >
-            <View style={styles.overlay} onLayout={({ nativeEvent }) => setAvailableHeight(nativeEvent.layout.height)}>
-                <TouchableWithoutFeedback onPress={onClose}>
-                    <View style={styles.backdrop} />
-                </TouchableWithoutFeedback>
-                <View style={[
-                    styles.sheet,
-                    maxWidth === undefined ? null : { maxWidth },
-                    // A body sheet has no rows to measure, so it grows with its content
-                    // and the inner ScrollView takes the cap instead.
-                    body
-                        ? { maxHeight: sheetCap }
-                        : {
-                            height: Math.min(
-                                96 + (showSearch ? 48 : 0) + Math.max(models.length, 1) * ROW_HEIGHT,
-                                sheetCap,
-                            ),
-                        },
-                    { paddingBottom: Math.max(12, safeArea.bottom) },
-                ]}>
-                    <View style={styles.handleRow}>
-                        <View style={styles.handle} />
-                    </View>
-                    {title !== '' && <Text style={styles.title}>{title}</Text>}
-
-                    {body ? (
-                        virtualizedBody
-                            ? <View style={{ height: Math.min(bodyCap, virtualizedBodyHeight ?? bodyCap) }}>{body}</View>
-                            : <ScrollView style={{ maxHeight: bodyCap }}>{body}</ScrollView>
-                    ) : (
-                    <View style={styles.body}>
-                        {providers.length > 1 && (
-                            <ScrollView
-                                style={styles.rail}
-                                contentContainerStyle={styles.railContent}
-                                showsVerticalScrollIndicator={false}
-                            >
-                                {[{ name: ALL_PROVIDERS, count: models.length, kind: undefined }, ...providers].map((entry) => {
-                                    const isActive = provider === entry.name;
-                                    return (
-                                        <Pressable
-                                            key={entry.name}
-                                            onPress={() => setProvider(entry.name)}
-                                            style={[styles.railItem, isActive && styles.railItemActive]}
-                                        >
-                                            {entry.name === ALL_PROVIDERS
-                                                ? <Ionicons name="apps-outline" size={18} color={theme.colors.textSecondary} />
-                                                : <ProviderIcon kind={entry.kind} size={18} />}
-                                            <Text
-                                                style={[styles.railLabel, isActive && styles.railLabelActive]}
-                                                numberOfLines={1}
-                                            >
-                                                {entry.name === ALL_PROVIDERS ? t('optionSheet.all') : entry.name}
-                                            </Text>
-                                            <Text style={styles.railCount}>{entry.count}</Text>
-                                        </Pressable>
-                                    );
-                                })}
-                            </ScrollView>
-                        )}
-
-                        <View style={styles.listColumn}>
-                            {showSearch && (
-                                <View style={styles.searchRow}>
-                                    <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
-                                    <TextInput
-                                        value={search}
-                                        onChangeText={setSearch}
-                                        onSubmitEditing={() => {
-                                            if (!custom) return;
-                                            onSubmitCustom?.(custom);
-                                            onClose();
-                                        }}
-                                        placeholder={searchPlaceholder ?? t('optionSheet.searchPlaceholder', { count: models.length })}
-                                        placeholderTextColor={theme.colors.textSecondary}
-                                        autoCapitalize="none"
-                                        autoCorrect={false}
-                                        returnKeyType={onSubmitCustom ? 'go' : 'search'}
-                                        style={styles.searchInput}
-                                    />
-                                </View>
-                            )}
-                            {models.length === 0 ? (
-                                <Text style={styles.emptyText}>{emptyText ?? t('agentInput.model.configureInCli')}</Text>
-                            ) : (
-                                <FlatList
-                                    data={visibleModels}
-                                    keyExtractor={(model) => model.key}
-                                    renderItem={({ item }) => renderRow(item)}
-                                    keyboardShouldPersistTaps="handled"
-                                    ListHeaderComponent={custom ? renderRow({ key: custom, name: t('optionSheet.useCustom', { value: custom }) }) : null}
-                                    ListEmptyComponent={custom ? null : <Text style={styles.emptyText}>{t('optionSheet.noResults')}</Text>}
-                                    ListFooterComponent={footer ? <>{footer}</> : null}
-                                    initialNumToRender={12}
-                                />
-                            )}
+                <View style={styles.overlay} onLayout={({ nativeEvent }) => setAvailableHeight(nativeEvent.layout.height)}>
+                    <TouchableWithoutFeedback onPress={onClose}>
+                        <View style={styles.backdrop} />
+                    </TouchableWithoutFeedback>
+                    <View style={[
+                        styles.sheet,
+                        maxWidth === undefined ? null : { maxWidth },
+                        // A body sheet has no rows to measure, so it grows with its content
+                        // and the inner ScrollView takes the cap instead.
+                        body
+                            ? { maxHeight: sheetCap }
+                            : {
+                                height: Math.min(
+                                    96 + (showSearch ? 48 : 0) + Math.max(models.length, 1) * ROW_HEIGHT,
+                                    sheetCap,
+                                ),
+                            },
+                        { paddingBottom: Math.max(12, safeArea.bottom) },
+                    ]}>
+                        <View style={styles.handleRow}>
+                            <View style={styles.handle} />
                         </View>
+                        {title !== '' && <Text style={styles.title}>{title}</Text>}
+
+                        {body ? (
+                            virtualizedBody
+                                ? <View style={{ height: Math.min(bodyCap, virtualizedBodyHeight ?? bodyCap) }}>{body}</View>
+                                : <ScrollView style={{ maxHeight: bodyCap }}>{body}</ScrollView>
+                        ) : (
+                        <View style={styles.body}>
+                            {providers.length > 1 && (
+                                <ScrollView
+                                    style={styles.rail}
+                                    contentContainerStyle={styles.railContent}
+                                    showsVerticalScrollIndicator={false}
+                                >
+                                    {[{ name: ALL_PROVIDERS, count: models.length, kind: undefined }, ...providers].map((entry) => {
+                                        const isActive = provider === entry.name;
+                                        return (
+                                            <Pressable
+                                                key={entry.name}
+                                                onPress={() => setProvider(entry.name)}
+                                                style={[styles.railItem, isActive && styles.railItemActive]}
+                                            >
+                                                {entry.name === ALL_PROVIDERS
+                                                    ? <Ionicons name="apps-outline" size={18} color={theme.colors.textSecondary} />
+                                                    : <ProviderIcon kind={entry.kind} size={18} />}
+                                                <Text
+                                                    style={[styles.railLabel, isActive && styles.railLabelActive]}
+                                                    numberOfLines={1}
+                                                >
+                                                    {entry.name === ALL_PROVIDERS ? t('optionSheet.all') : entry.name}
+                                                </Text>
+                                                <Text style={styles.railCount}>{entry.count}</Text>
+                                            </Pressable>
+                                        );
+                                    })}
+                                </ScrollView>
+                            )}
+
+                            <View style={styles.listColumn}>
+                                {showSearch && (
+                                    <View style={styles.searchRow}>
+                                        <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
+                                        <TextInput
+                                            value={search}
+                                            onChangeText={setSearch}
+                                            onSubmitEditing={() => {
+                                                if (!custom) return;
+                                                onSubmitCustom?.(custom);
+                                                onClose();
+                                            }}
+                                            placeholder={searchPlaceholder ?? t('optionSheet.searchPlaceholder', { count: models.length })}
+                                            placeholderTextColor={theme.colors.textSecondary}
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                            returnKeyType={onSubmitCustom ? 'go' : 'search'}
+                                            style={styles.searchInput}
+                                        />
+                                    </View>
+                                )}
+                                {models.length === 0 ? (
+                                    <Text style={styles.emptyText}>{emptyText ?? t('agentInput.model.configureInCli')}</Text>
+                                ) : (
+                                    <FlatList
+                                        data={visibleModels}
+                                        keyExtractor={(model) => model.key}
+                                        renderItem={({ item }) => renderRow(item)}
+                                        keyboardShouldPersistTaps="handled"
+                                        ListHeaderComponent={custom ? renderRow({ key: custom, name: t('optionSheet.useCustom', { value: custom }) }) : null}
+                                        ListEmptyComponent={custom ? null : <Text style={styles.emptyText}>{t('optionSheet.noResults')}</Text>}
+                                        ListFooterComponent={footer ? <>{footer}</> : null}
+                                        initialNumToRender={12}
+                                    />
+                                )}
+                            </View>
+                        </View>
+                        )}
                     </View>
-                    )}
                 </View>
-            </View>
             </KeyboardAvoidingView>
         </RNModal>
     );
