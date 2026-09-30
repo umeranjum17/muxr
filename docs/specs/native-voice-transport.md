@@ -26,7 +26,7 @@ Realtime voice currently routes microphone and playback through the React Native
 Provider credentials and product policy stay in muxr's host integration; `@byokit/realtime` owns provider sessions and signaling, and its provider-blind phone client owns the call: the WebRTC peer, reconnects and speech queueing. muxr supplies the phone client's stream, audio ports and app control. What changes is where the audio pump lives and how the phone connects:
 
 1. **Two provider transport kinds share one engine interface.** The `@byokit/realtime` engines use either `pcm-relay` to exchange bounded PCM through the generic stream or `webrtc` for authenticated signaling and control; the kit's phone client owns the peer connection and sends media directly to the provider. Both sit behind the one selected product surface (`voice.stream`), so provider selection remains dynamic and exactly one runs.
-2. **Native audio kernel owns WebRTC media.** The kernel starts the Android microphone foreground service before opening the WebRTC track, then owns capture, Opus, remote playback, interruption handling, and teardown. React Native coordinates bounded offer/answer signaling and receives only state, transcript, and error events.
+2. **The kit client owns the WebRTC call.** muxr's microphone port starts the Android foreground service before the kit opens the WebRTC track; muxr supplies capture, playback, and routing through audio ports, while the kit owns the peer, media lifecycle, reconnects, and speech queueing. React Native coordinates app control and receives state, transcript, and error events.
 3. **Credentials stay on the host.** The phone sends a bounded SDP offer through the existing encrypted stream. The host integration supplies credentials to the kit, which authenticates and returns the bounded SDP answer; provider credentials, account ids, private headers, and internal ids never reach the phone.
 
 ## Contract shape (public, bounded)
@@ -64,7 +64,7 @@ The kit's `webRtcPeer` uses `react-native-webrtc` on iOS too; only Android requi
 
 - No provider credentials in the app binary or on the phone beyond a short-lived scoped token.
 - No STT+LLM+TTS pipeline; speech-to-speech stays streaming-native.
-- No provider-supplied audio code: the transport is kernel-owned, and muxr's host integration supplies product policy and the descriptor to the kit.
+- No provider-supplied audio code: the kit owns the provider-blind phone transport, and muxr's host integration supplies product policy and the descriptor to the kit.
 
 ## Revisions
 
