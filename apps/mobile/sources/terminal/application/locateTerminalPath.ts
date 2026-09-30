@@ -1,4 +1,4 @@
-import { filesRead, filesRepos, sessionReadFile } from '@/catalog/ops';
+import { filesList, filesRead, filesRepos, sessionReadFile } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
 import { terminalPathCandidates } from '../domain/safeTerminalLink';
 
@@ -20,10 +20,12 @@ export interface TerminalPathTarget {
  */
 export async function locateTerminalPath(
     raw: string,
-    input: { sessionId: string; cwd?: string | null },
+    input: { sessionId: string; cwd?: string | null; observe?: boolean },
 ): Promise<TerminalPathTarget | null> {
     const cwd = input.cwd?.replace(/\/+$/, '');
     const hostPaths = terminalPathCandidates(raw).flatMap((candidate) => {
+        if (/^\$HOME(?=\/|$)/.test(candidate)) return [`~${candidate.slice(5)}`];
+        if (/^\$[A-Za-z_][A-Za-z0-9_]*(?:\/|$)/.test(candidate)) return [];
         if (/^[/~]/.test(candidate)) return [candidate];
         return cwd ? [`${cwd}/${candidate}`] : [];
     });
@@ -39,6 +41,27 @@ export async function locateTerminalPath(
         const repo = repoOf(path);
         return repo === undefined ? { kind, path } : { kind, path, repo };
     };
+    if (input.observe) {
+        const home = cwd?.match(/^(\/(?:Users|home)\/[^/]+)/)?.[1];
+        for (const hostPath of hostPaths) {
+            const absolutePath = hostPath.startsWith('~/') && home
+                ? `${home}/${hostPath.slice(2)}`
+                : hostPath;
+            const repo = repoOf(absolutePath);
+            if (repo === undefined) continue;
+            if (await filesRead(input.sessionId, { root: repo.root, path: repo.relative }).then(() => true, () => false)) {
+                return target('file', absolutePath);
+            }
+            const parent = repo.relative.split('/').slice(0, -1).join('/');
+            const name = repo.relative.split('/').pop();
+            const listing = await filesList(input.sessionId, { root: repo.root, ...(parent === '' ? {} : { path: parent }) }).catch(() => null);
+            if (listing !== null && (repo.relative === '' || repo.relative === '.'
+                || listing.tree.some((node) => node.name === name && node.kind === 'folder'))) {
+                return target('folder', absolutePath);
+            }
+        }
+        return null;
+    }
     let longest: string | undefined;
     for (const hostPath of hostPaths) {
         const listing = await sync.request('machine.listDir', { path: hostPath });

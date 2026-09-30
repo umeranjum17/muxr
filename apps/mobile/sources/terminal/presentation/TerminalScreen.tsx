@@ -866,8 +866,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
      *  its folder. Files browses the repositories agents have open; a file
      *  elsewhere opens in the file viewer instead. */
     const openTerminalPath = React.useCallback((raw: string) => {
-        locateTerminalPath(raw, { sessionId: props.id, cwd: paneCwd }).then((target) => {
+        locateTerminalPath(raw, { sessionId: props.id, cwd: paneCwd, observe: authority === 'observe' }).then((target) => {
             if (target === null) {
+                if (authority === 'observe') {
+                    Modal.alert('Not in Files', `Files browses the repositories your agents have open, and ${raw} is outside them.`);
+                    return;
+                }
                 Modal.alert('Could not open the path', 'This pane has no working directory yet to read it from.');
                 return;
             }
@@ -884,18 +888,18 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 } });
                 return;
             }
-            if (target.kind === 'file') {
+            if (target.kind === 'file' && authority !== 'observe') {
                 router.push(openFileViewer({ sessionId: props.id, path: target.path }));
                 return;
             }
             Modal.alert('Not in Files', `Files browses the repositories your agents have open, and ${target.path} is outside them.`);
         }, (error: unknown) => Modal.alert('Could not open the path', humanError(error).message));
-    }, [props.id, paneCwd, filesPaneId]);
+    }, [props.id, paneCwd, filesPaneId, authority]);
     const linkActions = React.useMemo<LinkAction[]>(() => {
         const url = linkMenu?.url ?? '';
         const safe = safeTerminalLinkUrl(url);
-        // Opening a path asks the host where it leads, which takes control.
-        const path = safe === null && canControl && isTerminalPath(url);
+        // Path lookup is available to either Files-capable device authority.
+        const path = safe === null && !authorityLoading && authority !== null && isTerminalPath(url);
         return [
             ...(safe === null ? [] : [{ id: 'open', label: 'Open', icon: 'open-outline' as const, run: () => { void openExternalUrl(safe); } }]),
             ...(path ? [{ id: 'open', label: 'Open', icon: 'folder-open-outline' as const, run: () => openTerminalPath(url) }] : []),
@@ -904,7 +908,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // would land the link in a draft nobody can see.
             ...(canControl ? [{ id: 'insert', label: 'Insert into the prompt', icon: 'return-down-forward-outline' as const, note: INSERT_ONLY_LABEL, run: () => insertDraftRef.current(url) }] : []),
         ];
-    }, [canControl, linkMenu, openTerminalPath]);
+    }, [authority, authorityLoading, canControl, linkMenu, openTerminalPath]);
     const compactLinkMenu = linkMenu !== null && !terminalLinkCardFits(terminalBox?.height, linkActions.length);
     const visibleMenu: SessionMenu | null = menu ?? (compactLinkMenu && linkMenu !== null ? {
         title: displayLink(linkMenu.url, 72),
