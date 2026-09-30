@@ -6,7 +6,7 @@
     "type": "module",
     "main": "./dist/main.js",
     "dependencies": {
-        "@byokit/accounts": "0.6.0",
+        "@byokit/accounts": "0.8.0",
         "@byokit/herdr": "0.1.2",
         "@byokit/link": "0.3.2",
         "@byokit/relay": "0.2.1",

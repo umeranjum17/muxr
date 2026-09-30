@@ -69,10 +69,12 @@ protocol acknowledgement filler is disabled; native speech/audio is unchanged.
 The kit still has no explicit Codex CLI folder adapter: its `fileStore` uses
 Pi credentials and `keepFresh` uses Pi OAuth. The adapter therefore retains
 owner-only Codex folder reads, app-server refresh and login status, using the
-kit's `claims` to decode token claims; realtime SDP signaling also remains here
+kit's `claims` to decode token claims. muxr calls only `claims` and `respond`
+from accounts; neither host nor mobile creates an accounts credential store.
+Upgrading to accounts 0.8.0 therefore requires no store migration or discarded
+sign-ins. Codex owns its existing login file. Realtime SDP signaling also remains here
 because the kit has no realtime-calls helper. A
 small fetch guard sets `parallel_tool_calls: false` and retains response bounds,
 redirect rejection, reader cleanup and rejection of incomplete planning
-responses (which the kit otherwise treats
-as success). The kit waits for EOF and does not cancel the reader on parse errors;
+responses (also rejected by accounts 0.8.0). The kit waits for EOF and does not cancel the reader on parse errors;
 the guard closes it at completion or failure.

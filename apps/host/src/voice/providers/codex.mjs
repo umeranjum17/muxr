@@ -116,7 +116,7 @@ async function boundedResponseBody(response) {
     return Buffer.concat(chunks).toString('utf8');
 }
 
-// Kit gap (@byokit/accounts 0.6.0): fileStore is Pi-shaped and keepFresh uses
+// Kit gap (@byokit/accounts 0.8.0): fileStore is Pi-shaped and keepFresh uses
 // Pi OAuth, not an explicit Codex CLI folder/app-server. Keep only that adapter
 // here until the kit can own the passed CODEX_HOME without migrating its store.
 let authRefresh;
