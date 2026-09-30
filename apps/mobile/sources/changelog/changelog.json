@@ -28,6 +28,10 @@
                 {
                     "title": "A private link to your computer",
                     "detail": "Pair with a computer and relay you or someone you trust operates. Confirm the matching words before approving the encrypted link; no muxr-operated account service or relay is required."
+                },
+                {
+                    "title": "Guided setup after installation",
+                    "detail": "Installing muxr on the computer opens guided setup directly, so you can connect your phone without finding a separate setup command."
                 }
             ],
             "fixes": [
@@ -44,8 +48,8 @@
                     "detail": "The phone no longer shows a spurious Connecting state while its link is healthy. Pairing and version mismatches also explain what needs attention."
                 },
                 {
-                    "title": "Claude Code follows your finger",
-                    "detail": "Terminal scrolling includes the landed drag and fling repairs for Claude Code. A further repair for Latest across terminal kinds is still awaiting merge and is not included."
+                    "title": "Scroll and return to the latest output",
+                    "detail": "Claude Code follows your finger when you drag or fling. Latest returns to the bottom for every agent kind on Android and web, including while output is streaming."
                 },
                 {
                     "title": "Clearer errors and desktop controls",
@@ -84,7 +88,6 @@
             ],
             "knownLimits": [
                 "The phone app and computer must update together: the computer bundles desklink 0.2, which needs the matching new app. Install the phone candidate first, then update the computer before reconnecting.",
-                "Latest / jump to the bottom can still fail across terminal kinds. The further repair has not merged and is not part of this source.",
                 "A self-hosted computer and relay are required. Installations from before the private-link cutover must update both products and pair again once.",
                 "The prebuilt desktop engine needs Linux x64 with glibc 2.36 or newer; Arm hosts need a source build. Viewing and control work on Android and web; native iOS is not supported yet. Wayland input control needs a one-time permission.",
                 "Transient blank terminal frames around an explicit keyboard resize remain a known limitation.",
