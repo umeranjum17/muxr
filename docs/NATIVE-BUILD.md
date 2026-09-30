@@ -63,10 +63,11 @@ The development host uses a paired self-host link identity; pair the phone with
 panes, not a fake terminal.
 Herdr and its installed registrations remain shared: don't close or alter
 unrelated panes. The development host projects already-registered checkout-local
-plugins onto this checkout's local plugin paths for UI projections and RPC scripts. It does not register, enable or relink installed plugins, and
-unrelated plugins pass through unchanged. Native Herdr actions still use their
-installed registrations. Terminal binary transport connects directly to Herdr
-through the private socket directory's sibling link.
+plugins onto this checkout's local plugin paths for UI projections and RPC
+scripts. It does not register, enable or relink installed plugins, and unrelated
+plugins pass through unchanged. Native Herdr actions still use their installed
+registrations. Terminal binary transport connects directly to Herdr through the
+private socket directory's sibling link.
 
 The same `yarn dev` serves a browser preview of the web build at
 `http://localhost:8081` using isolated development services (loopback

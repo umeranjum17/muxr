@@ -437,6 +437,12 @@ setInterval(() => {}, 1000);
         process.stdout.write(`voice link round trip: ${voiceLinkRttMs}ms\n`);
         expect(voiceLinkRttMs).toBeLessThan(5_000);
 
+        // The authenticated link no longer exposes the retired plugin stream
+        // operation; a client that still attempts it is rejected by the host.
+        await expect(link.stream('plugin' as never, {
+            pluginId: 'fixture', manifestHash: 'fixture-hash', contributionId: 'voice', channel: 'rs_plugin_test',
+        } as never)).rejects.toThrow(/isn't allowed/i);
+
         expect(linkAttachMs).toBeLessThan(5_000);
 
         link.stop();
