@@ -1,0 +1,223 @@
+{
+    "about": "Settings measured for the dictation report. `whisper` holds whisper.rn transcribeData options (audioCtx \"fit\" = the app's audioContextFor, sized to the audio plus audioCtxMargin frames); `prompt` there is a fixed vocabulary hint. A candidate with `live` replays the app's live reading loop (localTranscription.ts), otherwise the whole recording is read once after stop. `final` overrides `whisper` for one last reading at stop.",
+    "candidates": {
+        "app-now": {
+            "whisper": {
+                "language": "auto",
+                "maxThreads": 6,
+                "audioCtx": "fit",
+                "tokenTimestamps": true,
+                "maxLen": 60
+            },
+            "live": {
+                "readEverySeconds": 1,
+                "keepAfterSeconds": 6,
+                "silentLevel": 0.06,
+                "keptPromptChars": 200
+            }
+        },
+        "app-now-en": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit",
+                "tokenTimestamps": true,
+                "maxLen": 60
+            },
+            "live": {
+                "keepAfterSeconds": 6
+            }
+        },
+        "app-en-no-kept-prompt": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit",
+                "tokenTimestamps": true,
+                "maxLen": 60
+            },
+            "live": {
+                "keepAfterSeconds": 6,
+                "keptPromptChars": 0
+            }
+        },
+        "app-en-natural-segments": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit"
+            },
+            "live": {
+                "keepAfterSeconds": 6
+            }
+        },
+        "live-reread-all-en": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit"
+            },
+            "live": {
+                "keepAfterSeconds": 100000
+            }
+        },
+        "live-reread-all-en-beam5-final": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit"
+            },
+            "live": {
+                "keepAfterSeconds": 100000
+            },
+            "final": {
+                "beamSize": 5
+            }
+        },
+        "live-reread-all-en-beam5-final-vocab": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit",
+                "prompt": "muxr, Herdr, Codex, Claude, BYOKit, worktree, npm."
+            },
+            "live": {
+                "keepAfterSeconds": 100000
+            },
+            "final": {
+                "beamSize": 5
+            }
+        },
+        "whole-sep20-beam5-auto-full": {
+            "whisper": {
+                "language": "auto",
+                "maxThreads": 4,
+                "beamSize": 5
+            }
+        },
+        "whole-sep16-beam5-en-full": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 4,
+                "beamSize": 5
+            }
+        },
+        "whole-greedy-en-fit": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit"
+            }
+        },
+        "whole-beam5-en-fit": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit",
+                "beamSize": 5
+            }
+        },
+        "whole-beam5-en-full-t6": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "beamSize": 5
+            }
+        },
+        "whole-beam5-en-fit-vocab": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit",
+                "beamSize": 5,
+                "prompt": "muxr, Herdr, Codex, Claude, BYOKit, worktree, npm."
+            }
+        },
+        "app-en-full-ctx": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "tokenTimestamps": true,
+                "maxLen": 60
+            },
+            "live": {
+                "keepAfterSeconds": 6
+            }
+        },
+        "app-en-quiet-gate": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit",
+                "tokenTimestamps": true,
+                "maxLen": 60
+            },
+            "live": {
+                "keepAfterSeconds": 6,
+                "silentLevel": 0.01
+            }
+        },
+        "live-reread-all-en-beam5-full-final": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit"
+            },
+            "live": {
+                "keepAfterSeconds": 100000
+            },
+            "final": {
+                "beamSize": 5,
+                "audioCtx": 0
+            }
+        },
+        "whole-greedy-en-full-t6": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6
+            }
+        },
+        "whole-beam5-en-full-vocab": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "beamSize": 5,
+                "prompt": "muxr, Herdr, Codex, Claude, BYOKit, worktree, npm."
+            }
+        },
+        "whole-greedy-en-full-vocab": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "prompt": "muxr, Herdr, Codex, Claude, BYOKit, worktree, npm."
+            }
+        },
+        "live-reread-all-en-greedy-full-final-vocab": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit"
+            },
+            "live": {
+                "keepAfterSeconds": 100000
+            },
+            "final": {
+                "audioCtx": 0,
+                "prompt": "muxr, Herdr, Codex, Claude, BYOKit, worktree, npm."
+            }
+        },
+        "live-reread-all-en-greedy-full-final": {
+            "whisper": {
+                "language": "en",
+                "maxThreads": 6,
+                "audioCtx": "fit"
+            },
+            "live": {
+                "keepAfterSeconds": 100000
+            },
+            "final": {
+                "audioCtx": 0
+            }
+        }
+    }
+}

@@ -1,0 +1,85 @@
+{
+    "about": "Dictation fixtures: 16 kHz mono PCM16 WAV plus the text the speaker meant. `speak` is what the TTS voice was given when a written word is not how people say it. See ../README.md for how they were made.",
+    "fixtures": [
+        {
+            "id": "clean-short",
+            "kind": "clean",
+            "text": "Open the settings and turn on dark mode."
+        },
+        {
+            "id": "clean",
+            "kind": "clean",
+            "text": "Please check why the login screen takes so long to load on older phones, and fix it if you can."
+        },
+        {
+            "id": "noisy-hiss",
+            "kind": "noisy",
+            "text": "Can you look at the failing build and tell me which test broke after the last change?",
+            "noise": {
+                "type": "pink",
+                "snrDb": 10
+            }
+        },
+        {
+            "id": "noisy-babble",
+            "kind": "noisy",
+            "text": "Write a short summary of what changed today and send it to the team channel.",
+            "pitch": 0.88,
+            "noise": {
+                "type": "babble",
+                "snrDb": 8
+            }
+        },
+        {
+            "id": "fast",
+            "kind": "fast",
+            "text": "Stop what you are doing, revert the last commit, and run the whole test suite again before pushing.",
+            "lengthScale": 0.7
+        },
+        {
+            "id": "technical",
+            "kind": "technical",
+            "text": "Run npm install, then rebase this worktree onto main, fix the merge conflicts, and push the branch.",
+            "speak": "Run N P M install, then rebase this worktree onto main, fix the merge conflicts, and push the branch."
+        },
+        {
+            "id": "names",
+            "kind": "names",
+            "text": "Ask Claude and Codex to check the muxr host, then restart Herdr and update BYOKit to the latest version.",
+            "speak": "Ask Claude and Codex to check the muxer host, then restart Herder and update B Y O Kit to the latest version.",
+            "pitch": 0.88
+        },
+        {
+            "id": "long",
+            "kind": "long",
+            "text": "I want to change how the terminal screen handles long output. Right now when an agent prints a lot of text, the screen jumps back to the top and I lose my place. Keep the scroll position where it was unless I am already at the bottom. Also add a small button that takes me back to the latest output, and make sure it works on both phones and tablets.",
+            "pitch": 0.88
+        },
+        {
+            "id": "long-names",
+            "kind": "long",
+            "text": "Tell Codex to open a pull request for the dictation fix and ask Claude to review it. If the checks pass, merge it into main and clean up the worktree. Then send me a note in muxr with the link.",
+            "speak": "Tell Codex to open a pull request for the dictation fix and ask Claude to review it. If the checks pass, merge it into main and clean up the worktree. Then send me a note in muxer with the link."
+        },
+        {
+            "id": "quiet",
+            "kind": "quiet",
+            "text": "Show me the last error from the build log and explain what it means.",
+            "speechRmsDb": -45
+        },
+        {
+            "id": "reverb",
+            "kind": "noisy",
+            "text": "Move the save button to the top of the screen so it is easier to reach.",
+            "reverbS": 0.5,
+            "pitch": 0.88
+        },
+        {
+            "id": "pauses",
+            "kind": "pauses",
+            "text": "First, pull the latest changes. Then run the tests. If anything fails, send me the output.",
+            "pause": 1.2,
+            "lengthScale": 1.1
+        }
+    ]
+}

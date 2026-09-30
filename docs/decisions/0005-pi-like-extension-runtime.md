@@ -199,11 +199,11 @@ The mobile-facing requests shipped as `plugin.list`, `plugin.manifest`, `plugin.
 
 ## Amendment 2026-08-15 (primitives)
 
-Native contributions name a **primitive** (`item-list`, `collection`, `icon-button`, `realtime-session-overlay`, …), never a plugin id. Boxed packages in `plugins/` are ordinary plugins that compose those widgets. Feature-named renderers (`muxr.attachments`, `muxr.inbox-content`, …) are removed. Attachments and changes list through `plugin.call`; the kernel does not push those catalogs onto the phone.
+Native contributions name a **primitive** (`item-list`, `collection`, `icon-button`, …), never a plugin id. Boxed packages in `plugins/` are ordinary plugins that compose those widgets. Feature-named renderers (`muxr.attachments`, `muxr.inbox-content`, …) are removed. Attachments and changes list through `plugin.call`; the kernel does not push those catalogs onto the phone.
 
 ## Amendment 2026-08-15 (slots are the UI)
 
-`muxr-ui.json` is the whole phone UI for a plugin: slot + primitive + parameters (`source`, `capability`, `title`). The phone translates that document. Heavy work is a host RPC or persistent stream adapter. Primitives are slot-agnostic and may repeat in one slot. `voice.session` resolves a provider-neutral `host.stream`; the phone knows only generic audio/control/state/transcript frames and compiled transport capabilities such as PCM streaming or WebRTC. Provider URLs, authentication, models, prompts, tools, codecs, and events remain backend plugin policy. `session.changes` / `session.attachments` events and the host ChangeTracker are gone.
+`muxr-ui.json` is the whole phone UI for a plugin: slot + primitive + parameters (`source`, `capability`, `title`). The phone translates that document. Heavy plugin work is a host RPC. Primitives are slot-agnostic and may repeat in one slot. For the current manifest contract and legacy stream handling, see [the extension guide](../PLUGINS.md); realtime voice is owned by [Voice setup](../VOICE-SETUP.md). `session.changes` / `session.attachments` events and the host ChangeTracker are gone.
 
 ## Amendment 2026-09-20 (Shared Artifacts)
 

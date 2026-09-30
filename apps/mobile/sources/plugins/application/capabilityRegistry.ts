@@ -1,22 +1,21 @@
-import type { PluginManifestV1, PluginPrimitive } from '@trymuxr/contract';
 import { wakeAndReport } from '@/watch/wakeAndReport';
 import { startRealtimeCapability } from '@/conversation';
-import { waitForPrimitive } from './primitivePresence';
+import { type MountedSurface, waitForPrimitive } from './primitivePresence';
 
 /** Input a capability receives when an event trigger fires. */
 export type CapabilityInput = { sessionId: string; status: string; from: string; pane?: string };
 
 type CapabilityRegistration = {
     run: (input: CapabilityInput) => void | Promise<void>;
-    /** Product surface the plugin must declare; the capability also waits for it to mount. */
-    requiredPrimitive?: PluginPrimitive;
+    /** Product surface that must mount before the effect runs. */
+    requiredPrimitive?: MountedSurface;
 };
 
 /**
  * Effects a manifest can ask for on the phone. Each name is a thin adapter over
  * a named use case: speech.wake → ReportAgentOutcome, voice.start → FocusAgent
  * then StartRealtimeConversation. Downloaded manifests can reference behaviour,
- * never introduce it or bypass its required native surface.
+ * never introduce it or bypass product surface readiness.
  */
 const registry: Record<string, CapabilityRegistration> = {
     'speech.wake': { run: wakeAndReport, requiredPrimitive: 'realtime-session-overlay' },
@@ -26,11 +25,9 @@ const registry: Record<string, CapabilityRegistration> = {
     },
 };
 
-export function capabilityFor(name: string, manifest: PluginManifestV1): ((input: CapabilityInput) => Promise<void>) | undefined {
+export function capabilityFor(name: string): ((input: CapabilityInput) => Promise<void>) | undefined {
     if (!Object.prototype.hasOwnProperty.call(registry, name)) return undefined;
     const registration = registry[name]!;
-    if (registration.requiredPrimitive !== undefined && !manifest.contributions.some((contribution) =>
-        'type' in contribution && contribution.type === 'native' && contribution.primitive === registration.requiredPrimitive)) return undefined;
     return invoke(registration);
 }
 
@@ -46,7 +43,7 @@ export function productCapabilityFor(name: string): ((input: CapabilityInput) =>
 function invoke(registration: CapabilityRegistration): (input: CapabilityInput) => Promise<void> {
     return async (input) => {
         if (registration.requiredPrimitive !== undefined && !await waitForPrimitive(registration.requiredPrimitive)) {
-            throw new Error(`Required plugin surface did not mount: ${registration.requiredPrimitive}`);
+            throw new Error(`Required product surface did not mount: ${registration.requiredPrimitive}`);
         }
         await registration.run(input);
     };

@@ -48,4 +48,4 @@ export { openTerminal, closeTerminal } from './application/openTerminal.js';
 export { agentToolPath, createHerdrSessionSource, type CreateHerdrSessionSourceOptions } from './infrastructure/herdrSessionSource.js';
 export { assertFakeSourceCoversContract, createFakeSessionSource } from './infrastructure/fakeSessionSource.js';
 export { TerminalManager, type TerminalManagerOptions, type TerminalOpenOptions } from './infrastructure/terminalManager.js';
-export { PluginStreamManager } from './infrastructure/pluginStreamManager.js';
+export { VoiceStreamManager } from './infrastructure/voiceStreamManager.js';

@@ -2,16 +2,13 @@ import {
     newRealtimeChannel,
     parseRealtimeClientFrame,
     parseRealtimeHostFrame,
-    type PluginStreamCapability,
     type RealtimeClientFrame,
     type RealtimeHostFrame,
 } from '@trymuxr/contract';
 import { getCachedConnectionSettings } from '@/connection';
-import { getCachedHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
-import { sync } from '@/catalog/sync';
-import { pluginSnapshot, refreshPlugins } from './application/pluginStore';
+import { sync, type MachineTransportGrant } from '@/catalog/sync';
 
-export interface PluginStream {
+export interface RealtimeStream {
     onFrame: (listener: (frame: RealtimeHostFrame) => void) => () => void;
     onClose: (listener: (reason?: string) => void) => () => void;
     /** Begin delivery after listeners are installed. Safe and idempotent. */
@@ -35,8 +32,7 @@ const MAX_SEND_BUFFER_BYTES = 512 * 1024;
 
 /**
  * Everything reconnect may use, captured once before the call opens. The
- * transport fields are shared by every realtime stream; a plugin stream adds
- * the catalog identity it must echo back to the host.
+ * transport pins keep reconnect on the same authenticated machine.
  */
 export interface RealtimeStreamSnapshot {
     capability: string;
@@ -44,23 +40,17 @@ export interface RealtimeStreamSnapshot {
     relayUrl: string;
     mode: 'hosted';
     token: string;
-    grant?: StoredHostedGrant;
+    grant?: MachineTransportGrant;
 }
 
-export interface PluginStreamSnapshot extends RealtimeStreamSnapshot {
-    pluginId: string;
-    manifestHash: string;
-    contributionId: string;
-}
-
-/** Machine, relay and grant pins shared by plugin and product voice streams. */
+/** Machine, relay and grant pins for product voice streams. */
 export async function captureStreamTransport(capability: string, machineId: string): Promise<RealtimeStreamSnapshot> {
     const settings = { ...getCachedConnectionSettings() };
     if (settings.machineId !== machineId) throw new Error('End voice before switching computers.');
-    const cachedGrant = getCachedHostedGrant(machineId);
+    const cachedGrant = sync.machineTransportGrant(machineId);
     if (cachedGrant === undefined) throw new Error('stream: hosted machine grant is missing');
     if (getCachedConnectionSettings().machineId !== machineId) throw new Error('End voice before switching computers.');
-    const grant = JSON.parse(JSON.stringify(cachedGrant)) as StoredHostedGrant;
+    const grant = JSON.parse(JSON.stringify(cachedGrant)) as MachineTransportGrant;
     if (grant.expiresAt <= Date.now()) throw new Error('stream: device grant expired; pair again');
     return {
         capability,
@@ -72,53 +62,13 @@ export async function captureStreamTransport(capability: string, machineId: stri
     };
 }
 
-export async function capturePluginStreamSnapshot(capability: string, machineId: string): Promise<PluginStreamSnapshot> {
-    const transport = await captureStreamTransport(capability, machineId);
-    await refreshPlugins();
-    if (getCachedConnectionSettings().machineId !== machineId) throw new Error('End voice before switching computers.');
-    const matches = pluginSnapshot().filter(({ summary }) => summary.capabilities[capability] !== undefined);
-    if (matches.length === 0) throw new Error(`${capability} plugin is unavailable or not approved`);
-    if (matches.length > 1) throw new Error(`${capability} is claimed by multiple enabled plugins; disable all but one`);
-    const { summary, manifest } = matches[0]!;
-    const contributionId = summary.capabilities[capability]!;
-    const contribution = manifest.contributions.find((candidate): candidate is PluginStreamCapability =>
-        candidate.slot === 'host.stream' && candidate.id === contributionId);
-    if (contribution === undefined) throw new Error(`${capability} capability is not a host.stream contribution`);
-    return { ...transport, pluginId: summary.pluginId, manifestHash: summary.manifestHash, contributionId };
-}
-
 /** Refresh only the pinned machine's grant generation; never re-read the active machine or provider. */
-export async function refreshPluginStreamSnapshot<T extends RealtimeStreamSnapshot>(snapshot: T): Promise<T> {
+export async function refreshRealtimeStreamSnapshot<T extends RealtimeStreamSnapshot>(snapshot: T): Promise<T> {
     if (getCachedConnectionSettings().machineId !== snapshot.machineId) throw new Error('End voice before switching computers.');
-    if (snapshot.grant !== undefined && getCachedHostedGrant(snapshot.machineId)?.deviceId !== snapshot.grant.deviceId) {
+    if (snapshot.grant !== undefined && sync.machineTransportGrant(snapshot.machineId)?.deviceId !== snapshot.grant.deviceId) {
         throw new Error('stream: pinned machine grant changed; pair again');
     }
     return snapshot;
-}
-
-/** Resolve a semantic stream capability without ever naming a provider/plugin id. */
-export async function openPluginStream(
-    capability: string,
-    options: {
-        sessionId?: string;
-        machineId?: string;
-        snapshot?: PluginStreamSnapshot;
-    },
-): Promise<PluginStream> {
-    const snapshot = options.snapshot ?? await capturePluginStreamSnapshot(
-        capability,
-        options.machineId ?? getCachedConnectionSettings().machineId,
-    );
-    return openRealtimeStream(capability, {
-        ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
-        snapshot,
-        openStream: (params) => sync.openPluginStream({
-            pluginId: snapshot.pluginId,
-            manifestHash: snapshot.manifestHash,
-            contributionId: snapshot.contributionId,
-            ...params,
-        }) ?? Promise.resolve(undefined),
-    });
 }
 
 /**
@@ -132,7 +82,7 @@ export async function openRealtimeStream(
         snapshot?: RealtimeStreamSnapshot;
         openStream: (params: { channel: string; sessionId?: string }) => Promise<RealtimeStreamTransport | undefined>;
     },
-): Promise<PluginStream> {
+): Promise<RealtimeStream> {
     const snapshot = options.snapshot ?? await captureStreamTransport(
         capability,
         options.machineId ?? getCachedConnectionSettings().machineId,
