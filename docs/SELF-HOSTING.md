@@ -13,16 +13,17 @@ muxr
 ```
 
 See [CLI startup guidance](../README.md#install) for first-time and later launches.
-The interactive onboarding inspects the machine without changing it and offers
-the [connection route choices](#reaching-the-relay-from-your-phone). You then choose
-whether to host the control/view-only web client and sync agent integrations.
+The interactive onboarding inspects the computer without changing it. Choose
+how your phone connects in the [route picker](#reaching-the-relay-from-your-phone),
+then whether to host the control/view-only web client, what to pair, and whether
+to set up **Agent status updates**.
 After a final **Apply setup** confirmation, muxr
 starts the selected relay and host, then:
 
 1. Stores machine authority and link state under `~/.muxr`.
 2. Runs the selected phone, browser, or sequential pairing flow.
 3. Reports the selected route, exact `selfhost.json` path, relay URL, web URL when enabled, service health,
-   pairing result, and integrations. Credentials and internal IDs are
+   pairing result, and agent status updates. Credentials and internal IDs are
    never included in this final summary.
 
 muxr never installs skills or edits AGENTS/CLAUDE instruction files. Agents use
@@ -43,13 +44,21 @@ automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
 
 ## Reaching the relay from your phone
 
-Interactive `muxr setup` shows one recommended route first. **Other ways**
-opens all six routes with their availability and requirements. The current
-healthy route is recommended; otherwise setup prefers Tailscale Serve when
-available, then direct Tailscale if Serve is proven unavailable, a detected
-private overlay, an installed temporary tunnel, or same Wi-Fi. Your own server
-remains selectable when you already have a stable WSS endpoint. Unavailable
+Interactive `muxr setup` shows all six routes together, each with an explanatory
+sentence and exactly one **Recommended** tag: Same Wi-Fi, Tailscale — works
+anywhere (Serve), Tailscale — direct (phone app only), an existing private
+network, a temporary public link (Cloudflare), and your own server. Unavailable
 routes explain what to install or connect before retrying.
+
+The healthy current route is recommended if it is still selectable. Otherwise,
+connected Tailscale is preferred, using direct Tailscale when Serve is proven
+disabled or occupied. Without connected Tailscale, setup prefers a detected
+private network, then ready Same Wi-Fi, then an installed Tailscale route that
+can connect during **Apply setup**, then an available Cloudflare tunnel. If
+none of those is available, **Your own server** is recommended; you must supply
+an existing secure `wss://` endpoint. If another VPN is active on your phone,
+the picker advises Same Wi-Fi with that VPN's allow-local-network option, or
+pausing the VPN to use Tailscale.
 Automation uses:
 
 | Flag | What happens |
@@ -89,7 +98,7 @@ Connection & updates also exports and installs the login key. The private key's 
 
 The first successful SSH connection pins the SSH server's `SHA256:` host-key fingerprint on this device. A changed fingerprint blocks the new connection and tells you to review the machine rather than silently trusting a replacement; an already-live tunnel is not closed by this check. The SSH user must be allowed to log in and the muxr relay must be listening on the configured loopback port. PWA and iPhone builds do not show this control because they do not have this native SSH implementation; use Tailscale, a private network, Same Wi-Fi, or your own stable WSS endpoint there.
 
-SSH forwards the loopback relay for pairing and control; it does not authorize a device, replace a grant, or remove E2EE. The desktop picture and controls use WebRTC, not that relay: directly when the phone can reach the computer, or over TCP through a second forward on the same SSH connection when it cannot, so a phone that can reach only SSH (port 22) still views and controls the desktop. Tailscale Serve remains the recommended default because it needs less per-device credential setup and reconnects without a separate SSH session.
+SSH forwards the loopback relay for pairing and control; it does not authorize a device, replace a grant, or remove E2EE. The desktop picture and controls use WebRTC, not that relay: directly when the phone can reach the computer, or over TCP through a second forward on the same SSH connection when it cannot, so a phone that can reach only SSH (port 22) still views and controls the desktop. Tailscale needs less per-device credential setup and reconnects without a separate SSH session; see the [route picker](#reaching-the-relay-from-your-phone) for its recommendation policy.
 
 ### Remote desktop on a cloud server
 
