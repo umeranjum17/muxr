@@ -172,7 +172,8 @@ it('keeps selected Codex sign-ins separate through switches and failed reads', a
     expect((await collectUsage({ provider: 'codex' }, { ...env, CODEX_HOME: home })).limits.windows.map((window) => window.used)).toEqual([25]);
     writeFileSync(join(second, 'fail'), '');
     env.MUXR_USAGE_NOW = new Date(Date.now() + 120_000).toISOString();
-    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
+    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, undefined]);
+    expect((await collectUsage({ provider: 'codex', refresh: true }, { ...selected, MUXR_USAGE_NOW: env.MUXR_USAGE_NOW })).limits.windows.map((window) => window.used)).toEqual([90]);
     writeFileSync(join(second, 'auth.json'), JSON.stringify({ tokens: { account_id: 'fixture-new-account' } }));
     const failed = await collectUsage({ provider: 'codex', refresh: true }, { ...selected, MUXR_USAGE_NOW: env.MUXR_USAGE_NOW });
     expect(failed.limits.windows).toEqual([]);
