@@ -249,7 +249,7 @@ describe('on-device dictation flow', () => {
         expect(mocks.transcribe).toHaveBeenCalledTimes(readings + 1);
         expect(mocks.transcribe.mock.calls.at(-1)![1]).not.toHaveProperty('audioCtx');
         expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en' });
-        expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(35.5 * 32_000);
+        expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(444 * 2_560);
         expect(appended.at(-1)).toBe('hello one two three 4 five six seven eight');
         expect(api!.live).toBe('');
         expect(api!.transcribing).toBe(false);
