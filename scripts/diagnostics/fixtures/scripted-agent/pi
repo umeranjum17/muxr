@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Scripted lab agent for checkVoiceLoopLatency.mjs. Named `pi` so Herdr detects it
+# as an agent; it reports its own lifecycle and answers every prompt after a
+# fixed delay, stamping the reply with the epoch milliseconds it printed at.
+# Usage (inside a lab pane): pi <herdr-lab-wrapper> <reply-delay-seconds>
+herdr="$1"; delay="${2:-2}"; seq=1
+report() { "$herdr" pane report-agent --source muxr-lab --agent pi --state "$1" --seq "$seq" "$HERDR_PANE_ID" >/dev/null 2>&1; seq=$((seq + 1)); }
+report idle
+printf 'scripted agent ready\n> '
+while IFS= read -r line; do
+    [ -z "$line" ] && { printf '> '; continue; }
+    report working
+    printf 'working on it...\n'
+    sleep "$delay"
+    printf 'REPLY-%s: done\n> ' "$(date +%s%3N)"
+    report idle
+done

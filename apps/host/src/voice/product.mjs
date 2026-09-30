@@ -42,7 +42,7 @@ export async function voiceProviderDescribe(id) {
     const selected = selectedProvider();
     const secret = secretFor(provider);
     const readiness = secret === undefined
-        ? (await import(`./providers/${provider.id}.mjs`)).status()
+        ? await (await import(`./providers/${provider.id}.mjs`)).status()
         : await secret.statusPayload();
     return {
         ...providerEntry(provider, selected),
@@ -57,7 +57,7 @@ export async function voiceStatus() {
     // An adapter without a key store authenticates some other way and owns its
     // own check; loading it is only worth the import cost in that case.
     const status = secret === undefined
-        ? (await import(`./providers/${provider.id}.mjs`)).status()
+        ? await (await import(`./providers/${provider.id}.mjs`)).status()
         : await secret.statusPayload();
     return { ...status, providerId: provider.id, providerName: provider.name, keyLabel: provider.keyLabel };
 }
