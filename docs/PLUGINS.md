@@ -646,7 +646,7 @@ The backend reads fresh Herdr topology before every mutation. Pane close needs n
 
 A stream process receives one private `realtime.open` line followed by bounded provider-neutral NDJSON frames. A PCM provider exchanges ready/audio/state/transcript/control frames and keeps its provider socket on the host. A WebRTC signaling provider exchanges bounded offer/answer SDP plus opaque data-channel control while the mobile kernel owns the peer and direct media. The host enforces approval revocation, admission, process cleanup, frame bounds, and encrypted relay transport.
 
-Realtime voice is **not** a plugin: it is product code. The four engines (xAI, Gemini Live, OpenAI Realtime, and experimental Codex Voice) come from `@byokit/realtime` and sit behind the typed `voice.*` host methods; `apps/host/src/voice/` supplies their credentials, prompts and tools. Choose one under **Settings → Voice & dictation**. PCM providers keep their host-relayed stream; Codex adds only the generic WebRTC transport kind.
+Realtime voice is **not** a plugin: it is product code. The host integrates `@byokit/realtime` behind the typed `voice.*` methods; see [Voice setup](VOICE-SETUP.md) for provider selection and transport details.
 
 Realtime voice does not use this capability map: its `voice.*` surface is a typed product host request, so no plugin id, capability name, or manifest hash is involved. See [Voice setup](VOICE-SETUP.md).
 

@@ -47,7 +47,7 @@ No provider names, models, prompts, or tool vocabularies in the kernel. A replac
 - `react-native-webrtc` supplies the platform peer connection, microphone track, and remote playback track behind a provider-neutral kernel module.
 - The existing foreground service starts before `getUserMedia`; failure to start it aborts the session before the microphone opens.
 - The kernel allows one active peer, binds app background/foreground and interruption cleanup, and closes every media track, data channel, peer connection, and realtime stream on stop.
-- Existing PCM capture/playback and provider adapters remain byte-for-byte on their current transport path.
+- Existing PCM capture/playback remains on its current transport path; provider sessions now come from `@byokit/realtime`.
 
 ## iOS note
 
