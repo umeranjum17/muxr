@@ -75,7 +75,9 @@ node .canonical/node_modules/@trymuxr/cli/resources/control/check-copy.mjs .
 
 The generated manifest points every CLI action and pane at
 `./node_modules/@trymuxr/cli/resources/control/run.mjs`, where the mirror's build
-installs the package. The canonical pack keeps its local `./run.mjs` path. Do
+installs the package. Its version comes from the published CLI's `package.json`,
+so it matches the mirror's pinned release even when the canonical pack version
+differs. The canonical pack keeps its own version and local `./run.mjs` path. Do
 not copy the canonical manifest verbatim or edit the mirror's actions, panes or
 version independently. This checks the immutable release the mirror installs,
 without depending on the current pockit branch or changing the canonical launcher.

@@ -587,6 +587,12 @@ try {
     assert.equal(checkControlCopy('--write').status, 0, 'published generator failed');
     assert.equal(checkControlCopy().status, 0, 'published verifier rejected its generated marketplace manifest');
     const marketplaceManifest = readFileSync(join(controlMirror, 'herdr-plugin.toml'), 'utf8');
+    const marketplaceVersion = JSON.parse(marketplaceManifest.match(/^version = ("[^"]*")$/m)?.[1] ?? 'null');
+    assert.equal(marketplaceVersion, packageJson.version, 'marketplace manifest does not match the published CLI release');
+    writeFileSync(join(controlMirror, 'herdr-plugin.toml'), marketplaceManifest.replace(/^version = "[^"]*"$/m, 'version = "0.0.0-review-drift"'));
+    assert.equal(checkControlCopy().status, 1, 'published verifier accepted marketplace release version drift');
+    assert.equal(checkControlCopy('--write').status, 0, 'published generator failed to repair release version drift');
+    assert.equal(checkControlCopy().status, 0, 'published verifier rejected the repaired release version');
     const marketplaceCommands = [...marketplaceManifest.matchAll(/^command = (\[.*\])$/gm)].map((match) => JSON.parse(match[1]));
     mkdirSync(join(controlMirror, 'node_modules', '@trymuxr'), { recursive: true });
     symlinkSync(installedPackage, join(controlMirror, 'node_modules', '@trymuxr', 'cli'));

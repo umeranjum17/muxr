@@ -15,7 +15,10 @@ if (args.length !== 1 || args[0].startsWith('-')) {
 } else {
     try {
         const canonical = readFileSync(join(root, 'herdr-plugin.toml'), 'utf8');
-        const marketplace = canonical.replaceAll('"./run.mjs"', '"./node_modules/@trymuxr/cli/resources/control/run.mjs"');
+        const { version } = JSON.parse(readFileSync(resolve(root, '../../package.json'), 'utf8'));
+        const marketplace = canonical
+            .replace(/^version = "[^"]*"$/m, `version = ${JSON.stringify(version)}`)
+            .replaceAll('"./run.mjs"', '"./node_modules/@trymuxr/cli/resources/control/run.mjs"');
         const destination = join(resolve(args[0]), 'herdr-plugin.toml');
         if (write) {
             writeFileSync(destination, marketplace);
