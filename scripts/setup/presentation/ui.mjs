@@ -108,6 +108,7 @@ export async function withFullscreen(task) {
 
 export function setupStep(current, total, title) {
     if (!fullscreen) {
+        process.stdout.write(`  ${dim(`Setup step ${current} of ${total}`)}\n`);
         heading(title);
         return;
     }
@@ -182,7 +183,7 @@ export async function select(message, choices, initial = 0, backHint) {
     if (!richInteractive()) {
         process.stdout.write(`${bold(`◆ ${message}`)}\n`);
         choices.forEach((choice, index) => {
-            process.stdout.write(`  ${index + 1}. ${choice.disabled ? dim(choice.title) : choice.title}${choice.disabled ? ` ${dim('(unavailable)')}` : ''}\n`);
+            process.stdout.write(`  ${index + 1}. ${choice.disabled ? dim(choice.title) : choice.title}${choice.recommended ? ` ${green('· Recommended')}` : ''}${choice.disabled ? ` ${dim('(unavailable)')}` : ''}\n`);
             if (choice.description) process.stdout.write(`     ${dim(choice.description)}\n`);
         });
         for (;;) {
@@ -219,8 +220,9 @@ export async function select(message, choices, initial = 0, backHint) {
             + choices.reduce((total, choice, index) => {
                 const unavailable = choice.disabled ? 14 : 0;
                 const cursor = index === selected ? 2 : 0;
+                const recommendation = choice.recommended ? 14 : 0;
                 return total
-                + wrapped(4 + choice.title.length + unavailable + cursor)
+                + wrapped(4 + choice.title.length + unavailable + cursor + recommendation)
                 + (choice.description ? wrapped(6 + choice.description.length) : 0);
             }, 0)
             + 1;
@@ -236,7 +238,7 @@ export async function select(message, choices, initial = 0, backHint) {
             let label = choice.title;
             if (choice.disabled) label = dim(`${choice.title} · unavailable`);
             else if (active) label = inverse(` ${choice.title} `);
-            process.stdout.write(`  ${marker} ${label}\x1b[K\n`);
+            process.stdout.write(`  ${marker} ${label}${choice.recommended ? ` ${green('· Recommended')}` : ''}\x1b[K\n`);
             if (choice.description) process.stdout.write(`      ${dim(choice.description)}\x1b[K\n`);
         });
         process.stdout.write(`  ${dim(`esc ${backHint ?? (setupSession ? 'cancel setup' : 'back')} · ctrl-c quit`)}\x1b[K\n`);
