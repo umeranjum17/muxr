@@ -155,7 +155,6 @@ Every slot below is shipped. **JSON** means you edit `muxr-ui.json` and the chan
 | `terminal.key-row` | terminal keys | JSON (`key-row`) |
 | `settings.items` | a row in Settings that opens your screen | JSON (`settings-item`) |
 | `settings.sections` | static information rows in Settings | JSON |
-| `app.overlay` | an app-wide overlay | primitive |
 | `session.overlay` | a session-scoped sheet | primitive |
 | `home.composer.leading` / `home.composer.trailing` | buttons beside the home prompt | primitive |
 | `session.composer.trailing` | a session action rendered in the header's three-dot pane menu, not the composer rail | primitive |
@@ -170,9 +169,7 @@ Primitive slots are animated, stateful, or OS-bridging surfaces. The app ships n
 | `tree-sheet` | `session.overlay` | `sessionId`, `visible`, `onClose`, `openMenu` | required read `source`; optional `title` |
 | `dictate` | home and session composer trailing | `getText`, `setText` | none |
 
-
 Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs` refreshes only while its screen and the app are active, stops its timer when unfocused/unmounted, and always force-refreshes when the user opens it. Returning zero items hides the control.
-
 
 ```json
 { "slot": "session.pills", "id": "files", "type": "native", "primitive": "item-list",
@@ -182,8 +179,7 @@ Primitive parameters live under `params`. An `item-list` with `refreshIntervalMs
 
 Its read RPC returns up to 50 rows. Each row has a unique `id` (255 UTF-8 bytes), `title` (255), optional `subtitle` (512), optional Ionicon `icon` (64-character identifier), optional `group` (40 bytes; rows sharing a group render as one titled section in first-seen order), optional `progress` (`{ "value": 0..1, "tone": ... }`, rendered as a thin fill bar under the row), up to three compact `metadata` entries (`label` and `value`, 40 bytes each, optional `tone` — the first entry renders as the row's emphasized figure), and an optional validated `action`; rows without one render read-only. A response may also include up to four sheet-level `actions`, each with unique `id`, `label` (40 bytes), optional `icon`, and a validated action, plus an optional `badge` (`{ "value": string (12 bytes), "tone": ... }`) that replaces the row count in the collapsed pill with one glanceable figure. Set `minMuxrVersion: 8` when sheet-level actions are essential; older phones safely ignore optional response fields. The phone bounds and sanitizes every value, drops duplicate ids, and discards malformed metadata or invalid actions. Returning no rows and no sheet actions hides the control. This is generic presentation data: a git plugin may return `+12` / `−3`, while an attachment plugin may choose MIME-aware icons without any feature branch in the app.
 
-
-Unknown slots are skipped rather than fatal, so a newer manifest never crashes an older app. `muxr plugin check` warns when it skips one.
+Unknown slots are skipped rather than fatal, so a newer manifest never crashes an older app. `muxr plugin check` warns when it skips one. Legacy `host.stream` contributions and capability-map entries pointing to them are discarded; supported contributions in the same manifest remain available. The retired `realtime-session-overlay` primitive is ignored, and the contribution-level `quickAction` flag has no effect. Session actions render in the pane menu. Realtime transport and the overlay are product-owned; see [Voice setup](VOICE-SETUP.md).
 
 A settings row cannot name an app route. It opens a declarative screen from the same plugin:
 
@@ -222,6 +218,8 @@ ships it. An unregistered name is skipped, not fatal, so a newer manifest never
 breaks an older app. The `speech.wake` capability is the worked example: the
 manifest decides *when* the trigger fires, and the app's compiled handler decides
 *what happens next*; the plugin supplies the timing, never the behaviour.
+The compiled `speech.wake` and `voice.start` handlers wait for the product voice
+overlay to mount; the manifest does not declare that surface.
 
 ## Components
 
@@ -438,7 +436,6 @@ Plugins do not own OS permission or foreground-service lifetime. A future notifi
 
 A Herdr backend runs unsandboxed as your computer user. Installing one is equivalent to trusting local code. muxr's declarative UI limits what reaches the phone; it does not sandbox the backend.
 
-
 Enabling or linking a Herdr plugin is the user's trust decision. Every enabled plugin is available to connected phones by default; a phone can explicitly disable it, and disable/revoke remains authoritative. Manifest or authority changes refresh the immutable snapshot and hash but do not trigger per-device reapproval.
 
 The Plugins screen shows the trusted Herdr name, source, requested contribution surfaces, warnings, and whether the package has executable backend hooks. Declarative screens render host-owned attribution above plugin content; the manifest cannot override it. The manifest hash still binds the complete parsed manifest, source identity, and Herdr authority so calls target one stable snapshot even though hash changes do not change the default-on policy.
@@ -624,7 +621,7 @@ returns exactly one of:
 
 The backend reads fresh Herdr topology before every mutation. Pane close needs no broader confirmation; tab, workspace, and worktree-group scopes each need their own explicit confirmation. If Herdr refuses an attempted scope after a race, the next confirmation must be strictly broader than both that attempt and the scope already confirmed. A failed revalidation returns Retry or an error, never `alreadyGone`; only a live snapshot that no longer contains the target may report it already closed. Cancel sends no request.
 
-Phone effects (`speech.wake`, `voice.start`) are compiled into the app and referenced from events or shortcuts as `{ "action": { "type": "capability", "name": "voice.start" } }`. An unregistered phone-effect name is skipped. Realtime voice uses the product `voice.*` methods; see [Voice setup](VOICE-SETUP.md).
+For phone effects, see [Events](#events).
 
 ## Screen buttons
 

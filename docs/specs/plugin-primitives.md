@@ -16,7 +16,7 @@ links:
 
 muxr called Inbox, Attachments, Changes, Voice, and the rest "plugins" while each still owned a private React component in the APK (`muxr.attachments`, `muxr.inbox-content`, …). That caste is the confusion. There are not two kinds of plugin, and muxr ships no add-on packages: every plugin composes the same compiled primitives. Kernel stays small and snappy; file bytes and git lists are pulled when a pill opens, never pushed down the session event path.
 
-The power this unlocks: the product-owned xAI, OpenAI Realtime, and Gemini Live adapters each adapt speech-to-speech behind the same provider-neutral `voice.stream`. Exactly one runs at a time. Every provider uses the same generic PCM channel and phone kernel; the phone never names a provider or owns optional Voice policy.
+Realtime voice is product-owned; its providers, transport boundary, and setup are documented in [Voice setup](../VOICE-SETUP.md).
 
 ## Approach
 
@@ -37,8 +37,6 @@ Enabled Herdr plugins remain intentionally trusted and default-on. Enabling or l
 3. Keep Android foreground-service/keepalive ownership unconditional in the kernel. Inbox, Workspace, and Dictation presentation are plugin contributions over generic controls, collection/tree/item-list primitives, bounded host context, and closed kernel actions. The primitive registry contains no product Preview behavior.
 4. Harden RPC process termination, isolate plugin concurrency, and replace repeated full catalog reparsing with stable snapshot caching.
 5. Publish schema/tooling and verify adversarial third-party plugins through local Android builds and authentic emulator flows.
-
-`voice.stream` attaches muxr's single selected adapter from the host's own runtime: no plugin catalog entry, manifest hash, or per-device approval is involved. The phone sends and receives only bounded generic PCM, control, state, and transcript frames over the encrypted stream. Provider URLs, authentication, models, prompts, tools, and event vocabularies stay in the host adapter. A replacement provider reuses the same controls, overlay, settings actions, and channel; it never requires a React Native branch.
 
 Realtime coordination mutations name their destination explicitly. `prompt_agent` requires a nonempty Agent Name or Task Title, refuses unknown or ambiguous targets without mutation, and reports only a queued receipt after Herdr returns a structurally valid receipt for the same resolved pane. The host journal records only provider, semantic requested/resolved agent names, and queued/rejected/failed outcomes.
 

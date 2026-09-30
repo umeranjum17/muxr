@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guarded product voice attachment check with a warmed Herdr agent.
+# Guarded product voice attachment check in an isolated Herdr lab.
 #
 # Owns its isolated Herdr lab session through the guarded helper and checks
 # product voice attachment over a real relay and host. Native speech-to-speech

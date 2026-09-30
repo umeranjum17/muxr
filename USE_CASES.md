@@ -46,7 +46,7 @@ There is no `services/` folder. A use case is one camelCase module that exports 
 
 ## Voice (bundled Herdr plugins)
 
-Herdr keeps `rpc.mjs` / `stream.mjs` at the plugin root. Those files are adapters.
+Herdr keeps `rpc.mjs` at the plugin root. Those files are adapters.
 
 | Capability | Use case | Domain owner | Adapters |
 |---|---|---|---|

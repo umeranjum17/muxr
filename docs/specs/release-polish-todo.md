@@ -129,7 +129,7 @@ Completed locally on the frozen final source, in order: the dev APK native hideK
 
 - [ ] **T19 · Replace the Tools dropdown with a half-circle expansion** — Implemented / superseded by the requested grouped layout.
   - Evidence / current state: The user's newer request replaces the mixed Session actions fan with a movable command panel and header pane menu. Changes, Files and Tools open directly; Git history/Usage, pane controls and destructive close are separate groups. Shells correctly say Close pane rather than Stop agent. Native screenshots: terminal-quick-actions-live-code.png and pane-actions-final.png.
-  - Remaining / boundary: Finish the frozen release gate before closing the revised interaction. Placement is manifest-declared through quickAction, with no bundled plugin-id list.
+  - Remaining / boundary: Finish the frozen release gate before closing the revised interaction. Current plugin action placement is documented in [the extension guide](../PLUGINS.md#hooks).
 
 ## Realtime personal assistant
 

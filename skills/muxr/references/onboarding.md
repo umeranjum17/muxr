@@ -74,7 +74,7 @@ secure `wss://` route; insecure LAN HTTP is refused. Set `MUXR_TRUST_PROXY=1`
 when the relay sits behind cloudflared/nginx so rate limits key on real client
 IPs.
 
-Session, terminal, attachment, and plugin-stream payloads use the strict E2EE
+Session, terminal, attachment, and realtime voice payloads use the strict E2EE
 data plane; the relay routes ciphertext it cannot read.
 
 ## Pairing

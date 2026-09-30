@@ -59,8 +59,7 @@ The development host uses a paired self-host link identity; pair the phone with
 panes, not a fake terminal.
 Herdr and its installed registrations remain shared: don't close or alter
 unrelated panes. The development host projects already-registered checkout-local
-plugins onto this checkout's local plugin paths for UI projections, RPC and
-stream scripts. It does not register, enable or relink installed plugins, and
+plugins onto this checkout's local plugin paths for UI projections and RPC scripts. It does not register, enable or relink installed plugins, and
 unrelated plugins pass through unchanged. Native Herdr actions still use their
 installed registrations. Terminal binary transport connects directly to Herdr
 through the private socket directory's sibling link.
@@ -87,7 +86,7 @@ host rather than relying on an unpaired local connection.
 | Mobile JS/TS, React components and styles | Save; Metro Fast Refresh updates the running dev client |
 | Host/relay/shared TypeScript | Compiler watcher rebuilds; source services restart after a clean build |
 | Artifact preview runtime | Renderer watcher regenerates the offline bundle; Metro sees it |
-| Installed plugin projection/RPC/stream scripts | Source paths are used on the next invocation; installed registrations remain unchanged |
+| Installed plugin projection/RPC scripts | Source paths are used on the next invocation; installed registrations remain unchanged |
 | Kotlin, C++, native modules/patches or Gradle | Run `yarn dev:android` again |
 | App config, native plugins, dependencies or public environment | Restart Metro; rebuild the dev client when native configuration changes |
 
@@ -103,13 +102,6 @@ survival; post-launch crashes are not retried or masked.
 Only the visible native terminal route holds a control stream. Returning to it
 reacquires the stream and selects its Herdr pane. Hidden terminal routes release
 control; Home's observe previews never move desktop focus.
-
-Source plugin behavior follows the registered entries, not a separate matching
-catalog: the development host maps only plugins Herdr already has registered and
-enabled onto this checkout's local plugin paths for UI projections, RPC and stream
-scripts. It never registers, enables or relinks plugins, so a checkout edit
-reaches the running dev client on the next invocation while installed plugin
-registrations — including native Herdr launches — remain unchanged.
 
 Keep release APK builds, production-mode bundle checks and full performance
 gates for candidate acceptance, not each visual edit. Debug/Fast Refresh success

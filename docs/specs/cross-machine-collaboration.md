@@ -188,7 +188,7 @@ The work lands as one cohesive feature PR.
 - `apps/mobile/sources/components/SettingsView.tsx`
 - machine detail and pairing routes under `apps/mobile/sources/app/(app)/`
 - `apps/mobile/sources/state/hostedE2ee.ts`
-- `apps/mobile/sources/plugins/openPluginStream.ts`
+- `apps/mobile/sources/conversation/infrastructure/realtimeStream.ts`
 - `apps/mobile/sources/realtime/realtimeSessionState.ts`
 - `apps/mobile/sources/voice/realtimeSession.ts`
 - the product-owned realtime voice adapters under `apps/host/src/voice/`

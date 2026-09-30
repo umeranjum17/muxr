@@ -2223,7 +2223,6 @@ export async function createHerdrSessionSource(
                 { digests: nextDigests, enabled: nextEnabled },
             );
             if (frame === undefined) return;
-            // A changed/disabled manifest must not leave an old provider process live.
             for (const abort of voiceStreamAborts.values()) abort.abort();
             voiceStreamAborts.clear();
             voiceStreams?.closeAll();

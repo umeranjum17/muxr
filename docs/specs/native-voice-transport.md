@@ -14,7 +14,7 @@ links:
 
 ## Context
 
-Realtime voice currently routes microphone and playback through the React Native JavaScript thread: LiveAudioStream emits base64 chunks into JS, JS sends them over the encrypted relay to the host plugin, and provider PCM returns along the same path into an 8-slot native write queue. The 0.1.x reliability fixes (wake/Wi-Fi locks, mic-as-activity, consecutive reconnect budgets) made this survivable, but the structural weaknesses remain:
+The original 0.1.x realtime voice path routed microphone and playback through the React Native JavaScript thread: LiveAudioStream emitted base64 chunks into JS, JS sent them over the encrypted relay to the host plugin, and provider PCM returned along the same path into an 8-slot native write queue. The 0.1.x reliability fixes (wake/Wi-Fi locks, mic-as-activity, consecutive reconnect budgets) made this survivable, but the structural weaknesses remain:
 
 - Screen-off audio depends on the JS event loop staying scheduled.
 - Every audio frame is base64 JSON through two WebSocket hops and a spawned plugin process.
