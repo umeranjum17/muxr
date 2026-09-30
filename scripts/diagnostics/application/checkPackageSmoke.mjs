@@ -575,6 +575,19 @@ try {
     assert.equal(installedDesklink.version, packageJson.dependencies['@desklink/host']);
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
+    // The marketplace mirror consumes this published byte contract.
+    const controlMirror = join(scratch, 'control-mirror');
+    mkdirSync(controlMirror);
+    const controlManifest = readFileSync(join(installedPackage, 'resources/control/herdr-plugin.toml'));
+    writeFileSync(join(controlMirror, 'herdr-plugin.toml'), controlManifest);
+    const checkControlCopy = () => spawnSync(process.execPath, [
+        join(installedPackage, 'resources/control/check-copy.mjs'), controlMirror,
+    ], { encoding: 'utf8' });
+    assert.equal(checkControlCopy().status, 0, 'published verifier rejected an identical marketplace manifest');
+    writeFileSync(join(controlMirror, 'herdr-plugin.toml'), Buffer.concat([controlManifest, Buffer.from('\n# drift\n')]));
+    const driftedControl = checkControlCopy();
+    assert.equal(driftedControl.status, 1, 'published verifier accepted marketplace manifest drift');
+    assert.match(driftedControl.stderr, /differs from @trymuxr\/cli/);
     const installedPlugins = join(installedPackage, 'plugins');
     assert.equal(existsSync(installedPlugins), false, 'installed package must ship no bundled add-ons');
     assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the compact agent skill/);

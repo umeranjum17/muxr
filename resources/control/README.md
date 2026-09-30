@@ -45,3 +45,29 @@ plugin, the CLI and the running host are the same release.
   which the pane offers, or `npm uninstall -g @trymuxr/cli`); finally Herdr's
   own plugin config and state directories, which Herdr never deletes
   (`herdr plugin config-dir muxr.control`).
+
+## Canonical source and marketplace mirror
+
+This directory owns the `muxr.control` manifest and launcher. The npm release
+ships it unchanged in `@trymuxr/cli/resources/control`. Change the launcher
+here; the `umeranjum17/muxr-herdr` marketplace repository is a distribution
+mirror, so people can still install it through herdr.dev/plugins.
+
+The mirror's CI must install the same exact CLI version its build installs,
+then run the verifier shipped in that package from the mirror's root:
+
+```sh
+npm install --prefix .canonical --no-save --ignore-scripts --no-audit --no-fund @trymuxr/cli@X.Y.Z
+node .canonical/node_modules/@trymuxr/cli/resources/control/check-copy.mjs .
+```
+
+Replace `X.Y.Z` with the mirror's pinned release version. A missing or different
+manifest fails the check. To update the mirror for a release, copy
+`.canonical/node_modules/@trymuxr/cli/resources/control/herdr-plugin.toml` to
+its root and commit it with the CLI version update. Do not edit its actions,
+panes or version independently. The mirror should continue running the
+installed package's `resources/control/run.mjs`.
+
+Run this check on every mirror pull request and push. This checks the immutable
+release the mirror installs, without depending on the current pockit branch or
+changing any launcher behavior.
