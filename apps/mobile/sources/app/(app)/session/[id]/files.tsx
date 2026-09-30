@@ -40,8 +40,9 @@ export default function FilesScreen() {
         .find((candidate) => anchor.route === sessionId && candidate.paneId === anchor.paneId);
     const resolvedSessionId = pane?.sessionId ?? sessionId;
     const session = useSession(resolvedSessionId);
-    const waitingForAgent = session === null || session.metadata?.agentStatus === 'starting'
-        || pane?.agentStatus === 'starting';
+    const agent = pane ?? session?.metadata;
+    const agentNotReady = agent?.agentKind !== undefined && agent.promptable === false;
+    const waitingForAgent = session === null || agent?.agentStatus === 'starting' || agentNotReady;
     const [repos, setRepos] = React.useState<Repos | undefined>(undefined);
     const [root, setRoot] = React.useState<string | undefined>(undefined);
     const [path, setPath] = React.useState('');
