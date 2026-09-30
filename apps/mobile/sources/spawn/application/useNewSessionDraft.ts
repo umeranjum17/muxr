@@ -65,7 +65,7 @@ export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => (
     attachments: [],
     selectedMachineId: initial?.selectedMachineId ?? null,
     selectedPath: initial?.selectedPath ?? null,
-    agentType: initial?.agentType ?? 'pi',
+    agentType: initial?.agentType ?? 'shell',
     agentTypeExplicit: initial?.agentTypeExplicit ?? false,
     permissionMode: initial?.permissionMode ?? null,
     modelMode: initial?.modelMode ?? null,

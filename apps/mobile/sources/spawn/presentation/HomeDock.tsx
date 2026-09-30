@@ -35,7 +35,7 @@ import { resolveAbsolutePath } from '@/utils/pathUtils';
 import { type NewSessionAgentType } from '@/catalog';
 import { useImagePicker } from '@/hooks/useImagePicker';
 import { sync } from '@/catalog/sync';
-import { resolveAgentCatalog } from '@/catalog';
+import { resolveAgentCatalog, type AgentCatalogOption } from '@/catalog';
 import { useAccountLine } from '@/plans';
 import { AccountSheet } from '@/plans/ui';
 import {
@@ -46,6 +46,7 @@ import {
     resolveDockOption,
     selectedWorktreeKey,
     visibleDockAgents,
+    defaultAgentKind,
     worktreeDockOptions,
     type DockOption,
 } from '../application/homeDockEnvironment';
@@ -524,8 +525,9 @@ export const HomeDock = React.memo(({
     const setSessionType = useNewSessionDraft((state) => state.setSessionType);
     const setWorktreeKey = useNewSessionDraft((state) => state.setWorktreeKey);
     const socketStatus = useSocketStatus();
-    const [hostAgentKinds, setHostAgentKinds] = React.useState<string[] | null>(null);
-    const [hostAgentKindsAuthoritative, setHostAgentKindsAuthoritative] = React.useState(false);
+    const [hostAgentKinds, setHostAgentKinds] = React.useState<AgentCatalogOption[] | null>(null);
+    const [showMoreAgents, setShowMoreAgents] = React.useState(false);
+    const [catalogCheck, setCatalogCheck] = React.useState(0);
     const machines = useAllMachines({ includeOffline: true });
     const sessions = useSessions();
     const connectionMachineId = getCachedConnectionSettings().machineId;
@@ -586,29 +588,28 @@ export const HomeDock = React.memo(({
     const currentWorktree = resolveDockOption(worktreeOptions, [worktreeSelectionKey]);
     React.useEffect(() => {
         let cancelled = false;
+        const preferredAgent = useNewSessionDraft.getState().agentType;
         setHostAgentKinds(null);
-        setHostAgentKindsAuthoritative(false);
+
         if (socketStatus.status !== 'connected') return () => { cancelled = true; };
-        void sync.request('herdr.agentKinds', {}).then((result) => {
+        void sync.request('herdr.agentKinds', { refresh: catalogCheck > 0 }).then((result) => {
             if (cancelled) return;
             const resolved = resolveAgentCatalog(result);
-            const launchable = resolved.options
-                .filter((option) => option.availability !== 'unavailable')
-                .map((option) => option.kind);
-            setHostAgentKinds([...new Set(['shell', ...launchable])]);
-            setHostAgentKindsAuthoritative(resolved.authoritative);
+            setHostAgentKinds(resolved.options);
+            const preferred = defaultAgentKind(resolved.options, preferredAgent);
+            setAgentType((preferred ?? 'shell') as NewSessionAgentType);
         }).catch(() => {
             if (!cancelled) {
                 setHostAgentKinds(null);
-                setHostAgentKindsAuthoritative(false);
+                setAgentType('shell');
             }
         });
         return () => { cancelled = true; };
-    }, [socketStatus.status]);
+    }, [socketStatus.status, catalogCheck, setAgentType]);
     // A fresh array each render re-renders the option list forever.
     const availableAgents = React.useMemo(
-        () => visibleDockAgents(hostAgentKinds, hostAgentKindsAuthoritative, agentType),
-        [hostAgentKinds, hostAgentKindsAuthoritative, agentType],
+        () => visibleDockAgents(hostAgentKinds),
+        [hostAgentKinds],
     );
     React.useEffect(() => {
         if (!hostAgentKindsAuthoritative || !hostAgentKinds || hostAgentKinds.includes(agentType)) return;
@@ -620,7 +621,8 @@ export const HomeDock = React.memo(({
     const accountLine = useAccountLine(agentType);
     const hasPrompt = prompt.trim().length > 0 || selectedImages.length > 0;
     const compact = useWindowDimensions().width < 330;
-    const canSubmit = !isSubmitting && hasPrompt;
+    const catalogReady = hostAgentKinds !== null && socketStatus.status === 'connected';
+    const canSubmit = !isSubmitting && hasPrompt && catalogReady;
     const focusedComposerHeight = selectedImages.length > 0 ? 206 : 126;
     // On a short phone the keyboard would lift the pickers under the back
     // control and the status bar, so the dock is bounded between the two and
@@ -795,7 +797,7 @@ export const HomeDock = React.memo(({
     };
 
     const environmentRows: SettingsRow[] = [
-        { page: 'agent', label: 'AGENT', value: currentAgent.name, icon: 'hardware-chip-outline' },
+        { page: 'agent', label: 'AGENT', value: currentAgent.name, detail: currentAgent.description, icon: 'hardware-chip-outline' },
         ...(accountLine === null ? [] : [{ page: 'account', label: 'ACCOUNT', value: accountLine.value, detail: accountLine.detail, icon: 'person-circle-outline' as const }]),
         { page: 'project', label: 'PROJECT', value: currentProject?.name ?? '~', icon: 'folder-outline' },
         { page: 'worktree', label: 'WORKTREE', value: currentWorktree?.name ?? 'No worktree', icon: 'git-branch-outline' },
@@ -805,9 +807,12 @@ export const HomeDock = React.memo(({
         key: 'agent',
         label: currentAgent.name || 'Agent',
         systemImage: 'cpu',
-        options: availableAgents.map((option) => ({ key: option.key, label: option.name })),
+        options: [...availableAgents.map((option) => ({ key: option.key, label: `${option.name} · ${option.description}` })), { key: '__more__', label: 'More agents — install' }],
         selectedKey: agentType,
-        onSelect: (key) => selectAgent(key as NewSessionAgentType),
+        onSelect: (key) => {
+            if (key === '__more__') { setShowMoreAgents(true); setOpenSheet('agent'); return; }
+            selectAgent(key as NewSessionAgentType);
+        },
     }];
 
     const renderEnvironmentPickers = () => environmentRows.map((row, index) => (
@@ -926,7 +931,7 @@ export const HomeDock = React.memo(({
     };
 
     const startBlankSession = () => {
-        if (isSubmitting) return;
+        if (isSubmitting || !catalogReady) return;
         setFocusModeVisible(false);
         setIsFocused(false);
         void onStartBlank();
@@ -1095,7 +1100,7 @@ export const HomeDock = React.memo(({
                                     <FocusConfigRevealRow progress={focusPresentation} index={environmentRows.length}>
                                         <BubblePressable
                                             onPress={startBlankSession}
-                                            disabled={isSubmitting}
+                                            disabled={isSubmitting || !catalogReady}
                                             style={styles.startRow}
                                             accessibilityRole="button"
                                             accessibilityLabel={`Start ${currentAgent.name} without a prompt`}
@@ -1118,10 +1123,11 @@ export const HomeDock = React.memo(({
                     <OptionSheet
                         visible={openSheet === 'agent'}
                         title="Agent"
-                        options={availableAgents}
+                        options={showMoreAgents ? visibleDockAgents(hostAgentKinds, true) : availableAgents}
+                        footer={<View style={{ gap: 12 }}><Pressable onPress={() => setShowMoreAgents((value) => !value)}><Text style={{ color: theme.colors.textLink }}>{showMoreAgents ? 'Installed agents' : `More agents (${visibleDockAgents(hostAgentKinds, true).length}) — install`}</Text></Pressable><Pressable onPress={() => setCatalogCheck((value) => value + 1)}><Text style={{ color: theme.colors.textLink }}>Check again</Text></Pressable></View>}
                         selectedKey={agentType}
                         onSelect={(agent) => selectAgent(agent.key as NewSessionAgentType)}
-                        onClose={() => setOpenSheet(null)}
+                        onClose={() => { setOpenSheet(null); setShowMoreAgents(false); }}
                         searchPlaceholder="search agents"
                     />
                     <AccountSheet

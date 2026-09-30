@@ -9,37 +9,29 @@ export const FALLBACK_AGENT_KINDS = [
 export const AGENT_KINDS = FALLBACK_AGENT_KINDS;
 
 export type AgentAvailability = 'installed' | 'unavailable' | 'unknown';
-export type AgentCatalogOption = { kind: string; availability: AgentAvailability };
+export type AgentCatalogOption = {
+    kind: string;
+    availability: AgentAvailability;
+    signedIn?: 'yes' | 'no' | 'unknown';
+    installHint?: string;
+    signInHint?: string;
+};
 
-export function resolveAgentCatalog(result: { kinds?: string[]; installed?: string[] }): {
-    options: AgentCatalogOption[];
-    authoritative: boolean;
-} {
+export function resolveAgentCatalog(result: {
+    kinds?: string[];
+    installed?: string[];
+    readiness?: Record<string, { signedIn: 'yes' | 'no' | 'unknown'; installHint?: string; signInHint?: string }>;
+}): { options: AgentCatalogOption[]; authoritative: boolean } {
     const kinds = [...new Set((result.kinds ?? []).filter((kind) => /^[a-z][a-z0-9_-]{0,31}$/.test(kind)))].slice(0, 64);
-    if (kinds.length === 0) {
-        return {
-            options: FALLBACK_AGENT_KINDS.map((kind) => ({ kind, availability: 'unknown' })),
-            authoritative: false,
-        };
-    }
-    if (!Array.isArray(result.installed)) {
-        return { options: kinds.map((kind) => ({ kind, availability: 'unknown' })), authoritative: false };
-    }
-    const installed = new Set(result.installed.filter((kind) => kinds.includes(kind)));
-    // A non-empty manifest catalog with zero executable hits is usually a
-    // stripped daemon PATH, not authoritative proof that every agent vanished.
-    // Preserve the host's bounded catalog as unknown until at least one probe
-    // succeeds instead of collapsing the composer to Shell and overwriting the
-    // user's saved choice.
-    if (installed.size === 0) {
-        return { options: kinds.map((kind) => ({ kind, availability: 'unknown' })), authoritative: false };
-    }
+    const authoritative = Array.isArray(result.installed);
+    const installed = new Set(result.installed ?? []);
+    const catalog = kinds.length > 0 ? kinds : [...FALLBACK_AGENT_KINDS];
     return {
-        options: kinds.map((kind): AgentCatalogOption => ({
-            kind,
-            availability: installed.has(kind) ? 'installed' : 'unavailable',
-        })).sort((left, right) => Number(right.availability === 'installed') - Number(left.availability === 'installed')
-            || left.kind.localeCompare(right.kind)),
-        authoritative: true,
+        options: catalog.map((kind): AgentCatalogOption => {
+            let availability: AgentAvailability = 'unknown';
+            if (authoritative) availability = installed.has(kind) ? 'installed' : 'unavailable';
+            return { kind, availability, ...result.readiness?.[kind] };
+        }).sort((left, right) => Number(right.availability === 'installed') - Number(left.availability === 'installed')),
+        authoritative,
     };
 }
