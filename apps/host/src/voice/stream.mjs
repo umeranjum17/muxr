@@ -8,7 +8,8 @@
  */
 import { createInterface } from 'node:readline';
 import { appBridge, realtimeEngine, toolBridge } from '@byokit/realtime/node';
-import { codexAccess, codexDelegate, DELEGATE_TOOL, DELEGATION_FAILURE, DELEGATION_TIMEOUT_MS, PROMPT as CODEX_PROMPT } from './codex.mjs';
+import { codexAccess, codexDelegate, DELEGATE_TOOL, DELEGATION_FAILURE, PROMPT as CODEX_PROMPT } from './codex.mjs';
+import { RUN_DEADLINE_MS } from './codexDelegation.mjs';
 import { appControlInstructions, INTERNAL_REFERENCES, isExplicitHangup, voiceCoordinationInstructions, workspaceContext } from './coordinatorPolicy.mjs';
 import { secretFor } from './product.mjs';
 import { selectedProvider } from './provider.mjs';
@@ -90,7 +91,7 @@ async function main() {
         delegation = codexDelegate({ open, runTool: inner.run });
         bridge = toolBridge({
             emit, tools: [DELEGATE_TOOL], handlers: { delegate: delegation.delegate },
-            timeoutFor: () => DELEGATION_TIMEOUT_MS, failure: () => DELEGATION_FAILURE,
+            timeoutFor: () => RUN_DEADLINE_MS, failure: () => DELEGATION_FAILURE,
         });
     } else {
         bridge = toolBridge({ emit, tools: voiceTools, handlers, timeoutFor: voiceToolTimeout, failure: voiceToolFailure });

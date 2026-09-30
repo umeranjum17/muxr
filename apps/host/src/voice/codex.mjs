@@ -45,8 +45,6 @@ export const DELEGATE_TOOL = {
     parameters: { type: 'object', properties: { request: { type: 'string' } }, required: ['request'] },
 };
 export const DELEGATION_FAILURE = 'The delegated work could not be completed. No action was confirmed; do not repeat a mutation automatically. Explain this failure to the user.';
-// Covers the planner's own 340s deadline, which includes the longest host watch.
-export const DELEGATION_TIMEOUT_MS = 340_000;
 
 // A single "ask/tell <agent> to <message>" for an agent in the startup roster
 // needs no planning turn (~3 s each), so it takes the structured prompt path.
