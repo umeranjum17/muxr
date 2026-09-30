@@ -66,7 +66,7 @@ export function createDeviceGrant(params: {
         ...(capabilities === undefined ? {} : { capabilities }),
         ...(allowedCwds === undefined ? {} : { allowedCwds }),
     }, 'create');
-    // tweetnacl ed25519 secret keys append the public key in the last 32 bytes.
+    // The kit's 64-byte Ed25519 secret key appends the public key after the seed.
     const machineSigningPublicKey = toBase64(signingSecret.subarray(32));
     const authority = grantAuthority({
         ...(params.deviceKind === undefined ? {} : { deviceKind: params.deviceKind }),

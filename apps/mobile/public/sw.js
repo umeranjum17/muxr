@@ -36,6 +36,7 @@ self.addEventListener('notificationclick', (event) => {
     let targetUrl = '/';
     const machineId = typeof payload.machineId === 'string' ? payload.machineId : '';
     if (machineId !== '' && sessionId !== '') {
+        // Fragments stay in the browser: the relay must not receive decrypted scope.
         targetUrl = `/notification#machineId=${encodeURIComponent(machineId)}&sessionId=${encodeURIComponent(sessionId)}`;
     }
 

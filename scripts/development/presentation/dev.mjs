@@ -300,7 +300,7 @@ if ((await runOnce('build', 'yarn', ['build'], devEnvBase, root)) !== 0) {
     process.exit(1);
 }
 
-// Web serves public/canvaskit.wasm + pdf.worker + mermaid.min.js directly, and dev bypasses the
+// Web serves public assets (including the push worker) directly, and dev bypasses the
 // preweb hook that prepares them; run the same preparation here.
 const mobileDir = join(root, 'apps', 'mobile');
 for (const [label, script] of [['setup-push', 'setup-push'], ['setup-canvaskit', 'setup-canvaskit'], ['setup-pdfjs', 'setup-pdfjs'], ['setup-mermaid', 'setup-mermaid']]) {
