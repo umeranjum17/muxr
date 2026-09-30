@@ -50,9 +50,9 @@ anywhere (Serve), Tailscale — direct (phone app only), an existing private
 network, a temporary public link (Cloudflare), and your own server. Unavailable
 routes explain what to install or connect before retrying.
 
-The healthy current route is recommended if it is still selectable. Otherwise,
-connected Tailscale is preferred, using direct Tailscale when Serve is proven
-disabled or occupied. Without connected Tailscale, setup prefers a detected
+Connected Tailscale is recommended first, using direct Tailscale when Serve is
+proven disabled or occupied. Without connected Tailscale, the healthy current
+route is recommended if it is still selectable; setup then prefers a detected
 private network, then ready Same Wi-Fi, then an installed Tailscale route that
 can connect during **Apply setup**, then an available Cloudflare tunnel. If
 none of those is available, **Your own server** is recommended; you must supply

@@ -27,6 +27,7 @@ async function checkWizard() {
     Object.defineProperty(process.stdin, 'isTTY', { value: true });
     Object.defineProperty(process.stdout, 'isTTY', { value: true });
     let lan;
+    let currentSummary;
     let tailscaleInstalled = true;
     let tailscaleConnected = false;
     let serveStatus = 'free';
@@ -89,7 +90,7 @@ async function checkWizard() {
             runLocalPrerequisites: async (args) => record('prerequisites', args),
         });
         boundary('../infrastructure/selfhostRelay.mjs', {
-            selfhostPublicSummary: async () => undefined,
+            selfhostPublicSummary: async () => currentSummary,
             sharedMachineCount: forbidden,
         });
         boundary('../application/startSelfHost.mjs', {
@@ -120,7 +121,13 @@ async function checkWizard() {
         };
 
         // Connected Tailscale uses real Serve inspection; its blocked sibling
-        // routes must select direct Tailscale without applying any changes.
+        // routes must select direct Tailscale without applying any changes,
+        // even when the current LAN route remains healthy and selectable.
+        lan = '192.168.1.8';
+        currentSummary = {
+            relayHealthy: true, publicHealthy: true, connectionMode: 'lan',
+            relayUrl: 'ws://192.168.1.8:18792', relayPort: 18792,
+        };
         tailscaleConnected = true;
         const connected = await run(['', '1', '1', '1']);
         recommended(connected, 'Tailscale — works anywhere');
@@ -141,6 +148,7 @@ async function checkWizard() {
         }
         tailscaleConnected = false;
         serveStatus = 'free';
+        currentSummary = undefined;
 
         // Accept the picker default, then cancel at review: signed-out
         // Tailscale must lose to ready Wi-Fi, but win when Wi-Fi is absent.

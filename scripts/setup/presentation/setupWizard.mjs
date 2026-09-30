@@ -223,6 +223,12 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
 }
 
 export function recommendedConnection(found, current, tailscalePlanned, serveRoot) {
+    if (found.tailscale.connected) {
+        const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
+        return direct
+            ? { mode: 'tailscale-direct', title: 'Tailscale — direct (phone app only)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
+            : { mode: 'tailscale', title: 'Tailscale — works anywhere', description: 'both devices need the Tailscale app, signed in to the same account' };
+    }
     if (current?.relayHealthy && current?.publicHealthy
         && choices(found, tailscalePlanned, serveRoot).some((choice) => choice.value === current.connectionMode && !choice.disabled)) {
         return { mode: current.connectionMode, title: connectionLabel(current.connectionMode, current.relayUrl, current.relayPort), description: 'already configured and reachable' };
@@ -235,7 +241,7 @@ export function recommendedConnection(found, current, tailscalePlanned, serveRoo
         };
         if (found.lan) return { mode: 'lan', title: 'Same Wi-Fi', description: 'works now while the phone and computer use this trusted network' };
     }
-    if (found.tailscale.connected || tailscalePlanned) {
+    if (tailscalePlanned) {
         const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
         return direct
             ? { mode: 'tailscale-direct', title: 'Tailscale — direct (phone app only)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
