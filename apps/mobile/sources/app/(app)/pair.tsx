@@ -3,7 +3,7 @@ import * as Linking from 'expo-linking';
 import { pairingView } from '@byokit/ui-core/link';
 import * as Clipboard from 'expo-clipboard';
 import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
+import { KeyboardAwareScrollView, KeyboardStickyView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
@@ -83,6 +83,7 @@ export default function PairScreen() {
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
     const PairScrollView = browser ? ScrollView : KeyboardAwareScrollView;
+    const SshConnectBar = Platform.OS === 'ios' ? KeyboardStickyView : View;
     const openedFromSettings = routeParams.source === 'settings';
     const sshRoute = !browser && routeParams.route === 'ssh' && sshTunnelAvailable();
     const reviewPairing = React.useCallback((raw: string) => {
@@ -219,7 +220,7 @@ export default function PairScreen() {
     return (
         <View style={styles.screenWrap}>
         <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24 }]}
-            keyboardShouldPersistTaps="handled" {...(browser ? {} : { bottomOffset: 120 })}>
+            keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" {...(browser ? {} : { bottomOffset: 120 })}>
             <View style={styles.hero}>
                 <View style={styles.iconBadge}>
                     <Ionicons name="desktop-outline" size={30} color={styles.icon.color} />
@@ -354,12 +355,12 @@ export default function PairScreen() {
             </View>
         </PairScrollView>
         {sshRoute && manualForm && (
-            // Anchored below the scroll, outside it: with the keyboard open the
-            // window resizes and the Connect CTA stays visible at any field.
-            <View style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
+            // Anchored below the scroll: Android resizes the window and
+            // iOS's bar follows the keyboard without shrinking the aware scroll.
+            <SshConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
                 {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
                 <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
-            </View>
+            </SshConnectBar>
         )}
         </View>
     );
