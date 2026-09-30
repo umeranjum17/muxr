@@ -159,7 +159,7 @@ describe('session sync flow', () => {
         })]);
         await realSync.refreshHerdTree();
         hostTree = tree(shellRoute, 'idle', false);
-        hostSync.event!(agentRoute, { type: 'session.removed' });
+        hostSync.event!(agentRoute, { type: 'session.removed', seq: 1 });
         await vi.waitFor(() => {
             expect(storage.getState().herdrWorkspaces[0]?.tabs[0]?.panes[0]?.sessionId).toBe(shellRoute);
         });
@@ -171,9 +171,9 @@ describe('session sync flow', () => {
         hostTree = tree(agentRoute, 'starting', false);
         await realSync.refreshHerdTree();
         const message = 'Pi is not installed on Umer. Install Pi in a terminal on Umer, then try again.';
-        hostSync.event!(agentRoute, { type: 'session.error', message });
+        hostSync.event!(agentRoute, { type: 'session.error', message, seq: 2 });
         hostTree = tree(shellRoute, 'idle', false);
-        hostSync.event!(agentRoute, { type: 'session.removed' });
+        hostSync.event!(agentRoute, { type: 'session.removed', seq: 3 });
         await vi.waitFor(() => {
             expect(storage.getState().herdrWorkspaces[0]?.tabs[0]?.panes[0]?.sessionId).toBe(shellRoute);
         });
