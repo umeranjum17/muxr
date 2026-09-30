@@ -36,7 +36,7 @@ self.addEventListener('notificationclick', (event) => {
     let targetUrl = '/';
     const machineId = typeof payload.machineId === 'string' ? payload.machineId : '';
     if (machineId !== '' && sessionId !== '') {
-        targetUrl = `/notification?machineId=${encodeURIComponent(machineId)}&sessionId=${encodeURIComponent(sessionId)}`;
+        targetUrl = `/notification#machineId=${encodeURIComponent(machineId)}&sessionId=${encodeURIComponent(sessionId)}`;
     }
 
     event.waitUntil((async () => {

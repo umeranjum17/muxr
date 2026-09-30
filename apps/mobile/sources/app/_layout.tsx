@@ -310,7 +310,7 @@ export default function RootLayout() {
                     }
 
                     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                        window.history.replaceState({}, '', window.location.pathname);
+                        window.history.replaceState({}, '', window.location.pathname + window.location.hash);
                     }
                 }
 

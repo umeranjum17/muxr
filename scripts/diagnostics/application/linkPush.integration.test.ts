@@ -177,8 +177,10 @@ describe('push rides the byokit link relay', () => {
             expect(shown[0].options.body).toBe('Maria needs attention.');
             workerHandlers.get('notificationclick')!({ notification: { data: shown[0].options.data, close: () => undefined }, waitUntil });
             await pending;
-            expect(target).toBe('/notification?machineId=machine-push-test&sessionId=s1');
-            const tapParams = new URL(target, 'https://app.test').searchParams;
+            expect(target).toBe('/notification#machineId=machine-push-test&sessionId=s1');
+            const tapUrl = new URL(target, 'https://app.test');
+            expect(tapUrl.pathname + tapUrl.search).toBe('/notification');
+            const tapParams = new URLSearchParams(tapUrl.hash.slice(1));
             const tapData = { machineId: tapParams.get('machineId'), sessionId: tapParams.get('sessionId') };
             expect(watchAgentLifecycle({ notificationData: tapData, activeMachineId: 'machine-B' })).toEqual({ agentRoute: null, selectMachine: true });
             expect(watchAgentLifecycle({ notificationData: tapData, activeMachineId: 'machine-push-test' })).toEqual({ agentRoute: 's1', selectMachine: false });
@@ -186,7 +188,9 @@ describe('push rides the byokit link relay', () => {
             target = '';
             workerHandlers.get('notificationclick')!({ notification: { data: shown[0].options.data, close: () => undefined }, waitUntil });
             await pending;
-            expect(target).toBe('/notification?machineId=machine-push-test&sessionId=s1');
+            expect(target).toBe('/notification#machineId=machine-push-test&sessionId=s1');
+            const focusedTapUrl = new URL(target, 'https://app.test');
+            expect(focusedTapUrl.pathname + focusedTapUrl.search).toBe('/notification');
 
 
 
@@ -318,7 +322,9 @@ describe('push rides the byokit link relay', () => {
                 });
                 const delivery = await until(() => expoSends.length > count ? expoSends.at(-1) : undefined, 'private title notification');
                 expect(delivery.title).toBe('Agent update');
-                expect((delivery.data as { data: Record<string, unknown> }).data).not.toHaveProperty('taskTitle');
+                const notice = openNotice((delivery.data as { data: unknown }).data, deviceSecret) as { title: string; data: Record<string, unknown> };
+                expect(notice.title).toBe('Agent update');
+                expect(notice.data).not.toHaveProperty('taskTitle');
                 expect(JSON.stringify(delivery)).not.toContain(unsafeTitle);
             }
             revokedLink.stop();
