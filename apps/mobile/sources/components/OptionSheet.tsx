@@ -7,6 +7,7 @@ import {
     ScrollView,
     FlatList,
     Modal as RNModal,
+    KeyboardAvoidingView,
     Platform,
     TouchableWithoutFeedback,
     useWindowDimensions,
@@ -81,6 +82,8 @@ export function OptionSheet({
     const { theme } = useUnistyles();
     const safeArea = useSafeAreaInsets();
     const { height: windowHeight } = useWindowDimensions();
+    const [availableHeight, setAvailableHeight] = React.useState(windowHeight);
+    const [webKeyboardInset, setWebKeyboardInset] = React.useState(0);
     const [search, setSearch] = React.useState('');
     const [provider, setProvider] = React.useState<string>(ALL_PROVIDERS);
 
@@ -92,14 +95,34 @@ export function OptionSheet({
         }
     }, [visible]);
 
+    React.useEffect(() => {
+        if (Platform.OS !== 'web') return;
+        if (!visible) {
+            setWebKeyboardInset(0);
+            return;
+        }
+        // Safari keeps the layout viewport tall when its keyboard covers the bottom.
+        const viewport = window.visualViewport;
+        if (!viewport) return;
+        const update = () => setWebKeyboardInset(Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop));
+        update();
+        viewport.addEventListener('resize', update);
+        viewport.addEventListener('scroll', update);
+        return () => {
+            viewport.removeEventListener('resize', update);
+            viewport.removeEventListener('scroll', update);
+        };
+    }, [visible]);
+
     const providers = React.useMemo(() => groupByProvider(models), [models]);
     const visibleModels = React.useMemo(
         () => filterModels(models, provider, search),
         [models, provider, search],
     );
-    const sheetCap = Math.min(windowHeight * 0.82, windowHeight - safeArea.top - 24);
+    // Measure the area left by avoidance, so long lists also fit a short phone.
+    const sheetCap = Math.min(windowHeight * 0.82, Math.max(0, availableHeight - safeArea.top - 24));
     // The handle and title above a body; a body that draws its own title only pays for the handle.
-    const bodyCap = sheetCap - (title === '' ? 40 : 108);
+    const bodyCap = Math.max(0, sheetCap - (title === '' ? 40 : 108));
     const showSearch = !!onSubmitCustom || models.length > SEARCH_THRESHOLD;
     const typed = search.trim();
     const custom = onSubmitCustom && typed.length > 0 && !models.some((model) => model.name === typed)
@@ -164,7 +187,11 @@ export function OptionSheet({
             onRequestClose={onClose}
             statusBarTranslucent
         >
-            <View style={styles.overlay}>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                style={[styles.overlay, Platform.OS === 'web' && { paddingBottom: webKeyboardInset }]}
+            >
+            <View style={styles.overlay} onLayout={({ nativeEvent }) => setAvailableHeight(nativeEvent.layout.height)}>
                 <TouchableWithoutFeedback onPress={onClose}>
                     <View style={styles.backdrop} />
                 </TouchableWithoutFeedback>
@@ -264,6 +291,7 @@ export function OptionSheet({
                     )}
                 </View>
             </View>
+            </KeyboardAvoidingView>
         </RNModal>
     );
 }
@@ -355,7 +383,8 @@ const styles = StyleSheet.create((theme) => ({
     },
     searchInput: {
         flex: 1,
-        fontSize: 15,
+        // Safari zooms smaller inputs, moving the sheet away from its tap targets.
+        fontSize: Platform.OS === 'web' ? 16 : 15,
         color: theme.colors.text,
         ...Typography.default(),
     },
