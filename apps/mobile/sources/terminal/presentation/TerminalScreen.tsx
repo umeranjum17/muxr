@@ -852,7 +852,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const terminalTouch = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const [linkMenu, setLinkMenu] = React.useState<{ url: string; at: { x: number; y: number } } | null>(null);
     const showLinkActions = React.useCallback((url: string, at?: { x: number; y: number }) => {
-        if (safeTerminalLinkUrl(url) === null && !url.startsWith('http')) return;
+        // iOS recognises file paths as links too; a path gets Copy and Insert
+        // (Open stays web-only) rather than a tap that silently does nothing.
+        if (url.trim() === '' || url.length > 2048) return;
         setActionsOpen(false);
         setMenu(null);
         setLinkMenu({ url, at: at ?? terminalTouch.current });

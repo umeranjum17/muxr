@@ -136,6 +136,9 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         // its own long press; nothing opens here without being chosen either.
         const reachLink = (url: string, event?: MouseEvent): void => {
             if (onLinkPress === undefined) { openTerminalLink(url, openExternalUrl); return; }
+            // The tap's mousedown focused the terminal, which on a phone raises the
+            // keyboard under the link menu; a link tap asks, it does not type.
+            term.blur();
             const box = element.getBoundingClientRect();
             onLinkPress(url, event === undefined ? undefined : { x: event.clientX - box.left, y: event.clientY - box.top });
         };

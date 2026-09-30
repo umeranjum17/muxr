@@ -13,7 +13,7 @@ import { openTerminal, type TerminalBottomState } from './OpenTerminal';
 
 /** The phone-side pane really uses only link streams across attach, input and reconnect. */
 describe('terminal link cutover', () => {
-    it('paints, writes and reattaches after a dropped stream without opening a relay socket', { timeout: 10_000 }, async () => {
+    it('recovers a cold-start refusal, paints, writes and reattaches without opening a relay socket', { timeout: 10_000 }, async () => {
         const socket = vi.fn(() => { throw new Error('old relay socket opened'); });
         vi.stubGlobal('WebSocket', socket);
         const streams: Array<{ line: (value: string) => void; end: () => void; write: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> }> = [];
@@ -33,10 +33,19 @@ describe('terminal link cutover', () => {
             }, 0);
             return Promise.resolve(transport);
         });
+        // A restored terminal route can open before its machine link is ready.
+        mocks.openTerminalLink.mockRejectedValueOnce(new Error('link is not ready'));
         const channel = await openTerminal({ agentRoute: 'session', size: { cols: 80, rows: 24 } });
+        const states: string[] = [];
+        channel.onState((state) => states.push(state));
+        expect(states).toEqual(['connecting']);
+        expect(streams).toHaveLength(0);
         const painted: string[] = [];
         channel.onData((bytes) => painted.push(bytes));
-        await vi.waitFor(() => expect(painted).toEqual(['aGk=']));
+        await vi.waitFor(() => expect(painted).toEqual(['aGk=']), { timeout: 4000 });
+        expect(states.at(-1)).toBe('live');
+        expect(mocks.openTerminalLink.mock.calls[0]![0].takeover).toBe(true);
+        expect(mocks.openTerminalLink.mock.calls[1]![0].takeover).toBe(false);
         channel.sendText('hello');
         await vi.waitFor(() => expect(streams[0]!.write).toHaveBeenCalledWith(JSON.stringify({ type: 'terminal.input', text: 'hello' })));
         channel.scroll(30, { column: 10, row: 6 });
