@@ -273,7 +273,7 @@ describe('session sync flow', () => {
             type: 'success',
             sessionId: 's1',
         });
-        expect(request.mock.calls).toEqual([['session.start', { cwd: '/tmp' }]]);
+        expect(request.mock.calls).toEqual([['session.start', { cwd: '/tmp' }, undefined]]);
 
         request.mockResolvedValue({
             acceptance: {
