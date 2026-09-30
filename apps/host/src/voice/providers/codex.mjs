@@ -57,7 +57,7 @@ let knownAgents = new Set();
 // to <message>" for an agent in the startup roster needs no planning turn
 // (~3 s each), so it takes the structured prompt path. Anything that hints at
 // a further step stays with the planner.
-const DIRECT_PROMPT = /^(?:please\s+)?(?:ask|tell)\s+([a-z0-9_-]{1,32})\s+to\s+(.+?)[.!]*$/i;
+const DIRECT_PROMPT = /^(?:please\s+)?(?:ask|tell)\s+([a-z0-9_-]{1,32})\s+to\s+(.+)$/i;
 const FURTHER_STEP = /\b(?:then|after|afterwards|also|and (?:ask|tell|ping|message|let|watch|check)|let me know|tell me|report|when|once|until)\b/i;
 let activeDelegations = 0;
 const tools = createVoiceTools((frame) => {
@@ -359,8 +359,7 @@ async function delegate(event) {
 function directPrompt(request) {
     const match = DIRECT_PROMPT.exec(request.trim());
     if (!match || !knownAgents.has(match[1].toLowerCase()) || FURTHER_STEP.test(match[2]) || match[2].includes('\n')) return undefined;
-    const text = match[2].trim();
-    return { agent: match[1], text: `${text[0].toUpperCase()}${text.slice(1)}.` };
+    return { agent: match[1], text: match[2].trim() };
 }
 
 async function runDelegation(request, operationId) {

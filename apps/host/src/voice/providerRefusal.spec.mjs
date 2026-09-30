@@ -1100,7 +1100,7 @@ describe('providerRefusal', () => {
                 } }) });
                 await waitFor(() => appended('direct-prompt'), 'direct prompt did not return');
                 expect(appended('direct-prompt').content[0].text).toBe('Queued: instruction for Jane.');
-                expect(mutations.at(-1)).toEqual({ sessionId: reviewer.sessionId, text: 'Rebase onto main.\n\ncame from a real-time agent' });
+                expect(mutations.at(-1)).toEqual({ sessionId: reviewer.sessionId, text: 'rebase onto main.\n\ncame from a real-time agent' });
                 expect(planningRequests).toHaveLength(planned);
                 direct.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: {
                     type: 'delegation', target: 'client', id: 'planned-steps', content: [{ type: 'input_text', text: 'Ask Jane to rebase onto main, then tell me when it is done.' }],
