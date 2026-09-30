@@ -12,7 +12,12 @@ export function useWebViewport() {
 
         const update = () => {
             // Pinch zoom must keep its ordinary viewport and panning behavior.
-            if (viewport.scale !== 1) return;
+            if (viewport.scale !== 1) {
+                root.classList.remove('muxr-visual-viewport');
+                root.style.removeProperty('--muxr-viewport-top');
+                root.style.removeProperty('--muxr-viewport-height');
+                return;
+            }
             root.style.setProperty('--muxr-viewport-top', `${viewport.offsetTop}px`);
             root.style.setProperty('--muxr-viewport-height', `${viewport.height}px`);
             root.classList.add('muxr-visual-viewport');
