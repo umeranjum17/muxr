@@ -1,7 +1,6 @@
 import AVFoundation
 import ActivityKit
 import ExpoModulesCore
-import UIKit
 
 /** Native audio and local Live Activities; remote notifications remain on APNs. */
 public final class VoiceOverlayModule: Module {
@@ -88,16 +87,6 @@ public final class VoiceOverlayModule: Module {
           voiceState: voiceState, voiceName: voiceName, muted: muted)
       }
       return ActivityAuthorizationInfo().areActivitiesEnabled
-    }
-    Function("supportsPromotedNotifications") {
-      if #available(iOS 16.2, *) { return true }
-      return false
-    }
-    Function("canPostPromotedNotifications") { ActivityAuthorizationInfo().areActivitiesEnabled }
-    Function("openPromotedNotificationSettings") {
-      guard let url = URL(string: UIApplication.openSettingsURLString) else { return false }
-      Task { @MainActor in UIApplication.shared.open(url) }
-      return true
     }
     Function("openBackgroundActivitySettings") { false }
     Function("clearNotification") {

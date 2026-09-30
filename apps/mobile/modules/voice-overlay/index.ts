@@ -40,9 +40,6 @@ interface VoiceNative {
             agents: Array<{ id: string; name: string; status: string; focused: boolean }>;
         },
     ) => boolean;
-    supportsPromotedNotifications: () => boolean;
-    canPostPromotedNotifications: () => boolean;
-    openPromotedNotificationSettings: () => boolean;
     openBackgroundActivitySettings: () => boolean;
     clearNotification: () => boolean;
     setVoiceGeneration?: (token: string) => void;
@@ -173,30 +170,6 @@ export function updateVoiceNotification(
         voiceName,
         { muted, agents },
     ) ?? false;
-}
-
-export function supportsPromotedNotifications(): boolean {
-    try {
-        return native?.supportsPromotedNotifications() ?? false;
-    } catch {
-        return false;
-    }
-}
-
-export function canPostPromotedNotifications(): boolean {
-    try {
-        return native?.canPostPromotedNotifications() ?? true;
-    } catch {
-        return true;
-    }
-}
-
-export function openPromotedNotificationSettings(): boolean {
-    try {
-        return native?.openPromotedNotificationSettings() ?? false;
-    } catch {
-        return false;
-    }
 }
 
 export function openBackgroundActivitySettings(): boolean {

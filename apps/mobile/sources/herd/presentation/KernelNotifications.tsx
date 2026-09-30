@@ -1,21 +1,23 @@
 import * as React from 'react';
 import { AppState, Platform } from 'react-native';
+import { status as statusChip, type StatusState } from '@byokit/statusbar';
+import { useRouter } from 'expo-router';
+import { refreshStatusChip, statusChipAgentKey, statusChipVoiceKey } from '../application/refreshStatusChip';
+import { navigateToSession } from '../application/useNavigateToSession';
+import { startRealtimeCapability } from '@/conversation';
 import type { AgentLifecycle } from '@trymuxr/contract';
 import { useAuth } from '@/account/ui';
 import { useHerdrTree, useLifecycleCatalogAvailable, useLocalSetting, useLocalSettingMutable, useSessions, useSocketStatus } from '@/catalog/store';
 import {
-    canPostPromotedNotifications,
     clearVoiceNotification,
     openBackgroundActivitySettings,
-    openPromotedNotificationSettings,
     startHerdKeepalive,
     stopHerdKeepalive,
-    supportsPromotedNotifications,
     updateVoiceNotification,
 } from '@/../modules/voice-overlay';
 import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { completionNotificationState, completionTransition, herdNotificationState, nativeLifecycleNotificationState, sortHerd, type HerdNotificationState } from '../domain/herd';
-import { boundRealtimeSession, retryVadStandby, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
+import { applyRealtimeMuted, boundRealtimeSession, realtimeGeneration, retryVadStandby, stopRealtimeSession, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
 import { Modal } from '@/modal';
 import { registerNativePushNotifications } from '@/utils/nativePushNotifications';
 import { focusedAgentRoute, subscribeFocusedAgent } from '@/watch/lifecycleAlert';
@@ -38,6 +40,10 @@ function sameNotification(
  * must never own the service that keeps realtime microphone capture legal.
  */
 export function KernelNotifications() {
+    const router = useRouter();
+    const [chipActions, setChipActions] = React.useState<string[]>([]);
+    const chip = React.useRef({ active: false, attentionRoute: null as string | null, dismissed: false });
+    const [chipState, setChipState] = React.useState<StatusState>('unsupported');
     const sessions = useSessions();
     const sessionCount = Object.keys(sessions).length;
     const { workspaces } = useHerdrTree();
@@ -88,7 +94,42 @@ export function KernelNotifications() {
             visibleAgents.push({ id: focus, name: '', status: 'unknown', focused: true });
         }
         updateVoiceNotification(state, voice, name, isMuted, visibleAgents);
+        const next = refreshStatusChip({ herd: state, voiceState: voice, voiceName: name, muted: isMuted, agents: visibleAgents, voiceGeneration: realtimeGeneration() });
+        chip.current = { ...next, dismissed: next.active && chip.current.dismissed };
+        void statusChip.state().then(setChipState);
+
     }, []);
+
+    React.useEffect(() => {
+        const offAction = statusChip.on('action', ({ id }) => setChipActions((pending) => [...pending, id]));
+        const offDismissed = statusChip.on('dismissed', () => { chip.current.dismissed = true; });
+        // Renew an unchanged post before its timeout, including a quiet busy herd.
+        const refresh = setInterval(() => {
+            if (native.current.authenticated) sendNative(focusedAgentRoute(), AppState.currentState !== 'active' && keepalive.current);
+        }, 60_000);
+        return () => { offAction(); offDismissed(); clearInterval(refresh); };
+    }, [sendNative]);
+
+    React.useEffect(() => {
+        // BYOKit may deliver a cold-start action before pairing/catalog hydration.
+        if (!isAuthenticated || status !== 'connected' || chipActions.length === 0) return;
+        setChipActions([]);
+        for (const id of chipActions) {
+            if (id === 'open' || id.startsWith('open_')) {
+                const route = panes.find((pane) => `open_${statusChipAgentKey(pane.id)}` === id)?.id;
+                if (route !== undefined) navigateToSession(router, route);
+                else router.dismissTo('/');
+            } else if (id === 'talk') {
+                void startRealtimeCapability();
+            } else if (id === `stop_${statusChipVoiceKey(realtimeGeneration())}`) {
+                stopRealtimeSession();
+            } else if (id === `mute_${statusChipVoiceKey(realtimeGeneration())}_0`) {
+                applyRealtimeMuted(false);
+            } else if (id === `mute_${statusChipVoiceKey(realtimeGeneration())}_1`) {
+                applyRealtimeMuted(true);
+            }
+        }
+    }, [chipActions, isAuthenticated, panes, router, status]);
 
     React.useEffect(() => {
         let next = herd;
@@ -108,6 +149,8 @@ export function KernelNotifications() {
             if (keepalive.current) stopHerdKeepalive();
             keepalive.current = false;
             clearVoiceNotification();
+            statusChip.clear();
+            chip.current = { active: false, attentionRoute: null, dismissed: false };
             return;
         }
         // A brief background network drop must not tear down the service that
@@ -198,19 +241,21 @@ export function KernelNotifications() {
             || promotionPrompted
             || promotionPrompting.current
             || backgroundPrompting.current
-            || !supportsPromotedNotifications()
-            || canPostPromotedNotifications()
+            || chip.current.dismissed
+            || (chipState !== 'off' && chipState !== 'needs-permission')
         ) return;
         promotionPrompting.current = true;
         setPromotionPrompted(true);
         void Modal.confirm(
-            'Show live agent updates?',
-            'Allow muxr Live Updates so working agents appear in Android’s status-bar island as well as notifications.',
+            chipState === 'needs-permission' ? 'Allow muxr notifications?' : 'Show live agent updates?',
+            chipState === 'needs-permission'
+                ? 'Allow muxr notifications so working agents can appear in notifications and Android’s status-bar island.'
+                : 'Allow muxr Live Updates so working agents appear in Android’s status-bar island as well as notifications.',
             { confirmText: 'Open settings' },
         ).then((confirmed) => {
-            if (confirmed) openPromotedNotificationSettings();
+            if (confirmed) void statusChip.openSettings();
         }).finally(() => { promotionPrompting.current = false; });
-    }, [appActive, herdActive, isAuthenticated, promotionPrompted, setPromotionPrompted]);
+    }, [appActive, chipState, herdActive, isAuthenticated, promotionPrompted, setPromotionPrompted]);
 
     return null;
 }
