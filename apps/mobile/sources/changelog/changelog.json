@@ -1,6 +1,20 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.3",
+            "title": "Terminal links and custom paths on iOS",
+            "summary": "Open links from the terminal and choose a custom project path with the keyboard open on iOS.",
+            "features": [],
+            "fixes": [
+                {
+                    "title": "Terminal links and custom paths on iOS",
+                    "detail": "Tapping a terminal link on iOS opens the open-link popup, and the custom project path picker stays visible above the keyboard so you can select your path."
+                }
+            ],
+            "verification": [],
+            "knownLimits": []
+        },
+        {
             "appVersion": "0.2.2",
             "title": "Watch your agents work, and a terminal that scrolls",
             "summary": "See an agent's browser or emulator live from its session, tune the terminal's colours, and scroll Claude Code panes with your finger. Update the phone app and computer together.",
