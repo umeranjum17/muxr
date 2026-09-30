@@ -69,8 +69,10 @@ import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
 import { PreviewDesktops, androidCapabilities, withAndroidPreview, withPreview, type AndroidPreviewTargets } from '../../desktop/index.js';
 import type { DesktopSessions } from '../../desktop/index.js';
+import { AgentCatalog } from './agentCatalog.js';
 
 export interface RequestDispatcherOptions {
+    agentCatalog?: AgentCatalog;
     source: SessionSource;
     domain: AgentWatchStores;
     machineId: string;
@@ -184,9 +186,11 @@ function fromUseCase(requestId: string, result: UseCaseResult<unknown>): Request
 export function createRequestDispatcher(options: RequestDispatcherOptions): {
     dispatch(request: ClientRequest, authenticatedSenderId?: string, connectionId?: string): Promise<RequestResponse>;
     close(): Promise<void>;
+    refreshAgentCatalog(): void;
 } {
     const { source, domain, machineId, hostVersion } = options;
     let planMoveInProgress = false;
+    const agentCatalog = options.agentCatalog ?? new AgentCatalog(source);
 
     /** The session cwd is host-injected: a caller can never choose it. */
     const changesInput = async (sessionId: string, root?: string): Promise<{ sessionId: string; cwd: string; root?: string }> => {
@@ -327,10 +331,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'herdr.tree': async () => source.herdrTree(),
         'applications.list': async () => source.applicationsList(),
         'applications.launch': async (params) => source.applicationsLaunch(params),
-        'herdr.agentKinds': async () => {
-            const kinds = await source.agentKinds();
-            return { kinds, installed: await source.installedAgentKinds(kinds) };
-        },
+        'herdr.agentKinds': async (params) => agentCatalog.read(params.refresh),
         'plugin.list': () => { throw new Error('authenticated device context required'); },
         'plugin.manifest': async (params) => useCaseData(
             await runPluginAction(source, { action: 'manifest', ...params }),
@@ -754,6 +755,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     }
 
     return {
+        refreshAgentCatalog: () => agentCatalog.refresh(),
         /** Lab-script teardown: the dispatcher owns no handles itself, so this
          *  cascades to the session source it dispatches against. Idempotent
          *  through the source's own dispose. */

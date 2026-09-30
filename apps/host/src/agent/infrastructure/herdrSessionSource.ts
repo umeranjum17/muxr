@@ -307,21 +307,17 @@ function execFileExitCode(error: { code?: unknown } | null): number | null {
     return null;
 }
 
+const AGENT_TOOL_PATH = [
+    ...(process.env.PATH ?? '').split(delimiter),
+    join(homedir(), '.local', 'bin'),
+    join(homedir(), '.local', 'share', 'mise', 'shims'),
+    join(homedir(), '.npm-global', 'bin'),
+    '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin',
+].filter(Boolean);
+
 function executableOnPath(command: string): boolean {
     const candidates = COMMAND_ALIASES[command] ?? [command];
-    const home = homedir();
-    const directories = new Set([
-        ...(process.env.PATH ?? '').split(delimiter),
-        join(home, '.local', 'bin'),
-        join(home, '.local', 'share', 'mise', 'shims'),
-        join(home, '.npm-global', 'bin'),
-        '/opt/homebrew/bin',
-        '/usr/local/bin',
-        '/usr/bin',
-        '/bin',
-    ]);
-    for (const directory of directories) {
-        if (directory === '') continue;
+    for (const directory of AGENT_TOOL_PATH) {
         for (const candidate of candidates) {
             try { accessSync(join(directory, candidate), constants.X_OK); return true; }
             catch { /* keep looking */ }
@@ -2864,7 +2860,11 @@ export async function createHerdrSessionSource(
         },
 
         async installedAgentKinds(kinds: readonly string[]): Promise<string[]> {
-            return kinds.filter(executableOnPath);
+            // Some kind names also name a desktop app (cursor); only the
+            // existing CLI aliases count as installed agents.
+            const commands = kinds.flatMap((kind) => COMMAND_ALIASES[kind] ?? [kind]);
+            const installed = new Set(client.kit.installedAgentKinds(commands, { path: AGENT_TOOL_PATH }));
+            return kinds.filter((kind) => (COMMAND_ALIASES[kind] ?? [kind]).some((command) => installed.has(command)));
         },
 
         /** Open a kit terminal session on a pane; the kit owns the binary and env. */

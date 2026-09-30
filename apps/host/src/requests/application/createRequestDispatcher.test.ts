@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -6,6 +6,8 @@ import { MISSING_CWD_ERROR_PREFIX, normalizeRequestFailure } from '@trymuxr/cont
 import { createRequestDispatcher } from './createRequestDispatcher.js';
 import { createFakeSessionSource, type SessionSource } from '../../agent/index.js';
 import { hostPlatformLabel } from '../../machine/index.js';
+import { HerdrKit } from '@byokit/herdr';
+import { AgentCatalog } from './agentCatalog.js';
 
 function dispatcherWithSpy(): { dispatch: ReturnType<typeof createRequestDispatcher>['dispatch']; started: string[] } {
     const started: string[] = [];
@@ -222,20 +224,69 @@ describe('explicit layout close dispatcher flow', () => {
 });
 
 describe('host capability catalog', () => {
-    it('reports launchable agents and the actual host platform', async () => {
+    it('reports installed agents and default-folder sign-in, caches checks, and refreshes after sign-in', async () => {
+        const home = mkdtempSync(join(tmpdir(), 'muxr-catalog-'));
+        const bin = join(home, 'bin');
+        mkdirSync(bin);
+        const env = { ...process.env, HOME: home, PATH: bin, CLAUDE_CONFIG_DIR: '', CODEX_HOME: '' };
+        const claude = join(bin, 'claude');
+        writeFileSync(claude, `#!${process.execPath}
+const fs = require('node:fs');
+fs.appendFileSync(process.env.HOME + '/calls', process.env.CLAUDE_CONFIG_DIR + '\\n');
+console.log(JSON.stringify({loggedIn: !fs.existsSync(process.env.HOME + '/signed-out'), email: 'umer@example.test', plan: 'lab'}));
+`);
+        const codex = join(bin, 'codex');
+        writeFileSync(codex, `#!${process.execPath}
+const readline = require('node:readline');
+readline.createInterface({input: process.stdin}).on('line', line => {
+    const request = JSON.parse(line);
+    console.log(JSON.stringify({id: request.id, result: request.id === 1 ? {} : {account: null}}));
+});
+`);
+        chmodSync(claude, 0o755);
+        chmodSync(codex, 0o755);
+        const kit = new HerdrKit({ mode: 'adopt', bin: 'herdr', socketPath: join(home, 'unused.sock') });
         const source = {
-            async agentKinds() { return ['pi', 'claude', 'codex']; },
-            async installedAgentKinds() { return ['claude']; },
+            async agentKinds() { return ['pi', 'claude', 'codex', 'grok']; },
+            async installedAgentKinds(kinds: string[]) { return kit.installedAgentKinds(kinds, { path: [bin] }); },
         } as unknown as SessionSource;
-        const { dispatch } = createRequestDispatcher({
+        const { dispatch, refreshAgentCatalog } = createRequestDispatcher({
             source,
+            agentCatalog: new AgentCatalog(source, env),
             domain: {} as never,
             machineId: 'm1',
             machineName: 'Build Mac',
             hostVersion: '0.0.0',
         });
-        await expect(dispatch({ type: 'herdr.agentKinds', requestId: 'catalog', params: {} } as never, 'device-1'))
-            .resolves.toMatchObject({ ok: true, data: { kinds: ['pi', 'claude', 'codex'], installed: ['claude'] } });
+        try {
+            const request = { type: 'herdr.agentKinds', requestId: 'catalog', params: {} } as const;
+            const result = await dispatch(request, 'device-1');
+            expect(result).toMatchObject({ ok: true, data: {
+                kinds: ['pi', 'claude', 'codex', 'grok'], installed: ['claude', 'codex'],
+                readiness: {
+                    claude: { signedIn: 'yes' },
+                    codex: { signedIn: 'no', signInHint: 'On your computer run `codex`, sign in, then check again.' },
+                    pi: { signedIn: 'unknown', installHint: 'Installs on first start' },
+                    grok: { signedIn: 'unknown' },
+                },
+            } });
+            expect(JSON.stringify(result)).not.toMatch(/umer@example|email|plan|token/);
+            writeFileSync(join(home, 'signed-out'), '');
+            expect(await dispatch(request, 'device-2')).toEqual(result);
+            expect(readFileSync(join(home, 'calls'), 'utf8')).toBe(join(home, '.claude') + '\n');
+            await expect(dispatch({ ...request, params: { refresh: true } }, 'device-1'))
+                .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'no' } } } });
+            expect(readFileSync(join(home, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(2);
+            rmSync(join(home, 'signed-out'));
+            refreshAgentCatalog();
+            await expect(dispatch(request, 'device-1'))
+                .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'yes' } } } });
+            writeFileSync(claude, `#!${process.execPath}\nconsole.log('status unavailable');\n`);
+            await expect(dispatch({ ...request, params: { refresh: true } }, 'device-1'))
+                .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'unknown' } } } });
+        } finally {
+            rmSync(home, { recursive: true, force: true });
+        }
         await expect(dispatch({ type: 'machines.list', requestId: 'machines', params: {} } as never, 'device-1'))
             .resolves.toMatchObject({
                 ok: true,

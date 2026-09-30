@@ -1,0 +1,62 @@
+import type { RequestResult } from '@trymuxr/contract';
+import type { SessionSource } from '../../agent/index.js';
+import { claudeIdentity, codexIdentity, defaultPlanFolder } from '../../plans/index.js';
+
+type Catalog = RequestResult<'herdr.agentKinds'>;
+const CACHE_MS = 30_000;
+
+/** One host-owned cache shared by every picker and connected device. */
+export class AgentCatalog {
+    private cached: Catalog | undefined;
+    private checkedAt = 0;
+    private pending: Promise<Catalog> | undefined;
+
+    constructor(
+        private readonly source: Pick<SessionSource, 'agentKinds' | 'installedAgentKinds'>,
+        private readonly env: NodeJS.ProcessEnv = process.env,
+    ) {}
+
+    async read(refresh = false): Promise<Catalog> {
+        if (this.pending !== undefined) return this.pending;
+        if (!refresh && this.cached !== undefined && Date.now() - this.checkedAt < CACHE_MS) return this.cached;
+        this.pending = this.collect();
+        try {
+            const result = await this.pending;
+            this.cached = result;
+            this.checkedAt = Date.now();
+            return result;
+        } finally {
+            this.pending = undefined;
+        }
+    }
+
+    /** Connect never waits for the bounded provider checks. A failed catalog
+     * lookup is retried by the next request rather than retaining stale state. */
+    refresh(): void {
+        this.checkedAt = 0;
+        void this.read(true).catch(() => { this.cached = undefined; });
+    }
+
+    private async collect(): Promise<Catalog> {
+        const kinds = await this.source.agentKinds();
+        const installed = await this.source.installedAgentKinds(kinds);
+        const readiness: NonNullable<Catalog['readiness']> = {};
+        await Promise.all(kinds.map(async (kind) => {
+            const state: NonNullable<Catalog['readiness']>[string] = { signedIn: 'unknown' };
+            readiness[kind] = state;
+            if (!installed.includes(kind)) {
+                state.installHint = kind === 'pi'
+                    ? 'Installs on first start'
+                    : `Install ${kind} on this computer, then check again.`;
+                return;
+            }
+            if (kind !== 'claude' && kind !== 'codex') return;
+            const identity = kind === 'claude' ? claudeIdentity : codexIdentity;
+            const result = await identity(defaultPlanFolder(kind, this.env), this.env);
+            if (result.statusKnown === false) return;
+            state.signedIn = result.signedIn ? 'yes' : 'no';
+            if (!result.signedIn) state.signInHint = `On your computer run \`${kind}\`, sign in, then check again.`;
+        }));
+        return { kinds, installed, readiness };
+    }
+}

@@ -181,6 +181,7 @@ export function startHost(options: HostOptions): Host {
             const peerMayList = peerRecipient === undefined
                 || options.hostedE2ee?.deviceCapabilities?.[peerRecipient]?.includes('list') === true;
             if (!peerMayList) return undefined;
+            dispatcher.refreshAgentCatalog();
             const listed = await listAgents(source, {});
             return listed.ok ? { type: 'session.list', sessions: withPreview(listed.data, combinedPreviewFor) } : undefined;
         }
@@ -257,6 +258,7 @@ export function startHost(options: HostOptions): Host {
             else activeDesktopConnections.delete(connectionId);
         },
         setLinkDeviceConnection: (deviceId, active) => {
+            if (active) dispatcher.refreshAgentCatalog();
             desktop.setLinkDeviceConnected(deviceId, active);
             previewDesktops.setLinkDeviceConnected(deviceId, active);
             androidWatcher.targets.setLinkDeviceConnected(deviceId, active);

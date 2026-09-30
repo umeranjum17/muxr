@@ -13,6 +13,8 @@ import { spawn } from 'node:child_process';
 
 export interface PlanIdentity {
     signedIn: boolean;
+    /** A failed or unrecognised status answer cannot establish sign-in state. */
+    statusKnown?: false;
     email?: string;
     plan?: string;
 }
@@ -88,11 +90,12 @@ export async function claudeIdentity(
     run: PlanCommandRunner = runPlanCommand,
 ): Promise<PlanIdentity> {
     const answer = await run('claude', ['auth', 'status'], { ...env, CLAUDE_CONFIG_DIR: folder });
-    if (answer === undefined) return { signedIn: false };
+    if (answer === undefined) return { signedIn: false, statusKnown: false };
     const status = parsedJson(answer.stdout);
-    if (!isRecord(status)) return { signedIn: false };
+    if (!isRecord(status)) return { signedIn: false, statusKnown: false };
     const loggedIn = status.loggedIn;
-    if (loggedIn !== true) return { signedIn: false };
+    if (loggedIn === false) return { signedIn: false };
+    if (loggedIn !== true) return { signedIn: false, statusKnown: false };
     const identity: PlanIdentity = { signedIn: true };
     const email = findString(status, /email/i);
     if (email !== undefined) identity.email = email;
@@ -164,7 +167,8 @@ export async function codexIdentity(
 ): Promise<PlanIdentity> {
     const result = await read(folder, env) as CodexAppServerResult | undefined;
     const account = isRecord(result) && isRecord(result.account) ? result.account : undefined;
-    if (account === undefined) return { signedIn: false };
+    if (isRecord(result) && result.account === null) return { signedIn: false };
+    if (account === undefined) return { signedIn: false, statusKnown: false };
     const identity: PlanIdentity = { signedIn: true };
     const email = findString(account, /email/i);
     if (email !== undefined) identity.email = email;
