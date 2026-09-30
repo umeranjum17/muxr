@@ -49,7 +49,7 @@ function zaiToken(env: NodeJS.ProcessEnv): string | undefined {
     const stored = readJson(join(piAgentDir(env), 'auth.json'), 64 * 1024)?.value;
     const auth = isRecord(stored) && isRecord(stored.zai) ? stored.zai : undefined;
     const token = auth?.type === 'api_key' && typeof auth.key === 'string' ? auth.key.trim() : '';
-    if (token === '' || token.length > 16 * 1024) return undefined;
+    if (token === '' || token.length > 16 * 1024 || token.includes('\0')) return undefined;
     return token;
 }
 
@@ -142,7 +142,7 @@ export function sourcesFor(env: NodeJS.ProcessEnv): Partial<Record<Source['provi
         } catch { /* not in this PATH entry */ }
     }
     const { auth } = goAuthSelection(env);
-    if (auth?.type === 'api' && typeof auth.key === 'string' && auth.key.trim() !== '' && auth.key.length <= 16 * 1024) {
+    if (auth?.type === 'api' && typeof auth.key === 'string' && auth.key.trim() !== '' && auth.key.length <= 16 * 1024 && !auth.key.includes('\0')) {
         sources.opencode = { provider: 'opencode', key: auth.key };
     }
     const zai = zaiToken(env);

@@ -233,7 +233,7 @@ try {
     writeTranscript(join(scratch, '.claude/projects/-fixture/session.jsonl'), [claudeTurn('thinking'), claudeTurn('text')]);
     writeFileSync(join(scratch, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'fixture-claude-token', accountUuid: 'fixture-claude-account', expiresAt: Date.now() + 3_600_000 } }));
     writeFileSync(join(scratch, '.claude', 'last-statusline-input.json'), JSON.stringify(claudeLimits));
-    writeFileSync(join(scratch, 'codex'), `#!/usr/bin/env node\nrequire('fs').appendFileSync(${JSON.stringify(codexMarker)}, 'x');let b='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>{b+=d;for(;;){const i=b.indexOf('\\n');if(i<0)break;const line=b.slice(0,i);b=b.slice(i+1);const m=JSON.parse(line);if(m.id===1)console.log(JSON.stringify({id:1,result:{}}));if(m.id===2)console.log(JSON.stringify({id:2,result:{rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:25,windowDurationMins:300,resetsAt:Math.floor(Date.now()/1000)+3600},secondary:{usedPercent:90,windowDurationMins:10080,resetsAt:Math.floor(Date.now()/1000)+86400}}}}}));}});\n`, { mode: 0o755 });
+    writeFileSync(join(scratch, 'codex'), `#!/usr/bin/env node\nimport { appendFileSync } from 'node:fs';appendFileSync(${JSON.stringify(codexMarker)}, 'x');let b='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>{b+=d;for(;;){const i=b.indexOf('\\n');if(i<0)break;const line=b.slice(0,i);b=b.slice(i+1);const m=JSON.parse(line);if(m.id===1)console.log(JSON.stringify({id:1,result:{}}));if(m.id===2)console.log(JSON.stringify({id:2,result:{rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:25,windowDurationMins:300,resetsAt:Math.floor(Date.now()/1000)+3600},secondary:{usedPercent:90,windowDurationMins:10080,resetsAt:Math.floor(Date.now()/1000)+86400}}}}}));}});\n`, { mode: 0o755 });
     for (const command of ['claude', 'kimi', 'opencode', 'hermes', 'github-copilot', 'cursor-agent', 'omp', 'gemini', 'grok', 'amp', 'droid', 'codebuff', 'goose', 'openclaw', 'kilocode', 'qwen', 'devin', 'kiro-cli', 'cline', 'maki', 'mastra', 'qoder', 'antigravity']) writeFileSync(join(scratch, command), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
     // Default tab: the busiest measured provider leads, and its own windows ride
@@ -376,8 +376,17 @@ try {
     // A changed disk key changes the cache identity, so the answer is
     // re-collected instead of replaying the previous account's limits.
     writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'different-fixture-key' } }));
-    const changedKey = await run({ provider: 'opencode' }, { __fetch: async () => { throw new Error('unexpected quota request'); } });
-    assert.match(changedKey.limits.message ?? '', /limits unavailable/, 'disk key change reused cached account limits');
+    const goSecond = await run({ provider: 'opencode' }, { __fetch: async (url, options) => {
+        assert.equal(url, 'https://opencode.ai/zen/go/v1/usage');
+        assert.equal(options.headers.authorization, 'Bearer different-fixture-key');
+        return Response.json({ usage: { rolling: { status: 'ok', percent: 65, resetsAt: new Date(Date.now() + 3600000).toISOString() } } });
+    } });
+    assert.deepEqual(goSecond.limits.windows.map((limit) => limit.used), [65]);
+    writeFileSync(join(scratch, '.local/share/opencode/auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: 'failed-fixture-key' } }));
+    const changedKey = await run({ provider: 'opencode' }, { __fetch: async () => new Response('{}', { status: 503 }) });
+    assert.deepEqual(changedKey.limits.windows, [], 'a failed new account must not replay either previous account');
+    const goAgain = await run({ provider: 'opencode' }, { OPENCODE_AUTH_CONTENT: JSON.stringify({ 'opencode-go': { type: 'api', key: 'fixture-secret-key' } }), __fetch: async () => { throw new Error('recent reading must be reused'); } });
+    assert.deepEqual(goAgain.limits.windows.map((limit) => limit.used), [0, 21, 22]);
 
     // Z.ai: the GLM Coding Plan credential Pi holds earns a tab, and its
     // measured activity is the Z.ai-routed slice of Pi's own local records --
@@ -417,6 +426,19 @@ try {
         ['zai', 'weekly', 1, 99, 'on pace'],
     ]);
     assert.doesNotMatch(JSON.stringify(zaiRun), /fixture-zai-key/);
+    writeFileSync(join(zaiAgent, 'auth.json'), JSON.stringify({ zai: { type: 'api_key', key: 'second-zai-key' } }));
+    const zaiSecond = await run({ provider: 'zai' }, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state'), __fetch: async (url, options) => {
+        assert.equal(url, 'https://api.z.ai/api/monitor/usage/quota/limit');
+        assert.equal(options.headers.authorization, 'Bearer second-zai-key');
+        return Response.json({ success: true, data: { limits: [{ unit: 3, number: 5, percentage: 70, nextResetTime: Date.now() + 3600000 }] } });
+    } });
+    assert.deepEqual(zaiSecond.limits.windows.map((limit) => limit.used), [70]);
+    writeFileSync(join(zaiAgent, 'auth.json'), JSON.stringify({ zai: { type: 'api_key', key: 'failed-zai-key' } }));
+    const zaiFailed = await run({ provider: 'zai' }, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state'), __fetch: async () => new Response('{}', { status: 503 }) });
+    assert.deepEqual(zaiFailed.limits.windows, [], 'a failed new Z.ai account must not replay another account');
+    writeFileSync(join(zaiAgent, 'auth.json'), JSON.stringify({ zai: { type: 'api_key', key: 'fixture-zai-key' } }));
+    const zaiAgain = await run({ provider: 'zai' }, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state'), __fetch: async () => { throw new Error('recent reading must be reused'); } });
+    assert.deepEqual(zaiAgain.limits.windows.map((limit) => limit.used), [4, 1]);
     // The configured plan is a tab even with zero measured activity of its
     // own, while installed-but-idle CLIs still are not.
     const withZai = await run({}, { PI_AGENT_DIR: zaiAgent, MUXR_HOME: join(scratch, 'zai-state2') });
@@ -783,8 +805,7 @@ try {
     // vitals line standing, and says it is collecting rather than reporting a
     // limit it never read.
     const slowCold = join(scratch, 'ccusage-cold');
-    const coldMarker = join(scratch, 'cold-ccusage-ran');
-    writeFileSync(slowCold, `#!/bin/sh\nsleep 9\ntouch "${coldMarker}"\nexit 1\n`, { mode: 0o755 });
+    writeFileSync(slowCold, `#!/usr/bin/env node\nsetTimeout(() => process.exit(1), 9000);\n`, { mode: 0o755 });
     const coldHome = join(scratch, 'now-cold');
     const coldStarted = Date.now();
     const coldNow = await driveNow({ ...baseEnv(), HOME: coldHome, MUXR_HOME: coldHome, MUXR_CCUSAGE_BIN: slowCold });
@@ -797,6 +818,7 @@ try {
     // A successful plan read is durable independently of the unfinished
     // activity collection. Restart the kit to verify the persisted reading,
     // while the Home answer above still honestly reports collecting.
+    await drive({ ...baseEnv(), HOME: coldHome, MUXR_HOME: coldHome, MUXR_CCUSAGE_BIN: slowCold }, {});
     const restarted = usage({ stateDir: join(coldHome, 'usage'), salt: 'muxr/usage/account' });
     const knownCodex = restarted.lastKnown({ provider: 'codex', bin: join(scratch, 'codex'), home: join(scratch, '.codex') }, { nowMs: today.getTime() });
     assert.deepEqual(knownCodex?.windows.map((window) => window.usedPercent), [25, 90]);
