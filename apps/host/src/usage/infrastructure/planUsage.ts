@@ -1,8 +1,9 @@
 /** App-owned source discovery; the kit never discovers a sign-in or executable. */
 import { usage, type Usage, type Source, type Reading, type Code } from '@byokit/usage';
-import { accessSync, constants, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
+import type { PlanId } from '../domain/activity.js';
 import { piAgentDir } from './tokenLedger.js';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -43,12 +44,6 @@ function goAuthOverride(env: NodeJS.ProcessEnv): { type?: unknown; key?: unknown
     } catch { return null; }
 }
 
-/** A connected Go account, from the same selection the cache identity uses. */
-function goConnected(env: NodeJS.ProcessEnv): boolean {
-    const { auth } = goAuthSelection(env);
-    return auth?.type === 'api' && typeof auth.key === 'string' && auth.key.trim() !== '' && auth.key.length <= 16 * 1024;
-}
-
 /** The Z.ai credential Pi holds for its zai provider, from Pi's own auth store. */
 function zaiToken(env: NodeJS.ProcessEnv): string | undefined {
     const stored = readJson(join(piAgentDir(env), 'auth.json'), 64 * 1024)?.value;
@@ -63,11 +58,70 @@ export function usageStateDir(env: NodeJS.ProcessEnv): string {
     return join(home, 'usage');
 }
 
+const PLAN_IDS: PlanId[] = ['claude', 'codex', 'opencode', 'zai'];
+
+export interface StoredPlanReading { at: number; raw: unknown }
+/** The last good reading of every plan, keyed per account fingerprint: two
+ *  sign-ins of one provider keep separate readings, and one account's
+ *  failure never costs the other its standing. */
+export type PlanReadings = Partial<Record<PlanId, Record<string, StoredPlanReading>>>;
+
+/** Retained for Claude only. Preserve the kit-owned provider entries when
+ *  merging a Claude update into the shared file. The kit owns every other
+ *  provider's last-good lookup and persistence. */
+export function readPlans(env: NodeJS.ProcessEnv, migrateLegacy = false): PlanReadings {
+    const saved = readJson(join(usageStateDir(env), 'plans-v1.json'), 256 * 1024)?.value;
+    if (!isRecord(saved) || !isRecord(saved.plans)) return {};
+    const plans: PlanReadings = {};
+    let legacy = false;
+    for (const id of PLAN_IDS) {
+        const entry = saved.plans[id];
+        if (!isRecord(entry)) continue;
+        const byAccount: Record<string, StoredPlanReading> = {};
+        if (typeof entry.account === 'string' && Number.isFinite(entry.at)) {
+            legacy = true;
+            byAccount[entry.account] = { at: entry.at as number, raw: entry.raw };
+        }
+        for (const [fingerprint, reading] of Object.entries(entry)) {
+            if (fingerprint.length > 128 || !isRecord(reading) || !Number.isFinite(reading.at)) continue;
+            byAccount[fingerprint] = { at: reading.at as number, raw: reading.raw };
+        }
+        if (Object.keys(byAccount).length > 0) plans[id] = byAccount;
+    }
+    if (migrateLegacy && legacy) savePlans(env, plans);
+    return plans;
+}
+
+/** Merge this collection's new readings into the file: another collection
+ *  running beside it may have landed a reading this one did not. */
+export function savePlans(env: NodeJS.ProcessEnv, updates: PlanReadings): void {
+    const path = join(usageStateDir(env), 'plans-v1.json');
+    const temporary = `${path}.${process.pid}.tmp`;
+    try {
+        const plans = readPlans(env);
+        for (const id of PLAN_IDS) {
+            const next = updates[id];
+            if (next === undefined) continue;
+            const current = plans[id] ?? {};
+            for (const [fingerprint, reading] of Object.entries(next)) {
+                if (reading.at >= (current[fingerprint]?.at ?? -Infinity)) current[fingerprint] = reading;
+            }
+            plans[id] = current;
+        }
+        const body = JSON.stringify({ plans });
+        if (Buffer.byteLength(body) > 256 * 1024) return;
+        mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
+        writeFileSync(temporary, body, { mode: 0o600 });
+        renameSync(temporary, path);
+    } catch { /* an unwritten reading only means the next failure has nothing to stand on */ }
+}
+
 const readers = new Map<string, Usage>();
 export function planReader(env: NodeJS.ProcessEnv): Usage {
     const stateDir = resolve(usageStateDir(env));
     let reader = readers.get(stateDir);
     if (reader === undefined) {
+        readPlans(env, true);
         reader = usage({ stateDir, salt: 'muxr/usage/account' });
         readers.set(stateDir, reader);
     }
@@ -87,7 +141,10 @@ export function sourcesFor(env: NodeJS.ProcessEnv): Partial<Record<Source['provi
             break;
         } catch { /* not in this PATH entry */ }
     }
-    if (goConnected(env)) sources.opencode = { provider: 'opencode', key: goAuthSelection(env).auth!.key as string };
+    const { auth } = goAuthSelection(env);
+    if (auth?.type === 'api' && typeof auth.key === 'string' && auth.key.trim() !== '' && auth.key.length <= 16 * 1024) {
+        sources.opencode = { provider: 'opencode', key: auth.key };
+    }
     const zai = zaiToken(env);
     if (zai !== undefined) sources.zai = { provider: 'zai', key: zai };
     return sources;
