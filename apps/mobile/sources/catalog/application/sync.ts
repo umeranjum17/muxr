@@ -531,12 +531,12 @@ class MuxrSync {
         let tree = await this.request('herdr.tree', {});
         const liveRoutes = new Set(tree.workspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) =>
             tab.panes.map((pane) => pane.sessionId))));
-        const startingRoutes = storage.getState().herdrWorkspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) =>
-            tab.panes.filter((pane) => pane.agentStatus === 'starting' && pane.sessionId !== undefined)
+        const agentRoutes = storage.getState().herdrWorkspaces.flatMap((workspace) => workspace.tabs.flatMap((tab) =>
+            tab.panes.filter((pane) => pane.sessionId !== undefined && !pane.sessionId.startsWith('shell:'))
                 .map((pane) => pane.sessionId!)));
-        const missingLaunches = startingRoutes.filter((route) => !liveRoutes.has(route));
-        if (missingLaunches.length > 0) {
-            await Promise.all(missingLaunches.map((sessionId) =>
+        const missingRoutes = agentRoutes.filter((route) => !liveRoutes.has(route));
+        if (missingRoutes.length > 0) {
+            await Promise.all(missingRoutes.map((sessionId) =>
                 this.request('session.open', { sessionId }).catch(() => undefined)));
             tree = await this.request('herdr.tree', {});
         }
