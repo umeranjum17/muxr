@@ -45,6 +45,12 @@ async function stop(child) {
 
 const rotate = (...flags) => spawnSync(process.execPath, ['scripts/cli.mjs', 'devices', 'rotate-keys', '--data-dir', join(root, 'host'), ...flags], { env: { ...env, MUXR_DATA_DIR: join(root, 'unused-host') }, encoding: 'utf8' });
 const readState = () => JSON.parse(readFileSync(join(home, 'selfhost.json'), 'utf8'));
+const waitForAdmission = () => until(() => {
+    const path = join(home, 'link-enrolled.json');
+    if (!existsSync(path)) return false;
+    const admitted = JSON.parse(readFileSync(path, 'utf8'));
+    return readState().machine.crypto.devices.every((device) => admitted.some((entry) => entry.deviceId === device.deviceId));
+}, 'host reloads the paired device before a crypto mutation');
 const hostOf = (crypto) => hostId(Buffer.from(crypto.boxPublicKey, 'base64'));
 const authorizePeer = async (device) => {
     const source = machineIdentity(undefined);
@@ -90,10 +96,12 @@ try {
     const device = await linkLabClient(socketPath);
     await requestLab(device, 'machines.list');
     if (readState().machine.crypto.devices.length !== 1) throw new Error('lab device was not paired');
+    await waitForAdmission();
     const peer = await authorizePeer(device);
     const before = readState().machine.crypto;
 
-    if (rotate().status === 0 || readState().machine.crypto.boxSecretKey !== before.boxSecretKey) {
+    const unconfirmed = rotate();
+    if (unconfirmed.status === 0 || readState().machine.crypto.boxSecretKey !== before.boxSecretKey) {
         throw new Error('rotation ran without --unpair-all');
     }
     const active = rotate('--unpair-all');
@@ -106,6 +114,10 @@ try {
     for (const key of ['signingSecretKey', 'signingPublicKey', 'boxSecretKey', 'boxPublicKey', 'dataKey']) {
         if (after[key] === before[key]) throw new Error(`${key} was not replaced`);
     }
+    for (const secret of [before.signingSecretKey, before.boxSecretKey, before.dataKey, after.signingSecretKey, after.boxSecretKey, after.dataKey, owner]) {
+        if ([unconfirmed, active, rotated].some((result) => `${result.stdout}${result.stderr}`.includes(secret))) throw new Error('rotation printed a secret');
+    }
+    process.stdout.write(`Without confirmation: ${unconfirmed.stderr.trim()}\nLive host refusal: ${active.stderr.trim()}\n${rotated.stdout}`);
     if (after.keyVersion !== before.keyVersion + 1 || after.devices.length !== 0) throw new Error('rotation kept the old version or pairings');
     let rejected = false;
     try { writeSelfhostCrypto(join(home, 'selfhost.json'), before); }
@@ -113,6 +125,7 @@ try {
     if (!rejected || readState().machine.crypto.boxPublicKey !== after.boxPublicKey) throw new Error('a stale host commit restored the retired keys');
     if ((await hosts()).some((host) => host.id === hostOf(before))) throw new Error('relay still admits the old host key');
     await until(() => device.status !== 'online', 'old pairing drops off the retired host');
+    process.stdout.write('Observed: all signing/box/data keys changed; device grants empty; stale commit rejected; old relay registration absent; old device offline; no secrets in CLI output\n');
 
     await start();
     await until(async () => (await hosts()).some((host) => host.id === hostOf(after) && host.online), 'new host key online on the relay');
@@ -121,6 +134,7 @@ try {
     device.stop();
     const repaired = await linkLabClient(socketPath);
     try {
+        await waitForAdmission();
         await requestLab(repaired, 'machines.list');
         const disconnected = await requestLab(repaired, 'peer.revoke', { relationshipId: peer.relationshipId,
             mutation: { operationId: randomUUID(), notValidAfter: Date.now() + 60_000 } });
@@ -128,6 +142,7 @@ try {
         const freshPeer = await authorizePeer(repaired);
         const freshDisconnect = await requestLab(repaired, 'peer.revoke', { relationshipId: freshPeer.relationshipId,
             mutation: { operationId: randomUUID(), notValidAfter: Date.now() + 60_000 } });
+        process.stdout.write(`After re-pairing: machines.list answered; old peer ${disconnected.state}; fresh peer connected then ${freshDisconnect.state}\n`);
         if (freshDisconnect.state !== 'revoked') throw new Error('fresh peer collaboration could not disconnect');
     }
     finally { repaired.stop(); }

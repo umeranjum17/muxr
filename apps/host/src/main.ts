@@ -304,7 +304,7 @@ async function main(): Promise<void> {
         for (const socketPath of [join(dataDir, 'pair.sock'), join(dataDir, 'peer', 'broker.sock')]) {
             if (!existsSync(socketPath)) continue;
             const info = lstatSync(socketPath);
-            if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0) {
+            if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid!() || (info.mode & 0o077) !== 0) {
                 throw new Error('cannot verify host quiescence: unsafe muxr socket');
             }
             await new Promise<void>((resolve, reject) => {
