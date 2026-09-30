@@ -187,8 +187,9 @@ export function OptionSheet({
             onRequestClose={onClose}
             statusBarTranslucent
         >
+            {/* A modal is its own window; edge-to-edge Android no longer resizes it for the keyboard. */}
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior={Platform.OS === 'web' ? undefined : 'padding'}
                 style={[styles.overlay, Platform.OS === 'web' && { paddingBottom: webKeyboardInset }]}
             >
                 <View style={styles.overlay} onLayout={({ nativeEvent }) => setAvailableHeight(nativeEvent.layout.height)}>

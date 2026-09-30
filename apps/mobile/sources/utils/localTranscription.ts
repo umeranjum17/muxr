@@ -7,11 +7,9 @@ import { BUNDLED_DICTATION_MODEL_ID, getInstalledDictationModelUri } from '@/uti
 import { bundledDictationModel } from '@/utils/dictationModelFiles';
 
 const BYTES_PER_SECOND = 16_000 * 2;
-// Read what is still being spoken again once this much more has arrived.
+const LIVE_WINDOW_BYTES = 30 * BYTES_PER_SECOND;
+// Read what has been said again once this much more has arrived.
 const READ_EVERY_BYTES = BYTES_PER_SECOND;
-// Past this, the sentences a reading has finished are kept for good and only
-// the one still going is read again, so each reading stays short.
-const KEEP_AFTER_BYTES = 6 * BYTES_PER_SECOND;
 // Below this level a chunk holds no speech.
 const SILENT_LEVEL = 0.06;
 // Six threads read fastest on a current flagship phone; eight start competing
@@ -53,8 +51,9 @@ async function releaseModel(context: Promise<WhisperContext> | undefined): Promi
 
 /**
  * whisper.cpp reads a fixed 30 s window unless told the audio is shorter; a
- * window sized to the audio makes a short reading several times faster. The
- * margin keeps the model from losing the end of the audio.
+ * window sized to the audio makes a short reading several times faster. It
+ * also drops or repeats words, noisy audio worst (scripts/dictation), so only
+ * the live words use it and the transcript is read with the full window.
  */
 function audioContextFor(bytes: number): number {
     return Math.min(1500, Math.ceil((bytes / BYTES_PER_SECOND) * 50) + 256);
@@ -83,11 +82,10 @@ export type LiveTranscription = {
 };
 
 /**
- * Dictate on-device with whisper.cpp while the user speaks. What is still
- * being said is read again every second, in the background, and its words
- * show once two readings agree; finished sentences are kept and never read
- * again. Stopping then has at most the last sentence left to read, and
- * nothing at all when the user paused before stopping.
+ * Dictate on-device with whisper.cpp while the user speaks. Everything said
+ * is read again every second, in the background, and its words show once two
+ * readings agree. Stopping reads it all once more with the full window, which
+ * is the transcript.
  */
 export async function startLiveTranscription({ hint, onText, onLevel }: {
     hint?: string;
@@ -96,8 +94,10 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
 }): Promise<LiveTranscription> {
     const settings = loadLocalSettings();
     const replacements = settings.dictationWordReplacements;
-    const language = settings.dictationLanguage ?? 'auto';
     const modelId = settings.dictationModel || BUNDLED_DICTATION_MODEL_ID;
+    // The bundled model only knows English; 'auto' would still run a language
+    // detection pass on every reading and throw its answer away.
+    const language = modelId === BUNDLED_DICTATION_MODEL_ID ? 'en' : settings.dictationLanguage ?? 'auto';
 
     const chunks: string[] = [];
     // Each chunk's level and where it ends, to tell whether unread audio holds speech.
@@ -105,18 +105,17 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
     let total = 0;
     let recording = false;
     let cancelled = false;
-    // Audio before `keptBytes` is transcribed for good as `kept`.
-    let keptBytes = 0;
-    let kept = '';
-    // The latest reading of the rest: how far it reached and what it heard.
+    // The latest reading: how far it reached and what it heard.
     let readTo = 0;
+    let previewFrom = 0;
+    let prefix = '';
     let heard = '';
     let shown = '';
     let reading: { stop: () => Promise<void>; done: Promise<void> } | null = null;
 
     const spokenAfter = (at: number) => levels.some(({ level, end }) => end > at && level >= SILENT_LEVEL);
-    const text = (rest: string) => applyWordReplacements([kept, rest].filter(Boolean).join(' '), replacements).trim();
-    const prompt = () => [hint, kept.slice(-200)].filter(Boolean).join(' ') || undefined;
+    const text = (said: string) => applyWordReplacements(said, replacements).trim();
+    const liveText = () => [prefix, shown].filter(Boolean).join(' ');
 
     const model = previousDone.then(() => acquireModel(modelId));
     let released!: () => void;
@@ -128,36 +127,40 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
         await LiveAudioStream.stop();
     };
 
-    const read = async (context: WhisperContext, to: number) => {
-        const from = keptBytes;
-        const job = context.transcribeData(pcm16ChunksToArrayBuffer(chunks).slice(from, to), {
+    const audioRange = (from: number, to: number): ArrayBuffer => {
+        let low = 0;
+        let high = levels.length;
+        while (low < high) {
+            const middle = (low + high) >>> 1;
+            if (levels[middle].end <= from) low = middle + 1;
+            else high = middle;
+        }
+        const first = low;
+        let last = first;
+        while (last < levels.length && levels[last].end < to) last += 1;
+        const chunkStart = first === 0 ? 0 : levels[first - 1].end;
+        const chunkEnd = last < levels.length ? levels[last].end : chunkStart;
+        const selected = pcm16ChunksToArrayBuffer(chunks.slice(first, last + 1));
+        return selected.slice(from - chunkStart, Math.min(to, chunkEnd) - chunkStart);
+    };
+
+    const read = async (context: WhisperContext, to: number, live: boolean) => {
+        const requestedFrom = live ? Math.max(previewFrom, to - LIVE_WINDOW_BYTES) : 0;
+        const from = live ? requestedFrom + (requestedFrom % 2) : requestedFrom;
+        const audio = live ? audioRange(from, to) : pcm16ChunksToArrayBuffer(chunks);
+        const job = context.transcribeData(audio, {
             language,
             maxThreads: THREADS,
-            audioCtx: audioContextFor(to - from),
-            prompt: prompt(),
-            // Short segments give the reading places to keep what is finished.
-            tokenTimestamps: true,
-            maxLen: 60,
+            ...(live ? { audioCtx: audioContextFor(to - from) } : {}),
+            prompt: hint,
         });
         const done = job.promise.then(() => undefined, () => undefined);
         reading = { stop: job.stop, done };
         try {
-            const { result, segments, isAborted } = await job.promise;
+            const { result, isAborted } = await job.promise;
             if (isAborted) return false;
-            const words = (value: string) => value.split(/\s+/).filter(Boolean);
-            const last = segments.at(-1);
-            if (recording && to - from > KEEP_AFTER_BYTES && segments.length > 1 && last) {
-                const before = words(kept).length + words(shown).length;
-                // Segment times are in hundredths of a second.
-                keptBytes = from + Math.floor((last.t0 * BYTES_PER_SECOND) / 100 / 2) * 2;
-                kept = [kept, ...segments.slice(0, -1).map((segment) => segment.text.trim())].filter(Boolean).join(' ');
-                heard = last.text.trim();
-                // Keep showing as many words as were already on screen.
-                shown = words(heard).slice(0, Math.max(0, before - words(kept).length)).join(' ');
-            } else {
-                shown = recording ? settleWords(shown, heard, result.trim()) : result.trim();
-                heard = result.trim();
-            }
+            shown = recording ? settleWords(shown, heard, result.trim()) : result.trim();
+            heard = result.trim();
             readTo = to;
             return true;
         } finally {
@@ -169,10 +172,16 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
         if (!recording || reading !== null || total - readTo < READ_EVERY_BYTES) return;
         // Nothing new has been said; the last reading still stands.
         if (!spokenAfter(readTo)) return;
+        if (total - previewFrom > LIVE_WINDOW_BYTES) {
+            prefix = [prefix, shown].filter(Boolean).join(' ');
+            previewFrom = readTo;
+            heard = '';
+            shown = '';
+        }
         void model.then(async (context) => {
             if (!recording || reading !== null) return;
-            if (await read(context, total).catch(() => false)) {
-                if (recording && !cancelled) onText(text(shown));
+            if (await read(context, total, true).catch(() => false)) {
+                if (recording && !cancelled) onText(text(liveText()));
             }
             follow();
         }, () => undefined);
@@ -213,9 +222,7 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
         // The model reads one thing at a time; let a running reading land.
         await reading?.done;
         if (cancelled) return '';
-        // Nothing said since the last reading: it already is the transcript.
-        const current = readTo > keptBytes && !spokenAfter(readTo);
-        if (!current && total > keptBytes) await read(context, total);
+        if (total > 0) await read(context, total, false);
         return cancelled ? '' : text(heard);
     };
 
