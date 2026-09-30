@@ -29,6 +29,7 @@ const SSH_PAIRING_STEPS = [
 ] as const;
 
 function SshField(props: {
+    testID: string;
     label: string;
     value: string;
     onChange: (next: string) => void;
@@ -43,6 +44,7 @@ function SshField(props: {
             <Text style={styles.inputLabel}>{props.label}</Text>
             <TextInput
                 accessibilityLabel={props.label}
+                testID={props.testID}
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType={props.keyboardType ?? 'default'}
@@ -303,15 +305,15 @@ export default function PairScreen() {
                                         <Ionicons name={commandCopied ? 'checkmark-outline' : 'copy-outline'} size={20} color={styles.inputPlaceholder.color} />
                                     </Pressable>
                                 </View>
-                                <SshField label="SSH host" value={sshHost} onChange={setSshHost} placeholder="server.example.com or 192.168.1.20" />
-                                <SshField label="SSH username" value={sshUsername} onChange={setSshUsername} placeholder="your login on the machine" />
+                                <SshField testID="ssh-host" label="SSH host" value={sshHost} onChange={setSshHost} placeholder="server.example.com or 192.168.1.20" />
+                                <SshField testID="ssh-username" label="SSH username" value={sshUsername} onChange={setSshUsername} placeholder="your login on the machine" />
                                 <View style={styles.sshRow}>
-                                    <SshField flex label="SSH port" value={sshPort} onChange={setSshPort} placeholder="22" keyboardType="number-pad" />
-                                    <SshField flex label="Relay port" value={sshRelayPort} onChange={setSshRelayPort} placeholder="8792" keyboardType="number-pad" />
+                                    <SshField flex testID="ssh-port" label="SSH port" value={sshPort} onChange={setSshPort} placeholder="22" keyboardType="number-pad" />
+                                    <SshField flex testID="ssh-relay-port" label="Relay port" value={sshRelayPort} onChange={setSshRelayPort} placeholder="8792" keyboardType="number-pad" />
                                 </View>
-                                <SshField label="SSH password (optional)" value={sshPassword} onChange={setSshPassword} placeholder="Password or private key" secure />
-                                <SshField label="Private key (optional)" value={sshPrivateKey} onChange={setSshPrivateKey} placeholder="Paste an OpenSSH private key" secure multiline />
-                                <SshField label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
+                                <SshField testID="ssh-password" label="SSH password (optional)" value={sshPassword} onChange={setSshPassword} placeholder="Password or private key" secure />
+                                <SshField testID="ssh-private-key" label="Private key (optional)" value={sshPrivateKey} onChange={setSshPrivateKey} placeholder="Paste an OpenSSH private key" secure multiline />
+                                <SshField testID="ssh-passphrase" label="Private key passphrase" value={sshPassphrase} onChange={setSshPassphrase} placeholder="Only if the key is encrypted" secure />
                             </>
                         )}
                         {!browser && openedFromSettings && !sshRoute && (
@@ -332,6 +334,7 @@ export default function PairScreen() {
                         <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : sshRoute ? 'Pairing string from `muxr pair`' : 'Enter pairing string manually'}</Text>
                         <TextInput
                             accessibilityLabel="Pairing string"
+                            testID={sshRoute ? "ssh-pairing-offer" : undefined}
                             autoCapitalize="none"
                             autoCorrect={false}
                             keyboardType="url"
@@ -359,7 +362,7 @@ export default function PairScreen() {
             // iOS's bar follows the keyboard without shrinking the aware scroll.
             <SshConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
                 {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
-                <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+                <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
             </SshConnectBar>
         )}
         </View>
