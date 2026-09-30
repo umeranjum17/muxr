@@ -2,7 +2,7 @@ import * as React from 'react';
 import { useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { getCachedConnectionSettings } from '@/connection';
-import { useHerdrTree, useLifecycleEvents } from '@/catalog/store';
+import { useHerdrTree, useLifecycleEvents, useSessionError } from '@/catalog/store';
 import { useActivityAcknowledgements } from '@/herd';
 import { agentOnScreen } from '@/watch/lifecycleAlert';
 import { TerminalScreen } from './TerminalScreen';
@@ -11,6 +11,7 @@ import { TerminalScreen } from './TerminalScreen';
 export function TerminalRoute({ id, desktop = false, preview = false }: { id: string; desktop?: boolean; preview?: boolean }): React.JSX.Element {
     const focused = useIsFocused();
     const { workspaces } = useHerdrTree();
+    const sessionError = useSessionError(id);
     const lifecycleEvents = useLifecycleEvents();
     const { ready, seenEventIds, markSeen } = useActivityAcknowledgements();
     const machineId = getCachedConnectionSettings().machineId;
@@ -19,7 +20,7 @@ export function TerminalRoute({ id, desktop = false, preview = false }: { id: st
     const live = panes.find((pane) => pane.sessionId === id);
     const remembered = binding.current;
     let currentId = id;
-    if (focused && live === undefined && remembered?.machineId === machineId && remembered.route === id) {
+    if (focused && sessionError === undefined && live === undefined && remembered?.machineId === machineId && remembered.route === id) {
         const samePane = panes.filter((pane) => pane.paneId === remembered.paneId);
         if (samePane.length === 1 && samePane[0]?.sessionId) currentId = samePane[0].sessionId;
     }
