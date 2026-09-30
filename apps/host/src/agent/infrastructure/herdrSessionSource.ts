@@ -2232,9 +2232,6 @@ export async function createHerdrSessionSource(
                 { digests: nextDigests, enabled: nextEnabled },
             );
             if (frame === undefined) return;
-            for (const abort of voiceStreamAborts.values()) abort.abort();
-            voiceStreamAborts.clear();
-            voiceStreams?.closeAll();
             for (const listener of machineListeners) listener(frame);
         });
 
