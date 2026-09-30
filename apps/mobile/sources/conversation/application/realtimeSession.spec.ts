@@ -461,6 +461,23 @@ describe('generic realtime stream session', () => {
         handle.stop();
     });
 
+    it('sends a report queued behind playback once the provider clears it, even while muted', async () => {
+        const stream = fakeStream();
+        mocks.openStream.mockResolvedValue(asPluginStream(stream));
+        const handle = startRealtimeSession({ target: { machineId: 'machine-a', sessionId: 's1' }, onStatus: vi.fn(), onTurn: vi.fn() });
+        await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledOnce());
+        stream.frames.forEach((listener) => listener({ type: 'realtime.ready', inputRate: 24_000, outputRate: 24_000 }));
+        await vi.waitFor(() => expect(mocks.liveAudio.start).toHaveBeenCalled());
+        stream.frames.forEach((listener) => listener({ type: 'realtime.audio', data: Buffer.alloc(4, 5).toString('base64') }));
+        handle.setMuted(true);
+        handle.speak('Jane finished.');
+        await tick();
+        expect(stream.send).not.toHaveBeenCalledWith({ type: 'realtime.say', text: 'Jane finished.' });
+        stream.frames.forEach((listener) => listener({ type: 'realtime.audio.clear' }));
+        await vi.waitFor(() => expect(stream.send).toHaveBeenCalledWith({ type: 'realtime.say', text: 'Jane finished.' }));
+        handle.stop();
+    });
+
     it('does not reconnect an intentional provider hang-up', async () => {
         const stream = fakeStream();
         mocks.openStream.mockResolvedValue(asRealtimeStream(stream));
