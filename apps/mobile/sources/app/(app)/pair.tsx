@@ -141,6 +141,8 @@ export default function PairScreen() {
             });
             if (!paired) {
                 if (tunnel !== undefined) await stopSshTunnel();
+                // The claim already saved the grant and consumed the code;
+                // recovery must use saved pairing rather than offer Pair again.
                 router.replace('/settings');
                 return;
             }

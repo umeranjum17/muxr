@@ -26,10 +26,9 @@ export function useHostedPairing() {
 }
 
 /**
- * Pairing over the byokit link (migration step 4): the computer shows two
- * confirmation words while the person there approves; the words appear here
- * too, and pairing completes only when that approval and the phone's proof
- * over the machine's own link both land.
+ * Describe the offer's authority before its one-time code is claimed.
+ * Encryption alone does not explain terminal control or the browser grant's
+ * duration; those access bounds belong in the consent too.
  */
 export function pairLinkConsent(scanned: string, machineName: string): string {
     const device = pairingDeviceKind();

@@ -58,6 +58,9 @@ vi.mock('@/pairing/application/useCheckCameraPermissions', () => ({ useCheckScan
 vi.mock('@/account/ui', () => ({ useAuth: () => ({}) }));
 vi.mock('@/pairing/application/linkPairing', () => ({ linkPairMachineName: vi.fn(), pairOverLink: vi.fn() }));
 vi.mock('@/pairing/application/PairMachine', () => ({ pairMachine: vi.fn() }));
+vi.mock('@/pairing/infrastructure/pairingPlatform', () => ({
+    pairingDeviceKind: () => platformOs === 'web' ? 'browser' : 'phone',
+}));
 vi.mock('@/connection', () => ({ sshTunnelAvailable: () => platformOs === 'android' }));
 vi.mock('@/modal', () => ({ Modal: { prompt: vi.fn(async () => undefined), alert: (...args: unknown[]) => pairingAlert(...args) } }));
 vi.mock('@/components/haptics', () => ({ hapticsLight: vi.fn() }));
