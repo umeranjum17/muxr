@@ -226,7 +226,7 @@ describe('on-device dictation flow', () => {
         // Words reach the draft while the speaker is still going. They only
         // ever grow, and a half-heard word the next reading disagrees with
         // never shows.
-        await act(async () => { await say(4); });
+        await act(async () => { await say(34); });
         const heard = appended.slice();
         expect(heard.length).toBeGreaterThan(1);
         heard.reduce((previous, next) => {
@@ -234,14 +234,22 @@ describe('on-device dictation flow', () => {
             return next;
         }, 'hello');
         expect(heard.join(' ')).not.toMatch(/\b(hm|uh|er)\b/);
+        const liveCalls = mocks.transcribe.mock.calls.slice();
+        expect(liveCalls.length).toBeGreaterThan(2);
+        expect(liveCalls.every(([data, options]) => 'audioCtx' in options && data.byteLength <= 30 * 32_000)).toBe(true);
 
-        // After a pause the last reading already holds everything said, so
-        // stopping reads nothing more; replacements still apply.
+        // Stopping reads everything once more, in English and with the full
+        // window: the window sized to the audio that the live words use can
+        // lose words. Replacements still apply.
         await act(async () => { await say(1.5, silence); });
         const readings = mocks.transcribe.mock.calls.length;
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).toHaveProperty('audioCtx');
         await act(async () => { api!.toggle(); });
         await vi.advanceTimersByTimeAsync(0);
-        expect(mocks.transcribe).toHaveBeenCalledTimes(readings);
+        expect(mocks.transcribe).toHaveBeenCalledTimes(readings + 1);
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).not.toHaveProperty('audioCtx');
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en' });
+        expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(444 * 2_560);
         expect(appended.at(-1)).toBe('hello one two three 4 five six seven eight');
         expect(api!.live).toBe('');
         expect(api!.transcribing).toBe(false);
