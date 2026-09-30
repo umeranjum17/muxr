@@ -300,10 +300,11 @@ readline.createInterface({input: process.stdin}).on('line', line => {
             rmSync(join(home, 'hold-codex'));
             await expect(background)
                 .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'no' } } } });
-            await expect(refreshed)
-                .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'yes' } } } });
+            const afterSignIn = await refreshed;
+            expect(afterSignIn).toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'yes' } } } });
+            expect(JSON.stringify(afterSignIn)).not.toMatch(/umer@example|email|plan|token/);
             expect(readFileSync(join(home, 'calls'), 'utf8').split('\n').filter(Boolean)).toHaveLength(4);
-            expect(await dispatch(request, 'device-2')).toEqual(await refreshed);
+            expect(await dispatch(request, 'device-2')).toEqual(afterSignIn);
             writeFileSync(claude, `#!${process.execPath}\nconsole.log('status unavailable');\n`);
             await expect(dispatch({ ...request, params: { refresh: true } }, 'device-1'))
                 .resolves.toMatchObject({ ok: true, data: { readiness: { claude: { signedIn: 'unknown' } } } });
