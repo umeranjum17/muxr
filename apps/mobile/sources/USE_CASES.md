@@ -12,6 +12,8 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 |---|---|---|---|
 | Start Agent | `spawn/application/StartAgent.ts` | `SpawnRequest` | `startNewAgent.ts`, `app/(app)/new-agent.tsx` |
 | Start Agent from Dock | `spawn/application/StartAgentFromDock.ts` | `WorktreeSelection` | `startSessionFromDraft.ts`, `useStartSessionFromDraft.ts`, Home Dock |
+| Choose a Plan Account | `plans/application/plansStore.ts` | `plans/domain/planAccounts.ts` | Home Dock, `AccountSheet.tsx`, `startSessionFromDraft.ts` |
+| Sign in, manage or move Plan Accounts | `plans/application/plansApi.ts` | Plan Account / Agent Route | `AccountFlows.tsx`, `AccountsSettingsScreen.tsx`, `MoveAccount.tsx` |
 | Land Worktree | `spawn/application/LandWorktree.ts` | Worktree path markers | `useLandWorktree.ts` |
 | Focus Agent | `herd/application/FocusAgent.ts` | Agent Route | `useNavigateToSession.ts`, Command Palette, herd rows |
 | Watch Agent lifecycle | `herd/application/WatchAgentLifecycle.ts` | Agent, Lifecycle Event | `app/_layout.tsx` (push tap) |
