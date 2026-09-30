@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { status } from '@byokit/statusbar';
+import { refreshStatusChip } from '../application/refreshStatusChip';
 import type { HerdrTreeWorkspace } from '@trymuxr/contract';
 import { herdDigest, herdNotificationState, paneStatus, sortHerd } from './herd';
 import { agentBesideName, agentLabels, agentWhoLine } from './agentPresentation';
@@ -89,4 +91,36 @@ describe('spoken herd flow', () => {
         const shell = agentLabels({ ...base, agentStatus: 'unknown', terminalTitle: 'u@host:~/pockit' });
         expect([shell.title, agentWhoLine(shell)]).toEqual(['u@host:~/pockit', 'Shell']);
     });
+});
+
+
+it('refreshes BYOKit busy counts from the herd and clears when its work ends', () => {
+    const show = vi.spyOn(status, 'show');
+    const clear = vi.spyOn(status, 'clear');
+    const sessions = [pane('host'), pane('busy')];
+    const refresh = (statuses: Record<string, 'working' | 'done'>) => {
+        const agents = sortHerd(sessions, tree(statuses));
+        return refreshStatusChip({
+            herd: herdNotificationState(agents, 'connected'),
+            agents: agents.map((agent) => ({ id: agent.id, name: agent.agentName ?? '', status: agent.agentStatus, focused: false })),
+            voiceState: 'disconnected', voiceName: '', muted: false, voiceGeneration: 0,
+        });
+    };
+    try {
+        expect(refresh({ host: 'working', busy: 'working' }).active).toBe(true);
+        expect(show).toHaveBeenLastCalledWith(expect.objectContaining({
+            title: '2 agents working', chip: '2 busy', publicText: '2 agents working',
+            actions: [{ id: 'talk', label: 'Talk' }], promote: true,
+        }));
+        expect(clear).not.toHaveBeenCalled();
+        refresh({ host: 'done', busy: 'working' });
+        expect(show).toHaveBeenLastCalledWith(expect.objectContaining({
+            title: 'Sam is working', chip: '1 busy', publicText: '1 agent working',
+        }));
+        expect(refresh({ host: 'done', busy: 'done' }).active).toBe(false);
+        expect(clear).toHaveBeenCalledOnce();
+        expect(show).toHaveBeenCalledTimes(2);
+    } finally {
+        vi.restoreAllMocks();
+    }
 });
