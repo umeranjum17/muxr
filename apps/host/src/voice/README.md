@@ -35,8 +35,11 @@ forward app results to `tools.receive`, use `tools.state`, and close the runtime
 They inherit request bounds, deduplication, cancellation and failure reporting.
 
 `codexDelegation.mjs` handles Codex's natural-language client delegations with
-**GPT-5.6-Sol**, without a model fallback. Only the existing `voiceTools` function
-catalog is sent to the account-bound Codex Responses endpoint; no shell,
+**GPT-5.6-Sol**, without a model fallback. `@byokit/accounts` owns each
+Responses request and parses streamed tool calls and text output; muxr retains
+the bounded planning loop, conversation history and tool dispatch. Only the
+existing `voiceTools` function catalog is sent to the account-bound Codex
+Responses endpoint; no shell,
 filesystem, MCP or other execution tools are exposed. Structured tool calls still
 use the same dispatcher directly. This is delegated tool reasoning, not an
 STT/LLM/TTS replacement for the native speech-to-speech session.
@@ -62,3 +65,14 @@ awaits an answer; if no completed answer arrives within 20 seconds, it exposes a
 explicit error instead of silently returning to Listening. Adapter receipt of a
 transcript is a protocol observation, not proof of audible playback. Codex's
 protocol acknowledgement filler is disabled; native speech/audio is unchanged.
+
+The kit still has no explicit Codex CLI folder adapter: its `fileStore` uses
+Pi credentials and `keepFresh` uses Pi OAuth. The adapter therefore retains
+owner-only Codex folder reads, app-server refresh and login status, using the
+kit's `claims` to decode token claims; realtime SDP signaling also remains here
+because the kit has no realtime-calls helper. A
+small fetch guard sets `parallel_tool_calls: false` and retains response bounds,
+redirect rejection, reader cleanup and rejection of incomplete planning
+responses (which the kit otherwise treats
+as success). The kit waits for EOF and does not cancel the reader on parse errors;
+the guard closes it at completion or failure.
