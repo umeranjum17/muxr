@@ -457,6 +457,9 @@ describe('plan account launch and move', () => {
     beforeAll(() => {
         const bin = join(home, 'bin');
         mkdirSync(bin);
+        writeFileSync(join(bin, 'herdr'), `#!/bin/sh
+exit 0
+`, { mode: 0o755 });
         writeFileSync(join(bin, 'claude'), `#!/bin/sh
 echo '{"loggedIn":true,"email":"work@example.com"}'
 `, { mode: 0o755 });
@@ -639,11 +642,29 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             expect(stopped).toEqual(['tab-1', 'tab-2', 'tab-3']);
 
             // A launch that fails after creating the record leaves no phantom behind.
-            const failing = { async start() { throw new Error('herdr is down'); } } as unknown as SessionSource;
+            let failedStarts = 0;
+            let createdFolder: string | undefined;
+            let folderPresentAtStart = false;
+            let recordsAtStart: string[] = [];
+            const failing = {
+                async start() {
+                    failedStarts += 1;
+                    const records = loadPlanAccounts(process.env);
+                    recordsAtStart = records.map((record) => record.id);
+                    createdFolder = records.find((record) => record.id !== 'pa_s')?.folder;
+                    folderPresentAtStart = createdFolder !== undefined && existsSync(createdFolder);
+                    throw new Error('herdr is down');
+                },
+            } as unknown as SessionSource;
             const { dispatch: dispatchFailing } = createRequestDispatcher({ source: failing, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
             const failed = await dispatchFailing({ type: 'plans.add', requestId: 'a4', params: { provider: 'claude' } });
             expect(failed).toMatchObject({ ok: false });
+            expect(failedStarts).toBe(1);
+            expect(recordsAtStart).toHaveLength(2);
+            expect(recordsAtStart).toContain('pa_s');
+            expect(folderPresentAtStart).toBe(true);
             expect(loadPlanAccounts(process.env).map((record) => record.id)).toEqual(['pa_s']);
+            expect(existsSync(createdFolder!)).toBe(false);
         } finally {
             if (keepHome === undefined) delete process.env.HOME;
             else process.env.HOME = keepHome;
