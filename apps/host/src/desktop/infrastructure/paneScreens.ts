@@ -48,8 +48,8 @@ const AGENT_BROWSER_ARGS = [
 
 /** One top-level window the keeper sees on a pane's screen.
  *
- * Shapes match the 0.2.0 keeper report (`class` is one string, `title`
- * nullable); the presence tracker normalizes both. */
+ * The keeper may report `class` as a string or array and `title` as nullable;
+ * the presence tracker normalizes both. */
 export interface ScreenWindow {
     id?: number;
     title?: string | null;

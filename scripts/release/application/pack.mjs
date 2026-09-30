@@ -128,15 +128,16 @@ const ccusagePlatformDependencies = ['darwin-arm64', 'darwin-x64', 'linux-arm64'
 });
 // Its native executable is desklink's own Apache-2.0 build; the licences of
 // what it links travel inside that package as THIRD_PARTY_LICENSES.txt.
-const desklinkPlatformDependencies = Object.entries(desklinkHost.optionalDependencies).map(([name, version]) => ({
-    name,
-    auditedVersion: version,
-    license: desklinkHost.license,
-    bundled: false,
-    licensePath: join(root, 'node_modules', '@desklink', 'host', 'LICENSE'),
-    declaredRange: null,
-    transitiveOf: '@desklink/host',
-}));
+const desklinkPlatformDependencies = Object.entries(desklinkHost.optionalDependencies)
+    .map(([name, version]) => ({
+        name,
+        auditedVersion: version,
+        license: desklinkHost.license,
+        bundled: false,
+        licensePath: join(root, 'node_modules', '@desklink', 'host', 'LICENSE'),
+        declaredRange: null,
+        transitiveOf: '@desklink/host',
+    }));
 const dependencies = [
     ...bundledDependencies,
     ...ccusagePlatformDependencies,

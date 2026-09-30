@@ -11,8 +11,9 @@ The desktop engine is **not** inlined into `host.js`. The artifact declares
 package declares its prebuilt engines as optional dependencies:
 `@desklink/host-linux-x64-gnu` for Linux x64 with glibc and
 `@desklink/host-darwin-arm64` for macOS arm64. npm installs only the matching
-platform. The Linux package is desklink's own Apache-2.0 build of its engine crate, made from
-pinned inputs by [`release/build-engine.sh`](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/release/build-engine.sh) in
+platform. The Linux package is desklink's own Apache-2.0 build of its engine
+crate, made from pinned inputs by
+[`release/build-engine.sh`](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/release/build-engine.sh) in
 [umeranjum17/desklink](https://github.com/umeranjum17/desklink), and
 the matching platform package supplies the only native executable a muxr install
 adds for the desktop.
