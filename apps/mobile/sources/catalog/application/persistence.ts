@@ -204,8 +204,7 @@ export function loadNewSessionDraft(): NewSessionDraft | null {
             selectedMachineId,
             selectedPath,
             agentType,
-            // Older drafts have no provenance; preserve their saved choice.
-            agentTypeExplicit: parsed.agentTypeExplicit !== false,
+            agentTypeExplicit: parsed.agentTypeExplicit === true,
             permissionMode,
             modelMode,
             effortLevel,
