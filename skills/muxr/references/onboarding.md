@@ -33,10 +33,10 @@ Node itself.
 ## First run
 
 Run `muxr` with no arguments for the interactive setup and maintenance menu.
-The onboarding inspects the machine without changing it. It shows all six
-connection routes together, explains their requirements, and recommends a
-healthy current route or a detected route. Choose a route, browser access, and
-agent integrations. Nothing changes before a final **Apply setup** confirmation. Setup
+The onboarding inspects the computer without changing it. Choose a route from
+the [guided route picker](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone),
+browser access, what to pair, and **Agent status updates**.
+Nothing changes before a final **Apply setup** confirmation. Setup
 then starts the selected relay and host, runs the pairing flow (scan the
 one-use QR from the phone app), and verifies the connection and managed
 services without printing credentials.
@@ -51,10 +51,9 @@ return after login or reboot. Preview managed-file changes anytime with
 
 ## Connection choices
 
-Interactive onboarding shows all six routes on the first choice. It prefers
-the healthy current route, Tailscale Serve, a detected private overlay, an
-installed temporary tunnel, then same Wi-Fi, while leaving your own WSS server
-selectable. Automation equivalents are flags on `muxr self-host`:
+The [self-hosting guide](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone)
+owns the route requirements, recommendation policy, and Serve preflight behavior.
+Automation equivalents are flags on `muxr self-host`:
 
 | Choice / flag | What happens |
 |---|---|
@@ -65,9 +64,7 @@ selectable. Automation equivalents are flags on `muxr self-host`:
 | Detected private network | Existing NetBird, WireGuard, ZeroTier, or similar address. Phone must join the same private network. |
 | Same Wi-Fi | Local network address. Phone must be on the same trusted network. |
 
-An inconclusive read-only Serve probe does not demote Tailscale; the bounded
-Apply is authoritative. Proven disabled or occupied Serve is left unchanged and
-direct Tailscale is proposed instead. muxr never enables Tailscale Funnel.
+muxr never enables Tailscale Funnel.
 Restrict a Serve endpoint with a tailnet grant/ACL even though pairing and E2EE
 remain authoritative. `--web` requires a
 secure `wss://` route; insecure LAN HTTP is refused. Set `MUXR_TRUST_PROXY=1`

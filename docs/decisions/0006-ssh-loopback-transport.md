@@ -6,8 +6,9 @@
 
 ## Owner decision
 
-Keep Tailscale Serve as the recommended self-host route and add a direct SSH
-choice for Android native builds. The phone opens a normal SSH client session to
+Add a direct SSH choice for Android native builds alongside the
+[self-host route picker](../SELF-HOSTING.md#reaching-the-relay-from-your-phone).
+The phone opens a normal SSH client session to
 `sshd` and forwards the muxr relay's host-loopback port to a device-local port.
 The paired machine's byokit link traffic uses that local forward. The saved
 grant retains its original relay address. See the [terminal transport](../ARCHITECTURE.md#what-the-relay-does).
@@ -28,7 +29,9 @@ private-network, LAN, tunnel, and custom WSS choices.
   store. They never enter connection settings, logs, diagnostics, or the repo.
 - The first SSH host key is pinned as a `SHA256:` fingerprint; a later mismatch
   fails closed and requires deliberate reconfiguration.
-- Tailscale Serve remains the default. SSH is an explicit Android-only override.
+- SSH is an explicit Android-only override; the
+  [route picker](../SELF-HOSTING.md#reaching-the-relay-from-your-phone) owns the
+  self-host recommendation policy.
 
 ## User-facing evidence
 

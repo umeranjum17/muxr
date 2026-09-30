@@ -1,6 +1,117 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.3",
+            "title": "Choose your accounts, watch your agents, and send files",
+            "summary": "Pick a subscription account for each agent, add or sign in to accounts from the phone, browse files and send prompt attachments, and watch an agent’s browser or emulator live. Update the phone app and computer together.",
+            "features": [
+                {
+                    "title": "Choose and manage subscription accounts",
+                    "detail": "Pick an account when starting an agent, or let Auto pick the signed-in account with the most room left. Add an account, sign in again, rename it, and move a running conversation to another account from the phone."
+                },
+                {
+                    "title": "Files and prompt attachments built in",
+                    "detail": "Browse the agent’s files and send files with a prompt through muxr’s built-in controls."
+                },
+                {
+                    "title": "Watch an agent’s browser or emulator",
+                    "detail": "Open a live view from the session header when an agent is using a browser or Android emulator, and take control when needed."
+                },
+                {
+                    "title": "Terminal colours and pane map",
+                    "detail": "Tune terminal colours in Settings and open a map of the session’s panes from its header."
+                },
+                {
+                    "title": "Tasks and usage at a glance",
+                    "detail": "Agent rows lead with the task, Spaces shows live agent counts, and each provider’s Usage tab shows token counts and trends."
+                },
+                {
+                    "title": "A private link to your computer",
+                    "detail": "Pair with a computer and relay you or someone you trust operates. Confirm the matching words before approving the encrypted link; no muxr-operated account service or relay is required."
+                },
+                {
+                    "title": "Guided setup after installation",
+                    "detail": "Installing muxr on the computer opens guided setup directly, so you can connect your phone without finding a separate setup command."
+                },
+                {
+                    "title": "Replace your computer’s pairing keys",
+                    "detail": "If your self-hosted computer’s keys were exposed, replace them with muxr devices rotate-keys --unpair-all. Every device must pair again once after rotating, and inbound computer collaborations must be set up again."
+                },
+                {
+                    "title": "Check agent sign-in readiness",
+                    "detail": "The computer reports whether supported agents are installed and signed in, with hints for installing or signing in when needed."
+                },
+                {
+                    "title": "Private agent alerts",
+                    "detail": "Agent lifecycle alerts keep task titles encrypted through the relay. Tapping an alert opens its agent on the right computer; if another computer is selected, Settings opens so you can select the one that sent it."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Codex agents open from the herd",
+                    "detail": "Codex panes reported by Herdr now appear as agents you can open, even when Herdr has not attached conversation metadata."
+                },
+                {
+                    "title": "Codex Voice uses your accounts",
+                    "detail": "Codex Voice planning uses the subscription accounts configured on the computer."
+                },
+                {
+                    "title": "Healthy links stop saying Connecting",
+                    "detail": "The phone no longer shows a spurious Connecting state while its link is healthy. Pairing and version mismatches also explain what needs attention."
+                },
+                {
+                    "title": "Scroll and return to the latest output",
+                    "detail": "Claude Code follows your finger when you drag or fling. Latest returns to the bottom for every agent kind on Android and web, including while output is streaming."
+                },
+                {
+                    "title": "Clearer errors and desktop controls",
+                    "detail": "Computer request failures show a useful reason, and the desktop key row includes Alt, Super and the other desktop keys. Screen-sharing approval and capture recovery are steadier."
+                },
+                {
+                    "title": "Correct app icons",
+                    "detail": "Native and web builds use the corrected muxr icons."
+                },
+                {
+                    "title": "Updated connection and agent libraries",
+                    "detail": "The computer uses the updated Herdr and link libraries for prompts, reads and waits, and removing a paired device clears its relay subscriptions and preserves the revocation."
+                },
+                {
+                    "title": "Terminal links and custom paths on iOS",
+                    "detail": "Tapping a terminal link on iOS opens the open-link popup, and the custom project path picker stays visible above the keyboard so you can select your path."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Desktop engine release prerequisite",
+                    "status": "partial",
+                    "detail": "npm serves the pinned @desklink/host 0.2.0 and Linux x64 engine package, as checked during preparation. This checks availability, not desktop behaviour on the release candidate."
+                },
+                {
+                    "title": "Automated checks on the release candidate",
+                    "status": "not-run",
+                    "detail": "The full suite and signed Android/npm candidate build have not been run for this version during changelog preparation. Earlier checks on individual changes are not acceptance of the combined release."
+                },
+                {
+                    "title": "Phone and emulator acceptance",
+                    "status": "not-run",
+                    "detail": "The exact signed candidate has not been installed or accepted on a phone or emulator. The installed phone app’s signer still needs comparison with the candidate before choosing direct APK or Play Internal delivery."
+                },
+                {
+                    "title": "iOS acceptance",
+                    "status": "not-run",
+                    "detail": "No iOS simulator, device or store build acceptance is recorded for this version."
+                }
+            ],
+            "knownLimits": [
+                "The phone app and computer must update together: the computer bundles desklink 0.2, which needs the matching new app. Install the phone candidate first, then update the computer before reconnecting.",
+                "A self-hosted computer and relay are required. Installations from before the private-link cutover must update both products and pair again once.",
+                "The prebuilt desktop engine needs Linux x64 with glibc 2.36 or newer; Arm hosts need a source build. Viewing and control work on Android and web; native iOS is not supported yet. Wayland input control needs a one-time permission.",
+                "Transient blank terminal frames around an explicit keyboard resize remain a known limitation.",
+                "This is a candidate for acceptance. npm latest and Play production are not updated by building it; a successful build does not prove phone, microphone or desktop behaviour.",
+                "Alerts on a sleeping native app show “Agent update”; the task title appears once the app runs. Browser alerts can show the task title before you open the app."
+            ]
+        },
+        {
             "appVersion": "0.2.2",
             "title": "Watch your agents work, and a terminal that scrolls",
             "summary": "See an agent's browser or emulator live from its session, tune the terminal's colours, and scroll Claude Code panes with your finger. Update the phone app and computer together.",
