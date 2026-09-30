@@ -108,8 +108,6 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
     // The latest reading: how far it reached and what it heard.
     let readTo = 0;
     let previewFrom = 0;
-    let previewChunk = 0;
-    let readChunk = 0;
     let prefix = '';
     let heard = '';
     let shown = '';
@@ -129,10 +127,27 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
         await LiveAudioStream.stop();
     };
 
+    const audioRange = (from: number, to: number): ArrayBuffer => {
+        let low = 0;
+        let high = levels.length;
+        while (low < high) {
+            const middle = (low + high) >>> 1;
+            if (levels[middle].end <= from) low = middle + 1;
+            else high = middle;
+        }
+        const first = low;
+        let last = first;
+        while (last < levels.length && levels[last].end < to) last += 1;
+        const chunkStart = first === 0 ? 0 : levels[first - 1].end;
+        const chunkEnd = last < levels.length ? levels[last].end : chunkStart;
+        const selected = pcm16ChunksToArrayBuffer(chunks.slice(first, last + 1));
+        return selected.slice(from - chunkStart, Math.min(to, chunkEnd) - chunkStart);
+    };
+
     const read = async (context: WhisperContext, to: number, live: boolean) => {
         const from = live ? previewFrom : 0;
-        const chunkCount = chunks.length;
-        const job = context.transcribeData(pcm16ChunksToArrayBuffer(live ? chunks.slice(previewChunk, chunkCount) : chunks), {
+        const audio = live ? audioRange(from, to) : pcm16ChunksToArrayBuffer(chunks);
+        const job = context.transcribeData(audio, {
             language,
             maxThreads: THREADS,
             ...(live ? { audioCtx: audioContextFor(to - from) } : {}),
@@ -146,7 +161,6 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
             shown = recording ? settleWords(shown, heard, result.trim()) : result.trim();
             heard = result.trim();
             readTo = to;
-            readChunk = chunkCount;
             return true;
         } finally {
             reading = null;
@@ -160,7 +174,6 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
         if (total - previewFrom > LIVE_WINDOW_BYTES) {
             prefix = [prefix, shown].filter(Boolean).join(' ');
             previewFrom = readTo;
-            previewChunk = readChunk;
             heard = '';
             shown = '';
         }
