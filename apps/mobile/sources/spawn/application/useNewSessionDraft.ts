@@ -61,8 +61,8 @@ export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => (
     // of MMKV persistence and only bridge Home -> New session in memory.
     attachments: [],
     selectedMachineId: initial?.selectedMachineId ?? null,
-    selectedPath: initial?.selectedPath ?? null,
-    agentType: initial?.agentType ?? 'pi',
+    selectedPath: initial?.selectedPath ?? '~',
+    agentType: initial?.agentType ?? 'shell',
     permissionMode: initial?.permissionMode ?? null,
     modelMode: initial?.modelMode ?? null,
     effortLevel: initial?.effortLevel ?? null,
