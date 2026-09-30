@@ -378,6 +378,40 @@ describe('a plan-account move', () => {
         }
     }, 30_000);
 
+    it('exposes an extra copy for manual closure when both panes refuse to close', async () => {
+        const dir = mkdtempSync(join(process.cwd(), '.muxr-move-double-close-'));
+        const herdr = fakeHerdr(dir, join(dir, 'repo'));
+        const source = await createHerdrSessionSource({
+            socketPath: herdr.socketPath,
+            dataDir: join(dir, 'data'),
+            artifactsDir: join(dir, 'attachments'),
+            hostHttpPort: 0,
+        });
+        try {
+            const sessionId = (await source.list())[0]!.id;
+            herdr.state.failCloseFor.add('p1');
+            herdr.state.failCloseFor.add('p2');
+            await expect(moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' }))
+                .rejects.toMatchObject({
+                    code: 'plan-move-extra-copy',
+                    message: 'The move did not finish. An extra copy is open; you can close it from its pane.',
+                });
+            const listed = await source.list();
+            expect(listed.map((session) => session.paneId).sort()).toEqual(['p1', 'p2']);
+            expect((await source.open({ sessionId })).info.paneId).toBe('p1');
+            const extra = listed.find((session) => session.paneId === 'p2')!;
+            expect(extra.id).not.toBe(sessionId);
+            expect((await source.open({ sessionId: extra.id })).info.paneId).toBe('p2');
+            expect(await source.stop(extra.id, {})).toMatchObject({ status: 'closed' });
+            expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p1']);
+            expect((await source.open({ sessionId })).info.paneId).toBe('p1');
+        } finally {
+            await source.dispose();
+            herdr.close();
+            rmSync(dir, { recursive: true, force: true });
+        }
+    }, 30_000);
+
     it('waits past the typed echo instead of refusing on the first fast poll', async () => {
         const dir = mkdtempSync(join(process.cwd(), '.muxr-move-echo-'));
         const cwd = join(dir, 'repo');

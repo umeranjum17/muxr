@@ -772,7 +772,17 @@ export async function createHerdrSessionSource(
     function agentSession(agent: AgentRecord | undefined): HerdrAgentSessionRef | undefined {
         if (agent === undefined || stagedMovePanes.has(agent.pane_id)) return undefined;
         const kind = publicAgentKind(agent.agent ?? undefined);
-        return publishedAgentSession(agent)
+        const published = publishedAgentSession(agent);
+        if (published !== undefined && kind !== undefined) {
+            const route = routes.route(published);
+            const owner = route === undefined ? undefined : paneByAgentRoute.get(route);
+            const ownerSession = owner === undefined ? undefined : publishedAgentSession(agentsByPane.get(owner));
+            if (owner !== agent.pane_id && ownerSession !== undefined
+                && herdrAgentSessionKey(ownerSession) === herdrAgentSessionKey(published)) {
+                return herdrPaneSession(kind, agent.pane_id);
+            }
+        }
+        return published
             ?? pendingLaunchByPane.get(agent.pane_id)
             ?? (kind === undefined ? undefined : herdrPaneSession(kind, agent.pane_id));
     }
@@ -821,15 +831,19 @@ export async function createHerdrSessionSource(
     function adoptPublishedLaunches(): void {
         for (const [paneId, pending] of pendingLaunchByPane) {
             if (stagedMovePanes.has(paneId)) continue;
-            const real = publishedAgentSession(agentsByPane.get(paneId));
-            if (real === undefined || !shouldAdoptPublishedLaunch(pending, real)) continue;
+            const agent = agentsByPane.get(paneId);
+            const real = publishedAgentSession(agent);
+            const visible = agentSession(agent);
+            if (real === undefined || visible === undefined
+                || herdrAgentSessionKey(real) !== herdrAgentSessionKey(visible)
+                || !shouldAdoptPublishedLaunch(pending, real)) continue;
             routes.adopt(pending, real);
             forgetLaunch(paneId);
         }
         // An agent listed by its pane keeps that route once Herdr publishes its session.
         for (const agent of agentsByPane.values()) {
             if (stagedMovePanes.has(agent.pane_id)) continue;
-            const real = publishedAgentSession(agent);
+            const real = agentSession(agent);
             if (real === undefined || isMuxrLaunchSession(real) || typeof agent.agent !== 'string') continue;
             routes.adopt(herdrPaneSession(agent.agent, agent.pane_id), real);
         }
@@ -3084,7 +3098,19 @@ export async function createHerdrSessionSource(
                     });
                 }
             } catch (error) {
-                await client.call('pane.close', { pane_id: newPaneId });
+                try {
+                    await client.call('pane.close', { pane_id: newPaneId });
+                } catch (cleanupError) {
+                    forgetLaunch(newPaneId);
+                    stagedMovePanes.delete(newPaneId);
+                    planAccountByPane.set(newPaneId, moveOptions.folder);
+                    bindListedPane(newPaneId);
+                    await refreshSnapshot().catch(() => undefined);
+                    emitAllStates();
+                    throw Object.assign(new Error('The move did not finish. An extra copy is open; you can close it from its pane.'), {
+                        code: 'plan-move-extra-copy', cause: cleanupError,
+                    });
+                }
                 agentsByPane.delete(newPaneId);
                 panesById.delete(newPaneId);
                 forgetLaunch(newPaneId);
