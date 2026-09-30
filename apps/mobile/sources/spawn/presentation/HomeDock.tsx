@@ -595,12 +595,15 @@ export const HomeDock = React.memo(({
             if (cancelled) return;
             const resolved = resolveAgentCatalog(result);
             setHostAgentKinds(resolved.options);
+            const activeAgent = useNewSessionDraft.getState().agentType;
+            const activeAvailable = activeAgent === 'shell' || resolved.options.some((option) => option.kind === activeAgent && option.availability === 'installed');
+            if (catalogCheck > 0 && activeAvailable) return;
             const preferred = defaultAgentKind(resolved.options, preferredAgent);
             setAgentType((preferred ?? 'shell') as NewSessionAgentType);
         }).catch(() => {
             if (!cancelled) {
                 setHostAgentKinds(null);
-                setAgentType('shell');
+                if (catalogCheck === 0) setAgentType('shell');
             }
         });
         return () => { cancelled = true; };
