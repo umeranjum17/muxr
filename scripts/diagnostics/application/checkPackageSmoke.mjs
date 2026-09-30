@@ -575,6 +575,42 @@ try {
     assert.equal(installedDesklink.version, packageJson.dependencies['@desklink/host']);
     const cli = join(installDir, 'node_modules', '.bin', 'muxr');
     const installedPackage = join(installDir, 'node_modules', '@trymuxr', 'cli');
+    // The marketplace mirror consumes this published byte contract.
+    const controlMirror = join(scratch, 'control-mirror');
+    mkdirSync(controlMirror);
+    const controlManifest = readFileSync(join(installedPackage, 'resources/control/herdr-plugin.toml'));
+    writeFileSync(join(controlMirror, 'herdr-plugin.toml'), controlManifest);
+    const checkControlCopy = (...args) => spawnSync(process.execPath, [
+        join(installedPackage, 'resources/control/check-copy.mjs'), ...args, controlMirror,
+    ], { encoding: 'utf8' });
+    assert.equal(checkControlCopy().status, 1, 'published verifier accepted canonical paths in the marketplace layout');
+    assert.equal(checkControlCopy('--write').status, 0, 'published generator failed');
+    assert.equal(checkControlCopy().status, 0, 'published verifier rejected its generated marketplace manifest');
+    const marketplaceManifest = readFileSync(join(controlMirror, 'herdr-plugin.toml'), 'utf8');
+    const marketplaceVersion = JSON.parse(marketplaceManifest.match(/^version = ("[^"]*")$/m)?.[1] ?? 'null');
+    assert.equal(marketplaceVersion, packageJson.version, 'marketplace manifest does not match the published CLI release');
+    writeFileSync(join(controlMirror, 'herdr-plugin.toml'), marketplaceManifest.replace(/^version = "[^"]*"$/m, 'version = "0.0.0-review-drift"'));
+    assert.equal(checkControlCopy().status, 1, 'published verifier accepted marketplace release version drift');
+    assert.equal(checkControlCopy('--write').status, 0, 'published generator failed to repair release version drift');
+    assert.equal(checkControlCopy().status, 0, 'published verifier rejected the repaired release version');
+    const marketplaceCommands = [...marketplaceManifest.matchAll(/^command = (\[.*\])$/gm)].map((match) => JSON.parse(match[1]));
+    mkdirSync(join(controlMirror, 'node_modules', '@trymuxr'), { recursive: true });
+    symlinkSync(installedPackage, join(controlMirror, 'node_modules', '@trymuxr', 'cli'));
+    for (const command of marketplaceCommands.filter((command) => command[0] === 'node' && command[2] !== undefined)) {
+        assert.equal(command[1], './node_modules/@trymuxr/cli/resources/control/run.mjs');
+        assert.ok(existsSync(join(controlMirror, command[1])), 'marketplace runner missing');
+    }
+    const marketplaceStatus = marketplaceCommands.find((command) => command[2] === 'status');
+    const statusCli = join(scratch, 'control-status');
+    writeFileSync(statusCli, '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 });
+    assert.equal(run(process.execPath, marketplaceStatus.slice(1), {
+        cwd: controlMirror, env: { ...process.env, HOME: home, MUXR_HOME: join(home, '.muxr'), MUXR_BIN: statusCli },
+    }).stdout, 'status\n');
+    assert.deepEqual(readFileSync(join(installedPackage, 'resources/control/herdr-plugin.toml')), controlManifest, 'generation changed the canonical pack');
+    writeFileSync(join(controlMirror, 'herdr-plugin.toml'), `${marketplaceManifest}\n# drift\n`);
+    const driftedControl = checkControlCopy();
+    assert.equal(driftedControl.status, 1, 'published verifier accepted marketplace manifest drift');
+    assert.match(driftedControl.stderr, /differs from @trymuxr\/cli/);
     const installedPlugins = join(installedPackage, 'plugins');
     assert.equal(existsSync(installedPlugins), false, 'installed package must ship no bundled add-ons');
     assert.match(readFileSync(join(installedPackage, 'README.md'), 'utf8'), /muxr --skill\s+# print the compact agent skill/);
