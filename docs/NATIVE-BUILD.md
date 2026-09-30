@@ -7,6 +7,10 @@ muxr Android builds run locally with EAS. Phone artifacts default to
 (`voice-overlay`, `plugin-shortcuts`, `ssh-tunnel`) and `patch-package` patches. Use a native
 build or platform run command after a prebuild.
 
+The iOS SSH module builds a pinned libssh2 source revision through CocoaPods
+with OpenSSL; rebuild the native app after changes to its module or podspec.
+Pairing and connection screens share the Android flow.
+
 The iOS voice bridge owns PCM playback and `AVAudioSession` routing; terminal
 scroll gestures and plugin quick actions also have native iOS paths. Audio
 routing, Bluetooth, interruptions, background standby, and push still require a

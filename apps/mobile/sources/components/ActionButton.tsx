@@ -13,6 +13,7 @@ import { hapticsLight } from '@/components/haptics';
  */
 export const ActionButton = React.memo((props: {
     title: string;
+    testID?: string;
     onPress?: () => void;
     action?: () => Promise<unknown>;
     variant?: 'primary' | 'secondary' | 'quiet';
@@ -42,6 +43,7 @@ export const ActionButton = React.memo((props: {
     }, [props.onPress, props.action]);
     return (
         <Pressable
+            testID={props.testID}
             disabled={props.disabled || busy}
             accessibilityRole="button"
             accessibilityLabel={props.accessibilityLabel ?? props.title}

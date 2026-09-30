@@ -1,4 +1,4 @@
-# 0006: Android SSH loopback transport
+# 0006: Native SSH loopback transport
 
 - Status: implemented
 - Tier: T3
@@ -6,17 +6,16 @@
 
 ## Owner decision
 
-Add a direct SSH choice for Android native builds alongside the
+Add a direct SSH choice for Android and iOS native builds alongside the
 [self-host route picker](../SELF-HOSTING.md#reaching-the-relay-from-your-phone).
 The phone opens a normal SSH client session to
 `sshd` and forwards the muxr relay's host-loopback port to a device-local port.
 The paired machine's byokit link traffic uses that local forward. The saved
 grant retains its original relay address. See the [terminal transport](../ARCHITECTURE.md#what-the-relay-does).
 
-Android may pair through the SSH forward itself; see [Direct SSH from Android](../SELF-HOSTING.md#direct-ssh-from-android)
+Native apps may pair through the SSH forward itself; see [Direct SSH](../SELF-HOSTING.md#direct-ssh)
 for the pairing flow. The route can also be configured after the phone has been paired.
-PWA and iPhone builds do not advertise SSH because this native SSH
-implementation is not available there; they keep Tailscale and the existing
+PWA does not advertise SSH because browsers cannot open native SSH connections; they keep Tailscale and the existing
 private-network, LAN, tunnel, and custom WSS choices.
 
 ## Invariants
@@ -29,7 +28,7 @@ private-network, LAN, tunnel, and custom WSS choices.
   store. They never enter connection settings, logs, diagnostics, or the repo.
 - The first SSH host key is pinned as a `SHA256:` fingerprint; a later mismatch
   fails closed and requires deliberate reconfiguration.
-- SSH is an explicit Android-only override; the
+- SSH is an explicit native override; the
   [route picker](../SELF-HOSTING.md#reaching-the-relay-from-your-phone) owns the
   self-host recommendation policy.
 
@@ -51,17 +50,17 @@ silent outbound dependency, and leave the remaining connection steps explicit.
 - SSH host unreachable or `sshd` unavailable: retry and check the configured
   host, port, network, and that the machine is awake.
 - Credentials rejected: check the SSH username and password/key, or install the
-  login key's public half from **Settings → Connection & updates** (Android,
+  login key's public half from **Settings → Connection & updates** (native,
   consent-gated; see SELF-HOSTING.md). Editing the SSH user's
   `~/.ssh/authorized_keys` by hand remains the fallback.
-- Ed25519 host or login key: this build negotiates RSA/ECDSA only (see
+- Ed25519 host or login key on Android: its client negotiates RSA/ECDSA only (see
   Algorithm scope below) and says so instead of failing as unreachable.
 - Host key changed: stop and review the machine; muxr does not reconnect around
   the mismatch.
 - Loopback relay unavailable: check that muxr is running and that the configured
   relay port matches the host's loopback listener.
-- Unsupported build: use an Android native build with SSH support, or use
-  Tailscale / another supported relay. Web and iPhone do not show a dead SSH
+- Unsupported build: use a native build with SSH support, or use
+  Tailscale / another supported relay. Web does not show a dead SSH
   control.
 
 ## Rollback
@@ -84,6 +83,19 @@ server or an Ed25519 login key fails with an explicit unsupported-key message
 rather than a generic unreachable error. Full Ed25519 support is future work,
 not a correction to this decision.
 
+## iOS counterpart
+
+The local Expo module exposes the same `SshTunnel` interface on iOS. It builds
+libssh2 from a pinned upstream revision with OpenSSL, instead of shipping an
+older precompiled SSH client. The source pod declaration is owned by
+`apps/mobile/modules/ssh-tunnel/ios/MuxrSSH2.podspec`; the Expo config plugin
+keeps it in regenerated Podfiles. Android's SSHJ implementation is unchanged.
+
+One serial queue owns each iOS SSH session, its loopback listeners, and its
+channels. The shared JS path owns pairing, secure credentials, host-key pins,
+and reconnects on both platforms. Closing the tunnel closes all extra forwards;
+credential verification uses a separate connection and leaves a live route alone.
+
 ## Verification
 
 - Android native build opens an SSH forward to the host loopback and reaches the
@@ -91,7 +103,7 @@ not a correction to this decision.
   flow.
 - The same candidate rejects a changed host key and displays an actionable
   failure without exposing credential material.
-- Settings on PWA/iPhone contain no SSH option; Tailscale and the other supported
+- Settings on PWA contain no SSH option; Tailscale and the other supported
   routes remain available.
 - Existing Tailscale Serve diagnostics and self-host revocation checks continue
   to pass.
