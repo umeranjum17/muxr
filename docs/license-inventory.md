@@ -66,7 +66,7 @@ can run from the packed CLI. It declares these external runtime packages:
 |---|---|---:|---|
 | `ws` | MIT | No | external npm dependency |
 | `tweetnacl` | Unlicense | No | external npm dependency |
-| `qrcode` | MIT | No | external npm dependency |
+| `@byokit/ui-core` | Apache-2.0 | No | external npm dependency |
 | `web-push` | MPL-2.0 | No | external npm dependency |
 | `bonjour-service` | MIT | No | external npm dependency |
 | `ccusage` | MIT | Through its optional per-platform packages | external npm dependency |
