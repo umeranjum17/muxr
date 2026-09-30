@@ -97,7 +97,6 @@ export function KernelNotifications() {
         const next = refreshStatusChip({ herd: state, voiceState: voice, voiceName: name, muted: isMuted, agents: visibleAgents, voiceGeneration: realtimeGeneration() });
         chip.current = { ...next, dismissed: next.active && chip.current.dismissed };
         void statusChip.state().then(setChipState);
-
     }, []);
 
     React.useEffect(() => {
@@ -112,9 +111,11 @@ export function KernelNotifications() {
 
     React.useEffect(() => {
         // BYOKit may deliver a cold-start action before pairing/catalog hydration.
-        if (!isAuthenticated || status !== 'connected' || chipActions.length === 0) return;
-        setChipActions([]);
-        for (const id of chipActions) {
+        if (!isAuthenticated || chipActions.length === 0) return;
+        const ready = chipActions.filter((id) => !id.startsWith('open') || status === 'connected');
+        if (ready.length === 0) return;
+        setChipActions(chipActions.filter((id) => !ready.includes(id)));
+        for (const id of ready) {
             if (id === 'open' || id.startsWith('open_')) {
                 const route = panes.find((pane) => `open_${statusChipAgentKey(pane.id)}` === id)?.id;
                 if (route !== undefined) navigateToSession(router, route);

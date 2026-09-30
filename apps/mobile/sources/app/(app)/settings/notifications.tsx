@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { status, type StatusState } from '@byokit/statusbar';
 import { AppState, Linking, Platform } from 'react-native';
 import * as Application from 'expo-application';
 import * as Notifications from 'expo-notifications';
@@ -21,10 +22,10 @@ import {
     type PushState,
 } from '@/utils/pushNotifications';
 import {
-    canPostPromotedNotifications,
+    canPostLiveActivities,
     openBackgroundActivitySettings,
-    openPromotedNotificationSettings,
-    supportsPromotedNotifications,
+    openLiveActivitySettings,
+    supportsLiveActivities,
 } from '@/../modules/voice-overlay';
 
 const SYSTEM = Platform.OS === 'ios' ? 'iOS Settings' : 'Android settings';
@@ -57,8 +58,9 @@ export default function NotificationSettingsScreen() {
     const [levelBusy, setLevelBusy] = React.useState(false);
     const [error, setError] = React.useState<'browser' | 'level' | null>(null);
     const [allowed, setAllowed] = React.useState(true);
-    const liveSupported = supportsPromotedNotifications();
-    const [liveOn, setLiveOn] = React.useState(() => !liveSupported || canPostPromotedNotifications());
+    const [chipState, setChipState] = React.useState<StatusState>('unsupported');
+    const liveSupported = Platform.OS === 'ios' ? supportsLiveActivities() : chipState !== 'unsupported';
+    const [liveOn, setLiveOn] = React.useState(() => canPostLiveActivities());
 
     // Permission, browser subscription and Live Updates are owned by the
     // system, so read them again whenever the person comes back from there.
@@ -82,7 +84,12 @@ export default function NotificationSettingsScreen() {
                 return;
             }
             void Notifications.getPermissionsAsync().then((permission) => { if (live) setAllowed(permission.granted); }, () => {});
-            if (liveSupported) setLiveOn(canPostPromotedNotifications());
+            if (Platform.OS === 'ios') setLiveOn(canPostLiveActivities());
+            else void status.state().then((state) => {
+                if (!live) return;
+                setChipState(state);
+                setLiveOn(state === 'on');
+            });
         };
         read();
         const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') read(); });
@@ -90,7 +97,7 @@ export default function NotificationSettingsScreen() {
             live = false;
             subscription.remove();
         };
-    }, [liveSupported, web]);
+    }, [web]);
 
     const choose = async (next: LifecycleNotificationLevel) => {
         if (next === level || levelBusy || browserBusy) return;
@@ -216,7 +223,7 @@ export default function NotificationSettingsScreen() {
                         />
                     )}
                     {liveSupported && (
-                        <Item title="Live agent updates" subtitle={liveUpdatesSummary(liveOn)} subtitleLines={2} onPress={openPromotedNotificationSettings} />
+                        <Item title="Live agent updates" subtitle={liveUpdatesSummary(liveOn)} subtitleLines={2} onPress={() => { if (Platform.OS === 'ios') openLiveActivitySettings(); else void status.openSettings(); }} />
                     )}
                 </ItemGroup>
             )}

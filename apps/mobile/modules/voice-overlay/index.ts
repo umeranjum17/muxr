@@ -40,6 +40,9 @@ interface VoiceNative {
             agents: Array<{ id: string; name: string; status: string; focused: boolean }>;
         },
     ) => boolean;
+    supportsLiveActivities?: () => boolean;
+    canPostLiveActivities?: () => boolean;
+    openLiveActivitySettings?: () => boolean;
     openBackgroundActivitySettings: () => boolean;
     clearNotification: () => boolean;
     setVoiceGeneration?: (token: string) => void;
@@ -170,6 +173,19 @@ export function updateVoiceNotification(
         voiceName,
         { muted, agents },
     ) ?? false;
+}
+
+/** iOS Live Activities remain separate from Android's BYOKit status chip. */
+export function supportsLiveActivities(): boolean {
+    return Platform.OS === 'ios' && (native?.supportsLiveActivities?.() ?? false);
+}
+
+export function canPostLiveActivities(): boolean {
+    return Platform.OS === 'ios' && (native?.canPostLiveActivities?.() ?? false);
+}
+
+export function openLiveActivitySettings(): void {
+    if (Platform.OS === 'ios') native?.openLiveActivitySettings?.();
 }
 
 export function openBackgroundActivitySettings(): boolean {
