@@ -599,7 +599,11 @@ export const HomeDock = React.memo(({
             setHostAgentKinds(resolved.options);
             const activeAgent = useNewSessionDraft.getState().agentType;
             const activeAvailable = activeAgent === 'shell' || resolved.options.some((option) => option.kind === activeAgent && option.availability === 'installed');
-            if ((agentSelectionInitialized.current || agentWasExplicitlySelected.current) && activeAvailable) return;
+            const activeSelectionShouldWin = activeAgent !== 'shell' || agentSelectionInitialized.current || agentWasExplicitlySelected.current;
+            if (activeSelectionShouldWin && activeAvailable) {
+                agentSelectionInitialized.current = true;
+                return;
+            }
             agentSelectionInitialized.current = true;
             const preferred = defaultAgentKind(resolved.options, preferredAgent);
             setAgentType((preferred ?? 'shell') as NewSessionAgentType);
