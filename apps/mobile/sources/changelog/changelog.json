@@ -62,6 +62,10 @@
                 {
                     "title": "Updated connection and agent libraries",
                     "detail": "The computer uses the updated Herdr and link libraries for prompts, reads and waits, and removing a paired device clears its relay subscriptions and preserves the revocation."
+                },
+                {
+                    "title": "Terminal links and custom paths on iOS",
+                    "detail": "Tapping a terminal link on iOS opens the open-link popup, and the custom project path picker stays visible above the keyboard so you can select your path."
                 }
             ],
             "verification": [
