@@ -7,7 +7,7 @@ import { useActivityAcknowledgements } from '@/herd';
 import { agentOnScreen } from '@/watch/lifecycleAlert';
 import { TerminalScreen } from './TerminalScreen';
 
-/** Keep an open terminal on its pane when an agent starts, exits or restarts. */
+/** Follow the pane across agent changes, unless a failed route must stay open to explain its error. */
 export function TerminalRoute({ id, desktop = false, preview = false }: { id: string; desktop?: boolean; preview?: boolean }): React.JSX.Element {
     const focused = useIsFocused();
     const { workspaces } = useHerdrTree();
