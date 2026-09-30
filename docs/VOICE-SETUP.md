@@ -1,6 +1,6 @@
 # muxr realtime voice providers
 
-Realtime voice is product code. The app talks to typed `voice.*` host methods; the host owns the adapter runtime under `apps/host/src/voice/`. There is no plugin catalog entry, manifest hash, or per-device plugin approval anywhere in this path. The mobile kernel owns microphone permission, foreground-service ordering, PCM capture/playback, and WebRTC media. The host adapters own provider authentication, prompts, tools, event translation, and either host-relayed PCM or bounded WebRTC signaling.
+Realtime voice is product code. The app talks to typed `voice.*` host methods; `@byokit/realtime` owns the speech-to-speech engine, provider session, signaling, and bounded tool bridge. Muxr's host code selects providers, holds credentials, and supplies product prompts, tools, workspace context, and lifecycle policy. There is no plugin catalog entry, manifest hash, or per-device plugin approval anywhere in this path. The mobile kernel owns microphone permission, foreground-service ordering, PCM capture/playback, and WebRTC media.
 
 ## Setup
 
@@ -29,7 +29,7 @@ The host exposes one product surface and never branches on a provider name above
 - `voice.stream` — a persistent provider-neutral realtime stream;
 - `voice.report` — bounded agent-stop wording.
 
-The three PCM providers retain their existing bounded audio/state/transcript/control frames. A WebRTC provider exchanges only bounded SDP and opaque data-channel control through the encrypted plugin stream; mobile media flows directly to the provider. No provider name, model, credential, account id, private header, or event vocabulary enters the mobile kernel.
+PCM providers use bounded audio/state/transcript/control frames over the encrypted product stream. Codex Voice uses bounded WebRTC signaling while mobile media flows directly to the provider. No provider name, model, credential, account id, private header, or event vocabulary enters the mobile kernel.
 
 The `voice.session` capability key is gone; `voice.stream` is a product request gated by the same device authority as every other mutation.
 
