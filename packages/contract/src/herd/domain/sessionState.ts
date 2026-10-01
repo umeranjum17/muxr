@@ -332,6 +332,8 @@ export interface LifecycleEvent {
     taskTitle?: string;
     /** Agent Kind captured with the transition for presentation. */
     agentKind?: string;
+    /** What a blocked agent is asking, as the host read it off the pane. Bounded; blocked events only. */
+    question?: string;
     state: AgentLifecycle;
     reasonCode: LifecycleReasonCode;
     /** @deprecated Read reasonCode. Kept for older clients during rollout. */

@@ -278,11 +278,13 @@ after showing him the plan.
 ## Push notifications
 
 Notifications open the app; requests travel over the authenticated link.
-They never synthesize a plaintext answer.
+A blocked agent's alert names it and carries its question; the native Answer
+action sends one key as `session.answer` over the link, and the host types it
+only while that alert's blocked event is still the one waiting.
 
 The host seals each lifecycle notice separately to the recipient's raw device
-box key using `@byokit/seal`. Task title, agent name, event kind and machine/session
-scope stay inside the sealed notice; the relay and push provider receive generic
+box key using `@byokit/seal`. Task title, agent name, a blocked agent's question,
+event kind and machine/session scope stay inside the sealed notice; the relay and push provider receive generic
 alert text and ciphertext. Clients open notices with stored paired grants and
 fall back to generic text when opening fails. The browser service worker reads
 paired grants through `pairing/infrastructure/webSecureStore.ts` to open notices;

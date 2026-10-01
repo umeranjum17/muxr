@@ -158,3 +158,9 @@ export function agentTask(sources: AgentTaskSources): string | undefined {
         ?? meaningful(sources.title, noise)
         ?? meaningful(sources.workspaceLabel, noise);
 }
+
+/** A lifecycle alert's title: the work, then who is doing it. Host push and phone alert share it. */
+export function agentAlertTitle(event: { taskTitle?: string | undefined; agentName: string; agentKind?: string | undefined }): string {
+    const task = agentTask({ title: event.taskTitle, agentName: event.agentName, agentKind: event.agentKind });
+    return (task === undefined ? event.agentName : `${task} · ${event.agentName}`).slice(0, 120);
+}
