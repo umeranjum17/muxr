@@ -57,9 +57,9 @@ async function main() {
 
     const provider = selectedProvider();
     const codex = provider.id === 'codex';
-    // Resolved before the engine starts, so a missing sign-in or key keeps its remedy.
-    const credential = codex ? await codexAccess() : undefined;
-    const auth = codex ? { kind: 'plan', access: async () => credential } : { kind: 'key', key: await secretFor(provider).readKey() };
+    // The kit resolves Codex access while the call's media starts; a missing
+    // sign-in still closes the call with its remedy. A missing key does too.
+    const auth = codex ? { kind: 'plan', access: codexAccess } : { kind: 'key', key: await secretFor(provider).readKey() };
 
     let engine;
     let hangup = false;
@@ -72,11 +72,11 @@ async function main() {
         // Phones on the previous contract reject frames they do not know, and muxr has no use for usage.
         if (frame.type === 'realtime.usage') return;
         write(frame);
-        if (frame.type !== 'realtime.transcript') return;
+        // Codex's hangup is the kit's. PCM goodbyes arrive faster than they play:
+        // end once the phone reports the goodbye drained, never leaving the
+        // microphone open for long.
+        if (codex || frame.type !== 'realtime.transcript') return;
         if (frame.role === 'user') hangup = isExplicitHangup(frame.text);
-        else if (hangup && codex) engine?.close('ended');
-        // PCM goodbyes arrive faster than they play: end once the phone reports
-        // the goodbye drained, never leaving the microphone open for long.
         else if (hangup) drainedHangup ??= setTimeout(() => engine?.close('ended'), 10_000);
     };
     // stdout backpressure still queues the frame; only a throw means it was not sent.
@@ -87,8 +87,8 @@ async function main() {
     if (codex) {
         // Tools a delegation plans run on their own bridge: the delegate call's
         // bridge already reports thinking and awaits the spoken answer.
-        const inner = toolBridge({ emit: () => undefined, tools: voiceTools, handlers, timeoutFor: voiceToolTimeout, failure: voiceToolFailure });
-        delegation = codexDelegate({ open, runTool: inner.run });
+        const actions = toolBridge({ emit: () => undefined, tools: voiceTools, handlers, timeoutFor: voiceToolTimeout, failure: voiceToolFailure });
+        delegation = codexDelegate({ open, actions });
         bridge = toolBridge({
             emit, tools: [DELEGATE_TOOL], handlers: { delegate: delegation.delegate },
             timeoutFor: () => RUN_DEADLINE_MS, failure: () => DELEGATION_FAILURE,
@@ -104,6 +104,7 @@ async function main() {
         bridge,
         emit,
         redact: INTERNAL_REFERENCES,
+        ...(codex ? { hangup: isExplicitHangup } : {}),
         ...(MODELS[provider.id] ? { model: MODELS[provider.id] } : {}),
         ...(process.env.NODE_ENV === 'test' && process.env.MUXR_TEST_REALTIME_URL ? { endpoint: process.env.MUXR_TEST_REALTIME_URL } : {}),
     });

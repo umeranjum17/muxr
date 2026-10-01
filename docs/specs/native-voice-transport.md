@@ -3,7 +3,7 @@ title: Native voice transport
 slug: native-voice-transport
 status: tested
 created: 2026-08-18
-updated: 2026-08-28
+updated: 2026-10-01
 owner: umer
 links:
   - plugin-primitives
@@ -23,10 +23,10 @@ The original 0.1.x realtime voice path routed microphone and playback through th
 
 ## Target architecture
 
-Provider credentials and product policy stay in muxr's host integration; `@byokit/realtime` owns provider sessions and signaling, and the phone kernel stays provider-blind. What changes is where the audio pump lives and how the phone connects:
+Provider credentials and product policy stay in muxr's host integration; `@byokit/realtime` owns provider sessions and signaling, and its provider-blind phone client owns the call: the WebRTC peer, reconnects and speech queueing. muxr supplies the phone client's stream, audio ports and app control. What changes is where the audio pump lives and how the phone connects:
 
-1. **Two provider transport kinds share one engine interface.** The `@byokit/realtime` engines use either `pcm-relay` to exchange bounded PCM through the generic stream or `webrtc` for authenticated signaling and control; the mobile kernel owns the peer connection and sends media directly to the provider. Both sit behind the one selected product surface (`voice.stream`), so provider selection remains dynamic and exactly one runs.
-2. **Native audio kernel owns WebRTC media.** The kernel starts the Android microphone foreground service before opening the WebRTC track, then owns capture, Opus, remote playback, interruption handling, and teardown. React Native coordinates bounded offer/answer signaling and receives only state, transcript, and error events.
+1. **Two provider transport kinds share one engine interface.** The `@byokit/realtime` engines use either `pcm-relay` to exchange bounded PCM through the generic stream or `webrtc` for authenticated signaling and control; the kit's phone client owns the peer connection and sends media directly to the provider. Both sit behind the one selected product surface (`voice.stream`), so provider selection remains dynamic and exactly one runs.
+2. **The kit client owns the WebRTC call.** muxr's microphone port starts the Android foreground service before the kit opens the WebRTC track; muxr supplies capture, playback, and routing through audio ports, while the kit owns the peer, media lifecycle, reconnects, and speech queueing. React Native coordinates app control and receives state, transcript, and error events.
 3. **Credentials stay on the host.** The phone sends a bounded SDP offer through the existing encrypted stream. The host integration supplies credentials to the kit, which authenticates and returns the bounded SDP answer; provider credentials, account ids, private headers, and internal ids never reach the phone.
 
 ## Contract shape (public, bounded)
@@ -40,18 +40,18 @@ realtime.state           → connecting | connected | thinking | speaking | ende
 realtime.transcript      → { role, text }
 ```
 
-No provider names, models, prompts, or tool vocabularies in the kernel. A replacement `@byokit/realtime` engine uses the same descriptor shape; the app binary needs no provider branch.
+No provider names, models, prompts, or tool vocabularies enter the provider-blind phone client. A replacement `@byokit/realtime` engine uses the same descriptor shape; the app binary needs no provider branch.
 
 ## Android work items
 
-- `react-native-webrtc` supplies the platform peer connection, microphone track, and remote playback track behind a provider-neutral kernel module.
-- The existing foreground service starts before `getUserMedia`; failure to start it aborts the session before the microphone opens.
-- The kernel allows one active peer, binds app background/foreground and interruption cleanup, and closes every media track, data channel, peer connection, and realtime stream on stop.
-- Existing PCM capture/playback remains on its current transport path; provider sessions now come from `@byokit/realtime`.
+- `react-native-webrtc` supplies the platform peer connection, microphone track, and remote playback track behind the kit's `webRtcPeer`.
+- muxr's microphone port starts the foreground service and waits for it before the kit calls `getUserMedia`; failure to start it aborts the session before the microphone opens.
+- The kit's client closes every media track, data channel, peer connection, and realtime stream on stop; muxr's session state keeps one call at a time.
+- PCM capture (VAD-aware) and native playback stay muxr's audio ports; the kit retains them across a stream reconnect.
 
 ## iOS note
 
-The same provider-neutral WebRTC kernel contract is used on iOS through `react-native-webrtc`; only Android requires foreground-service ordering.
+The kit's `webRtcPeer` uses `react-native-webrtc` on iOS too; only Android requires foreground-service ordering.
 
 ## Verification
 
@@ -64,8 +64,9 @@ The same provider-neutral WebRTC kernel contract is used on iOS through `react-n
 
 - No provider credentials in the app binary or on the phone beyond a short-lived scoped token.
 - No STT+LLM+TTS pipeline; speech-to-speech stays streaming-native.
-- No provider-supplied audio code: the transport is kernel-owned, and muxr's host integration supplies product policy and the descriptor to the kit.
+- No provider-supplied audio code: the kit owns the provider-blind phone transport, and muxr's host integration supplies product policy and the descriptor to the kit.
 
 ## Revisions
 
 - 2026-08-28: Implement two provider-neutral transport kinds: existing host-relayed PCM and mobile-owned WebRTC signaling for Codex Voice, with host-only OAuth custody.
+- 2026-10-01: Move the phone WebRTC client, reconnect lifecycle, and speech queueing to `@byokit/realtime`; muxr retains audio ports and app control.
