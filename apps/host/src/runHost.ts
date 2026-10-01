@@ -1,0 +1,653 @@
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, watchFile, writeFileSync, type StatWatcher } from 'node:fs';
+import type { Grant, LinkStream } from '@byokit/link';
+import { isPeerCapabilities, parseLifecycleNotificationLevel, relayControlUrl } from '@trymuxr/contract';
+import { createConnection } from 'node:net';
+import { homedir, hostname } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
+import { PaneScreens } from './desktop/index.js';
+import { startHost } from './host.js';
+import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from './peer/index.js';
+import type { MachineCryptoState } from './machine/index.js';
+import { applyDeviceTables, DeviceGrant, deviceTablesFromCrypto, fileRelayClientStore, hostPlatformLabel, LinkEndpoint, writeSelfhostCrypto } from './machine/index.js';
+import { HostDiagnosticsJournal } from './diagnostics/index.js';
+import { muxrConfigPath, readMuxrConfigFile, resolveHostConfig } from './config.js';
+import type { MuxrFileConfig, ResolvedHostConfig } from './config.js';
+
+function linkStreamTransport(stream: LinkStream): VoiceStreamTransport {
+    return {
+        set onData(listener: VoiceStreamTransport['onData']) { stream.onData = listener; },
+        set onEnd(listener: VoiceStreamTransport['onEnd']) { stream.onEnd = listener; },
+        write: (chunk) => stream.write(chunk),
+        end: (error) => stream.end(error),
+    };
+}
+function env(name: string): string | undefined {
+    return process.env[name]?.trim() || undefined;
+}
+
+function defaultDataDir(): string {
+    return join(env('MUXR_HOME') ?? join(homedir(), '.muxr'), 'host');
+}
+
+/**
+ * The product/build version this host belongs to. The published artifact
+ * bundles the host to a host.js beside the @trymuxr/cli package.json; in the
+ * monorepo the workspace manifests are all 0.0.0 and the version lives at the
+ * root. Walk up to the first manifest with a real version.
+ */
+function resolveHostVersion(): string | undefined {
+    let dir = dirname(fileURLToPath(import.meta.url));
+    for (let depth = 0; depth < 5; depth++) {
+        try {
+            const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { version?: unknown };
+            if (typeof manifest.version === 'string' && manifest.version !== '0.0.0') return manifest.version;
+        } catch {
+            // No manifest here — keep walking.
+        }
+        const parent = dirname(dir);
+        if (parent === dir) return undefined;
+        dir = parent;
+    }
+    return undefined;
+}
+
+class NonRecoverableAuthError extends Error {}
+function validBase64(value: unknown, bytes: number): boolean {
+    if (typeof value !== 'string' || value.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return false;
+    try { return Buffer.from(value, 'base64').length === bytes; }
+    catch { return false; }
+}
+
+function parseSealedGrant(value: unknown): Record<string, unknown> | undefined {
+    if (typeof value !== 'string' || value.length === 0) return undefined;
+    try {
+        const grant = JSON.parse(value) as Record<string, unknown>;
+        if (grant.v !== 1) return undefined;
+        if (!validBase64(grant.sender, 32) || !validBase64(grant.signer, 32) || !validBase64(grant.sig, 64)) return undefined;
+        if (typeof grant.box !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(grant.box)) return undefined;
+        if (Buffer.from(grant.box, 'base64').length <= 40) return undefined;
+        return grant;
+    } catch {
+        return undefined;
+    }
+}
+
+function validDevice(value: unknown): boolean {
+    if (typeof value !== 'object' || value === null) return false;
+    const device = value as Record<string, unknown>;
+    if (typeof device.deviceId !== 'string' || device.deviceId.length === 0) return false;
+    if (!validBase64(device.devicePublicKey, 32) || !validBase64(device.ingressKey, 32)) return false;
+    if (typeof device.expiresAt !== 'string' || !Number.isFinite(Date.parse(device.expiresAt))) return false;
+    const isPeer = device.kind === 'peer';
+    const isBrowser = device.kind === 'browser';
+    const isNative = device.kind === undefined;
+    if (!isNative && !isBrowser && !isPeer) return false;
+    if (isPeer) {
+        if (device.authority !== undefined) return false;
+        if (!validBase64(device.dataKey, 32) || !isPeerCapabilities(device.capabilities)) return false;
+        const canStart = (device.capabilities as string[]).includes('start');
+        if (!canStart) return device.allowedCwds === undefined;
+        return Array.isArray(device.allowedCwds) && device.allowedCwds.length > 0
+            && device.allowedCwds.every((cwd) => typeof cwd === 'string' && cwd !== '');
+    }
+    if (device.dataKey !== undefined || device.capabilities !== undefined || device.allowedCwds !== undefined) return false;
+    if (device.pushLevel !== undefined && parseLifecycleNotificationLevel(device.pushLevel) === undefined) return false;
+    return device.authority === undefined || device.authority === 'control' || device.authority === 'observe';
+}
+
+function validMachineCrypto(value: unknown): value is MachineCryptoState {
+    if (typeof value !== 'object' || value === null) return false;
+    const crypto = value as Partial<MachineCryptoState>;
+    const keys = validBase64(crypto.signingPublicKey, 32)
+        && validBase64(crypto.signingSecretKey, 64)
+        && validBase64(crypto.boxPublicKey, 32)
+        && validBase64(crypto.boxSecretKey, 32)
+        && validBase64(crypto.dataKey, 32);
+    if (!keys || !Number.isInteger(crypto.keyVersion) || crypto.keyVersion! < 1
+        || !Array.isArray(crypto.devices) || !crypto.devices.every(validDevice)
+        || new Set(crypto.devices.map((device) => device.deviceId)).size !== crypto.devices.length) return false;
+    const pending = crypto.pendingRotation as unknown as Record<string, unknown> | undefined;
+    if (pending === undefined) return true;
+    const devices = pending.devices;
+    const grants = pending.grants;
+    if (!validBase64(pending.dataKey, 32) || !Array.isArray(devices) || !devices.every(validDevice)
+        || new Set(devices.map((device) => device.deviceId)).size !== devices.length || !Array.isArray(grants)
+        || grants.length !== devices.length || !Number.isInteger(pending.keyVersion)) return false;
+    const kind = pending.kind;
+    const peer = kind === 'peer-revoke-v1';
+    const selfhost = kind === 'selfhost-revoke-v1';
+    if (kind !== undefined && !peer && !selfhost) return false;
+    if (kind === undefined) return false;
+    if (peer && pending.authorityKind !== 'selfhost') return false;
+    const previous = pending.previousKeyVersion;
+    const version = pending.keyVersion as number;
+    if (kind === undefined) {
+        if (version !== crypto.keyVersion! + 1) return false;
+    } else if (!Number.isInteger(previous) || version !== (previous as number) + 1
+        || crypto.keyVersion !== previous && crypto.keyVersion !== version
+        || typeof pending.revokedDeviceId !== 'string' || typeof pending.revokedDeviceName !== 'string') {
+        return false;
+    }
+    const byId = new Map(devices.map((device) => [device.deviceId, device]));
+    const expectedKeys = new Set(devices.map((device) => device.devicePublicKey));
+    const seen = new Set<string>();
+    return grants.every((entry) => {
+        if (typeof entry !== 'object' || entry === null) return false;
+        const candidate = entry as Record<string, unknown>;
+        const deviceKey = byId.get(candidate.deviceId)?.devicePublicKey ?? candidate.devicePublicKey;
+        const sealed = parseSealedGrant(candidate.grant);
+        if (typeof deviceKey !== 'string' || !expectedKeys.has(deviceKey) || seen.has(deviceKey) || sealed === undefined
+            || sealed.sender !== crypto.boxPublicKey || sealed.signer !== crypto.signingPublicKey) return false;
+        seen.add(deviceKey);
+        return true;
+    }) && seen.size === expectedKeys.size;
+}
+
+interface SelfhostState {
+    version: 1;
+    relayPort?: number;
+    relayUrl?: string;
+    mintSecret?: string;
+    machineCredential?: string;
+    credentialExpiresAt?: string;
+    relayLocation?: 'local' | 'remote';
+    connectionMode?: string;
+    /** The shared relay's one-use link enrolment, claimed by this host's first registration. */
+    linkEnrolToken?: string;
+    ingress?: { kind?: string; dnsName?: string };
+    machine: { id: string; name?: string; crypto: MachineCryptoState };
+}
+
+function targetPeerRelayUrl(state: SelfhostState | undefined, fallback: string): string {
+    const dnsName = state?.relayLocation === 'local' && state.ingress?.kind === 'tailscale-serve'
+        && typeof state.ingress.dnsName === 'string' ? state.ingress.dnsName.trim() : undefined;
+    if (dnsName !== undefined && dnsName !== '') {
+        try {
+            const endpoint = new URL(`wss://${dnsName}`);
+            if (endpoint.username === '' && endpoint.password === '' && endpoint.pathname === '/' && endpoint.search === '' && endpoint.hash === '') {
+                return endpoint.origin;
+            }
+        } catch {
+            // Fall through to the stored public endpoint validated by relayControlUrl at authorization.
+        }
+    }
+    return typeof state?.relayUrl === 'string' ? state.relayUrl : fallback;
+}
+
+function selfhostFile(): string {
+    return join(env('MUXR_HOME') ?? join(homedir(), '.muxr'), 'selfhost.json');
+}
+
+function readSelfhostAuth(): SelfhostState | undefined {
+    const path = selfhostFile();
+    if (!existsSync(path)) return undefined;
+    const info = lstatSync(path);
+    if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) {
+        throw new NonRecoverableAuthError(`${path} must be a regular owner-only file`);
+    }
+    let parsed: Partial<SelfhostState>;
+    try { parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<SelfhostState>; }
+    catch (error) {
+        if (error instanceof SyntaxError) throw new NonRecoverableAuthError(`${path} contains malformed JSON`);
+        if ((error as NodeJS.ErrnoException)?.code === 'EACCES' || (error as NodeJS.ErrnoException)?.code === 'EPERM') {
+            throw new NonRecoverableAuthError(`${path} cannot be read; restore owner read permission and run \`muxr doctor\``);
+        }
+        throw error;
+    }
+    if (parsed.version !== 1 || typeof parsed.machine?.id !== 'string' || !validMachineCrypto(parsed.machine.crypto)
+        || typeof parsed.mintSecret !== 'string' && typeof parsed.machineCredential !== 'string'
+        || parsed.relayLocation === 'remote' && typeof parsed.relayUrl !== 'string'
+        || parsed.relayLocation !== 'remote' && typeof parsed.relayPort !== 'number') {
+        throw new NonRecoverableAuthError(`${path} has an unsupported or incomplete schema`);
+    }
+    if (parsed.credentialExpiresAt !== undefined) {
+        const expires = Date.parse(parsed.credentialExpiresAt);
+        if (!Number.isFinite(expires)) throw new NonRecoverableAuthError(`${path} has an invalid credential expiry`);
+        if (expires <= Date.now()) throw new NonRecoverableAuthError('remote relay machine credential expired; create a fresh enrollment from the relay owner');
+    }
+    return parsed as SelfhostState;
+}
+
+function atomicWriteJson(path: string, value: unknown): void {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    const temporary = `${path}.tmp-${process.pid}`;
+    writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    chmodSync(temporary, 0o600);
+    renameSync(temporary, path);
+}
+
+function readAuthStates() {
+    try { return readSelfhostAuth(); }
+    catch (error) {
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        // Deterministic auth faults cannot heal by restarting. Transient I/O
+        // errors remain failures so the service manager may retry.
+        const code = (error as NodeJS.ErrnoException)?.code;
+        if (process.argv.includes('--retire-machine-peers') || process.argv.includes('--check-host-stopped')) process.exit(1);
+        process.exit(error instanceof NonRecoverableAuthError || code === 'EACCES' || code === 'EPERM' ? 0 : 1);
+    }
+}
+const selfhostAuth = readAuthStates();
+// Agent-editable `$MUXR_HOME/config.json`. A broken file names its path and
+// key and refuses to start: never half-apply, and exit non-zero so a
+// supervisor treats it as a crash rather than a clean shutdown.
+const configPath = muxrConfigPath(process.env);
+let fileConfig: MuxrFileConfig;
+try {
+    fileConfig = readMuxrConfigFile(configPath);
+} catch (error) {
+    process.stderr.write(`muxr: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+}
+function defaultRelayUrl(): string {
+    if (selfhostAuth?.relayLocation === 'remote' && selfhostAuth.relayUrl !== undefined) return selfhostAuth.relayUrl;
+    if (selfhostAuth?.relayPort !== undefined) return `ws://127.0.0.1:${selfhostAuth.relayPort}/relay`;
+    return 'ws://127.0.0.1:8792';
+}
+let hostConfig: ResolvedHostConfig;
+try {
+    // Precedence per key: explicit flag > environment > config file > default
+    // (setup state, then today's builtin). Invalid flags or env fail here.
+    hostConfig = resolveHostConfig({
+        argv: process.argv,
+        env: process.env,
+        file: fileConfig,
+        defaults: {
+            mode: undefined,
+            relayUrl: defaultRelayUrl(),
+            machineId: selfhostAuth?.machine.id ?? hostname(),
+            machineName: selfhostAuth?.machine.name ?? hostname(),
+            dataDir: defaultDataDir(),
+            hostHttpPort: 8793,
+        },
+    });
+} catch (error) {
+    process.stderr.write(`muxr: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+}
+const relayUrl = hostConfig.relayUrl;
+const machineId = hostConfig.machineId;
+const machineName = hostConfig.machineName;
+const dataDir = hostConfig.dataDir;
+const stateRoot = dirname(dataDir);
+const useFake = process.argv.includes('--fake');
+const requestedMode = hostConfig.mode;
+function resolveHostMode(
+    requested: string | undefined,
+    selfhost: SelfhostState | undefined,
+    fake: boolean,
+): 'selfhost' | 'local' | undefined {
+    if (requested !== undefined) return requested as 'selfhost' | 'local';
+    if (selfhost !== undefined) return 'selfhost';
+    if (fake) return 'local';
+    return undefined;
+}
+
+const resolvedMode = resolveHostMode(requestedMode, selfhostAuth, useFake);
+if (resolvedMode === undefined) throw new Error('no self-host state; run `muxr self-host` or set MUXR_MODE=local for a fake development host');
+const mode = resolvedMode;
+const peerRelayUrl = targetPeerRelayUrl(selfhostAuth, relayUrl);
+const token = selfhostAuth?.mintSecret ?? selfhostAuth?.machineCredential;
+if (mode === 'selfhost' && selfhostAuth === undefined) {
+    process.stderr.write('selfhost mode requires muxr setup state; run `muxr doctor`\n');
+    if (process.argv.includes('--retire-machine-peers') || process.argv.includes('--check-host-stopped')) process.exit(1);
+    process.exit(0);
+}
+
+/** Poll handles on the machine state files; held so the GC cannot silence them. */
+const stateFilePolls: Array<StatWatcher | NodeJS.Timeout> = [];
+
+async function main(): Promise<void> {
+    if (process.argv.includes('--retire-machine-peers') || process.argv.includes('--check-host-stopped')) {
+        for (const socketPath of [join(dataDir, 'pair.sock'), join(dataDir, 'peer', 'broker.sock')]) {
+            if (!existsSync(socketPath)) continue;
+            const info = lstatSync(socketPath);
+            if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid!() || (info.mode & 0o077) !== 0) {
+                throw new Error('cannot verify host quiescence: unsafe muxr socket');
+            }
+            await new Promise<void>((resolve, reject) => {
+                const socket = createConnection(socketPath);
+                socket.once('connect', () => {
+                    socket.destroy();
+                    reject(new Error('stop the foreground muxr host before rotating machine keys'));
+                });
+                socket.once('error', (error: NodeJS.ErrnoException) => {
+                    socket.destroy();
+                    if (error.code === 'ENOENT' || error.code === 'ECONNREFUSED') resolve();
+                    else reject(new Error('cannot verify host quiescence; stop the foreground muxr host first'));
+                });
+                socket.setTimeout(1_000, () => {
+                    socket.destroy();
+                    reject(new Error('cannot verify host quiescence; stop the foreground muxr host first'));
+                });
+            });
+        }
+        if (process.argv.includes('--check-host-stopped')) {
+            process.stdout.write(`  ✓ host stopped in ${dataDir}\n`);
+            return;
+        }
+        if (selfhostAuth === undefined) throw new Error('machine pairing state is required for peer retirement');
+        const retired = await retireMachinePeers(join(dataDir, 'peer'), selfhostAuth.machine.crypto);
+        process.stdout.write(`  ✓ ${retired} inbound peer relationship(s) retired in ${dataDir}\n`);
+        return;
+    }
+    const hostVersion = resolveHostVersion() ?? '0.0.0';
+    let diagnostics: HostDiagnosticsJournal | undefined;
+    try { diagnostics = new HostDiagnosticsJournal(dataDir, hostVersion); }
+    catch (error) { process.stderr.write(`host diagnostics unavailable: ${error instanceof Error ? error.message : String(error)}\n`); }
+    const machineCrypto = selfhostAuth?.machine.crypto;
+    const hostedE2ee = machineCrypto === undefined ? undefined : {
+        machineId,
+        keyVersion: machineCrypto.keyVersion,
+        dataKey: machineCrypto.dataKey,
+        ...deviceTablesFromCrypto(machineCrypto),
+    };
+    let linkEndpoint: LinkEndpoint | undefined;
+    let linkOnline = false;
+    const admissionFile = join(dirname(selfhostFile()), 'link-enrolled.json');
+    if (mode === 'selfhost') rmSync(admissionFile, { force: true });
+    const recordLinkAdmission = (crypto: MachineCryptoState): void => {
+        atomicWriteJson(admissionFile, crypto.devices.map(({ deviceId, devicePublicKey }) => ({ deviceId, devicePublicKey })));
+    };
+    if (mode === 'selfhost' && hostedE2ee !== undefined) {
+        // Pairing is a separate CLI process. Reload its appended per-device
+        // ingress key without making an already-running host restart.
+        const keys = hostedE2ee;
+        const stateFile = selfhostFile();
+        const applyStateFile = (): void => {
+            try {
+                const crypto = readSelfhostAuth()?.machine.crypto;
+                if (crypto === undefined || crypto.keyVersion < keys.keyVersion
+                    || (crypto.keyVersion === keys.keyVersion && crypto.dataKey !== keys.dataKey)) return;
+                selfhostAuth!.machine.crypto = crypto;
+                if (crypto.keyVersion > keys.keyVersion) {
+                    keys.keyVersion = crypto.keyVersion;
+                    keys.dataKey = crypto.dataKey;
+                }
+                applyDeviceTables(keys, crypto);
+                void linkEndpoint?.sync(crypto).then((ok) => { if (ok) recordLinkAdmission(crypto); if (linkOnline) host.refreshLinkEnrolment(); }).catch((error: unknown) => {
+                    process.stderr.write(`link: admission record failed: ${error instanceof Error ? error.message : String(error)}\n`);
+                });
+            } catch {
+                // Keep serving with the last fully validated key set.
+            }
+        };
+        // Hold the poll's handle somewhere durable: an unreferenced watcher
+        // is collected, and its events silently stop. The stat watcher has
+        // also been observed to wake late under load, so a plain timer
+        // re-reads the same file as a backstop; the reconcile is a cheap diff.
+        stateFilePolls.push(watchFile(stateFile, { interval: 2000 }, applyStateFile));
+        const resync = setInterval(applyStateFile, 2_000);
+        stateFilePolls.push(resync);
+    }
+    let peerRuntime: PeerRuntime | undefined;
+    let peerBroker: PeerBroker | undefined;
+    if (mode === 'selfhost' && hostedE2ee !== undefined) {
+        const cryptoAdapter = {
+            get: (): MachineCryptoState => selfhostAuth!.machine.crypto,
+            commit: async (next: MachineCryptoState): Promise<void> => {
+                writeSelfhostCrypto(selfhostFile(), next);
+                selfhostAuth!.machine.crypto = next;
+                if (next.keyVersion !== hostedE2ee.keyVersion || next.dataKey !== hostedE2ee.dataKey) {
+                    hostedE2ee.keyVersion = next.keyVersion;
+                    hostedE2ee.dataKey = next.dataKey;
+                }
+                applyDeviceTables(hostedE2ee, next);
+                void linkEndpoint?.sync(next).then(() => { if (linkOnline) host.refreshLinkEnrolment(); });
+            },
+        };
+        try {
+            peerRuntime = new PeerRuntime({
+                dataDir: join(dataDir, 'peer'),
+                machineId,
+                machineName,
+                platform: hostPlatformLabel(),
+                relayUrl: peerRelayUrl,
+                crypto: cryptoAdapter,
+                authority: new LinkPeerAuthority(mode, machineId),
+                ...(diagnostics === undefined ? {} : {
+                    onConnectionDiagnostic: (event) => diagnostics.peerConnection(event.phase, event.outcome, event.durationMs, event.code),
+                }),
+            });
+            diagnostics?.relationships(peerRuntime.store.list().peers);
+        } catch (error) {
+            process.stderr.write(`peer runtime unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+        }
+        if (peerRuntime !== undefined) {
+            void peerRuntime.recover().catch((error) => {
+                process.stderr.write(`peer recovery pending: ${error instanceof Error ? error.message : String(error)}\n`);
+            });
+            try {
+                peerBroker = new PeerBroker(join(dataDir, 'peer', 'broker.sock'), peerRuntime, diagnostics);
+                await peerBroker.start();
+                await peerBroker.issuePersistentCapability(join(dataDir, 'peer', 'cli.json'));
+            } catch (error) {
+                await peerBroker?.close().catch(() => undefined);
+                peerBroker = undefined;
+                process.stderr.write(`peer voice broker unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+            }
+        }
+    }
+    const domain = createAgentWatchStores({ dataDir });
+    const routes = new AgentRouteStore(dataDir);
+    // One private screen per agent pane. Built here because the session source
+    // allocates a pane's screen, and the host is what stops them all.
+    const paneScreens = new PaneScreens({
+        onDiagnostic: (line) => process.stderr.write(`pane screen: ${line}\n`),
+    });
+    const herdrSocketPath = env('HERDR_SOCKET_PATH');
+    let source;
+    if (useFake) {
+        assertFakeSourceCoversContract();
+        source = createFakeSessionSource();
+    } else {
+        source = await createHerdrSessionSource({
+            dataDir,
+            screens: paneScreens,
+            // A test harness points the host at its own Herdr; unset means the desk's.
+            ...(herdrSocketPath === undefined ? {} : { socketPath: herdrSocketPath }),
+            ...(process.env.HERDR_BIN === undefined ? {} : { herdrBin: process.env.HERDR_BIN }),
+            attention: domain.attention,
+            lifecycle: domain.lifecycle,
+            routes,
+            relayUrl,
+            machineId,
+            machineName,
+            onLinkAttention: (input) => linkEndpoint?.notifyAttention(input),
+            artifactsDir: join(stateRoot, 'attachments', 'pane'),
+            hostHttpPort: hostConfig.hostHttpPort,
+            ...(token === undefined ? {} : { token }),
+            ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
+            ...(peerBroker === undefined ? {} : { peerBroker }),
+            ...(diagnostics === undefined ? {} : {
+                onRealtimePromptDiagnostic: (event) => diagnostics.realtimePrompt(
+                    event.provider,
+                    event.requestedAgentName,
+                    event.resolvedAgentName,
+                    event.outcome,
+                ),
+                onRealtimeCoordinationDiagnostic: (event) => diagnostics.realtimeCoordination(
+                    event.provider,
+                    event.operation,
+                    event.outcome,
+                    event.durationMs,
+                    event.code,
+                ),
+                onAgentReadinessDiagnostic: (reason, promptable, detail) =>
+                    diagnostics.agentReadiness(reason, promptable, detail),
+                onAgentLaunchDiagnostic: (outcome, detail) =>
+                    diagnostics.agentLaunch(outcome, detail),
+            }),
+        });
+    }
+    // The peer broker names a sender by asking the host who the calling
+    // session is; without this it can only report the machine.
+    peerRuntime?.setLocalAgentResolver(async (caller) => {
+        const listed = await source.list({});
+        // The session comes from the capability this host issued, so it is
+        // trustworthy; the pane is a hint the caller supplied. Prefer the former.
+        const bySession = caller.sessionId === undefined
+            ? undefined
+            : listed.find((session) => session.id === caller.sessionId);
+        const byPane = caller.paneId === undefined
+            ? undefined
+            : listed.find((session) => session.paneId === caller.paneId);
+        const found = bySession ?? byPane;
+        const agent = found?.agentName;
+        if (agent === undefined) return {};
+        // A name shared by two local agents addresses neither of them.
+        const sharing = listed.filter((session) => session.agentName?.toLocaleLowerCase() === agent.toLocaleLowerCase()).length;
+        return { agent, ...(sharing > 1 ? { ambiguous: true } : {}) };
+    });
+    const terminals = new TerminalManager({
+        resolvePane: async (sessionId) => {
+            const snapshot = await source.open({ sessionId, acknowledgeAttention: false });
+            if (snapshot.info.paneId === undefined) {
+                throw Object.assign(new Error('That session has no current Herdr pane.'), { code: 'unavailable' });
+            }
+            return snapshot.info.paneId;
+        },
+        focusSession: (sessionId, assertActive) => source.paneFocus(sessionId, assertActive),
+        readPaneScroll: (paneId) => source.paneScroll(paneId),
+        openTerminal: (paneId, opts) => source.herdrTerminal(paneId, opts),
+    });
+
+    const host = startHost({
+        stateRoot,
+        ...(hostedE2ee === undefined ? {} : { hostedE2ee }),
+        ...(token === undefined ? {} : { token }),
+        relayUrl,
+        machineId,
+        machineName,
+        source,
+        domain,
+        terminals,
+        paneScreens,
+        ...(peerRuntime === undefined ? {} : { peerRuntime }),
+        ...(diagnostics === undefined ? {} : { diagnostics }),
+        hostVersion,
+        ...(selfhostAuth?.connectionMode === undefined ? {} : { connectionMode: selfhostAuth.connectionMode }),
+    });
+
+    // A dead host must never leave --takeover streams holding the desk's panes.
+    let shuttingDown = false;
+    let pairingServer: { close(): Promise<void> } | undefined;
+    // The link sits beside the relay transport on a self-host relay this
+    // machine owns. The relay may still be starting, so keep trying.
+    const ownerToken = mode === 'selfhost' ? selfhostAuth?.mintSecret : undefined;
+    const linkEnrolToken = mode === 'selfhost' && selfhostAuth?.relayLocation === 'remote'
+        && typeof selfhostAuth.linkEnrolToken === 'string' ? selfhostAuth.linkEnrolToken : undefined;
+    if ((ownerToken !== undefined || linkEnrolToken !== undefined) && hostedE2ee !== undefined) {
+        void (async () => {
+            for (let attempt = 0; !shuttingDown; attempt++) {
+                try {
+                    const currentCrypto = (): MachineCryptoState | undefined => {
+                        try { return readSelfhostAuth()?.machine.crypto; }
+                        catch { return undefined; }
+                    };
+                    linkEndpoint = await LinkEndpoint.open({
+                        relayUrl,
+                        ...(ownerToken === undefined ? {} : { ownerToken }),
+                        ...(linkEnrolToken === undefined ? {} : { enrol: linkEnrolToken }),
+                        ...(machineId === undefined ? {} : { machineId }),
+                        machineName,
+                        crypto: selfhostAuth!.machine.crypto,
+                        currentCrypto,
+                        savePushLevel: (deviceId, level) => {
+                            const state = readSelfhostAuth();
+                            const device = state?.machine.crypto.devices.find((entry) => entry.deviceId === deviceId);
+                            if (state === undefined || device === undefined) throw new Error('link: device no longer trusted');
+                            if (level === undefined) delete device.pushLevel;
+                            else device.pushLevel = level;
+                            writeSelfhostCrypto(selfhostFile(), state.machine.crypto);
+                        },
+                        // Pending relay unsubscribes persist here, so removing a
+                        // device while the relay is down still stops its pushes
+                        // after the next host start.
+                        revokeStore: fileRelayClientStore(join(dataDir, 'link-revoked.json')),
+                        grants: {
+                            load: () => {
+                                const path = join(dataDir, 'link-grants.json');
+                                if (!existsSync(path)) return [];
+                                const info = lstatSync(path);
+                                if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) throw new Error('link grants must be an owner-only regular file');
+                                const grants = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+                                if (!Array.isArray(grants) || !grants.every((g) => typeof g?.id === 'string' && typeof g.key === 'string' && typeof g.role === 'string')) {
+                                    throw new Error('link grants are malformed; refusing to replace device identities');
+                                }
+                                return grants as Grant[];
+                            },
+                            save: (grants) => atomicWriteJson(join(dataDir, 'link-grants.json'), grants),
+                        },
+                        answer: host.answer,
+                        canView: host.canView,
+                        terminals,
+                        voiceStreams: {
+                            attach: async ({ deviceId, channel, sessionId, stream }) => {
+                                await source.voiceStream({ deviceId, channel, ...(sessionId === undefined ? {} : { sessionId }), transport: linkStreamTransport(stream) });
+                            },
+                        },
+                        onDesktopConnection: host.setLinkDesktopConnection,
+                        onDeviceConnection: host.setLinkDeviceConnection,
+                        onDeviceRevoked: (deviceId, removed) => host.closeDeviceDesktopSessions(deviceId, removed),
+                        onStatus: (status) => {
+                            linkOnline = status === 'online';
+                            process.stdout.write(`link relay: ${status}\n`);
+                            if (status === 'replaced') {
+                                process.kill(process.pid, 'SIGTERM');
+                                return;
+                            }
+                            if (linkOnline) {
+                                host.refreshLinkEnrolment();
+                                peerRuntime?.retryRecovery();
+                            }
+                        },
+                    });
+                    if (linkEndpoint !== undefined) {
+                        const latest = currentCrypto();
+                        if (latest !== undefined) {
+                            if (!await linkEndpoint.sync(latest)) throw new Error('link: initial device sync failed');
+                            recordLinkAdmission(latest);
+                        }
+                        linkEndpoint.start();
+                        const { startHostPairingServer } = await import('../../../scripts/setup/application/linkPair.mjs');
+                        pairingServer = await startHostPairingServer(linkEndpoint, join(dataDir, 'pair.sock'), selfhostAuth?.relayUrl ?? relayUrl);
+                        host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
+                        if (linkOnline) host.refreshLinkEnrolment();
+                    }
+                    return;
+                } catch (error) {
+                    await pairingServer?.close();
+                    pairingServer = undefined;
+                    linkEndpoint?.close();
+                    linkEndpoint = undefined;
+                    if (attempt === 0) process.stderr.write(`link unavailable, retrying: ${error instanceof Error ? error.message : String(error)}\n`);
+                    await new Promise((resolve) => setTimeout(resolve, 5000));
+                }
+            }
+        })();
+    }
+    const shutdown = (): void => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        linkOnline = false;
+        void pairingServer?.close();
+        linkEndpoint?.close();
+        terminals.closeAll();
+        peerRuntime?.close();
+        diagnostics?.stopping();
+        void Promise.all([peerBroker?.close(), source.dispose(), diagnostics?.flush()]).finally(() => process.exit(0));
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+
+    process.stdout.write(`host -> ${relayUrl}${useFake ? ' (fake)' : ' (herdr)'} [${mode}]\n`);
+}
+
+main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exit(error instanceof NonRecoverableAuthError ? 0 : 1);
+});
