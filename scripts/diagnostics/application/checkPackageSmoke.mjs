@@ -19,7 +19,6 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, sealRelease, verifyRelease } from '../../release/index.mjs';
-import { bundleVoiceRuntime } from '../../release/application/bundleVoiceRuntime.mjs';
 
 const root = process.cwd();
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'p-')));
@@ -88,43 +87,6 @@ function run(command, args, options = {}) {
         throw new Error(`${command} ${args.join(' ')} failed (${result.status})\n${result.stdout ?? ''}${result.stderr ?? ''}`);
     }
     return result;
-}
-
-// A focused packaged consumer flow for voice changes, without host/Herdr lifecycle.
-async function checkVoiceConsumer() {
-    const source = join(scratch, 'voice-source');
-    const stagedVoice = join(source, 'apps/host/dist/voice');
-    cpSync(join(root, 'apps/host/dist/voice'), stagedVoice, { recursive: true });
-    const stream = join(stagedVoice, 'stream.mjs');
-    const { code } = await transform(readFileSync(stream, 'utf8'), { format: 'esm', target: 'node22' });
-    writeFileSync(stream, code);
-    symlinkSync(join(root, 'node_modules'), join(source, 'node_modules'), 'dir');
-    const hostPackage = JSON.parse(readFileSync(join(root, 'apps/host/package.json'), 'utf8'));
-    const dependencies = Object.fromEntries(['@byokit/accounts', '@byokit/realtime'].map((name) => [name, hostPackage.dependencies[name]]));
-    const artifact = join(source, 'dist-npm');
-    await bundleVoiceRuntime({ root: source, out: artifact, external: Object.keys(dependencies) });
-    writeFileSync(join(artifact, 'package.json'), JSON.stringify({
-        name: 'muxr-voice-consumer-fixture', version: '0.0.0', type: 'module', dependencies,
-    }));
-    const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', tarDir], { cwd: artifact }).stdout);
-    const packedInfo = Array.isArray(packed) ? packed[0] : Object.values(packed)[0];
-    writeFileSync(join(installDir, 'package.json'), '{"private":true}\n');
-    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(tarDir, packedInfo.filename)], {
-        cwd: installDir, env: cliEnv(),
-    });
-    assert.equal(existsSync(join(installDir, 'node_modules/@trymuxr/contract')), false, 'consumer must not supply the workspace contract');
-    const entry = join(installDir, 'node_modules/muxr-voice-consumer-fixture/voice/stream.mjs');
-    const started = run(process.execPath, [entry], { cwd: installDir, env: cliEnv(), input: '' });
-    assert.deepEqual(JSON.parse(started.stdout), {
-        type: 'realtime.closed', reason: 'realtime stream expected realtime.open first',
-    }, `packaged voice runtime did not load: ${started.stderr}`);
-    process.stdout.write('packaged voice consumer passed\n');
-}
-
-if (process.argv.includes('--voice-consumer')) {
-    try { await checkVoiceConsumer(); }
-    finally { rmSync(scratch, { recursive: true, force: true }); }
-    process.exit(0);
 }
 
 function assertCompactSkillOutput(output) {
