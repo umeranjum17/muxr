@@ -1,5 +1,5 @@
 {
-    "about": "Settings measured for the dictation report. `whisper` holds whisper.rn transcribeData options (audioCtx \"fit\" = the app's audioContextFor, sized to the audio plus audioCtxMargin frames); `prompt` there is a fixed vocabulary hint. A candidate with `live` replays the app's live reading loop (localTranscription.ts), otherwise the whole recording is read once after stop. `final` overrides `whisper` for one last reading at stop.",
+    "about": "Historical pre-BYOKit settings for the legacy Whisper benchmark; this is not the current app configuration. `whisper` holds whisper.rn transcribeData options (audioCtx \"fit\" sizes the window to the audio plus audioCtxMargin frames); `prompt` is a fixed vocabulary hint. A candidate with `live` replays the former app reading loop, otherwise the whole recording is read once after stop. `final` overrides `whisper` for one last reading at stop.",
     "candidates": {
         "app-now": {
             "whisper": {

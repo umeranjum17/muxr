@@ -114,7 +114,7 @@ function readWav(path) {
     throw new Error(`${path}: no data chunk`);
 }
 
-/** Same as localTranscription.ts rmsLevel. */
+/** RMS approximation used by the former app-owned live-reading loop. */
 function level(pcm) {
     const samples = Math.floor(pcm.length / 2);
     const step = Math.max(1, Math.floor(samples / 64));
@@ -128,7 +128,7 @@ function level(pcm) {
     return Math.min(1, Math.sqrt(sum / count) * 4);
 }
 
-/** Whisper options for one reading of `bytes` of audio; `audioCtx: "fit"` is localTranscription.ts audioContextFor. */
+/** Legacy Whisper options for one reading of `bytes` of audio. */
 function whisperOptions(candidate, bytes, prompt) {
     const { audioCtx, audioCtxMargin = 256, live, prompt: vocabulary, ...rest } = candidate.whisper;
     const fitted = audioCtx === 'fit' ? Math.min(1500, Math.ceil((bytes / BYTES_PER_SECOND) * 50) + audioCtxMargin) : audioCtx;
@@ -142,7 +142,7 @@ async function dictateWhole(whisper, candidate, pcm, speed) {
 }
 
 /**
- * localTranscription.ts startLiveTranscription replayed on a clock: audio
+ * The former app-owned startLiveTranscription loop replayed on a clock: audio
  * arrives in real time, a reading takes its measured time times `speed`,
  * finished segments are kept once a reading is long enough, and stop waits
  * for the reading in flight plus a last one if anything was said since.
