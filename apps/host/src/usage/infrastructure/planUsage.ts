@@ -87,17 +87,16 @@ function migratePlans(stateDir: string, env: NodeJS.ProcessEnv): void {
     }
 }
 
-const readers = new Map<string, { standing: Usage; backoff: ReturnType<typeof memoryBackoffPolicy> }>();
-function readersFor(env: NodeJS.ProcessEnv): { standing: Usage; backoff: ReturnType<typeof memoryBackoffPolicy> } {
+const readers = new Map<string, { standing?: Usage; hints: Usage; backoff: ReturnType<typeof memoryBackoffPolicy> }>();
+function readersFor(env: NodeJS.ProcessEnv): { standing?: Usage; hints: Usage; backoff: ReturnType<typeof memoryBackoffPolicy> } {
     const stateDir = resolve(usageStateDir(env));
     let readersForState = readers.get(stateDir);
     if (readersForState === undefined) {
-        migratePlans(stateDir, env);
         // The published policy shares account rests across standing/hint
         // readers. Keep the kit's outcome-specific default delay selection.
         const { delayMs: _delayMs, ...backoff } = memoryBackoffPolicy();
         readersForState = {
-            standing: usage({ stateDir, salt: 'muxr/usage/account', backoff }),
+            hints: usage({ salt: 'muxr/usage/account', backoff }),
             backoff,
         };
         readers.set(stateDir, readersForState);
@@ -105,7 +104,17 @@ function readersFor(env: NodeJS.ProcessEnv): { standing: Usage; backoff: ReturnT
     return readersForState;
 }
 export function planReader(env: NodeJS.ProcessEnv): Usage {
-    return readersFor(env).standing;
+    const selected = readersFor(env);
+    if (selected.standing === undefined) {
+        const stateDir = resolve(usageStateDir(env));
+        migratePlans(stateDir, env);
+        selected.standing = usage({ stateDir, salt: 'muxr/usage/account', backoff: selected.backoff });
+    }
+    return selected.standing;
+}
+
+export function planHintReader(env: NodeJS.ProcessEnv): Usage {
+    return readersFor(env).hints;
 }
 
 export function sourcesFor(env: NodeJS.ProcessEnv): Partial<Record<PlanId, Source>> {
@@ -156,14 +165,15 @@ export function planLabel(provider: 'opencode' | 'zai', code: Code | undefined):
 }
 
 /** Account-selection hints never read/write the standing account cache. */
-export async function readPlan(reader: Usage, source: Source | undefined, nowMs: number, { refresh = false, env }: { refresh?: boolean; env?: NodeJS.ProcessEnv } = {}): Promise<Reading | undefined> {
+export async function readPlan(reader: Usage, source: Source | undefined, nowMs: number, options?: { refresh?: boolean; env: NodeJS.ProcessEnv }): Promise<Reading | undefined> {
     if (source === undefined) return undefined;
-    if (!refresh) return reader.read(source, { nowMs });
+    if (!options?.refresh) return reader.read(source, { nowMs });
+    if (source.provider === 'claude') return planHintReader(options.env).read(source, { nowMs });
     let stateDir: string;
     try { stateDir = mkdtempSync(join(tmpdir(), 'muxr-usage-refresh-')); }
     catch { return undefined; }
     try {
-        return await usage({ stateDir, salt: 'muxr/usage/account', ...(env === undefined ? {} : { backoff: readersFor(env).backoff }) }).read(source, { nowMs });
+        return await usage({ stateDir, salt: 'muxr/usage/account', backoff: readersFor(options.env).backoff }).read(source, { nowMs });
     } finally {
         try { rmSync(stateDir, { recursive: true, force: true }); }
         catch { /* cleanup must not discard a successful quota hint */ }

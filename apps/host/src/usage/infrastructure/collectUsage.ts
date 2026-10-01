@@ -6,8 +6,8 @@
  * store; the pinned offline ccusage backend covers the remaining agents.
  */
 import { fingerprint, type Source } from '@byokit/usage';
-import { claudeHintSource } from './claudeSource.js';
-import { planReader, sourcesFor, planLabel, readPlan } from './planUsage.js';
+import { claudeSource, claudeHintSource } from './claudeSource.js';
+import { planReader, planHintReader, sourcesFor, planLabel, readPlan } from './planUsage.js';
 import { spawn } from 'node:child_process';
 import { accessSync, chmodSync, constants, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -326,13 +326,11 @@ function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
 export async function planAccountWindows(id: PlanId, env: NodeJS.ProcessEnv, { refresh = false }: { refresh?: boolean } = {}): Promise<UsageWindowVM[]> {
     if (id !== 'claude' && id !== 'codex') return [];
     const nowMs = nowDate(env).getTime();
-    const reader = planReader(env);
-    // Identity-free hints never touch the standing store. Reuse the reader
-    // and immutable source so kit-owned retry/concurrency state survives.
     if (id === 'claude' && refresh) {
-        const reading = await reader.read(claudeHintSource(env), { nowMs });
-        return reading.windows.flatMap((window) => toVM(window, nowMs) ?? []);
+        const reading = await readPlan(planHintReader(env), claudeSource(env) ?? claudeHintSource(env), nowMs, { refresh, env });
+        return reading?.windows.flatMap((window) => toVM(window, nowMs) ?? []) ?? [];
     }
+    const reader = planReader(env);
     const reading = await readPlan(reader, sourcesFor(env)[id], nowMs, { refresh, env });
     return reading?.windows.flatMap((window) => toVM(window, nowMs) ?? []) ?? [];
 }

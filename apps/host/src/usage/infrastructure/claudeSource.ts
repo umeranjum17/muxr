@@ -49,18 +49,21 @@ function claudeAuth(env: NodeJS.ProcessEnv): { token: string; expired: boolean; 
  *  way Claude Code does. */
 const CLAUDE_HEADERS = { 'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'claude-code/2.1.202' };
 
-/** Credential access and provider I/O remain inside this authorized host seam. */
-async function readClaude(env: NodeJS.ProcessEnv, nowMs: number, signal: AbortSignal, expectedAccount?: string): Promise<SourceAnswer> {
-    // A standing reading cannot move to another sign-in while it is in flight.
-    let auth = expectedAccount === undefined ? undefined : claudeAuth(env);
-    if (expectedAccount !== undefined && auth?.account !== expectedAccount) return { code: 'not-connected' };
+function readSnapshot(env: NodeJS.ProcessEnv, nowMs: number): SourceAnswer | undefined {
     const snapshot = readJson(join(claudeConfigDir(env), 'last-statusline-input.json'), 64 * 1024);
     const age = snapshot === undefined ? undefined : nowMs - snapshot.modified;
     if (snapshot !== undefined && age !== undefined && age >= 0 && age < 5 * 60_000 && claudeWindows(snapshot.value).length > 0) {
         return { raw: snapshot.value, at: snapshot.modified };
     }
-    auth ??= claudeAuth(env);
-    if (auth === undefined) return { code: 'not-connected' };
+    return undefined;
+}
+
+/** Credential access and provider I/O remain inside this authorized host seam. */
+async function readClaude(env: NodeJS.ProcessEnv, nowMs: number, signal: AbortSignal, expectedAccount: string): Promise<SourceAnswer> {
+    const auth = claudeAuth(env);
+    if (auth?.account !== expectedAccount) return { code: 'not-connected' };
+    const snapshot = readSnapshot(env, nowMs);
+    if (snapshot !== undefined) return snapshot;
     if (auth.expired) return { code: 'expired' };
     try {
         const response = await fetch('https://api.anthropic.com/api/oauth/usage', {
@@ -104,14 +107,11 @@ export function claudeSource(env: NodeJS.ProcessEnv): Extract<Source, { accountU
 }
 
 const hintSources = new Map<string, EphemeralClaudeSource>();
-/** The account screen confirms login before asking for these ephemeral hints.
- * Successful figures are never cached; one source per host snapshot stream
- * lets the kit retain only concurrent-read/retry state between asks. */
 export function claudeHintSource(env: NodeJS.ProcessEnv): EphemeralClaudeSource {
     const key = JSON.stringify([claudeConfigDir(env), env.HOME ?? '']);
     let source = hintSources.get(key);
     if (source === undefined) {
-        source = { provider: 'claude', ephemeral: true, read: ({ nowMs, signal }) => readClaude(env, nowMs, signal) };
+        source = { provider: 'claude', ephemeral: true, read: async ({ nowMs }) => readSnapshot(env, nowMs) ?? { code: 'not-connected' } };
         hintSources.set(key, source);
     }
     return source;
