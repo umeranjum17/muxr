@@ -40,7 +40,7 @@ realtime.state           → connecting | connected | thinking | speaking | ende
 realtime.transcript      → { role, text }
 ```
 
-No provider names, models, prompts, or tool vocabularies in the kernel. A replacement `@byokit/realtime` engine uses the same descriptor shape; the app binary needs no provider branch.
+No provider names, models, prompts, or tool vocabularies enter the provider-blind phone client. A replacement `@byokit/realtime` engine uses the same descriptor shape; the app binary needs no provider branch.
 
 ## Android work items
 

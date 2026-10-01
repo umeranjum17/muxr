@@ -4,7 +4,7 @@ Realtime voice is product code. `product.mjs` is the surface the host and the ap
 
 Settings → Voice & dictation is the single provider picker. A machine with no saved choice defaults to Codex Voice (experimental); explicit saved choices and migrated legacy choices remain selected. Configure opens the selected provider’s setup screen. Codex uses the machine’s ChatGPT CLI login (`codex login`), not an API key. Login readiness does not guarantee realtime subscription entitlement. Other providers use owner-only API key files and secure prompts.
 
-`product.mjs` lists/selects providers and reports readiness. `stream.mjs` is the stream child: it reads the host's `realtime.open`, resolves the selected engine's credential (an owner-only key file, or the Codex login via `codex.mjs`), and runs the kit's `realtimeEngine` with muxr's prompt plus workspace context, tools, internal-id masks and hangup policy. The kit runs the provider in its own child with an empty environment. The native microphone foreground service must be ready before capture starts. No transcription/LLM/TTS fallback is used.
+`product.mjs` lists/selects providers and reports readiness. `stream.mjs` is the stream child: it reads the host's `realtime.open`, resolves API-key credentials from owner-only files, and runs the kit's `realtimeEngine` with muxr's prompt plus workspace context, tools, internal-id masks and hangup policy. For Codex, it passes the login resolver from `codex.mjs` to the kit, which resolves access while the phone starts media. The kit runs the provider in its own child with an empty environment. The native microphone foreground service must be ready before capture starts. No transcription/LLM/TTS fallback is used.
 
 ## Realtime work context and tools
 

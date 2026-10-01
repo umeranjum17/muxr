@@ -29,7 +29,7 @@ The host exposes one product surface and keeps provider selection below the app-
 - `voice.stream` — a persistent provider-neutral realtime stream;
 - `voice.report` — bounded agent-stop wording.
 
-PCM providers use bounded audio/state/transcript/control frames over the encrypted product stream. Codex Voice uses bounded WebRTC signaling while mobile media flows directly to the provider. No provider name, model, credential, account id, private header, or event vocabulary enters the mobile kernel.
+PCM providers use bounded audio/state/transcript/control frames over the encrypted product stream. Codex Voice uses bounded WebRTC signaling while mobile media flows directly to the provider. See the native voice transport spec for the phone-side ownership and protocol boundary.
 
 The `voice.session` capability key is gone; `voice.stream` is a product request gated by the same device authority as every other mutation.
 
