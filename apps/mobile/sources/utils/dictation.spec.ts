@@ -19,10 +19,11 @@ const mocks = vi.hoisted(() => ({
     // A stand-in for whisper.cpp: it hears one word per half second of
     // speech, plus a guess at a word cut off mid-way that differs on every
     // reading.
-    transcribe: vi.fn((data: ArrayBuffer, _options: object) => {
+    transcribe: vi.fn((data: ArrayBuffer, options: object) => {
         const samples = new Int16Array(data);
         const spoken = samples.filter((sample) => sample !== 0).length;
-        const guess = samples.at(-1) ? [['hm', 'uh', 'er'][mocks.transcribe.mock.calls.length % 3]] : [];
+        const finalReading = 'prompt' in options && typeof options.prompt === 'string' && options.prompt.includes('muxr, Herdr');
+        const guess = samples.at(-1) && !finalReading ? [['hm', 'uh', 'er'][mocks.transcribe.mock.calls.length % 3]] : [];
         const result = [...WORDS.slice(0, Math.floor(spoken / 8000)), ...guess].join(' ');
         return {
             stop: vi.fn(async () => undefined),
