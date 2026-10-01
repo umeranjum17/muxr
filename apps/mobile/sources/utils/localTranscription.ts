@@ -2,7 +2,7 @@ import { Dictation, whisperRnEngine } from '@byokit/dictation';
 import { initWhisper } from 'whisper.rn';
 import { loadLocalSettings } from '@/catalog/application/persistence';
 import { BUNDLED_DICTATION_MODEL_ID, getInstalledDictationModelUri } from '@/utils/dictationModels';
-import { bundledDictationModel } from '@/utils/dictationModelFiles';
+import { getBundledDictationModelUri } from '@/utils/dictationModelFiles';
 import { dictationMicrophone } from '@/utils/dictationMicrophone';
 
 const KEEP_WARM_MS = 3 * 60_000;
@@ -17,10 +17,10 @@ async function acquireEngine(modelId: string) {
     warm = null;
     await previous?.engine.release();
     const engine = whisperRnEngine({
-        model: getInstalledDictationModelUri(modelId) ?? bundledDictationModel,
+        model: getInstalledDictationModelUri(modelId) ?? await getBundledDictationModelUri(),
         multilingual: modelId !== BUNDLED_DICTATION_MODEL_ID,
         initWhisper,
-        settings: { initialPrompt: VOCABULARY_PROMPT },
+        settings: { initialPrompt: VOCABULARY_PROMPT, beamSize: 5 },
     });
     warm = { modelId, engine };
     return engine;

@@ -22,7 +22,7 @@
     "@expo/ui": "~57.0.16",
     "@expo/vector-icons": "^15.0.2",
     "@desklink/react-native": "0.3.0",
-    "@byokit/dictation": "0.2.0",
+    "@byokit/dictation": "0.3.0",
     "@byokit/link": "0.6.0",
     "@byokit/reach": "0.3.0",
     "@byokit/seal": "0.2.0",
