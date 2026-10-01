@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
+import { fingerprint, fileUsageStore, claudeWindows } from '@byokit/usage';
 
 const logout = vi.hoisted(() => ({ path: '', reads: 0 }));
 vi.mock('node:fs', async (importOriginal) => {
@@ -154,7 +155,7 @@ it('keeps every plan on the card through failed reads and paints the last good r
     await usageNow(env, { refresh: true });
     expect(fetch.mock.calls.filter(([url]) => String(url).includes('anthropic'))).toHaveLength(3);
     const migrated = JSON.parse(readFileSync(plansFile, 'utf8')) as typeof saved;
-    expect(Object.keys(migrated.plans.claude!)).toEqual([legacy.claude!.account]);
+    expect(Object.keys(migrated.plans.claude!)).toContain(legacy.claude!.account);
     const reading = migrated.plans.claude![legacy.claude!.account]! as unknown as { windows: { usedPercent: number }[] };
     expect(reading.windows.map(({ usedPercent }) => usedPercent)).toEqual([10, 40]);
     expect(JSON.stringify(migrated)).not.toContain('claude-token');
@@ -175,6 +176,33 @@ it('keeps every plan on the card through failed reads and paints the last good r
     expect(landed.refreshing).toBeUndefined();
     expect(landed.capturedAt).not.toBe(restarted.capturedAt);
     expect(plans(landed)).toEqual(['claude', 'zai']);
+
+    const tokens = host();
+    const fp = fingerprint('muxr/usage/account');
+    const state = join(tokens.MUXR_HOME!, 'usage');
+    mkdirSync(state, { recursive: true });
+    const at = Date.now();
+    const uuid = fp('claude', 'claude-account');
+    writeFileSync(join(state, 'plans-v1.json'), JSON.stringify({ plans: { claude: {
+        [fp('claude', 'token-a')]: { at, raw: CLAUDE },
+        [fp('claude', 'token-b')]: { at, raw: CLAUDE },
+        [uuid]: { at, raw: CLAUDE },
+    } } }));
+    const store = fileUsageStore(state);
+    const newer = { at: at + 1, windows: claudeWindows({ seven_day: { utilization: 80, resets_at: resetsAt } }) };
+    store.put('claude', fp('claude', fp('claude', 'token-a')), newer);
+    store.put('claude', uuid, newer);
+    const credentials = join(tokens.CLAUDE_CONFIG_DIR!, '.credentials.json');
+    const signIn = (token: string) => writeFileSync(credentials, JSON.stringify({ claudeAiOauth: { accessToken: token } }));
+    health = 'down';
+    tokens.MUXR_USAGE_NOW = new Date(at + 120_000).toISOString();
+    signIn('token-a');
+    expect((await collectUsage({ provider: 'claude', refresh: true }, tokens)).limits.windows.map(({ used }) => used)).toEqual([80]);
+    signIn('token-b');
+    expect((await collectUsage({ provider: 'claude', refresh: true }, tokens)).limits.windows.map(({ used }) => used)).toEqual([10, 40]);
+    writeFileSync(credentials, JSON.stringify({ claudeAiOauth: { accessToken: 'renewed', accountUuid: 'claude-account' } }));
+    expect((await collectUsage({ provider: 'claude', refresh: true }, tokens)).limits.windows.map(({ used }) => used)).toEqual([80]);
+    expect(store.get('claude', uuid)?.at).toBe(newer.at);
 }, 20_000);
 
 it('keeps an agent its tab and names the scan failure once its measured days age out', async () => {

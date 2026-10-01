@@ -327,7 +327,7 @@ export async function planAccountWindows(id: PlanId, env: NodeJS.ProcessEnv, { r
     if (id !== 'claude' && id !== 'codex') return [];
     const nowMs = nowDate(env).getTime();
     if (id === 'claude' && refresh) {
-        const reading = await readPlan(planHintReader(env), claudeSource(env) ?? claudeHintSource(env), nowMs, { refresh, env });
+        const reading = await readPlan(planHintReader(env), claudeSource(env, { snapshot: false }) ?? claudeHintSource(env), nowMs, { refresh, env });
         return reading?.windows.flatMap((window) => toVM(window, nowMs) ?? []) ?? [];
     }
     const reader = planReader(env);

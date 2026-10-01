@@ -4,7 +4,7 @@ import { accessSync, constants, mkdtempSync, readFileSync, rmSync, statSync } fr
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import type { PlanId } from '../domain/activity.js';
-import { claudeSource } from './claudeSource.js';
+import { claudeSource, claudeHintSource } from './claudeSource.js';
 import { piAgentDir } from './tokenLedger.js';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -62,13 +62,12 @@ export function usageStateDir(env: NodeJS.ProcessEnv): string {
 }
 
 /** One-way adoption of prior host readings; ongoing storage belongs to the kit. */
-function migratePlans(stateDir: string, env: NodeJS.ProcessEnv): void {
+function migratePlans(stateDir: string): void {
     const saved = readJson(join(stateDir, 'plans-v1.json'), 256 * 1024)?.value;
     if (!isRecord(saved) || !isRecord(saved.plans)) return;
     const entry = saved.plans.claude;
     if (!isRecord(entry)) return;
     const store = fileUsageStore(stateDir);
-    const selected = claudeSource(env);
     const fp = fingerprint('muxr/usage/account');
     const entries = typeof entry.account === 'string' ? [[entry.account, entry]] : Object.entries(entry);
     for (const [account, value] of entries) {
@@ -80,10 +79,8 @@ function migratePlans(stateDir: string, env: NodeJS.ProcessEnv): void {
         // Older token-only sign-ins used the credential fingerprint as their
         // key. Only that existing digest now crosses the opaque seam, and
         // the kit fingerprints it again; migrate the standing reading too.
-        if (selected?.accountUuid === account) {
-            const opaque = fp('claude', account);
-            if (store.get('claude', opaque) === undefined) store.put('claude', opaque, { at: value.at, windows });
-        }
+        const opaque = fp('claude', account);
+        if (store.get('claude', opaque) === undefined) store.put('claude', opaque, { at: value.at, windows });
     }
 }
 
@@ -107,7 +104,7 @@ export function planReader(env: NodeJS.ProcessEnv): Usage {
     const selected = readersFor(env);
     if (selected.standing === undefined) {
         const stateDir = resolve(usageStateDir(env));
-        migratePlans(stateDir, env);
+        migratePlans(stateDir);
         selected.standing = usage({ stateDir, salt: 'muxr/usage/account', backoff: selected.backoff });
     }
     return selected.standing;
@@ -168,7 +165,17 @@ export function planLabel(provider: 'opencode' | 'zai', code: Code | undefined):
 export async function readPlan(reader: Usage, source: Source | undefined, nowMs: number, options?: { refresh?: boolean; env: NodeJS.ProcessEnv }): Promise<Reading | undefined> {
     if (source === undefined) return undefined;
     if (!options?.refresh) return reader.read(source, { nowMs });
-    if (source.provider === 'claude') return planHintReader(options.env).read(source, { nowMs });
+    if (source.provider === 'claude') {
+        const hints = readersFor(options.env);
+        const snapshot = await hints.hints.read(claudeHintSource(options.env), { nowMs });
+        if (snapshot.code === undefined || 'ephemeral' in source) return snapshot;
+        const reading = await hints.hints.read(source, { nowMs });
+        if (reading.code !== undefined) return undefined;
+        const account = hints.hints.account(source);
+        const rest = account === undefined ? undefined : hints.backoff.get('claude', account);
+        const until = typeof rest === 'number' ? rest : rest?.untilMs;
+        return until !== undefined && until > nowMs ? undefined : reading;
+    }
     let stateDir: string;
     try { stateDir = mkdtempSync(join(tmpdir(), 'muxr-usage-refresh-')); }
     catch { return undefined; }

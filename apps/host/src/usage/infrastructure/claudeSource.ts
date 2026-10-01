@@ -59,11 +59,11 @@ function readSnapshot(env: NodeJS.ProcessEnv, nowMs: number): SourceAnswer | und
 }
 
 /** Credential access and provider I/O remain inside this authorized host seam. */
-async function readClaude(env: NodeJS.ProcessEnv, nowMs: number, signal: AbortSignal, expectedAccount: string): Promise<SourceAnswer> {
+async function readClaude(env: NodeJS.ProcessEnv, nowMs: number, signal: AbortSignal, expectedAccount: string, snapshot: boolean): Promise<SourceAnswer> {
     const auth = claudeAuth(env);
     if (auth?.account !== expectedAccount) return { code: 'not-connected' };
-    const snapshot = readSnapshot(env, nowMs);
-    if (snapshot !== undefined) return snapshot;
+    const local = snapshot ? readSnapshot(env, nowMs) : undefined;
+    if (local !== undefined) return local;
     if (auth.expired) return { code: 'expired' };
     try {
         const response = await fetch('https://api.anthropic.com/api/oauth/usage', {
@@ -96,13 +96,13 @@ async function readClaude(env: NodeJS.ProcessEnv, nowMs: number, signal: AbortSi
 }
 
 /** Only identity and an opaque callback cross into the kit; muxr owns sign-in. */
-export function claudeSource(env: NodeJS.ProcessEnv): Extract<Source, { accountUuid: string; read: unknown }> | undefined {
+export function claudeSource(env: NodeJS.ProcessEnv, { snapshot = true }: { snapshot?: boolean } = {}): Extract<Source, { accountUuid: string; read: unknown }> | undefined {
     const account = claudeAuth(env)?.account;
     if (!account || account.length > 16 * 1024 || /[\0\r\n]/.test(account)) return undefined;
     return {
         provider: 'claude', accountUuid: account, origin: 'https://api.anthropic.com',
         connected: () => claudeAuth(env)?.account === account,
-        read: ({ nowMs, signal }) => readClaude(env, nowMs, signal, account),
+        read: ({ nowMs, signal }) => readClaude(env, nowMs, signal, account, snapshot),
     };
 }
 
