@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import { DICTATION_UNDO_MS, useDictation } from '@/utils/dictation';
-import { applyWordReplacements, pcm16ChunksToArrayBuffer } from '@/utils/transcription';
 import { wakeAndReport } from '@/watch/wakeAndReport';
 import { usePluginEvents } from '@/plugins/events';
 import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
@@ -14,14 +13,17 @@ const mocks = vi.hoisted(() => ({
     modalAlert: vi.fn(),
     permission: vi.fn(),
     showDenied: vi.fn(),
+    dictationModel: 'multilingual',
+    dictationLanguage: 'fr' as string | null,
     liveAudio: { init: vi.fn(), start: vi.fn(), stop: vi.fn(), on: vi.fn() },
     // A stand-in for whisper.cpp: it hears one word per half second of
     // speech, plus a guess at a word cut off mid-way that differs on every
     // reading.
-    transcribe: vi.fn((data: ArrayBuffer, _options: object) => {
+    transcribe: vi.fn((data: ArrayBuffer, options: object) => {
         const samples = new Int16Array(data);
         const spoken = samples.filter((sample) => sample !== 0).length;
-        const guess = samples.at(-1) ? [['hm', 'uh', 'er'][mocks.transcribe.mock.calls.length % 3]] : [];
+        const finalReading = 'prompt' in options && typeof options.prompt === 'string' && options.prompt.includes('muxr, Herdr');
+        const guess = samples.at(-1) && !finalReading ? [['hm', 'uh', 'er'][mocks.transcribe.mock.calls.length % 3]] : [];
         const result = [...WORDS.slice(0, Math.floor(spoken / 8000)), ...guess].join(' ');
         return {
             stop: vi.fn(async () => undefined),
@@ -60,8 +62,12 @@ vi.mock('react-native-live-audio-stream', () => ({ default: mocks.liveAudio }));
 const WORDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
 vi.mock('whisper.rn', () => ({ initWhisper: vi.fn(async () => ({ transcribeData: mocks.transcribe, release: mocks.releases })) }));
 vi.mock('@/utils/dictationModels', () => ({ BUNDLED_DICTATION_MODEL_ID: 'base', getInstalledDictationModelUri: () => null }));
-vi.mock('@/utils/dictationModelFiles', () => ({ bundledDictationModel: 1 }));
-vi.mock('@/catalog/application/persistence', () => ({ loadLocalSettings: () => ({ dictationWordReplacements: [{ from: 'four', to: '4' }] }) }));
+vi.mock('@/utils/dictationModelFiles', () => ({ getBundledDictationModelUri: async () => 'file:///bundled-dictation.bin' }));
+vi.mock('@/catalog/application/persistence', () => ({ loadLocalSettings: () => ({
+    dictationModel: mocks.dictationModel,
+    dictationLanguage: mocks.dictationLanguage,
+    dictationWordReplacements: [{ from: 'four', to: '4' }],
+}) }));
 vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.syncRequest } }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: '' }) }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
@@ -168,6 +174,8 @@ beforeEach(() => {
         'session-b': { id: 'session-b', activeAt: 2, updatedAt: 2 },
     };
     mocks.permission.mockResolvedValue({ granted: true, canAskAgain: true });
+    mocks.dictationModel = 'multilingual';
+    mocks.dictationLanguage = 'fr';
     mocks.liveAudio.init.mockResolvedValue(true);
     mocks.liveAudio.start.mockResolvedValue(true);
     mocks.liveAudio.stop.mockResolvedValue(true);
@@ -203,11 +211,6 @@ afterEach(() => {
 
 describe('on-device dictation flow', () => {
     it('shows words while the speaker talks and has the transcript ready on stop', async () => {
-        const boundary = new DataView(pcm16ChunksToArrayBuffer([
-            Buffer.from([0x00, 0x80, 0xff, 0x7f]).toString('base64'),
-        ]));
-        expect([boundary.getInt16(0, true), boundary.getInt16(2, true)]).toEqual([-32768, 32767]);
-
         const speech = Buffer.alloc(2560, 0x11).toString('base64');
         const silence = Buffer.alloc(2560).toString('base64');
         const say = async (seconds: number, chunk = speech) => {
@@ -236,20 +239,26 @@ describe('on-device dictation flow', () => {
         expect(heard.join(' ')).not.toMatch(/\b(hm|uh|er)\b/);
         const liveCalls = mocks.transcribe.mock.calls.slice();
         expect(liveCalls.length).toBeGreaterThan(2);
-        expect(liveCalls.every(([data, options]) => 'audioCtx' in options && data.byteLength <= 30 * 32_000)).toBe(true);
+        expect(liveCalls.every(([data, options]) => 'audioCtx' in options && (options as { audioCtx: number }).audioCtx === 0)).toBe(true);
 
-        // Stopping reads everything once more, in English and with the full
-        // window: the window sized to the audio that the live words use can
-        // lose words. Replacements still apply.
+        // BYOKit rereads the complete recording at stop, with the muxr vocabulary.
+        // User replacements apply to the final transcript.
         await act(async () => { await say(1.5, silence); });
         const readings = mocks.transcribe.mock.calls.length;
         expect(mocks.transcribe.mock.calls.at(-1)![1]).toHaveProperty('audioCtx');
-        await act(async () => { api!.toggle(); });
+        let settleNativeStop!: () => void;
+        mocks.liveAudio.stop.mockReturnValueOnce(new Promise<void>((resolve) => { settleNativeStop = resolve; }));
+        await act(async () => {
+            api!.toggle();
+            await Promise.resolve();
+            onData?.(speech);
+            settleNativeStop();
+        });
         await vi.advanceTimersByTimeAsync(0);
-        expect(mocks.transcribe).toHaveBeenCalledTimes(readings + 1);
-        expect(mocks.transcribe.mock.calls.at(-1)![1]).not.toHaveProperty('audioCtx');
-        expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en' });
-        expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(444 * 2_560);
+        expect(mocks.transcribe).toHaveBeenCalledTimes(readings + 2);
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).toHaveProperty('audioCtx', 0);
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en', beamSize: 5, prompt: 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm.' });
+        expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(444 * 2_560 - 25 * 32_000 + 2_560);
         expect(appended.at(-1)).toBe('hello one two three 4 five six seven eight');
         expect(api!.live).toBe('');
         expect(api!.transcribing).toBe(false);
