@@ -1,9 +1,10 @@
 /** App-owned source discovery; the kit never discovers a sign-in or executable. */
-import { usage, type Usage, type Source, type Reading, type Code } from '@byokit/usage';
-import { accessSync, constants, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { usage, fingerprint, claudeWindows, fileUsageStore, memoryBackoffPolicy, type Usage, type Source, type Reading, type Code } from '@byokit/usage';
+import { accessSync, constants, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import type { PlanId } from '../domain/activity.js';
+import { claudeSource } from './claudeSource.js';
 import { piAgentDir } from './tokenLedger.js';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -60,77 +61,57 @@ export function usageStateDir(env: NodeJS.ProcessEnv): string {
     return join(home, 'usage');
 }
 
-const PLAN_IDS: PlanId[] = ['claude', 'codex', 'opencode', 'zai'];
-
-export interface StoredPlanReading { at: number; raw: unknown }
-/** The last good reading of every plan, keyed per account fingerprint: two
- *  sign-ins of one provider keep separate readings, and one account's
- *  failure never costs the other its standing. */
-export type PlanReadings = Partial<Record<PlanId, Record<string, StoredPlanReading>>>;
-
-/** muxr's own Claude readings; the kit keeps the other plans in its own
- *  file. Legacy account/at/raw entries are normalized on the way in. */
-export function readPlans(env: NodeJS.ProcessEnv, migrateLegacy = false): PlanReadings {
-    const saved = readJson(join(usageStateDir(env), 'plans-v1.json'), 256 * 1024)?.value;
-    if (!isRecord(saved) || !isRecord(saved.plans)) return {};
-    const plans: PlanReadings = {};
-    let legacy = false;
-    for (const id of PLAN_IDS) {
-        const entry = saved.plans[id];
-        if (!isRecord(entry)) continue;
-        const byAccount: Record<string, StoredPlanReading> = {};
-        if (typeof entry.account === 'string' && Number.isFinite(entry.at)) {
-            legacy = true;
-            byAccount[entry.account] = { at: entry.at as number, raw: entry.raw };
+/** One-way adoption of prior host readings; ongoing storage belongs to the kit. */
+function migratePlans(stateDir: string, env: NodeJS.ProcessEnv): void {
+    const saved = readJson(join(stateDir, 'plans-v1.json'), 256 * 1024)?.value;
+    if (!isRecord(saved) || !isRecord(saved.plans)) return;
+    const entry = saved.plans.claude;
+    if (!isRecord(entry)) return;
+    const store = fileUsageStore(stateDir);
+    const selected = claudeSource(env);
+    const fp = fingerprint('muxr/usage/account');
+    const entries = typeof entry.account === 'string' ? [[entry.account, entry]] : Object.entries(entry);
+    for (const [account, value] of entries) {
+        if (typeof account !== 'string' || !/^[a-f0-9]{64}$/.test(account) || !isRecord(value) || typeof value.at !== 'number' || !Number.isFinite(value.at)) continue;
+        const windows = claudeWindows(value.raw);
+        if (windows.length === 0) continue;
+        // Never overwrite a kit reading, including its failed-poll metadata.
+        if (store.get('claude', account) === undefined) store.put('claude', account, { at: value.at, windows });
+        // Older token-only sign-ins used the credential fingerprint as their
+        // key. Only that existing digest now crosses the opaque seam, and
+        // the kit fingerprints it again; migrate the standing reading too.
+        if (selected?.accountUuid === account) {
+            const opaque = fp('claude', account);
+            if (store.get('claude', opaque) === undefined) store.put('claude', opaque, { at: value.at, windows });
         }
-        for (const [fingerprint, reading] of Object.entries(entry)) {
-            if (fingerprint.length > 128 || !isRecord(reading) || !Number.isFinite(reading.at)) continue;
-            byAccount[fingerprint] = { at: reading.at as number, raw: reading.raw };
-        }
-        if (Object.keys(byAccount).length > 0) plans[id] = byAccount;
     }
-    if (migrateLegacy && legacy) savePlans(env, plans);
-    return plans;
 }
 
-/** Merge this collection's new readings into the file: another collection
- *  running beside it may have landed a reading this one did not. */
-export function savePlans(env: NodeJS.ProcessEnv, updates: PlanReadings): void {
-    const path = join(usageStateDir(env), 'plans-v1.json');
-    const temporary = `${path}.${process.pid}.tmp`;
-    try {
-        const plans = readPlans(env);
-        for (const id of PLAN_IDS) {
-            const next = updates[id];
-            if (next === undefined) continue;
-            const current = plans[id] ?? {};
-            for (const [fingerprint, reading] of Object.entries(next)) {
-                if (reading.at >= (current[fingerprint]?.at ?? -Infinity)) current[fingerprint] = reading;
-            }
-            plans[id] = current;
-        }
-        const body = JSON.stringify({ plans });
-        if (Buffer.byteLength(body) > 256 * 1024) return;
-        mkdirSync(usageStateDir(env), { recursive: true, mode: 0o700 });
-        writeFileSync(temporary, body, { mode: 0o600 });
-        renameSync(temporary, path);
-    } catch { /* an unwritten reading only means the next failure has nothing to stand on */ }
-}
-
-const readers = new Map<string, Usage>();
-export function planReader(env: NodeJS.ProcessEnv): Usage {
+const readers = new Map<string, { standing: Usage; backoff: ReturnType<typeof memoryBackoffPolicy> }>();
+function readersFor(env: NodeJS.ProcessEnv): { standing: Usage; backoff: ReturnType<typeof memoryBackoffPolicy> } {
     const stateDir = resolve(usageStateDir(env));
-    let reader = readers.get(stateDir);
-    if (reader === undefined) {
-        readPlans(env, true);
-        reader = usage({ stateDir, salt: 'muxr/usage/account' });
-        readers.set(stateDir, reader);
+    let readersForState = readers.get(stateDir);
+    if (readersForState === undefined) {
+        migratePlans(stateDir, env);
+        // The published policy shares account rests across standing/hint
+        // readers. Keep the kit's outcome-specific default delay selection.
+        const { delayMs: _delayMs, ...backoff } = memoryBackoffPolicy();
+        readersForState = {
+            standing: usage({ stateDir, salt: 'muxr/usage/account', backoff }),
+            backoff,
+        };
+        readers.set(stateDir, readersForState);
     }
-    return reader;
+    return readersForState;
+}
+export function planReader(env: NodeJS.ProcessEnv): Usage {
+    return readersFor(env).standing;
 }
 
 export function sourcesFor(env: NodeJS.ProcessEnv): Partial<Record<PlanId, Source>> {
     const sources: Partial<Record<PlanId, Source>> = {};
+    const claude = claudeSource(env);
+    if (claude !== undefined) sources.claude = claude;
     for (const directory of (env.PATH ?? '').split(delimiter)) {
         const bin = resolve(directory, 'codex');
         try {
@@ -174,23 +155,17 @@ export function planLabel(provider: 'opencode' | 'zai', code: Code | undefined):
     return labels[provider][code ?? 'good'] ?? `${provider === 'opencode' ? 'OpenCode Go' : 'Z.ai'} limits unavailable · try again shortly`;
 }
 
-export async function readPlan(reader: Usage, source: Source | undefined, nowMs: number, { refresh = false }: { refresh?: boolean } = {}): Promise<Reading | undefined> {
+/** Account-selection hints never read/write the standing account cache. */
+export async function readPlan(reader: Usage, source: Source | undefined, nowMs: number, { refresh = false, env }: { refresh?: boolean; env?: NodeJS.ProcessEnv } = {}): Promise<Reading | undefined> {
     if (source === undefined) return undefined;
     if (!refresh) return reader.read(source, { nowMs });
-    // Account selection needs a fresh hint without reading or updating the
-    // standing account cache. The kit owns the isolated read and its storage.
     let stateDir: string;
+    try { stateDir = mkdtempSync(join(tmpdir(), 'muxr-usage-refresh-')); }
+    catch { return undefined; }
     try {
-        stateDir = mkdtempSync(join(tmpdir(), 'muxr-usage-refresh-'));
-    } catch {
-        // Quota hints are optional; account identity and selection still work.
-        return undefined;
-    }
-    try {
-        return await usage({ stateDir, salt: 'muxr/usage/account' }).read(source, { nowMs });
+        return await usage({ stateDir, salt: 'muxr/usage/account', ...(env === undefined ? {} : { backoff: readersFor(env).backoff }) }).read(source, { nowMs });
     } finally {
-        try {
-            rmSync(stateDir, { recursive: true, force: true });
-        } catch { /* cleanup must not discard a successful quota hint */ }
+        try { rmSync(stateDir, { recursive: true, force: true }); }
+        catch { /* cleanup must not discard a successful quota hint */ }
     }
 }

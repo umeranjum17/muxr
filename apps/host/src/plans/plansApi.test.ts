@@ -223,9 +223,16 @@ it('auto picks the roomier account and says which in one line', async () => {
     expect(provider.accounts.map((account) => account.roomLeftPercent)).toEqual([30, 60]);
     expect(provider.auto.accountId).toBe('pa_work');
     expect(provider.auto.reason).toBe('Right now that\'s Work: 60% left this week');
+    // Snapshot-only hints have no account identity and cannot seed the
+    // standing quota cache, even though Auto can use their current room.
+    expect(existsSync(join(env.MUXR_HOME!, 'usage', 'plans-v2.json'))).toBe(false);
     claudeSnapshot(second, 95, 99);
     expect((await resolvePlanLaunch(env, 'auto', 'claude'))?.id).toBe('found-claude');
     expect((await resolvePlanLaunch(env, 'pa_work', 'claude'))?.id).toBe('pa_work');
+    rmSync(join(second, 'last-statusline-input.json'));
+    const withoutSnapshot = (await listPlans(env)).providers[0]!;
+    expect(withoutSnapshot.accounts.map((account) => account.roomLeftPercent)).toEqual([30, undefined]);
+    expect(existsSync(join(env.MUXR_HOME!, 'usage', 'plans-v2.json'))).toBe(false);
 });
 
 it('reads one stalled provider without waiting on the other', async () => {
