@@ -19,6 +19,7 @@ import { packageInfoFromPath, packagePathFromInput } from '../infrastructure/aud
 import { releaseCompatibility } from './repairHost.mjs';
 import { desktopHostOfSource } from './requireDesktopEngine.mjs';
 import { distribution } from '../domain/channel.mjs';
+import { bundleVoiceRuntime } from './bundleVoiceRuntime.mjs';
 
 const require = createRequire(import.meta.url);
 const root = process.cwd();
@@ -93,8 +94,10 @@ await build({
     logLevel: 'warning',
 });
 
+const voiceResult = await bundleVoiceRuntime({ root, out, external });
+
 const bundledPackagePaths = new Set(
-    Object.keys(result.metafile.inputs)
+    [...Object.keys(result.metafile.inputs), ...Object.keys(voiceResult.metafile.inputs)]
         .map((input) => packagePathFromInput(root, input))
         .filter((path) => path !== undefined && !/node_modules\/@(?:try)?muxr\//.test(path)),
 );
@@ -178,7 +181,7 @@ const contractResult = await build({
     legalComments: 'none',
     logLevel: 'warning',
 });
-const zodInput = [...Object.keys(result.metafile.inputs), ...Object.keys(contractResult.metafile.inputs)]
+const zodInput = [...Object.keys(result.metafile.inputs), ...Object.keys(contractResult.metafile.inputs), ...Object.keys(voiceResult.metafile.inputs)]
     .find((input) => /(?:^|\/)node_modules\/zod\//.test(input.replaceAll('\\', '/')));
 if (zodInput !== undefined) throw new Error(`package artifact must not bundle Zod (${zodInput})`);
 const copyContext = (name) => {
@@ -204,15 +207,6 @@ if (!existsSync(join(out, 'plugin', 'domain', 'dist', 'index.js'))) {
 const extensionSource = readFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), 'utf8');
 if (!extensionSource.includes("from '@trymuxr/contract'")) throw new Error('plugin validator import changed; update the package rewrite');
 writeFileSync(join(out, 'plugin', 'application', 'checkPlugin.mjs'), extensionSource.replace("from '@trymuxr/contract'", "from '../../contract.mjs'"));
-// The realtime voice adapters are product code, so they ship beside the host
-// bundle rather than as a Herdr add-on.
-cpSync(join(root, 'apps', 'host', 'dist', 'voice'), join(out, 'voice'), {
-    recursive: true,
-    filter: (path) => !path.endsWith('.spec.mjs'),
-});
-const voiceStream = join(out, 'voice', 'stream.mjs');
-const voiceStreamSource = readFileSync(voiceStream, 'utf8');
-writeFileSync(voiceStream, voiceStreamSource.replace("from '@trymuxr/contract'", "from '../contract.mjs'"));
 cpSync(join(root, 'resources'), join(out, 'resources'), { recursive: true });
 // The retention rules live in one compiled host module so `muxr artifacts` and
 // the host's daily sweep cannot drift apart. It imports only node builtins,

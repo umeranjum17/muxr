@@ -5,3 +5,4 @@ export { sealRelease } from './application/sealRelease.mjs';
 export { verifyRelease } from './application/verifyRelease.mjs';
 export { channelEntry, checksumLineMismatch, emptyCatalog, mergeCatalog, parseCatalog, publicRecordMismatch, serializeCatalog } from './domain/channelCatalog.mjs';
 export { publicDeadline, readPublicJson, requireRedirect } from './infrastructure/publicRecord.mjs';
+export { bundleVoiceRuntime } from './application/bundleVoiceRuntime.mjs';
