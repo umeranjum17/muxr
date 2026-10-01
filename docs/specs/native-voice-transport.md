@@ -48,6 +48,7 @@ No provider names, models, prompts, or tool vocabularies enter the provider-blin
 - muxr's microphone port starts the foreground service and waits for it before the kit calls `getUserMedia`; failure to start it aborts the session before the microphone opens.
 - The kit's client closes every media track, data channel, peer connection, and realtime stream on stop; muxr's session state keeps one call at a time.
 - PCM capture (VAD-aware) and native playback stay muxr's audio ports; the kit retains them across a stream reconnect.
+- A screen with a talk control pre-connects the Codex call with the kit's lazy capture: signaling and WebRTC with no microphone, no foreground service and no device audio route. The first talk routes audio, starts the service, attaches the microphone and reports listening only then. An untaken call closes after 60 s, on leaving the screen, or in the background.
 
 ## iOS note
 
@@ -70,3 +71,4 @@ The kit's `webRtcPeer` uses `react-native-webrtc` on iOS too; only Android requi
 
 - 2026-08-28: Implement two provider-neutral transport kinds: existing host-relayed PCM and mobile-owned WebRTC signaling for Codex Voice, with host-only OAuth custody.
 - 2026-10-01: Move the phone WebRTC client, reconnect lifecycle, and speech queueing to `@byokit/realtime`; muxr retains audio ports and app control.
+- 2026-10-01: Pre-connect the Codex call on Android screens with a talk control (`@byokit/realtime` 0.3.0 lazy capture).

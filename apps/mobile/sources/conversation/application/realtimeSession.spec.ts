@@ -52,7 +52,7 @@ vi.mock('./vadStandby', () => mocks.vad);
 vi.mock('@/catalog/sync', () => ({ sync: { openVoiceStream: vi.fn(async () => undefined) } }));
 vi.mock('@byokit/realtime/webrtc', () => ({ webRtcPeer: mocks.webRtc.start }));
 
-import { startRealtimeSession } from './realtimeSession';
+import { preconnectRealtimeSession, startRealtimeSession } from './realtimeSession';
 import { RealtimeAppController } from './realtimeAppControl';
 
 interface FakeStream {
@@ -399,6 +399,71 @@ describe('generic realtime stream session', () => {
         expect(mocks.openStream).toHaveBeenCalledOnce();
         handle.stop();
         expect(mocks.webRtc.handle.stop).toHaveBeenCalledOnce();
+    });
+
+    it('pre-connects with no microphone or audio route, then the first talk reuses the call and opens the microphone', async () => {
+        const { webRtcPeer } = await vi.importActual<typeof import('@byokit/realtime/webrtc')>('@byokit/realtime/webrtc');
+        const microphone = { kind: 'audio', enabled: true, stop: vi.fn() };
+        const getUserMedia = vi.fn(async () => ({ getAudioTracks: () => [microphone], getTracks: () => [microphone] }));
+        const replaceTrack = vi.fn(async (_track: unknown) => undefined);
+        const peer: Record<string, any> = {
+            connectionState: 'new',
+            iceGatheringState: 'complete',
+            localDescription: { sdp: 'v=0\r\na=offer' },
+            createDataChannel: () => ({ readyState: 'connecting', bufferedAmount: 0, send: vi.fn(), close: vi.fn() }),
+            addTransceiver: vi.fn(() => ({ sender: { replaceTrack } })),
+            addTrack: vi.fn(),
+            createOffer: async () => ({ type: 'offer', sdp: 'v=0\r\na=offer' }),
+            setLocalDescription: async () => undefined,
+            setRemoteDescription: async () => undefined,
+            close: vi.fn(),
+        };
+        mocks.webRtc.start.mockImplementation((options: WebRtcOptions) => webRtcPeer({
+            ...options,
+            platform: { createPeer: () => peer as unknown as RTCPeerConnection, getUserMedia: getUserMedia as never },
+        }));
+        const stream = fakeStream();
+        stream.start.mockImplementation(() => {
+            stream.frames.forEach((listener) => listener({ type: 'realtime.webrtc.start', dataChannelLabel: 'events-channel' }));
+        });
+        mocks.openStream.mockResolvedValue(asRealtimeStream(stream));
+
+        const warm = preconnectRealtimeSession({ target: { machineId: 'machine-a', sessionId: 's1' }, onEnded: vi.fn() });
+        await vi.waitFor(() => expect(stream.send).toHaveBeenCalledWith({ type: 'realtime.webrtc.offer', sdp: 'v=0\r\na=offer' }));
+        stream.frames.forEach((listener) => listener({ type: 'realtime.webrtc.answer', sdp: 'v=0\r\na=answer' }));
+        peer.connectionState = 'connected';
+        peer.onconnectionstatechange();
+        await tick();
+        // Connected and waiting: no microphone, no microphone service, the device left in normal audio.
+        expect(getUserMedia).not.toHaveBeenCalled();
+        expect(peer.addTrack).not.toHaveBeenCalled();
+        expect(mocks.pcm.startVoiceService).not.toHaveBeenCalled();
+        expect(mocks.pcm.routeVoiceAudio).not.toHaveBeenCalled();
+
+        const statuses: string[] = [];
+        // Listening is only reported once the microphone is on the call.
+        const handle = warm.talk({ onStatus: (status) => statuses.push(replaceTrack.mock.calls.length > 0 ? status : `${status} (no mic)`), onTurn: () => {} });
+        await vi.waitFor(() => expect(statuses).toEqual(['connected']));
+        expect(replaceTrack).toHaveBeenCalledWith(microphone);
+        expect(mocks.pcm.routeVoiceAudio).toHaveBeenCalledOnce();
+        // Android returns a deaf session unless the service is foreground before capture.
+        expect(mocks.pcm.startVoiceService.mock.invocationCallOrder[0]).toBeLessThan(getUserMedia.mock.invocationCallOrder[0]!);
+        expect(mocks.openStream).toHaveBeenCalledOnce();
+
+        handle.stop();
+        await vi.waitFor(() => expect(microphone.stop).toHaveBeenCalled());
+        expect(peer.close).toHaveBeenCalled();
+        expect(mocks.pcm.releaseVoiceAudio).toHaveBeenCalled();
+
+        // A call nobody talked on closes without touching the device's audio.
+        mocks.pcm.releaseVoiceAudio.mockClear();
+        mocks.webRtc.start.mockClear();
+        const idle = preconnectRealtimeSession({ target: { machineId: 'machine-a', sessionId: 's1' }, onEnded: vi.fn() });
+        await vi.waitFor(() => expect(mocks.webRtc.start).toHaveBeenCalledOnce());
+        idle.stop();
+        await tick();
+        expect(mocks.pcm.releaseVoiceAudio).not.toHaveBeenCalled();
+        expect(getUserMedia).toHaveBeenCalledOnce();
     });
 
     it('arms locally without an expiry and keeps silence off the provider path', async () => {

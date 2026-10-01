@@ -6,7 +6,7 @@
  * are the ones the toolbar sends. Approvals happen in the terminal itself.
  */
 
-import { RealtimeTalkButton } from '@/conversation/ui';
+import { RealtimeTalkButton, useRealtimePreconnect } from '@/conversation/ui';
 import * as React from 'react';
 import { ActivityIndicator, AppState, BackHandler, Keyboard, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -153,6 +153,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [appActive, setAppActive] = React.useState(Platform.OS === 'web' || AppState.currentState === 'active');
     const keepScreenAwake = useLocalSettingMutable('keepScreenAwakeWhileWatching')[0];
     const canControl = authority === 'control' && !authorityLoading;
+    useRealtimePreconnect(props.id, canControl && props.preview !== true);
     const computerVisible = props.desktop === true && canControl && isFocused;
     const insets = useSafeAreaInsets();
     // The rail keeps its bottom inset through keyboard motion; its translation

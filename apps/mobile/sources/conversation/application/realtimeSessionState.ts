@@ -10,7 +10,13 @@ import {
     stopVoiceService,
 } from '@/../modules/voice-overlay';
 import { randomUUID } from 'expo-crypto';
-import { startRealtimeSession as openRealtimeTransport, type RealtimeHandle, type RealtimeStatus } from './realtimeSession';
+import {
+    preconnectRealtimeSession as preconnectRealtimeTransport,
+    startRealtimeSession as openRealtimeTransport,
+    type PreconnectedRealtimeSession,
+    type RealtimeHandle,
+    type RealtimeStatus,
+} from './realtimeSession';
 import { voiceDiagnostic } from '../infrastructure/voiceDiagnostics';
 import {
     cancelVadStandbyStart,
@@ -63,8 +69,17 @@ function visibleVoiceDetail(value: unknown): string | undefined {
 /** Long enough to think mid-sentence; short enough not to bill a forgotten call. */
 export const IDLE_HANGUP_MS = 120_000;
 const REPORT_RESPONSE_TIMEOUT_MS = 45_000;
+/** How long a call connected ahead of the first talk waits for it. */
+export const PRECONNECT_IDLE_MS = 60_000;
 
 let session: RealtimeHandle | null = null;
+/** Connected before anyone talks and invisible until then: it owns no microphone and no turn. */
+let preconnected: {
+    target: RealtimeTarget;
+    call: PreconnectedRealtimeSession;
+    holders: number;
+    timer: ReturnType<typeof setTimeout>;
+} | null = null;
 let starting = false;
 let state: RealtimeSessionState = 'disconnected';
 let detail: string | undefined;
@@ -181,6 +196,7 @@ addVoiceNotificationActionListener((action, desiredMuted, generation) => {
 export async function claimDictation(): Promise<'granted' | 'busy' | 'already'> {
     const result = startDictation({ dictating, realtimeLive: session !== null || starting });
     if (!result.ok) return result.reason;
+    closePreconnectedRealtime();
     vadEpoch += 1;
     const pendingVad = vadArming;
     stopVadStandby();
@@ -408,18 +424,23 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
     setVoiceNetworkActive(true);
     const liveEpoch = epoch;
     let handle!: RealtimeHandle;
+    const callbacks = {
+        onStatus: (next: RealtimeStatus, why?: string) => {
+            if (liveEpoch !== realtimeEpoch || session !== handle) return;
+            applyTransportStatus(handle, liveEpoch, next, why);
+        },
+        onTurn: (role: 'user' | 'agent', text: string) => recordTurn(liveEpoch, role, text),
+        onActivity: () => {
+            if (liveEpoch === realtimeEpoch && session === handle) keepAwake(liveEpoch);
+        },
+    };
+    const warm = preconnected !== null && sameTarget(preconnected.target, target) ? preconnected.call : null;
+    if (warm !== null) {
+        clearTimeout(preconnected!.timer);
+        preconnected = null;
+    } else closePreconnectedRealtime();
     try {
-        handle = openRealtimeTransport({
-            target,
-            onStatus: (next, why) => {
-                if (liveEpoch !== realtimeEpoch || session !== handle) return;
-                applyTransportStatus(handle, liveEpoch, next, why);
-            },
-            onTurn: (role, text) => recordTurn(liveEpoch, role, text),
-            onActivity: () => {
-                if (liveEpoch === realtimeEpoch && session === handle) keepAwake(liveEpoch);
-            },
-        });
+        handle = warm !== null ? warm.talk(callbacks) : openRealtimeTransport({ target, ...callbacks });
     } catch (error) {
         if (epoch === realtimeEpoch) {
             failRealtimeStart(epoch, error instanceof Error ? error.message : String(error));
@@ -437,6 +458,54 @@ function startRealtimeAfterService(target: RealtimeTarget, epoch: number): void 
     if (muted) handle.setMuted(true);
     session = handle;
     starting = false;
+}
+
+function sameTarget(left: RealtimeTarget, right: RealtimeTarget): boolean {
+    return left.machineId === right.machineId && left.sessionId === right.sessionId;
+}
+
+/**
+ * Connect the call a talk on this target would open, so the talk skips the
+ * provider's setup. Nothing is visible and no microphone opens until then;
+ * the call closes after {@link PRECONNECT_IDLE_MS} unless a talk takes it.
+ * Returns the hold to release when the screen that asked goes away.
+ */
+export function preconnectRealtimeSession(target: RealtimeTarget): () => void {
+    if (session !== null || starting || dictating) return () => {};
+    if (preconnected === null || !sameTarget(preconnected.target, target)) {
+        closePreconnectedRealtime();
+        let call: PreconnectedRealtimeSession;
+        try {
+            call = preconnectRealtimeTransport({
+                target,
+                onEnded: () => {
+                    if (preconnected?.call !== call) return;
+                    clearTimeout(preconnected.timer);
+                    preconnected = null;
+                },
+            });
+        } catch {
+            return () => {};
+        }
+        preconnected = { target, call, holders: 0, timer: setTimeout(closePreconnectedRealtime, PRECONNECT_IDLE_MS) };
+    }
+    const held = preconnected;
+    held.holders += 1;
+    let released = false;
+    return () => {
+        if (released || preconnected !== held) return;
+        released = true;
+        held.holders -= 1;
+        if (held.holders === 0) closePreconnectedRealtime();
+    };
+}
+
+export function closePreconnectedRealtime(): void {
+    const current = preconnected;
+    if (current === null) return;
+    preconnected = null;
+    clearTimeout(current.timer);
+    current.call.stop();
 }
 
 async function armVadStandby(): Promise<VadArmResult> {

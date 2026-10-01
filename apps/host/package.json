@@ -10,7 +10,7 @@
         "@byokit/seal": "0.2.0",
         "@byokit/herdr": "0.1.10",
         "@byokit/link": "0.6.0",
-        "@byokit/realtime": "0.2.1",
+        "@byokit/realtime": "0.3.0",
         "@byokit/relay": "0.4.2",
         "@byokit/usage": "0.1.0",
         "@desklink/host": "0.3.0",

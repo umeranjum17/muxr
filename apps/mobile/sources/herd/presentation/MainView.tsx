@@ -45,6 +45,7 @@ import { useVisibleSessionListViewData } from '../application/useVisibleSessionL
 import { OptionSheet, type ModelMode } from '@/components/OptionSheet';
 import { Modal } from '@/modal';
 import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/session';
+import { useRealtimePreconnect } from '@/conversation/ui';
 import { herdrPaneForSession, navigateToSession } from '@/herd';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 import { hasAgent } from '../domain/herdTree';
@@ -424,6 +425,7 @@ export const MainView = React.memo(() => {
             + 12;
     // A view-only grant cannot start agents, so it gets no composer.
     const dockVisible = authority === 'control' && !authorityLoading && !searchActive && !phoneHomeRecovering;
+    useRealtimePreconnect(undefined, authority === 'control' && !authorityLoading);
     const bottomContentInset = dockVisible ? MOBILE_HOME_DOCK_CONTENT_INSET : 16;
 
     const handleHomePromptSubmit = React.useCallback(async (): Promise<boolean> => {

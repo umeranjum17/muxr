@@ -1150,10 +1150,10 @@
     bonjour-service "^1.4.4"
     react-native-zeroconf "0.14.0"
 
-"@byokit/realtime@0.2.1":
-  version "0.2.1"
-  resolved "https://registry.yarnpkg.com/@byokit/realtime/-/realtime-0.2.1.tgz#8ba8d89cc253f45365d89ebbbe8af75b09502904"
-  integrity sha512-yEl6UhnI0a9CTj0/sPeY+CdycsH2X7ZHJn/sqwHo/PJ3t5aCIOzNaXAaXr4I7nSXD1A7eRufhq2l9qLp8E3n3w==
+"@byokit/realtime@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@byokit/realtime/-/realtime-0.3.0.tgz#128caf3607439d5252eb1433566d3aca1a56cc48"
+  integrity sha512-qMy5rttNgL6pH9mynejC3nfisdKeZ/qqmQ+TtmXLI5We1zK0eavZoIKUqI9eL0nwOfHEx+Ow+gCBowSYL4vqnQ==
   dependencies:
     ws "8.21.3"
 

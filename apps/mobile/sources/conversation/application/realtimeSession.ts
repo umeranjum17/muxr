@@ -19,6 +19,22 @@ export interface RealtimeHandle {
     speak: (text: string) => void;
 }
 
+export interface RealtimeCallbacks {
+    onStatus: (status: RealtimeStatus, detail?: string) => void;
+    onTurn: (role: 'user' | 'agent', text: string) => void;
+    onActivity?: () => void;
+}
+
+/**
+ * A call connected before anyone talks: credential, signaling and WebRTC, but
+ * no microphone, no microphone service, no device audio route and no turn.
+ */
+export interface PreconnectedRealtimeSession {
+    stop: () => void;
+    /** The first talk: route the audio, open the microphone and hand the call over. Throws when the audio cannot be routed. */
+    talk: (callbacks: RealtimeCallbacks) => RealtimeHandle;
+}
+
 const SERVICE_READY_TIMEOUT_MS = 2_000;
 
 /** A screen with many controls can describe itself past one frame; an oversized answer would end the call. */
@@ -66,28 +82,70 @@ async function foregroundMicrophoneService(): Promise<void> {
  * session, WebRTC, reconnects and speech queueing. The service is stopped by the
  * session state, which knows whether local VAD standby still needs it.
  */
-export function startRealtimeSession(options: {
+export function startRealtimeSession(options: RealtimeCallbacks & { target: { machineId: string; sessionId: string } }): RealtimeHandle {
+    return openRealtimeCall(options.target, options, false).handle;
+}
+
+/** Connect ahead of the first talk. Only WebRTC providers negotiate without a microphone. */
+export function preconnectRealtimeSession(options: {
     target: { machineId: string; sessionId: string };
-    onStatus: (status: RealtimeStatus, detail?: string) => void;
-    onTurn: (role: 'user' | 'agent', text: string) => void;
-    onActivity?: () => void;
-}): RealtimeHandle {
-    const { target } = options;
+    onEnded: () => void;
+}): PreconnectedRealtimeSession {
+    const call = openRealtimeCall(options.target, {
+        onStatus: (status) => { if (status === 'disconnected') options.onEnded(); },
+        onTurn: () => {},
+    }, true);
+    return { stop: () => call.handle.stop(), talk: call.talk };
+}
+
+function openRealtimeCall(
+    target: { machineId: string; sessionId: string },
+    initial: RealtimeCallbacks,
+    preconnect: boolean,
+): { handle: RealtimeHandle; talk: (callbacks: RealtimeCallbacks) => RealtimeHandle } {
+    let callbacks = initial;
+    let talking = !preconnect;
+    let routed = false;
+    let last: [RealtimeStatus, string | undefined] = ['connecting', undefined];
     const playback = createRealtimePlayback();
     // Pinned once: a machine switch mid-call can never move a reconnect elsewhere.
     let snapshot = captureVoiceStreamSnapshot(target.machineId);
+    const notTalking = () => Promise.reject(new Error('Voice has no microphone before the first talk.'));
+    const route = () => {
+        if (!routeVoiceAudio()) throw new Error('This device could not route realtime audio.');
+        routed = true;
+    };
     const audio: AudioPorts = {
-        microphone: { acquire: foregroundMicrophoneService, release: () => {} },
+        microphone: { acquire: () => talking ? foregroundMicrophoneService() : notTalking(), release: () => {} },
         capture: async (rate, onData) => {
+            if (!talking) return notTalking();
             const lease = acquireRealtimeCapture(rate, onData);
             try { await lease.ready; } catch (error) { lease.release(); throw error; }
             return { pending: lease.pending, release: async () => lease.release() };
         },
-        player: playback,
-        route: async () => {
-            if (!routeVoiceAudio()) throw new Error('This device could not route realtime audio.');
+        // The route puts the whole device into call audio, so a call that
+        // nobody has talked on yet leaves it alone, closing included.
+        player: { ...playback, release: () => { if (talking) playback.release(); } },
+        route: async () => { if (talking) route(); },
+        unroute: async () => {
+            if (!routed) return;
+            routed = false;
+            releaseVoiceAudio();
         },
-        unroute: async () => releaseVoiceAudio(),
+    };
+    // A lazy call negotiates with no microphone; each fresh peer, including
+    // one a reconnect makes, gets it once it is connected, and only then is
+    // the call listening.
+    const attachMicrophone = (then: () => void) => {
+        client.attachMic().then(then, (error: unknown) => {
+            const reason = error instanceof Error ? error.message : String(error);
+            // A reconnect or stop raced the attach; it owns the outcome, and a new peer attaches again.
+            if (reason !== 'Voice media is unavailable.' && reason !== 'Voice is closed.') client.stop(reason);
+        });
+    };
+    // Dropped when a newer status overtook it while the microphone attached.
+    const forward = (status: RealtimeStatus, detail: string | undefined) => {
+        if (last[0] === status && last[1] === detail) callbacks.onStatus(status, detail);
     };
     const client = realtimeClient({
         open: async () => {
@@ -99,7 +157,9 @@ export function startRealtimeSession(options: {
         webrtc: webRtcPeer,
         preserveMediaOnReconnect: true,
         retryableClose: (reason) => reason === undefined || /(?:connection failed|disconnected|timed out|input failed)/i.test(reason),
+        ...(preconnect ? { capture: 'lazy' as const } : {}),
         onStatus: (status, detail) => {
+            last = [status, detail];
             if (status === 'disconnected') resetEnergy();
             // A planner request takes seconds; the tone fills the silence. Codex
             // speaks over WebRTC, so the PCM player is otherwise idle.
@@ -109,10 +169,11 @@ export function startRealtimeSession(options: {
                     if (playback.admit(planningToneAudio()) === 'ok') playback.finish();
                 } catch { /* a missing cue never ends the call */ }
             }
-            options.onStatus(status, detail);
+            if (preconnect && talking && status === 'connected') attachMicrophone(() => forward(status, detail));
+            else callbacks.onStatus(status, detail);
         },
-        onTurn: options.onTurn,
-        onActivity: options.onActivity,
+        onTurn: (role, text) => callbacks.onTurn(role, text),
+        onActivity: () => callbacks.onActivity?.(),
         onLevel: reportEnergy,
         onStats: (stats) => {
             const output = playback.stats;
@@ -128,5 +189,23 @@ export function startRealtimeSession(options: {
             }
         },
     });
-    return { stop: client.stop, setMuted: client.setMuted, speak: client.speak };
+    const handle: RealtimeHandle = { stop: client.stop, setMuted: client.setMuted, speak: client.speak };
+    const talk = (next: RealtimeCallbacks): RealtimeHandle => {
+        callbacks = next;
+        talking = true;
+        try {
+            route();
+        } catch (error) {
+            client.stop(error instanceof Error ? error.message : String(error));
+            throw error;
+        }
+        // Replayed once the caller holds the handle the status belongs to,
+        // and a live call only once its microphone is attached.
+        const [status, detail] = last;
+        const replay = () => { if (callbacks === next) forward(status, detail); };
+        if (status === 'connected' || status === 'thinking' || status === 'speaking') attachMicrophone(replay);
+        else queueMicrotask(replay);
+        return handle;
+    };
+    return { handle, talk };
 }
