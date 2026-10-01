@@ -6,7 +6,7 @@
  * store; the pinned offline ccusage backend covers the remaining agents.
  */
 import { scryptSync } from 'node:crypto';
-import { claudeWindows as parseClaudeWindows } from '@byokit/usage';
+import { claudeWindows as parseClaudeWindows, fingerprint, type Source } from '@byokit/usage';
 import { planReader, sourcesFor, planLabel, readPlan, readPlans, savePlans, type PlanReadings, type StoredPlanReading } from './planUsage.js';
 import { spawn } from 'node:child_process';
 import { accessSync, chmodSync, constants, readFileSync, statSync } from 'node:fs';
@@ -394,21 +394,9 @@ const PLAN_MIN_READ_MS = 60_000;
  *  the card opens on it and the collection replaces it seconds later. */
 const PLAN_LAST_KNOWN_MS = 24 * 60 * 60_000;
 
-/** Claude fingerprints remain here: the kit exposes its parser, but no Claude
- *  Source or public fingerprint/store/backoff API. The KDF is deliberately
- *  slow, so repeated Claude account lookups reuse the derived fingerprint. */
-const fingerprints = new Map<string, string>();
-
-function accountFingerprint(id: PlanId, value: string): string {
-    const key = `${id}\u0000${value}`;
-    let fingerprint = fingerprints.get(key);
-    if (fingerprint === undefined) {
-        fingerprint = scryptSync(value, `muxr/usage/account/${id}`, 32, { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }).toString('hex');
-        if (fingerprints.size >= 32) fingerprints.clear();
-        fingerprints.set(key, fingerprint);
-    }
-    return fingerprint;
-}
+/** Claude's account fingerprint, under the salt the kit's reader uses for the
+ *  other plans. The KDF is deliberately slow; the kit memoizes it. */
+const accountFingerprint = fingerprint('muxr/usage/account');
 
 /** Whose reading each provider's would be now, from the same configuration
  *  the read itself uses. A stored reading is only ever shown for the account
@@ -419,9 +407,9 @@ function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
     const accounts: Partial<Record<PlanId, string>> = {};
     const claude = claudeAuth(env)?.account;
     if (claude !== undefined && claude !== '' && claude.length <= 16 * 1024) accounts.claude = accountFingerprint('claude', claude);
-    for (const source of Object.values(sourcesFor(env))) {
+    for (const [id, source] of Object.entries(sourcesFor(env)) as [PlanId, Source][]) {
         const account = reader.account(source);
-        if (account !== undefined) accounts[source.provider] = account;
+        if (account !== undefined) accounts[id] = account;
     }
     return accounts;
 }
@@ -433,7 +421,7 @@ function storedReading(stored: PlanReadings, accounts: Partial<Record<PlanId, st
 }
 
 function claudeVMs(raw: unknown, nowMs: number): UsageWindowVM[] {
-    return parseClaudeWindows(raw).map((window) => toVM(window, nowMs));
+    return parseClaudeWindows(raw).flatMap((window) => toVM(window, nowMs) ?? []);
 }
 
 /** Windows for one account's env: the same reader Usage uses for the main
@@ -448,7 +436,7 @@ export async function planAccountWindows(id: PlanId, env: NodeJS.ProcessEnv, { r
     const nowMs = nowDate(env).getTime();
     if (id === 'codex') {
         const reading = await readPlan(planReader(env), sourcesFor(env).codex, nowMs, { refresh });
-        return reading?.windows.map((window) => toVM(window, nowMs)) ?? [];
+        return reading?.windows.flatMap((window) => toVM(window, nowMs) ?? []) ?? [];
     }
     const fingerprint = planAccounts(env).claude;
     const stored = refresh || fingerprint === undefined ? undefined : readPlans(env)[id]?.[fingerprint];
@@ -509,9 +497,9 @@ export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): Pick<Usage
             const source = sources[id];
             if (source === undefined) continue;
             const reading = reader.lastKnown(source, { nowMs: at });
-            if (reading === undefined) continue;
+            if (reading?.at === undefined) continue;
             atMs = reading.at;
-            vms = reading.windows.map((window) => toVM(window, nowMs));
+            vms = reading.windows.flatMap((window) => toVM(window, nowMs) ?? []);
         }
         if (vms.length === 0) continue;
         vmsById[id] = vms;
@@ -702,8 +690,8 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     const claude = windowsOfClaude(claudeRaw);
     const kitVMs = (reading: Awaited<ReturnType<typeof readPlan>>): UsageWindowVM[] => {
         if (reading === undefined || reading.windows.length === 0) return [];
-        readingsFrom = Math.min(readingsFrom, reading.at);
-        return reading.windows.map((window) => toVM(window, Date.now()));
+        if (reading.at !== undefined) readingsFrom = Math.min(readingsFrom, reading.at);
+        return reading.windows.flatMap((window) => toVM(window, Date.now()) ?? []);
     };
     const codex = kitVMs(codexReading);
     const goVMs = kitVMs(go);

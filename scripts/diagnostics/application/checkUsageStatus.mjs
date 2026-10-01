@@ -113,7 +113,7 @@ const claudeLimits = {
 const { collectUsage, usageNow } = await import('../../../apps/host/dist/usage/index.js');
 const { tightestWindow } = await import('../../../apps/host/dist/usage/domain/usageWindows.js');
 
-const ENV_KEYS = ['HOME', 'PATH', 'TZ', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'PI_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'OPENCODE_AUTH_CONTENT', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'MUXR_HOME', 'MUXR_CCUSAGE_BIN', 'MUXR_USAGE_NOW', 'MUXR_USAGE_PROVIDER', 'NODE_OPTIONS'];
+const ENV_KEYS = ['HOME', 'PATH', 'TZ', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'PI_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'OPENCODE_AUTH_CONTENT', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'MUXR_HOME', 'MUXR_CCUSAGE_BIN', 'MUXR_USAGE_NOW', 'MUXR_USAGE_PROVIDER', 'NODE_OPTIONS', 'BASH_FUNC_muxr%%'];
 let fetchStub = undefined;
 const realFetch = globalThis.fetch;
 async function stubbedFetch(url, options) {
@@ -205,6 +205,8 @@ const baseEnv = () => ({
     MUXR_HOME: scratch,
     MUXR_CCUSAGE_BIN: ccusage,
     CODEX_HOME: join(scratch, '.codex'),
+    // A host started from a shell inherits its exported functions, newlines and all.
+    'BASH_FUNC_muxr%%': '() {  true\n}',
     // undefined deletes: the disk Go account is the default unless a run pins
     // the OPENCODE_AUTH_CONTENT override itself.
     OPENCODE_AUTH_CONTENT: undefined,
@@ -764,7 +766,7 @@ try {
     // default OMP tab borrows nothing. Remove
     // the real-clock reading from the host-env fixture above before comparing
     // it with this pinned-clock collection.
-    rmSync(join(scratch, 'usage', 'plans-v1.json'), { force: true });
+    for (const file of ['plans-v1.json', 'plans-v2.json']) rmSync(join(scratch, 'usage', file), { force: true });
     const nowPayload = await driveNow(baseEnv());
     const defaultTab = await run({});
     assert.equal(defaultTab.provider, 'omp');

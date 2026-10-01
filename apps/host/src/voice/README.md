@@ -82,7 +82,7 @@ kit's `claims` to decode token claims. The settings login status is
 read (no refresh, no `codex` CLI); muxr maps the kit's reason (`missing`,
 `credential-permissions`, `login-expired`, else unknown) to its Codex wording. muxr calls only `claims` and `respond`
 from accounts; neither host nor mobile creates an accounts credential store.
-Upgrading to accounts 0.9.0 therefore requires no accounts store migration;
+Upgrading to accounts 0.13.0 therefore requires no accounts store migration;
 existing Codex sign-ins remain usable if they pass `codex.mjs`'s credential
 checks. Codex owns its login file. `codex.mjs` refuses symlinked or non-regular
 credential files, files owned by another user or accessible to other
@@ -91,7 +91,7 @@ or writable by other users; it does not repair or migrate them. The kit
 resolves the sign-in through `codex.mjs` as the `plan` access while the phone's
 media starts, and a missing or unsafe login still closes the call with its remedy; the
 kit's credential child owns the realtime-calls signaling and never frames the
-token. A small planner fetch guard sets `parallel_tool_calls: false` and retains
+token. The planner asks the kit for `parallelToolCalls: false`; a small fetch guard retains
 response bounds, redirect rejection, reader cleanup and rejection of incomplete planning
-responses (also rejected by accounts 0.9.0). The kit waits for EOF and does not
+responses (also rejected by accounts 0.13.0). The kit waits for EOF and does not
 cancel the reader on parse errors; the guard closes it at completion or failure.
