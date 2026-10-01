@@ -10,7 +10,6 @@
 import * as React from 'react';
 import {
     ActivityIndicator,
-    Alert,
     Pressable,
     ScrollView,
     View,
@@ -137,6 +136,13 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 10,
         fontWeight: '600',
     },
+    agentDetails: {
+        color: theme.colors.textSecondary,
+        fontSize: 12,
+        lineHeight: 17,
+        paddingHorizontal: 2,
+        marginTop: 10,
+    },
     squadHint: {
         color: theme.colors.textSecondary,
         fontSize: 12,
@@ -249,6 +255,7 @@ export default function NewAgentScreen() {
     const [catalogSource, setCatalogSource] = React.useState<CatalogSource>('loading');
     const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
     const [showUnavailableAgents, setShowUnavailableAgents] = React.useState(false);
+    const [agentDetails, setAgentDetails] = React.useState<{ kind: string; text: string } | undefined>();
     const [cwd, setCwd] = React.useState(settings.lastSessionCwd || '~');
     const [worktree, setWorktree] = React.useState(false);
     const [workspaces, setWorkspaces] = React.useState<HerdrTreeWorkspace[]>([]);
@@ -398,20 +405,20 @@ export default function NewAgentScreen() {
                             const isSelected = selected.has(option.kind);
                             const available = option.availability === 'installed';
                             const availability = agentReadinessLabel(option);
-                            const detail = available ? option.signInHint : availability;
+                            const detail = available
+                                ? option.signInHint ?? availability
+                                : option.installHint ?? availability;
                             return (
                                 <Pressable
                                     key={option.kind}
                                     onPress={() => {
+                                        setAgentDetails({ kind: option.kind, text: detail });
                                         if (available) {
                                             toggleKind(option);
-                                        } else {
-                                            Alert.alert(agentName(option.kind), detail);
                                         }
                                     }}
                                     accessibilityRole="button"
-                                    accessibilityLabel={`${agentName(option.kind)}, ${availability}`}
-                                    accessibilityHint={detail}
+                                    accessibilityLabel={`${agentName(option.kind)}, ${availability}. Tap for details${available ? ' and to select' : ''}`}
                                     accessibilityState={{ selected: isSelected }}
                                     style={[
                                         styles.agentCard,
@@ -436,6 +443,11 @@ export default function NewAgentScreen() {
                             );
                         })}
                     </View>
+                    {agentDetails && (
+                        <Text accessibilityRole="summary" style={styles.agentDetails}>
+                            {agentName(agentDetails.kind)}: {agentDetails.text}
+                        </Text>
+                    )}
                     {unavailableCount > 0 && (
                         <Pressable
                             accessibilityRole="button"
