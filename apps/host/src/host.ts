@@ -250,6 +250,12 @@ export function startHost(options: HostOptions): Host {
         canView: (frame) => frame.type === 'client.hello' || viewOnlyRequestAllowed(frame as ClientRequest, source),
         answer: async (frame, authenticatedSenderId, connectionId) => {
             const response = await answerFrame(frame, authenticatedSenderId, connectionId);
+            if (frame.type === 'machine.hello' && response?.type === 'result' && response.ok) {
+                // The phone admits this handshake before fetching its tree. Reconcile closed or
+                // recovered panes first, then deliver retained launch errors before shell routing.
+                await source.list();
+                source.resendCumulativeState?.();
+            }
             if (frame.type === 'client.hello') source.resendCumulativeState?.();
             return response;
         },
