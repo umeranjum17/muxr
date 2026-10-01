@@ -144,7 +144,7 @@ interactive walkthrough (`muxr config check` validates a hand edit).
 
 | Key | Means |
 |---|---|
-| `mode` | `hosted`, `selfhost`, or `local`. Unset means derive from setup state. |
+| `mode` | `selfhost` or `local`. Unset means derive from setup state. |
 | `relayUrl` | `ws://` or `wss://` relay endpoint. Unset means derive from setup state. |
 | `machineId` | Stable machine identity. Unset means setup state, then hostname. |
 | `machineName` | Friendly name shown for this computer. Unset means setup state, then hostname. |
@@ -155,6 +155,10 @@ Absent or partial is normal: every missing key falls back. Malformed is
 fatal and loud: the host prints the file path and the offending key and
 refuses to start rather than half-applying the file. Precedence per setting:
 explicit flag beats environment beats config file beats default.
+
+For host options in a built checkout, run `node apps/host/dist/main.js --help`
+(or `-h`). Help prints and exits successfully before loading the runtime or
+reading settings and setup state, even when those files are malformed.
 
 ## Diagnose and recover
 
