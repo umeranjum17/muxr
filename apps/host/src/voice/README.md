@@ -75,9 +75,12 @@ protocol acknowledgement filler is disabled; native speech/audio is unchanged.
 
 `@byokit/accounts` still has no explicit Codex CLI folder adapter: its `fileStore` uses
 Pi credentials, requires a sealing adapter since accounts 0.8.0, and `keepFresh`
-uses Pi OAuth. `codex.mjs` therefore retains owner-only Codex folder reads,
-app-server refresh and login status, using the
-kit's `claims` to decode token claims. muxr calls only `claims` and `respond`
+uses Pi OAuth. `codex.mjs` therefore retains owner-only Codex folder reads
+and app-server refresh, using the
+kit's `claims` to decode token claims. The settings login status is
+`@byokit/realtime`'s `realtimeAuthCheck` over a read-only peek of that same
+read (no refresh, no `codex` CLI); muxr maps the kit's reason (`missing`,
+`credential-permissions`, `login-expired`, else unknown) to its Codex wording. muxr calls only `claims` and `respond`
 from accounts; neither host nor mobile creates an accounts credential store.
 Upgrading to accounts 0.9.0 therefore requires no accounts store migration;
 existing Codex sign-ins remain usable if they pass `codex.mjs`'s credential
