@@ -3,12 +3,13 @@
  *
  * The kit owns signaling, the data channel and delegation admission. muxr keeps
  * what is its own: the ChatGPT sign-in Codex saved on this machine (read here,
- * handed to the kit on the host, never framed or logged), the login check, the
- * voice prompt and what a delegated request does.
+ * handed to the kit on the host, never framed or logged), the voice prompt and
+ * what a delegated request does. The login status is the kit's auth check over
+ * a read-only peek at that same sign-in.
  */
 import { claims } from '@byokit/accounts';
-import { execFile, spawn } from 'node:child_process';
-import { lstatSync, readFileSync } from 'node:fs';
+import { delegationHandler, realtimeAuthCheck } from '@byokit/realtime/node';
+import { spawn } from 'node:child_process';
 import { lstat, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -53,31 +54,34 @@ const DIRECT_PROMPT = /^(?:please\s+)?(?:ask|tell)\s+([a-z0-9_-]{1,32})\s+to\s+(
 const FURTHER_STEP = /\b(?:then|after|afterwards|also|and (?:ask|tell|ping|message|let|watch|check)|let me know|tell me|report|when|once|until)\b/i;
 
 /**
- * The `delegate` handler: the direct prompt path, else the bounded planner.
- * `runTool` runs catalogued tools; `open` is the host's realtime.open.
+ * The `delegate` handler: the kit runs structured requests on `actions`, the
+ * catalogued tools' bridge; prose takes the direct prompt path, else the bounded
+ * planner. `open` is the host's realtime.open.
  */
-export function codexDelegate({ open, runTool }) {
+export function codexDelegate({ open, actions }) {
     const knownAgents = new Set((Array.isArray(open?.publicContext?.sessions) ? open.publicContext.sessions : [])
         .map((session) => String(session?.agentName ?? '').toLowerCase()).filter(Boolean));
-    const coding = createCodexDelegation({ getCredential: codexCredential, runTool });
+    const coding = createCodexDelegation({ getCredential: codexCredential, runTool: actions.run });
     const directPrompt = (request) => {
         const match = DIRECT_PROMPT.exec(request.trim());
         if (!match || !knownAgents.has(match[1].toLowerCase()) || FURTHER_STEP.test(match[2]) || match[2].includes('\n')) return undefined;
         return { agent: match[1], text: match[2].trim() };
     };
     return {
-        async delegate({ request }, { id, signal }) {
-            const text = String(request ?? '');
-            const direct = directPrompt(text);
-            if (direct) {
-                const receipt = await coding.run(JSON.stringify({ name: 'prompt_agent', arguments: direct }), id, signal);
-                // Only an unresolved target sent nothing; every other receipt is final
-                // so an uncertain prompt is never sent twice.
-                if (!/^(?:I could not find an agent|More than one agent)/.test(receipt)) return receipt;
-            }
-            return coding.run(text, id, signal);
-        },
-        close: () => coding.close(),
+        delegate: delegationHandler({
+            bridge: actions,
+            async plan(request, { id, signal }) {
+                const direct = directPrompt(request);
+                if (direct) {
+                    const receipt = await actions.run('prompt_agent', direct, id, signal);
+                    // Only an unresolved target sent nothing; every other receipt is final
+                    // so an uncertain prompt is never sent twice.
+                    if (!/^(?:I could not find an agent|More than one agent)/.test(receipt)) return receipt;
+                }
+                return coding.run(request, id, signal);
+            },
+        }),
+        close: () => { coding.close(); actions.close(); },
     };
 }
 
@@ -157,8 +161,11 @@ function tokenAccountId(token) {
     } catch { return undefined; }
 }
 
+// `reason` is the kit auth check's saved-sign-in failure reason.
+const signInError = (message, reason) => Object.assign(new Error(message), { reason });
+
 function bindCredential(token, account) {
-    if (typeof token !== 'string' || !token) throw new Error('Codex ChatGPT sign-in is unavailable. Run codex login.');
+    if (typeof token !== 'string' || !token) throw signInError('Codex ChatGPT sign-in is unavailable. Run codex login.', 'missing');
     const boundAccount = tokenAccountId(token);
     if (typeof account === 'string' && typeof boundAccount === 'string' && account !== boundAccount) {
         throw new Error('Codex credential account binding is inconsistent.');
@@ -185,19 +192,20 @@ async function readCodexCredential() {
     let file;
     try {
         [root, file] = await Promise.all([lstat(codexHome), lstat(authFile)]);
-    } catch {
-        throw new Error('Codex ChatGPT login is unavailable. Run codex login.');
+    } catch (error) {
+        const reason = error?.code === 'EACCES' || error?.code === 'EPERM' ? 'credential-permissions' : 'missing';
+        throw signInError('Codex ChatGPT login is unavailable. Run codex login.', reason);
     }
     const owner = typeof process.getuid === 'function' ? process.getuid() : file.uid;
     if (!root.isDirectory() || root.isSymbolicLink() || (root.mode & 0o022) !== 0
         || root.uid !== owner || !file.isFile() || file.isSymbolicLink() || (file.mode & 0o077) !== 0 || file.uid !== owner) {
-        throw new Error('Codex credential file must be owner-only in a non-writable store.');
+        throw signInError('Codex credential file must be owner-only in a non-writable store.', 'credential-permissions');
     }
     try {
         const auth = JSON.parse(await readFile(authFile, 'utf8'));
         return bindCredential(auth.tokens?.access_token, auth.tokens?.account_id);
     } catch (error) {
-        if (error instanceof SyntaxError) throw new Error('Codex ChatGPT login is unreadable. Run codex login.');
+        if (error instanceof SyntaxError) throw signInError('Codex ChatGPT login is unreadable. Run codex login.', 'missing');
         throw error;
     }
 }
@@ -218,35 +226,25 @@ export async function codexAccess() {
     return { access: credential.token, accountId: credential.account };
 }
 
+const SIGN_IN_LABELS = {
+    'credential-permissions': 'Codex credential file is not owner-only',
+    'login-expired': 'Codex ChatGPT login expired; run codex login again',
+    missing: 'Run codex login with ChatGPT',
+};
+
 /**
  * Codex authenticates through an existing ChatGPT CLI login, so there is no key
- * to store; the settings screen reports the login instead.
+ * to store; the settings screen reports the kit's check of that login instead.
+ * The peek never refreshes: an expired token reads as expired until Codex runs.
  */
 export async function status() {
-    // Async: this runs in the host process, where a sync spawn stalls every
-    // link request for the length of `codex login status` (~40 ms, up to 10 s).
-    const login = await new Promise((resolve) => execFile(CODEX_BIN, ['login', 'status'], { encoding: 'utf8', timeout: 10_000, maxBuffer: 256 * 1024 },
-        (error, stdout, stderr) => resolve({ ok: !error, output: `${stdout}${stderr}` })));
-    const authenticated = login.ok && /logged in using chatgpt/i.test(login.output);
-    let privateStore = false;
-    try {
-        const root = lstatSync(codexHome);
-        const file = lstatSync(authFile);
-        const owner = typeof process.getuid === 'function' ? process.getuid() : file.uid;
-        privateStore = root.isDirectory() && !root.isSymbolicLink() && (root.mode & 0o022) === 0 && root.uid === owner
-            && file.isFile() && !file.isSymbolicLink() && (file.mode & 0o077) === 0 && file.uid === owner;
-    } catch { privateStore = false; }
-    let tokenReady = false;
-    if (authenticated && privateStore) {
-        try {
-            const auth = JSON.parse(readFileSync(authFile, 'utf8'));
-            const token = auth.tokens?.access_token;
-            tokenReady = typeof token === 'string' && token.length > 0 && !needsTokenRefresh(token);
-        } catch { tokenReady = false; }
-    }
-    let statusLabel = 'Experimental subscription access ready';
-    if (!authenticated) statusLabel = 'Run codex login with ChatGPT';
-    else if (!privateStore) statusLabel = 'Codex credential file is not owner-only';
-    else if (!tokenReady) statusLabel = 'Codex ChatGPT login expired; run codex login again';
-    return { configured: authenticated && privateStore && tokenReady, statusLabel };
+    const { state, reason } = await realtimeAuthCheck({
+        timeoutMs: 10_000,
+        async peek() {
+            const { token } = await readCodexCredential();
+            return needsTokenRefresh(token) ? { state: 'signed-out', reason: 'login-expired' } : true;
+        },
+    }).details;
+    if (state === 'ready') return { configured: true, statusLabel: 'Experimental subscription access ready' };
+    return { configured: false, statusLabel: state === 'unknown' ? 'Unknown' : SIGN_IN_LABELS[reason] ?? SIGN_IN_LABELS.missing };
 }

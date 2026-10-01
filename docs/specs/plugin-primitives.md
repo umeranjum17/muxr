@@ -65,7 +65,7 @@ Muxr is presentation-only for Agent Name and Task Title. The agent itself names 
 - `apps/mobile/sources/plugins/pluginActions.ts` — bounded action validation and dispatch
 - `apps/mobile/sources/components/KernelNotifications.tsx` — unconditional foreground-service and baseline notification owner
 - `apps/mobile/sources/plugins/primitives/` — the compiled widgets
-- `apps/mobile/sources/voice/realtimeSession.ts` — token `url` + `transport`
+- `apps/mobile/sources/conversation/application/realtimeSession.ts` — phone adapter; see [native voice transport](native-voice-transport.md)
 - `apps/host/src/voice/stream.mjs` — muxr's entry to the `@byokit/realtime` engines (xAI, OpenAI Realtime, Gemini Live, Codex Voice) behind the product-owned `voice.stream`; `product.mjs` owns the key lifecycle and report wording
 - `apps/host/src/voice/coordinatorPolicy.mjs`, `voiceTools.mjs` and `codex.mjs` — explicit prompt target schema, clarification, and exact queued receipt wording; Codex delegation fails closed when it cannot supply a semantic target
 - `apps/host/src/agent/infrastructure/realtimeCoordinator.ts`, `herdrSessionSource.ts`, and `diagnostics/infrastructure/journal.ts` — strict prompt parsing, receipt-to-pane validation, and privacy-safe diagnostics
