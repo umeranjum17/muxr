@@ -50,7 +50,8 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
 const result = await build({
-    entryPoints: ['apps/host/dist/main.js'],
+    absWorkingDir: join(root, 'apps', 'host', 'dist'),
+    entryPoints: ['main.js'],
     outfile: join(out, 'host.js'),
     preserveSymlinks: true,
     define: { 'process.env.MUXR_PACKAGED': '"1"' },
@@ -95,7 +96,7 @@ await build({
 
 const bundledPackagePaths = new Set(
     Object.keys(result.metafile.inputs)
-        .map((input) => packagePathFromInput(root, input))
+        .map((input) => packagePathFromInput(join(root, 'apps', 'host', 'dist'), input))
         .filter((path) => path !== undefined && !/node_modules\/@(?:try)?muxr\//.test(path)),
 );
 const bundledDependencies = [...bundledPackagePaths]

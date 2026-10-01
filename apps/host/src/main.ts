@@ -2,7 +2,7 @@
 // not inspect setup state or start host resources for a help request.
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
-    process.stdout.write(`Usage: node apps/host/dist/main.js [options]
+    process.stdout.write(`Usage: muxr-host [options]
 
 Start the muxr host using setup state and $MUXR_HOME/config.json.
 
