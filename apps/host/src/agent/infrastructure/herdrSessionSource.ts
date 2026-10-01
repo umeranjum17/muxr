@@ -91,6 +91,7 @@ import { reportAgentOutcome } from '../application/reportAgentOutcome.js';
 import { agentKindsFromManifests } from '../domain/agentKinds.js';
 
 const PROMPT_READY_TIMEOUT_MS = 30_000;
+const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 
@@ -1426,9 +1427,16 @@ export async function createHerdrSessionSource(
         }
     }
 
+    // A voice roster lookup has just paid for this snapshot. Only prompt routing
+    // may reuse it, briefly, and never across a routing event or reconnect.
+    let snapshotReadAt = 0;
+    let routingEpoch = 0;
+    let snapshotRoutingEpoch = -1;
+
     async function refreshSnapshotOnce(): Promise<void> {
         if (disposed) throw new Error('herdr: source disposed');
         const treesSince = Date.now();
+        const routingEpochAtStart = routingEpoch;
         const lifecycleEpochAtStart = new Map(lifecycleEpochByPane);
         const result = await client.call<{
             snapshot?: {
@@ -1466,6 +1474,8 @@ export async function createHerdrSessionSource(
         }
         for (const tab of result.snapshot?.tabs ?? []) tabsById.set(tab.tab_id, tab);
         await syncDiscovery(treesSince);
+        snapshotReadAt = treesSince;
+        snapshotRoutingEpoch = routingEpochAtStart;
     }
 
     let snapshotInFlight: Promise<void> | undefined;
@@ -1475,9 +1485,17 @@ export async function createHerdrSessionSource(
         snapshotInFlight = request;
         try {
             await request;
+        } catch (cause) {
+            snapshotReadAt = 0;
+            throw cause;
         } finally {
             if (snapshotInFlight === request) snapshotInFlight = undefined;
         }
+    }
+
+    async function refreshSnapshotFresh(): Promise<void> {
+        while (snapshotInFlight !== undefined) await snapshotInFlight.catch(() => {});
+        await refreshSnapshot();
     }
 
     function scheduleResnapshot(): void {
@@ -1513,6 +1531,7 @@ export async function createHerdrSessionSource(
     // the same resolved binary the host would exec, not a PATH lookup.
     const herdrBin = options.herdrBin ?? process.env.HERDR_BIN ?? 'herdr';
     const client = new KitHerdrClient(herdrBin, socketPath, () => {
+        routingEpoch += 1;
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});
         void refreshSnapshot().then(emitAllStates).catch(() => {});
     });
@@ -1720,6 +1739,8 @@ export async function createHerdrSessionSource(
     client.onEvent((event) => {
         // Wire kinds arrive dot-style per the subscription schema; tolerate snake_case too.
         const kind = event.type.replace(/_/g, '.');
+        if (['pane.moved', 'pane.closed', 'pane.exited', 'pane.agent.detected',
+            'tab.closed', 'workspace.closed'].includes(kind)) routingEpoch += 1;
         const pane = (event.pane ?? event.agent) as AgentRecord | PaneRecord | undefined;
         if (pane !== undefined && typeof pane.pane_id === 'string') {
             const currentPaneStatus = panesById.get(pane.pane_id)?.agent_status;
@@ -1816,10 +1837,19 @@ export async function createHerdrSessionSource(
         return `${session.paneId}\u0000${reference === undefined ? 'shell' : herdrAgentSessionKey(reference)}`;
     }
 
-    async function resolvePane(sessionId: string): Promise<CurrentSession> {
+    async function resolvePane(sessionId: string, reusePromptSnapshot = false): Promise<CurrentSession> {
+        const snapshotAge = Date.now() - snapshotReadAt;
+        const recentPromptSnapshot = reusePromptSnapshot && client.connected
+            && snapshotRoutingEpoch === routingEpoch
+            && snapshotAge >= 0 && snapshotAge <= PROMPT_SNAPSHOT_MAX_AGE_MS;
+        if (recentPromptSnapshot) {
+            const cached = currentSession(sessionId);
+            // A miss must discover the target rather than reject from a cache.
+            if (cached !== undefined) return cached;
+        }
         // An unreadable snapshot says nothing about the route. Fail closed as a
         // temporary outage: only a snapshot that actually came back may claim
-        // the agent is gone, and cached panes never authorize anything.
+        // the agent is gone. Other operations always revalidate with Herdr.
         try {
             await refreshSnapshot();
         } catch (cause) {
@@ -2123,7 +2153,7 @@ export async function createHerdrSessionSource(
     async function promptSession(sessionId: string, text: string): Promise<void> {
         let session: CurrentSession;
         try {
-            session = await resolvePane(sessionId);
+            session = await resolvePane(sessionId, true);
             if (!agentPromptable(session)) {
                 // Cheap event-driven wait first, then a short poll for the route
                 // rebind that adoption performs a beat later.
@@ -2144,14 +2174,16 @@ export async function createHerdrSessionSource(
         }
         const generation = sessionGenerationKey(session);
         await client.kit.prompt({ paneId: session.paneId }, text);
-        let current: CurrentSession;
         try {
-            current = await resolvePane(sessionId);
+            await refreshSnapshotFresh();
+            const current = currentSession(sessionId);
+            if (current === undefined || sessionGenerationKey(current) !== generation) {
+                throw new Error('The prompt generation changed before its receipt could be confirmed.');
+            }
         } catch (cause) {
-            throw Object.assign(new Error('The prompt outcome could not be confirmed.'), { code: 'prompt-outcome-unknown', cause });
-        }
-        if (sessionGenerationKey(current) !== generation) {
-            throw Object.assign(new Error('The prompt generation changed before its receipt could be confirmed.'), { code: 'prompt-outcome-unknown' });
+            throw Object.assign(new Error('The prompt outcome could not be confirmed.'), {
+                code: 'prompt-outcome-unknown', cause,
+            });
         }
     }
 
