@@ -38,11 +38,7 @@ import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentBesideName, agentLabels, agentStatusColor, agentWhoLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, renameInHerdr, renamePane, resolveTabPane, showTabActions, tabLabel, useNavigateToSession } from '@/herd';
 import {
-    DIALOG_GUARD_ACTION,
-    DIALOG_GUARD_MESSAGE,
-    DIALOG_GUARD_TITLE,
     terminalComposerText,
-    terminalInputDisposition,
     terminalPaneCanSend,
     terminalPaneStatus,
     undoSmartPunctuation,
@@ -435,20 +431,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         if (channel === undefined) return;
         channel.bottom();
     }, []);
-    const showDialogMessage = React.useCallback(() => {
-        if (channelRef.current === undefined) {
-            router.push(`/session/${encodeURIComponent(props.id)}/history`);
-            return;
-        }
-        jumpToBottom();
-    }, [jumpToBottom, props.id]);
-    const showDialogGuard = React.useCallback(() => {
-        Modal.alert(DIALOG_GUARD_TITLE, DIALOG_GUARD_MESSAGE, [
-            { text: DIALOG_GUARD_ACTION, onPress: showDialogMessage },
-            { text: 'Dismiss', style: 'cancel' },
-        ]);
-    }, [showDialogMessage]);
-
     // The selected swipe stops follow Live order; the default skips old shells.
     // The pager settles before the route changes, so the switch itself is a
     // parameter, never a second screen animating in over this one.
@@ -548,8 +530,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     );
     const [overviewOpen, setOverviewOpen] = React.useState(false);
     const currentPane = storedPane;
-    const sessionRef = React.useRef(session);
-    sessionRef.current = session;
     const currentPaneRef = React.useRef(currentPane);
     currentPaneRef.current = currentPane;
 
@@ -664,25 +644,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             showGestureHintRef.current('No agent in this pane');
             return;
         }
-        const disposition = terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, command);
-        if (disposition.kind === 'blocked') {
-            showDialogGuard();
-            return;
-        }
         markScrolledAway(props.id, false);
-        const request = disposition.kind === 'answer'
-            ? sync.request('session.answer', { sessionId: props.id, answer: disposition.answer })
-            : sync.sendMessage(props.id, command);
+        const request = sync.sendMessage(props.id, command);
         void request.catch((error: unknown) => Modal.alert('Command failed', error instanceof Error ? error.message : String(error)));
-    }, [markScrolledAway, props.id, showDialogGuard]);
+    }, [markScrolledAway, props.id]);
     const openAgentCommands = React.useCallback(() => {
         if (!canControl) return;
         ringRef.current?.close();
         setActionsOpen(false);
-        if (terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, '/model').kind === 'blocked') {
-            showDialogGuard();
-            return;
-        }
         const known = agentCommands(paneKind);
         const kindLabel = agentKindLabel(paneKind) ?? paneKind;
         const sendDangerous = async (entry: AgentCommand) => {
@@ -764,7 +733,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             quietLine: known.length > 0 ? undefined : t('commandPalette.noCatalogue', { kind: paneKind ?? t('commandPalette.thisAgent') }),
             commands: entries,
         } } as any);
-    }, [canControl, insertDraft, paneKind, pluginQuickReplies, quickActions, sendCommand, showDialogGuard]);
+    }, [canControl, insertDraft, paneKind, pluginQuickReplies, quickActions, sendCommand]);
     React.useEffect(() => {
         if (paneMissing) {
             recordAgentGate({
@@ -992,11 +961,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             typing.sendText(`${text}\r`);
             return;
         }
-        const disposition = terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, text);
-        if (disposition.kind === 'blocked') {
-            showDialogGuard();
-            return;
-        }
         const previousDraft = draftRef.current;
         const previousImages = attachedImages;
         draftRef.current = '';
@@ -1004,9 +968,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         clearDraft();
         setAttachedImages([]);
         markScrolledAway(props.id, false);
-        const request = disposition.kind === 'answer'
-            ? sync.request('session.answer', { sessionId: props.id, answer: disposition.answer })
-            : sync.sendMessage(props.id, text);
+        // Composer text always steers. Answers stay on the terminal's explicit
+        // input controls, so even a literal y/n cannot settle a pending decision.
+        const request = sync.sendMessage(props.id, text);
         void request.catch((error: unknown) => {
             const restoredDraft = [previousDraft, draftRef.current].filter(Boolean).join('\n');
             draftRef.current = restoredDraft;
@@ -1014,7 +978,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, markScrolledAway, selectedImages.length, props.id, showDialogGuard]);
+    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, markScrolledAway, selectedImages.length, props.id]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft((previous) =>
         Platform.OS === 'ios' && currentPaneRef.current?.agentKind === undefined ? undoSmartPunctuation(previous, text) : text), []);
