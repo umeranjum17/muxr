@@ -424,7 +424,6 @@ export interface AgentRecord {
     agent_session?: HerdrAgentSessionRef | null;
     agent_status?: string;
     pane_id: string;
-    terminal_id?: string;
     tab_id?: string;
     workspace_id?: string;
     cwd?: string | null;
@@ -529,7 +528,6 @@ export async function renameInHerdr(
 
 interface PaneRecord {
     pane_id: string;
-    terminal_id?: string;
     tab_id?: string;
     workspace_id?: string;
     cwd?: string | null;
@@ -1495,6 +1493,11 @@ export async function createHerdrSessionSource(
         }
     }
 
+    async function refreshSnapshotFresh(): Promise<void> {
+        while (snapshotInFlight !== undefined) await snapshotInFlight.catch(() => {});
+        await refreshSnapshot();
+    }
+
     function scheduleResnapshot(): void {
         if (disposed) return;
         if (resnapshotRunning) {
@@ -2170,17 +2173,17 @@ export async function createHerdrSessionSource(
             throw promptNotSent(error);
         }
         const generation = sessionGenerationKey(session);
-        const epochAtPrompt = routingEpoch;
-        const receipt = await client.kit.prompt({ paneId: session.paneId }, text);
-        // The kit validates Herdr's pane-bound receipt. Check our event-updated
-        // route too; re-reading here adds latency after delivery and cannot undo
-        // a prompt. A move/exit or lost event connection makes it unconfirmed.
-        const current = currentSession(sessionId);
-        const terminalId = session.agent?.terminal_id ?? session.pane.terminal_id;
-        const terminalChanged = terminalId !== undefined && receipt.terminalId !== terminalId;
-        if (!client.connected || routingEpoch !== epochAtPrompt || current === undefined
-            || sessionGenerationKey(current) !== generation || terminalChanged) {
-            throw Object.assign(new Error('The prompt generation changed before its receipt could be confirmed.'), { code: 'prompt-outcome-unknown' });
+        await client.kit.prompt({ paneId: session.paneId }, text);
+        try {
+            await refreshSnapshotFresh();
+            const current = currentSession(sessionId);
+            if (current === undefined || sessionGenerationKey(current) !== generation) {
+                throw new Error('The prompt generation changed before its receipt could be confirmed.');
+            }
+        } catch (cause) {
+            throw Object.assign(new Error('The prompt outcome could not be confirmed.'), {
+                code: 'prompt-outcome-unknown', cause,
+            });
         }
     }
 

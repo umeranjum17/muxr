@@ -529,7 +529,7 @@ describe('agent started at the desk in an existing pane', () => {
 });
 
 describe('realtime prompt boundary', () => {
-    it('rejects unresolved targets and confirms delivery from the kit receipt', async () => {
+    it('rejects unresolved targets and reports an unknown outcome when fresh confirmation fails', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-prompt-'));
         const cwd = join(dir, 'repo');
         const herdr = fakeHerdr(dir, cwd);
@@ -553,10 +553,10 @@ describe('realtime prompt boundary', () => {
                 .rejects.toMatchObject({ code: 'prompt-not-sent' });
             await expect(source.prompt({ sessionId: started.info.id, text: 'hello' })).resolves.toBeUndefined();
 
-            // A valid pane-bound receipt confirms delivery without a later read.
-            // The snapshot endpoint failing afterwards cannot undo that receipt.
+            // The prompt was accepted, but a failed fresh confirmation is ambiguous.
             herdr.state.failSnapshotAfterPrompt = true;
-            await expect(source.prompt({ sessionId: started.info.id, text: 'again' })).resolves.toBeUndefined();
+            await expect(source.prompt({ sessionId: started.info.id, text: 'again' }))
+                .rejects.toMatchObject({ code: 'prompt-outcome-unknown' });
         } finally {
             await source.dispose();
             herdr.close();
