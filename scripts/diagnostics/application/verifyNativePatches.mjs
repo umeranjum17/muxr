@@ -60,6 +60,13 @@ const nativeGuard = androidBuild.indexOf('node "$ROOT/scripts/diagnostics/applic
 const workspaceBuild = androidBuild.indexOf('(cd "$ROOT" && yarn build)');
 const vitestGate = androidBuild.indexOf('npx vitest run');
 const gradleBuild = androidBuild.indexOf(':app:assembleRelease');
+/** TERMINAL_PATH_SOURCE from the terminal link domain, expanded as the app builds it. */
+function terminalPathPattern() {
+    const domain = read('apps/mobile/sources/terminal/domain/safeTerminalLink.ts');
+    const char = domain.match(/const PATH_CHAR = String\.raw`([^`]*)`/)?.[1];
+    const source = domain.match(/const TERMINAL_PATH_SOURCE = String\.raw`([^`]*)`/)?.[1];
+    return char === undefined || source === undefined ? null : source.replaceAll('${PATH_CHAR}', () => char);
+}
 const checks = [
     ['Terminal supports an explicit keyboard without raising one on every tap',
         ghosttyPatch.includes('autoShowKeyboard') &&
@@ -113,6 +120,11 @@ const checks = [
             ghosttyIosModule.includes('AsyncFunction("hideKeyboard")') &&
             ghosttyIosView.includes('terminalView.hideKeyboard()'),
     ],
+    // Native iOS finds printed paths with Ghostty's own regex; the Android
+    // grid and the web terminal carry the same source, so all three tap alike.
+    ['Android terminal taps printed paths with the shared path pattern',
+        ghosttyTerminal.includes('pathAt(tapCol, tapRow)') && terminalPathPattern() !== null &&
+        ghosttyTerminal.includes(`private val PATH_PATTERN = Regex(\n      \"\"\"${terminalPathPattern()?.replaceAll('$', () => "${'$'}")}\"\"\"`)],
     ['Ghostty patch forwards scroll rows', ghosttyPatch.includes('onScrollRows') && ghosttyTerminal.includes('onScrollRows') && ghosttyView.includes('onScroll')],
     [
         'dictation recorder releases AudioRecord only after the read loop exits',

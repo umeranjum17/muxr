@@ -16,9 +16,11 @@ import { claimTerminalAhead, rememberTerminalGrid } from '../application/termina
 import { openTerminal, type TerminalChannel } from '../application/OpenTerminal';
 import {
     joinedTerminalUrlRanges,
+    lineCellMap,
     openTerminalLink,
     plainLinkAtCell,
     safeTerminalLinkUrl,
+    terminalPathRanges,
     type TerminalLinkRow,
 } from '../domain/safeTerminalLink';
 import { recordTerminalOutput, setTerminalColumns } from '../application/recentOutput';
@@ -146,6 +148,23 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
         term.loadAddon(fit);
         // Plain-text URLs ride the addon, but through the same boundary.
         term.loadAddon(new WebLinksAddon((event, uri) => reachLink(uri, event)));
+        // Printed file and folder paths, the same ones native iOS and Android
+        // find, reach the same menu. Paths are not underlined: agents print
+        // plenty of them, and the tap finds them anyway.
+        term.registerLinkProvider({
+            provideLinks: (y, callback) => {
+                const line = term.buffer.active.getLine(y - 1);
+                if (line === undefined) { callback(undefined); return; }
+                const { text, cellOf } = lineCellMap(line, term.cols);
+                const links = terminalPathRanges(text).map(({ start, end }) => ({
+                    range: { start: { x: cellOf[start] + 1, y }, end: { x: cellOf[end - 1] + 1, y } },
+                    text: text.slice(start, end),
+                    decorations: { underline: false, pointerCursor: true },
+                    activate: (event: MouseEvent, path: string) => reachLink(path, event),
+                }));
+                callback(links.length === 0 ? undefined : links);
+            },
+        });
         term.open(element);
         fit.fit();
         setTerminalColumns(sessionId, term.cols);

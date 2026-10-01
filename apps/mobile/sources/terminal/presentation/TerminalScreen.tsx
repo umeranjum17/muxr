@@ -54,7 +54,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { encodeBase64 } from '@/encryption/base64';
 import { agentSwipeNeighbours, herdPanes, holdLiveTerminalOrder, selectLiveTerminalCards, sharedLiveTerminalCards } from '@/herd';
-import { useSessionPlugins } from '@/plugins';
+import { openFileViewer, useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
@@ -78,7 +78,8 @@ import { DictateAction, DictationStrip, useComposerDictation } from '@/component
 import { getCachedConnectionSettings } from '@/connection';
 import { displayLink } from '../domain/TerminalLink';
 import { TerminalLinkMenu, terminalLinkCardFits, type LinkAction } from './TerminalLinkMenu';
-import { openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
+import { isTerminalPath, openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
+import { locateTerminalPath } from '../application/locateTerminalPath';
 import { humanError } from '@/utils/errors';
 import { MoveAccountRow } from '@/plans/ui';
 import { CommandPalette } from '@/components/CommandPalette';
@@ -852,24 +853,62 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const terminalTouch = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
     const [linkMenu, setLinkMenu] = React.useState<{ url: string; at: { x: number; y: number } } | null>(null);
     const showLinkActions = React.useCallback((url: string, at?: { x: number; y: number }) => {
-        // iOS recognises file paths as links too; a path gets Copy and Insert
-        // (Open stays web-only) rather than a tap that silently does nothing.
+        // iOS recognises file paths as links too; keep the same size guard for
+        // its native links while offering Open for paths on every platform.
         if (url.trim() === '' || url.length > 2048) return;
         setActionsOpen(false);
         setMenu(null);
         setLinkMenu({ url, at: at ?? terminalTouch.current });
     }, []);
+    const paneCwd = storedPane?.cwd ?? session?.metadata?.path;
+    const filesPaneId = session?.metadata?.paneId ?? storedPane?.paneId;
+    /** Open a tapped path in Files: a folder at itself, a file previewed in
+     *  its folder. Files browses the repositories agents have open; a file
+     *  elsewhere opens in the file viewer instead. */
+    const openTerminalPath = React.useCallback((raw: string) => {
+        locateTerminalPath(raw, { sessionId: props.id, cwd: paneCwd, observe: authority === 'observe' }).then((target) => {
+            if (target === null) {
+                if (authority === 'observe') {
+                    Modal.alert('Not in Files', `Files browses the repositories your agents have open, and ${raw} is outside them.`);
+                    return;
+                }
+                Modal.alert('Could not open the path', 'This pane has no working directory yet to read it from.');
+                return;
+            }
+            if (target.repo !== undefined) {
+                const { root, relative } = target.repo;
+                const file = target.kind === 'file' ? relative : undefined;
+                const folder = file === undefined ? relative : relative.split('/').slice(0, -1).join('/');
+                router.push({ pathname: '/session/[id]/files', params: {
+                    id: props.id,
+                    ...(filesPaneId === undefined ? {} : { paneId: filesPaneId }),
+                    root,
+                    ...(folder === '' ? {} : { folder }),
+                    ...(file === undefined ? {} : { file }),
+                } });
+                return;
+            }
+            if (target.kind === 'file' && authority !== 'observe') {
+                router.push(openFileViewer({ sessionId: props.id, path: target.path }));
+                return;
+            }
+            Modal.alert('Not in Files', `Files browses the repositories your agents have open, and ${target.path} is outside them.`);
+        }, (error: unknown) => Modal.alert('Could not open the path', humanError(error).message));
+    }, [props.id, paneCwd, filesPaneId, authority]);
     const linkActions = React.useMemo<LinkAction[]>(() => {
         const url = linkMenu?.url ?? '';
         const safe = safeTerminalLinkUrl(url);
+        // Path lookup is available to either Files-capable device authority.
+        const path = safe === null && !authorityLoading && authority !== null && isTerminalPath(url);
         return [
             ...(safe === null ? [] : [{ id: 'open', label: 'Open', icon: 'open-outline' as const, run: () => { void openExternalUrl(safe); } }]),
-            { id: 'copy', label: 'Copy', icon: 'copy-outline' as const, run: () => { void Clipboard.setStringAsync(url).then(() => showGestureHintRef.current('Link copied')); } },
+            ...(path ? [{ id: 'open', label: 'Open', icon: 'folder-open-outline' as const, run: () => openTerminalPath(url) }] : []),
+            { id: 'copy', label: 'Copy', icon: 'copy-outline' as const, run: () => { void Clipboard.setStringAsync(url).then(() => showGestureHintRef.current(safe === null ? 'Copied' : 'Link copied')); } },
             // Watching a pane has no prompt on screen, so inserting into one
             // would land the link in a draft nobody can see.
             ...(canControl ? [{ id: 'insert', label: 'Insert into the prompt', icon: 'return-down-forward-outline' as const, note: INSERT_ONLY_LABEL, run: () => insertDraftRef.current(url) }] : []),
         ];
-    }, [canControl, linkMenu]);
+    }, [authority, authorityLoading, canControl, linkMenu, openTerminalPath]);
     const compactLinkMenu = linkMenu !== null && !terminalLinkCardFits(terminalBox?.height, linkActions.length);
     const visibleMenu: SessionMenu | null = menu ?? (compactLinkMenu && linkMenu !== null ? {
         title: displayLink(linkMenu.url, 72),
