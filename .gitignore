@@ -4,6 +4,7 @@ dist/
 .expo/
 .pi-subagents/
 /.cache/muxr-dev/
+/.cache/pickerlab/
 
 # secrets / signing — never commit
 .env
