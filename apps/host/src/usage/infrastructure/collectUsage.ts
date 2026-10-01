@@ -319,10 +319,11 @@ function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
 /** Windows for one account's env: the same reader Usage uses for the main
  *  account, pointed at that sign-in's folder. In-process only; nothing is
  *  shown, stored under another account, or sent anywhere but the provider.
- *  `refresh: true` bypasses cache reads and writes for Plan Account selection;
- *  only derived room hints leave that path. Otherwise a fresh-enough stored
- *  reading answers, and a failed read falls back to the last good one,
- *  honestly aged by the caller. */
+ *  `refresh: true` isolates Plan Account selection from the standing cache;
+ *  Claude snapshots bypass its hint cache, while credential reads share the
+ *  standing reader's account backoff. Only derived room hints leave that path.
+ *  Otherwise a fresh-enough stored reading answers, and a failed read falls
+ *  back to the last good one, honestly aged by the caller. */
 export async function planAccountWindows(id: PlanId, env: NodeJS.ProcessEnv, { refresh = false }: { refresh?: boolean } = {}): Promise<UsageWindowVM[]> {
     if (id !== 'claude' && id !== 'codex') return [];
     const nowMs = nowDate(env).getTime();
