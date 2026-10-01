@@ -77,11 +77,13 @@ export function limitPlans(providers: readonly UsageConnectedProvider[]): LimitP
     }).sort((a, b) => a.provider.label.localeCompare(b.provider.label));
 }
 
-/** The limit that blocks first: the least left of all a plan's windows. A tie
- *  goes to the longer window, which keeps its plan blocked for longer. */
+/** The limit that blocks first: a window already refusing work, else the least
+ *  left of all a plan's windows. A tie goes to the longer window, which keeps its
+ *  plan blocked for longer. */
 export function bindingLimit(plan: LimitPlan): { name: string; cell: LimitCell } {
+    const rank = (cell: LimitCell) => cell.tone === 'danger' ? -1 : cell.left;
     let binding = { name: plan.figures[0]!.name, cell: plan.figures[0]!.cells[0]! };
-    for (const { name, cells } of plan.figures) if (cells[0]!.left <= binding.cell.left) binding = { name, cell: cells[0]! };
+    for (const { name, cells } of plan.figures) for (const cell of cells) if (rank(cell) <= rank(binding.cell)) binding = { name, cell };
     return binding;
 }
 

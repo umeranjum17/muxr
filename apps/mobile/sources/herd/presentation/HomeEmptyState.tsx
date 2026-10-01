@@ -4,7 +4,6 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/StyledText';
 import { Typography } from '@/constants/Typography';
-import { useSocketStatus } from '@/catalog/store';
 import { useDeviceAuthority } from '@/pairing';
 import { t } from '@/text';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
@@ -26,7 +25,7 @@ const styles = StyleSheet.create((theme) => ({
 export function HomeEmptyState() {
     const { theme } = useUnistyles();
     const { authority, loading } = useDeviceAuthority();
-    const canStart = useSocketStatus().status === 'connected' && !loading && authority === 'control';
+    const canStart = !loading && authority === 'control';
     return (
         <View style={styles.container}>
             <View style={styles.mark}>

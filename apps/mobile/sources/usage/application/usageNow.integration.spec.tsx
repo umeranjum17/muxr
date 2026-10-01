@@ -1056,21 +1056,25 @@ describe('the usage screen read path', () => {
         // Used once, the strip settles to its glance: mark, share and bar.
         TestRenderer.act(() => { cardButton().props.onPress(); });
         expect(localSettings.usageNamesSeen).toBe(true);
-        expect(chips().map(({ text }) => text)).toEqual([[['36%', '#fff']], [['60%', '#fff']], [['0%', 'tone:danger']]]);
+        expect(chips().map(({ text }: { text: unknown }) => text)).toEqual([[['36%', '#fff']], [['60%', '#fff']], [['0%', 'tone:danger']]]);
 
         // A low limit is a warning, not an alarm: red is for one that is out.
         // With the week back, the unnamed month binds, and its name is whole.
-        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, {
+        const week = (weekly: { used: number; pace: 'on pace' | 'limited' }, at: number) => TestRenderer.act(() => { rememberShown('', { status: 'figures', at, figures: withNow(undefined, {
             ...now,
             connected: now.connected!.map((provider) => provider.id === 'opencode'
-                ? { ...provider, windows: provider.windows.map((window) => window.label === 'Weekly' ? { ...window, used: 50, pace: 'on pace' as const } : window) }
+                ? { ...provider, windows: provider.windows.map((window) => window.label === 'Weekly' ? { ...window, ...weekly } : window) }
                 : provider),
         }) }); });
+        week({ used: 50, pace: 'on pace' }, Date.now() + 1);
         expect(chips()[2]).toEqual({ text: [['8%', 'tone:warning']], bar: 0.08 });
         TestRenderer.act(() => { cardButton().props.onLongPress(); });
         expect(chips()[2]!.text).toEqual([['OpenCode', '#fff'], ['8%', 'tone:warning'], ['Monthly', '#999']]);
         TestRenderer.act(() => { cardButton().props.onPress(); });
         expect(chips()[2]!.text).toEqual([['8%', 'tone:warning']]);
+        // A window the plan already refuses work on binds before a lower one that still serves.
+        week({ used: 70, pace: 'limited' }, Date.now() + 2);
+        expect(chips()[2]).toEqual({ text: [['30%', 'tone:danger']], bar: 0.3 });
     });
 
     it('shows connected limits even when the selected plan has no windows', async () => {

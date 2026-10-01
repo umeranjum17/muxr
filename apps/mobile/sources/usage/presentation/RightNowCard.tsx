@@ -102,8 +102,8 @@ export function RightNowCard() {
             ].filter((part) => part !== undefined).join(' · ')}
         </Text>;
     return <View>
-        <Strip onPress={() => { if (!namesSeen) setNamesSeen(true); if (namesHeld) setNamesHeld(false); else open(); }}
-            onLongPress={() => { if (!namesSeen) setNamesSeen(true); setNamesHeld(true); }}
+        <Strip onPress={() => { if (!namesSeen && plans !== undefined) setNamesSeen(true); if (namesHeld) setNamesHeld(false); else open(); }}
+            onLongPress={() => { if (!namesSeen && plans !== undefined) setNamesSeen(true); setNamesHeld(true); }}
             label={cardAccessibilityLabel(payload)} line={line} note={note} facts={quietLine(payload)}
             dot={limit === undefined || verdict === 'unknown' ? undefined : toneColor(theme, verdictTone(verdict))} withControl />
         {control}
