@@ -189,8 +189,8 @@ The work lands as one cohesive feature PR.
 - machine detail and pairing routes under `apps/mobile/sources/app/(app)/`
 - `apps/mobile/sources/state/hostedE2ee.ts`
 - `apps/mobile/sources/conversation/infrastructure/realtimeStream.ts`
-- `apps/mobile/sources/realtime/realtimeSessionState.ts`
-- `apps/mobile/sources/voice/realtimeSession.ts`
+- `apps/mobile/sources/conversation/application/realtimeSessionState.ts`
+- `apps/mobile/sources/conversation/application/realtimeSession.ts` — kit-backed phone client adapter; see [native voice transport](native-voice-transport.md)
 - the product-owned realtime voice integration under `apps/host/src/voice/`
 
 ## Revisions

@@ -3,7 +3,7 @@ title: Native voice transport
 slug: native-voice-transport
 status: tested
 created: 2026-08-18
-updated: 2026-08-28
+updated: 2026-10-01
 owner: umer
 links:
   - plugin-primitives
@@ -69,3 +69,4 @@ The kit's `webRtcPeer` uses `react-native-webrtc` on iOS too; only Android requi
 ## Revisions
 
 - 2026-08-28: Implement two provider-neutral transport kinds: existing host-relayed PCM and mobile-owned WebRTC signaling for Codex Voice, with host-only OAuth custody.
+- 2026-10-01: Move the phone WebRTC client, reconnect lifecycle, and speech queueing to `@byokit/realtime`; muxr retains audio ports and app control.
