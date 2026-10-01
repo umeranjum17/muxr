@@ -10,6 +10,7 @@
 import * as React from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Pressable,
     ScrollView,
     View,
@@ -114,6 +115,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     agentCard: {
         flexGrow: 1,
         flexBasis: '30%',
+        height: 136,
         alignItems: 'center',
         gap: 8,
         paddingVertical: 14,
@@ -126,7 +128,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     agentName: {
         color: theme.colors.text,
         fontSize: 13,
+        lineHeight: 16,
         fontWeight: '600',
+        textAlign: 'center',
     },
     agentAvailability: {
         color: theme.colors.textSecondary,
@@ -394,14 +398,21 @@ export default function NewAgentScreen() {
                             const isSelected = selected.has(option.kind);
                             const available = option.availability === 'installed';
                             const availability = agentReadinessLabel(option);
+                            const detail = available ? option.signInHint : availability;
                             return (
                                 <Pressable
                                     key={option.kind}
-                                    onPress={() => toggleKind(option)}
-                                    disabled={!available}
+                                    onPress={() => {
+                                        if (available) {
+                                            toggleKind(option);
+                                        } else {
+                                            Alert.alert(agentName(option.kind), detail);
+                                        }
+                                    }}
                                     accessibilityRole="button"
                                     accessibilityLabel={`${agentName(option.kind)}, ${availability}`}
-                                    accessibilityState={{ disabled: !available, selected: isSelected }}
+                                    accessibilityHint={detail}
+                                    accessibilityState={{ selected: isSelected }}
                                     style={[
                                         styles.agentCard,
                                         !available && { opacity: 0.45 },
@@ -413,12 +424,12 @@ export default function NewAgentScreen() {
                                     ]}
                                 >
                                     <AgentGlyph name={option.kind} size={40} selected={isSelected} dim={!available} />
-                                    <Text numberOfLines={1} style={styles.agentName}>
+                                    <Text style={styles.agentName}>
                                         {agentName(option.kind)}
                                     </Text>
                                     {availability !== undefined && (
                                         <Text style={styles.agentAvailability}>
-                                            {[availability, option.availability === 'installed' ? option.signInHint : undefined].filter(Boolean).join(' · ')}
+                                            {available ? availability : option.kind === 'pi' ? availability : 'Not installed'}
                                         </Text>
                                     )}
                                 </Pressable>
