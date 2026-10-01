@@ -210,6 +210,9 @@ cpSync(join(root, 'apps', 'host', 'dist', 'voice'), join(out, 'voice'), {
     recursive: true,
     filter: (path) => !path.endsWith('.spec.mjs'),
 });
+const voiceStream = join(out, 'voice', 'stream.mjs');
+const voiceStreamSource = readFileSync(voiceStream, 'utf8');
+writeFileSync(voiceStream, voiceStreamSource.replace("from '@trymuxr/contract'", "from '../contract.mjs'"));
 cpSync(join(root, 'resources'), join(out, 'resources'), { recursive: true });
 // The retention rules live in one compiled host module so `muxr artifacts` and
 // the host's daily sweep cannot drift apart. It imports only node builtins,

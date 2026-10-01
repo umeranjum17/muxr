@@ -33,4 +33,6 @@ PCM providers use bounded audio/state/transcript/control frames over the encrypt
 
 The `voice.session` capability key is gone; `voice.stream` is a product request gated by the same device authority as every other mutation.
 
+For Codex Voice, requests routed to the slower planner send a `thinking` state that plays a short non-verbal acknowledgement on the phone. Direct prompt requests do not play the cue, and the provider's spoken acknowledgement filler stays disabled.
+
 Local Whisper dictation is separate, on-device, and does not require a realtime provider.

@@ -7,6 +7,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { describe, expect, it } from 'vitest';
+import { REALTIME_PLANNING_DETAIL } from '@trymuxr/contract';
 import { RealtimeCodingCoordinator } from '../agent/infrastructure/realtimeCoordinator.ts';
 
 const streamEntry = fileURLToPath(new URL('./stream.mjs', import.meta.url));
@@ -96,6 +97,7 @@ describe('voice stream on @byokit/realtime', () => {
         const channel = (type) => voice.frames.filter((frame) => frame.type === 'realtime.webrtc.data').map((frame) => JSON.parse(frame.data)).filter((event) => event.type === type);
         const appended = (id) => channel('delegation.context.append').find((event) => event.delegation_item_id === id);
         const delegate = (id, text) => voice.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: { type: 'delegation', target: 'client', id, content: [{ type: 'input_text', text }] } }) });
+        const planningCues = () => voice.frames.filter((frame) => frame.type === 'realtime.state' && frame.detail === REALTIME_PLANNING_DETAIL).length;
         const turn = (role, transcript) => voice.send({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role, transcript } }) });
         try {
             voice.send(lab.open);
@@ -120,12 +122,16 @@ describe('voice stream on @byokit/realtime', () => {
             await waitFor(() => appended('structured'), 'structured request did not return');
             expect(lab.prompts.at(-1)).toEqual({ sessionId: 'pp_summary_private', text: 'Check the logs.\n\ncame from a real-time agent' });
             expect(planning).toHaveLength(0);
+            // Quick requests get no "working on it" tone.
+            expect(planningCues()).toBe(0);
 
             // A further step keeps the planner.
             delegate('planned-steps', 'Ask Jane to rebase onto main, then tell me when it is done.');
             await waitFor(() => appended('planned-steps'), 'planned request did not return');
             expect(planning.length).toBeGreaterThan(0);
             expect(planning[0].parallel_tool_calls).toBe(false);
+            // A planner request tells the phone to play its tone, once.
+            expect(planningCues()).toBe(1);
             expect(lab.prompts.at(-1)).toEqual({ sessionId: 'pp_review_private', text: 'Explain the review delay.\n\ncame from a real-time agent' });
 
             // The agent-stop report reaches the provider as speakable context.
