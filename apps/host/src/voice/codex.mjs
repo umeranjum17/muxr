@@ -56,9 +56,10 @@ const FURTHER_STEP = /\b(?:then|after|afterwards|also|and (?:ask|tell|ping|messa
 /**
  * The `delegate` handler: the kit runs structured requests on `actions`, the
  * catalogued tools' bridge; prose takes the direct prompt path, else the bounded
- * planner. `open` is the host's realtime.open.
+ * planner. `open` is the host's realtime.open; `onPlanning` fires as a request
+ * goes to the planner, the only path slow enough to need a cue.
  */
-export function codexDelegate({ open, actions }) {
+export function codexDelegate({ open, actions, onPlanning = () => undefined }) {
     const knownAgents = new Set((Array.isArray(open?.publicContext?.sessions) ? open.publicContext.sessions : [])
         .map((session) => String(session?.agentName ?? '').toLowerCase()).filter(Boolean));
     const coding = createCodexDelegation({ getCredential: codexCredential, runTool: actions.run });
@@ -78,6 +79,7 @@ export function codexDelegate({ open, actions }) {
                     // so an uncertain prompt is never sent twice.
                     if (!/^(?:I could not find an agent|More than one agent)/.test(receipt)) return receipt;
                 }
+                onPlanning();
                 return coding.run(request, id, signal);
             },
         }),
