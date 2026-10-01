@@ -215,7 +215,8 @@ style.
 
 Module first, layers second. Host and relay live under
 `<module>/{domain,application,infrastructure}` — only layers that
-contain real code. Composition stays at `apps/host/src/{main,host}.ts` and
+contain real code. Host composition is mapped in
+[apps/host/src/README.md](apps/host/src/README.md); relay composition stays at
 `apps/relay/src/{main,relay,httpHandlers}.ts`.
 
 - **Domain** is pure TypeScript. Rich entities and value objects own invariants,
