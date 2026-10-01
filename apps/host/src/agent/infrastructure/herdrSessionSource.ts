@@ -2173,7 +2173,10 @@ export async function createHerdrSessionSource(
             throw promptNotSent(error);
         }
         const generation = sessionGenerationKey(session);
-        await client.kit.prompt({ paneId: session.paneId }, text);
+        const receipt = await client.kit.prompt({ paneId: session.paneId }, text);
+        // Herdr names the conversation the prompt reached; a match needs no confirming read.
+        const reached = parseHerdrAgentSession(receipt.agentSession);
+        if (reached !== undefined && `${receipt.paneId}\u0000${herdrAgentSessionKey(reached)}` === generation) return;
         try {
             await refreshSnapshotFresh();
             const current = currentSession(sessionId);

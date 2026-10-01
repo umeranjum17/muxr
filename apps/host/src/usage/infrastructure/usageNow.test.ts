@@ -144,7 +144,6 @@ it('keeps every plan on the card through failed reads and paints the last good r
     expect(plans(recovered)).toEqual(['claude', 'zai']);
     const migrated = JSON.parse(readFileSync(plansFile, 'utf8')) as typeof saved;
     expect(Object.keys(migrated.plans.claude!)).toEqual(Object.keys(saved.plans.claude!));
-    expect(Object.keys(migrated.plans.zai!)).toEqual(Object.keys(saved.plans.zai!));
     expect(migrated.plans.claude![Object.keys(saved.plans.claude!)[0]!]!.raw).toEqual(CLAUDE);
 
     // A restarted host whose providers are slow paints the reading on disk
@@ -282,7 +281,7 @@ it('answers the card and every Usage tab from one collection, and never lends a 
     logout.path = authFile;
     const selected = sourcesFor(env);
     expect(logout.reads).toBe(1);
-    expect(selected.opencode).toEqual({ provider: 'opencode', key: 'fixture-go-key' });
+    expect(selected.opencode).toEqual({ provider: 'opencode', key: 'fixture-go-key', accountId: 'fixture-go-key' });
     expect(planReader(env).account(selected.opencode!)).toBeTypeOf('string');
     expect(sourcesFor(env).opencode).toBeUndefined();
     logout.path = '';

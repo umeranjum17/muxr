@@ -7,6 +7,8 @@ import type { PlanId } from '../domain/activity.js';
 import { piAgentDir } from './tokenLedger.js';
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+/** The kit refuses a whole source over one control character or oversized value. */
+const sourceText = (value: string): boolean => value.length <= 16 * 1024 && !/[\0\r\n]/.test(value);
 function readJson(path: string, maxBytes: number): { value: unknown; modified: number } | undefined {
     try {
         const stat = statSync(path);
@@ -49,7 +51,7 @@ function zaiToken(env: NodeJS.ProcessEnv): string | undefined {
     const stored = readJson(join(piAgentDir(env), 'auth.json'), 64 * 1024)?.value;
     const auth = isRecord(stored) && isRecord(stored.zai) ? stored.zai : undefined;
     const token = auth?.type === 'api_key' && typeof auth.key === 'string' ? auth.key.trim() : '';
-    if (token === '' || token.length > 16 * 1024 || token.includes('\0')) return undefined;
+    if (token === '' || !sourceText(token)) return undefined;
     return token;
 }
 
@@ -66,9 +68,8 @@ export interface StoredPlanReading { at: number; raw: unknown }
  *  failure never costs the other its standing. */
 export type PlanReadings = Partial<Record<PlanId, Record<string, StoredPlanReading>>>;
 
-/** Normalize legacy account/at/raw entries before the kit first opens the
- *  shared file. Claude also uses this reader to preserve kit-owned entries
- *  when saving its own readings; the kit owns the other providers' lookups. */
+/** muxr's own Claude readings; the kit keeps the other plans in its own
+ *  file. Legacy account/at/raw entries are normalized on the way in. */
 export function readPlans(env: NodeJS.ProcessEnv, migrateLegacy = false): PlanReadings {
     const saved = readJson(join(usageStateDir(env), 'plans-v1.json'), 256 * 1024)?.value;
     if (!isRecord(saved) || !isRecord(saved.plans)) return {};
@@ -128,25 +129,28 @@ export function planReader(env: NodeJS.ProcessEnv): Usage {
     return reader;
 }
 
-export function sourcesFor(env: NodeJS.ProcessEnv): Partial<Record<Source['provider'], Source>> {
-    const sources: Partial<Record<Source['provider'], Source>> = {};
+export function sourcesFor(env: NodeJS.ProcessEnv): Partial<Record<PlanId, Source>> {
+    const sources: Partial<Record<PlanId, Source>> = {};
     for (const directory of (env.PATH ?? '').split(delimiter)) {
         const bin = resolve(directory, 'codex');
         try {
             accessSync(bin, constants.X_OK);
             if (!statSync(bin).isFile()) continue;
-            const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+            const childEnv = Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined
+                && entry[0] !== '' && !entry[0].includes('=') && sourceText(entry[0]) && sourceText(entry[1])));
             const home = env.CODEX_HOME || join(env.HOME?.trim() || homedir(), '.codex');
             sources.codex = { provider: 'codex', bin, home: isAbsolute(home) ? home : resolve(home), env: childEnv };
             break;
         } catch { /* not in this PATH entry */ }
     }
     const { auth } = goAuthSelection(env);
-    if (auth?.type === 'api' && typeof auth.key === 'string' && auth.key.trim() !== '' && auth.key.length <= 16 * 1024 && !auth.key.includes('\0')) {
-        sources.opencode = { provider: 'opencode', key: auth.key };
+    if (auth?.type === 'api' && typeof auth.key === 'string' && auth.key.trim() !== '' && sourceText(auth.key)) {
+        // An API key is its own account: the kit keeps only its fingerprint, so a
+        // reading persists and stays with the key it was read with.
+        sources.opencode = { provider: 'opencode', key: auth.key, accountId: auth.key };
     }
     const zai = zaiToken(env);
-    if (zai !== undefined) sources.zai = { provider: 'zai', key: zai };
+    if (zai !== undefined) sources.zai = { provider: 'zai', key: zai, accountId: zai };
     return sources;
 }
 

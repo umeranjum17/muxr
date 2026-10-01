@@ -59,13 +59,13 @@ function fakeHerdr(dir: string) {
                     };
                 }
                 if (method === 'agent.prompt') {
-                    result = { type: 'agent_prompted', agent: { ...codex,
-                        terminal_id: 'codex-terminal', workspace_id: 'w1', tab_id: 'w1:t1',
-                        focused: false, revision: 1 } };
                     if (replaceDuringPrompt) {
                         replaceDuringPrompt = false;
                         codex.agent_session = { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'replacement' };
                     }
+                    result = { type: 'agent_prompted', agent: { ...codex,
+                        terminal_id: 'codex-terminal', workspace_id: 'w1', tab_id: 'w1:t1',
+                        focused: false, revision: 1 } };
                 }
                 socket.end(`${JSON.stringify({ id, result })}\n`);
             }
@@ -102,17 +102,17 @@ describe('Codex without a Herdr agent_session', () => {
             await source.refreshHerdr();
             expect((await pane('w1:p2')).sessionId).toBe(codex.sessionId);
 
-            // Opening the live roster has already resolved the named agent. The
-            // prompt goes through the real source + kit with no duplicate reads.
+            // Opening the live roster has already resolved the named agent, and
+            // Herdr's receipt names the conversation it reached: no further read.
             herdr.calls.length = 0;
             await source.prompt({ sessionId: codex.sessionId!, text: 'Check the build.' });
-            expect(herdr.calls.filter((call) => call.method === 'session.snapshot')).toHaveLength(1);
+            expect(herdr.calls.filter((call) => call.method === 'session.snapshot')).toHaveLength(0);
             expect(herdr.calls.filter((call) => call.method === 'agent.prompt')).toEqual([
                 { method: 'agent.prompt', target: 'w1:p2' },
             ]);
 
-            // A replacement after Herdr accepts the prompt must be visible to
-            // the fresh confirmation snapshot even though no event was sent.
+            // A conversation replaced before the prompt lands, with no event yet:
+            // the receipt names the replacement, so the fresh confirmation runs.
             herdr.calls.length = 0;
             herdr.replaceDuringPrompt();
             await expect(source.prompt({ sessionId: codex.sessionId!, text: 'Continue.' }))
