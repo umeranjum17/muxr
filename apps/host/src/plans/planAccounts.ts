@@ -1,5 +1,6 @@
 /** Compose the published managed-folder kit. muxr supplies paths, binaries and Herdr hooks. */
 import { cliAccounts, type CliProvider, type CliAccount } from '@byokit/accounts/cli';
+import { launchEnv } from '@byokit/accounts/isolate';
 import { agentProbePath, resolveAgentBinary } from '@byokit/herdr';
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -19,16 +20,18 @@ export function planAccounts(env: NodeJS.ProcessEnv, prepare?: PlanPreparation) 
         if (resolved.path !== undefined) bins[provider] = resolve(resolved.path);
     }
     mkdirSync(muxrHome(env), { recursive: true, mode: 0o700 });
+    const childEnv = launchEnv({ base: {
+        HOME: home,
+        PATH: path.join(delimiter),
+        ...(env.TMPDIR === undefined ? {} : { TMPDIR: env.TMPDIR }),
+        ...(env.USER === undefined ? {} : { USER: env.USER }),
+        ...(env.LOGNAME === undefined ? {} : { LOGNAME: env.LOGNAME }),
+    } }).env;
     return cliAccounts({
         stateDir: plansDir(env),
         bins,
-        env: {
-            HOME: home,
-            PATH: path.join(delimiter),
-            ...(env.TMPDIR === undefined ? {} : { TMPDIR: env.TMPDIR }),
-            ...(env.USER === undefined ? {} : { USER: env.USER }),
-            ...(env.LOGNAME === undefined ? {} : { LOGNAME: env.LOGNAME }),
-        },
+        // The kit's CLI children receive this copy; isolate no longer changes the parent process.
+        env: { ...childEnv, HOME: home, PATH: path.join(delimiter) },
         // The kit links history inside its own folders; it never creates or writes these targets.
         historyFrom: {
             claude: join(defaultPlanFolder('claude', env), 'projects'),
@@ -86,4 +89,3 @@ export function resolvePlanRecord(env: NodeJS.ProcessEnv, accountId: string): Pl
     }
     return record;
 }
-
