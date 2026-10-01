@@ -128,7 +128,7 @@ Keep this patch when restoring dependencies or regenerating the native prebuild.
 | Requirement | Version used |
 |---|---|
 | Node.js | 22+ |
-| Yarn | 1.x |
+| Yarn | Root [package.json](../package.json) `packageManager` pin |
 | JDK | 21 |
 | Android SDK | platforms/build-tools 35–36 |
 | Android NDK | 27.1.12297006 |

@@ -13,7 +13,8 @@ yarn install --frozen-lockfile
 yarn build
 ```
 
-You need Node ≥ 22, yarn 1.x, and — for anything touching the live backend —
+You need Node ≥ 22, the Yarn version declared by `packageManager` in
+[package.json](package.json), and — for anything touching the live backend —
 [herdr](https://herdr.dev) running (`herdr server`). Without herdr, the fake
 host (`yarn host`) drives a scripted agent so mobile work needs no real agents.
 
@@ -24,6 +25,11 @@ The unsupported local relay fixture lives in
 [docs/NATIVE-BUILD.md](docs/NATIVE-BUILD.md).
 
 ## Verify before you push
+
+For managed validation, [.no-mistakes.yaml](.no-mistakes.yaml) owns the
+preparation command, focused consumer baseline and its qualification limits.
+Run its `commands.prepare` before `commands.test`; the fixture baseline does
+not replace the pull-request suite below or live backend validation.
 
 The automatic pull-request lane, and the full suite behind it:
 
