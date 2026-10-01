@@ -1,6 +1,7 @@
 {
     "name": "muxr",
     "private": true,
+    "packageManager": "yarn@1.22.22",
     "license": "Apache-2.0",
     "type": "module",
     "workspaces": [

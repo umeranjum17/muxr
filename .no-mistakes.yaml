@@ -1,0 +1,36 @@
+commands:
+  prepare: node scripts/diagnostics/application/prepareManagedValidation.mjs
+  test: yarn vitest run apps/mobile/sources/catalog/application/sessionSync.integration.spec.ts -t 'public-kit Pi consumer reconnect baseline'
+test:
+  instructions: |
+    The configured baseline runs a real public-kit encrypted link and the actual
+    mobile LinkFirstClient, catalog sync/store, activity acknowledgements and
+    TerminalRoute against explicit protocol fixtures. Native storage and the
+    terminal view are replaced at their platform boundaries. It does not prove
+    that the host retains/replays offline failures, that Pi launches, or that a
+    physical phone renders correctly. Preparation is required before this flow:
+    Yarn 1.22.22 frozen-lockfile install with scripts, postinstall patch-package,
+    pinned iOS synchronization on Darwin, native patch verification, and the
+    public workspace export build. Do not substitute test.prepare, true, skipped
+    scripts/patches, injected dependencies or shared-cache symlinks.
+
+    Preserve the original four live scenarios for the separately owned Pi fix:
+    1. Reconnect after an accepted Pi launch fails offline and see the plain
+       failure on its original retired route, before tree/catalog reconciliation.
+    2. Reconnect repeatedly without recreating consumed unread activity for
+       retired failed launches; observe actual mobile activity/acknowledgement state.
+    3. Close one failed pane and retain only the other pane's failure explanation.
+    4. Recover a failed pane or launch successfully and reconnect without a stale
+       failure; observe actual mobile error and route state.
+
+    Use published version-pinned BYOKit/desklink packages and the existing product
+    producer and mobile consumer. A DeviceLink receipt alone is not consumer proof.
+    Keep private fixture keys, state, logs and dependencies ignored/outside commits.
+    Any live Herdr run requires the allocated lab slot and fm-herdr-lab with an
+    explicit named non-default session on every call, short private HOME/state,
+    and verified default-session tripwire cleanup. Own the relay at port 0 and use
+    its returned port. Never use the daily host/service, default Herdr session,
+    relay 8792, credentials, paid providers or a phone/emulator without separate
+    authority. Report unrun/failed scenarios honestly; passing the baseline does
+    not qualify the original Pi/device matrix. Do not operate the parked Pi run
+    or change its product candidate as part of this prerequisite configuration.
