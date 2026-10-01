@@ -1,6 +1,6 @@
 import { realtimePcm16ByteLength, type RealtimeHostFrame } from '@trymuxr/contract';
 import { reportEnergy, resetEnergy } from './audioEnergy';
-import { refreshPluginStreamSnapshot, type PluginStream } from '@/plugins/openPluginStream';
+import { refreshRealtimeStreamSnapshot, type RealtimeStream } from '../infrastructure/realtimeStream';
 import { captureVoiceStreamSnapshot, openVoiceStream } from './openVoiceStream';
 import { acquireRealtimeCapture, type RealtimeCaptureLease } from './vadStandby';
 import { createRealtimePlayback } from '@/playback';
@@ -19,8 +19,8 @@ export interface RealtimeHandle {
 
 const MAX_MIC_BYTES = 96_000; // Two seconds of mono 24 kHz PCM16.
 const RETRY_MS = 20;
-type StablePluginStream = Omit<PluginStream, 'send'> & {
-    send: (frame: Parameters<PluginStream['send']>[0]) => boolean;
+type StableRealtimeStream = Omit<RealtimeStream, 'send'> & {
+    send: (frame: Parameters<RealtimeStream['send']>[0]) => boolean;
     start: () => void;
 };
 
@@ -34,8 +34,8 @@ export function startRealtimeSession(options: {
     const { target, onStatus, onTurn, onActivity } = options;
     const playback = createRealtimePlayback();
     let streamSnapshot = captureVoiceStreamSnapshot(target.machineId);
-    let stream: StablePluginStream | undefined;
-    let readyStream: StablePluginStream | undefined;
+    let stream: StableRealtimeStream | undefined;
+    let readyStream: StableRealtimeStream | undefined;
     let stopped = false;
     let muted = false;
     let microphoneStarted = false;
@@ -182,7 +182,7 @@ export function startRealtimeSession(options: {
         })();
         return captureStart;
     };
-    const startWebRtc = (label: string, next: StablePluginStream): Promise<void> => {
+    const startWebRtc = (label: string, next: StableRealtimeStream): Promise<void> => {
         if (webRtcStart !== undefined) return webRtcStart;
         webRtcStart = startRealtimeWebRtc(label, {
             onOffer: (sdp) => {
@@ -227,12 +227,12 @@ export function startRealtimeSession(options: {
         if (connectFlight !== undefined) return connectFlight;
         connectFlight = (async () => {
             onStatus('connecting', reconnects === 0 ? undefined : 'Reconnecting voice stream');
-            const snapshot = await refreshPluginStreamSnapshot(await streamSnapshot);
+            const snapshot = await refreshRealtimeStreamSnapshot(await streamSnapshot);
             streamSnapshot = Promise.resolve(snapshot);
             const next = await openVoiceStream({
                 sessionId: target.sessionId,
                 snapshot,
-            }) as StablePluginStream;
+            }) as StableRealtimeStream;
             if (stopped) { next.close(); return; }
             let readySeen = false;
             const handleRealtimeFrame = (frame: RealtimeHostFrame): void => {

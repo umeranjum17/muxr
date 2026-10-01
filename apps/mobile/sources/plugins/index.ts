@@ -23,4 +23,3 @@ export * from './domain/screenModel';
 export * from './domain/screenTreeModel';
 export * from './domain/slotTypes';
 export * from './domain/treeModel';
-export * from './openPluginStream';

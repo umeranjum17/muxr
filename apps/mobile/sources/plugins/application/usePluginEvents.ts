@@ -194,7 +194,7 @@ async function run(entry: TriggerEntry, event: LifecycleEvent, from: string): Pr
             return;
         }
         // Unregistered name: an older app meeting a newer manifest. Skip it.
-        await capabilityFor(trigger.action.name, entry.manifest)?.(input);
+        await capabilityFor(trigger.action.name)?.(input);
         return;
     }
     if ('product' in entry) return;

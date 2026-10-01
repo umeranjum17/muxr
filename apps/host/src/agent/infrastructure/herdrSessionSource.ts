@@ -24,7 +24,6 @@ import type {
     HerdrTreeWorkspace,
     LayoutSnapshot,
     PromptAttachment,
-    RealtimePluginPublicContext,
     SessionEventBody,
     SessionInfo,
     SessionSnapshot,
@@ -63,7 +62,7 @@ import {
 } from './agentRouteStore.js';
 import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin, type PluginBackendCallTarget } from './pluginCatalog.js';
 import { PluginApprovals } from './pluginApprovals.js';
-import { PluginStreamManager } from './pluginStreamManager.js';
+import { VoiceStreamManager } from './voiceStreamManager.js';
 import {
     RealtimeCodingCoordinator,
     type RealtimeAgentCatalog,
@@ -383,9 +382,9 @@ export interface CreateHerdrSessionSourceOptions {
     hostHttpPort?: number;
     /** Machine token (MUXR_RELAY_TOKEN); authorizes /v1/push/notify. */
     token?: string;
-    /** Strict hosted keys for provider-neutral plugin stream channels. */
+    /** Strict hosted keys for realtime voice channels. */
     hostedE2ee?: HostedMachineKeys;
-    /** Issues one revocable capability only to an approved voice.session child. */
+    /** Issues one revocable capability to the product voice adapter. */
     peerBroker?: PeerBroker;
     /** Private screens: one per agent pane this host launches. */
     screens?: PaneScreens;
@@ -680,7 +679,7 @@ export async function createHerdrSessionSource(
     await pluginApprovals.load();
     const pluginInvocations = new Map<string, Promise<void>>();
     let codingCoordinator: RealtimeCodingCoordinator | undefined;
-    let pluginStreams: PluginStreamManager | undefined;
+    let voiceStreams: VoiceStreamManager | undefined;
     /** Realtime voice is product code, so its own fence replaces plugin approval. */
     const voiceStreamAborts = new Map<string, AbortController>();
     if (options.relayUrl !== undefined && options.machineId !== undefined) {
@@ -700,7 +699,7 @@ export async function createHerdrSessionSource(
             focus: focusSession,
         }, options.onRealtimePromptDiagnostic, options.onRealtimeCoordinationDiagnostic);
         await codingCoordinator.start();
-        pluginStreams = new PluginStreamManager({
+        voiceStreams = new VoiceStreamManager({
             ...(options.peerBroker === undefined ? {} : { peerBroker: options.peerBroker }),
             codingCoordinator,
         });
@@ -1286,7 +1285,7 @@ export async function createHerdrSessionSource(
         const watch = watches.get(sessionId);
         if (watch !== undefined) clearTimeout(watch);
         watches.delete(sessionId);
-        pluginStreams?.closeSession(sessionId);
+        voiceStreams?.closeSession(sessionId);
         options.lifecycle?.remove(sessionId);
         clearAttention(sessionId);
         lastStateSignature.delete(sessionId);
@@ -2233,10 +2232,6 @@ export async function createHerdrSessionSource(
                 { digests: nextDigests, enabled: nextEnabled },
             );
             if (frame === undefined) return;
-            // A changed/disabled manifest must not leave an old provider process live.
-            for (const abort of voiceStreamAborts.values()) abort.abort();
-            voiceStreamAborts.clear();
-            pluginStreams?.closeAll();
             for (const listener of machineListeners) listener(frame);
         });
 
@@ -2664,61 +2659,6 @@ export async function createHerdrSessionSource(
             return invocation;
         },
 
-        async pluginStream({ deviceId, pluginId, manifestHash, contributionId, channel, sessionId, transport }): Promise<null> {
-            await refreshPlugins();
-            if (!pluginApprovals.has(deviceId, pluginId)) throw new Error('plugin is not approved for this device');
-            if (pluginStreams === undefined) throw new Error('plugin stream transport is unavailable');
-            if (typeof channel !== 'string' || !/^rs_[A-Za-z0-9_-]{8,80}$/.test(channel)) throw new Error('invalid plugin stream channel');
-            const target = catalog.streamTarget(pluginId, manifestHash, contributionId);
-            if (sessionId !== undefined) await resolvePane(sessionId);
-            const stateDir = join(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'plugin-state', pluginId);
-            const approval = await pluginApprovals.track(deviceId, pluginId, () => pluginStreams.detach(channel, 'plugin revoked'));
-            try {
-                await refreshPlugins();
-                const record = sessionId === undefined ? undefined : await resolvePane(sessionId);
-                const latestTarget = catalog.streamTarget(pluginId, manifestHash, contributionId);
-                if (latestTarget.pluginRoot !== target.pluginRoot || latestTarget.entry !== target.entry) throw agentUnavailable();
-                const voiceSession = catalog.streamClaimsCapability(pluginId, manifestHash, contributionId, 'voice.session');
-                let publicContext: RealtimePluginPublicContext | undefined;
-                if (voiceSession) {
-                    const agentCatalog = await realtimeAgentCatalog();
-                    // Startup context is explicitly a fresh snapshot. A
-                    // failed refresh leaves the app's cached tree useful, but
-                    // Realtime must call list_agents rather than treating it as
-                    // a live inventory.
-                    if (agentCatalog.freshness === 'fresh') {
-                        publicContext = realtimePluginPublicContext(agentCatalog.agents);
-                    } else {
-                        publicContext = realtimePluginPublicContext([]);
-                    }
-                }
-                await pluginStreams.attach({
-                    target: {
-                        pluginId,
-                        pluginRoot: target.pluginRoot,
-                        entry: target.entry,
-                        ...(voiceSession ? { peerBroker: true, codingCoordinator: true } : {}),
-                    },
-                    channel,
-                    stateDir,
-                    ...(record === undefined ? {} : {
-                        sessionId: record.sessionId,
-                        paneId: record.paneId,
-                        cwd: cwdForSession(record.sessionId) ?? '',
-                    }),
-                    ...(publicContext === undefined ? {} : { publicContext }),
-                    deviceId,
-                    transport,
-                    signal: approval.signal,
-                    onClosed: approval.release,
-                });
-                return null;
-            } catch (error) {
-                approval.release();
-                throw error;
-            }
-        },
-
         pluginRpcMode({ pluginId, manifestHash, contributionId }: { pluginId: string; manifestHash: string; contributionId: string }): 'read' | 'write' | undefined {
             // Browser access is package-owned and fail-closed: third-party code
             // cannot make itself browser-callable by self-declaring read mode.
@@ -2729,14 +2669,13 @@ export async function createHerdrSessionSource(
         },
 
         /**
-         * Realtime voice is product code. It reuses the plugin stream transport
-         * and the coordinator capability, but it resolves its own adapter
-         * runtime instead of a catalog entry, and it needs no plugin approval:
+         * Realtime voice resolves its own adapter runtime and coordinator
+         * capability without a catalog entry or plugin approval:
          * a paired control device is the only gate, exactly like every other
          * product mutation.
          */
         async voiceStream({ deviceId, channel, sessionId, transport }): Promise<null> {
-            if (pluginStreams === undefined) throw new Error('plugin stream transport is unavailable');
+            if (voiceStreams === undefined) throw new Error('realtime voice transport is unavailable');
             if (typeof channel !== 'string' || !/^rs_[A-Za-z0-9_-]{8,80}$/.test(channel)) throw new Error('invalid realtime voice channel');
             if (voiceStreamAborts.has(channel)) throw new Error('realtime voice channel is already attached');
             const record = sessionId === undefined ? undefined : await resolvePane(sessionId);
@@ -2744,8 +2683,8 @@ export async function createHerdrSessionSource(
             const abort = new AbortController();
             voiceStreamAborts.set(channel, abort);
             try {
-                await pluginStreams.attach({
-                    target: { pluginId: VOICE_STREAM_ID, pluginRoot: voiceRuntimeRoot(), entry: 'stream.mjs', peerBroker: true, codingCoordinator: true },
+                await voiceStreams.attach({
+                    target: { providerId: VOICE_STREAM_ID, runtimeRoot: voiceRuntimeRoot(), entry: 'stream.mjs' },
                     channel,
                     stateDir: join(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'voice'),
                     ...(record === undefined ? {} : {
@@ -3672,7 +3611,7 @@ export async function createHerdrSessionSource(
             // without this a script that only watched never exits.
             for (const guard of watches.values()) clearTimeout(guard);
             watches.clear();
-            await settle(() => pluginStreams?.closeAll());
+            await settle(() => voiceStreams?.closeAll());
             await settle(() => codingCoordinator?.close());
             await settle(() => stopArtifactRetention());
             await settle(() => artifacts.dispose());

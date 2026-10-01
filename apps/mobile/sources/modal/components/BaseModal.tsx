@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     View,
     Modal,
@@ -38,6 +38,25 @@ export function BaseModal({
     align = 'center'
 }: BaseModalProps) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
+    const [webViewport, setWebViewport] = useState<{ top: number; height: number }>();
+
+    useEffect(() => {
+        if (Platform.OS !== 'web' || !visible) return;
+        const viewport = window.visualViewport;
+        if (!viewport) return;
+        // Web modals live outside the app root. Safari leaves their layout
+        // viewport tall when the keyboard covers the bottom of the screen.
+        const update = () => setWebViewport(viewport.scale === 1
+            ? { top: viewport.offsetTop, height: viewport.height }
+            : undefined);
+        update();
+        viewport.addEventListener('resize', update);
+        viewport.addEventListener('scroll', update);
+        return () => {
+            viewport.removeEventListener('resize', update);
+            viewport.removeEventListener('scroll', update);
+        };
+    }, [visible]);
 
     useEffect(() => {
         if (visible) {
@@ -69,7 +88,12 @@ export function BaseModal({
             onRequestClose={onClose}
         >
             <KeyboardAvoidingView
-                style={[styles.container, align === 'bottom' && styles.containerBottom]}
+                style={[
+                    styles.container,
+                    align === 'bottom' && styles.containerBottom,
+                    webViewport && { position: 'absolute', left: 0, right: 0, ...webViewport },
+                ]}
+                enabled={Platform.OS !== 'web'}
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 {...webEventHandlers}
             >

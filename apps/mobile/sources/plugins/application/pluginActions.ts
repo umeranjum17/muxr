@@ -45,7 +45,7 @@ export async function dispatchPluginAction(
         return;
     }
     if (result.kind === 'capability') {
-        return capabilityFor(result.name, context.manifest)!({ sessionId: result.sessionId, status: '', from: '' });
+        return capabilityFor(result.name)!({ sessionId: result.sessionId, status: '', from: '' });
     }
     if (result.kind === 'secure-prompt') {
         const secret = (await Modal.prompt(result.heading, result.body, {

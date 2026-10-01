@@ -417,11 +417,6 @@ export interface RequestMap extends PeerRequestMap {
         params: { pluginId: string; manifestHash: string; contributionId: string; input?: unknown; idempotencyKey?: string };
         result: unknown;
     };
-    /** Attach one approved manifest-declared plugin stream to a relay channel. */
-    'plugin.stream': {
-        params: { pluginId: string; manifestHash: string; contributionId: string; channel: string; sessionId?: string };
-        result: null;
-    };
     /**
      * Full herdr CLI for trusted clients such as the realtime voice agent.
      * Arguments go straight to execFile (never a shell), so this reaches every
@@ -1005,7 +1000,6 @@ const E2EE_REQUEST_TYPES = new Set([
     'plugin.approve',
     'plugin.invoke',
     'plugin.call',
-    'plugin.stream',
     'herdr.cli',
     'host.update',
 ]);
