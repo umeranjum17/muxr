@@ -365,6 +365,8 @@ export const en = {
         runtimeOffline: ({ name }: { name: string }) => `herdr isn't answering on ${name}`,
         runtimeStale: 'sessions may be stale',
         liveEmpty: 'No live agents · start one below',
+        emptyStart: 'Start an agent and its space opens here',
+        emptyWatch: 'Spaces opened on this computer show up here',
     },
 
     emptySessions: {

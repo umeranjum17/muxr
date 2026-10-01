@@ -351,6 +351,8 @@ export const zhHans: TranslationStructure = {
         runtimeOffline: ({ name }: { name: string }) => `herdr 在 ${name} 上没有响应`,
         runtimeStale: '会话可能已过期',
         liveEmpty: '没有运行中的代理 · 在下方启动',
+        emptyStart: '启动一个代理，它的空间会在这里打开',
+        emptyWatch: '在这台电脑上打开的空间会显示在这里',
     },
 
     emptySessions: {

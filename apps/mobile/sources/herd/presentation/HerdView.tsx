@@ -28,6 +28,7 @@ import { useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
+import { HomeEmptyState } from './HomeEmptyState';
 import { HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
@@ -246,28 +247,31 @@ export const HerdView = React.memo(({
                 {header}
                 {recoveryCard}
                 {!needsRecovery && searchQuery.trim() === '' && <LiveTerminalsRow
+                    showZeroState={false}
                     visibilityTop={topContentInset}
                     visibilityBottomInset={bottomContentInset}
                 />}
-            {!needsRecovery && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
-            {needsRecovery && (mode === 'host' || mode === 'runtime') ? (
-                <Text style={styles.quietLine}>Your terminals will reappear when the computer reconnects.</Text>
-            ) : needsRecovery ? null : error !== null ? (
-                <View style={styles.empty}>
-                    <Text style={styles.emptyText}>{error}</Text>
-                    <View style={styles.emptyAction}>
-                        <RoundButton
-                            title="Set up connection"
-                            size="normal"
-                            onPress={() => router.push('/settings/connection' as any)}
-                        />
-                    </View>
-                </View>
-            ) : (
-                <Text style={styles.quietLine}>
-                    {searchQuery.trim() !== '' ? t('spacesTree.noMatches') : t('spacesTree.empty')}
-                </Text>
-            )}
+                {needsRecovery && (mode === 'host' || mode === 'runtime') ? (
+                    <Text style={styles.quietLine}>Your terminals will reappear when the computer reconnects.</Text>
+                ) : needsRecovery ? null : searchQuery.trim() !== '' ? (
+                    <Text style={styles.quietLine}>{t('spacesTree.noMatches')}</Text>
+                ) : error !== null ? (
+                    <>
+                        <HomeDiscoveryRows />
+                        <View style={styles.empty}>
+                            <Text style={styles.emptyText}>{error}</Text>
+                            <View style={styles.emptyAction}>
+                                <RoundButton
+                                    title="Set up connection"
+                                    size="normal"
+                                    onPress={() => router.push('/settings/connection' as any)}
+                                />
+                            </View>
+                        </View>
+                    </>
+                ) : (
+                    <HomeEmptyState />
+                )}
             </ScrollView>
         );
     }
