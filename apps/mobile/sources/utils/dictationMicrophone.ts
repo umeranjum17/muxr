@@ -19,9 +19,13 @@ export function dictationMicrophone(): { audio: AudioMic; opened: Promise<void> 
                 const stream: AudioMicStream = {
                     stop() {
                         if (stopped) return stopped;
-                        recording = false;
-                        wake?.();
-                        stopped = LiveAudioStream.stop().then(() => undefined);
+                        stopped = Promise.resolve()
+                            .then(() => LiveAudioStream.stop())
+                            .then(() => undefined)
+                            .finally(() => {
+                                recording = false;
+                                wake?.();
+                            });
                         return stopped;
                     },
                     async *[Symbol.asyncIterator]() {

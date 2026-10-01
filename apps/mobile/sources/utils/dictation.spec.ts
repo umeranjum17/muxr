@@ -237,12 +237,19 @@ describe('on-device dictation flow', () => {
         await act(async () => { await say(1.5, silence); });
         const readings = mocks.transcribe.mock.calls.length;
         expect(mocks.transcribe.mock.calls.at(-1)![1]).toHaveProperty('audioCtx');
-        await act(async () => { api!.toggle(); });
+        let settleNativeStop!: () => void;
+        mocks.liveAudio.stop.mockReturnValueOnce(new Promise<void>((resolve) => { settleNativeStop = resolve; }));
+        await act(async () => {
+            api!.toggle();
+            await Promise.resolve();
+            onData?.(speech);
+            settleNativeStop();
+        });
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.transcribe).toHaveBeenCalledTimes(readings + 2);
         expect(mocks.transcribe.mock.calls.at(-1)![1]).toHaveProperty('audioCtx', 0);
         expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en', beamSize: 5, prompt: 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm.' });
-        expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(444 * 2_560 - 25 * 32_000);
+        expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(444 * 2_560 - 25 * 32_000 + 2_560);
         expect(appended.at(-1)).toBe('hello one two three 4 five six seven eight');
         expect(api!.live).toBe('');
         expect(api!.transcribing).toBe(false);
