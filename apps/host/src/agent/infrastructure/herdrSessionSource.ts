@@ -3629,10 +3629,10 @@ export async function createHerdrSessionSource(
 
 
 
-        resendCumulativeState(): void {
+        resendCumulativeState(deliver: (sessionId: string, event: SessionEventBody) => void): void {
             reconcileLaunchFailures();
             for (const failure of launchFailureByPane.values()) {
-                publish(failure.sessionId, { type: 'session.error', message: failure.message });
+                deliver(failure.sessionId, { type: 'session.error', message: failure.message });
             }
             // Invalidation frames are edge-triggered. If the machine→relay link
             // dropped one while clients stayed connected, host reconnect must

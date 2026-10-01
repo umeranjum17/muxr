@@ -237,7 +237,7 @@ export interface SessionSource {
     /** Machine-scoped frames share the encrypted session stream and are additive. */
     subscribeMachine?(listener: (frame: PluginsInvalidatedFrame) => void): () => void;
     /** A client just connected: re-push state that only ships on change. */
-    resendCumulativeState?(): void;
+    resendCumulativeState?(deliver: (sessionId: string, event: SessionEventBody) => void): void;
     dispose(): Promise<void>;
     /** Lab-script spelling of dispose: closing the source releases every
      *  socket, subscription and timer it owns so the process can exit. */

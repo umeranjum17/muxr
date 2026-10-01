@@ -202,7 +202,7 @@ export function startHost(options: HostOptions): Host {
         return response;
     }
 
-    function forward(sessionId: string, body: SessionEventBody): void {
+    function deliverSessionEvent(sessionId: string, body: SessionEventBody): void {
         // Herdr's own session frames know nothing of presence; without it the
         // phone reads an agent's next state change as the browser closing.
         const carried = body.type === 'session.created' || body.type === 'session.updated'
@@ -210,12 +210,16 @@ export function startHost(options: HostOptions): Host {
             : body;
         const event: SessionEvent = { ...carried, seq: nextSeq(sessionId) };
         broadcast({ type: 'session.event', sessionId, event });
+    }
+
+    function forward(sessionId: string, body: SessionEventBody): void {
+        deliverSessionEvent(sessionId, body);
         if (body.type === 'session.removed') domain.unread.acknowledge(sessionId);
         else domain.unread.noteActivity(sessionId, '');
     }
 
     function refreshLinkEnrolment(): void {
-        source.resendCumulativeState?.();
+        source.resendCumulativeState?.(deliverSessionEvent);
     }
 
     const unsubscribe = source.subscribe(forward);
@@ -254,9 +258,9 @@ export function startHost(options: HostOptions): Host {
                 // The phone admits this handshake before fetching its tree. Reconcile closed or
                 // recovered panes first, then deliver retained launch errors before shell routing.
                 await source.list();
-                source.resendCumulativeState?.();
+                source.resendCumulativeState?.(deliverSessionEvent);
             }
-            if (frame.type === 'client.hello') source.resendCumulativeState?.();
+            if (frame.type === 'client.hello') source.resendCumulativeState?.(deliverSessionEvent);
             return response;
         },
         setLinkDesktopConnection: (connectionId, active) => {

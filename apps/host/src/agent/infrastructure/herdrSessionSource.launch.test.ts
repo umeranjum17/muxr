@@ -304,7 +304,11 @@ describe('phone launch before herdr detects the agent', () => {
             phoneLink!.stop();
             await vi.waitFor(() => expect(linkStates.get('fixture-phone')).toBe(false), { timeout: 5_000 });
             await fail('w1:p2');
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(connectedId);
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(disconnectedId);
             await connect();
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(connectedId);
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(disconnectedId);
             // Admission delivers the original-route error before a catalog can follow its shell.
             expect(errors(disconnectedId)).toHaveLength(1);
             expect(admissionErrors).toContainEqual(expect.objectContaining({ sessionId: disconnectedId }));
@@ -316,6 +320,8 @@ describe('phone launch before herdr detects the agent', () => {
             await connect();
             expect(errors(connectedId)).toHaveLength(0);
             expect(errors(disconnectedId)).toHaveLength(1);
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(connectedId);
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(disconnectedId);
 
             // A detected, ready replacement on that same pane ends its retired failure.
             herdr.agents.push({ pane_id: 'w1:p2', name: 'Umer', agent: 'pi', agent_status: 'idle', interactive_ready: true,
@@ -324,6 +330,7 @@ describe('phone launch before herdr detects the agent', () => {
             await connect();
             expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ agentKind: 'pi', promptable: true });
             expect(errors(disconnectedId)).toHaveLength(0);
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(disconnectedId);
 
             const successfulId = await start();
             Object.assign(herdr.agents.find((agent) => agent.pane_id === 'w1:p3')!, {
@@ -335,6 +342,7 @@ describe('phone launch before herdr detects the agent', () => {
             phoneLink!.stop();
             await connect();
             expect(treePane(await source.herdrTree(), 'w1:p3')).toMatchObject({ sessionId: successfulId, promptable: true });
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).toContain(successfulId);
             expect(delivered.filter((frame) => frame.type === 'session.event' && frame.event.type === 'session.error')).toEqual([]);
         } finally {
             phoneLink?.stop(); endpoint?.close(); await host.close();
