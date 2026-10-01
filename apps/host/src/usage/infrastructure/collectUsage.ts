@@ -5,13 +5,12 @@
  * Measured activity comes from the token ledger reading each harness's own
  * store; the pinned offline ccusage backend covers the remaining agents.
  */
-import { scryptSync } from 'node:crypto';
-import { claudeWindows as parseClaudeWindows, fingerprint, type Source } from '@byokit/usage';
-import { planReader, sourcesFor, planLabel, readPlan, readPlans, savePlans, type PlanReadings, type StoredPlanReading } from './planUsage.js';
+import { fingerprint, type Source } from '@byokit/usage';
+import { claudeSource, claudeHintSource } from './claudeSource.js';
+import { planReader, planHintReader, sourcesFor, planLabel, readPlan } from './planUsage.js';
 import { spawn } from 'node:child_process';
 import { accessSync, chmodSync, constants, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import type { UsageActivity, UsageConnectedProvider, UsageReport, UsageSeriesPoint } from '@trymuxr/contract';
 import {
@@ -193,94 +192,6 @@ function readJson(path: string, maxBytes: number): { value: unknown; modified: n
     } catch { return undefined; }
 }
 
-function claudeConfigDir(env: NodeJS.ProcessEnv): string {
-    return env.CLAUDE_CONFIG_DIR?.trim() || join(env.HOME?.trim() || homedir(), '.claude');
-}
-
-/** The Claude account Claude Code is signed in to, re-read on every call so
- *  Claude Code's own renewal is picked up the next time it runs. muxr never
- *  renews these credentials itself: an expired token only means Claude is not
- *  read until Claude Code renews it, while its last good reading stands. */
-function claudeAuth(env: NodeJS.ProcessEnv): { token: string; expired: boolean; account: string } | undefined {
-    const stored = readJson(join(claudeConfigDir(env), '.credentials.json'), 64 * 1024)?.value;
-    const credentials = isRecord(stored) && isRecord(stored.claudeAiOauth) ? stored.claudeAiOauth : undefined;
-    const token = credentials?.accessToken;
-    if (credentials === undefined || typeof token !== 'string' || token === '' || token.length > 16 * 1024) return undefined;
-    // Claude Code keeps the signed-in account beside its config: in the config
-    // directory when one is set, otherwise in the home directory.
-    const configFile = env.CLAUDE_CONFIG_DIR?.trim()
-        ? join(env.CLAUDE_CONFIG_DIR.trim(), '.claude.json')
-        : join(env.HOME?.trim() || homedir(), '.claude.json');
-    const config = readJson(configFile, 4 * 1024 * 1024)?.value;
-    const oauthAccount = isRecord(config) && isRecord(config.oauthAccount) ? config.oauthAccount : undefined;
-    let account = token;
-    if (typeof credentials.accountUuid === 'string') account = credentials.accountUuid;
-    else if (typeof oauthAccount?.accountUuid === 'string') account = oauthAccount.accountUuid;
-    const expiresAt = credentials.expiresAt;
-    return { token, expired: typeof expiresAt === 'number' && Number.isFinite(expiresAt) && expiresAt <= Date.now(), account };
-}
-
-/** Anthropic answers its usage endpoint for Claude Code's own client and
- *  rate-limits any other caller on sight, so the read identifies itself the
- *  way Claude Code does. */
-const CLAUDE_HEADERS = { 'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'claude-code/2.1.202' };
-/** A rate-limited provider is not asked again before this; its last good
- *  reading stands in meanwhile. */
-const RATE_LIMIT_BACKOFF_MS = 5 * 60_000;
-const backoffUntil = new Map<string, number>();
-
-interface ProviderAnswer {
-    /** The HTTP status, absent when no answer arrived at all. */
-    status?: number;
-    body?: string;
-}
-
-/** One bounded provider read. A failure is not retried here: the last good
- *  reading stands and the next collection asks again. A 429 backs that
- *  account off (`scope`), so its rate limit is never spent on us. */
-async function providerGet(provider: string, url: string, headers: Record<string, string>, scope: string = provider): Promise<ProviderAnswer> {
-    if ((backoffUntil.get(scope) ?? 0) > Date.now()) return { status: 429 };
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
-    try {
-        const response = await fetch(url, { headers: { accept: 'application/json', ...headers }, redirect: 'error', signal: controller.signal });
-        if (response.status === 429) {
-            const seconds = Number(response.headers.get('retry-after'));
-            backoffUntil.set(scope, Date.now() + Math.max(RATE_LIMIT_BACKOFF_MS, Number.isFinite(seconds) ? seconds * 1_000 : 0));
-        }
-        if (!response.ok || response.body === null) {
-            controller.abort();
-            return { status: response.status };
-        }
-        let body = '';
-        for await (const chunk of response.body) {
-            body += Buffer.from(chunk).toString('utf8');
-            if (Buffer.byteLength(body) > 64 * 1024) { controller.abort(); return { status: response.status }; }
-        }
-        return { status: response.status, body };
-    } catch {
-        return {};
-    } finally { clearTimeout(timer); }
-}
-
-function parsed(body: string | undefined): unknown {
-    try { return body === undefined ? undefined : JSON.parse(body) as unknown; } catch { return undefined; }
-}
-
-/** The Claude plan limits for one sign-in's env: the same reader the Usage
- *  screen uses for the main account, pointed at another folder. In-process
- *  only; nothing is shown, stored under another account, or sent elsewhere. */
-export async function claudePlanLimits(env: NodeJS.ProcessEnv): Promise<unknown> {
-    const snapshot = readJson(join(claudeConfigDir(env), 'last-statusline-input.json'), 64 * 1024);
-    const snapshotAge = snapshot === undefined ? undefined : Date.now() - snapshot.modified;
-    if (snapshot !== undefined && snapshotAge !== undefined && snapshotAge >= 0 && snapshotAge < 5 * 60_000) {
-        if (parseClaudeWindows(snapshot.value).length > 0) return snapshot.value;
-    }
-    const auth = claudeAuth(env);
-    if (auth === undefined || auth.expired) return undefined;
-    const answer = await providerGet('claude', 'https://api.anthropic.com/api/oauth/usage', { authorization: `Bearer ${auth.token}`, ...CLAUDE_HEADERS }, `claude\u0000${auth.account}`);
-    return answer.status === 200 ? parsed(answer.body) : undefined;
-}
 
 function money(value: number): string | undefined {
     if (!Number.isFinite(value) || value < 0) return undefined;
@@ -394,19 +305,10 @@ const PLAN_MIN_READ_MS = 60_000;
  *  the card opens on it and the collection replaces it seconds later. */
 const PLAN_LAST_KNOWN_MS = 24 * 60 * 60_000;
 
-/** Claude's account fingerprint, under the salt the kit's reader uses for the
- *  other plans. The KDF is deliberately slow; the kit memoizes it. */
-const accountFingerprint = fingerprint('muxr/usage/account');
-
-/** Whose reading each provider's would be now, from the same configuration
- *  the read itself uses. A stored reading is only ever shown for the account
- *  it was read from, one provider at a time: switching one account never costs
- *  another provider its reading, and a changed PATH or time zone costs none. */
+/** Account identities are owned by the kit, including opaque host readers. */
 function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
     const reader = planReader(env);
     const accounts: Partial<Record<PlanId, string>> = {};
-    const claude = claudeAuth(env)?.account;
-    if (claude !== undefined && claude !== '' && claude.length <= 16 * 1024) accounts.claude = accountFingerprint('claude', claude);
     for (const [id, source] of Object.entries(sourcesFor(env)) as [PlanId, Source][]) {
         const account = reader.account(source);
         if (account !== undefined) accounts[id] = account;
@@ -414,49 +316,29 @@ function planAccounts(env: NodeJS.ProcessEnv): Partial<Record<PlanId, string>> {
     return accounts;
 }
 
-function storedReading(stored: PlanReadings, accounts: Partial<Record<PlanId, string>>, id: PlanId): StoredPlanReading | undefined {
-    const fingerprint = accounts[id];
-    if (fingerprint === undefined) return undefined;
-    return stored[id]?.[fingerprint];
-}
-
-function claudeVMs(raw: unknown, nowMs: number): UsageWindowVM[] {
-    return parseClaudeWindows(raw).flatMap((window) => toVM(window, nowMs) ?? []);
-}
-
 /** Windows for one account's env: the same reader Usage uses for the main
  *  account, pointed at that sign-in's folder. In-process only; nothing is
  *  shown, stored under another account, or sent anywhere but the provider.
- *  `refresh: true` bypasses cache reads and writes for Plan Account selection;
- *  only derived room hints leave that path. Otherwise a fresh-enough stored
- *  reading answers, and a failed read falls back to the last good one,
- *  honestly aged by the caller. */
+ *  `refresh: true` isolates Plan Account selection from the standing cache;
+ *  Claude snapshots bypass its hint cache, while credential reads share the
+ *  standing reader's account backoff. Only derived room hints leave that path.
+ *  Otherwise a fresh-enough stored reading answers, and a failed read falls
+ *  back to the last good one, honestly aged by the caller. */
 export async function planAccountWindows(id: PlanId, env: NodeJS.ProcessEnv, { refresh = false }: { refresh?: boolean } = {}): Promise<UsageWindowVM[]> {
     if (id !== 'claude' && id !== 'codex') return [];
     const nowMs = nowDate(env).getTime();
-    if (id === 'codex') {
-        const reading = await readPlan(planReader(env), sourcesFor(env).codex, nowMs, { refresh });
+    if (id === 'claude' && refresh) {
+        const reading = await readPlan(planHintReader(env), claudeSource(env, { snapshot: false }) ?? claudeHintSource(env), nowMs, { refresh, env });
         return reading?.windows.flatMap((window) => toVM(window, nowMs) ?? []) ?? [];
     }
-    const fingerprint = planAccounts(env).claude;
-    const stored = refresh || fingerprint === undefined ? undefined : readPlans(env)[id]?.[fingerprint];
-    if (stored !== undefined && nowMs - stored.at < PLAN_MIN_READ_MS) return claudeVMs(stored.raw, nowMs);
-    const raw = await claudePlanLimits(env);
-    const vms = claudeVMs(raw, nowMs);
-    if (vms.length > 0) {
-        if (!refresh && fingerprint !== undefined) savePlans(env, { [id]: { [fingerprint]: { at: nowMs, raw } } });
-        return vms;
-    }
-    if (stored !== undefined && nowMs - stored.at <= PLAN_LAST_KNOWN_MS && planStillConnected(id, env)) {
-        return claudeVMs(stored.raw, nowMs);
-    }
-    return [];
+    const reader = planReader(env);
+    const reading = await readPlan(reader, sourcesFor(env)[id], nowMs, { refresh, env });
+    return reading?.windows.flatMap((window) => toVM(window, nowMs) ?? []) ?? [];
 }
 
 /** Whether a plan's account is still there to be read: a stored reading never
  *  outlives the credentials it was read with. */
 function planStillConnected(id: PlanId, env: NodeJS.ProcessEnv): boolean {
-    if (id === 'claude') return claudeAuth(env) !== undefined;
     const source = sourcesFor(env)[id];
     return source !== undefined && planReader(env).connected(source);
 }
@@ -478,8 +360,6 @@ function planStrip(vmsById: Partial<Record<PlanId, UsageWindowVM[]>>) {
 export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): Pick<UsageReport, 'windows' | 'limits' | 'connected' | 'capturedAt' | 'readingsFrom'> | undefined {
     const nowMs = Date.now();
     const at = nowDate(env).getTime();
-    const accounts = planAccounts(env);
-    const stored = readPlans(env);
     const vmsById: Partial<Record<PlanId, UsageWindowVM[]>> = {};
     let oldest = Number.POSITIVE_INFINITY;
     let newest = 0;
@@ -488,19 +368,12 @@ export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): Pick<Usage
     for (const id of PLAN_IDS) {
         let atMs: number;
         let vms: UsageWindowVM[];
-        if (id === 'claude') {
-            const reading = storedReading(stored, accounts, id);
-            if (reading === undefined || at - reading.at > PLAN_LAST_KNOWN_MS || !planStillConnected(id, env)) continue;
-            atMs = reading.at;
-            vms = claudeVMs(reading.raw, nowMs);
-        } else {
-            const source = sources[id];
-            if (source === undefined) continue;
-            const reading = reader.lastKnown(source, { nowMs: at });
-            if (reading?.at === undefined) continue;
-            atMs = reading.at;
-            vms = reading.windows.flatMap((window) => toVM(window, nowMs) ?? []);
-        }
+        const source = sources[id];
+        if (source === undefined) continue;
+        const reading = reader.lastKnown(source, { nowMs: at });
+        if (reading?.at === undefined) continue;
+        atMs = reading.at;
+        vms = reading.windows.flatMap((window) => toVM(window, nowMs) ?? []);
         if (vms.length === 0) continue;
         vmsById[id] = vms;
         oldest = Math.min(oldest, atMs);
@@ -520,11 +393,12 @@ export function lastKnownPlans(env: NodeJS.ProcessEnv = process.env): Pick<Usage
 
 /** The identity includes the selected Go credential. Use a bounded KDF rather
  * than a fast hash; the stable domain salt keeps cache comparisons deterministic. */
+const collectionFingerprint = fingerprint('muxr/usage/cache-identity/v4');
 function cacheIdentity(env: NodeJS.ProcessEnv): string {
-    return scryptSync(JSON.stringify({
+    return collectionFingerprint('claude', JSON.stringify({
         config: Object.fromEntries(CONFIG_ENV_KEYS.map((key) => [key, env[key] ?? null])),
         go: sourcesFor(env).opencode ?? null,
-    }), 'muxr/usage/cache-identity/v4', 32, { N: 16_384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }).toString('hex');
+    }));
 }
 
 export interface CollectUsageInput {
@@ -568,7 +442,7 @@ async function collection(input: CollectUsageInput, env: NodeJS.ProcessEnv): Pro
         if (cached !== undefined && !counted && NOW.getTime() - cached.at < PLAN_MIN_READ_MS) return { raw: cached, now: NOW.getTime() };
     }
     if (pending === undefined) {
-        pending = collectFresh(NOW, accounts, env).then((raw) => {
+        pending = collectFresh(NOW, env).then((raw) => {
             if (raw.storedFresh) {
                 for (const storedKey of completed.keys()) {
                     if (storedKey.slice(-10) < TODAY) completed.delete(storedKey);
@@ -613,7 +487,7 @@ function anthropicSubscription(env: NodeJS.ProcessEnv): boolean {
  *  the whole machine -- every plan, every agent's local activity -- once; which
  *  tab asked is a projection concern and never reaches this code. The captured
  *  instant is fixed for the whole payload. */
-async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>, env: NodeJS.ProcessEnv): Promise<RawCollection> {
+async function collectFresh(NOW: Date, env: NodeJS.ProcessEnv): Promise<RawCollection> {
     const DATES = windowPeriods(NOW, LEDGER_DAYS);
     const reader = planReader(env);
     const sources = sourcesFor(env);
@@ -621,11 +495,9 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     // under load the activity count is the long pole, and the plans are what
     // the Home card waits on. Codex participates regardless of the selected
     // tab; the kit decides whether a recent reading can answer.
-    const stored = readPlans(env);
-    const recent = (id: PlanId) => NOW.getTime() - (storedReading(stored, accounts, id)?.at ?? Number.NEGATIVE_INFINITY) < PLAN_MIN_READ_MS;
     const planConnected: string[] = (['claude', 'opencode', 'zai'] as const).filter((id) => planStillConnected(id, env));
     const early = {
-        claude: !planConnected.includes('claude') || recent('claude') ? Promise.resolve(undefined) : claudePlanLimits(env),
+        claude: readPlan(reader, sources.claude, NOW.getTime()),
         codex: readPlan(reader, sources.codex, NOW.getTime()),
         opencode: readPlan(reader, sources.opencode, NOW.getTime()),
         zai: readPlan(reader, sources.zai, NOW.getTime()),
@@ -642,24 +514,8 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     // timeout, a refusal, a rate limit -- or that was read moments ago keeps
     // its last good reading, aged honestly through `readingsFrom`, instead of
     // vanishing from the card.
-    const readings: PlanReadings = { claude: { ...stored.claude } };
     let readingsFrom = NOW.getTime();
     if (extrasAnswer.settledAt !== undefined) readingsFrom = Math.min(readingsFrom, extrasAnswer.settledAt);
-    const windowsOfClaude = (raw: unknown): UsageWindowVM[] => {
-        const id = 'claude';
-        const nowMs = Date.now();
-        const vms = claudeVMs(raw, nowMs);
-        if (vms.length > 0) {
-            const account = accounts[id];
-            if (account !== undefined) readings[id] = { ...readings[id], [account]: { at: NOW.getTime(), raw } };
-            return vms;
-        }
-        const last = storedReading(stored, accounts, id);
-        if (last === undefined || NOW.getTime() - last.at > PLAN_LAST_KNOWN_MS || !planStillConnected(id, env)) return [];
-        readingsFrom = Math.min(readingsFrom, last.at);
-        return claudeVMs(last.raw, nowMs);
-    };
-
     const snapshot = ledger.snapshot(NOW.getTime());
     const counting = !ledger.ready;
     const rows = [...snapshot.rows, ...extrasRows(extrasAnswer.range, new Set(DATES))];
@@ -686,13 +542,13 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     // lands; a harness whose store failed keeps its tab when installed, so
     // its honest reason has somewhere to show -- and the same for an agent
     // the daily backend measures when its scan failed.
-    const [claudeRaw, codexReading, go, zaiPlan] = await Promise.all([early.claude, early.codex, early.opencode, early.zai]);
-    const claude = windowsOfClaude(claudeRaw);
+    const [claudeReading, codexReading, go, zaiPlan] = await Promise.all([early.claude, early.codex, early.opencode, early.zai]);
     const kitVMs = (reading: Awaited<ReturnType<typeof readPlan>>): UsageWindowVM[] => {
         if (reading === undefined || reading.windows.length === 0) return [];
         if (reading.at !== undefined) readingsFrom = Math.min(readingsFrom, reading.at);
         return reading.windows.flatMap((window) => toVM(window, Date.now()) ?? []);
     };
+    const claude = kitVMs(claudeReading);
     const codex = kitVMs(codexReading);
     const goVMs = kitVMs(go);
     const zaiVMs = kitVMs(zaiPlan);
@@ -709,11 +565,6 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
     // Connected plans load whatever tab is on screen: a machine-level view
     // (the default tab, the Home card) must see every real window, not just
     // the selected tab's.
-    const fingerprint = accounts.claude;
-    const updatedClaude = fingerprint === undefined ? undefined : readings.claude?.[fingerprint];
-    if (fingerprint !== undefined && updatedClaude !== undefined && updatedClaude !== stored.claude?.[fingerprint]) {
-        savePlans(env, { claude: { [fingerprint]: updatedClaude } });
-    }
     const { planShapes, connected } = planStrip({ claude, codex, opencode: goVMs, zai: zaiVMs });
     return {
         at: NOW.getTime(),
@@ -733,8 +584,7 @@ async function collectFresh(NOW: Date, accounts: Partial<Record<PlanId, string>>
         anthropicSubscription: anthropicSubscription(env),
         goLabel: planLabel('opencode', go?.code ?? (sources.opencode === undefined ? 'not-connected' : undefined)),
         zaiLabel: planLabel('zai', zaiPlan?.code ?? (sources.zai === undefined ? 'not-connected' : undefined)),
-        storedFresh: (updatedClaude !== undefined && updatedClaude !== stored.claude?.[fingerprint ?? ''])
-            || [codexReading, go, zaiPlan].some((reading) => reading !== undefined && reading.windows.length > 0 && reading.at === NOW.getTime() && reading.code === undefined)
+        storedFresh: [claudeReading, codexReading, go, zaiPlan].some((reading) => reading !== undefined && reading.windows.length > 0 && reading.at === NOW.getTime() && reading.code === undefined)
             || !counting,
     };
 }

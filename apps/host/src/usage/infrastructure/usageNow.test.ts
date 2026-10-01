@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
+import { fingerprint, fileUsageStore, claudeWindows } from '@byokit/usage';
 
 const logout = vi.hoisted(() => ({ path: '', reads: 0 }));
 vi.mock('node:fs', async (importOriginal) => {
@@ -66,7 +67,7 @@ it('keeps the aged Claude plan while its token expires and reads Claude Code ren
 
     // Two hours on, Claude Code has not run and its token has expired: the
     // reading from then stays on the card, aged, and nothing asks Anthropic.
-    const plansFile = join(env.MUXR_HOME!, 'usage', 'plans-v1.json');
+    const plansFile = join(env.MUXR_HOME!, 'usage', 'plans-v2.json');
     const saved = JSON.parse(readFileSync(plansFile, 'utf8')) as { plans: Record<string, Record<string, { at: number }>> };
     for (const byAccount of Object.values(saved.plans)) for (const reading of Object.values(byAccount)) reading.at -= 2 * 3_600_000;
     writeFileSync(plansFile, JSON.stringify(saved));
@@ -78,6 +79,7 @@ it('keeps the aged Claude plan while its token expires and reads Claude Code ren
 
     // Claude Code renews its own token; the next refresh reads with it.
     save('renewed-token', Date.now() + 3_600_000);
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 61_000).toISOString();
     await usageNow(env, { refresh: true });
     expect(fetch.mock.calls.some(([url, init]) => String(url).includes('anthropic') &&
         new Headers(init?.headers).get('authorization') === 'Bearer renewed-token')).toBe(true);
@@ -105,7 +107,8 @@ it('never answers with a cached day older than the plan readings stored since', 
 }, 20_000);
 
 it('keeps every plan on the card through failed reads and paints the last good reading after a restart', async () => {
-    vi.stubGlobal('fetch', vi.fn(provider));
+    const fetch = vi.fn(provider);
+    vi.stubGlobal('fetch', fetch);
     const env = host();
     const plans = (now: { connected?: { id: string }[] }) => (now.connected ?? []).map((plan) => plan.id).sort();
 
@@ -117,13 +120,16 @@ it('keeps every plan on the card through failed reads and paints the last good r
     const { collectUsage } = await import('./collectUsage.js');
     const claude = await collectUsage({ provider: 'claude' }, env);
     expect(healthy.connected?.find(({ id }) => id === 'claude')?.windows.map(({ label, used, window }) => ({ label, used, window }))).toEqual(claude.limits.windows.map(({ label, used, window }) => ({ label, used, window })));
-    const plansFile = join(env.MUXR_HOME!, 'usage', 'plans-v1.json');
+    const plansFile = join(env.MUXR_HOME!, 'usage', 'plans-v2.json');
     const saved = JSON.parse(readFileSync(plansFile, 'utf8')) as { plans: Record<string, Record<string, { at: number; raw: unknown }>> };
     const legacy = Object.fromEntries(Object.entries(saved.plans).map(([id, entries]) => {
         const [account, reading] = Object.entries(entries)[0]!;
-        return [id, { account, ...reading }];
+        return [id, { account, at: reading.at, raw: id === 'claude' ? CLAUDE : ZAI }];
     }));
-    writeFileSync(plansFile, JSON.stringify({ plans: legacy }));
+    const legacyFile = join(env.MUXR_HOME!, 'usage', 'plans-v1.json');
+    writeFileSync(legacyFile, JSON.stringify({ plans: legacy }));
+    delete saved.plans.claude;
+    writeFileSync(plansFile, JSON.stringify(saved));
     vi.resetModules();
     ({ usageNow } = await import('./usageNow.js'));
 
@@ -138,20 +144,28 @@ it('keeps every plan on the card through failed reads and paints the last good r
 
     expect(failing.connected?.find(({ id }) => id === 'claude')?.windows.map(({ used }) => used)).toEqual([10, 40]);
     expect(failing.connected?.find(({ id }) => id === 'zai')?.windows.map(({ used }) => used)).toEqual([20]);
+    const failedReads = fetch.mock.calls.length;
     health = 'up';
     env.MUXR_USAGE_NOW = new Date(Date.now() + 240_000).toISOString();
     const recovered = await usageNow(env, { refresh: true });
     expect(plans(recovered)).toEqual(['claude', 'zai']);
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes('anthropic'))).toHaveLength(2);
+    expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(failedReads);
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 421_000).toISOString();
+    await usageNow(env, { refresh: true });
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes('anthropic'))).toHaveLength(3);
     const migrated = JSON.parse(readFileSync(plansFile, 'utf8')) as typeof saved;
-    expect(Object.keys(migrated.plans.claude!)).toEqual(Object.keys(saved.plans.claude!));
-    expect(migrated.plans.claude![Object.keys(saved.plans.claude!)[0]!]!.raw).toEqual(CLAUDE);
+    expect(Object.keys(migrated.plans.claude!)).toContain(legacy.claude!.account);
+    const reading = migrated.plans.claude![legacy.claude!.account]! as unknown as { windows: { usedPercent: number }[] };
+    expect(reading.windows.map(({ usedPercent }) => usedPercent)).toEqual([10, 40]);
+    expect(JSON.stringify(migrated)).not.toContain('claude-token');
 
     // A restarted host whose providers are slow paints the reading on disk
     // at once, says a refresh is running, and serves that refresh once it lands.
     vi.resetModules();
     ({ usageNow } = await import('./usageNow.js'));
     health = 'slow';
-    env.MUXR_USAGE_NOW = new Date(Date.now() + 360_000).toISOString();
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 600_000).toISOString();
     const started = Date.now();
     const restarted = await usageNow(env, { refresh: true });
     expect(Date.now() - started).toBeLessThan(2_500);
@@ -162,6 +176,33 @@ it('keeps every plan on the card through failed reads and paints the last good r
     expect(landed.refreshing).toBeUndefined();
     expect(landed.capturedAt).not.toBe(restarted.capturedAt);
     expect(plans(landed)).toEqual(['claude', 'zai']);
+
+    const tokens = host();
+    const fp = fingerprint('muxr/usage/account');
+    const state = join(tokens.MUXR_HOME!, 'usage');
+    mkdirSync(state, { recursive: true });
+    const at = Date.now();
+    const uuid = fp('claude', 'claude-account');
+    writeFileSync(join(state, 'plans-v1.json'), JSON.stringify({ plans: { claude: {
+        [fp('claude', 'token-a')]: { at, raw: CLAUDE },
+        [fp('claude', 'token-b')]: { at, raw: CLAUDE },
+        [uuid]: { at, raw: CLAUDE },
+    } } }));
+    const store = fileUsageStore(state);
+    const newer = { at: at + 1, windows: claudeWindows({ seven_day: { utilization: 80, resets_at: resetsAt } }) };
+    store.put('claude', fp('claude', fp('claude', 'token-a')), newer);
+    store.put('claude', uuid, newer);
+    const credentials = join(tokens.CLAUDE_CONFIG_DIR!, '.credentials.json');
+    const signIn = (token: string) => writeFileSync(credentials, JSON.stringify({ claudeAiOauth: { accessToken: token } }));
+    health = 'down';
+    tokens.MUXR_USAGE_NOW = new Date(at + 120_000).toISOString();
+    signIn('token-a');
+    expect((await collectUsage({ provider: 'claude', refresh: true }, tokens)).limits.windows.map(({ used }) => used)).toEqual([80]);
+    signIn('token-b');
+    expect((await collectUsage({ provider: 'claude', refresh: true }, tokens)).limits.windows.map(({ used }) => used)).toEqual([10, 40]);
+    writeFileSync(credentials, JSON.stringify({ claudeAiOauth: { accessToken: 'renewed', accountUuid: 'claude-account' } }));
+    expect((await collectUsage({ provider: 'claude', refresh: true }, tokens)).limits.windows.map(({ used }) => used)).toEqual([80]);
+    expect(store.get('claude', uuid)?.at).toBe(newer.at);
 }, 20_000);
 
 it('keeps an agent its tab and names the scan failure once its measured days age out', async () => {
