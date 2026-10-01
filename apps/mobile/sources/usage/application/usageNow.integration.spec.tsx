@@ -42,6 +42,17 @@ const theme = {
 };
 
 vi.mock('@/catalog/sync', () => ({ sync: { request } }));
+// The device's own settings, held in memory: what one render writes the next reads.
+const localSettings: Record<string, unknown> = { usageNamesSeen: true };
+vi.mock('@/catalog/store', async () => {
+    const react = await import('react');
+    return {
+        useLocalSettingMutable: (name: string) => {
+            const [value, setValue] = react.useState(localSettings[name]);
+            return [value, (next: unknown) => { localSettings[name] = next; setValue(next); }];
+        },
+    };
+});
 // Figures, windows and last-known readings are all per machine: a test is one
 // machine, so nothing another test asked or held can reach it.
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => connection }));
@@ -93,6 +104,7 @@ vi.mock('@/components/navigation/Header', async () => {
 });
 vi.mock('@/components/navigation/HeaderBackButton', () => ({ HeaderBackButton: 'HeaderBackButton' }));
 vi.mock('@/components/ui', () => ({
+    ui: { radius: { card: 12, control: 10, meter: 2 } },
     cardStyle: () => ({}),
     Meter: 'Meter',
     Notice: 'Notice',
@@ -639,7 +651,7 @@ describe('the Home card read path', () => {
         pressRefresh(card);
         await tick(1_000);
         expect(screenText(card)).not.toContain('plugins.rightNow.refreshFailed');
-        expect(screenText(card)).toContain('0% 5h');
+        expect(screenText(card)).toContain('0%');
 
         await tick(30_000);
         expect(forcedReads()).toHaveLength(3);
@@ -983,10 +995,10 @@ describe('the usage screen read path', () => {
         expect(request.mock.calls.at(-1)?.[1]).toEqual({ provider: 'opencode', refresh: true });
     });
 
-    it('shows every plan\'s limits at once, in places a reader can learn, coloured only where little is left', async () => {
+    it('shows one calm chip per plan, at the limit that blocks it first, named on first use and coloured only near out', async () => {
         // The host lists plans most urgent first and each plan's windows in its
-        // own order. The card holds its own order instead: plans by name, so a
-        // plan keeps its place as its figures move, and windows shortest first.
+        // own order. The strip holds its own order instead: plans by name, so a
+        // chip keeps its place as its figures move.
         const now: UsageNow = {
             limits: { verdict: 'limited', windows: [{ label: 'Weekly', window: '7d', used: 100 }] },
             connected: [
@@ -1002,7 +1014,7 @@ describe('the usage screen read path', () => {
                     { label: 'Session', window: '5h', used: 2 },
                 ] },
                 // A share that is not a number is not a reading: it is left out,
-                // never printed, and a plan with nothing readable has no column.
+                // never printed, and a plan with nothing readable has no chip.
                 { id: 'claude', label: 'Claude', glyph: 'claude', plan: 'Claude plan', windows: [
                     { label: 'Weekly', window: '7d', used: 64 },
                     { label: 'Session', window: '5h', used: Number.NaN },
@@ -1011,27 +1023,29 @@ describe('the usage screen read path', () => {
             ],
             vitals: VITALS,
         };
+        localSettings.usageNamesSeen = false;
         noteAsked('', Date.now());
         rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, now) });
         const card = renderCard();
         await tick();
 
         expect(card.root.findAllByType('AgentGlyph').map((mark: any) => mark.props.name)).toEqual(['claude', 'codex', 'opencode']);
-        // Each plan's figures under its mark, shortest window first, each tagged
-        // with its window: no table, so no empty cell for a length a plan lacks.
-        // Two limits of one length show the tighter and say there are two.
-        const figures = () => card.root.findAllByType('Text')
-            .map((node: any) => [node.props.children, node.props.style?.color])
-            .filter(([text]: any) => typeof text === 'string' && !text.startsWith('plugins.rightNow.memory'));
-        expect(figures()).toEqual([
-            ['36%', '#fff'], ['7d', '#999'],
-            ['60%', '#fff'], ['5h×2', '#999'], ['89%', '#fff'], ['7d', '#999'],
-            ['93%', '#fff'], ['5h', '#999'], ['0%', 'tone:danger'], ['7d', '#999'], ['8%', 'tone:warning'], ['Month…', '#999'],
+        const chips = () => card.root.findAllByType('AgentGlyph').map((mark: any) => ({
+            text: mark.parent.findAllByType('Text').map((node: any) => [node.props.children, node.props.style?.color]),
+            bar: mark.parent.findByType('Meter').props.ratio,
+        }));
+        // First use: each chip names its plan and the window that binds it, the
+        // one with the least left. Nothing is cut short.
+        expect(chips()).toEqual([
+            { text: [['Claude', '#fff'], ['36%', '#fff'], ['7d', '#999']], bar: 0.36 },
+            { text: [['Codex', '#fff'], ['60%', '#fff'], ['5h', '#999']], bar: 0.6 },
+            { text: [['OpenCode', '#fff'], ['0%', 'tone:danger'], ['7d', '#999']], bar: 0 },
         ]);
         // Read aloud in the same order, naming every limit, and a coloured
         // figure says why and when it comes back, which its colour cannot.
-        const summary: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button' && node.props?.onPress !== undefined
-            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;
+        const cardButton = () => card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
+            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!;
+        const summary: string = cardButton().props.accessibilityLabel;
         expect(summary.indexOf('Claude plan')).toBeLessThan(summary.indexOf('OpenAI Codex'));
         expect(summary.indexOf('OpenAI Codex')).toBeLessThan(summary.indexOf('OpenCode Go'));
         expect(summary).toContain('Spark · Session 5h 60% plugins.limits.percentLeft, Session 5h 98% plugins.limits.percentLeft');
@@ -1039,54 +1053,24 @@ describe('the usage screen read path', () => {
         expect(summary).toContain('Monthly 8% plugins.limits.percentLeft (plugins.limits.low, plugins.rightNow.resetsIn(18d))');
         expect(summary).not.toContain('Z.ai');
 
-        const longName = `${'model-'.repeat(12)}session`;
-        const otherName = `${'model-'.repeat(12)}weekly`;
-        const namedNow: UsageNow = {
+        // Used once, the strip settles to its glance: mark, share and bar.
+        TestRenderer.act(() => { cardButton().props.onPress(); });
+        expect(localSettings.usageNamesSeen).toBe(true);
+        expect(chips().map(({ text }) => text)).toEqual([[['36%', '#fff']], [['60%', '#fff']], [['0%', 'tone:danger']]]);
+
+        // A low limit is a warning, not an alarm: red is for one that is out.
+        // With the week back, the unnamed month binds, and its name is whole.
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, {
             ...now,
-            connected: now.connected!.map((provider) => provider.id === 'codex'
-                ? { ...provider, windows: [...provider.windows,
-                    { label: 'gpt-4', used: 17 }, { label: 'gpt-5', used: 23 },
-                    { label: 'gpt-4-turbo', used: 52 }, { label: 'gpt-4-vision', used: 71 },
-                    { label: 'GPT-5.3-Codex-Spark · Limit', used: 65 }, { label: 'GPT-5.3-Codex-Mini · Limit', used: 76 },
-                    { label: longName, used: 31 }, { label: otherName, used: 42 },
-                ] }
-                : provider),
-        };
-        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, namedNow) }); });
-        const codexText = () => card.root.findAllByType('AgentGlyph')[1]!.parent.findAllByType('Text')
-            .map((node: any) => node.props.children) as string[];
-        const codexTags = codexText().filter((text) => !text.endsWith('%'));
-        expect(codexTags).toContain('gpt-4');
-        expect(codexTags).toContain('gpt-5');
-        expect(screenText(card)).toContain('Month…');
-        expect(new Set(codexTags).size).toBe(codexTags.length);
-        expect(codexTags.every((tag) => tag.length <= 6)).toBe(true);
-        const namedShares = () => Object.fromEntries(codexText().filter((_, index) => index % 2 === 1)
-            .map((tag, index) => [tag, codexText()[index * 2]]));
-        expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
-        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 2, figures: withNow(undefined, {
-            ...namedNow,
-            connected: namedNow.connected!.map((provider) => provider.id === 'codex'
-                ? { ...provider, windows: [...provider.windows].reverse() }
+            connected: now.connected!.map((provider) => provider.id === 'opencode'
+                ? { ...provider, windows: provider.windows.map((window) => window.label === 'Weekly' ? { ...window, used: 50, pace: 'on pace' as const } : window) }
                 : provider),
         }) }); });
-        expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
-        expect(figures()).toContainEqual(['83%', '#fff']);
-        expect(screenText(card)).not.toContain(longName);
-        const cardButton = () => card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
-            && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!;
-        const updatedLabel: string = cardButton().props.accessibilityLabel;
-        expect(updatedLabel).toContain('gpt-4');
-        expect(updatedLabel).toContain('gpt-5');
-        expect(updatedLabel).toContain('gpt-4-turbo');
-        expect(updatedLabel).toContain('GPT-5.3-Codex-Spark · Limit');
-        expect(updatedLabel).toContain(longName);
-        expect(updatedLabel).toContain(otherName);
+        expect(chips()[2]).toEqual({ text: [['8%', 'tone:warning']], bar: 0.08 });
         TestRenderer.act(() => { cardButton().props.onLongPress(); });
-        expect(screenText(card)).toContain(longName);
-        expect(screenText(card)).toContain(otherName);
+        expect(chips()[2]!.text).toEqual([['OpenCode', '#fff'], ['8%', 'tone:warning'], ['Monthly', '#999']]);
         TestRenderer.act(() => { cardButton().props.onPress(); });
-        expect(screenText(card)).not.toContain(longName);
+        expect(chips()[2]!.text).toEqual([['8%', 'tone:warning']]);
     });
 
     it('shows connected limits even when the selected plan has no windows', async () => {
@@ -1104,7 +1088,8 @@ describe('the usage screen read path', () => {
         await tick();
 
         expect(card.root.findAllByType('AgentGlyph').map((mark: any) => mark.props.name)).toEqual(['codex']);
-        expect(screenText(card)).toContain('80%');
+        // The chip shows the window that binds: the week, with less left.
+        expect(screenText(card)).not.toContain('80%');
         expect(screenText(card)).toContain('40%');
         expect(screenText(card)).not.toContain('Selected plan unavailable');
         const label: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
@@ -1116,12 +1101,12 @@ describe('the usage screen read path', () => {
         await tick(11_000);
         pressRefresh(card);
         await tick();
-        expect(screenText(card)).toContain('80%');
+        expect(screenText(card)).toContain('40%');
         expect(card.root.findAllByType('AgentGlyph')).toHaveLength(1);
 
         await tick(6_000);
         expect(screenText(card)).toContain('Selected plan unavailable');
-        expect(screenText(card)).not.toContain('80%');
+        expect(screenText(card)).not.toContain('40%');
         expect(card.root.findAllByType('AgentGlyph')).toHaveLength(0);
         const disconnectedLabel: string = card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
             && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!.props.accessibilityLabel;

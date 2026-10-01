@@ -349,6 +349,8 @@ export const ca: TranslationStructure = {
         runtimeOffline: ({ name }: { name: string }) => `herdr no respon a ${name}`,
         runtimeStale: 'les sessions poden estar desactualitzades',
         liveEmpty: 'Cap agent actiu · inicia\'n un a sota',
+        emptyStart: 'Inicia un agent i el seu espai s\'obrirà aquí',
+        emptyWatch: 'Els espais oberts en aquest ordinador apareixen aquí',
     },
 
     emptySessions: {

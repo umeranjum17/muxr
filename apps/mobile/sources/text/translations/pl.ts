@@ -366,6 +366,8 @@ export const pl: TranslationStructure = {
         runtimeOffline: ({ name }: { name: string }) => `herdr nie odpowiada na ${name}`,
         runtimeStale: 'sesje mogą być nieaktualne',
         liveEmpty: 'Brak aktywnych agentów · uruchom jeden poniżej',
+        emptyStart: 'Uruchom agenta, a jego przestrzeń otworzy się tutaj',
+        emptyWatch: 'Przestrzenie otwarte na tym komputerze pojawią się tutaj',
     },
 
     emptySessions: {

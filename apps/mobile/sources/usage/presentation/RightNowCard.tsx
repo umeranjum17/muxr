@@ -6,42 +6,47 @@ import { useUnistyles } from 'react-native-unistyles';
 import type { UsageLimitsWindow } from '@trymuxr/contract';
 import type { UsageFigures } from '../application/freshnessWindow';
 import { AgentGlyph } from '@/components/AgentGlyph';
-import { withAlpha } from '@/components/ui';
+import { cardStyle, Meter, ui, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { toneColor } from '@/plugins';
 import { VERDICT_KEYS, verdictTone } from '@/plugins/ui';
 import { t } from '@/text';
 import { compactAge } from '@/utils/compactAge';
+import { useLocalSettingMutable } from '@/catalog/store';
 import { useUsageNow } from '../application/useUsageNow';
-import { limitPlans, vitalsFacts, type LimitCell, type LimitFigure, type LimitPlan } from '../domain/usageModel';
+import { bindingLimit, limitPlans, vitalsFacts, type LimitCell, type LimitPlan } from '../domain/usageModel';
 
 /** The strip refreshes itself on a slow cadence while someone is looking at it,
  *  so a few minutes behind is normal here and says nothing. Past this the age
  *  is worth a quiet word -- never an alarm. */
 const AGE_WORTH_MENTIONING_SECONDS = 600;
 
-/** Plan figures: caption-sized, in the mono face so a figure that changes
- *  never shifts its neighbours. Window tags are smaller still. */
+/** Caption-sized lines; chip figures are a step up, in tabular figures so a
+ *  share that changes never shifts its chip. */
 const FIGURE_SIZE = 11;
 const FIGURE_LINE = 16;
-const TAG_SIZE = 8.5;
-const MARK = 12;
+const CHIP_SIZE = 12;
+const MARK = 14;
+/** The narrowest a chip's bar gets, so even "0%" has a bar to read. */
+const CHIP_METER = 32;
 /** Room kept clear at the end of the quiet line for the refresh control. */
 const CONTROL = 20;
 
 /**
- * The top of Home as one quiet strip above Live: each connected plan's mark
- * beside its limits in caption-sized figures, wrapping only when the phone is
- * narrow, then one line of the machine's own figures. It is a glance, not a
- * section: no heading and no card, so Live stays the first thing on Home. A
- * tap opens Usage, a long press reveals full limit names until the next tap,
- * and a small refresh control ends the quiet line. The host's typed usage.now
+ * The top of Home as one quiet strip above Live: a compact chip per connected
+ * plan, wrapping only when the phone is narrow, then one line of the machine's
+ * own figures. It is a glance, not a section: no heading and no card, so Live
+ * stays the first thing on Home. A tap opens Usage; plan names show until the
+ * strip is first used, and a long press brings them back until the next tap.
+ * A small refresh control ends the quiet line. The host's typed usage.now
  * method serves it without a plugin.
  */
 export function RightNowCard() {
     const { theme } = useUnistyles();
     const router = useRouter();
-    const [namesVisible, setNamesVisible] = React.useState(false);
+    const [namesHeld, setNamesHeld] = React.useState(false);
+    const [namesSeen, setNamesSeen] = useLocalSettingMutable('usageNamesSeen');
+    const namesVisible = namesHeld || !namesSeen;
     // The strip paints one of three states and has no fourth: figures it holds,
     // a wait it is in, or a failure with the way back.
     const { display, failed, refreshing, throttledSeconds, refresh } = useUsageNow();
@@ -97,7 +102,8 @@ export function RightNowCard() {
             ].filter((part) => part !== undefined).join(' · ')}
         </Text>;
     return <View>
-        <Strip onPress={() => { if (namesVisible) setNamesVisible(false); else open(); }} onLongPress={() => setNamesVisible(true)}
+        <Strip onPress={() => { if (!namesSeen) setNamesSeen(true); if (namesHeld) setNamesHeld(false); else open(); }}
+            onLongPress={() => { if (!namesSeen) setNamesSeen(true); setNamesHeld(true); }}
             label={cardAccessibilityLabel(payload)} line={line} note={note} facts={quietLine(payload)}
             dot={limit === undefined || verdict === 'unknown' ? undefined : toneColor(theme, verdictTone(verdict))} withControl />
         {control}
@@ -150,59 +156,34 @@ function freshness(payload: UsageFigures | undefined, failed: boolean, refreshin
 }
 
 /**
- * Every connected plan's limits in one line, the way a menu bar shows them: a
- * plan's small mark, then the tightest share left for each window length or
- * name with its tag, shortest first, with a count for grouped limits. Plans sit
- * side by side in name order and wrap only when the line runs out. Figures stay
- * neutral until a limit is low; the spoken summary names every limit.
+ * Every connected plan as one compact chip: its mark, then the share left of
+ * the window that will block it first, over a bar of the same share. Chips sit
+ * side by side in name order and wrap rather than cut anything short. A plan's
+ * name and that window's tag show on first use and on a long press; the
+ * spoken summary always names every limit.
  */
 function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: boolean }) {
     const { theme } = useUnistyles();
     return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 8, rowGap: 1 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
             {plans.map((plan) => {
-                const tags = figureTags(plan.figures);
+                const { name, cell } = bindingLimit(plan);
                 return (
-                    <View key={plan.provider.id} style={{ flexDirection: namesVisible ? 'column' : 'row', flexWrap: 'wrap', maxWidth: '100%', alignItems: namesVisible ? 'flex-start' : 'center', gap: namesVisible ? 0 : 4, width: namesVisible ? '100%' : undefined }}>
+                    <View key={plan.provider.id} style={[cardStyle(theme), { flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: '100%', borderRadius: ui.radius.control, paddingHorizontal: 8, paddingVertical: 6 }]}>
                         <AgentGlyph name={plan.provider.glyph ?? plan.provider.id} size={MARK} />
-                        {plan.figures.map((figure, index) => (
-                            <View key={figure.name} style={{ flexDirection: 'row', alignItems: 'baseline', maxWidth: '100%' }}>
-                                <Text style={{ fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
-                                <Text style={{ marginLeft: namesVisible ? 4 : 0.5, flexShrink: 1, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`${namesVisible ? figure.name : tags[index]}${figure.cells.length > 1 ? `×${figure.cells.length}` : ''}`}</Text>
+                        <View style={{ flexShrink: 1, minWidth: CHIP_METER, gap: 4 }}>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 4 }}>
+                                {namesVisible && <Text style={{ fontSize: CHIP_SIZE, lineHeight: FIGURE_LINE, color: theme.colors.text, ...Typography.default('semiBold') }}>{plan.provider.label}</Text>}
+                                <Text style={{ fontSize: CHIP_SIZE, lineHeight: FIGURE_LINE, fontVariant: ['tabular-nums'], ...Typography.default('semiBold'), color: figureColor(theme, cell) }}>{`${cell.left}%`}</Text>
+                                {namesVisible && <Text style={{ fontSize: CHIP_SIZE, lineHeight: FIGURE_LINE, color: theme.colors.textSecondary, ...Typography.default() }}>{name}</Text>}
                             </View>
-                        ))}
+                            <Meter ratio={cell.left / 100} />
+                        </View>
                     </View>
                 );
             })}
         </View>
     );
-}
-
-function figureTags(figures: LimitFigure[]): string[] {
-    const names = figures.map(({ name }) => name.replace(/\s*·\s*Limit$/i, ''));
-    const bound = (name: string) => name.length <= 6 ? name : `${name.slice(0, 5)}…`;
-    const base = names.map(bound);
-    const tags = base.map((tag, index) => {
-        const colliding = names.filter((_, other) => base[other] === tag);
-        if (colliding.length === 1) return tag;
-        let prefix = colliding[0]!;
-        for (const name of colliding) while (!name.startsWith(prefix)) prefix = prefix.slice(0, -1);
-        return bound(names[index]!.slice(prefix.length).replace(/^[\s·._-]+/, '') || names[index]!);
-    });
-    const used = new Set<string>();
-    for (const { index } of figures.map(({ name }, index) => ({ name, index })).sort((a, b) => a.name.localeCompare(b.name))) {
-        let tag = tags[index]!;
-        if (tags.filter((value) => value === tag).length > 1 || used.has(tag)) {
-            let suffix = 1;
-            do {
-                const ending = `…${suffix++}`;
-                tag = `${names[index]!.slice(0, Math.max(0, 6 - ending.length))}${ending}`;
-            } while (used.has(tag) || tags.includes(tag));
-            tags[index] = tag;
-        }
-        used.add(tag);
-    }
-    return tags;
 }
 
 function figureColor(theme: ReturnType<typeof useUnistyles>['theme'], cell: LimitCell): string {
