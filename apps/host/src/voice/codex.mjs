@@ -192,8 +192,9 @@ async function readCodexCredential() {
     let file;
     try {
         [root, file] = await Promise.all([lstat(codexHome), lstat(authFile)]);
-    } catch {
-        throw signInError('Codex ChatGPT login is unavailable. Run codex login.', 'missing');
+    } catch (error) {
+        const reason = error?.code === 'EACCES' || error?.code === 'EPERM' ? 'credential-permissions' : 'missing';
+        throw signInError('Codex ChatGPT login is unavailable. Run codex login.', reason);
     }
     const owner = typeof process.getuid === 'function' ? process.getuid() : file.uid;
     if (!root.isDirectory() || root.isSymbolicLink() || (root.mode & 0o022) !== 0
