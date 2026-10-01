@@ -173,70 +173,73 @@ describe('session sync flow', () => {
         const { TerminalRoute } = await import('@/terminal/presentation/TerminalRoute');
         const { useActivityAcknowledgements } = await import('@/herd/application/useActivityAcknowledgements');
         hostSync.activityHook = useActivityAcknowledgements;
-        const dir = mkdtempSync(join(tmpdir(), 'muxr-pi-consumer-'));
-        const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
-        const machine = generateKeyPair();
-        const signing = generateSigningKeyPair();
-        const phone = generateKeyPair();
-        const crypto = {
-            signingPublicKey: signing.publicKey, signingSecretKey: signing.secretKey,
-            boxPublicKey: machine.publicKey, boxSecretKey: machine.secretKey,
-            dataKey: Buffer.alloc(32).toString('base64'), keyVersion: 1,
-            devices: [{ deviceId: 'fixture-phone', expiresAt: new Date(Date.now() + 60_000).toISOString(),
-                devicePublicKey: phone.publicKey, ingressKey: 'fixture', authority: 'control' as const }],
-        };
-        const routeA = 'fixture-pi-a';
-        const routeB = 'fixture-pi-b';
-        const message = 'Pi is not installed on Umer. Install Pi in a terminal on Umer, then try again.';
-        const pane = (paneId: string, sessionId: string, promptable = false): HerdrTreePane => ({
-            paneId, tabId: 'fixture-tab', sessionId, focused: true,
-            agentKind: 'pi', agentName: 'Maria', agentStatus: promptable ? 'idle' : 'starting', promptable,
-        });
-        let panes = [pane('fixture-pane-a', routeA), pane('fixture-pane-b', routeB)];
-        const workspaces = (): HerdrTreeWorkspace[] => [{ workspaceId: 'fixture-workspace', focused: true,
-            agentStatus: 'idle', tabs: [{ tabId: 'fixture-tab', focused: true, agentStatus: 'idle', panes }] }];
-        let bootstrap: Array<{ sessionId: string; event: SessionEvent }> = [];
+        let dir: string | undefined;
+        let relay: Awaited<ReturnType<typeof startRelay>> | undefined;
+        let endpoint: Awaited<ReturnType<typeof LinkEndpoint.open>>;
+        let screen: TestRenderer.ReactTestRenderer | undefined;
         let helloCount = 0;
         let connected = false;
         let hostStatus = 'connecting';
-        const endpoint = await LinkEndpoint.open({
-            relayUrl: `ws://127.0.0.1:${relay.port}/relay`,
-            ownerToken: JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')),
-            machineId: 'machine', machineName: 'Umer', crypto, currentCrypto: () => crypto,
-            savePushLevel: () => undefined, grants: { load: () => [], save: () => undefined },
-            canView: () => false,
-            onStatus: (status) => { hostStatus = status; },
-            onDeviceConnection: (_device, active) => { connected = active; },
-            answer: async (frame) => {
-                if (frame.type === 'machine.hello') {
-                    helloCount++;
-                    for (const fixture of bootstrap) endpoint!.broadcast({ type: 'session.event', ...fixture });
-                    return { type: 'result', requestId: frame.requestId, ok: true, data: machineHello('machine', '0.2.0') };
-                }
-                if (frame.type === 'herdr.tree') {
-                    return { type: 'result', requestId: frame.requestId, ok: true, data: { workspaces: workspaces(), connected: true } };
-                }
-                throw new Error(`Unexpected baseline request: ${frame.type}`);
-            },
-        });
-        let screen: TestRenderer.ReactTestRenderer | undefined;
-        let acknowledgements: ReturnType<typeof useActivityAcknowledgements> | undefined;
-        function Consumer({ id }: { id: string }) {
-            acknowledgements = useActivityAcknowledgements();
-            return React.createElement(TerminalRoute, { id });
-        }
         const act = TestRenderer.act;
-        const renderedRoute = () => screen!.root.findByType('terminal-screen').props.id;
-        const unread = () => unseenActivityRows(storage.getState().lifecycleEvents, acknowledgements!.seenEventIds);
-        const reconnect = async () => {
-            const previous = helloCount;
-            await vi.waitFor(() => expect(connected).toBe(true), { timeout: 3_000 });
-            realSync.invalidateCatalog();
-            await vi.waitFor(() => expect(connected).toBe(false));
-            await act(async () => { await realSync.refreshHerdTree(); });
-            await vi.waitFor(() => expect(helloCount).toBe(previous + 1));
-        };
         try {
+            dir = mkdtempSync(join(tmpdir(), 'muxr-pi-consumer-'));
+            relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
+            const machine = generateKeyPair();
+            const signing = generateSigningKeyPair();
+            const phone = generateKeyPair();
+            const crypto = {
+                signingPublicKey: signing.publicKey, signingSecretKey: signing.secretKey,
+                boxPublicKey: machine.publicKey, boxSecretKey: machine.secretKey,
+                dataKey: Buffer.alloc(32).toString('base64'), keyVersion: 1,
+                devices: [{ deviceId: 'fixture-phone', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+                    devicePublicKey: phone.publicKey, ingressKey: 'fixture', authority: 'control' as const }],
+            };
+            const routeA = 'fixture-pi-a';
+            const routeB = 'fixture-pi-b';
+            const message = 'Pi is not installed on Umer. Install Pi in a terminal on Umer, then try again.';
+            const pane = (paneId: string, sessionId: string, promptable = false): HerdrTreePane => ({
+                paneId, tabId: 'fixture-tab', sessionId, focused: true,
+                agentKind: 'pi', agentName: 'Maria', agentStatus: promptable ? 'idle' : 'starting', promptable,
+            });
+            let panes = [pane('fixture-pane-a', routeA), pane('fixture-pane-b', routeB)];
+            const workspaces = (): HerdrTreeWorkspace[] => [{ workspaceId: 'fixture-workspace', focused: true,
+                agentStatus: 'idle', tabs: [{ tabId: 'fixture-tab', focused: true, agentStatus: 'idle', panes }] }];
+            let bootstrap: Array<{ sessionId: string; event: SessionEvent }> = [];
+            endpoint = await LinkEndpoint.open({
+                relayUrl: `ws://127.0.0.1:${relay.port}/relay`,
+                ownerToken: JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')),
+                machineId: 'machine', machineName: 'Umer', crypto, currentCrypto: () => crypto,
+                savePushLevel: () => undefined, grants: { load: () => [], save: () => undefined },
+                canView: () => false,
+                onStatus: (status) => { hostStatus = status; },
+                onDeviceConnection: (_device, active) => { connected = active; },
+                answer: async (frame) => {
+                    if (frame.type === 'machine.hello') {
+                        helloCount++;
+                        for (const fixture of bootstrap) endpoint!.broadcast({ type: 'session.event', ...fixture });
+                        return { type: 'result', requestId: frame.requestId, ok: true, data: machineHello('machine', '0.2.0') };
+                    }
+                    if (frame.type === 'herdr.tree') {
+                        return { type: 'result', requestId: frame.requestId, ok: true, data: { workspaces: workspaces(), connected: true } };
+                    }
+                    throw new Error(`Unexpected baseline request: ${frame.type}`);
+                },
+            });
+            let acknowledgements: ReturnType<typeof useActivityAcknowledgements> | undefined;
+            function Consumer({ id }: { id: string }) {
+                acknowledgements = useActivityAcknowledgements();
+                return React.createElement(TerminalRoute, { id });
+            }
+            const renderedRoute = () => screen!.root.findByType('terminal-screen').props.id;
+            const unread = () => unseenActivityRows(storage.getState().lifecycleEvents, acknowledgements!.seenEventIds);
+            const reconnect = async () => {
+                const previous = helloCount;
+                await vi.waitFor(() => expect(connected).toBe(true), { timeout: 3_000 });
+                realSync.invalidateCatalog();
+                await vi.waitFor(() => expect(connected).toBe(false));
+                await act(async () => { await realSync.refreshHerdTree(); });
+                await vi.waitFor(() => expect(helloCount).toBe(previous + 1));
+            };
             expect(endpoint).toBeDefined();
             endpoint!.start();
             await vi.waitFor(() => expect(hostStatus).toBe('online'), { timeout: 5_000 });
@@ -316,8 +319,8 @@ describe('session sync flow', () => {
             hostSync.publicLink = false;
             hostSync.grant = undefined;
             endpoint?.close();
-            await relay.close();
-            rmSync(dir, { recursive: true, force: true });
+            await relay?.close();
+            if (dir) rmSync(dir, { recursive: true, force: true });
         }
     });
 
