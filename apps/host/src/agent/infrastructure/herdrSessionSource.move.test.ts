@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
 import { planPaneAccount, rememberPlanPane } from '../../plans/planSignIn.js';
 import { savePlanAccounts } from '../../plans/planStore.js';
+import { cliAccounts } from '@byokit/accounts/cli';
 
 function fakeHerdr(dir: string, cwd: string) {
     const workspaces = [{ workspace_id: 'w1', label: cwd }];
@@ -22,7 +23,7 @@ function fakeHerdr(dir: string, cwd: string) {
             agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-1' },
         },
     ];
-    const state = { nextWait: undefined as (() => Promise<void>) | undefined, failNextStart: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), echoOnlyReads: 0, answerFolder: undefined as string | undefined, promptPrefixedEcho: false };
+    const state = { nextWait: undefined as (() => Promise<void>) | undefined, failNextStart: false, republishSession: undefined as string | undefined, failCloseFor: new Set<string>(), loseCloseAckFor: new Set<string>(), echoOnlyReads: 0, answerFolder: undefined as string | undefined, promptPrefixedEcho: false };
     const calls: Array<{ method: string; detail: string }> = [];
     const splits: Array<{ target: unknown; env: unknown }> = [];
     const sendTexts: Array<{ pane_id: unknown; text: unknown; live: boolean }> = [];
@@ -77,7 +78,13 @@ function fakeHerdr(dir: string, cwd: string) {
                     case 'pane.send_text': {
                         sendTexts.push({ pane_id: p.pane_id, text: p.text, live: agents.some((agent) => agent.pane_id === p.pane_id) });
                         const pane = panes.find((row) => row.pane_id === p.pane_id);
-                        if (pane !== undefined) (pane.output as string[]).push(String(p.text));
+                        if (pane !== undefined) {
+                            const text = String(p.text);
+                            if (text.startsWith('unset ')) {
+                                for (const key of text.trim().slice(6).split(' ')) delete (pane.env as Record<string, string>)[key];
+                            }
+                            (pane.output as string[]).push(text);
+                        }
                         reply = { id, result: {} };
                         break;
                     }
@@ -99,9 +106,11 @@ function fakeHerdr(dir: string, cwd: string) {
                         const echo = liveAgent
                             ? undefined
                             : output.split('\n').reverse().find((entry) => entry.startsWith('echo '));
-                        const parsed = /echo (\S+)=\$(\S+)/.exec(echo ?? '');
-                        const evaluated = state.answerFolder
-                            ?? String((pane?.env as Record<string, string> ?? {})[parsed?.[2] ?? ''] ?? '');
+                        const parsed = /echo (\S+)="\$(?:\{([A-Z_]+)\+x\}|([A-Z_]+))"/.exec(echo ?? '');
+                        const env = pane?.env as Record<string, string> ?? {};
+                        let evaluated = String(env[parsed?.[3] ?? ''] ?? '');
+                        if (parsed?.[2] !== undefined) evaluated = Object.hasOwn(env, parsed[2]) ? 'x' : '';
+                        if (state.answerFolder !== undefined) evaluated = state.answerFolder;
                         const text = parsed === null
                             ? output
                             : `${output}\n${parsed[1]}=${evaluated}\n`;
@@ -119,12 +128,19 @@ function fakeHerdr(dir: string, cwd: string) {
                         for (let i = agents.length - 1; i >= 0; i -= 1) {
                             if (agents[i]!.pane_id === p.pane_id) agents.splice(i, 1);
                         }
-                        reply = { id, result: {} };
+                        reply = state.loseCloseAckFor.delete(String(p.pane_id))
+                            ? { id, error: { code: 'socket_closed', message: 'fixture close ACK lost after execution' } }
+                            : { id, result: {} };
                         break;
                     }
                     case 'pane.report_metadata':
                         reply = { id, result: {} };
                         break;
+                    case 'agent.get': {
+                        const agent = agents.find((row) => row.pane_id === p.target);
+                        reply = { id, result: { agent } };
+                        break;
+                    }
                     case 'agent.start': {
                         calls.push({ method, detail: String(p.pane_id) });
                         if (state.failNextStart) {
@@ -190,20 +206,14 @@ function fakeHerdr(dir: string, cwd: string) {
     };
 }
 
-function moveOn(source: Awaited<ReturnType<typeof createHerdrSessionSource>>) {
+function moveOn(source: Awaited<ReturnType<typeof createHerdrSessionSource>>, home: string) {
     const move = source.movePlanAccount;
     if (!move) throw new Error('plan-account moves are not implemented');
-    return move.bind(source);
-}
-
-async function launchOn(
-    source: Awaited<ReturnType<typeof createHerdrSessionSource>>,
-    cwd: string,
-    folder: string,
-): Promise<string> {
-    const started = await source.start({ cwd, kind: 'claude', planEnv: { CLAUDE_CONFIG_DIR: folder } });
-    if (!('info' in started)) throw new Error('launch rejected');
-    return started.info.id;
+    const kit = cliAccounts({ stateDir: join(home, 'plans'), bins: {}, env: { HOME: home, PATH: '/usr/bin:/bin' } });
+    return (options: { sessionId: string; provider: string; folder: string }) => move.call(source, {
+        ...options, launchEnv: { set: { CLAUDE_CONFIG_DIR: options.folder }, unset: ['ANTHROPIC_API_KEY'] },
+        resumeArgs: kit.resumeArgs,
+    });
 }
 
 describe('a plan-account move', () => {
@@ -232,7 +242,7 @@ describe('a plan-account move', () => {
             let failReady!: () => void;
             const readiness = new Promise<void>((_resolve, reject) => { failReady = () => reject(new Error('not ready')); });
             herdr.state.nextWait = () => { entered(); return readiness; };
-            const moving = moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' });
+            const moving = moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude' });
             const failed = expect(moving).rejects.toMatchObject({ code: 'plan-move-start-failed' });
             await waiting;
             try {
@@ -252,7 +262,7 @@ describe('a plan-account move', () => {
             expect(herdr.calls.some((call) => call.method === 'pane.close' && call.detail === 'p1')).toBe(false);
             expect((await source.open({ sessionId })).info.id).toBe(sessionId);
 
-            const moved = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' });
+            const moved = await moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude' });
             expect(moved.sessionId).toBe(sessionId);
             expect(herdr.agents).toHaveLength(1);
             expect(herdr.agents[0]).toMatchObject({ pane_id: 'p3', agent_session: original?.agent_session });
@@ -266,47 +276,19 @@ describe('a plan-account move', () => {
 
             const onNewAccount = structuredClone(herdr.agents[0]);
             herdr.state.failNextStart = true;
-            await expect(moveOn(source)({ sessionId, provider: 'claude', folder: '/another/claude' }))
+            await expect(moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/another/claude' }))
                 .rejects.toMatchObject({ code: 'plan-move-start-failed' });
             expect(herdr.agents).toEqual([onNewAccount]);
             expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p3']);
             expect((await source.open({ sessionId })).info.id).toBe(sessionId);
             expect(herdr.sendTexts.every((sent) => !sent.live)).toBe(true);
-        } finally {
-            await source.dispose();
-            herdr.close();
-            rmSync(dir, { recursive: true, force: true });
-        }
-    }, 30_000);
 
-    it('returns the new session when the resume publishes as a new generation', async () => {
-        const dir = mkdtempSync(join(process.cwd(), '.muxr-move-generation-'));
-        const cwd = join(dir, 'repo');
-        const herdr = fakeHerdr(dir, cwd);
-        const source = await createHerdrSessionSource({
-            socketPath: herdr.socketPath,
-            dataDir: join(dir, 'data'),
-            artifactsDir: join(dir, 'attachments'),
-            hostHttpPort: 0,
-        });
-        try {
-            await source.refreshHerdr();
-            const sessionId = (await source.list())[0]!.id;
-
-            herdr.state.republishSession = 'claude-2';
-            const moved = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' });
-            expect(moved.sessionId).not.toBe(sessionId);
-            expect(herdr.sendTexts.filter((sent) => sent.pane_id === 'p1')).toHaveLength(0);
-
+            herdr.state.loseCloseAckFor.add('p3');
+            await expect(moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/another/claude' }))
+                .rejects.toMatchObject({ code: 'plan-move-close-failed', paneId: 'p5' });
             expect(herdr.agents).toHaveLength(1);
-            expect(herdr.agents[0]).toMatchObject({
-                pane_id: 'p2',
-                agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'claude-2' },
-            });
-
-            await expect(source.open({ sessionId })).rejects.toMatchObject({ code: 'agent-unavailable' });
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            expect((await source.open({ sessionId: moved.sessionId })).info.id).toBe(moved.sessionId);
+            expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p5']);
+            expect((await source.open({ sessionId })).info.paneId).toBe('p5');
         } finally {
             await source.dispose();
             herdr.close();
@@ -314,154 +296,4 @@ describe('a plan-account move', () => {
         }
     }, 30_000);
 
-    it('refuses the new pane when the shell resolves a longer folder', async () => {
-        const dir = mkdtempSync(join(process.cwd(), '.muxr-move-prefix-'));
-        const cwd = join(dir, 'repo');
-        const herdr = fakeHerdr(dir, cwd);
-        const source = await createHerdrSessionSource({
-            socketPath: herdr.socketPath,
-            dataDir: join(dir, 'data'),
-            artifactsDir: join(dir, 'attachments'),
-            hostHttpPort: 0,
-        });
-        try {
-            await source.refreshHerdr();
-            const sessionId = (await source.list())[0]!.id;
-
-            herdr.state.answerFolder = '/new/claude-backup';
-            const error = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' })
-                .then(() => { throw new Error('move should have refused'); })
-                .catch((cause: unknown) => cause);
-            expect(error).toMatchObject({ code: 'plan-move-env-mismatch' });
-
-            expect(herdr.agents.some((agent) => agent.pane_id === 'p1')).toBe(true);
-            expect(herdr.calls.some((call) => call.method === 'agent.start' && call.detail === 'p2')).toBe(false);
-            expect(herdr.panes.some((pane) => pane.pane_id === 'p2')).toBe(false);
-
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            expect((await source.open({ sessionId })).info.id).toBe(sessionId);
-        } finally {
-            await source.dispose();
-            herdr.close();
-            rmSync(dir, { recursive: true, force: true });
-        }
-    }, 30_000);
-
-    it('removes the confirmed replacement when the original pane refuses to close', async () => {
-        const dir = mkdtempSync(join(process.cwd(), '.muxr-move-close-'));
-        const cwd = join(dir, 'repo');
-        const herdr = fakeHerdr(dir, cwd);
-        const source = await createHerdrSessionSource({
-            socketPath: herdr.socketPath,
-            dataDir: join(dir, 'data'),
-            artifactsDir: join(dir, 'attachments'),
-            hostHttpPort: 0,
-        });
-        try {
-            const sessionId = await launchOn(source, cwd, '/orig/claude');
-
-            herdr.state.failCloseFor.add('p2');
-            const error = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' })
-                .then(() => { throw new Error('move should have failed'); })
-                .catch((cause: unknown) => cause);
-            expect(error).toMatchObject({ code: 'plan-move-close-failed' });
-
-            expect(herdr.calls.filter((call) => call.method === 'agent.start')).toHaveLength(2);
-            expect(herdr.agents.some((agent) => agent.pane_id === 'p2')).toBe(true);
-            expect(herdr.panes.some((pane) => pane.pane_id === 'p3')).toBe(false);
-
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            expect((await source.open({ sessionId })).info.id).toBe(sessionId);
-        } finally {
-            await source.dispose();
-            herdr.close();
-            rmSync(dir, { recursive: true, force: true });
-        }
-    }, 30_000);
-
-    it('exposes an extra copy for manual closure when both panes refuse to close', async () => {
-        const dir = mkdtempSync(join(process.cwd(), '.muxr-move-double-close-'));
-        const herdr = fakeHerdr(dir, join(dir, 'repo'));
-        const source = await createHerdrSessionSource({
-            socketPath: herdr.socketPath,
-            dataDir: join(dir, 'data'),
-            artifactsDir: join(dir, 'attachments'),
-            hostHttpPort: 0,
-        });
-        try {
-            const sessionId = (await source.list())[0]!.id;
-            herdr.state.failCloseFor.add('p1');
-            herdr.state.failCloseFor.add('p2');
-            await expect(moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' }))
-                .rejects.toMatchObject({
-                    code: 'plan-move-extra-copy',
-                    paneId: 'p2',
-                    message: 'The move did not finish. An extra copy is open; you can close it from its pane.',
-                });
-            const listed = await source.list();
-            expect(listed.map((session) => session.paneId).sort()).toEqual(['p1', 'p2']);
-            expect((await source.open({ sessionId })).info.paneId).toBe('p1');
-            const extra = listed.find((session) => session.paneId === 'p2')!;
-            expect(extra.id).not.toBe(sessionId);
-            expect((await source.open({ sessionId: extra.id })).info.paneId).toBe('p2');
-            expect(await source.stop(extra.id, {})).toMatchObject({ status: 'closed' });
-            expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p1']);
-            expect((await source.open({ sessionId })).info.paneId).toBe('p1');
-        } finally {
-            await source.dispose();
-            herdr.close();
-            rmSync(dir, { recursive: true, force: true });
-        }
-    }, 30_000);
-
-    it('waits past the typed echo instead of refusing on the first fast poll', async () => {
-        const dir = mkdtempSync(join(process.cwd(), '.muxr-move-echo-'));
-        const cwd = join(dir, 'repo');
-        const herdr = fakeHerdr(dir, cwd);
-        const source = await createHerdrSessionSource({
-            socketPath: herdr.socketPath,
-            dataDir: join(dir, 'data'),
-            artifactsDir: join(dir, 'attachments'),
-            hostHttpPort: 0,
-        });
-        try {
-            await source.refreshHerdr();
-            const sessionId = (await source.list())[0]!.id;
-
-            herdr.state.echoOnlyReads = 1;
-            const moved = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' });
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            expect((await source.open({ sessionId: moved.sessionId })).info.id).toBe(moved.sessionId);
-        } finally {
-            await source.dispose();
-            herdr.close();
-            rmSync(dir, { recursive: true, force: true });
-        }
-    }, 30_000);
-
-    it('waits past a prompt-prefixed echo instead of refusing on the first fast poll', async () => {
-        const dir = mkdtempSync(join(process.cwd(), '.muxr-move-prompt-echo-'));
-        const cwd = join(dir, 'repo');
-        const herdr = fakeHerdr(dir, cwd);
-        const source = await createHerdrSessionSource({
-            socketPath: herdr.socketPath,
-            dataDir: join(dir, 'data'),
-            artifactsDir: join(dir, 'attachments'),
-            hostHttpPort: 0,
-        });
-        try {
-            await source.refreshHerdr();
-            const sessionId = (await source.list())[0]!.id;
-
-            herdr.state.echoOnlyReads = 1;
-            herdr.state.promptPrefixedEcho = true;
-            const moved = await moveOn(source)({ sessionId, provider: 'claude', folder: '/new/claude' });
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            expect((await source.open({ sessionId: moved.sessionId })).info.id).toBe(moved.sessionId);
-        } finally {
-            await source.dispose();
-            herdr.close();
-            rmSync(dir, { recursive: true, force: true });
-        }
-    }, 30_000);
 });

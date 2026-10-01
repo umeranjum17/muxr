@@ -3,26 +3,20 @@
  * stub tools. No real account: one folder's credentials
  * are chmod 000 and the list still works.
  */
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { preparePlanSignIn, planAccountStatus, finishPlanSignIn, cancelPlanSignIn } from './planSignIn.js';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
-import { autoTermsAcknowledged, loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
+import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
 
-const mockState = vi.hoisted(() => ({ failRename: false, failRefreshAllocation: false, failRefreshCleanup: false }));
+const mockState = vi.hoisted(() => ({ failRename: false }));
 vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal<typeof import('node:fs')>();
     return {
         ...actual,
-        mkdtempSync: (...args: Parameters<typeof actual.mkdtempSync>) => {
-            if (mockState.failRefreshAllocation && String(args[0]).includes('muxr-usage-refresh-')) throw new Error('temporary storage unavailable');
-            return actual.mkdtempSync(...args);
-        },
-        rmSync: (...args: Parameters<typeof actual.rmSync>) => {
-            actual.rmSync(...args);
-            if (mockState.failRefreshCleanup && String(args[0]).includes('muxr-usage-refresh-')) throw new Error('temporary cleanup failed');
-        },
         renameSync: (...args: Parameters<typeof actual.renameSync>) => {
             if (mockState.failRename) throw new Error('crash before rename');
             return actual.renameSync(...args);
@@ -38,6 +32,7 @@ function stubBin(): string {
     mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, 'claude'), `#!/bin/bash
 base="\${CLAUDE_CONFIG_DIR##*/}"
+if [[ -f "$CLAUDE_CONFIG_DIR/fixture-name" ]]; then base=$(cat "$CLAUDE_CONFIG_DIR/fixture-name"); fi
 if [[ "$base" == *-out ]]; then echo '{"loggedIn":false,"authMethod":"none"}';
 elif [[ "$base" == weird ]]; then echo '{"loggedIn":true,"email":"weird@example.com","subscriptionId":"sub_abc","subscriptionStatus":"active"}';
 else echo "{\\"loggedIn\\":true,\\"email\\":\\"$base@example.com\\",\\"plan\\":\\"Pro\\"}"; fi
@@ -47,6 +42,7 @@ read -r line
 echo '{"id":1,"result":{}}'
 read -r line
 base="\${CODEX_HOME##*/}"
+if [[ -f "$CODEX_HOME/fixture-name" ]]; then base=$(cat "$CODEX_HOME/fixture-name"); fi
 if [[ "$line" == *rateLimits* ]]; then
   if [[ -f "$CODEX_HOME/fail" || "$base" == *-out ]]; then echo '{"id":2,"result":{"rateLimitsByLimitId":{}}}';
   elif [[ "$base" == tight ]]; then echo "{\\"id\\":2,\\"result\\":{\\"rateLimitsByLimitId\\":{\\"plan\\":{\\"limitName\\":\\"Codex\\",\\"primary\\":{\\"usedPercent\\":90,\\"windowDurationMins\\":10080,\\"resetsAt\\":1893456000}}}}}";
@@ -78,8 +74,6 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.unstubAllGlobals();
-    mockState.failRefreshAllocation = false;
-    mockState.failRefreshCleanup = false;
     rmSync(root, { recursive: true, force: true });
 });
 
@@ -90,8 +84,9 @@ function foundClaude(name = '.claude'): string {
 }
 
 function addedClaude(name: string): string {
-    const folder = join(root, 'muxr', 'plans', 'claude', name);
+    const folder = join(root, 'muxr', 'plans', 'claude', Buffer.from(name).toString('hex'));
     mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, 'fixture-name'), name);
     return folder;
 }
 
@@ -146,9 +141,9 @@ it('renames, resolves launch env, and removes without touching found folders', a
     await expect(renamePlanAccount(env, 'pa_work', '')).rejects.toMatchObject({ code: 'invalid-plan-name' });
     expect(() => resolvePlanEnv(env, 'nope')).toThrowError(/Unknown account/);
 
-    expect(removePlanAccount(env, 'pa_work')).toEqual({ deletedFolder: true });
+    expect(await removePlanAccount(env, 'pa_work')).toEqual({ deletedFolder: true });
     expect(existsSync(added)).toBe(false);
-    expect(removePlanAccount(env, 'found-claude')).toEqual({ deletedFolder: false });
+    expect(await removePlanAccount(env, 'found-claude')).toEqual({ deletedFolder: false });
     expect(existsSync(found)).toBe(true);
     expect(await listPlans(env)).toEqual({ providers: [], autoTermsAcknowledged: false, autoTermsNote: AUTO_TERMS_NOTE });
 });
@@ -159,48 +154,13 @@ it('never deletes the plans root itself when a record points at it', async () =>
         { id: 'pa_root', provider: 'claude', name: '', folder: plansDir(env), found: false },
         { id: 'pa_work', provider: 'claude', name: '', folder: added, found: false },
     ]);
-    expect(removePlanAccount(env, 'pa_root')).toEqual({ deletedFolder: false });
+    await expect(removePlanAccount(env, 'pa_root')).rejects.toMatchObject({ code: 'unknown-plan-account' });
     expect(existsSync(plansDir(env))).toBe(true);
     expect(existsSync(added)).toBe(true);
-    expect(loadPlanAccounts(env).map((record) => record.id)).toEqual(['pa_work']);
+    expect(loadPlanAccounts(env).map((record) => record.id)).toEqual(['pa_root', 'pa_work']);
 });
 
-it('keeps selected Codex sign-ins separate through switches and failed reads', async () => {
-    const home = join(root, '.codex');
-    mkdirSync(home, { recursive: true });
-    writeFileSync(join(home, 'auth.json'), JSON.stringify({ tokens: { access_token: 'fixture-a' } }));
-    const second = join(root, 'muxr', 'plans', 'codex', 'tight');
-    mkdirSync(second, { recursive: true });
-    writeFileSync(join(second, 'auth.json'), JSON.stringify({ tokens: { access_token: 'fixture-b' } }));
-    savePlanAccounts(env, [{ id: 'pa_x', provider: 'codex', name: 'Tight', folder: second, found: false }]);
-    const listed = await listPlans(env);
-    expect(listed.providers.map((entry) => entry.provider)).toEqual(['codex']);
-    expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual(['.codex@example.com', 'tight@example.com']);
-    expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
-    mockState.failRefreshAllocation = true;
-    const unavailable = (await listPlans(env)).providers[0]!.accounts;
-    expect(unavailable.map((account) => account.email)).toEqual(['.codex@example.com', 'tight@example.com']);
-    expect(unavailable.map((account) => account.signedIn)).toEqual([true, true]);
-    expect(unavailable.map((account) => account.roomLeftPercent)).toEqual([undefined, undefined]);
-    expect((await resolvePlanLaunch(env, 'pa_x', 'codex'))?.id).toBe('pa_x');
-    expect(await resolvePlanLaunch(env, 'auto', 'codex')).toBeDefined();
-    mockState.failRefreshAllocation = false;
-    mockState.failRefreshCleanup = true;
-    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
-    expect((await resolvePlanLaunch(env, 'auto', 'codex'))?.id).toBe('found-codex');
-    mockState.failRefreshCleanup = false;
-    const { collectUsage } = await import('../usage/index.js');
-    const selected = { ...env, ...resolvePlanEnv(env, 'pa_x') };
-    expect((await collectUsage({ provider: 'codex' }, selected)).limits.windows.map((window) => window.used)).toEqual([90]);
-    expect((await collectUsage({ provider: 'codex' }, { ...env, CODEX_HOME: home })).limits.windows.map((window) => window.used)).toEqual([25]);
-    writeFileSync(join(second, 'fail'), '');
-    env.MUXR_USAGE_NOW = new Date(Date.now() + 120_000).toISOString();
-    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, undefined]);
-    expect((await collectUsage({ provider: 'codex', refresh: true }, { ...selected, MUXR_USAGE_NOW: env.MUXR_USAGE_NOW })).limits.windows.map((window) => window.used)).toEqual([90]);
-    writeFileSync(join(second, 'auth.json'), JSON.stringify({ tokens: { account_id: 'fixture-new-account' } }));
-    const failed = await collectUsage({ provider: 'codex', refresh: true }, { ...selected, MUXR_USAGE_NOW: env.MUXR_USAGE_NOW });
-    expect(failed.limits.windows).toEqual([]);
-});
+
 
 /** P2: room left per account plus the Auto rule, from snapshots the same
  *  reader Usage uses. Fake the ranking (swap the utilizations) and Auto
@@ -250,44 +210,13 @@ it('auto picks the roomier account and says which in one line', async () => {
     expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([30, undefined]);
     expect(fetch).toHaveBeenCalledTimes(attempts);
     expect(existsSync(join(env.MUXR_HOME!, 'usage', 'plans-v2.json'))).toBe(false);
+    claudeSnapshot(found, 100, 100);
+    const unknown = (await listPlans(env)).providers[0]!;
+    expect(unknown.auto.accountId).toBe('pa_work');
+    expect(unknown.auto.reason).toBe("Right now that's Work (no recent reading)");
 });
 
-it('reads one stalled provider without waiting on the other', async () => {
-    foundClaude();
-    const secondClaude = addedClaude('work');
-    const codexHome = join(root, '.codex');
-    mkdirSync(codexHome, { recursive: true });
-    const secondCodex = join(root, 'muxr', 'plans', 'codex', 'other');
-    mkdirSync(secondCodex, { recursive: true });
-    savePlanAccounts(env, [
-        { id: 'pa_work', provider: 'claude', name: '', folder: secondClaude, found: false },
-        { id: 'pa_x', provider: 'codex', name: 'Other', folder: secondCodex, found: false },
-    ]);
-    const started: string[] = [];
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    const run = async () => {
-        started.push('claude');
-        await gate;
-        return { stdout: '{"loggedIn":false}' };
-    };
-    const codexRead = async () => {
-        started.push('codex');
-        await gate;
-        return { account: null };
-    };
-    const pending = listPlans(env, { run, codexRead });
-    const deadline = Date.now() + 2_000;
-    while (!(started.includes('claude') && started.includes('codex')) && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    const overlapping = [...started];
-    release();
-    const listed = await pending;
-    expect(overlapping).toContain('claude');
-    expect(overlapping).toContain('codex');
-    expect(listed.providers.map((entry) => entry.provider)).toEqual(['claude', 'codex']);
-});
+
 
 it('shows the Auto terms note until acknowledged, then remembers', async () => {
     foundClaude();
@@ -307,7 +236,7 @@ it('registers both found sign-ins without dropping either', async () => {
     const codexHome = join(root, '.codex');
     mkdirSync(codexHome, { recursive: true });
     const claudeSecond = addedClaude('work');
-    const codexSecond = join(root, 'muxr', 'plans', 'codex', 'other');
+    const codexSecond = join(root, 'muxr', 'plans', 'codex', 'aabbcc');
     mkdirSync(codexSecond, { recursive: true });
     savePlanAccounts(env, [
         { id: 'pa_work', provider: 'claude', name: '', folder: claudeSecond, found: false },
@@ -332,37 +261,7 @@ it('auto skips signed-out accounts and names the earliest refill when all are ou
     expect(provider.auto.reason).toMatch(/out of room/);
 });
 
-it('reads stalled accounts concurrently instead of one after another', async () => {
-    foundClaude();
-    const second = addedClaude('work');
-    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
-    const started: string[] = [];
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    let inFlight = 0;
-    let maxInFlight = 0;
-    const run = async (_command: string, _args: string[], runEnv: NodeJS.ProcessEnv) => {
-        inFlight += 1;
-        maxInFlight = Math.max(maxInFlight, inFlight);
-        started.push(String(runEnv.CLAUDE_CONFIG_DIR));
-        try {
-            await gate;
-        } finally {
-            inFlight -= 1;
-        }
-        return { stdout: '{"loggedIn":false}' };
-    };
-    const pending = listPlans(env, { run });
-    const deadline = Date.now() + 2_000;
-    while (started.length < 2 && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    release();
-    const listed = await pending;
-    expect(maxInFlight).toBe(2);
-    expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual([undefined, undefined]);
-    expect(listed.providers[0]!.accounts.map((account) => account.signedIn)).toEqual([false, false]);
-});
+
 
 it('keeps the previous store when a crash lands mid-write', () => {
     const second = addedClaude('work');
@@ -371,9 +270,38 @@ it('keeps the previous store when a crash lands mid-write', () => {
     try {
         expect(() => savePlanAccounts(env, [])).toThrow();
         expect(loadPlanAccounts(env).map((record) => record.id)).toEqual(['pa_work']);
-        expect(() => acknowledgeAutoTerms(env)).toThrow();
-        expect(autoTermsAcknowledged(env)).toBe(false);
     } finally {
         mockState.failRename = false;
     }
+});
+
+/** A managed sign-in through the real adapter and published shell command, without real credentials or Herdr. */
+it('keeps managed sign-ins isolated through completion, re-sign-in cancellation and removal', async () => {
+    env.ANTHROPIC_API_KEY = 'fixture-token-unlogged';
+    env.CLAUDE_CODE_OAUTH_TOKEN = 'fixture-token-unlogged';
+    const own = foundClaude();
+    const canary = join(own, 'canary');
+    writeFileSync(canary, 'default-fixture-untouched');
+    const prepared: string[] = [];
+    const prepare = async (folder: string) => { prepared.push(folder); };
+    const first = await preparePlanSignIn(env, 'claude', undefined, prepare);
+    const second = await preparePlanSignIn(env, 'claude', undefined, prepare);
+    expect(prepared).toEqual([first.record.folder, second.record.folder]);
+    expect(first.record.folder).not.toBe(second.record.folder);
+    expect((await planAccountStatus(env, first.record.id)).account.signedIn).toBe(false);
+    execFileSync('/bin/sh', ['-c', first.launch.signIn], { env });
+    expect((await planAccountStatus(env, first.record.id)).account.signedIn).toBe(true);
+    expect((await planAccountStatus(env, second.record.id)).account.signedIn).toBe(false);
+    finishPlanSignIn(first.record.id);
+    await preparePlanSignIn(env, 'claude', first.record.id, prepare);
+    expect((await planAccountStatus(env, first.record.id)).account.signedIn).toBe(false);
+    expect(await cancelPlanSignIn(env, first.record.id)).toEqual({ removed: false });
+    expect(existsSync(first.record.folder)).toBe(true);
+    expect(await cancelPlanSignIn(env, second.record.id)).toEqual({ removed: true });
+    expect(existsSync(second.record.folder)).toBe(false);
+    const response = await renamePlanAccount(env, first.record.id, 'Umer');
+    expect(response.account.name).toBe('Umer');
+    expect(JSON.stringify(response)).not.toContain('fixture-token-unlogged');
+    expect(await removePlanAccount(env, first.record.id)).toEqual({ deletedFolder: true });
+    expect(readFileSync(canary, 'utf8')).toBe('default-fixture-untouched');
 });

@@ -1,80 +1,45 @@
-/**
- * Adding a Plan Account, or signing one in again: a private folder muxr owns,
- * and the provider's own tool opened on it in a new tab, where the person
- * signs in themselves. muxr never sees a password or key: it only asks the
- * tool whether the folder is signed in now (`planIdentity.ts`).
- *
- * Which account each running agent is on is remembered here too, so the
- * phone can say "On Personal" and offer a move to the others.
- */
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+/** muxr owns sign-in tabs and pane/account bookkeeping. Each sign-in attempt owns a kit instance. */
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PlanAccount } from '@trymuxr/contract';
-import { claudeIdentity, codexIdentity } from './planIdentity.js';
-import { suggestPlanName, resolvePlanRecord } from './plansApi.js';
-import {
-    defaultPlanFolder,
-    loadPlanAccounts,
-    newPlanAccountId,
-    PLAN_LABELS,
-    plansDir,
-    savePlanAccounts,
-    type PlanAccountRecord,
-    type PlanProvider,
-} from './planStore.js';
+import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRecord, type PlanPreparation } from './planAccounts.js';
+import { loadPlanAccounts, PLAN_LABELS, plansDir } from './planStore.js';
 
-const execFileAsync = promisify(execFile);
+// A completed attempt releases its kit: a later re-sign-in must not inherit add's cancel ownership.
+const attempts = new Map<string, { kit: ReturnType<typeof planAccounts>; created: boolean }>();
+const signInTabs = new Map<string, { paneId: string; created: boolean }>();
+const signInOperations = new Map<string, Promise<unknown>>();
 
-const SHARED_WITH_MAIN: Record<PlanProvider, string[]> = {
-    claude: ['projects'],
-    codex: ['sessions'],
-};
-
-/** A fresh sign-in space, or the account's own to sign in again. */
-export async function preparePlanSignIn(
-    env: NodeJS.ProcessEnv,
-    provider: string,
-    accountId?: string,
-): Promise<{ record: PlanAccountRecord; created: boolean }> {
+export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string, accountId?: string, prepare?: PlanPreparation) {
     if (provider !== 'claude' && provider !== 'codex') {
         throw Object.assign(new Error('Only Claude and ChatGPT accounts can be added.'), { code: 'plan-provider-unsupported' });
     }
-    if (accountId !== undefined) {
-        const record = resolvePlanRecord(env, accountId);
-        if (record.provider !== provider) throw Object.assign(new Error('That account belongs to another provider.'), { code: 'plan-kind-mismatch' });
-        return { record, created: false };
-    }
-    const folder = join(plansDir(env), provider, randomBytes(8).toString('hex'));
-    mkdirSync(folder, { recursive: true, mode: 0o700 });
+    const prior = accountId === undefined ? undefined : attempts.get(accountId);
+    const kit = prior?.kit ?? planAccounts(env, prepare);
     try {
-        for (const entry of SHARED_WITH_MAIN[provider]) {
-            const main = join(defaultPlanFolder(provider, env), entry);
-            mkdirSync(main, { recursive: true, mode: 0o700 });
-            symlinkSync(main, join(folder, entry));
+        let id = accountId;
+        let signIn;
+        if (id === undefined) {
+            const added = await kit.add(provider);
+            id = added.account.id;
+            signIn = added.signIn;
+        } else {
+            const record = resolvePlanRecord(env, id);
+            if (record.provider !== provider) {
+                throw Object.assign(new Error('That account belongs to another provider.'), { code: 'plan-kind-mismatch' });
+            }
+            signIn = kit.signInAgain(id);
         }
-        const folderVar = provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
-        await execFileAsync('herdr', ['integration', 'install', provider], {
-            env: { ...env, [folderVar]: folder },
-            timeout: 15_000,
-            maxBuffer: 64 * 1024,
-        });
-    } catch {
-        rmSync(folder, { recursive: true, force: true });
-        throw Object.assign(new Error("Couldn't prepare the account's Herdr hooks. Try again."), { code: 'plan-integration-failed' });
-    }
-    const record: PlanAccountRecord = { id: newPlanAccountId(), provider, name: '', folder, found: false };
-    savePlanAccounts(env, [...loadPlanAccounts(env), record]);
-    return { record, created: true };
+        const created = accountId === undefined || prior?.created === true;
+        attempts.set(id, { kit, created });
+        return { record: resolvePlanRecord(env, id), created, launch: {
+            kind: 'shell', label: `Sign in · ${PLAN_LABELS[provider]}`, signIn: signIn.shell,
+            planEnv: kit.launchEnv(id).set,
+        } };
+    } catch (error) { return planError(error); }
 }
 
-/** Tracks the tab and folder ownership for `plans.cancel` (see RequestMap).
- *  In memory only; a restarted host leaves the tab to the person. */
-const signInTabs = new Map<string, { paneId: string; created: boolean; completionPath: string }>();
-const signInOperations = new Map<string, Promise<unknown>>();
-
+/** The lock owns the tab operation, beyond the kit's per-account mutations. */
 export function withPlanSignIn<T>(accountId: string, action: () => Promise<T>): Promise<T> {
     const result = (signInOperations.get(accountId) ?? Promise.resolve()).then(action, action);
     signInOperations.set(accountId, result);
@@ -83,55 +48,29 @@ export function withPlanSignIn<T>(accountId: string, action: () => Promise<T>): 
     });
 }
 
-export function rememberSignInTab(accountId: string, paneId: string, created: boolean, completionPath: string): void {
-    signInTabs.set(accountId, { paneId, created, completionPath });
+export function rememberSignInTab(accountId: string, paneId: string, created: boolean): void {
+    signInTabs.set(accountId, { paneId, created });
 }
 
-export function signInTab(accountId: string) {
-    return signInTabs.get(accountId);
-}
+export function signInTab(accountId: string) { return signInTabs.get(accountId); }
 
 export function forgetSignInTab(accountId: string, paneId: string): void {
-    const tab = signInTabs.get(accountId);
-    if (tab?.paneId !== paneId) return;
-    rmSync(tab.completionPath, { force: true });
-    signInTabs.delete(accountId);
+    if (signInTabs.get(accountId)?.paneId === paneId) signInTabs.delete(accountId);
 }
 
-export function planSignInLaunch(env: NodeJS.ProcessEnv, record: PlanAccountRecord): { completionPath: string; launch: { kind: string; label: string; signIn: string; planEnv: Record<string, string> } } {
-    mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
-    const completionPath = join(plansDir(env), `signin-${randomBytes(12).toString('hex')}`);
-    const quotedPath = "'" + completionPath.replaceAll("'", "'\\''") + "'";
-    const login = record.provider === 'claude' ? 'claude auth login --claudeai' : 'codex login --device-auth';
-    return {
-        completionPath,
-        launch: {
-            kind: 'shell',
-            label: `Sign in · ${PLAN_LABELS[record.provider]}`,
-            signIn: `${login} && (umask 077; printf complete > ${quotedPath})`,
-            planEnv: record.provider === 'claude' ? { CLAUDE_CONFIG_DIR: record.folder } : { CODEX_HOME: record.folder },
-        },
-    };
+export function finishPlanSignIn(accountId: string): void { attempts.delete(accountId); }
+
+export async function cancelPlanSignIn(env: NodeJS.ProcessEnv, accountId: string): Promise<{ removed: boolean }> {
+    try { return await (attempts.get(accountId)?.kit ?? planAccounts(env)).cancel(accountId); }
+    catch (error) { return planError(error); }
+    finally { attempts.delete(accountId); }
 }
 
-/** The account as its tool reports it right now: the phone polls this while
- *  the person signs in, and moves on once it reads signed in. */
 export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: string): Promise<{ account: PlanAccount }> {
     const record = resolvePlanRecord(env, accountId);
-    const identity = record.provider === 'claude'
-        ? await claudeIdentity(record.folder, env)
-        : await codexIdentity(record.folder, env);
-    return {
-        account: {
-            id: record.id,
-            provider: record.provider,
-            name: record.name.trim() === '' ? suggestPlanName(identity.email, record.provider) : record.name,
-            ...(identity.email === undefined ? {} : { email: identity.email }),
-            ...(identity.plan === undefined ? {} : { plan: identity.plan }),
-            ...(record.found ? { foundOnComputer: true as const } : {}),
-            signedIn: identity.signedIn && (signInTabs.get(accountId) === undefined || existsSync(signInTabs.get(accountId)!.completionPath)),
-        },
-    };
+    if (record.found) return { account: await defaultAccount(record, env, {}) };
+    try { return { account: fromCliAccount(await (attempts.get(accountId)?.kit ?? planAccounts(env)).status(accountId)) }; }
+    catch (error) { return planError(error); }
 }
 
 function panesPath(env: NodeJS.ProcessEnv): string {
