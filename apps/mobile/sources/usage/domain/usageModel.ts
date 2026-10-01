@@ -81,9 +81,16 @@ export function limitPlans(providers: readonly UsageConnectedProvider[]): LimitP
  *  left of all a plan's windows. A tie goes to the longer window, which keeps its
  *  plan blocked for longer. */
 export function bindingLimit(plan: LimitPlan): { name: string; cell: LimitCell } {
-    const rank = (cell: LimitCell) => cell.tone === 'danger' ? -1 : cell.left;
     let binding = { name: plan.figures[0]!.name, cell: plan.figures[0]!.cells[0]! };
-    for (const { name, cells } of plan.figures) for (const cell of cells) if (rank(cell) <= rank(binding.cell)) binding = { name, cell };
+    for (const { name, cells } of plan.figures) for (const cell of cells) {
+        const candidateIsDanger = cell.tone === 'danger';
+        const bindingIsDanger = binding.cell.tone === 'danger';
+        const candidateIsMoreUrgent = candidateIsDanger !== bindingIsDanger
+            ? candidateIsDanger
+            : cell.left < binding.cell.left
+                || cell.left === binding.cell.left && lengthInMinutes(name) >= lengthInMinutes(binding.name);
+        if (candidateIsMoreUrgent) binding = { name, cell };
+    }
     return binding;
 }
 

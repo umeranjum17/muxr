@@ -1075,6 +1075,20 @@ describe('the usage screen read path', () => {
         // A window the plan already refuses work on binds before a lower one that still serves.
         week({ used: 70, pace: 'limited' }, Date.now() + 2);
         expect(chips()[2]).toEqual({ text: [['30%', 'tone:danger']], bar: 0.3 });
+        const rolling = (used: number, pace: 'on pace' | 'limited', at: number) => TestRenderer.act(() => { rememberShown('', { status: 'figures', at, figures: withNow(undefined, {
+            ...now,
+            connected: now.connected!.map((provider) => provider.id === 'opencode'
+                ? { ...provider, windows: provider.windows.map((window) => window.label === 'Rolling' ? { ...window, used, pace } : window) }
+                : provider),
+        }) }); });
+        // An exhausted shorter window binds before a later refusing window with more left.
+        rolling(100, 'on pace', Date.now() + 3);
+        expect(chips()[2]).toEqual({ text: [['0%', 'tone:danger']], bar: 0 });
+        // Equal exhausted shares bind to the longer refusing window.
+        week({ used: 100, pace: 'limited' }, Date.now() + 4);
+        expect(chips()[2]!.text).toEqual([['0%', 'tone:danger']]);
+        TestRenderer.act(() => { cardButton().props.onLongPress(); });
+        expect(chips()[2]!.text).toEqual([['OpenCode', '#fff'], ['0%', 'tone:danger'], ['7d', '#999']]);
     });
 
     it('shows connected limits even when the selected plan has no windows', async () => {
