@@ -175,6 +175,7 @@ function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: 
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 4 }}>
                                 {namesVisible && <Text style={{ fontSize: CHIP_SIZE, lineHeight: FIGURE_LINE, color: theme.colors.text, ...Typography.default('semiBold') }}>{plan.provider.label}</Text>}
                                 <Text style={{ fontSize: CHIP_SIZE, lineHeight: FIGURE_LINE, fontVariant: ['tabular-nums'], ...Typography.default('semiBold'), color: figureColor(theme, cell) }}>{`${cell.left}%`}</Text>
+                                {cell.window.pace === 'limited' && cell.left > 0 && <Text style={{ fontSize: CHIP_SIZE, lineHeight: FIGURE_LINE, color: figureColor(theme, cell), ...Typography.default() }}>{t('plugins.limits.paceLimited')}</Text>}
                                 {namesVisible && <Text style={{ fontSize: CHIP_SIZE, lineHeight: FIGURE_LINE, color: theme.colors.textSecondary, ...Typography.default() }}>{name}</Text>}
                             </View>
                             <Meter ratio={cell.left / 100} />

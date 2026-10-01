@@ -1074,7 +1074,10 @@ describe('the usage screen read path', () => {
         expect(chips()[2]!.text).toEqual([['8%', 'tone:warning']]);
         // A window the plan already refuses work on binds before a lower one that still serves.
         week({ used: 70, pace: 'limited' }, Date.now() + 2);
-        expect(chips()[2]).toEqual({ text: [['30%', 'tone:danger']], bar: 0.3 });
+        expect(chips()[2]).toEqual({ text: [['30%', 'tone:danger'], ['plugins.limits.paceLimited', 'tone:danger']], bar: 0.3 });
+        TestRenderer.act(() => { cardButton().props.onLongPress(); });
+        expect(chips()[2]!.text).toEqual([['OpenCode', '#fff'], ['30%', 'tone:danger'], ['plugins.limits.paceLimited', 'tone:danger'], ['7d', '#999']]);
+        TestRenderer.act(() => { cardButton().props.onPress(); });
         const rolling = (used: number, pace: 'on pace' | 'limited', at: number) => TestRenderer.act(() => { rememberShown('', { status: 'figures', at, figures: withNow(undefined, {
             ...now,
             connected: now.connected!.map((provider) => provider.id === 'opencode'
