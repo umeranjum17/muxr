@@ -116,6 +116,15 @@ repair the dev loop.
 
 ## Toolchain
 
+The committed Gradle 9.0.0 wrapper matches the
+[React Native 0.83.1 template](https://github.com/react-native-community/template/blob/0.83.1/template/android/gradle/wrapper/gradle-wrapper.properties).
+`patches/@react-native+gradle-plugin+0.83.1.patch` updates that plugin's Foojay
+resolver convention from 0.5.0 to 1.0.0 during the root `yarn install` postinstall.
+[Foojay 1.0.0 supports Gradle 9 and requires Java 17+](https://github.com/gradle/foojay-toolchains#foojay-toolchains-plugin);
+the older resolver references `JvmVendorSpec.IBM_SEMERU`, which
+[Gradle 9 removed](https://docs.gradle.org/current/userguide/upgrading_major_version_9.html).
+Keep this patch when restoring dependencies or regenerating the native prebuild.
+
 | Requirement | Version used |
 |---|---|
 | Node.js | 22+ |
