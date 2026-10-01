@@ -188,7 +188,7 @@ pickers) in the UI.
 operation (`pairDevice.mjs` exports `pairDevice`). It accepts a small command
 object, orchestrates domain entities and ports, and returns an explicit result.
 No `services/`, `handlers/`, or `*Service.mjs` folders. CLI commands, React
-hooks, socket handlers, and plugin `rpc.mjs` / `stream.mjs` files are thin
+hooks, socket handlers, and plugin `rpc.mjs` files are thin
 adapters that invoke named use cases. Herdr plugin entry files stay at the
 plugin root.
 

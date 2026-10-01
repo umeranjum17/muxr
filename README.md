@@ -38,7 +38,7 @@ muxr is the control surface built natively for the phone: the full agent lifecyc
 
 ### A real terminal, built for thumbs
 
-Open the same live terminal the agent owns on your computer, with native Ghostty rendering, scrollback, and sticky modifier keys. A floating control and a key row you can reorder keep actions within reach, and the composer keeps attachments and dictation beside the prompt. When a blocked Claude Code or Codex agent shows numbered answers, tap one instead of finding its key. Tap a printed link to open, copy, or insert it into the prompt.
+Open the same live terminal the agent owns on your computer, with native Ghostty rendering, scrollback, and sticky modifier keys. A floating control and a key row you can reorder keep actions within reach, and the composer keeps attachments and dictation beside the prompt. When a blocked Claude Code or Codex agent shows numbered answers, tap one instead of finding its key. Tap a printed web link to open, copy, or insert it into the prompt; tap a file path to copy it, or insert it when controlling the agent.
 
 After scrolling back, tap **Latest** to return toward the live output. Update the host alongside the app to use this control. **Still catching up** means the host has not established completion; tap again to retry. Typing, scrolling, or refreshing the terminal clears that pending feedback.
 
@@ -216,7 +216,7 @@ muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already run
 
 ## Extensions
 
-Add phone-native controls, screens, files, diffs, metrics, shortcuts, and realtime streams through the public extension API.
+Add phone-native controls, screens, files, diffs, metrics, and shortcuts through the public extension API.
 
 [Extension guide →](https://trymuxr.com/docs/plugins)
 
