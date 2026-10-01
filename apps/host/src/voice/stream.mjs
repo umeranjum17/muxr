@@ -8,6 +8,7 @@
  */
 import { createInterface } from 'node:readline';
 import { appBridge, realtimeEngine, toolBridge } from '@byokit/realtime/node';
+import { REALTIME_PLANNING_DETAIL } from '@trymuxr/contract';
 import { codexAccess, codexDelegate, DELEGATE_TOOL, DELEGATION_FAILURE, PROMPT as CODEX_PROMPT } from './codex.mjs';
 import { RUN_DEADLINE_MS } from './codexDelegation.mjs';
 import { appControlInstructions, INTERNAL_REFERENCES, isExplicitHangup, voiceCoordinationInstructions, workspaceContext } from './coordinatorPolicy.mjs';
@@ -88,7 +89,7 @@ async function main() {
         // Tools a delegation plans run on their own bridge: the delegate call's
         // bridge already reports thinking and awaits the spoken answer.
         const actions = toolBridge({ emit: () => undefined, tools: voiceTools, handlers, timeoutFor: voiceToolTimeout, failure: voiceToolFailure });
-        delegation = codexDelegate({ open, actions });
+        delegation = codexDelegate({ open, actions, onPlanning: () => bridge.state('thinking', REALTIME_PLANNING_DETAIL) });
         bridge = toolBridge({
             emit, tools: [DELEGATE_TOOL], handlers: { delegate: delegation.delegate },
             timeoutFor: () => RUN_DEADLINE_MS, failure: () => DELEGATION_FAILURE,
