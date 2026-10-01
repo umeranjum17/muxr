@@ -1,7 +1,7 @@
 import { MAX_REALTIME_TEXT_BYTES, realtimeClient, type AudioPorts } from '@byokit/realtime';
 import { webRtcPeer } from '@byokit/realtime/webrtc';
 import { isVoiceServiceReady, releaseVoiceAudio, routeVoiceAudio, startVoiceService } from '@/../modules/voice-overlay';
-import { refreshPluginStreamSnapshot } from '@/plugins/openPluginStream';
+import { refreshRealtimeStreamSnapshot } from '../infrastructure/realtimeStream';
 import { createRealtimePlayback } from '@/playback';
 import { reportEnergy, resetEnergy } from './audioEnergy';
 import { captureVoiceStreamSnapshot, openVoiceStream } from './openVoiceStream';
@@ -67,7 +67,7 @@ export function startRealtimeSession(options: {
     };
     const client = realtimeClient({
         open: async () => {
-            const current = await refreshPluginStreamSnapshot(await snapshot);
+            const current = await refreshRealtimeStreamSnapshot(await snapshot);
             snapshot = Promise.resolve(current);
             return openVoiceStream({ sessionId: target.sessionId, snapshot: current });
         },

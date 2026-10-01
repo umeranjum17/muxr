@@ -463,7 +463,7 @@ describe('generic realtime stream session', () => {
 
     it('sends a report queued behind playback once the provider clears it, even while muted', async () => {
         const stream = fakeStream();
-        mocks.openStream.mockResolvedValue(asPluginStream(stream));
+        mocks.openStream.mockResolvedValue(asRealtimeStream(stream));
         const handle = startRealtimeSession({ target: { machineId: 'machine-a', sessionId: 's1' }, onStatus: vi.fn(), onTurn: vi.fn() });
         await vi.waitFor(() => expect(mocks.openStream).toHaveBeenCalledOnce());
         stream.frames.forEach((listener) => listener({ type: 'realtime.ready', inputRate: 24_000, outputRate: 24_000 }));
