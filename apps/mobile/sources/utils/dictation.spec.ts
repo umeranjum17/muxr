@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
     modalAlert: vi.fn(),
     permission: vi.fn(),
     showDenied: vi.fn(),
+    dictationModel: 'multilingual',
+    dictationLanguage: 'fr' as string | null,
     liveAudio: { init: vi.fn(), start: vi.fn(), stop: vi.fn(), on: vi.fn() },
     // A stand-in for whisper.cpp: it hears one word per half second of
     // speech, plus a guess at a word cut off mid-way that differs on every
@@ -60,7 +62,11 @@ const WORDS = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
 vi.mock('whisper.rn', () => ({ initWhisper: vi.fn(async () => ({ transcribeData: mocks.transcribe, release: mocks.releases })) }));
 vi.mock('@/utils/dictationModels', () => ({ BUNDLED_DICTATION_MODEL_ID: 'base', getInstalledDictationModelUri: () => null }));
 vi.mock('@/utils/dictationModelFiles', () => ({ getBundledDictationModelUri: async () => 'file:///bundled-dictation.bin' }));
-vi.mock('@/catalog/application/persistence', () => ({ loadLocalSettings: () => ({ dictationWordReplacements: [{ from: 'four', to: '4' }] }) }));
+vi.mock('@/catalog/application/persistence', () => ({ loadLocalSettings: () => ({
+    dictationModel: mocks.dictationModel,
+    dictationLanguage: mocks.dictationLanguage,
+    dictationWordReplacements: [{ from: 'four', to: '4' }],
+}) }));
 vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.syncRequest } }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: '' }) }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
@@ -167,6 +173,8 @@ beforeEach(() => {
         'session-b': { id: 'session-b', activeAt: 2, updatedAt: 2 },
     };
     mocks.permission.mockResolvedValue({ granted: true, canAskAgain: true });
+    mocks.dictationModel = 'multilingual';
+    mocks.dictationLanguage = 'fr';
     mocks.liveAudio.init.mockResolvedValue(true);
     mocks.liveAudio.start.mockResolvedValue(true);
     mocks.liveAudio.stop.mockResolvedValue(true);

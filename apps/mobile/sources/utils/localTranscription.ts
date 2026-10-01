@@ -7,23 +7,26 @@ import { dictationMicrophone } from '@/utils/dictationMicrophone';
 
 const KEEP_WARM_MS = 3 * 60_000;
 const VOCABULARY_PROMPT = 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm.';
-let warm: { modelId: string; engine: ReturnType<typeof whisperRnEngine> } | null = null;
+let warm: { modelUri: string; multilingual: boolean; engine: ReturnType<typeof whisperRnEngine> } | null = null;
 let coolTimer: ReturnType<typeof setTimeout> | undefined;
 
 async function acquireEngine(modelId: string) {
     clearTimeout(coolTimer);
-    if (warm?.modelId === modelId) return warm.engine;
+    const installedModelUri = getInstalledDictationModelUri(modelId);
+    const modelUri = installedModelUri ?? await getBundledDictationModelUri();
+    const multilingual = installedModelUri !== null && modelId !== BUNDLED_DICTATION_MODEL_ID;
+    if (warm?.modelUri === modelUri) return warm;
     const previous = warm;
     warm = null;
     await previous?.engine.release();
     const engine = whisperRnEngine({
-        model: getInstalledDictationModelUri(modelId) ?? await getBundledDictationModelUri(),
-        multilingual: modelId !== BUNDLED_DICTATION_MODEL_ID,
+        model: modelUri,
+        multilingual,
         initWhisper,
         settings: { initialPrompt: VOCABULARY_PROMPT, beamSize: 5 },
     });
-    warm = { modelId, engine };
-    return engine;
+    warm = { modelUri, multilingual, engine };
+    return warm;
 }
 
 function coolEngine(): void {
@@ -47,11 +50,11 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
     onLevel: (level: number) => void;
 }): Promise<LiveTranscription> {
     const settings = loadLocalSettings();
-    const engine = await acquireEngine(settings.dictationModel || BUNDLED_DICTATION_MODEL_ID);
+    const selectedEngine = await acquireEngine(settings.dictationModel || BUNDLED_DICTATION_MODEL_ID);
     const mic = dictationMicrophone();
-    const handle = new Dictation({ engine, audio: mic.audio }).listen({
+    const handle = new Dictation({ engine: selectedEngine.engine, audio: mic.audio }).listen({
         onDeviceOnly: true,
-        languages: settings.dictationLanguage ? [settings.dictationLanguage] : undefined,
+        languages: selectedEngine.multilingual ? (settings.dictationLanguage ? [settings.dictationLanguage] : undefined) : ['en'],
         prompt: hint,
         replacements: Object.fromEntries(settings.dictationWordReplacements.map(({ from, to }) => [from, to])),
     });
