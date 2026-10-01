@@ -176,7 +176,7 @@ describe('session sync flow', () => {
         let dir: string | undefined;
         let relay: Awaited<ReturnType<typeof startRelay>> | undefined;
         let endpoint: Awaited<ReturnType<typeof LinkEndpoint.open>>;
-        let screen: TestRenderer.ReactTestRenderer | undefined;
+        let screen: ReturnType<typeof TestRenderer.create> | undefined;
         let helloCount = 0;
         let connected = false;
         let hostStatus = 'connecting';
@@ -230,7 +230,9 @@ describe('session sync flow', () => {
                 acknowledgements = useActivityAcknowledgements();
                 return React.createElement(TerminalRoute, { id });
             }
-            const renderedRoute = () => screen!.root.findByType('terminal-screen').props.id;
+            const renderedRoute = () => (screen!.root as {
+                findByType(type: string): { props: { id: string } };
+            }).findByType('terminal-screen').props.id;
             const unread = () => unseenActivityRows(storage.getState().lifecycleEvents, acknowledgements!.seenEventIds);
             const reconnect = async () => {
                 const previous = helloCount;
