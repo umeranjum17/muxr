@@ -194,3 +194,76 @@ export function plainLinkAtCell(
     if (at < 0 || at >= (rowAt(row)?.text.length ?? 0)) return null;
     return joinedTerminalUrlAt(rowAt, row, at);
 }
+
+/** One printed path character, as Ghostty's link regex spells it. */
+const PATH_CHAR = String.raw`[\w\-.~:\/?#@!$&*+;=%]`;
+
+/**
+ * Printed host paths in one terminal row: the path half of Ghostty's link
+ * regex (libghostty's url.zig), which is what native iOS detects on its own.
+ * GhosttyTerminalView.kt (Android, in patches/expo-libghostty+0.8.1.patch)
+ * carries the same source so every client taps the same paths;
+ * verifyNativePatches.mjs fails when the two differ. Its one change is a
+ * bounded `$VAR` look-behind, which Android's ICU regex requires. Like
+ * Ghostty it may keep the words after a path on the line;
+ * terminalPathCandidates drops them again.
+ */
+const TERMINAL_PATH_SOURCE = String.raw`(?:\.\.\/|\.\/|(?<!\w)~\/|(?:[\w][\w\-.]*\/)*(?<!\w)\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<![\w~\/])\/(?!\/))(?:(?=${PATH_CHAR}*\.)${PATH_CHAR}+(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)${PATH_CHAR}*[\/.])*(?<!:)(?: +(?= *$))?|(?!${PATH_CHAR}*\.)${PATH_CHAR}+(?:(?<!:) (?!\w+:\/\/)(?!\.{0,2}\/)(?!~\/)${PATH_CHAR}+)*(?<!:)(?: +(?= *$))?)|(?=${PATH_CHAR}*\.)(?<!\$\d{0,9})(?<!\w)[\w][\w\-.]*\/${PATH_CHAR}+(?<!:)(?: +(?= *$))?`;
+
+/** [start, end) string ranges of the host paths printed in one row. A URL's
+ *  own path belongs to the URL, so URLs are blanked out first. */
+export function terminalPathRanges(text: string): { start: number; end: number }[] {
+    const masked = text.replace(/[A-Za-z][\w+.-]*:\/\/\S*/g, (url) => ' '.repeat(url.length));
+    const ranges: { start: number; end: number }[] = [];
+    const pattern = new RegExp(TERMINAL_PATH_SOURCE, 'g');
+    for (let match = pattern.exec(masked); match !== null; match = pattern.exec(masked)) {
+        const end = match.index + match[0].trimEnd().length;
+        if (end > match.index) ranges.push({ start: match.index, end });
+        if (match[0].length === 0) pattern.lastIndex++;
+    }
+    return ranges;
+}
+
+/** Whether a tapped link names a host path (a printed path or a file: URL)
+ *  rather than a web address. */
+export function isTerminalPath(raw: string): boolean {
+    const text = raw.trim();
+    if (text.length === 0 || text.length > 2048) return false;
+    if (/^file:/i.test(text)) return true;
+    return !/^[A-Za-z][\w+.-]*:/.test(text) && text.includes('/');
+}
+
+/**
+ * The paths a tapped string may name, longest first. A file: URL is decoded
+ * and a `:line[:col]` suffix dropped. Ghostty keeps the words that follow a
+ * path on its line (`~/notes.md is ready`), while a folder name may itself
+ * hold a space, so each trailing word is dropped in turn and the host decides
+ * which candidate exists.
+ */
+export function terminalPathCandidates(raw: string): string[] {
+    let text = raw.trim();
+    if (/^file:/i.test(text)) {
+        text = text.replace(/^file:(?:\/\/[^/]*)?/i, '');
+        try {
+            text = decodeURIComponent(text);
+        } catch {
+            // Keep the undecoded path.
+        }
+    }
+    const words = text.split(' ');
+    const candidates: string[] = [];
+    const candidateAt = (count: number) => {
+        const candidate = words.slice(0, count).join(' ')
+            .replace(/(?::\d+){1,2}:?$/, '')
+            .replace(/[.,;:!?'"`)\]}>]+$/, '')
+            .trimEnd();
+        return candidate;
+    };
+    const complete = candidateAt(words.length);
+    if (complete !== '') candidates.push(complete);
+    for (let count = words.length - 1, trims = 0; count > 0 && trims < 6; count--, trims++) {
+        const candidate = candidateAt(count);
+        if (candidate !== '' && !candidates.includes(candidate)) candidates.push(candidate);
+    }
+    return candidates;
+}

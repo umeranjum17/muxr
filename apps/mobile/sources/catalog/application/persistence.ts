@@ -36,6 +36,7 @@ export interface NewSessionDraft {
     selectedMachineId: string | null;
     selectedPath: string | null;
     agentType: NewSessionAgentType;
+    agentTypeExplicit?: boolean;
     permissionMode: PermissionModeKey | null;
     modelMode: string | null;
     effortLevel: string | null;
@@ -203,6 +204,7 @@ export function loadNewSessionDraft(): NewSessionDraft | null {
             selectedMachineId,
             selectedPath,
             agentType,
+            agentTypeExplicit: parsed.agentTypeExplicit === true,
             permissionMode,
             modelMode,
             effortLevel,

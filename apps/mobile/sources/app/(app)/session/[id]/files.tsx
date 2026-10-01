@@ -20,7 +20,9 @@ type Preview = Awaited<ReturnType<typeof filesRead>>;
  * it, and an explicit root must be a repository open in some session.
  */
 export default function FilesScreen() {
-    const { id: sessionId, paneId: routedPaneId } = useLocalSearchParams<{ id: string; paneId?: string }>();
+    // A tapped terminal path opens here with its repository, folder, and file.
+    const { id: sessionId, paneId: routedPaneId, root: routedRoot, folder: routedFolder, file: routedFile } =
+        useLocalSearchParams<{ id: string; paneId?: string; root?: string; folder?: string; file?: string }>();
     const { theme } = useUnistyles();
     const originalSession = useSession(sessionId);
     const { workspaces } = useHerdrTree();
@@ -44,8 +46,8 @@ export default function FilesScreen() {
     const agentNotReady = agent?.agentKind !== undefined && agent.promptable === false;
     const waitingForAgent = session === null || agent?.agentStatus === 'starting' || agentNotReady;
     const [repos, setRepos] = React.useState<Repos | undefined>(undefined);
-    const [root, setRoot] = React.useState<string | undefined>(undefined);
-    const [path, setPath] = React.useState('');
+    const [root, setRoot] = React.useState<string | undefined>(routedRoot);
+    const [path, setPath] = React.useState(routedFolder ?? '');
     const [listing, setListing] = React.useState<Listing | undefined>(undefined);
     const [preview, setPreview] = React.useState<Preview | undefined>(undefined);
     const [loading, setLoading] = React.useState(true);
@@ -106,6 +108,13 @@ export default function FilesScreen() {
             })
             .finally(() => setLoading(false));
     }, [waitingForAgent, resolvedSessionId, root]);
+
+    const routedFileOpened = React.useRef(false);
+    React.useEffect(() => {
+        if (routedFile === undefined || routedFileOpened.current || waitingForAgent || root !== routedRoot) return;
+        routedFileOpened.current = true;
+        openPreview(routedFile);
+    }, [routedFile, routedRoot, root, waitingForAgent, openPreview]);
 
     if (waitingForAgent) {
         return <>
