@@ -67,7 +67,7 @@ async function providerRooms(provider: PlanProvider, env: NodeJS.ProcessEnv, dep
                 })), undefined, 'seconds');
             }
         }
-        return { account: { ...account, ...(room.left === 'unknown' ? {} : {
+        return { account: { ...account, provider, ...(room.left === 'unknown' ? {} : {
             roomLeftPercent: Math.round(room.left), roomLabel: roomWords(room),
         }) }, room };
     }));
