@@ -20,6 +20,9 @@ function fakeHerdr(dir: string) {
         agent_session: null,
         interactive_ready: null,
     };
+    const calls: Array<{ method: string; target: string | undefined }> = [];
+    const subscribers = new Set<Socket>();
+    let moveDuringPrompt = false;
     const server = createServer((socket: Socket) => {
         let buffer = '';
         socket.on('data', (chunk) => {
@@ -28,8 +31,11 @@ function fakeHerdr(dir: string) {
             buffer = lines.pop() ?? '';
             for (const line of lines) {
                 if (line.trim() === '') continue;
-                const { id, method } = JSON.parse(line) as { id: string; method: string };
+                const { id, method, params } = JSON.parse(line) as { id: string; method: string; params?: { target?: string } };
+                calls.push({ method, target: params?.target });
                 if (method === 'events.subscribe') {
+                    subscribers.add(socket);
+                    socket.once('close', () => subscribers.delete(socket));
                     socket.write(`${JSON.stringify({ id, result: {} })}\n`);
                     continue;
                 }
@@ -55,6 +61,19 @@ function fakeHerdr(dir: string) {
                         },
                     };
                 }
+                if (method === 'agent.prompt') {
+                    result = { type: 'agent_prompted', agent: { ...codex,
+                        terminal_id: 'codex-terminal', workspace_id: 'w1', tab_id: 'w1:t1',
+                        focused: false, revision: 1 } };
+                    if (moveDuringPrompt) {
+                        for (const subscriber of subscribers) subscriber.write(`${JSON.stringify({
+                            event: 'pane.moved', data: { previous_pane_id: codex.pane_id },
+                        })}\n`);
+                        // Let the real event sockets deliver the move before the receipt.
+                        setTimeout(() => socket.end(`${JSON.stringify({ id, result })}\n`), 25);
+                        continue;
+                    }
+                }
                 socket.end(`${JSON.stringify({ id, result })}\n`);
             }
         });
@@ -62,7 +81,7 @@ function fakeHerdr(dir: string) {
     });
     const socketPath = join(dir, 'herdr.sock');
     server.listen(socketPath);
-    return { socketPath, codex, close: () => server.close() };
+    return { socketPath, codex, calls, moveDuringPrompt: () => { moveDuringPrompt = true; }, close: () => server.close() };
 }
 
 describe('Codex without a Herdr agent_session', () => {
@@ -89,6 +108,31 @@ describe('Codex without a Herdr agent_session', () => {
             herdr.codex.agent_session = { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'codex-1' };
             await source.refreshHerdr();
             expect((await pane('w1:p2')).sessionId).toBe(codex.sessionId);
+
+            // Opening the live roster has already resolved the named agent. The
+            // prompt goes through the real source + kit with no duplicate reads.
+            herdr.calls.length = 0;
+            await source.prompt({ sessionId: codex.sessionId!, text: 'Check the build.' });
+            expect(herdr.calls.filter((call) => call.method === 'session.snapshot')).toHaveLength(0);
+            expect(herdr.calls.filter((call) => call.method === 'agent.prompt')).toEqual([
+                { method: 'agent.prompt', target: 'w1:p2' },
+            ]);
+
+            // A move while delivery is in flight cannot become a confirmed
+            // receipt for the old pane, even though Herdr accepted the prompt.
+            herdr.moveDuringPrompt();
+            await expect(source.prompt({ sessionId: codex.sessionId!, text: 'Continue.' }))
+                .rejects.toMatchObject({ code: 'prompt-outcome-unknown' });
+
+            // A different conversation in that pane must not receive a follow-up
+            // through the old route after the short freshness bound has elapsed.
+            herdr.codex.agent_session = { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'replacement' };
+            await new Promise((resolve) => setTimeout(resolve, 550));
+            herdr.calls.length = 0;
+            await expect(source.prompt({ sessionId: codex.sessionId!, text: 'Private follow-up.' }))
+                .rejects.toMatchObject({ code: 'prompt-not-sent' });
+            expect(herdr.calls.some((call) => call.method === 'session.snapshot')).toBe(true);
+            expect(herdr.calls.filter((call) => call.method === 'agent.prompt')).toHaveLength(0);
         } finally {
             await source.close();
             herdr.close();
