@@ -18,7 +18,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { bundleVoiceRuntime, packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, sealRelease, verifyRelease } from '../../release/index.mjs';
+import { packageInfoFromPath, packagePathFromInput, prepareChangelog, reportFiles, sealRelease, verifyRelease } from '../../release/index.mjs';
+import { bundleVoiceRuntime } from '../../release/application/bundleVoiceRuntime.mjs';
 
 const root = process.cwd();
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'p-')));
