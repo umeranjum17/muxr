@@ -72,17 +72,19 @@ vi.mock('@/hooks/useImagePicker', () => ({ useImagePicker: () => ({
     selectedImages: [], pickImages: vi.fn(), removeImage: vi.fn(), clearImages: vi.fn(),
 }) }));
 vi.mock('@/catalog/sync', () => ({ sync: { request: vi.fn(() => Promise.resolve(catalogResult)) } }));
-vi.mock('@/catalog', () => ({ resolveAgentCatalog: () => catalogResult }));
-vi.mock('../application/homeDockEnvironment', () => ({
-    applyWorktreeSelection: vi.fn(), currentDockAgent: () => ({ key: 'pi', name: 'Pi' }),
-    defaultAgentKind: (options: typeof catalogResult.options, preferred?: string) => {
-        const signedIn = options.filter((option) => option.availability === 'installed' && option.signedIn === 'yes' && option.kind !== 'pi');
-        return signedIn.find((option) => option.kind === preferred)?.kind ?? signedIn[0]?.kind ?? null;
-    },
-    listWorktreeOptions: () => Promise.resolve([]), projectDockOptions: () => [],
-    resolveDockOption: () => null, selectedWorktreeKey: () => null,
-    visibleDockAgents: () => [{ key: 'pi', name: 'Pi' }], worktreeDockOptions: () => [],
-}));
+vi.mock('@/catalog', () => ({ AGENT_TYPES: [], resolveAgentCatalog: () => catalogResult }));
+vi.mock('@/herd', () => ({ formatPathRelativeToHome: vi.fn() }));
+vi.mock('../application/worktree', () => ({ listWorktrees: vi.fn() }));
+vi.mock('../application/homeDockEnvironment', async (importOriginal) => {
+    const { defaultAgentKind } = await importOriginal<typeof import('../application/homeDockEnvironment')>();
+    return {
+        applyWorktreeSelection: vi.fn(), currentDockAgent: () => ({ key: 'pi', name: 'Pi' }),
+        defaultAgentKind,
+        listWorktreeOptions: () => Promise.resolve([]), projectDockOptions: () => [],
+        resolveDockOption: () => null, selectedWorktreeKey: () => null,
+        visibleDockAgents: () => [{ key: 'pi', name: 'Pi' }], worktreeDockOptions: () => [],
+    };
+});
 
 import { HomeDock } from './HomeDock';
 
