@@ -29,7 +29,7 @@ import { syncReconnect } from '@/catalog/sync';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
 import { HomeEmptyState } from './HomeEmptyState';
-import { HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
+import { BusyConnectingCard, HomeRecoveryCard, recoveryMode, useBusyConnecting } from './HomeRecoveryCard';
 import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
@@ -149,9 +149,14 @@ export const HerdView = React.memo(({
     // to the build default on a fresh install — only the persisted pairing
     // grants can tell "never paired" from "paired but the machine is off".
     const neverPaired = connection.mode === 'hosted' && hasPairedGrant === false;
+    // The link is still retrying with nothing wrong reported: a slow host, not a failure.
+    const busySince = connection.mode === 'hosted' && hasPairedGrant === true
+        && socketStatus.status === 'connecting' && socketStatus.error === null ? socketStatus.connectingSince : null;
+    // Past a short connect the busy card speaks for Home on its own.
+    const busy = useBusyConnecting(busySince);
     const hostOffline = connection.mode === 'hosted' && hasPairedGrant === true && attempted
         && (socketStatus.status === 'error' || socketStatus.status === 'disconnected'
-            || (socketStatus.status === 'connecting' && error !== null));
+            || (socketStatus.status === 'connecting' && error !== null && busySince === null));
     const runtimeOffline = connection.mode === 'hosted' && hasPairedGrant === true
         && socketStatus.status === 'connected' && herdrConnected === false;
     React.useEffect(() => {
@@ -190,7 +195,7 @@ export const HerdView = React.memo(({
             onRetry={() => void retryConnection()}
             onFeedback={setRecoveryFeedback}
         />
-    ) : null;
+    ) : busy && busySince !== null ? <BusyConnectingCard since={busySince} /> : null;
 
     // First paint draws the screen's known shape (design-system home.md §4):
     // three skeleton blocks at the gutter, no spinner.
@@ -246,15 +251,19 @@ export const HerdView = React.memo(({
                 <HomeNotices runtimeOffline={herdrConnected === false && !needsRecovery} machineName={machineName} />
                 {header}
                 {recoveryCard}
-                {!needsRecovery && searchQuery.trim() === '' && <LiveTerminalsRow
+                {!needsRecovery && !busy && searchQuery.trim() === '' && <LiveTerminalsRow
                     showZeroState={false}
                     visibilityTop={topContentInset}
                     visibilityBottomInset={bottomContentInset}
                 />}
                 {needsRecovery && (mode === 'host' || mode === 'runtime') ? (
                     <Text style={styles.quietLine}>Your terminals will reappear when the computer reconnects.</Text>
-                ) : needsRecovery ? null : searchQuery.trim() !== '' ? (
+                ) : needsRecovery || busySince !== null ? null : searchQuery.trim() !== '' ? (
                     <Text style={styles.quietLine}>{t('spacesTree.noMatches')}</Text>
+                ) : error !== null && connection.mode === 'hosted' && hasPairedGrant === true ? (
+                    // Connected to a paired computer that has not answered the tree
+                    // yet: the five-second refresh is already the way back.
+                    <Text style={styles.quietLine}>Your terminals have not loaded yet. muxr keeps asking your computer.</Text>
                 ) : error !== null ? (
                     <>
                         <HomeDiscoveryRows />
@@ -278,7 +287,7 @@ export const HerdView = React.memo(({
 
     return (
         <View style={styles.container}>
-            {error === null || needsRecovery ? null : (
+            {error === null || needsRecovery || busySince !== null ? null : (
                 <Text style={[styles.error, { color: theme.colors.status.error }]}>{error}</Text>
             )}
             <SpacesTree
@@ -295,7 +304,7 @@ export const HerdView = React.memo(({
                         visibilityTop={topContentInset}
                         visibilityBottomInset={bottomContentInset}
                     />}
-                    {noAgents && !needsRecovery && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
+                    {noAgents && !needsRecovery && !busy && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
                 </>}
                 topContentInset={topContentInset}
                 bottomContentInset={safeArea.bottom + bottomContentInset}
