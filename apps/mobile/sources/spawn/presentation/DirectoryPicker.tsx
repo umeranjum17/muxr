@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { sync } from '@/catalog/sync';
 import type { RequestResult } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
-import { basename, resolveListingTarget } from '@/utils/directoryPicker';
+import { basename, folderKey, resolveListingTarget } from '@/utils/directoryPicker';
 
 type Listing = RequestResult<'machine.listDir'>;
 
@@ -150,8 +150,6 @@ function parentOf(path: string): string {
     return slash > 0 ? trimmed.slice(0, slash) : '/';
 }
 
-const samePath = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
-
 /** A one-tap folder: an open workspace ("Open") or a recent one. */
 export interface DirectoryPlace {
     path: string;
@@ -250,6 +248,8 @@ export function DirectoryPicker({ value, onChange, places, room, onFocus, onBlur
         ? ROW_HEIGHT * MAX_VISIBLE_ROWS
         : Math.min(ROW_HEIGHT * MAX_VISIBLE_ROWS, Math.max(ROW_HEIGHT * 2, room - listY - 8));
     const shownPlaces = places.slice(0, MAX_PLACES);
+    // One mark for the one choice: the chosen row's, else the field's.
+    const chosenPlace = shownPlaces.some((place) => folderKey(place.path) === folderKey(value));
 
     const listBody = loading && listing === undefined ? (
         <View style={styles.loading}>
@@ -309,7 +309,7 @@ export function DirectoryPicker({ value, onChange, places, room, onFocus, onBlur
                         <Pressable onPress={finishBrowsing} hitSlop={10} accessibilityRole="button">
                             <Text style={styles.done}>Done</Text>
                         </Pressable>
-                    ) : exists === true ? (
+                    ) : exists === true && !chosenPlace ? (
                         <Ionicons name="checkmark" size={18} color={theme.colors.success} />
                     ) : null}
                 </View>
@@ -351,7 +351,7 @@ export function DirectoryPicker({ value, onChange, places, room, onFocus, onBlur
                 ) : (
                     <View>
                         {shownPlaces.map((place) => {
-                            const chosen = samePath(place.path, value);
+                            const chosen = folderKey(place.path) === folderKey(value);
                             return (
                                 <Pressable
                                     key={place.path}

@@ -27,6 +27,7 @@ import { Text } from '@/components/StyledText';
 import { Switch } from '@/components/Switch';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { DirectoryPicker, type DirectoryPlace } from '@/spawn/ui';
+import { wherePlaces } from '@/utils/directoryPicker';
 import {
     getCachedConnectionSettings,
 } from '@/connection';
@@ -344,14 +345,7 @@ export default function NewAgentScreen() {
 
     const styles = stylesheet;
     // Open workspaces first, then recent folders; the picker shows the first few.
-    const places: DirectoryPlace[] = [];
-    for (const workspace of workspaces) {
-        const path = workspaceJoinPath(workspace);
-        if (path !== undefined && !places.some((place) => place.path === path)) places.push({ path, note: 'Open' });
-    }
-    for (const path of settings.recentSessionCwds ?? []) {
-        if (!places.some((place) => place.path === path)) places.push({ path });
-    }
+    const places: DirectoryPlace[] = wherePlaces(workspaces.map(workspaceJoinPath), settings.recentSessionCwds ?? []);
 
     if (authorityLoading) {
         return (
