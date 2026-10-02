@@ -49,12 +49,8 @@ import { herdrPaneForSession, navigateToSession } from '@/herd';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
-<<<<<<< HEAD
 import { HomeEmptyState } from './HomeEmptyState';
 import { BusyConnectingCard, HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
-=======
-import { BusyConnectingCard, HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
->>>>>>> c85d35b1 (fix(mobile): keep connecting while a slow computer answers)
 
 
 const styles = StyleSheet.create((theme) => ({

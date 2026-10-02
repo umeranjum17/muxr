@@ -28,12 +28,8 @@ import { useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
-<<<<<<< HEAD
 import { HomeEmptyState } from './HomeEmptyState';
 import { BusyConnectingCard, HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
-=======
-import { BusyConnectingCard, HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
->>>>>>> c85d35b1 (fix(mobile): keep connecting while a slow computer answers)
 import { LiveTerminalsRow } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
@@ -258,7 +254,7 @@ export const HerdView = React.memo(({
                     visibilityTop={topContentInset}
                     visibilityBottomInset={bottomContentInset}
                 />}
-                {needsRecovery && (mode === 'host' || mode === 'runtime') ? (
+                {(needsRecovery && (mode === 'host' || mode === 'runtime')) || busySince !== null ? (
                     <Text style={styles.quietLine}>Your terminals will reappear when the computer reconnects.</Text>
                 ) : needsRecovery ? null : searchQuery.trim() !== '' ? (
                     <Text style={styles.quietLine}>{t('spacesTree.noMatches')}</Text>
@@ -285,7 +281,7 @@ export const HerdView = React.memo(({
 
     return (
         <View style={styles.container}>
-            {error === null || needsRecovery ? null : (
+            {error === null || needsRecovery || busySince !== null ? null : (
                 <Text style={[styles.error, { color: theme.colors.status.error }]}>{error}</Text>
             )}
             <SpacesTree
