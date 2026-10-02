@@ -461,10 +461,9 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         return () => clearTimeout(timer);
     }, [status]);
 
-    // An agent's browser or emulator the host can show. Native iOS has no live
-    // view to open yet, so it announces nothing.
+    // An agent's browser or emulator the host can show.
     const preview = usePreviewGate(props.id, session?.metadata?.preview, {
-        showable: desktopAvailable && Platform.OS !== 'ios' && !authorityLoading,
+        showable: desktopAvailable && !authorityLoading,
         live: shownStatus === 'live',
     });
     // Every way in grows the live view out of the chip, wherever the tap was.
