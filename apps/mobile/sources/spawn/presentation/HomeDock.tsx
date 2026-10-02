@@ -520,6 +520,7 @@ export const HomeDock = React.memo(({
     const worktreeKey = useNewSessionDraft((state) => state.worktreeKey);
     const setMachineId = useNewSessionDraft((state) => state.setMachineId);
     const setAgentType = useNewSessionDraft((state) => state.setAgentType);
+    const setDefaultAgentType = useNewSessionDraft((state) => state.setDefaultAgentType);
     const setPath = useNewSessionDraft((state) => state.setPath);
     const setSessionType = useNewSessionDraft((state) => state.setSessionType);
     const setWorktreeKey = useNewSessionDraft((state) => state.setWorktreeKey);
@@ -528,9 +529,10 @@ export const HomeDock = React.memo(({
     const [showMoreAgents, setShowMoreAgents] = React.useState(false);
     const [catalogCheck, setCatalogCheck] = React.useState(0);
     const agentSelectionInitialized = React.useRef(false);
-    const agentWasExplicitlySelected = React.useRef(false);
+    const agentWasExplicitlySelected = React.useRef(useNewSessionDraft.getState().agentTypeExplicit
+        && useNewSessionDraft.getState().preferredAgentType === 'shell');
     const automaticShell = React.useRef(false);
-    const savedAgent = React.useRef(agentType);
+    const savedAgent = React.useRef(useNewSessionDraft.getState().preferredAgentType);
     const machines = useAllMachines({ includeOffline: true });
     const sessions = useSessions();
     const connectionMachineId = getCachedConnectionSettings().machineId;
@@ -609,14 +611,14 @@ export const HomeDock = React.memo(({
             agentSelectionInitialized.current = true;
             const preferred = defaultAgentKind(resolved.options, savedAgent.current);
             automaticShell.current = preferred === null;
-            setAgentType((preferred ?? 'shell') as NewSessionAgentType);
+            setDefaultAgentType((preferred ?? 'shell') as NewSessionAgentType);
         }).catch(() => {
             if (!cancelled) {
                 setHostAgentKinds(null);
             }
         });
         return () => { cancelled = true; };
-    }, [socketStatus.status, catalogCheck, setAgentType]);
+    }, [socketStatus.status, catalogCheck, setDefaultAgentType]);
     // A fresh array each render re-renders the option list forever.
     const availableAgents = React.useMemo(
         () => visibleDockAgents(hostAgentKinds),
