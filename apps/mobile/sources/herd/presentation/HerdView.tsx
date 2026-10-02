@@ -253,7 +253,7 @@ export const HerdView = React.memo(({
                     visibilityBottomInset={bottomContentInset}
                 />}
             {!needsRecovery && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
-            {needsRecovery && (mode === 'host' || mode === 'runtime') ? (
+            {(needsRecovery && (mode === 'host' || mode === 'runtime')) || busySince !== null ? (
                 <Text style={styles.quietLine}>Your terminals will reappear when the computer reconnects.</Text>
             ) : needsRecovery ? null : error !== null ? (
                 <View style={styles.empty}>
@@ -277,7 +277,7 @@ export const HerdView = React.memo(({
 
     return (
         <View style={styles.container}>
-            {error === null || needsRecovery ? null : (
+            {error === null || needsRecovery || busySince !== null ? null : (
                 <Text style={[styles.error, { color: theme.colors.status.error }]}>{error}</Text>
             )}
             <SpacesTree
