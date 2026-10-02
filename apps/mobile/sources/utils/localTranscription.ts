@@ -6,7 +6,10 @@ import { getBundledDictationModelUri } from '@/utils/dictationModelFiles';
 import { dictationMicrophone } from '@/utils/dictationMicrophone';
 
 const KEEP_WARM_MS = 3 * 60_000;
-const VOCABULARY_PROMPT = 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm.';
+const VOCABULARY_PROMPT = 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm, Crewhouse, TakeOne, desklink, Opus, GPT 6.1 Sol, second mate, firstmate, pane.';
+// Phone room noise reads 0.003-0.005 RMS, over the kit's default speech gate, so live
+// readings started on silence and stuck on "[BLANK_AUDIO]". The final reads the whole take either way.
+const SPEECH_GATE_RMS = 0.015;
 let warm: { modelUri: string; multilingual: boolean; engine: ReturnType<typeof whisperRnEngine> } | null = null;
 let coolTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -23,7 +26,7 @@ async function acquireEngine(modelId: string) {
         model: modelUri,
         multilingual,
         initWhisper,
-        settings: { initialPrompt: VOCABULARY_PROMPT, beamSize: 5 },
+        settings: { initialPrompt: VOCABULARY_PROMPT, beamSize: 5, vad: { threshold: SPEECH_GATE_RMS } },
     });
     warm = { modelUri, multilingual, engine };
     return warm;
