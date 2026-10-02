@@ -1342,7 +1342,7 @@ index d90375a..85a34b9 100644
          case GHOSTTY_ACTION_PWD:
              let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb2..a8a95fb 100644
+index 3f3eeb2..350364e 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 @@ -25,9 +25,22 @@
@@ -1803,7 +1803,7 @@ index 3f3eeb2..a8a95fb 100644
 +            surface?.sendMousePos(x: Double(point.x), y: Double(point.y), mods: ghostty_input_mods_e(rawValue: 0))
 +            if let word = surface?.quicklookWord(), !word.word.isEmpty {
 +                // ponytail: one cell per character; wide (CJK/emoji) glyphs overshoot the word end.
-+                start = grid.cell(at: CGPoint(x: word.pointX + grid.cell.width / 2, y: word.pointY + grid.cell.height / 2))
++                start = grid.cell(at: CGPoint(x: CGFloat(word.pointX) + grid.cell.width / 2, y: CGFloat(word.pointY) + grid.cell.height / 2))
 +                let length = word.word.count
 +                let flat = start.row * grid.columns + start.column + max(length - 1, 0)
 +                end = .init(column: flat % grid.columns, row: min(flat / grid.columns, grid.rows - 1))
