@@ -38,7 +38,7 @@ const CONTROL = 20;
  * and a small refresh control ends the quiet line. The host's typed usage.now
  * method serves it without a plugin.
  */
-export function RightNowCard() {
+export function RightNowCard({ linkDown = false }: { linkDown?: boolean }) {
     const { theme } = useUnistyles();
     const router = useRouter();
     const [namesVisible, setNamesVisible] = React.useState(false);
@@ -47,6 +47,9 @@ export function RightNowCard() {
     const { display, failed, refreshing, throttledSeconds, refresh } = useUsageNow();
     const open = () => router.push('/usage');
     const caption = { color: theme.colors.textSecondary, fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE } as const;
+    // Home's connection state already says the computer is out of reach; the
+    // strip keeps only figures it holds and never repeats that as a failure.
+    if (linkDown && display.status !== 'figures') return null;
 
     if (display.status === 'unavailable') {
         return <Strip onPress={refresh} label={t('plugins.rightNow.unavailable')}
@@ -60,7 +63,7 @@ export function RightNowCard() {
             facts={vitalsFigures(display.vitals)} />;
     }
 
-    const status = freshness(display.status === 'waiting' ? undefined : display.figures, failed, refreshing, throttledSeconds);
+    const status = freshness(display.status === 'waiting' ? undefined : display.figures, failed && !linkDown, refreshing, throttledSeconds);
     // The control is a sibling of the strip's own press, never inside it: one
     // control nested in another is invalid on the web surface.
     const control = <Pressable onPress={refresh} disabled={refreshing} accessibilityRole="button" hitSlop={12}
