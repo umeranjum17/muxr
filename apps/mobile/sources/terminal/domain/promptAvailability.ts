@@ -109,3 +109,26 @@ export function terminalComposerText(draft: string, attachedPaths: string[], isS
     const content = isShell && draft.trim() !== '' ? draft : draft.trim();
     return [content, ...attachedPaths].filter((part) => part !== '').join(' ');
 }
+
+const STRAIGHT: Record<string, string> = { '‘': '\'', '’': '\'', '“': '"', '”': '"' };
+
+/**
+ * Undoes the one edit iOS smart punctuation makes as a shell command is typed:
+ * a typed quote arriving curly, or a second hyphen turning the first into a
+ * dash. `autoCorrect={false}` is meant to turn both off, but the prebuilt
+ * React Native core drops that link. Pasted or deliberately typed curly text
+ * is more than that single edit, so it is kept.
+ */
+export function undoSmartPunctuation(previous: string, next: string): string {
+    let start = 0;
+    while (start < previous.length && start < next.length && previous[start] === next[start]) start++;
+    let end = 0;
+    while (end < previous.length - start && end < next.length - start
+        && previous[previous.length - 1 - end] === next[next.length - 1 - end]) end++;
+    const removed = previous.slice(start, previous.length - end);
+    const inserted = next.slice(start, next.length - end);
+    const straight = removed === '' ? STRAIGHT[inserted]
+        : removed === '-' && (inserted === '—' || inserted === '–') ? '--'
+            : undefined;
+    return straight === undefined ? next : next.slice(0, start) + straight + next.slice(next.length - end);
+}

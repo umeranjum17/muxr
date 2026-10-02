@@ -44,6 +44,7 @@ import {
     terminalInputDisposition,
     terminalPaneCanSend,
     terminalPaneStatus,
+    undoSmartPunctuation,
 } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -1008,7 +1009,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         });
     }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, selectedImages.length, props.id, showDialogGuard]);
 
-    const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
+    const handleDraftChange = React.useCallback((text: string) => setDraft((previous) =>
+        Platform.OS === 'ios' && currentPaneRef.current?.agentKind === undefined ? undoSmartPunctuation(previous, text) : text), []);
 
     // Files land on the host; their paths are appended only when sending.
     const attachPhotos = React.useCallback(async () => {
