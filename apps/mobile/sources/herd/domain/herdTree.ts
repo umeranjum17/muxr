@@ -354,13 +354,20 @@ export function buildSpaceRows(
 
 const SPACE_ORDER_LIMIT = 256;
 
+/** Trim `ids` to `limit` by dropping the oldest not in `open`; open ids always stay. */
+export function dropOldestAbsent(ids: readonly string[], open: ReadonlySet<string>, limit: number): string[] {
+    let excess = ids.length - limit;
+    return ids.filter((id) => excess <= 0 || open.has(id) || excess-- <= 0);
+}
+
 /**
  * The saved order after moving `workspaceId` one place within `group`, the
  * top-level ids of its section as drawn. Unranked group members join the end
  * in drawn order, so ranking them changes nothing on screen; ids not open now
- * keep their rank for when they return.
+ * keep their rank for when they return, until the cap drops the oldest of
+ * them. An `open` workspace's rank is never dropped.
  */
-export function moveSpace(order: readonly string[], group: readonly string[], workspaceId: string, step: -1 | 1): string[] {
+export function moveSpace(order: readonly string[], group: readonly string[], workspaceId: string, step: -1 | 1, open: ReadonlySet<string>): string[] {
     const from = group.indexOf(workspaceId);
     const neighbour = group[from + step];
     if (from < 0 || neighbour === undefined) return [...order];
@@ -368,14 +375,7 @@ export function moveSpace(order: readonly string[], group: readonly string[], wo
     const a = next.indexOf(workspaceId);
     const b = next.indexOf(neighbour);
     [next[a], next[b]] = [next[b]!, next[a]!];
-    // ponytail: past the cap, ranks outside this group go oldest-first, even an open one in the other section.
-    const moving = new Set(group);
-    while (next.length > SPACE_ORDER_LIMIT) {
-        const stale = next.findIndex((id) => !moving.has(id));
-        if (stale < 0) break;
-        next.splice(stale, 1);
-    }
-    return next;
+    return dropOldestAbsent(next, open, SPACE_ORDER_LIMIT);
 }
 
 export function displayedWorkspaceNames(rows: readonly HerdSpaceRow[]): ReadonlyMap<string, string> {

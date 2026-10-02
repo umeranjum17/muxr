@@ -151,9 +151,11 @@ export function saveSpacePins(pins: string[]) {
 const SPACES_LAYOUT_KEY = 'spaces-layout-v1';
 
 /**
- * Per machine: the top-level Spaces order from Move up/down, and favourite
- * panes by Herdr pane id. Herdr ids are only unique on their own machine, so
- * each machine keeps its own; absent ids wait for their workspace or pane.
+ * Per machine: the top-level Spaces order from Move up/down (Herdr workspace
+ * ids), and favourite agents by Agent Route, which the host keeps for the
+ * agent's life and never hands to another, unlike a Herdr pane id. Both are
+ * only unique on their own machine, so each machine keeps its own; absent ids
+ * wait for their workspace or agent.
  */
 export interface SpacesLayout {
     order: string[];

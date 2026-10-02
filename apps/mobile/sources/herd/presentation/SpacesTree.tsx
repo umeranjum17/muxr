@@ -14,7 +14,6 @@ import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { Modal } from '@/modal';
 import { storage, useSpacePins, useSpacesLayout } from '@/catalog/store';
-import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
@@ -390,6 +389,14 @@ interface SpacesTreeProps {
     stale?: boolean;
 }
 
+/**
+ * The id a favourite keeps: the agent's route, which the host holds for the
+ * agent's life. A shell has none; its route is its reusable pane id.
+ */
+function favouriteAgentRoute(pane: HerdrTreePane): string | undefined {
+    return pane.agentKind === undefined ? undefined : pane.sessionId;
+}
+
 /** One pane as a tree row: its kind's glyph, task (else name), who and state under it, status on the right edge. */
 export const AgentRow = React.memo(({
     pane,
@@ -667,7 +674,7 @@ const ChildRow = React.memo(({
         ? () => (onNavigatePane ?? navigateToSession)(singleSessionId)
         : agentPanes.length > 1 ? () => onToggle(child.workspace.workspaceId) : undefined;
     // Its one agent can be a favourite whatever the device's authority.
-    const hasActions = canClose || singleSessionId !== undefined;
+    const hasActions = canClose || (singleAgent !== undefined && favouriteAgentRoute(singleAgent) !== undefined);
     const interactive = onPress !== undefined || hasActions;
     // The agent row's weight rule: settled and seen goes quiet.
     const quiet = (child.workspace.agentStatus === 'done' || child.workspace.agentStatus === 'idle')
@@ -933,17 +940,14 @@ export const SpacesTree = React.memo(({
     const searching = searchQuery.trim() !== '';
     const pinnedIds = useSpacePins();
     const pinned = React.useMemo(() => new Set(pinnedIds), [pinnedIds]);
-    // Herdr ids are per machine; the tree redraws whenever the machine changes.
-    const machineId = getCachedConnectionSettings().machineId;
-    const layout = useSpacesLayout(machineId);
+    const layout = useSpacesLayout();
     const favouriteIds = React.useMemo(() => new Set(layout.favourites), [layout.favourites]);
-    // Favourites lead in the order they were added; a closed pane waits, unseen, for its return.
+    // Favourites lead in the order they were added; an agent not running now waits, unseen, for its return.
     const favouritePanes = React.useMemo(() => {
         if (searching || layout.favourites.length === 0) return [];
-        const byId = new Map(workspaces.flatMap((ws) => ws.tabs.flatMap((tab) => tab.panes))
-            .filter((pane) => pane.sessionId !== undefined)
-            .map((pane) => [pane.paneId, pane] as const));
-        return layout.favourites.flatMap((paneId) => byId.get(paneId) ?? []);
+        const byRoute = new Map(workspaces.flatMap((ws) => ws.tabs.flatMap((tab) => tab.panes))
+            .flatMap((pane) => favouriteAgentRoute(pane) === undefined ? [] : [[pane.sessionId!, pane] as const]));
+        return layout.favourites.flatMap((route) => byRoute.get(route) ?? []);
     }, [layout.favourites, searching, workspaces]);
     const previousRows = React.useRef(new Map<string, HerdSpaceRow>());
     const sections = React.useMemo(() => {
@@ -1035,10 +1039,14 @@ export const SpacesTree = React.memo(({
             anchor: { type: 'point', x: event.nativeEvent.pageX, y: event.nativeEvent.pageY },
         });
     }, []);
-    const favouriteAction = React.useCallback((pane: HerdrTreePane): PopoverAction => favouriteIds.has(pane.paneId)
-        ? { id: 'favourite', label: 'Remove from favourites', icon: 'star', onPress: () => storage.getState().toggleFavouritePane(machineId, pane.paneId) }
-        : { id: 'favourite', label: 'Add to favourites', icon: 'star-outline', onPress: () => storage.getState().toggleFavouritePane(machineId, pane.paneId) },
-    [favouriteIds, machineId]);
+    const favouriteActions = React.useCallback((pane: HerdrTreePane): PopoverAction[] => {
+        const route = favouriteAgentRoute(pane);
+        if (route === undefined) return [];
+        const toggle = () => storage.getState().toggleFavouriteAgent(route);
+        return [favouriteIds.has(route)
+            ? { id: 'favourite', label: 'Remove from favourites', icon: 'star', onPress: toggle }
+            : { id: 'favourite', label: 'Add to favourites', icon: 'star-outline', onPress: toggle }];
+    }, [favouriteIds]);
 
     const workspaceActions = React.useCallback((workspace: HerdrTreeWorkspace, event: GestureResponderEvent) => {
         const id = workspace.workspaceId;
@@ -1046,8 +1054,9 @@ export const SpacesTree = React.memo(({
         const group = searching ? [] : (sections.find((section) => section.data.some((row) => row.workspace.workspaceId === id))
             ?.data.map((row) => row.workspace.workspaceId) ?? []);
         const at = group.indexOf(id);
+        const open = new Set(sections.flatMap((section) => section.data.map((row) => row.workspace.workspaceId)));
         const move = (step: -1 | 1) => () =>
-            storage.getState().setSpaceOrder(machineId, moveSpace(layout.order, group, id, step));
+            storage.getState().setSpaceOrder(moveSpace(layout.order, group, id, step, open));
         openMenu([
             {
                 id: 'pin', label: pinned.has(id) ? 'Unpin' : 'Pin to top', icon: 'pin',
@@ -1060,28 +1069,28 @@ export const SpacesTree = React.memo(({
                 onPress: () => confirmCloseWorkspace(workspace),
             }] : []),
         ], event);
-    }, [canClose, confirmCloseWorkspace, layout.order, machineId, openMenu, pinned, searching, sections]);
+    }, [canClose, confirmCloseWorkspace, layout.order, openMenu, pinned, searching, sections]);
 
     const childActions = React.useCallback((workspace: HerdrTreeWorkspace, event: GestureResponderEvent) => {
         const agents = workspace.tabs.flatMap((tab) => tab.panes).filter((pane) => pane.agentKind !== undefined);
-        const single = agents.length === 1 && agents[0]!.sessionId !== undefined ? agents[0]! : undefined;
         // Only a one-agent row stands for an agent; any other still closes on long-press.
-        if (single === undefined) {
+        const favourite = agents.length === 1 ? favouriteActions(agents[0]!) : [];
+        if (favourite.length === 0) {
             confirmCloseWorkspace(workspace);
             return;
         }
         openMenu([
-            favouriteAction(single),
+            ...favourite,
             ...(canClose ? [{
                 id: 'close', label: 'Close workspace', icon: 'close-circle-outline' as const, destructive: true,
                 onPress: () => confirmCloseWorkspace(workspace),
             }] : []),
         ], event);
-    }, [canClose, confirmCloseWorkspace, favouriteAction, openMenu]);
+    }, [canClose, confirmCloseWorkspace, favouriteActions, openMenu]);
 
     const paneActions = React.useCallback((pane: HerdrTreePane, event: GestureResponderEvent) => {
         openMenu([
-            ...(pane.sessionId === undefined ? [] : [favouriteAction(pane)]),
+            ...favouriteActions(pane),
             ...(canClose ? [
                 { id: 'rename', label: 'Rename', icon: 'pencil-outline' as const, onPress: () => void renamePane(pane) },
                 ...(pane.sessionId === undefined ? [] : [{
@@ -1090,7 +1099,7 @@ export const SpacesTree = React.memo(({
                 }]),
             ] : []),
         ], event);
-    }, [canClose, confirmClosePane, favouriteAction, openMenu]);
+    }, [canClose, confirmClosePane, favouriteActions, openMenu]);
 
     const renderItem = React.useCallback(({ item }: { item: HerdSpaceRow }) => (
         <View style={stale && styles.stale}>
