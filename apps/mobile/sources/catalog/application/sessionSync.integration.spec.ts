@@ -112,9 +112,10 @@ vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.val
 vi.mock('@/herd', async () => {
     const { herdrPaneForSession } = await vi.importActual('@/herd/domain/agentPresentation');
     const { lifecycleNotificationCopy } = await vi.importActual<typeof import('@/herd/domain/herd')>('@/herd/domain/herd');
+    const { dropOldestAbsent } = await vi.importActual<typeof import('@/herd/domain/herdTree')>('@/herd/domain/herdTree');
     return {
         useActivityAcknowledgements: () => hostSync.activityHook!(), lifecycleNotificationCopy,
-        herdrPaneForSession,
+        herdrPaneForSession, dropOldestAbsent,
         getSessionName: (session: Session, pane?: HerdrTreePane) =>
             pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
         getSessionSubtitle: (_session: Session, pane?: HerdrTreePane) => pane?.agentName ?? '',
@@ -1286,44 +1287,60 @@ describe('session sync flow', () => {
         expect(loadSpacePins()).toEqual(['w-pin']);
     });
 
-    it('moves top-level spaces within their pin group and keeps favourites per machine', () => {
+    it('moves top-level spaces within their pin group and keeps favourite agents per machine', () => {
         mmkvValues.clear();
         storage.setState({ pinnedSpaceIds: [], spacesLayouts: {} });
-        const pane = (paneId: string) => ({ paneId, tabId: `${paneId}-tab`, sessionId: `route-${paneId}`, focused: false, agentStatus: 'idle' as const, agentKind: 'pi' });
+        const pane = (paneId: string, sessionId = `route-${paneId}`): HerdrTreePane =>
+            ({ paneId, tabId: `${paneId}-tab`, sessionId, focused: false, agentStatus: 'idle', agentKind: 'pi', promptable: true });
         const space = (workspaceId: string, order: number, tokens?: Record<string, string>): HerdrTreeWorkspace => ({
             workspaceId, label: workspaceId, focused: false, agentStatus: 'idle', order, ...(tokens ? { tokens } : {}),
             tabs: [{ tabId: `${workspaceId}-tab`, focused: false, agentStatus: 'idle', panes: [pane(`${workspaceId}-pane`)] }],
         });
         const tree = [space('a', 1), space('b', 2), space('c', 3), space('d', 4), space('a-child', 5, { parent: 'a' })];
-        const drawn = () => buildSpaceRows(tree, new Set(), '', new Set(storage.getState().pinnedSpaceIds),
-            storage.getState().spacesLayouts.mac?.order).map((row) => row.workspace.workspaceId);
-        const group = () => drawn().filter((id) => !storage.getState().pinnedSpaceIds.includes(id));
-        const move = (id: string, step: -1 | 1) => storage.getState().setSpaceOrder('mac',
-            moveSpace(storage.getState().spacesLayouts.mac?.order ?? [], group(), id, step));
+        const layout = () => storage.getState().spacesLayouts[storage.getState().activeMachineId];
+        const rows = () => buildSpaceRows(tree, new Set(['a']), '', new Set(storage.getState().pinnedSpaceIds), layout()?.order);
+        const drawn = () => rows().map((row) => row.workspace.workspaceId);
+        const move = (id: string, step: -1 | 1) => {
+            const group = drawn().filter((entry) => !storage.getState().pinnedSpaceIds.includes(entry));
+            storage.getState().setSpaceOrder(moveSpace(layout()?.order ?? [], group, id, step, new Set(drawn())));
+        };
+        storage.getState().setActiveMachine('mac');
+        storage.getState().applyHerdrTree(tree);
 
         storage.getState().toggleSpacePin('a');
         move('d', -1);
         move('d', -1);
-        // Pinned still leads; the move reordered only the unpinned group, and the child stays in its parent.
-        expect(drawn()).toEqual(['a', 'd', 'b', 'c']);
-        expect(buildSpaceRows(tree, new Set(['a']), '', new Set(['a']), storage.getState().spacesLayouts.mac!.order)[0]!.children
-            .map((child) => child.workspace.workspaceId)).toEqual(['a-child']);
         move('d', -1);
+        // Pinned still leads, the move stops at the top of its own group, and the child stays in its parent.
         expect(drawn()).toEqual(['a', 'd', 'b', 'c']);
-
-        storage.getState().toggleFavouritePane('mac', 'c-pane');
-        storage.getState().toggleFavouritePane('other-mac', 'b-pane');
-        // A closed workspace keeps its rank for when it returns, and a remount reads the same layout.
+        expect(rows()[0]!.children.map((child) => child.workspace.workspaceId)).toEqual(['a-child']);
+        // A closed workspace keeps its rank for when it returns.
         tree.splice(3, 1);
         expect(drawn()).toEqual(['a', 'b', 'c']);
         tree.push(space('d', 4));
         expect(drawn()).toEqual(['a', 'd', 'b', 'c']);
+
+        // A favourite is the agent's route, so a new agent in a reused pane id is not it.
+        storage.getState().toggleFavouriteAgent('route-c-pane');
+        expect(layout()!.favourites).toEqual(['route-c-pane']);
+        // Past the cap the oldest agent not running goes; a running favourite never does.
+        for (let index = 0; index < 64; index++) storage.getState().toggleFavouriteAgent(`gone-${index}`);
+        expect(layout()!.favourites).toHaveLength(64);
+        expect(layout()!.favourites[0]).toBe('route-c-pane');
+        expect(layout()!.favourites).not.toContain('gone-0');
+
+        // Another machine has its own layout; switching back finds this one intact, on disk too.
+        storage.getState().setActiveMachine('other-mac');
+        expect(layout()).toBeUndefined();
+        storage.getState().toggleFavouriteAgent('route-b-pane');
+        storage.getState().setActiveMachine('mac');
+        expect(drawn()).toEqual(['a', 'd', 'b', 'c']);
         expect(loadSpacesLayouts()).toEqual({
-            mac: { order: ['d', 'b', 'c'], favourites: ['c-pane'] },
-            'other-mac': { order: [], favourites: ['b-pane'] },
+            mac: { order: ['d', 'b', 'c'], favourites: layout()!.favourites },
+            'other-mac': { order: [], favourites: ['route-b-pane'] },
         });
-        storage.getState().toggleFavouritePane('mac', 'c-pane');
-        expect(loadSpacesLayouts().mac!.favourites).toEqual([]);
+        storage.getState().toggleFavouriteAgent('route-c-pane');
+        expect(loadSpacesLayouts().mac!.favourites).not.toContain('route-c-pane');
         expect(loadSpacePins()).toEqual(['a']);
     });
 });
