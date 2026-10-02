@@ -1,8 +1,3 @@
-/**
- * What a new pane runs: the same agent list the home dock offers, Shell
- * first. Asks the host which agents it can start the first time it opens.
- */
-
 import * as React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
