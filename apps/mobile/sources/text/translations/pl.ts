@@ -337,6 +337,7 @@ export const pl: TranslationStructure = {
         // Spaces section on Home
         title: 'Przestrzenie',
         pinned: 'Przypięte',
+        favourites: 'Ulubione',
         empty: 'Brak otwartych przestrzeni',
         rootFolder: 'Folder główny',
         homeFolder: 'Folder domowy',

@@ -321,6 +321,7 @@ export const zhHant: TranslationStructure = {
         // Spaces section on Home
         title: '空間',
         pinned: '置頂',
+        favourites: '最愛',
         empty: '沒有開啟的空間',
         rootFolder: '根資料夾',
         homeFolder: '主資料夾',

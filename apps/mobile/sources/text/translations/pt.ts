@@ -320,6 +320,7 @@ export const pt: TranslationStructure = {
         // Spaces section on Home
         title: 'Espaços',
         pinned: 'Fixados',
+        favourites: 'Favoritos',
         empty: 'Nenhum espaço aberto',
         rootFolder: 'Pasta raiz',
         homeFolder: 'Pasta pessoal',

@@ -307,6 +307,7 @@ export const ru: TranslationStructure = {
         // Spaces section on Home
         title: 'Пространства',
         pinned: 'Закреплённые',
+        favourites: 'Избранное',
         empty: 'Нет открытых пространств',
         rootFolder: 'Корневая папка',
         homeFolder: 'Домашняя папка',

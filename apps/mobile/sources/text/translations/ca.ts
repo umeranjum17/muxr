@@ -320,6 +320,7 @@ export const ca: TranslationStructure = {
         // Spaces section on Home
         title: 'Espais',
         pinned: 'Fixats',
+        favourites: 'Preferits',
         empty: 'Cap espai obert',
         rootFolder: 'Carpeta arrel',
         homeFolder: 'Carpeta d’inici',

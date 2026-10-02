@@ -148,6 +148,41 @@ export function saveSpacePins(pins: string[]) {
     mmkv.set(SPACES_PINS_KEY, JSON.stringify(pins));
 }
 
+const SPACES_LAYOUT_KEY = 'spaces-layout-v1';
+
+/**
+ * Per machine: the top-level Spaces order from Move up/down, and favourite
+ * panes by Herdr pane id. Herdr ids are only unique on their own machine, so
+ * each machine keeps its own; absent ids wait for their workspace or pane.
+ */
+export interface SpacesLayout {
+    order: string[];
+    favourites: string[];
+}
+
+const ids = (value: unknown): string[] =>
+    Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+
+export function loadSpacesLayouts(): Record<string, SpacesLayout> {
+    const raw = mmkv.getString(SPACES_LAYOUT_KEY);
+    if (!raw) return {};
+    try {
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+        return Object.fromEntries(Object.entries(parsed).map(([machineId, layout]) => {
+            const entry = typeof layout === 'object' && layout !== null ? layout as Record<string, unknown> : {};
+            return [machineId, { order: ids(entry.order), favourites: ids(entry.favourites) }];
+        }));
+    } catch {
+        mmkv.delete(SPACES_LAYOUT_KEY);
+        return {};
+    }
+}
+
+export function saveSpacesLayouts(layouts: Record<string, SpacesLayout>) {
+    mmkv.set(SPACES_LAYOUT_KEY, JSON.stringify(layouts));
+}
+
 export function loadThemePreference(): 'light' | 'dark' | 'adaptive' {
     return loadLocalSettings().themePreference;
 }
