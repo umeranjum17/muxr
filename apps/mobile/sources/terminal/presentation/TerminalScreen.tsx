@@ -315,6 +315,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [attachedImages, setAttachedImages] = React.useState<ComposerAttachment[]>([]);
     const attachedPaths = attachedImages.flatMap((image) => image.path === undefined ? [] : [image.path]);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const terminalInputReadyRef = React.useRef(false);
+    terminalInputReadyRef.current = canControl && isFocused && status === 'live';
     const [channel, setChannel] = React.useState<TerminalChannel>();
     const draftRef = React.useRef(draft);
     const composerRef = React.useRef<TextInput>(null);
@@ -960,10 +962,22 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         setDraft('');
         clearDraft();
         setAttachedImages([]);
-        // Composer text always steers. Answers stay on the terminal's explicit
-        // input controls, so even a literal y/n cannot settle a pending decision.
+        // Try the ordinary agent prompt first. A definite blocked refusal may
+        // use the same text + Enter path as typing into this terminal.
+        const terminal = terminalInputReadyRef.current ? channelRef.current : undefined;
         const request = sync.sendMessage(props.id, text);
         void request.catch((error: unknown) => {
+            // Never retry an ambiguous delivery or send into a replacement pane.
+            if (typeof error === 'object' && error !== null && 'code' in error
+                && error.code === 'agent-blocked' && terminal !== undefined
+                && channelRef.current === terminal && terminalInputReadyRef.current) {
+                try {
+                    terminal.sendText(`${text}\r`);
+                    return;
+                } catch (cause) {
+                    error = cause;
+                }
+            }
             const restoredDraft = [previousDraft, draftRef.current].filter(Boolean).join('\n');
             draftRef.current = restoredDraft;
             setDraft(restoredDraft);
