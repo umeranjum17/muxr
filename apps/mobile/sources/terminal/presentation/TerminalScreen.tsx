@@ -16,6 +16,7 @@ import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useDerivedVa
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
+import { storeTempText } from '@/catalog';
 // The flag is its own entry: the package's barrel also carries the session
 // hook, and the ring slot is built on every terminal screen, so importing the
 // barrel here would put the client's session in the application's first paint.
@@ -282,6 +283,16 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         setActionsOpen(false);
         ringRef.current?.close();
         router.setParams({ desktop: '1' });
+    }, [props.id]);
+    // Text is selected in the app's own native text view over Herdr's read of the
+    // screen, so selection needs nothing from the renderer.
+    const selectScreenText = React.useCallback(async () => {
+        try {
+            const { text } = await sync.request('pane.read', { sessionId: props.id, source: 'visible', ansi: false });
+            router.push(`/text-selection?textId=${storeTempText(text.replace(/\s+$/, ''))}`);
+        } catch {
+            Modal.alert('Could not read the screen', 'The terminal did not answer. Try again in a moment.');
+        }
     }, [props.id]);
     // The presence chip (PreviewChip, P1.4) opens the live view, passing its measured rect as `from`.
     const openPreview = React.useCallback((from?: DesktopOrigin) => {
@@ -1837,6 +1848,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
+                                    </Pressable>
+                                    <Pressable onPress={() => { setActionsOpen(false); void selectScreenText(); }} accessibilityRole="button" accessibilityLabel="Select text"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="text-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Select text</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'computer')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
                                     {desktopAvailable && canControl && <Pressable onPress={openDesktop} accessibilityRole="button" accessibilityLabel="Computer"
