@@ -33,11 +33,13 @@ import {
     getCachedConnectionSettings,
 } from '@/connection';
 
-import { FALLBACK_AGENT_KINDS, resolveAgentCatalog, type AgentCatalogOption } from '@/catalog';
+import { resolveAgentCatalog, type AgentCatalogOption, type NewSessionAgentType } from '@/catalog';
 import { useDeviceAuthority } from '@/pairing';
 import {
-    agentAvailabilityLabel,
-    agentAvailabilitySpoken,
+    agentName,
+    agentReadinessLabel,
+    defaultAgentKind,
+    useNewSessionDraft,
     catalogSourceLabel,
     startButtonLabel,
     startNewAgent,
@@ -115,6 +117,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     agentCard: {
         flexGrow: 1,
         flexBasis: '30%',
+        height: 136,
         alignItems: 'center',
         gap: 8,
         paddingVertical: 14,
@@ -127,12 +130,21 @@ const stylesheet = StyleSheet.create((theme) => ({
     agentName: {
         color: theme.colors.text,
         fontSize: 13,
+        lineHeight: 16,
         fontWeight: '600',
+        textAlign: 'center',
     },
     agentAvailability: {
         color: theme.colors.textSecondary,
         fontSize: 10,
         fontWeight: '600',
+    },
+    agentDetails: {
+        color: theme.colors.textSecondary,
+        fontSize: 12,
+        lineHeight: 17,
+        paddingHorizontal: 2,
+        marginTop: 10,
     },
     squadHint: {
         color: theme.colors.textSecondary,
@@ -244,13 +256,13 @@ export default function NewAgentScreen() {
     const { authority, loading: authorityLoading } = useDeviceAuthority();
     const canControl = authority === 'control';
 
-    const [catalog, setCatalog] = React.useState<readonly AgentOption[]>(
-        FALLBACK_AGENT_KINDS.map((kind) => ({ kind, availability: 'unknown' })),
-    );
+    const [catalog, setCatalog] = React.useState<readonly AgentOption[]>([]);
+    const [catalogCheck, setCatalogCheck] = React.useState(0);
     const [catalogSource, setCatalogSource] = React.useState<CatalogSource>('loading');
     const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
     const [showUnavailableAgents, setShowUnavailableAgents] = React.useState(false);
-    const [cwd, setCwd] = React.useState(settings.lastSessionCwd ?? '');
+    const [agentDetails, setAgentDetails] = React.useState<{ kind: string; text: string } | undefined>();
+    const [cwd, setCwd] = React.useState(settings.lastSessionCwd || '~');
     const [worktree, setWorktree] = React.useState(false);
     const [workspaces, setWorkspaces] = React.useState<HerdrTreeWorkspace[]>([]);
     const [busy, setBusy] = React.useState(false);
@@ -292,27 +304,28 @@ export default function NewAgentScreen() {
             })
             .catch(() => {});
         void sync
-            .request('herdr.agentKinds', {})
+            .request('herdr.agentKinds', { refresh: catalogCheck > 0 })
             .then((result) => {
                 if (!live) return;
                 const resolved = resolveAgentCatalog(result);
                 setCatalog(resolved.options);
+                setAgentDetails(undefined);
                 setCatalogSource(resolved.authoritative ? 'host' : 'unknown');
-                if (resolved.authoritative) {
-                    const installed = new Set(resolved.options.filter((option) => option.availability === 'installed').map((option) => option.kind));
-                    // An empty host probe is usually a broken service environment,
-                    // not proof that the user's saved squad should be erased.
-                    if (installed.size > 0) setSelected((previous) => new Set([...previous].filter((kind) => installed.has(kind))));
-                }
+                const preferred = defaultAgentKind(resolved.options, useNewSessionDraft.getState().agentType);
+                const installed = new Set(resolved.options.filter((option) => option.availability === 'installed').map((option) => option.kind));
+                setSelected((previous) => {
+                    const retained = new Set([...previous].filter((kind) => installed.has(kind)));
+                    return retained.size > 0 ? retained : new Set(preferred ? [preferred] : []);
+                });
             })
             .catch(() => { if (live) setCatalogSource('fallback'); });
         return () => {
             live = false;
         };
-    }, [canControl]);
+    }, [canControl, catalogCheck]);
 
     const toggleKind = React.useCallback((option: AgentOption) => {
-        if (option.availability === 'unavailable') return;
+        if (option.availability !== 'installed') return;
         const kind = option.kind;
         setSelected((previous) => {
             const next = new Set(previous);
@@ -329,10 +342,10 @@ export default function NewAgentScreen() {
 
     const kinds = [...selected];
     const squad = kinds.length > 1;
-    const unavailableCount = catalog.filter((option) => option.availability === 'unavailable').length;
+    const unavailableCount = catalog.filter((option) => option.availability !== 'installed').length;
     const visibleCatalog = showUnavailableAgents
         ? catalog
-        : catalog.filter((option) => option.availability !== 'unavailable');
+        : catalog.filter((option) => option.availability === 'installed');
     const directory = cwd.trim();
 
     const start = React.useCallback(async () => {
@@ -344,6 +357,7 @@ export default function NewAgentScreen() {
             setError('Pick a directory first.');
             return;
         }
+        if (kinds.length === 1) useNewSessionDraft.getState().setAgentType(kinds[0] as NewSessionAgentType);
         setBusy(true);
         setError(undefined);
         try {
@@ -424,19 +438,29 @@ export default function NewAgentScreen() {
                             )}
                         </View>
                     </View>
+                    {catalogSource === 'host' && !catalog.some((option) => option.availability === 'installed') && (
+                        <Text style={styles.emptyHint}>No coding agent found on this computer. Open More agents for install instructions.</Text>
+                    )}
                     <View style={styles.grid}>
                         {visibleCatalog.map((option) => {
                             const isSelected = selected.has(option.kind);
-                            const available = option.availability !== 'unavailable';
-                            const availability = agentAvailabilityLabel(option.availability, catalogSource);
+                            const available = option.availability === 'installed';
+                            const availability = agentReadinessLabel(option);
+                            const detail = available
+                                ? option.signInHint ?? availability
+                                : option.installHint ?? availability;
                             return (
                                 <Pressable
                                     key={option.kind}
-                                    onPress={() => toggleKind(option)}
-                                    disabled={!available}
+                                    onPress={() => {
+                                        setAgentDetails({ kind: option.kind, text: detail });
+                                        if (available) {
+                                            toggleKind(option);
+                                        }
+                                    }}
                                     accessibilityRole="button"
-                                    accessibilityLabel={`${option.kind}, ${agentAvailabilitySpoken(option.availability, catalogSource)}`}
-                                    accessibilityState={{ disabled: !available, selected: isSelected }}
+                                    accessibilityLabel={`${agentName(option.kind)}, ${availability}. Tap for details${available ? ' and to select' : ''}`}
+                                    accessibilityState={{ selected: isSelected }}
                                     style={[
                                         styles.agentCard,
                                         !available && { opacity: 0.45 },
@@ -448,18 +472,28 @@ export default function NewAgentScreen() {
                                     ]}
                                 >
                                     <AgentGlyph name={option.kind} size={40} selected={isSelected} dim={!available} />
-                                    <Text numberOfLines={1} style={styles.agentName}>
-                                        {option.kind}
-                                    </Text>
+                                    {/* The first word, then the rest, each one line shrunk to fit: a name never breaks inside a word. */}
+                                    <View style={{ alignSelf: 'stretch', alignItems: 'center' }}>
+                                        {agentName(option.kind).replace(' ', '\n').split('\n').map((line, index) => (
+                                            <Text key={index} style={styles.agentName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
+                                                {line}
+                                            </Text>
+                                        ))}
+                                    </View>
                                     {availability !== undefined && (
-                                        <Text numberOfLines={1} style={styles.agentAvailability}>
-                                            {availability}
+                                        <Text style={styles.agentAvailability}>
+                                            {available ? availability : 'Not installed'}
                                         </Text>
                                     )}
                                 </Pressable>
                             );
                         })}
                     </View>
+                    {agentDetails && (
+                        <Text accessibilityRole="summary" style={styles.agentDetails}>
+                            {agentName(agentDetails.kind)}: {agentDetails.text}
+                        </Text>
+                    )}
                     {unavailableCount > 0 && (
                         <Pressable
                             accessibilityRole="button"
@@ -467,7 +501,7 @@ export default function NewAgentScreen() {
                             style={({ pressed }) => [styles.moreAgentsButton, pressed && { opacity: 0.7 }]}
                         >
                             <Text style={styles.moreAgentsText}>
-                                {showUnavailableAgents ? 'Show installed agents only' : `Show ${unavailableCount} more agents`}
+                                {showUnavailableAgents ? 'Show installed agents only' : `More agents (${unavailableCount}) — install`}
                             </Text>
                             <Ionicons
                                 name={showUnavailableAgents ? 'chevron-up' : 'chevron-down'}
@@ -476,9 +510,12 @@ export default function NewAgentScreen() {
                             />
                         </Pressable>
                     )}
+                    <Pressable accessibilityRole="button" onPress={() => { setCatalogSource('loading'); setCatalogCheck((value) => value + 1); }} style={styles.moreAgentsButton}>
+                        <Text style={styles.moreAgentsText}>Check again</Text>
+                    </Pressable>
                     <Text style={[styles.squadHint, { marginTop: 10 }]}>
                         {squad
-                            ? `Squad: ${kinds.join(' · ')}. One tab each, same workspace.`
+                            ? `Squad: ${kinds.map(agentName).join(' · ')}. One tab each, same workspace.`
                             : 'Pick up to 4 agents to run them together as a squad.'}
                     </Text>
                 </View>
@@ -573,8 +610,12 @@ export default function NewAgentScreen() {
 
                 {error !== undefined && <Text style={styles.errorText}>{error}</Text>}
 
+
+            </FormScrollView>
+            <View style={{ padding: 16, paddingBottom: Math.max(16, insets.bottom) }}>
                 <Pressable
                     onPress={start}
+                    accessibilityRole="button"
                     disabled={busy || directory === '' || kinds.length === 0}
                     style={[styles.startButton, (busy || directory === '' || kinds.length === 0) && styles.startButtonDisabled]}
                 >
@@ -582,11 +623,11 @@ export default function NewAgentScreen() {
                         <ActivityIndicator color={theme.colors.button.primary.tint} />
                     ) : (
                         <Text style={styles.startButtonText}>
-                            {startButtonLabel(kinds)}
+                            {kinds.length === 1 ? `Start ${agentName(kinds[0])}` : startButtonLabel(kinds)}
                         </Text>
                     )}
                 </Pressable>
-            </FormScrollView>
+            </View>
         </View>
     );
 }
