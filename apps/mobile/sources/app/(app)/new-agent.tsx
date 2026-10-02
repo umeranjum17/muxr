@@ -52,6 +52,11 @@ const MAX_RECENT_CHIPS = 6;
 type AgentOption = AgentCatalogOption;
 const MAX_WORKSPACE_ROWS = 6;
 
+// Shell needs no agent install, so it leads the host catalog like Home's dock.
+function withShell(options: readonly AgentOption[]): AgentOption[] {
+    return [{ kind: 'shell', availability: 'installed' }, ...options.filter((option) => option.kind !== 'shell')];
+}
+
 function basename(path: string): string {
     return path.split('/').filter(Boolean).pop() ?? path;
 }
@@ -308,11 +313,12 @@ export default function NewAgentScreen() {
             .then((result) => {
                 if (!live) return;
                 const resolved = resolveAgentCatalog(result);
-                setCatalog(resolved.options);
+                const options = withShell(resolved.options);
+                setCatalog(options);
                 setAgentDetails(undefined);
                 setCatalogSource(resolved.authoritative ? 'host' : 'unknown');
-                const preferred = defaultAgentKind(resolved.options, useNewSessionDraft.getState().agentType);
-                const installed = new Set(resolved.options.filter((option) => option.availability === 'installed').map((option) => option.kind));
+                const preferred = defaultAgentKind(options, useNewSessionDraft.getState().agentType);
+                const installed = new Set(options.filter((option) => option.availability === 'installed').map((option) => option.kind));
                 setSelected((previous) => {
                     const retained = new Set([...previous].filter((kind) => installed.has(kind)));
                     return retained.size > 0 ? retained : new Set(preferred ? [preferred] : []);
