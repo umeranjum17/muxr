@@ -17,7 +17,7 @@ import { Text } from '@/components/StyledText';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useHostedPairing, usePairQrScanner } from '@/pairing';
+import { useDeviceAuthority, useHostedPairing, usePairQrScanner } from '@/pairing';
 import { loadAppConfig } from '@/catalog';
 import { getCachedConnectionSettings } from '@/connection';
 import { setupEmptyState } from '@/commercialization';
@@ -133,6 +133,8 @@ export const HerdView = React.memo(({
     const processPairLink = useHostedPairing();
     const scanPairQr = usePairQrScanner((url) => void processPairLink(url));
     const socketStatus = useSocketStatus();
+    const { authority, loading: authorityLoading } = useDeviceAuthority();
+    const canStart = socketStatus.status === 'connected' && !authorityLoading && authority === 'control';
     const [retrying, setRetrying] = React.useState(false);
     const [retryFailed, setRetryFailed] = React.useState(false);
     const [recoveryFeedback, setRecoveryFeedback] = React.useState('');
@@ -279,8 +281,24 @@ export const HerdView = React.memo(({
                         </View>
                     </>
                 ) : (
-                    <HomeEmptyState />
-                )}
+                // Nothing runs on the computer yet: one quiet invitation in the
+                // free space, instead of an empty Live row, a list and a label.
+                <View style={styles.empty}>
+                    <Ionicons name="terminal-outline" size={36} color={theme.colors.textSecondary} />
+                    <Text style={styles.setupTitle}>No agents running</Text>
+                    <Text style={styles.routeHint}>
+                        {canStart
+                            ? 'Start one here, or describe a task below. Each agent appears here, live.'
+                            : 'Agents started on this computer appear here, live.'}
+                    </Text>
+                    <View style={styles.emptyAction}>
+                        {canStart
+                            ? <ActionButton title="Start an agent" icon="add-circle-outline" onPress={() => router.push('/new-agent' as never)} />
+                            : null}
+                        <ActionButton title="Connect another computer" variant="quiet" icon="desktop-outline" onPress={() => router.push('/settings/connection' as never)} />
+                    </View>
+                </View>
+            )}
             </ScrollView>
         );
     }
