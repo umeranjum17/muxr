@@ -114,10 +114,11 @@ const STRAIGHT: Record<string, string> = { '‘': '\'', '’': '\'', '“': '"',
 
 /**
  * Undoes the one edit iOS smart punctuation makes as a shell command is typed:
- * a typed quote arriving curly, or a second hyphen turning the first into a
- * dash. `autoCorrect={false}` is meant to turn both off, but the prebuilt
- * React Native core drops that link. Pasted or deliberately typed curly text
- * is more than that single edit, so it is kept.
+ * the straight quote just typed swapped for a curly one, or `--` swapped for a
+ * dash (iOS inserts the key, then replaces it as a second edit).
+ * `autoCorrect={false}` is meant to turn both off, but the prebuilt React
+ * Native core drops that link. Pasted curly text replaces nothing straight, so
+ * it is kept.
  */
 export function undoSmartPunctuation(previous: string, next: string): string {
     let start = 0;
@@ -127,8 +128,9 @@ export function undoSmartPunctuation(previous: string, next: string): string {
         && previous[previous.length - 1 - end] === next[next.length - 1 - end]) end++;
     const removed = previous.slice(start, previous.length - end);
     const inserted = next.slice(start, next.length - end);
-    const straight = removed === '' ? STRAIGHT[inserted]
-        : removed === '-' && (inserted === '—' || inserted === '–') ? '--'
+    const quote = STRAIGHT[inserted];
+    const straight = quote !== undefined && (removed === '' || removed === quote) ? quote
+        : (inserted === '—' || inserted === '–') && (removed === '-' || removed === '--') ? '--'
             : undefined;
     return straight === undefined ? next : next.slice(0, start) + straight + next.slice(next.length - end);
 }

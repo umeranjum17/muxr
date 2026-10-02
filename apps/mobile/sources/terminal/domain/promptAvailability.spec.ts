@@ -24,12 +24,16 @@ describe('terminal prompt guard', () => {
     });
 
     it('types a shell command exactly as keyed through iOS smart punctuation', () => {
-        // What iOS hands onChangeText after each key: the quote arrives curly,
-        // and a second hyphen turns the first into a dash.
+        // What iOS hands onChangeText as the command is keyed: each key lands
+        // as typed, then smart punctuation swaps it in a second edit.
         let draft = 'echo ';
-        for (const next of [() => `${draft}\u2018`, () => `${draft}a`, () => `${draft}\u2019`, () => `${draft} -`, () => `${draft.slice(0, -1)}\u2014`]) {
-            draft = undoSmartPunctuation(draft, next());
-        }
+        const type = (edit: (text: string) => string) => { draft = undoSmartPunctuation(draft, edit(draft)); };
+        type((text) => `${text}'`);
+        type((text) => text.replace(/'$/, '\u2018'));
+        type((text) => `${text}a'`);
+        type((text) => text.replace(/'$/, '\u2019'));
+        type((text) => `${text} --`);
+        type((text) => text.replace(/--$/, '\u2014'));
         expect(draft).toBe("echo 'a' --");
         // Text pasted in one go keeps its real typography.
         expect(undoSmartPunctuation('mv ', 'mv \u2018Proposal\u2014final\u2019')).toBe('mv \u2018Proposal\u2014final\u2019');
