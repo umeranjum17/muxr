@@ -520,7 +520,6 @@ export const HomeDock = React.memo(({
     const worktreeKey = useNewSessionDraft((state) => state.worktreeKey);
     const setMachineId = useNewSessionDraft((state) => state.setMachineId);
     const setAgentType = useNewSessionDraft((state) => state.setAgentType);
-    const setDefaultAgentType = useNewSessionDraft((state) => state.setDefaultAgentType);
     const setPath = useNewSessionDraft((state) => state.setPath);
     const setSessionType = useNewSessionDraft((state) => state.setSessionType);
     const setWorktreeKey = useNewSessionDraft((state) => state.setWorktreeKey);
@@ -623,11 +622,6 @@ export const HomeDock = React.memo(({
         () => visibleDockAgents(hostAgentKinds),
         [hostAgentKinds],
     );
-    React.useEffect(() => {
-        if (!hostAgentKindsAuthoritative || !hostAgentKinds || hostAgentKinds.includes(agentType)) return;
-        const installedAgent = availableAgents.find((agent) => agent.key !== 'shell' && hostAgentKinds.includes(agent.key));
-        if (installedAgent) setDefaultAgentType(installedAgent.key as NewSessionAgentType);
-    }, [availableAgents, hostAgentKinds, hostAgentKindsAuthoritative, agentType, setDefaultAgentType]);
     const currentAgent = currentDockAgent(availableAgents, agentType);
     // Absent unless the agent's provider has two or more accounts.
     const accountLine = useAccountLine(agentType);

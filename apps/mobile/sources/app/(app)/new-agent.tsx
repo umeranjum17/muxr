@@ -611,7 +611,7 @@ export default function NewAgentScreen() {
                 {error !== undefined && <Text style={styles.errorText}>{error}</Text>}
 
 
-            </ScrollView>
+            </FormScrollView>
             <View style={{ padding: 16, paddingBottom: Math.max(16, insets.bottom) }}>
                 <Pressable
                     onPress={start}
@@ -627,7 +627,7 @@ export default function NewAgentScreen() {
                         </Text>
                     )}
                 </Pressable>
-            </FormScrollView>
+            </View>
         </View>
     );
 }
