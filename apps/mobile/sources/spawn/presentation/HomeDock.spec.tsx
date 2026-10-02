@@ -48,7 +48,9 @@ vi.mock('react-native-reanimated', () => ({
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('@/components/MobileGlass', () => ({ MobileGlassSurface: 'MobileGlassSurface' }));
 vi.mock('@/components/ComposerDictation', () => ({ useComposerDictation: () => ({ recording: false, transcribing: false }), DictateAction: () => null, DictationStrip: () => null }));
-vi.mock('@/components/OptionSheet', () => ({ OptionSheet: 'OptionSheet' }));
+vi.mock('@/components/OptionSheet', () => ({
+    OptionSheet: (props: { footer?: React.ReactNode }) => React.createElement('OptionSheet', props, props.footer),
+}));
 vi.mock('@/components/BubblePressable', () => ({ BubblePressable: 'BubblePressable' }));
 vi.mock('@/settings', () => ({ NativeSettingsMenu: 'NativeSettingsMenu' }));
 vi.mock('@/terminal/ui', () => ({ AgentInputAttachmentStrip: () => null }));
