@@ -277,6 +277,7 @@ export default function NewAgentScreen() {
                 if (!live) return;
                 const resolved = resolveAgentCatalog(result);
                 setCatalog(resolved.options);
+                setAgentDetails(undefined);
                 setCatalogSource(resolved.authoritative ? 'host' : 'unknown');
                 const preferred = defaultAgentKind(resolved.options, useNewSessionDraft.getState().agentType);
                 const installed = new Set(resolved.options.filter((option) => option.availability === 'installed').map((option) => option.kind));
