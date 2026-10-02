@@ -77,7 +77,7 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         releaseDictation();
     }, []);
 
-    const start = React.useCallback(async () => {
+    const start = React.useCallback(async (): Promise<void> => {
         if (Platform.OS === 'web') {
             Modal.alert('Dictation unavailable', 'On-device dictation is available in the Android and iOS apps.');
             return;
@@ -121,7 +121,12 @@ export function useDictation(getText: () => string, setText: (text: string) => v
             releaseDictation();
             const message = recordingErrorMessage(error);
             console.error('Failed to start recording:', message);
-            Modal.alert('Dictation failed', message);
+            const microphoneUnavailable = message.startsWith('AudioQueueStart failed (NSOSStatusErrorDomain -66628)');
+            const explanation = microphoneUnavailable ? `Microphone not available. Check the microphone, then try again.\n\nDetails: ${message}` : message;
+            Modal.alert('Dictation failed', explanation, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Retry', onPress: () => { void start(); } },
+            ]);
         }
     }, [showSpoken]);
 

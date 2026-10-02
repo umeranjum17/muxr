@@ -726,14 +726,27 @@ describe('on-device dictation flow', () => {
         expect(reported('settle-active-done')).toBe(true);
     });
 
-    it('shows the native startup failure without private data and releases microphone ownership', async () => {
-        mocks.liveAudio.start.mockRejectedValue(new Error('AudioQueueNewInput failed (NSOSStatusErrorDomain -50). file:///private/test.wav token=fixture-secret'));
+    it('explains unavailable microphone input, keeps safe error detail and retries only on request', async () => {
+        mocks.liveAudio.start.mockRejectedValueOnce(new Error('AudioQueueStart failed (NSOSStatusErrorDomain -66628). file:///private/test.wav token=fixture-secret'));
         const dictation = await renderDictation();
         await act(async () => { dictation.toggle(); });
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(mocks.modalAlert).toHaveBeenCalledWith('Dictation failed', 'AudioQueueNewInput failed (NSOSStatusErrorDomain -50). [path hidden] token: [redacted]');
+        const [title, message, buttons] = mocks.modalAlert.mock.calls[0]!;
+        expect(title).toBe('Dictation failed');
+        expect(message).toBe('Microphone not available. Check the microphone, then try again.\n\nDetails: AudioQueueStart failed (NSOSStatusErrorDomain -66628). [path hidden] token: [redacted]');
         expect(micOwners()).toEqual([]);
+        expect(api!.recording).toBe(false);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(mocks.liveAudio.start).toHaveBeenCalledOnce();
+
+        const retry = buttons.find((button: { text: string }) => button.text === 'Retry');
+        await act(async () => { retry.onPress(); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.liveAudio.start).toHaveBeenCalledTimes(2);
+        expect(api!.recording).toBe(true);
+        expect(micOwners()).toEqual(['dictation']);
+        expect(appended).toEqual([]);
     });
 
     it('does not claim the mic when permission is denied and blocks Realtime while dictating', async () => {
