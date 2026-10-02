@@ -1342,7 +1342,7 @@ index d90375a..85a34b9 100644
          case GHOSTTY_ACTION_PWD:
              let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb2..6d763f5 100644
+index 3f3eeb2..a8a95fb 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 @@ -25,9 +25,22 @@
@@ -1626,74 +1626,20 @@ index 3f3eeb2..6d763f5 100644
              }
              return true
          }
-diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift
-index 10834a3..80d4847 100644
---- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift
-+++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift
-@@ -8,6 +8,8 @@
+@@ -650,3 +807,305 @@
  
-     extension UITerminalView {
-         private static let scaleStepThreshold: CGFloat = 0.1
-+        /// A reported pinch is quiet between changes smaller than this.
-+        private static let scaleReportThreshold: CGFloat = 0.02
- 
-         func setupPinchZoomGesture() {
-             let pinch = UIPinchGestureRecognizer(
-@@ -21,12 +23,23 @@
-             switch gesture.state {
-             case .began:
-                 lastPinchScale = gesture.scale
-+                if let hostPinchHandler {
-+                    hostPinchHandler("begin", gesture.scale)
-+                    return
-+                }
-                 TerminalDebugLog.log(
-                     .actions,
-                     "pinch began scale=\(String(format: "%.3f", gesture.scale)) fontSize=\(currentFontSize)"
-                 )
- 
-             case .changed:
-+                if let hostPinchHandler {
-+                    if abs(gesture.scale - lastPinchScale) >= Self.scaleReportThreshold {
-+                        lastPinchScale = gesture.scale
-+                        hostPinchHandler("change", gesture.scale)
-+                    }
-+                    return
-+                }
-                 let delta = gesture.scale - lastPinchScale
- 
-                 let steps = Int(delta / Self.scaleStepThreshold)
-@@ -66,6 +79,7 @@
- 
-             case .ended, .cancelled, .failed:
-                 lastPinchScale = 1.0
-+                hostPinchHandler?("end", gesture.scale)
-                 TerminalDebugLog.log(
-                     .actions,
-                     "pinch ended state=\(gesture.state.rawValue) fontSize=\(currentFontSize)"
-diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+TouchSelection.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+TouchSelection.swift
-new file mode 100644
-index 0000000..8d93ede
---- /dev/null
-+++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+TouchSelection.swift
-@@ -0,0 +1,309 @@
-+//
-+//  UITerminalView+TouchSelection.swift
-+//  expo-libghostty (muxr patch)
-+//
-+//  Text selection in place on the terminal, like any iOS text: long-press
+     }
+ #endif
++
++// muxr patch: text selection in place on the terminal, like any iOS text: long-press
 +//  selects the word, two handles drag the ends, and the edit menu offers
 +//  Copy, Paste and Select All. The range is cells of the visible viewport,
 +//  drawn over the terminal and read with ghostty_surface_read_text, so no
 +//  mouse event reaches the program (TUIs that capture the mouse stay
 +//  untouched). Handle drags ride the terminal's own scroll pan and the
 +//  long-press, so no extra recognizer competes with scrolling.
-+//
 +
 +#if canImport(UIKit) && !targetEnvironment(macCatalyst)
-+    import GhosttyKit
-+    import UIKit
-+
 +    struct TerminalTouchSelection: Equatable {
 +        struct Cell: Equatable, Comparable {
 +            var column: Int
@@ -1986,6 +1932,51 @@ index 0000000..8d93ede
 +        }
 +    }
 +#endif
+diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift
+index 10834a3..80d4847 100644
+--- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift
++++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+PinchZoom.swift
+@@ -8,6 +8,8 @@
+ 
+     extension UITerminalView {
+         private static let scaleStepThreshold: CGFloat = 0.1
++        /// A reported pinch is quiet between changes smaller than this.
++        private static let scaleReportThreshold: CGFloat = 0.02
+ 
+         func setupPinchZoomGesture() {
+             let pinch = UIPinchGestureRecognizer(
+@@ -21,12 +23,23 @@
+             switch gesture.state {
+             case .began:
+                 lastPinchScale = gesture.scale
++                if let hostPinchHandler {
++                    hostPinchHandler("begin", gesture.scale)
++                    return
++                }
+                 TerminalDebugLog.log(
+                     .actions,
+                     "pinch began scale=\(String(format: "%.3f", gesture.scale)) fontSize=\(currentFontSize)"
+                 )
+ 
+             case .changed:
++                if let hostPinchHandler {
++                    if abs(gesture.scale - lastPinchScale) >= Self.scaleReportThreshold {
++                        lastPinchScale = gesture.scale
++                        hostPinchHandler("change", gesture.scale)
++                    }
++                    return
++                }
+                 let delta = gesture.scale - lastPinchScale
+ 
+                 let steps = Int(delta / Self.scaleStepThreshold)
+@@ -66,6 +79,7 @@
+ 
+             case .ended, .cancelled, .failed:
+                 lastPinchScale = 1.0
++                hostPinchHandler?("end", gesture.scale)
+                 TerminalDebugLog.log(
+                     .actions,
+                     "pinch ended state=\(gesture.state.rawValue) fontSize=\(currentFontSize)"
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
 index 7bb1e98..490aaf0 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
