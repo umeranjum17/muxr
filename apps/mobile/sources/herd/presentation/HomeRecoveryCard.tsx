@@ -114,3 +114,51 @@ export function HomeRecoveryCard({
         </View>
     );
 }
+
+/** How long a connect may run before Home says the computer is busy; a
+ *  shorter connect stays silent. */
+const BUSY_AFTER_MS = 5_000;
+
+/** True once a connecting stretch that began at `since` outlasts a short
+ *  connect. It flips once instead of ticking, so Home does not re-render every
+ *  second while the link retries. */
+export function useBusyConnecting(since: number | null): boolean {
+    const [busy, setBusy] = React.useState(false);
+    React.useEffect(() => {
+        if (since === null) { setBusy(false); return; }
+        const wait = since + BUSY_AFTER_MS - Date.now();
+        setBusy(wait <= 0);
+        if (wait <= 0) return;
+        const timer = setTimeout(() => setBusy(true), wait);
+        return () => clearTimeout(timer);
+    }, [since]);
+    return busy;
+}
+
+/** Shown while the link keeps retrying a host that is slow to answer; nothing
+ *  here suggests the pairing failed. Home stands in for its other connected
+ *  rows while it shows, so this card is the one place that speaks. */
+export function BusyConnectingCard({ since }: { since: number }) {
+    const router = useRouter();
+    const { theme } = useUnistyles();
+    const [now, setNow] = React.useState(() => Date.now());
+    React.useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 1_000);
+        return () => clearInterval(timer);
+    }, []);
+    const seconds = Math.max(0, Math.floor((now - since) / 1_000));
+    const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    return (
+        <View style={[styles.card, cardStyle(theme)]}>
+            <Text style={styles.title}>Your computer is very busy - still connecting</Text>
+            <Text accessibilityLiveRegion="polite" style={styles.body}>
+                Connecting for {elapsed}. muxr keeps trying, and your terminals will appear when the computer catches up.
+            </Text>
+            <View style={styles.actions}>
+                <Pressable accessibilityRole="link" onPress={() => router.push('/settings/connection' as never)} style={[styles.actionTarget, styles.retryButton]}>
+                    <Text style={styles.action}>Connection details</Text>
+                </Pressable>
+            </View>
+        </View>
+    );
+}
