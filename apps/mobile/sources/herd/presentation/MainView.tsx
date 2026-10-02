@@ -49,7 +49,7 @@ import { herdrPaneForSession, navigateToSession } from '@/herd';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
-import { BusyConnectingCard, HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
+import { BusyConnectingCard, HomeRecoveryCard, recoveryMode, useBusyConnecting } from './HomeRecoveryCard';
 
 
 const styles = StyleSheet.create((theme) => ({
@@ -343,6 +343,7 @@ export const MainView = React.memo(() => {
         && getCachedConnectionSettings().mode === 'hosted'
         && (socketStatus.status === 'error' || socketStatus.status === 'disconnected' || (splitHostRequestFailed && splitBusySince === null));
     const splitRuntimeOffline = useSplitView && hasPairedGrant && socketStatus.status === 'connected' && splitHerdrConnected === false;
+    const splitBusy = useBusyConnecting(splitBusySince);
     const splitRecovering = splitHostOffline || splitRuntimeOffline || retryingHome || splitRetryFailed;
     React.useEffect(() => {
         if (!splitRecovering) setHomeRecoveryFeedback('');
@@ -470,7 +471,7 @@ export const MainView = React.memo(() => {
     const permanentRecovery = !['host', 'runtime'].includes(recoveryMode(socketStatus.error, false));
     const homeHeader = <>
         <PluginSlot slot="home.cards" context={{}} />
-        {!permanentRecovery && <RightNowCard />}
+        {!permanentRecovery && <RightNowCard linkDown={socketStatus.status !== 'connected'} />}
         <DeclarativeHomeCards />
         <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
     </>;
@@ -508,13 +509,13 @@ export const MainView = React.memo(() => {
                             onRetry={() => void retrySplitConnection()}
                             onFeedback={setHomeRecoveryFeedback}
                         />
-                    ) : splitBusySince !== null ? <BusyConnectingCard since={splitBusySince} /> : null}
-                    {!splitRecovering
+                    ) : splitBusy && splitBusySince !== null ? <BusyConnectingCard since={splitBusySince} /> : null}
+                    {!splitRecovering && !splitBusy
                         ? <LiveTerminalsRow visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} /> : null}
                     {homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitRecovering && socketStatus.status === 'connected'
                         ? <HomeDiscoveryRows /> : null}
                     <PluginSlot slot="home.cards" context={{}} />
-                    {!permanentRecovery && <RightNowCard />}
+                    {!permanentRecovery && <RightNowCard linkDown={socketStatus.status !== 'connected'} />}
                     <DeclarativeHomeCards />
                     {recentSessions.length > 0 && (
                         <View style={styles.recentSection}>
