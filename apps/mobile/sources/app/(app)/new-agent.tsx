@@ -336,9 +336,12 @@ export default function NewAgentScreen() {
     const kinds = [...selected];
     const squad = kinds.length > 1;
     const unavailableCount = catalog.filter((option) => option.availability === 'unavailable').length;
-    const visibleCatalog = showUnavailableAgents
-        ? catalog
-        : catalog.filter((option) => option.availability !== 'unavailable');
+    // Unconfirmed fallback tiles are held back while the host is still probing: its answer
+    // reorders the grid under the finger and drops a pick it does not have installed.
+    const visibleCatalog = catalog.filter((option) =>
+        catalogSource === 'loading'
+            ? option.availability !== 'unknown'
+            : showUnavailableAgents || option.availability !== 'unavailable');
     const directory = cwd.trim();
 
     const start = React.useCallback(async () => {
