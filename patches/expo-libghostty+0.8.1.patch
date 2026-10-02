@@ -1342,7 +1342,7 @@ index d90375a..85a34b9 100644
          case GHOSTTY_ACTION_PWD:
              let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb2..fa0cd97 100644
+index 3f3eeb2..e3400f7 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 @@ -25,9 +25,23 @@
@@ -1652,7 +1652,7 @@ index 3f3eeb2..fa0cd97 100644
              }
              return true
          }
-@@ -650,3 +824,318 @@
+@@ -650,3 +824,323 @@
  
      }
  #endif
@@ -1743,11 +1743,15 @@ index 3f3eeb2..fa0cd97 100644
 +            }
 +            highlight.path = path.cgPath
 +
-+            // iOS-style lollipops: the knob sits above the start and below the end.
++            // iOS-style lollipops: the knob sits above the start and below the end,
++            // unless that leaves the terminal (row 0, the last row), where a touch
++            // on it would land on the view outside; there it flips across its row.
 +            let first = grid.rect(of: selection.start)
 +            let last = grid.rect(of: selection.end)
-+            startHandle.path = Self.handlePath(barX: first.minX, top: first.minY, bottom: first.maxY, knobAtTop: true)
-+            endHandle.path = Self.handlePath(barX: last.maxX, top: last.minY, bottom: last.maxY, knobAtTop: false)
++            let startKnobAtTop = first.minY - Self.knob + 1 >= bounds.minY
++            let endKnobAtTop = last.maxY - 1 + Self.knob > bounds.maxY
++            startHandle.path = Self.handlePath(barX: first.minX, top: first.minY, bottom: first.maxY, knobAtTop: startKnobAtTop)
++            endHandle.path = Self.handlePath(barX: last.maxX, top: last.minY, bottom: last.maxY, knobAtTop: endKnobAtTop)
 +            for handle in [startHandle, endHandle] {
 +                handle.fillColor = tint.cgColor
 +            }
@@ -1758,8 +1762,9 @@ index 3f3eeb2..fa0cd97 100644
 +            isHidden = true
 +        }
 +
++        private static let knob: CGFloat = 10
++
 +        private static func handlePath(barX: CGFloat, top: CGFloat, bottom: CGFloat, knobAtTop: Bool) -> CGPath {
-+            let knob: CGFloat = 10
 +            let path = UIBezierPath(rect: CGRect(x: barX - 1, y: top, width: 2, height: bottom - top))
 +            let knobY = knobAtTop ? top - knob + 1 : bottom - 1
 +            path.append(UIBezierPath(ovalIn: CGRect(x: barX - knob / 2, y: knobY, width: knob, height: knob)))
