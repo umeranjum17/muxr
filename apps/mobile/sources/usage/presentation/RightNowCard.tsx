@@ -47,6 +47,13 @@ export function RightNowCard({ linkDown = false }: { linkDown?: boolean }) {
     const { display, failed, refreshing, throttledSeconds, refresh } = useUsageNow();
     const open = () => router.push('/usage');
     const caption = { color: theme.colors.textSecondary, fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE } as const;
+    // A failure read while the link was down is about the link, not usage:
+    // ask again the moment it is back rather than at the next backed-off retry.
+    const wasDown = React.useRef(linkDown);
+    React.useEffect(() => {
+        if (wasDown.current && !linkDown && display.status === 'unavailable') refresh();
+        wasDown.current = linkDown;
+    }, [display.status, linkDown, refresh]);
     // Home's connection state already says the computer is out of reach; the
     // strip keeps only figures it holds and never repeats that as a failure.
     if (linkDown && display.status !== 'figures') return null;
