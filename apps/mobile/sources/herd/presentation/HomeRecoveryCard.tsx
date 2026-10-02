@@ -114,3 +114,31 @@ export function HomeRecoveryCard({
         </View>
     );
 }
+
+/** Shown while the link keeps retrying a host that is slow to answer; a short
+ *  connect stays silent, and nothing here suggests the pairing failed. */
+export function BusyConnectingCard({ since }: { since: number }) {
+    const router = useRouter();
+    const { theme } = useUnistyles();
+    const [now, setNow] = React.useState(() => Date.now());
+    React.useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 1_000);
+        return () => clearInterval(timer);
+    }, []);
+    const seconds = Math.max(0, Math.floor((now - since) / 1_000));
+    if (seconds < 5) return null;
+    const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    return (
+        <View style={[styles.card, cardStyle(theme)]}>
+            <Text style={styles.title}>Your computer is very busy - still connecting</Text>
+            <Text accessibilityLiveRegion="polite" style={styles.body}>
+                Connecting for {elapsed}. muxr keeps trying and will connect when the computer catches up.
+            </Text>
+            <View style={styles.actions}>
+                <Pressable accessibilityRole="link" onPress={() => router.push('/settings/connection' as never)} style={styles.actionTarget}>
+                    <Text style={styles.action}>Connection details</Text>
+                </Pressable>
+            </View>
+        </View>
+    );
+}
