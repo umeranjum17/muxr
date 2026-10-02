@@ -1342,7 +1342,7 @@ index d90375a..85a34b9 100644
          case GHOSTTY_ACTION_PWD:
              let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb2..a048912 100644
+index 3f3eeb2..fa0cd97 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 @@ -25,9 +25,23 @@
@@ -1360,7 +1360,7 @@ index 3f3eeb2..a048912 100644
                  }
 +                if touches.count == 1, let touch = touches.first, touch.type == .direct {
 +                    let point = touch.location(in: self)
-+                    touchSelectionDrag = touchSelectionHandle(near: point)
++                    touchSelectionDrag = grabTouchSelectionHandle(at: point)
 +                    pendingTapPoint = point
 +                    primeHoverLink(at: point)
 +                } else {
@@ -1634,9 +1634,15 @@ index 3f3eeb2..a048912 100644
                  let mods = TerminalScrollModifiers(precision: true, momentum: .none)
                  surface?.sendMouseScroll(x: 0, y: 0, mods: mods.rawValue)
              }
-@@ -629,7 +794,11 @@
+@@ -628,8 +793,17 @@
+         override open func gestureRecognizerShouldBegin(
              _ gestureRecognizer: UIGestureRecognizer
          ) -> Bool {
++            #if !targetEnvironment(macCatalyst)
++                // A grabbed handle's drag is the selection's, never an ancestor's
++                // (the agent pager claims a horizontal drag before this view's pan).
++                if touchSelectionDrag != nil, gestureRecognizer.view !== self { return false }
++            #endif
              if gestureRecognizer is UILongPressGestureRecognizer {
 +                #if !targetEnvironment(macCatalyst)
 +                    if touchSelectionHandle(near: gestureRecognizer.location(in: self)) != nil { return false }
@@ -1646,7 +1652,7 @@ index 3f3eeb2..a048912 100644
              }
              return true
          }
-@@ -650,3 +819,309 @@
+@@ -650,3 +824,318 @@
  
      }
  #endif
@@ -1853,7 +1859,7 @@ index 3f3eeb2..a048912 100644
 +        func dragTouchSelection(to point: CGPoint) {
 +            guard var selection = touchSelection, let handle = touchSelectionDrag, let grid = touchSelectionGrid() else { return }
 +            UIMenuController.shared.hideMenu()
-+            let cell = grid.cell(at: point)
++            let cell = grid.cell(at: CGPoint(x: point.x + touchSelectionGrabOffset.x, y: point.y + touchSelectionGrabOffset.y))
 +            switch handle {
 +            case .start:
 +                if cell > selection.end {
@@ -1880,6 +1886,15 @@ index 3f3eeb2..a048912 100644
 +            showTouchSelectionMenu()
 +        }
 +
++        /// Takes the handle under `point`, remembering where its cell is from the finger.
++        func grabTouchSelectionHandle(at point: CGPoint) -> TerminalTouchSelection.Handle? {
++            guard let selection = touchSelection, let grid = touchSelectionGrid(),
++                  let handle = touchSelectionHandle(near: point) else { return nil }
++            let cell = grid.rect(of: handle == .start ? selection.start : selection.end)
++            touchSelectionGrabOffset = CGPoint(x: cell.midX - point.x, y: cell.midY - point.y)
++            return handle
++        }
++
 +        /// The handle a drag starting at `point` grabs, if any.
 +        func touchSelectionHandle(near point: CGPoint) -> TerminalTouchSelection.Handle? {
 +            guard let selection = touchSelection, let grid = touchSelectionGrid() else { return nil }
@@ -1901,7 +1916,7 @@ index 3f3eeb2..a048912 100644
 +                let location = gesture.location(in: self)
 +                let translation = gesture.translation(in: self)
 +                let origin = CGPoint(x: location.x - translation.x, y: location.y - translation.y)
-+                if let handle = touchSelectionDrag ?? touchSelectionHandle(near: origin) {
++                if let handle = touchSelectionDrag ?? grabTouchSelectionHandle(at: origin) {
 +                    touchSelectionDrag = handle
 +                    dragTouchSelection(to: location)
 +                    return true
@@ -2002,10 +2017,10 @@ index 10834a3..80d4847 100644
                      .actions,
                      "pinch ended state=\(gesture.state.rawValue) fontSize=\(currentFontSize)"
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
-index 7bb1e98..490aaf0 100644
+index 7bb1e98..683d1ab 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView.swift
-@@ -36,13 +36,48 @@
+@@ -36,13 +36,51 @@
          lazy var inputHandler = TerminalTextInputHandler(view: self)
          weak var _inputDelegate: (any UITextInputDelegate)?
          var onFocusChange: ((Bool) -> Void)?
@@ -2045,6 +2060,9 @@ index 7bb1e98..490aaf0 100644
 +            /// In-place touch selection (long-press, drag handles, edit menu).
 +            var touchSelection: TerminalTouchSelection?
 +            var touchSelectionDrag: TerminalTouchSelection.Handle?
++            /// From the finger to the grabbed end's cell, so the end stays under the
++            /// knob the finger took (the start's knob sits above its row).
++            var touchSelectionGrabOffset: CGPoint = .zero
 +            /// The long-pressed word: while the finger stays down the range only grows from it.
 +            var touchSelectionWord: TerminalTouchSelection?
 +            /// The long-press that made the selection ends as a touch too; it must
@@ -2054,7 +2072,7 @@ index 7bb1e98..490aaf0 100644
          #endif
  
          #if !targetEnvironment(macCatalyst)
-@@ -86,6 +121,31 @@
+@@ -86,6 +124,31 @@
              true
          }
  
@@ -2086,7 +2104,7 @@ index 7bb1e98..490aaf0 100644
          override public init(frame: CGRect) {
              super.init(frame: frame)
              commonInit()
-@@ -128,6 +188,13 @@
+@@ -128,6 +191,13 @@
              core.onPostRender = { [weak self] in
                  self?.enforceSublayerScale()
              }
