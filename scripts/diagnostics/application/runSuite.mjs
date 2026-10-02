@@ -8,8 +8,8 @@
  * from the one developers can run, and then nobody knows what green means.
  */
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { scratchBase, testScratchOwner } from './testScratchOwner.mjs';
@@ -110,6 +110,8 @@ if (missing.length > 0) {
 }
 
 const results = [];
+// Outside child-owned scratch: logs must survive both cleanup and suite failure.
+const logDir = mkdtempSync(join(tmpdir(), 'muxr-suite-'));
 
 function run(name, cmd, args, timeoutMs = 150000) {
     return new Promise((resolve) => {
@@ -129,9 +131,9 @@ function run(name, cmd, args, timeoutMs = 150000) {
         const child = spawn(wrapped ? process.execPath : cmd,
             wrapped ? ['scripts/diagnostics/application/checkHostTestScratch.mjs', '--', cmd, ...args] : args,
             { stdio: ['ignore', 'pipe', 'pipe'], env, detached: wrapped });
-        let out = '';
-        child.stdout.on('data', (d) => { out += d; });
-        child.stderr.on('data', (d) => { out += d; });
+        const chunks = [];
+        child.stdout.on('data', (d) => { chunks.push(d); });
+        child.stderr.on('data', (d) => { chunks.push(d); });
         let escalation;
         let timedOut = false;
         const killGroup = (signal) => {
@@ -145,20 +147,26 @@ function run(name, cmd, args, timeoutMs = 150000) {
                 escalation = setTimeout(() => killGroup('SIGKILL'), 2000);
             } else child.kill('SIGKILL');
         }, timeoutMs);
-        child.on('exit', (code) => {
+        child.on('exit', () => {
             clearTimeout(timer);
             if (timedOut && wrapped) {
                 killGroup('SIGKILL');
                 testScratchOwner(scratchBase());
             }
             clearTimeout(escalation);
+        });
+        // close waits for both output pipes to drain; exit alone can lose bytes.
+        child.on('close', (code) => {
             const ms = Date.now() - started;
-            results.push({ name, code: code ?? 1, ms, out });
+            const logPath = join(logDir, `${results.length + 1}-${name.replace(/[^a-z0-9]+/gi, '-')}.log`);
+            const output = Buffer.concat(chunks);
+            writeFileSync(logPath, output, { mode: 0o600 });
+            results.push({ name, code: code ?? 1, ms, logPath });
             const mark = code === 0 ? 'PASS' : 'FAIL';
             process.stdout.write(`${mark}  ${name}  (${(ms / 1000).toFixed(1)}s)\n`);
             if (code !== 0) {
-                const tail = out.trim().split('\n').slice(-12).join('\n      ');
-                process.stdout.write(`      ${tail}\n`);
+                const tail = output.toString('utf8').trim().split('\n').slice(-12).join('\n      ');
+                process.stdout.write(`      ${tail}\n      full output: ${logPath}\n`);
             }
             resolve();
         });
@@ -197,7 +205,10 @@ const failed = results.filter((r) => r.code !== 0);
 const total = (results.reduce((sum, r) => sum + r.ms, 0) / 1000).toFixed(1);
 const skipNote = skipped > 0 ? `, ${skipped} skipped` : '';
 process.stdout.write(`\n=== ${results.length - failed.length}/${results.length} passed in ${total}s${skipNote} ===\n`);
+process.stdout.write(`stage logs: ${logDir}\n`);
 if (failed.length > 0) {
     process.stdout.write(`failed: ${failed.map((r) => r.name).join(', ')}\n`);
+    for (const { name, logPath } of failed) process.stdout.write(`  ${name}: ${logPath}\n`);
 }
-process.exit(failed.length === 0 ? 0 : 1);
+// Let stdout drain so a piped summary cannot lose the artifact paths.
+process.exitCode = failed.length === 0 ? 0 : 1;

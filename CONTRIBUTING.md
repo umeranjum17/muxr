@@ -41,6 +41,13 @@ yarn run check        # everything above plus the e2e, web-export, install and s
 Both invoke `scripts/diagnostics/application/runSuite.mjs`, which owns both
 lists; CI's `fast` and `suite` jobs run these on every pull request. A pull request from a fork runs the same `suite` check; if you are a first-time or outside contributor, the checks wait for a maintainer to approve the run before they start. `main` requires the branch to be up to date with `main` before merge.
 
+Each stage's complete stdout/stderr is saved in a private `muxr-suite-*`
+directory under the system temporary directory. The summary prints the directory
+and each failed stage's log path; the inline failure preview remains the last
+12 lines. Logs survive suite exit and child scratch cleanup; remove the printed
+directory when it is no longer needed. Treat logs as local diagnostics and review
+them before sharing.
+
 Two e2e checks in the suite — the live herdr backend loop and the worktree
 session — skip automatically when no herdr socket is present, so on a GitHub
 runner they never execute. Run them locally with a guarded Herdr lab helper
