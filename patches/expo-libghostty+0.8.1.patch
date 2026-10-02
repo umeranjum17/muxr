@@ -1342,7 +1342,7 @@ index d90375a..85a34b9 100644
          case GHOSTTY_ACTION_PWD:
              let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb2..350364e 100644
+index 3f3eeb2..62df79d 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 @@ -25,9 +25,22 @@
@@ -1626,7 +1626,7 @@ index 3f3eeb2..350364e 100644
              }
              return true
          }
-@@ -650,3 +807,305 @@
+@@ -650,3 +807,308 @@
  
      }
  #endif
@@ -1749,16 +1749,18 @@ index 3f3eeb2..350364e 100644
 +            guard let surface, let metrics = surface.size(), metrics.columns > 0, metrics.rows > 0 else { return nil }
 +            let scale = resolvedDisplayScale()
 +            guard scale > 0 else { return nil }
-+            // Ghostty reports a range's top-left in view points, padding included:
-+            // the first cell gives the grid's origin.
++            let cell = CGSize(
++                width: CGFloat(metrics.cellWidthPixels) / scale,
++                height: CGFloat(metrics.cellHeightPixels) / scale
++            )
++            // Ghostty reports a range's first cell in view points, padding
++            // included, at the left of its baseline (the bottom of the row):
++            // one row up from the first cell is the grid's origin.
 +            let origin = surface.readViewportText(fromColumn: 0, row: 0, toColumn: 0, row: 0)
-+                .map { CGPoint(x: $0.topLeftX, y: $0.topLeftY) } ?? .zero
++                .map { CGPoint(x: $0.topLeftX, y: $0.topLeftY - Double(cell.height)) } ?? .zero
 +            return TerminalTouchGrid(
 +                origin: origin,
-+                cell: CGSize(
-+                    width: CGFloat(metrics.cellWidthPixels) / scale,
-+                    height: CGFloat(metrics.cellHeightPixels) / scale
-+                ),
++                cell: cell,
 +                columns: Int(metrics.columns),
 +                rows: Int(metrics.rows)
 +            )
@@ -1802,8 +1804,9 @@ index 3f3eeb2..350364e 100644
 +            var end = start
 +            surface?.sendMousePos(x: Double(point.x), y: Double(point.y), mods: ghostty_input_mods_e(rawValue: 0))
 +            if let word = surface?.quicklookWord(), !word.word.isEmpty {
++                // The word's point is on its baseline, so its row is half a cell up.
 +                // ponytail: one cell per character; wide (CJK/emoji) glyphs overshoot the word end.
-+                start = grid.cell(at: CGPoint(x: CGFloat(word.pointX) + grid.cell.width / 2, y: CGFloat(word.pointY) + grid.cell.height / 2))
++                start = grid.cell(at: CGPoint(x: CGFloat(word.pointX) + grid.cell.width / 2, y: CGFloat(word.pointY) - grid.cell.height / 2))
 +                let length = word.word.count
 +                let flat = start.row * grid.columns + start.column + max(length - 1, 0)
 +                end = .init(column: flat % grid.columns, row: min(flat / grid.columns, grid.rows - 1))
