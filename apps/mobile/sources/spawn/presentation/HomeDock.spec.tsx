@@ -91,7 +91,7 @@ vi.mock('../application/homeDockEnvironment', async (importOriginal) => {
 
 import { HomeDock } from './HomeDock';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
-import { loadNewSessionDraft } from '@/catalog/application/persistence';
+import { loadNewSessionDraft } from '@/catalog';
 
 it('reevaluates automatic Shell on readiness refresh while preserving explicit choices', async () => {
     useNewSessionDraft.getState().setAgentType('codex');
