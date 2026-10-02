@@ -48,7 +48,7 @@ vi.mock('react-native-reanimated', () => ({
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('@/components/MobileGlass', () => ({ MobileGlassSurface: 'MobileGlassSurface' }));
 vi.mock('@/components/ComposerDictation', () => ({ useComposerDictation: () => ({ recording: false, transcribing: false }), DictateAction: () => null, DictationStrip: () => null }));
-vi.mock('@/components/OptionSheet', () => ({ OptionSheet: () => null }));
+vi.mock('@/components/OptionSheet', () => ({ OptionSheet: 'OptionSheet' }));
 vi.mock('@/components/BubblePressable', () => ({ BubblePressable: 'BubblePressable' }));
 vi.mock('@/settings', () => ({ NativeSettingsMenu: 'NativeSettingsMenu' }));
 vi.mock('@/terminal/ui', () => ({ AgentInputAttachmentStrip: () => null }));
@@ -88,23 +88,51 @@ vi.mock('../application/homeDockEnvironment', async (importOriginal) => {
 
 import { HomeDock } from './HomeDock';
 
-it('does not use a persisted Pi draft as the initial dock default', async () => {
-    dockState.agentType = 'pi';
+it('reevaluates automatic Shell on readiness refresh while preserving explicit choices', async () => {
+    dockState.agentType = 'codex';
     dockState.setAgentType.mockClear();
+    dockState.setAgentType.mockImplementation((agent: string) => { dockState.agentType = agent; });
     socketStatus.status = 'connected';
     catalogResult.options = [
         { kind: 'pi', availability: 'installed', signedIn: 'yes' },
-        { kind: 'codex', availability: 'installed', signedIn: 'yes' },
+        { kind: 'codex', availability: 'installed', signedIn: 'no' },
     ];
     let screen: any;
-    await TestRenderer.act(async () => {
-        screen = TestRenderer.create(
-            <HomeDock prompt="" onPromptChange={vi.fn()} onSubmit={async () => true} onStartBlank={async () => true} isSubmitting={false} />,
-        );
-    });
-    expect(dockState.setAgentType).toHaveBeenCalledWith('codex');
-    TestRenderer.act(() => { screen.unmount(); });
-    socketStatus.status = 'disconnected';
+    const render = () => <HomeDock prompt="" onPromptChange={vi.fn()} onSubmit={async () => true} onStartBlank={async () => true} isSubmitting={false} />;
+    const checkAgain = () => screen.root.findAll((node: any) => node.type === 'Pressable'
+        && node.findAll((child: any) => child.type === 'Text' && child.props.children === 'Check again').length > 0)[0].props.onPress();
+    try {
+        await TestRenderer.act(async () => { screen = TestRenderer.create(render()); });
+        expect(dockState.agentType).toBe('shell');
+        await TestRenderer.act(async () => { checkAgain(); });
+        expect(dockState.agentType).toBe('shell');
+
+        socketStatus.status = 'disconnected';
+        await TestRenderer.act(async () => { screen.update(render()); });
+        catalogResult.options = [
+            { kind: 'pi', availability: 'installed', signedIn: 'yes' },
+            { kind: 'claude', availability: 'installed', signedIn: 'yes' },
+            { kind: 'codex', availability: 'installed', signedIn: 'yes' },
+        ];
+        socketStatus.status = 'connected';
+        await TestRenderer.act(async () => { screen.update(render()); });
+        expect(dockState.agentType).toBe('codex');
+
+        catalogResult.options = [
+            { kind: 'claude', availability: 'installed', signedIn: 'yes' },
+            { kind: 'codex', availability: 'installed', signedIn: 'no' },
+        ];
+        await TestRenderer.act(async () => { checkAgain(); });
+        expect(dockState.agentType).toBe('codex');
+
+        TestRenderer.act(() => { screen.root.findAllByType('OptionSheet').find((node: any) => node.props.title === 'Agent').props.onSelect({ key: 'shell' }); });
+        await TestRenderer.act(async () => { checkAgain(); });
+        expect(dockState.agentType).toBe('shell');
+    } finally {
+        if (screen) TestRenderer.act(() => { screen.unmount(); });
+        socketStatus.status = 'disconnected';
+        dockState.setAgentType.mockReset();
+    }
 });
 
 it('keeps the short-screen composer below Back and makes Start reachable by scrolling', () => {
