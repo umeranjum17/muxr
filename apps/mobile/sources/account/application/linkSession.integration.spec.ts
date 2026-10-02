@@ -20,6 +20,8 @@ const harness = vi.hoisted(() => {
         blockNextMachines: false,
         blockNextSessions: false,
         blockNextTree: false,
+        /** The next link reaches the relay but never the host, so machine.hello never admits it. */
+        dialOffline: false,
         blockedTree: undefined as Promise<void> | undefined,
         treeRequestStarted: false,
         blockedSessions: undefined as Promise<void> | undefined,
@@ -113,7 +115,8 @@ vi.mock('@byokit/link', async (importOriginal) => {
             // byokit DeviceLink dials in its constructor; mirror that here.
             harness.clientConnects += 1;
             this.fire('connecting');
-            queueMicrotask(() => this.fire('online'));
+            const status = harness.dialOffline ? 'offline' : 'online';
+            queueMicrotask(() => this.fire(status));
         }
         connect() {
             this.fire('connecting');
@@ -229,6 +232,7 @@ describe('link session sync flow', () => {
         harness.blockNextMachines = false;
         harness.blockNextSessions = false;
         harness.blockNextTree = false;
+        harness.dialOffline = false;
         harness.blockedTree = undefined;
         harness.treeRequestStarted = false;
         harness.blockedSessions = undefined;
@@ -318,29 +322,35 @@ describe('link session sync flow', () => {
             return harness.clients.at(-1)!;
         };
 
-        // A version skew on a merely offline link is a host coming back, not a
-        // permanent incompatibility: the phone keeps retrying instead of
-        // landing on the Update-needed card.
+        // A host machine.hello already admitted is only slow when its relay answers:
+        // the phone stays connecting rather than naming its version.
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
-        (await dial()).fire('offline');
-        await vi.waitFor(() => expect(harness.socketError).toContain('reached the muxr relay'));
-        expect(harness.socketError).not.toContain('Update needed');
-        expect(harness.socketStatus).not.toBe('error');
+        const slow = await dial();
+        slow.fire('offline');
+        await vi.waitFor(() => expect(health).toHaveBeenCalledTimes(1));
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(harness.socketError).toBeNull();
+        expect(harness.socketStatus).toBe('connecting');
+        slow.fire('online');
+        await vi.waitFor(() => expect(harness.socketStatus).toBe('connected'));
 
-        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.1.9', linkProtocol: 1 }) });
-        (await dial()).fire('offline');
-        await vi.waitFor(() => expect(harness.socketError).toContain('reached the muxr relay'));
-        expect(harness.socketError).not.toContain('Update needed');
-
-        // The same skew on a refused pairing genuinely explains the refusal.
+        // A host that never got past the relay is named by what the relay reports.
+        // Its catalog refresh waits out the open timeout before the next reconnect can start.
+        const dialUnadmitted = async (message: string) => {
+            harness.dialOffline = true;
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+            const reconnect = syncReconnect().catch(() => undefined);
+            await vi.waitFor(() => expect(harness.socketError).toContain(message));
+            expect(harness.socketStatus).toBe('error');
+            await vi.advanceTimersByTimeAsync(5_000);
+            await reconnect;
+            vi.useRealTimers();
+            harness.dialOffline = false;
+        };
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
-        (await dial()).fire('refused');
-        await vi.waitFor(() => expect(harness.socketError).toContain('computer runs muxr 0.2.1'));
-        expect(harness.socketStatus).toBe('error');
-
+        await dialUnadmitted('computer runs muxr 0.2.1');
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.1.9', linkProtocol: 1 }) });
-        (await dial()).fire('refused');
-        await vi.waitFor(() => expect(harness.socketError).toContain('Update muxr on the computer'));
+        await dialUnadmitted('Update muxr on the computer');
 
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, onlineMachines: 1 }) });
         (await dial()).fire('offline');
