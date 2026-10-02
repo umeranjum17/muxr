@@ -6,6 +6,7 @@ import {
     pendingChoices,
     terminalComposerText,
     terminalInputDisposition,
+    undoSmartPunctuation,
 } from './promptAvailability';
 
 describe('terminal prompt guard', () => {
@@ -20,6 +21,18 @@ describe('terminal prompt guard', () => {
     it('preserves literal punctuation in shell commands', () => {
         const typed = 'rm \'Proposal—final.pdf\' && printf “done” don\u2019t';
         expect(terminalComposerText(typed, [], true)).toBe(typed);
+    });
+
+    it('types a shell command exactly as keyed through iOS smart punctuation', () => {
+        // What iOS hands onChangeText after each key: the quote arrives curly,
+        // and a second hyphen turns the first into a dash.
+        let draft = 'echo ';
+        for (const next of [() => `${draft}\u2018`, () => `${draft}a`, () => `${draft}\u2019`, () => `${draft} -`, () => `${draft.slice(0, -1)}\u2014`]) {
+            draft = undoSmartPunctuation(draft, next());
+        }
+        expect(draft).toBe("echo 'a' --");
+        // Text pasted in one go keeps its real typography.
+        expect(undoSmartPunctuation('mv ', 'mv \u2018Proposal\u2014final\u2019')).toBe('mv \u2018Proposal\u2014final\u2019');
     });
 
     it('blocks unrelated input and exposes the one-line jump action', () => {
