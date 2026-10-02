@@ -91,6 +91,7 @@ import { t } from '@/text';
 import { PREVIEW_DOCK, previewDocks, requestDesktop, type DesktopOrigin } from '@/desktop/request';
 import { PreviewChip, PreviewTooltip, previewIcon, usePreviewGate } from '@/desktop/preview';
 import { FindOutputSheet } from './FindOutputSheet';
+import { PaneSummarySheet } from './PaneSummarySheet';
 import { PendingChoices } from './PendingChoices';
 import { useTerminalQuickReplies } from '@/plugins/ui';
 
@@ -263,6 +264,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [menu, setMenu] = React.useState<SessionMenu | null>(null);
     const [actionsOpen, setActionsOpen] = React.useState(false);
     const [findOpen, setFindOpen] = React.useState(false);
+    const [summaryOpen, setSummaryOpen] = React.useState(false);
     const [controlGrid, setControlGrid] = React.useState<{ open: boolean; category: ControlGridCategory }>({ open: false, category: 'keys' });
     const [storedActions, setStoredActions] = useLocalSettingMutable('terminalQuickActions');
     // The seeds are a starting list, not a fixed row: once anything is stored,
@@ -592,8 +594,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [treeOpen, setTreeOpen] = React.useState(false);
     // A sheet or editor owns the screen; no floating control remains beneath it.
     React.useEffect(() => {
-        if (actionsOpen || overviewOpen || treeOpen || findOpen || controlGrid.open || menu !== null) ringRef.current?.close();
-    }, [actionsOpen, overviewOpen, treeOpen, findOpen, controlGrid.open, menu]);
+        if (actionsOpen || overviewOpen || treeOpen || findOpen || summaryOpen || controlGrid.open || menu !== null) ringRef.current?.close();
+    }, [actionsOpen, overviewOpen, treeOpen, findOpen, summaryOpen, controlGrid.open, menu]);
     const openControls = React.useCallback((category: ControlGridCategory) => { ringRef.current?.close(); setActionsOpen(false); setControlGrid({ open: true, category }); }, []);
     // Held steady so the memoised key row is not rebuilt by a new child element
     // on every keystroke in the composer above it.
@@ -939,18 +941,19 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         return () => subscription.remove();
     }, []);
 
-    // The action menu is a plain absolute View, not a modal, so Android's
+    // The action menu and the summary sheet are plain absolute Views, not modals, so Android's
     // hardware back would leave the screen instead of dismissing it.
     React.useEffect(() => {
-        if ((menu === null && !actionsOpen && !compactLinkMenu) || Platform.OS !== 'android') return;
+        if ((menu === null && !actionsOpen && !compactLinkMenu && !summaryOpen) || Platform.OS !== 'android') return;
         const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
             setMenu(null);
             setLinkMenu(null);
             setActionsOpen(false);
+            setSummaryOpen(false);
             return true;
         });
         return () => subscription.remove();
-    }, [actionsOpen, menu, compactLinkMenu]);
+    }, [actionsOpen, menu, compactLinkMenu, summaryOpen]);
 
     // The agent is a TUI: it can only reach a file by having the path in its
     // prompt. But splicing that path into the draft the moment you attach
@@ -1835,6 +1838,11 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
                                     </Pressable>
+                                    <Pressable onPress={() => { setActionsOpen(false); setSummaryOpen(true); }} accessibilityRole="button" accessibilityLabel="Summarize on this phone"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="sparkles-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Summarize</Text>
+                                    </Pressable>
                                     <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'computer')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
                                     {desktopAvailable && canControl && <Pressable onPress={openDesktop} accessibilityRole="button" accessibilityLabel="Computer"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
@@ -2052,6 +2060,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             </View>
                         </Pressable>
                     )}
+                    {summaryOpen && <PaneSummarySheet sessionId={props.id} onClose={() => setSummaryOpen(false)} />}
                     {findOpen && <FindOutputSheet sessionId={props.id} keyboardOffset={Platform.OS === 'web' || !keyboardVisible ? 0 : keyboardHeight} onClose={() => setFindOpen(false)} />}
                 </Animated.View>
             );
