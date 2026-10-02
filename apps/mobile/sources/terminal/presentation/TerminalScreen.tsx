@@ -1838,7 +1838,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
                                     </Pressable>
-                                    <Pressable onPress={() => { setActionsOpen(false); setSummaryOpen(true); }} accessibilityRole="button" accessibilityLabel="Summarize on this phone"
+                                    <Pressable onPress={() => { Keyboard.dismiss(); setActionsOpen(false); setSummaryOpen(true); }} accessibilityRole="button" accessibilityLabel="Summarize on this phone"
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="sparkles-outline" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Summarize</Text>
