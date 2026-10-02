@@ -50,6 +50,11 @@ const MAX_RECENT_CHIPS = 6;
 type AgentOption = AgentCatalogOption;
 const MAX_WORKSPACE_ROWS = 6;
 
+// Shell needs no agent install, so it leads the host catalog like Home's dock.
+function withShell(options: readonly AgentOption[]): AgentOption[] {
+    return [{ kind: 'shell', availability: 'installed' }, ...options.filter((option) => option.kind !== 'shell')];
+}
+
 function basename(path: string): string {
     return path.split('/').filter(Boolean).pop() ?? path;
 }
@@ -245,7 +250,7 @@ export default function NewAgentScreen() {
     const canControl = authority === 'control';
 
     const [catalog, setCatalog] = React.useState<readonly AgentOption[]>(
-        FALLBACK_AGENT_KINDS.map((kind) => ({ kind, availability: 'unknown' })),
+        withShell(FALLBACK_AGENT_KINDS.map((kind) => ({ kind, availability: 'unknown' }))),
     );
     const [catalogSource, setCatalogSource] = React.useState<CatalogSource>('loading');
     const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
@@ -296,13 +301,14 @@ export default function NewAgentScreen() {
             .then((result) => {
                 if (!live) return;
                 const resolved = resolveAgentCatalog(result);
-                setCatalog(resolved.options);
+                const options = withShell(resolved.options);
+                setCatalog(options);
                 setCatalogSource(resolved.authoritative ? 'host' : 'unknown');
                 if (resolved.authoritative) {
-                    const installed = new Set(resolved.options.filter((option) => option.availability === 'installed').map((option) => option.kind));
+                    const installed = new Set(options.filter((option) => option.availability === 'installed').map((option) => option.kind));
                     // An empty host probe is usually a broken service environment,
                     // not proof that the user's saved squad should be erased.
-                    if (installed.size > 0) setSelected((previous) => new Set([...previous].filter((kind) => installed.has(kind))));
+                    if (installed.size > 1) setSelected((previous) => new Set([...previous].filter((kind) => installed.has(kind))));
                 }
             })
             .catch(() => { if (live) setCatalogSource('fallback'); });
