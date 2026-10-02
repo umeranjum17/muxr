@@ -7,13 +7,13 @@ import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, nativeLifecycleNotificationState, sortHerd } from '@/herd/model';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@trymuxr/contract';
-import { buildSpaceRows, workspaceName, workspaceNames } from '@/herd/model';
+import { buildSpaceRows, moveSpace, workspaceName, workspaceNames } from '@/herd/model';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels } from '../../herd/domain/agentPresentation';
 import { terminalPaneCanSend, terminalPaneStatus } from '../../terminal/domain/promptAvailability';
 import { unseenActivityRows } from '../../herd/domain/recentActivity';
-import { loadLocalSettings, loadSpacePins } from './persistence';
+import { loadLocalSettings, loadSpacePins, loadSpacesLayouts } from './persistence';
 
 const request = vi.fn();
 const refreshSessions = vi.fn();
@@ -1284,5 +1284,46 @@ describe('session sync flow', () => {
         ]);
         expect(storage.getState().pinnedSpaceIds).toEqual(['w-pin']);
         expect(loadSpacePins()).toEqual(['w-pin']);
+    });
+
+    it('moves top-level spaces within their pin group and keeps favourites per machine', () => {
+        mmkvValues.clear();
+        storage.setState({ pinnedSpaceIds: [], spacesLayouts: {} });
+        const pane = (paneId: string) => ({ paneId, tabId: `${paneId}-tab`, sessionId: `route-${paneId}`, focused: false, agentStatus: 'idle' as const, agentKind: 'pi' });
+        const space = (workspaceId: string, order: number, tokens?: Record<string, string>): HerdrTreeWorkspace => ({
+            workspaceId, label: workspaceId, focused: false, agentStatus: 'idle', order, ...(tokens ? { tokens } : {}),
+            tabs: [{ tabId: `${workspaceId}-tab`, focused: false, agentStatus: 'idle', panes: [pane(`${workspaceId}-pane`)] }],
+        });
+        const tree = [space('a', 1), space('b', 2), space('c', 3), space('d', 4), space('a-child', 5, { parent: 'a' })];
+        const drawn = () => buildSpaceRows(tree, new Set(), '', new Set(storage.getState().pinnedSpaceIds),
+            storage.getState().spacesLayouts.mac?.order).map((row) => row.workspace.workspaceId);
+        const group = () => drawn().filter((id) => !storage.getState().pinnedSpaceIds.includes(id));
+        const move = (id: string, step: -1 | 1) => storage.getState().setSpaceOrder('mac',
+            moveSpace(storage.getState().spacesLayouts.mac?.order ?? [], group(), id, step));
+
+        storage.getState().toggleSpacePin('a');
+        move('d', -1);
+        move('d', -1);
+        // Pinned still leads; the move reordered only the unpinned group, and the child stays in its parent.
+        expect(drawn()).toEqual(['a', 'd', 'b', 'c']);
+        expect(buildSpaceRows(tree, new Set(['a']), '', new Set(['a']), storage.getState().spacesLayouts.mac!.order)[0]!.children
+            .map((child) => child.workspace.workspaceId)).toEqual(['a-child']);
+        move('d', -1);
+        expect(drawn()).toEqual(['a', 'd', 'b', 'c']);
+
+        storage.getState().toggleFavouritePane('mac', 'c-pane');
+        storage.getState().toggleFavouritePane('other-mac', 'b-pane');
+        // A closed workspace keeps its rank for when it returns, and a remount reads the same layout.
+        tree.splice(3, 1);
+        expect(drawn()).toEqual(['a', 'b', 'c']);
+        tree.push(space('d', 4));
+        expect(drawn()).toEqual(['a', 'd', 'b', 'c']);
+        expect(loadSpacesLayouts()).toEqual({
+            mac: { order: ['d', 'b', 'c'], favourites: ['c-pane'] },
+            'other-mac': { order: [], favourites: ['b-pane'] },
+        });
+        storage.getState().toggleFavouritePane('mac', 'c-pane');
+        expect(loadSpacesLayouts().mac!.favourites).toEqual([]);
+        expect(loadSpacePins()).toEqual(['a']);
     });
 });

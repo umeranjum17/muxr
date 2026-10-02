@@ -15,7 +15,10 @@ import {
     saveSettings,
     saveLocalSettings,
     saveSpacePins,
+    loadSpacesLayouts,
+    saveSpacesLayouts,
     loadHomeSnapshot,
+    type SpacesLayout,
     type HomeSnapshot,
     type HomeSession,
 } from './persistence';
@@ -175,6 +178,8 @@ interface StorageState extends WatchSnapshot {
     herdrTreeLoaded: boolean;
     /** Spaces pins: workspace ids shown first, a per-device view preference. */
     pinnedSpaceIds: string[];
+    /** Per machine: Spaces Move up/down order and favourite panes, a per-device view preference. */
+    spacesLayouts: Record<string, SpacesLayout>;
     /** The last confirmed Home for this machine, drawn until the host answers. */
     homeSnapshot: HomeSnapshot | null;
     sessionListViewData: SessionListViewItem[] | null;
@@ -212,6 +217,8 @@ interface StorageState extends WatchSnapshot {
     applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: 'online' | number })[], replace?: boolean) => void;
     applyHerdrTree: (workspaces: HerdrTreeWorkspace[]) => void;
     toggleSpacePin: (workspaceId: string) => void;
+    setSpaceOrder: (machineId: string, order: string[]) => void;
+    toggleFavouritePane: (machineId: string, paneId: string) => void;
     applyHomeSnapshot: (snapshot: HomeSnapshot | null) => void;
     /** Draw this machine's last confirmed Home until the host answers. */
     restoreHome: (machineId: string) => void;
@@ -287,6 +294,7 @@ export const storage = create<StorageState>()((set, get) => ({
     herdrWorkspaces: [],
     herdrTreeLoaded: false,
     pinnedSpaceIds: loadSpacePins(),
+    spacesLayouts: loadSpacesLayouts(),
     homeSnapshot: null,
     machines: {},
     sessionListViewData: null,
@@ -355,6 +363,21 @@ export const storage = create<StorageState>()((set, get) => ({
             : [...state.pinnedSpaceIds, workspaceId];
         saveSpacePins(pinnedSpaceIds);
         return { pinnedSpaceIds };
+    }),
+    setSpaceOrder: (machineId, order) => set((state) => {
+        const spacesLayouts = { ...state.spacesLayouts, [machineId]: { ...spacesLayoutOf(state, machineId), order } };
+        saveSpacesLayouts(spacesLayouts);
+        return { spacesLayouts };
+    }),
+    toggleFavouritePane: (machineId, paneId) => set((state) => {
+        const layout = spacesLayoutOf(state, machineId);
+        // ponytail: past the cap the oldest favourite goes, absent or not.
+        const favourites = layout.favourites.includes(paneId)
+            ? layout.favourites.filter((id) => id !== paneId)
+            : [...layout.favourites, paneId].slice(-FAVOURITE_PANES_LIMIT);
+        const spacesLayouts = { ...state.spacesLayouts, [machineId]: { ...layout, favourites } };
+        saveSpacesLayouts(spacesLayouts);
+        return { spacesLayouts };
     }),
     applyHomeSnapshot: (homeSnapshot) => set({ homeSnapshot }),
     restoreHome: (machineId) => set({ homeSnapshot: loadHomeSnapshot(machineId) }),
@@ -529,6 +552,18 @@ export function useHerdrTree(): { workspaces: HerdrTreeWorkspace[]; loaded: bool
 /** The Spaces pins, as a stable array reference. */
 export function useSpacePins(): readonly string[] {
     return storage((state) => state.pinnedSpaceIds);
+}
+
+const FAVOURITE_PANES_LIMIT = 64;
+const NO_SPACES_LAYOUT: SpacesLayout = { order: [], favourites: [] };
+
+function spacesLayoutOf(state: Pick<StorageState, 'spacesLayouts'>, machineId: string): SpacesLayout {
+    return state.spacesLayouts[machineId] ?? NO_SPACES_LAYOUT;
+}
+
+/** This machine's Spaces order and favourite panes, as a stable reference. */
+export function useSpacesLayout(machineId: string): SpacesLayout {
+    return storage((state) => spacesLayoutOf(state, machineId));
 }
 
 /** Home draws its snapshot until the host has sent both its tree and its agents. */
