@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '@/components/StyledText';
+import { ActionButton } from '@/components/ActionButton';
 import { cardStyle } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
 import { openExternalUrl } from '@/utils/openExternalUrl';
@@ -28,10 +29,6 @@ const styles = StyleSheet.create((theme) => ({
     copy: { width: 36, height: 36, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10 },
     actionTarget: { minHeight: 44, justifyContent: 'center' },
-    retryButton: {
-        paddingHorizontal: 14, borderRadius: 10, borderWidth: 1,
-        borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSubtle,
-    },
     action: { color: theme.colors.accent, fontSize: 14, ...Typography.default('semiBold') },
 }));
 
@@ -89,22 +86,16 @@ export function HomeRecoveryCard({
             </View>}
             <View style={styles.actions}>
                 {rePair ? (
-                    <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={mode === 'update-app' ? 'Update app' : mode === 'update-host' ? 'Update computer' : 'Pair again'}
+                    <ActionButton
+                        title={mode === 'update-app' ? 'Update app' : mode === 'update-host' ? 'Update computer' : 'Pair again'}
                         onPress={() => mode === 'update-app'
                             ? void openExternalUrl(appDownload)
                             : mode === 'update-host'
                                 ? void openExternalUrl(publicBaseUrl ? `${publicBaseUrl}/docs/quickstart` : 'https://github.com/umeranjum17/muxr')
                                 : router.push('/pair' as never)}
-                        style={[styles.actionTarget, styles.retryButton]}
-                    >
-                        <Text style={styles.action}>{mode === 'update-app' ? 'Update app' : mode === 'update-host' ? 'Update computer' : 'Pair again'}</Text>
-                    </Pressable>
+                    />
                 ) : <>
-                    <Pressable accessibilityRole="button" accessibilityLabel="Retry connection" disabled={retrying} onPress={onRetry} style={[styles.actionTarget, styles.retryButton]}>
-                        <Text style={styles.action}>{retrying ? 'Retrying…' : 'Retry connection'}</Text>
-                    </Pressable>
+                    <ActionButton title={retrying ? 'Retrying…' : 'Retry connection'} accessibilityLabel="Retry connection" disabled={retrying} onPress={onRetry} />
                     <Pressable accessibilityRole="link" onPress={() => router.push('/settings/connection' as never)} style={styles.actionTarget}>
                         <Text style={styles.action}>Connection details</Text>
                     </Pressable>
@@ -155,9 +146,7 @@ export function BusyConnectingCard({ since }: { since: number }) {
                 Connecting for {elapsed}. muxr keeps trying, and your terminals will appear when the computer catches up.
             </Text>
             <View style={styles.actions}>
-                <Pressable accessibilityRole="link" onPress={() => router.push('/settings/connection' as never)} style={[styles.actionTarget, styles.retryButton]}>
-                    <Text style={styles.action}>Connection details</Text>
-                </Pressable>
+                <ActionButton title="Connection details" variant="secondary" onPress={() => router.push('/settings/connection' as never)} />
             </View>
         </View>
     );
