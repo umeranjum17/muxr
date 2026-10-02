@@ -96,6 +96,8 @@ export class LinkFirstClient implements SessionClient {
     private lastHealthCheck = 0;
     private healthGeneration = 0;
     private handshake = 0;
+    /** The host passed machine.hello on this client, so its protocol is known to work. */
+    private admitted = false;
     private lastPush: { token: string; level: LifecycleNotificationLevel } | undefined;
     private readonly stateListeners = new Set<(state: ConnectionState) => void>();
     private readonly eventListeners = new Set<(sessionId: string, event: SessionEvent) => void>();
@@ -125,7 +127,9 @@ export class LinkFirstClient implements SessionClient {
             return;
         }
         this.link = new DeviceLink(grant, {
-            timeoutMs: 5_000,
+            // Covers socket open, Noise handshake and the host's `ready` together:
+            // a starved host needs far longer than a relay round trip.
+            timeoutMs: 20_000,
             ...(this.options.pingMs === undefined ? {} : { pingMs: this.options.pingMs }),
             ...(this.options.ssh === undefined ? {} : { resolve: async (url: string) => {
                 try { return await sshRelayUrl(url, stored.machineId, this.options.ssh!); }
@@ -444,6 +448,7 @@ export class LinkFirstClient implements SessionClient {
             this.options.onPermanentError?.(protocolMismatchMessage(compatibility.reason, hello?.hostVersion));
             return;
         }
+        this.admitted = true;
         this.online = true;
         this.setState('open', true);
         // The registration may have ridden the relay HTTP API while the link
@@ -460,8 +465,10 @@ export class LinkFirstClient implements SessionClient {
         const generation = this.healthGeneration;
         const route = describeRoute(stored.relayUrl) ?? 'relay';
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 3_000);
-        let message: string;
+        const timer = setTimeout(() => controller.abort(), 8_000);
+        // Unless the host refused us, a relay that answers in this protocol means
+        // the host is only slow: the link keeps retrying and the phone stays connecting.
+        let message: string | undefined;
         let permanent = false;
         try {
             const relay = new URL(stored.relayUrl);
@@ -472,14 +479,12 @@ export class LinkFirstClient implements SessionClient {
             const health = await response.json() as { ok?: unknown; muxrVersion?: unknown; linkProtocol?: unknown };
             if (!response.ok || health.ok !== true) throw new Error('not a muxr relay');
             const computer = typeof health.muxrVersion === 'string' ? health.muxrVersion : undefined;
-            message = `${route} reached the muxr relay, but the computer did not accept this pairing. Check muxr on the computer; if this device was removed, pair again.`;
+            if (refused) message = `${route} reached the muxr relay, but the computer did not accept this pairing. Check muxr on the computer; if this device was removed, pair again.`;
             if (health.linkProtocol !== 1) {
                 message = 'Update needed: This computer runs an older muxr connection protocol. Update muxr on the computer, then pair again.';
                 permanent = true;
-            } else if (refused && computer && /^\d+\.\d+\.\d+/.test(computer)) {
-                // Differing versions only explain a refusal. A relay that answers while
-                // the link is merely offline is a host coming back, and machine.hello
-                // re-checks its protocol on the next handshake.
+            } else if (!this.admitted && computer && /^\d+\.\d+\.\d+/.test(computer)) {
+                // Once machine.hello admitted this host, the next handshake re-checks its protocol.
                 const { getAppVersion } = await import('@/utils/appVersion');
                 const app = getAppVersion();
                 if (/^\d+\.\d+\.\d+/.test(app) && computer.split(/[-+]/)[0] !== app.split(/[-+]/)[0]) {
@@ -499,6 +504,11 @@ export class LinkFirstClient implements SessionClient {
             clearTimeout(timer);
         }
         if (this.closed || this.online || generation !== this.healthGeneration) return;
+        if (message === undefined) {
+            // An earlier relay failure left this closed; the relay is back, so the link is retrying again.
+            if (this.stateField === 'closed') this.setState('connecting', true);
+            return;
+        }
         if (permanent) this.stopLink();
         this.setState(permanent ? 'stale' : 'closed', true);
         this.options.onPermanentError?.(message);

@@ -49,8 +49,12 @@ import { herdrPaneForSession, navigateToSession } from '@/herd';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
+<<<<<<< HEAD
 import { HomeEmptyState } from './HomeEmptyState';
-import { HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
+import { BusyConnectingCard, HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
+=======
+import { BusyConnectingCard, HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
+>>>>>>> c85d35b1 (fix(mobile): keep connecting while a slow computer answers)
 
 
 const styles = StyleSheet.create((theme) => ({
@@ -338,9 +342,11 @@ export const MainView = React.memo(() => {
         }).catch(() => undefined);
         return () => { cancelled = true; };
     }, [socketStatus.status]);
+    const splitBusySince = useSplitView && hasPairedGrant && getCachedConnectionSettings().mode === 'hosted'
+        && socketStatus.status === 'connecting' && socketStatus.error === null ? socketStatus.connectingSince : null;
     const splitHostOffline = useSplitView && hasPairedGrant
         && getCachedConnectionSettings().mode === 'hosted'
-        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected' || splitHostRequestFailed);
+        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected' || (splitHostRequestFailed && splitBusySince === null));
     const splitRuntimeOffline = useSplitView && hasPairedGrant && socketStatus.status === 'connected' && splitHerdrConnected === false;
     const splitRecovering = splitHostOffline || splitRuntimeOffline || retryingHome || splitRetryFailed;
     React.useEffect(() => {
@@ -508,7 +514,7 @@ export const MainView = React.memo(() => {
                             onRetry={() => void retrySplitConnection()}
                             onFeedback={setHomeRecoveryFeedback}
                         />
-                    ) : null}
+                    ) : splitBusySince !== null ? <BusyConnectingCard since={splitBusySince} /> : null}
                     {/* The same order as the phone: plans and machine first, then Live,
                         then what to start. */}
                     <PluginSlot slot="home.cards" context={{}} />
