@@ -530,6 +530,8 @@ export const HomeDock = React.memo(({
     const [catalogCheck, setCatalogCheck] = React.useState(0);
     const agentSelectionInitialized = React.useRef(false);
     const agentWasExplicitlySelected = React.useRef(false);
+    const automaticShell = React.useRef(false);
+    const savedAgent = React.useRef(agentType);
     const machines = useAllMachines({ includeOffline: true });
     const sessions = useSessions();
     const connectionMachineId = getCachedConnectionSettings().machineId;
@@ -590,7 +592,6 @@ export const HomeDock = React.memo(({
     const currentWorktree = resolveDockOption(worktreeOptions, [worktreeSelectionKey]);
     React.useEffect(() => {
         let cancelled = false;
-        const preferredAgent = useNewSessionDraft.getState().agentType;
         setHostAgentKinds(null);
 
         if (socketStatus.status !== 'connected') return () => { cancelled = true; };
@@ -600,13 +601,15 @@ export const HomeDock = React.memo(({
             setHostAgentKinds(resolved.options);
             const activeAgent = useNewSessionDraft.getState().agentType;
             const activeAvailable = activeAgent === 'shell' || resolved.options.some((option) => option.kind === activeAgent && option.availability === 'installed');
-            const activeSelectionShouldWin = agentSelectionInitialized.current || agentWasExplicitlySelected.current;
+            const activeIsAutomaticShell = activeAgent === 'shell' && automaticShell.current;
+            const activeSelectionShouldWin = (agentSelectionInitialized.current || agentWasExplicitlySelected.current) && !activeIsAutomaticShell;
             if (activeSelectionShouldWin && activeAvailable) {
                 agentSelectionInitialized.current = true;
                 return;
             }
             agentSelectionInitialized.current = true;
-            const preferred = defaultAgentKind(resolved.options, preferredAgent);
+            const preferred = defaultAgentKind(resolved.options, savedAgent.current);
+            automaticShell.current = preferred === null;
             setAgentType((preferred ?? 'shell') as NewSessionAgentType);
         }).catch(() => {
             if (!cancelled) {
@@ -795,6 +798,7 @@ export const HomeDock = React.memo(({
 
     const selectAgent = React.useCallback((agent: NewSessionAgentType) => {
         agentWasExplicitlySelected.current = true;
+        automaticShell.current = false;
         setAgentType(agent);
     }, [setAgentType]);
 
