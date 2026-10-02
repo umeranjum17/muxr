@@ -726,13 +726,13 @@ describe('on-device dictation flow', () => {
         expect(reported('settle-active-done')).toBe(true);
     });
 
-    it('releases ownership when the native recorder cannot start', async () => {
-        mocks.liveAudio.start.mockRejectedValue(new Error('No audio input device'));
+    it('shows the native startup failure without private data and releases microphone ownership', async () => {
+        mocks.liveAudio.start.mockRejectedValue(new Error('AudioQueueNewInput failed (NSOSStatusErrorDomain -50). file:///private/test.wav token=fixture-secret'));
         const dictation = await renderDictation();
         await act(async () => { dictation.toggle(); });
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(mocks.modalAlert).toHaveBeenCalledWith('Dictation failed', 'Could not start recording.');
+        expect(mocks.modalAlert).toHaveBeenCalledWith('Dictation failed', 'AudioQueueNewInput failed (NSOSStatusErrorDomain -50). [path hidden] token: [redacted]');
         expect(micOwners()).toEqual([]);
     });
 
