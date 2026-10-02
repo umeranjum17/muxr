@@ -130,14 +130,14 @@ function run(name, cmd, args, timeoutMs = 150000) {
         const wrapped = wrappedVitest || cmd === 'node';
         const child = spawn(wrapped ? process.execPath : cmd,
             wrapped ? ['scripts/diagnostics/application/checkHostTestScratch.mjs', '--', cmd, ...args] : args,
-            { stdio: ['ignore', 'pipe', 'pipe'], env, detached: wrapped });
+            { stdio: ['ignore', 'pipe', 'pipe'], env, detached: true });
         const chunks = [];
         child.stdout.on('data', (d) => { chunks.push(d); });
         child.stderr.on('data', (d) => { chunks.push(d); });
         let escalation;
         let timedOut = false;
         const killGroup = (signal) => {
-            if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+            if (!child.pid) return;
             try { process.kill(-child.pid, signal); } catch {}
         };
         const timer = setTimeout(() => {
@@ -145,26 +145,25 @@ function run(name, cmd, args, timeoutMs = 150000) {
             if (wrapped) {
                 killGroup('SIGTERM');
                 escalation = setTimeout(() => killGroup('SIGKILL'), 2000);
-            } else child.kill('SIGKILL');
+            } else killGroup('SIGKILL');
         }, timeoutMs);
-        child.on('exit', () => {
+        // close waits for both output pipes to drain; exit alone can lose bytes.
+        child.on('close', (code) => {
             clearTimeout(timer);
             if (timedOut && wrapped) {
                 killGroup('SIGKILL');
                 testScratchOwner(scratchBase());
             }
             clearTimeout(escalation);
-        });
-        // close waits for both output pipes to drain; exit alone can lose bytes.
-        child.on('close', (code) => {
             const ms = Date.now() - started;
             const logPath = join(logDir, `${results.length + 1}-${name.replace(/[^a-z0-9]+/gi, '-')}.log`);
             const output = Buffer.concat(chunks);
             writeFileSync(logPath, output, { mode: 0o600 });
-            results.push({ name, code: code ?? 1, ms, logPath });
-            const mark = code === 0 ? 'PASS' : 'FAIL';
+            const exitCode = timedOut ? 1 : code ?? 1;
+            results.push({ name, code: exitCode, ms, logPath });
+            const mark = exitCode === 0 ? 'PASS' : 'FAIL';
             process.stdout.write(`${mark}  ${name}  (${(ms / 1000).toFixed(1)}s)\n`);
-            if (code !== 0) {
+            if (exitCode !== 0) {
                 const tail = output.toString('utf8').trim().split('\n').slice(-12).join('\n      ');
                 process.stdout.write(`      ${tail}\n      full output: ${logPath}\n`);
             }
