@@ -100,6 +100,14 @@ const checks = [
         notificationsHandler.includes('}.runOnQueue(.main)') &&
         notificationsHandler.includes('DispatchQueue.main.async(execute: startTask)') &&
         !/tasksMap\[task\.identifier\] = task\n {4}task\.start\(\)/.test(notificationsHandler)],
+    // Upstream long-press only hands a viewport snapshot to a delegate muxr does
+    // not implement, so plain text was never selectable on iPhone.
+    ['iOS terminal selects text in place with handles and the edit menu',
+        ghosttyPatch.includes('UITerminalView+TouchSelection.swift') &&
+        ghosttyIosInteraction.includes('beginTouchSelection(at: gesture.location(in: self))') &&
+        ghosttyIosInteraction.includes('if handleTouchSelectionPan(gesture) {') &&
+        read('node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+TouchSelection.swift')
+            .includes('@IBAction override open func selectAll(_: Any?) {')],
     ['Ghostty patch hides its accessory bar on Android and iOS',
         ghosttyPatch.includes('accessoryBar.visibility = GONE') &&
         ghosttyView.includes('accessoryBar.visibility = GONE') &&
