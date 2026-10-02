@@ -58,11 +58,13 @@ export function RightNowCard({ linkDown = false }: { linkDown?: boolean }) {
     // strip keeps only figures it holds and never repeats that as a failure.
     if (linkDown && display.status !== 'figures') return null;
 
+    // Usage the host could not read is information, not an alarm: a quiet
+    // mark, and a tap still asks again.
     if (display.status === 'unavailable') {
         return <Strip onPress={refresh} label={t('plugins.rightNow.unavailable')}
             line={<View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: toneColor(theme, 'danger') }} />
+                    <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: withAlpha(theme.colors.textSecondary, 0.6) }} />
                     <Text style={[caption, { flexShrink: 1, color: theme.colors.text }]}>{t('plugins.rightNow.unavailable')}</Text>
                 </View>
                 {display.reason !== '' && <Text numberOfLines={2} style={caption}>{display.reason}</Text>}
