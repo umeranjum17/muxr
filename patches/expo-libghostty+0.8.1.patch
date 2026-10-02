@@ -1342,10 +1342,10 @@ index d90375a..85a34b9 100644
          case GHOSTTY_ACTION_PWD:
              let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb2..62df79d 100644
+index 3f3eeb2..0c910e9 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-@@ -25,9 +25,22 @@
+@@ -25,9 +25,23 @@
                  touchDidScrollDuringCurrentTouch = false
                  if softwareKeyboardVisible {
                      pendingKeyboardDismissOnTouchEnd = true
@@ -1360,6 +1360,7 @@ index 3f3eeb2..62df79d 100644
                  }
 +                if touches.count == 1, let touch = touches.first, touch.type == .direct {
 +                    let point = touch.location(in: self)
++                    touchSelectionDrag = touchSelectionHandle(near: point)
 +                    pendingTapPoint = point
 +                    primeHoverLink(at: point)
 +                } else {
@@ -1368,7 +1369,20 @@ index 3f3eeb2..62df79d 100644
              #endif
          }
  
-@@ -49,6 +62,43 @@
+@@ -38,6 +52,12 @@
+             if handleIndirectPointerTouches(touches, phase: .moved, event: event) {
+                 return
+             }
++            #if !targetEnvironment(macCatalyst)
++                if touchSelectionDrag != nil, let touch = touches.first {
++                    touchDidScrollDuringCurrentTouch = true
++                    dragTouchSelection(to: touch.location(in: self))
++                }
++            #endif
+             super.touchesMoved(touches, with: event)
+         }
+ 
+@@ -49,6 +69,45 @@
                  return
              }
              #if !targetEnvironment(macCatalyst)
@@ -1376,6 +1390,8 @@ index 3f3eeb2..62df79d 100644
 +                    // The selecting long-press keeps its selection; a later tap drops it.
 +                    if touchSelectionStartedThisTouch {
 +                        touchSelectionStartedThisTouch = false
++                    } else if touchSelectionDrag != nil {
++                        endTouchSelectionDrag()
 +                    } else if !touchDidScrollDuringCurrentTouch {
 +                        clearTouchSelection()
 +                    }
@@ -1412,7 +1428,7 @@ index 3f3eeb2..62df79d 100644
                  if pendingKeyboardDismissOnTouchEnd, !touchDidScrollDuringCurrentTouch {
                      resignFirstResponder()
                  }
-@@ -67,7 +117,10 @@
+@@ -67,7 +126,10 @@
              }
              #if !targetEnvironment(macCatalyst)
                  pendingKeyboardDismissOnTouchEnd = false
@@ -1423,7 +1439,7 @@ index 3f3eeb2..62df79d 100644
              #endif
              super.touchesCancelled(touches, with: event)
          }
-@@ -291,6 +344,15 @@
+@@ -291,6 +353,15 @@
          }
  
          @IBAction override open func copy(_: Any?) {
@@ -1439,7 +1455,7 @@ index 3f3eeb2..62df79d 100644
              guard copySelectedTextToPasteboard() else { return }
          }
  
-@@ -298,6 +360,19 @@
+@@ -298,6 +369,19 @@
              _ action: Selector,
              withSender sender: Any?
          ) -> Bool {
@@ -1459,7 +1475,7 @@ index 3f3eeb2..62df79d 100644
              if action == #selector(copy(_:)) {
                  return surface?.hasSelection() == true
              }
-@@ -448,11 +523,74 @@
+@@ -448,11 +532,74 @@
                  }
              }
  
@@ -1536,7 +1552,7 @@ index 3f3eeb2..62df79d 100644
                  guard let surface else { return }
                  guard case let .inMemory(session) = configuration.backend else {
                      TerminalDebugLog.log(.input, "long-press selection ignored: backend not inMemory")
-@@ -514,6 +652,14 @@
+@@ -514,6 +661,14 @@
          @objc func handleTouchScrollGesture(
              _ gesture: UIPanGestureRecognizer
          ) {
@@ -1551,7 +1567,7 @@ index 3f3eeb2..62df79d 100644
              switch gesture.state {
              case .began:
                  guard activePointerButton == nil else { return }
-@@ -532,12 +678,16 @@
+@@ -532,12 +687,16 @@
                      "touch scroll changed translation=\(String(format: "%.2f", translation.x))x\(String(format: "%.2f", translation.y))"
                  )
  
@@ -1574,7 +1590,7 @@ index 3f3eeb2..62df79d 100644
  
              case .ended:
                  guard activePointerButton == nil else { return }
-@@ -566,8 +716,10 @@
+@@ -566,8 +725,10 @@
                  "momentum start velocity=\(String(format: "%.2f", velocity.x))x\(String(format: "%.2f", velocity.y))"
              )
  
@@ -1587,7 +1603,7 @@ index 3f3eeb2..62df79d 100644
  
              let link = CADisplayLink(
                  target: self,
-@@ -597,19 +749,23 @@
+@@ -597,19 +758,23 @@
                  "momentum frame velocity=\(String(format: "%.2f", momentumVelocity.x))x\(String(format: "%.2f", momentumVelocity.y)) delta=\(String(format: "%.2f", deltaX))x\(String(format: "%.2f", deltaY))"
              )
  
@@ -1618,15 +1634,19 @@ index 3f3eeb2..62df79d 100644
                  let mods = TerminalScrollModifiers(precision: true, momentum: .none)
                  surface?.sendMouseScroll(x: 0, y: 0, mods: mods.rawValue)
              }
-@@ -630,6 +786,7 @@
+@@ -629,7 +794,11 @@
+             _ gestureRecognizer: UIGestureRecognizer
          ) -> Bool {
              if gestureRecognizer is UILongPressGestureRecognizer {
++                #if !targetEnvironment(macCatalyst)
++                    if touchSelectionHandle(near: gestureRecognizer.location(in: self)) != nil { return false }
++                #endif
                  return (delegate as? any TerminalSurfaceTextSelectionRequestDelegate) != nil
 +                    || (delegate as? any TerminalSurfaceCopyURLDelegate) != nil
              }
              return true
          }
-@@ -650,3 +807,308 @@
+@@ -650,3 +819,308 @@
  
      }
  #endif
@@ -1881,7 +1901,7 @@ index 3f3eeb2..62df79d 100644
 +                let location = gesture.location(in: self)
 +                let translation = gesture.translation(in: self)
 +                let origin = CGPoint(x: location.x - translation.x, y: location.y - translation.y)
-+                if let handle = touchSelectionHandle(near: origin) {
++                if let handle = touchSelectionDrag ?? touchSelectionHandle(near: origin) {
 +                    touchSelectionDrag = handle
 +                    dragTouchSelection(to: location)
 +                    return true
