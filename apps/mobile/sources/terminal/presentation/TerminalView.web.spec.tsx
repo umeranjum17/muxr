@@ -152,7 +152,7 @@ it('resolves a held OSC 8 cell after repeat holds and unrelated output while tap
         paint();
         expect(firstFrameWritten).not.toHaveBeenCalled();
         link.writes.shift()!();
-        expect(firstFrameWritten).not.toHaveBeenCalled();
+        expect(firstFrameWritten).toHaveBeenCalledTimes(1);
         link.state?.('live');
         link.onData!('eA==');
         paint();

@@ -178,12 +178,8 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             const size = lastSizeRef.current;
             const channel = channelRef.current;
             if (size === null || channel === undefined) return;
-            if (state !== 'active') {
-                channel.resize(size.cols, size.rows);
-                return;
-            }
+            // Back in the foreground the resize is also the repaint.
             channel.resize(size.cols, size.rows);
-            channel.repaint();
         });
         return () => subscription.remove();
     }, [focused]);
@@ -201,13 +197,11 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
             if (openedRef.current) {
                 if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                 // ponytail: debounce only after attach; first size opens immediately.
+                // Never a re-attach here: Herdr answers the resize with a full
+                // frame, while a re-attach hands the pane back to the desk's
+                // grid for a moment and the agent redraws its lines too wide.
                 resizeTimerRef.current = setTimeout(() => {
-                    // Resize records the size; the re-attach is what makes herdr
-                    // draw the whole screen again. Ghostty reflows its grid on
-                    // its own for a keyboard or a pinch, and herdr would keep
-                    // sending diffs for a screen that no longer matches.
                     channelRef.current?.resize(cols, rows);
-                    channelRef.current?.repaint();
                 }, RESIZE_DEBOUNCE_MS);
                 return;
             }
@@ -249,7 +243,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     const latest = lastSizeRef.current ?? opened;
                     const needsRepaint = latest.cols !== opened.cols || latest.rows !== opened.rows;
                     let readyForFrame = !needsRepaint;
-                    let repaintRequested = false;
                     // Nothing re-scrolls on attach. The pane's viewport belongs
                     // to herdr, which reports it back on `terminal.scroll-state`;
                     // a phone replaying a remembered distance was inventing a
@@ -294,10 +287,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                     channel.onPredictedData((base64) => {
                         writePumpRef.current?.push({ bytes: base64 });
                     });
-                    channel.onState((state) => {
-                        if (repaintRequested && state === 'live') readyForFrame = true;
-                        onStatus?.(state);
-                    });
+                    channel.onState((state) => onStatus?.(state));
                     channel.onClose((reason) => onStatus?.(reason ?? 'closed'));
                     onChannel?.(channel);
                     // The keyboard can resize Ghostty while hosted attach is
@@ -308,8 +298,7 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         if (resizeTimerRef.current !== undefined) clearTimeout(resizeTimerRef.current);
                         resizeTimerRef.current = undefined;
                         channel.resize(latest.cols, latest.rows);
-                        repaintRequested = true;
-                        channel.repaint();
+                        readyForFrame = true;
                     }
                 })
                 .catch((error: unknown) => {
