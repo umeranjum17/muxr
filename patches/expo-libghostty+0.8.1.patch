@@ -1342,7 +1342,7 @@ index d90375a..85a34b9 100644
          case GHOSTTY_ACTION_PWD:
              let payload = action.action.pwd
 diff --git a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
-index 3f3eeb2..0c910e9 100644
+index 3f3eeb2..a048912 100644
 --- a/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 +++ b/node_modules/expo-libghostty/ios/vendor/GhosttyTerminal/Platform/UIKit/UITerminalView+Interaction.swift
 @@ -25,9 +25,23 @@
@@ -1646,7 +1646,7 @@ index 3f3eeb2..0c910e9 100644
              }
              return true
          }
-@@ -650,3 +819,308 @@
+@@ -650,3 +819,309 @@
  
      }
  #endif
@@ -1951,7 +1951,8 @@ index 3f3eeb2..0c910e9 100644
 +                }
 +            }
 +            setTouchSelection(.init(start: .init(column: 0, row: 0), end: .init(column: grid.columns - 1, row: lastRow)))
-+            showTouchSelectionMenu()
++            // The edit menu hides itself after this action returns; show it again after that.
++            DispatchQueue.main.async { [weak self] in self?.showTouchSelectionMenu() }
 +        }
 +    }
 +#endif
