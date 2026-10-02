@@ -160,6 +160,8 @@ Relay alerts on a sleeping native app show “Agent update”; the task title ap
 
 If an accepted agent launch fails, its screen shows **Agent could not start**, a next step on the named computer, and **Back to Home**. When the terminal reports that the command was not found, the message asks you to install that agent CLI on the computer and try again; otherwise, it asks you to run the command there to see the error.
 
+If the phone is disconnected when the launch fails, reconnecting to the same running host delivers the failure to the original agent screen. Reconnecting again does not add unread activity for that failed launch. The host keeps the explanation while its pane remains open, until the agent recovers or a replacement agent session is detected there; closing another failed pane does not clear it.
+
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
 
 ## The whole party, in one place

@@ -236,7 +236,8 @@ export interface SessionSource {
     subscribe(listener: (sessionId: string, event: SessionEventBody) => void): () => void;
     /** Machine-scoped frames share the encrypted session stream and are additive. */
     subscribeMachine?(listener: (frame: PluginsInvalidatedFrame) => void): () => void;
-    /** A client just connected: re-push state that only ships on change. */
+    /** Re-push state that only ships on change after connection or admission.
+     * Use deliver for retained session events so replay does not record new unread activity. */
     resendCumulativeState?(deliver: (sessionId: string, event: SessionEventBody) => void): void;
     dispose(): Promise<void>;
     /** Lab-script spelling of dispose: closing the source releases every
