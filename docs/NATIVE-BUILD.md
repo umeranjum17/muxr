@@ -268,7 +268,7 @@ stuck disconnected.
 | Gradle daemon disappears/type-tag errors | JVM memory exhaustion | Apply the Gradle memory settings above |
 | App installs but never connects | Missing baked connection values | Check the secrets file or Settings → Connection |
 | App remains disconnected over HTTPS | Self-signed or invalid TLS chain | Install a trusted certificate |
-| Native recorder/terminal verifier fails | `patch-package` output is stale | Run `yarn install`, then `node scripts/diagnostics/application/verifyNativePatches.mjs` |
+| Native patch verifier fails | `patch-package` output is stale | Run `yarn install`, then `node scripts/diagnostics/application/verifyNativePatches.mjs` |
 | Android startup SIGSEGV in `MountingCoordinator::pullTransaction` | `react-native-screens` 4.22.0 mounting-listener initialization race | Apply the checked-in screens patch with `yarn install`, verify native patches, then rebuild the APK; Metro refresh cannot replace native code |
 
 The screens patch backports the listener-lifetime fix from
