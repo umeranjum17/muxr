@@ -20,6 +20,19 @@ function integrateLiveActivity(project, bundleIdentifier) {
         const group = project.addPbxGroup([], NAME);
         project.addToPbxGroup(group.uuid, project.getFirstProject().firstProject.mainGroup);
     }
+    // The application target must also declare the extension as a target
+    // dependency (PBXTargetDependency + PBXContainerItemProxy): that is the
+    // edge Xcode uses to build the extension first and the one EAS target
+    // discovery walks to find signable extension targets. addTarget already
+    // tries to add it, but node-xcode silently skips it when the template
+    // project has no such sections, so create them and link idempotently.
+    const objects = project.hash.project.objects;
+    for (const isa of ['PBXContainerItemProxy', 'PBXTargetDependency']) {
+        if (!objects[isa]) objects[isa] = {};
+    }
+    const linked = Object.entries(objects.PBXTargetDependency)
+        .some(([key, value]) => !key.endsWith('_comment') && value.target === extension[0]);
+    if (!linked) project.addTargetDependency(app[0], [extension[0]]);
     const group = Object.entries(project.hash.project.objects.PBXGroup).find(([key, value]) =>
         !key.endsWith('_comment') && unquote(value.name) === NAME);
     for (const source of [
