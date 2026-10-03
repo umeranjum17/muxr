@@ -139,6 +139,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				7A3DA368A7D74650819AE9BA /* PBXTargetDependency */,
 			);
 			name = muxr;
 			productName = muxr;
@@ -353,7 +354,7 @@ fi
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 51;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -365,7 +366,7 @@ fi
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.12;
+				MARKETING_VERSION = 0.2.4;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -387,14 +388,14 @@ fi
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 51;
 				INFOPLIST_FILE = muxr/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.12;
+				MARKETING_VERSION = 0.2.4;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -544,8 +545,8 @@ fi
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				CODE_SIGN_STYLE = Automatic;
-				MARKETING_VERSION = 0.1.12;
-				CURRENT_PROJECT_VERSION = 12;
+				MARKETING_VERSION = 0.2.4;
+				CURRENT_PROJECT_VERSION = 51;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 		};
@@ -565,8 +566,8 @@ fi
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				CODE_SIGN_STYLE = Automatic;
-				MARKETING_VERSION = 0.1.12;
-				CURRENT_PROJECT_VERSION = 12;
+				MARKETING_VERSION = 0.2.4;
+				CURRENT_PROJECT_VERSION = 51;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};
 		};
@@ -615,6 +616,24 @@ fi
 			dstSubfolderSpec = 13;
 		};
 /* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		5FAC4FF2A8E14E3CA907F284 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F7697CD97CE940EB85A88294;
+			remoteInfo = "HerdLiveActivity";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		7A3DA368A7D74650819AE9BA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F7697CD97CE940EB85A88294 /* "HerdLiveActivity" */;
+			targetProxy = 5FAC4FF2A8E14E3CA907F284 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 	};
 	rootObject = 83CBB9F71A601CBA00E9B192 /* Project object */;
 }
