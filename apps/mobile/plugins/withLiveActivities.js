@@ -4,7 +4,7 @@ const NAME = 'HerdLiveActivity';
 const unquote = (value) => String(value ?? '').replace(/^"|"$/g, '');
 
 /** Also used to keep the checked-in project consistent with Expo prebuild. */
-function integrateLiveActivity(project, bundleIdentifier) {
+function integrateLiveActivity(project, { version, ios: { bundleIdentifier, buildNumber } }) {
     const targets = project.pbxNativeTargetSection();
     const app = Object.entries(targets).find(([key, value]) => !key.endsWith('_comment')
         && unquote(value.productType) === 'com.apple.product-type.application');
@@ -49,6 +49,10 @@ function integrateLiveActivity(project, bundleIdentifier) {
         const configuration = configurations[reference.value];
         const matching = appConfigurations.find((item) => unquote(configurations[item.value].name) === unquote(configuration.name));
         const parent = configurations[matching.value].buildSettings;
+        // Keep the containing app and embedded extension on the config's
+        // release identity, including when the checked-in parent is stale.
+        parent.MARKETING_VERSION = version;
+        parent.CURRENT_PROJECT_VERSION = buildNumber;
         Object.assign(configuration.buildSettings, {
             INFOPLIST_FILE: '"../widgets/HerdLiveActivity/Info.plist"',
             PRODUCT_BUNDLE_IDENTIFIER: `"${bundleIdentifier}.activity"`,
@@ -60,8 +64,8 @@ function integrateLiveActivity(project, bundleIdentifier) {
             GENERATE_INFOPLIST_FILE: 'NO',
             CODE_SIGN_STYLE: 'Automatic',
             SKIP_INSTALL: 'YES',
-            MARKETING_VERSION: parent.MARKETING_VERSION || '1.0',
-            CURRENT_PROJECT_VERSION: parent.CURRENT_PROJECT_VERSION || '1',
+            MARKETING_VERSION: version,
+            CURRENT_PROJECT_VERSION: buildNumber,
             SWIFT_OPTIMIZATION_LEVEL: unquote(configuration.name) === 'Debug' ? '"-Onone"' : '"-O"',
         });
         if (parent.DEVELOPMENT_TEAM) configuration.buildSettings.DEVELOPMENT_TEAM = parent.DEVELOPMENT_TEAM;
@@ -84,7 +88,7 @@ module.exports = (config) => {
         return mod;
     });
     return withXcodeProject(config, (mod) => {
-        integrateLiveActivity(mod.modResults, mod.ios.bundleIdentifier);
+        integrateLiveActivity(mod.modResults, mod);
         return mod;
     });
 };
