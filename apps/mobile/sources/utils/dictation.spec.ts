@@ -257,7 +257,7 @@ describe('on-device dictation flow', () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.transcribe).toHaveBeenCalledTimes(readings + 2);
         expect(mocks.transcribe.mock.calls.at(-1)![1]).toHaveProperty('audioCtx', 0);
-        expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en', beamSize: 5, prompt: 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm, Crewhouse, TakeOne, desklink, Opus, GPT 6.1 Sol, second mate, firstmate, pane.' });
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en', beamSize: 5, prompt: 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm.' });
         expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(444 * 2_560 - 25 * 32_000 + 2_560);
         expect(appended.at(-1)).toBe('hello one two three 4 five six seven eight');
         expect(api!.live).toBe('');
