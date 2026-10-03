@@ -198,6 +198,15 @@ the owner arranges a transfer/update under the final identifier.
 
 ## Signing configuration check
 
+The committed Android project requires explicit Gradle properties `appVersion`
+(`major.minor.patch`) and `androidVersionCode` (a positive integer) for release
+tasks, independently of signing. EAS may inject its managed signer; manual signing
+requires all four properties: `releaseStoreFile`, `releaseStorePassword`,
+`releaseKeyAlias` and `releaseKeyPassword`. Partial manual credentials are rejected
+even with EAS injection. Before any release build task executes, Gradle requires
+a signer named `release`, an existing store file and nonempty passwords/key alias;
+null and debug signing configurations are rejected.
+
 For signing/version configuration only, run
 `node scripts/diagnostics/application/checkAndroidReleaseSigning.mjs [evidence-directory]`
 from the repository root. It drives the committed Android Gradle project with
@@ -206,6 +215,9 @@ EAS signing injection. It checks manual/EAS signers, explicit release versions,
 and missing, partial, null and debug signer rejection. It requires the prepared
 Android toolchain and cached Gradle dependencies; it refuses to overwrite an
 existing `apps/mobile/credentials.json` and removes its own fixtures afterward.
+Supply an evidence directory to retain the per-case logs and `results.json`;
+without one, the evidence is written into the temporary fixture directory and
+removed during cleanup.
 This proves build configuration only; native builds, uploads and device journeys
 remain unvalidated.
 
