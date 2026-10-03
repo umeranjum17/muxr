@@ -196,6 +196,19 @@ release credential. Local EAS profiles remain available for development APKs.
 Changing the production app identifier creates a separate store identity unless
 the owner arranges a transfer/update under the final identifier.
 
+## Signing configuration check
+
+For signing/version configuration only, run
+`node scripts/diagnostics/application/checkAndroidReleaseSigning.mjs [evidence-directory]`
+from the repository root. It drives the committed Android Gradle project with
+`assembleRelease --dry-run --offline`, a throwaway keystore and Expo's standard
+EAS signing injection. It checks manual/EAS signers, explicit release versions,
+and missing, partial, null and debug signer rejection. It requires the prepared
+Android toolchain and cached Gradle dependencies; it refuses to overwrite an
+existing `apps/mobile/credentials.json` and removes its own fixtures afterward.
+This proves build configuration only; native builds, uploads and device journeys
+remain unvalidated.
+
 ## Fast bundle check
 
 Before a native build, catch Metro/import failures in seconds:
