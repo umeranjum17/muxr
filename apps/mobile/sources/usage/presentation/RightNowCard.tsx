@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, Text, useWindowDimensions, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
@@ -13,7 +13,7 @@ import { VERDICT_KEYS, verdictTone } from '@/plugins/ui';
 import { t } from '@/text';
 import { compactAge } from '@/utils/compactAge';
 import { useUsageNow } from '../application/useUsageNow';
-import { limitPlans, vitalsFacts, type LimitCell, type LimitPlan } from '../domain/usageModel';
+import { limitPlans, vitalsFacts, type LimitCell, type LimitFigure, type LimitPlan } from '../domain/usageModel';
 
 /** The strip refreshes itself on a slow cadence while someone is looking at it,
  *  so a few minutes behind is normal here and says nothing. Past this the age
@@ -152,36 +152,57 @@ function freshness(payload: UsageFigures | undefined, failed: boolean, refreshin
 /**
  * Every connected plan's limits in one line, the way a menu bar shows them: a
  * plan's small mark, then the tightest share left for each window length or
- * name with its tag, shortest first, with a count for grouped limits. A tag is
- * never cut short: "Month…" read as nothing, so a long one wraps instead. Plans
- * sit side by side in name order and wrap only when the line runs out. Figures stay
+ * name with its tag, shortest first, with a count for grouped limits. Plans sit
+ * side by side in name order and wrap only when the line runs out. Figures stay
  * neutral until a limit is low; the spoken summary names every limit.
  */
 function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: boolean }) {
     const { theme } = useUnistyles();
-    // The mark centres on the first line, which grows with the reader's text size.
-    const { fontScale } = useWindowDimensions();
     return (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 8, rowGap: 1 }}>
             {plans.map((plan) => {
+                const tags = figureTags(plan.figures);
                 return (
-                    <View key={plan.provider.id} style={{ flexDirection: namesVisible ? 'column' : 'row', maxWidth: '100%', alignItems: 'flex-start', gap: namesVisible ? 0 : 4, width: namesVisible ? '100%' : undefined }}>
-                        <View style={{ height: FIGURE_LINE * fontScale, justifyContent: 'center' }}><AgentGlyph name={plan.provider.glyph ?? plan.provider.id} size={MARK} /></View>
-                        {/* A plan's figures wrap among themselves, so a continued line
-                            starts under its first figure, not under the mark. */}
-                        <View style={{ flexDirection: namesVisible ? 'column' : 'row', flexWrap: 'wrap', flexShrink: 1, columnGap: 4 }}>
-                        {plan.figures.map((figure) => (
+                    <View key={plan.provider.id} style={{ flexDirection: namesVisible ? 'column' : 'row', flexWrap: 'wrap', maxWidth: '100%', alignItems: namesVisible ? 'flex-start' : 'center', gap: namesVisible ? 0 : 4, width: namesVisible ? '100%' : undefined }}>
+                        <AgentGlyph name={plan.provider.glyph ?? plan.provider.id} size={MARK} />
+                        {plan.figures.map((figure, index) => (
                             <View key={figure.name} style={{ flexDirection: 'row', alignItems: 'baseline', maxWidth: '100%' }}>
-                                <Text style={{ fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells.find((cell) => cell.tone === 'danger') ?? figure.cells.find((cell) => cell.tone === 'warning') ?? figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
-                                <Text style={{ marginLeft: namesVisible ? 4 : 0.5, flexShrink: 1, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`${namesVisible ? figure.name : figure.name.replace(/\s*·\s*Limit$/i, '')}${figure.cells.length > 1 ? `×${figure.cells.length}` : ''}`}</Text>
+                                <Text style={{ fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
+                                <Text style={{ marginLeft: namesVisible ? 4 : 0.5, flexShrink: 1, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`${namesVisible ? figure.name : tags[index]}${figure.cells.length > 1 ? `×${figure.cells.length}` : ''}`}</Text>
                             </View>
                         ))}
-                        </View>
                     </View>
                 );
             })}
         </View>
     );
+}
+
+function figureTags(figures: LimitFigure[]): string[] {
+    const names = figures.map(({ name }) => name.replace(/\s*·\s*Limit$/i, ''));
+    const bound = (name: string) => name.length <= 6 ? name : `${name.slice(0, 5)}…`;
+    const base = names.map(bound);
+    const tags = base.map((tag, index) => {
+        const colliding = names.filter((_, other) => base[other] === tag);
+        if (colliding.length === 1) return tag;
+        let prefix = colliding[0]!;
+        for (const name of colliding) while (!name.startsWith(prefix)) prefix = prefix.slice(0, -1);
+        return bound(names[index]!.slice(prefix.length).replace(/^[\s·._-]+/, '') || names[index]!);
+    });
+    const used = new Set<string>();
+    for (const { index } of figures.map(({ name }, index) => ({ name, index })).sort((a, b) => a.name.localeCompare(b.name))) {
+        let tag = tags[index]!;
+        if (tags.filter((value) => value === tag).length > 1 || used.has(tag)) {
+            let suffix = 1;
+            do {
+                const ending = `…${suffix++}`;
+                tag = `${names[index]!.slice(0, Math.max(0, 6 - ending.length))}${ending}`;
+            } while (used.has(tag) || tags.includes(tag));
+            tags[index] = tag;
+        }
+        used.add(tag);
+    }
+    return tags;
 }
 
 function figureColor(theme: ReturnType<typeof useUnistyles>['theme'], cell: LimitCell): string {

@@ -1018,7 +1018,7 @@ describe('the usage screen read path', () => {
 
         expect(card.root.findAllByType('AgentGlyph').map((mark: any) => mark.props.name)).toEqual(['claude', 'codex', 'opencode']);
         // Each plan's figures under its mark, shortest window first, each tagged
-        // with its whole window name, never cut to "Month…": no table, so no empty cell for a length a plan lacks.
+        // with its window: no table, so no empty cell for a length a plan lacks.
         // Two limits of one length show the tighter and say there are two.
         const figures = () => card.root.findAllByType('Text')
             .map((node: any) => [node.props.children, node.props.style?.color])
@@ -1026,7 +1026,7 @@ describe('the usage screen read path', () => {
         expect(figures()).toEqual([
             ['36%', '#fff'], ['7d', '#999'],
             ['60%', '#fff'], ['5h×2', '#999'], ['89%', '#fff'], ['7d', '#999'],
-            ['93%', '#fff'], ['5h', '#999'], ['0%', 'tone:danger'], ['7d', '#999'], ['8%', 'tone:warning'], ['Monthly', '#999'],
+            ['93%', '#fff'], ['5h', '#999'], ['0%', 'tone:danger'], ['7d', '#999'], ['8%', 'tone:warning'], ['Month…', '#999'],
         ]);
         // Read aloud in the same order, naming every limit, and a coloured
         // figure says why and when it comes back, which its colour cannot.
@@ -1038,17 +1038,6 @@ describe('the usage screen read path', () => {
         expect(summary).toContain('7d 0% plugins.limits.percentLeft (plugins.limits.paceExhausted, plugins.rightNow.resetsIn(1d 5h))');
         expect(summary).toContain('Monthly 8% plugins.limits.percentLeft (plugins.limits.low, plugins.rightNow.resetsIn(18d))');
         expect(summary).not.toContain('Z.ai');
-        // A grouped figure prints its tightest share in its most severe cell's tone.
-        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, {
-            ...now,
-            connected: now.connected!.map((provider) => provider.id === 'codex'
-                ? { ...provider, windows: provider.windows.map((window) => window.window === '5h'
-                    ? { ...window, used: window.label === 'Session' ? 90 : 50, pace: window.label === 'Session' ? 'on pace' : 'limited' }
-                    : window) }
-                : provider),
-        }) }); });
-        const rows = figures();
-        expect(rows[rows.findIndex((row: any) => row[0] === '5h×2') - 1]).toEqual(['10%', 'tone:danger']);
 
         const longName = `${'model-'.repeat(12)}session`;
         const otherName = `${'model-'.repeat(12)}weekly`;
@@ -1064,33 +1053,40 @@ describe('the usage screen read path', () => {
                 : provider),
         };
         TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, namedNow) }); });
-        const codexText = () => card.root.findAllByType('AgentGlyph')[1]!.parent.parent.findAllByType('Text')
+        const codexText = () => card.root.findAllByType('AgentGlyph')[1]!.parent.findAllByType('Text')
             .map((node: any) => node.props.children) as string[];
-        // Tags are whole however long, so each figure keeps its own name and a
-        // long one wraps rather than being cut short.
+        const codexTags = codexText().filter((text) => !text.endsWith('%'));
+        expect(codexTags).toContain('gpt-4');
+        expect(codexTags).toContain('gpt-5');
+        expect(screenText(card)).toContain('Month…');
+        expect(new Set(codexTags).size).toBe(codexTags.length);
+        expect(codexTags.every((tag) => tag.length <= 6)).toBe(true);
         const namedShares = () => Object.fromEntries(codexText().filter((_, index) => index % 2 === 1)
             .map((tag, index) => [tag, codexText()[index * 2]]));
-        const shares = { 'gpt-4': '83%', 'gpt-4-turbo': '48%', 'gpt-4-vision': '29%', 'GPT-5.3-Codex-Spark': '35%', 'GPT-5.3-Codex-Mini': '24%', [longName]: '69%', [otherName]: '58%' };
-        expect(namedShares()).toMatchObject(shares);
-        expect(screenText(card)).not.toContain('…');
+        expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
         TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 2, figures: withNow(undefined, {
             ...namedNow,
             connected: namedNow.connected!.map((provider) => provider.id === 'codex'
                 ? { ...provider, windows: [...provider.windows].reverse() }
                 : provider),
         }) }); });
-        expect(namedShares()).toMatchObject(shares);
+        expect(namedShares()).toMatchObject({ turbo: '48%', vision: '29%', Spark: '35%', Mini: '24%' });
+        expect(figures()).toContainEqual(['83%', '#fff']);
+        expect(screenText(card)).not.toContain(longName);
         const cardButton = () => card.root.findAll((node: any) => node.props?.accessibilityRole === 'button'
             && String(node.props.accessibilityLabel).startsWith('plugins.rightNow.title.'))[0]!;
         const updatedLabel: string = cardButton().props.accessibilityLabel;
+        expect(updatedLabel).toContain('gpt-4');
+        expect(updatedLabel).toContain('gpt-5');
+        expect(updatedLabel).toContain('gpt-4-turbo');
         expect(updatedLabel).toContain('GPT-5.3-Codex-Spark · Limit');
         expect(updatedLabel).toContain(longName);
-        // A long press shows each limit's full name until the next tap.
+        expect(updatedLabel).toContain(otherName);
         TestRenderer.act(() => { cardButton().props.onLongPress(); });
-        expect(screenText(card)).toContain('GPT-5.3-Codex-Spark · Limit');
+        expect(screenText(card)).toContain(longName);
+        expect(screenText(card)).toContain(otherName);
         TestRenderer.act(() => { cardButton().props.onPress(); });
-        expect(screenText(card)).not.toContain('GPT-5.3-Codex-Spark · Limit');
-        expect(screenText(card)).toContain('GPT-5.3-Codex-Spark');
+        expect(screenText(card)).not.toContain(longName);
     });
 
     it('shows connected limits even when the selected plan has no windows', async () => {
