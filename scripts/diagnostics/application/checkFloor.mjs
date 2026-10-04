@@ -1,7 +1,7 @@
 /**
  * Diff-scoped enforcement of the CONSTRAINTS.md floor: new checker
  * suppressions, unimplemented stubs / empty catches, unexplained skipped or
- * deleted tests, and weakened constraints. Adapted from the
+ * deleted tests and removed assertions, and weakened constraints. Adapted from the
  * constraint-driven-development floor-guard reference; the contract is
  * unchanged:
  *
@@ -67,8 +67,7 @@ const added = [], removed = [], deleted = [];
 // config renders the sides i/ (index), w/ (worktree), c/ and o/ (commits)
 // instead of a/ and b/; strip every form or path matching silently fails.
 const pathOf = (s) => s.replace(/^[abciow12]\//, '');
-const ASSERTION = /\b(expect|assert|should)\b|(?:^|[^\w$])check\s*\(|(?:^|[^\w$])fail\s*\(|\bthrow\s+new\s+Error\b/;
-let file = '', oldFile = '', inHeader = false, addLine = 0, remLine = 0, hunk = 0;
+let file = '', oldFile = '', inHeader = false, addLine = 0, remLine = 0;
 for (const line of diff.split('\n')) {
     if (line.startsWith('diff ')) inHeader = true;
     else if (line.startsWith('@@')) {
@@ -76,7 +75,6 @@ for (const line of diff.split('\n')) {
         const m = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
         remLine = m ? Number(m[1]) : 0;
         addLine = m ? Number(m[2]) : 0;
-        hunk += 1;
     }
     else if (inHeader) {
         if (line.startsWith('--- ')) oldFile = pathOf(line.slice(4));
@@ -86,8 +84,8 @@ for (const line of diff.split('\n')) {
             if (newFile === '/dev/null') deleted.push(file);
         }
     }
-    else if (line.startsWith('+')) added.push({ file, line: addLine++, text: line.slice(1), hunk });
-    else if (line.startsWith('-')) removed.push({ file, line: remLine++, text: line.slice(1), hunk });
+    else if (line.startsWith('+')) added.push({ file, line: addLine++, text: line.slice(1) });
+    else if (line.startsWith('-')) removed.push({ file, line: remLine++, text: line.slice(1) });
 }
 
 const findings = [];
@@ -142,15 +140,10 @@ for (const f of deleted) {
     if (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained) flag('test-deleted', f, 1);
 }
 
-for (const { file: f, line: n, text, hunk: h } of removed) {
+for (const { file: f, line: n, text } of removed) {
     if (isDoc(f) || !isTest(f) || deleted.includes(f)) continue;
-    if (!ASSERTION.test(text)) continue;
-    // An assertion changed in place keeps the floor: the same hunk of the
-    // same test file adds at least as many assertion lines as it removes.
-    const removedCount = removed.filter((r) => r.file === f && r.hunk === h && ASSERTION.test(r.text)).length;
-    const addedCount = added.filter((a) => a.file === f && a.hunk === h && ASSERTION.test(a.text)).length;
-    if (addedCount >= removedCount) continue;
-    flag('assertion-removed', f, n);
+    if (!/\b(expect|assert|should)\b|(?:^|[^\w$])check\s*\(|(?:^|[^\w$])fail\s*\(|\bthrow\s+new\s+Error\b/.test(text)) continue;
+    if (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained) flag('assertion-removed', f, n);
 }
 
 // 1b/2c. A rule in CONSTRAINTS.md weakened or removed. A rule is a floor
@@ -245,8 +238,8 @@ if (findings.some((f) => f.rule === 'rule-removed')) {
 if (findings.some((f) => f.rule === 'threshold-removed')) {
     console.error('\nA threshold-removed finding can also mean a number gained or lost its direction words (">= 80%" becoming "80%", or the reverse): compare the two lines before assuming a threshold was deleted.');
 }
-if (findings.some((f) => f.rule === 'test-deleted' || f.rule === 'test-made-easier')) {
-    console.error('\nSkipped or deleted tests require a reason in a commit in range; security, crypto and data-loss coverage must remain.');
+if (findings.some((f) => f.rule === 'test-deleted' || f.rule === 'test-made-easier' || f.rule === 'assertion-removed')) {
+    console.error('\nSkipped or deleted tests and removed assertions require a reason in a commit in range; security, crypto and data-loss coverage must remain.');
 }
 console.error('\nEach is a move that lowers the bar. Fix the change, or put the reason in the commit message.');
 process.exit(1);
