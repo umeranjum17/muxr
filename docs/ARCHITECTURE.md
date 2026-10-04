@@ -279,8 +279,11 @@ after showing him the plan.
 
 Notifications open the app; requests travel over the authenticated link.
 A blocked agent's alert names it and carries its question; the native Answer
-action sends one key as `session.answer` over the link, and the host types it
-only while that alert's blocked event is still the one waiting.
+action, "Answer in muxr", opens muxr to send one key as `session.answer` over
+the link, and the host types it only while that alert's blocked event is still
+the one waiting. A browser notification, including the installed iPhone web app,
+has no reply field, so answering there is platform-limited and its tap opens the
+agent.
 
 The host seals each lifecycle notice separately to the recipient's raw device
 box key using `@byokit/seal`. Task title, agent name, a blocked agent's question,

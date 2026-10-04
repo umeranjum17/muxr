@@ -71,7 +71,7 @@ export function dismissAgentAlert(agentRoute: string): void {
     dismissAlert(agentRoute);
 }
 
-/** A blocked Agent's alert: Open lands on its prompt, Answer replies from the notification. */
+/** A blocked Agent's alert: Open lands on its prompt; Answer opens muxr to send the typed reply. */
 export const QUESTION_CATEGORY = 'agent-question';
 export const OPEN_ACTION = 'open';
 export const ANSWER_ACTION = 'answer';
@@ -81,10 +81,11 @@ if (Platform.OS !== 'web') {
         { identifier: OPEN_ACTION, buttonTitle: 'Open', options: { opensAppToForeground: true } },
         {
             identifier: ANSWER_ACTION,
-            buttonTitle: 'Answer',
-            textInput: { submitButtonTitle: 'Send', placeholder: 'y, n or a choice number' },
-            // iOS suspends a background app before the reply leaves; there it opens muxr.
-            options: { opensAppToForeground: Platform.OS === 'ios' },
+            buttonTitle: 'Answer in muxr',
+            textInput: { submitButtonTitle: 'Open and send', placeholder: 'y, n or a choice number' },
+            // The app sends the reply over its link, so it opens to do it: iOS suspends a
+            // background app before the reply leaves, and Android has no task to send it yet.
+            options: { opensAppToForeground: true },
         },
     ]).catch(() => undefined);
 }

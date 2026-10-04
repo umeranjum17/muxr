@@ -58,7 +58,7 @@ vi.mock('expo-secure-store', () => ({
     setItemAsync: async () => undefined,
     deleteItemAsync: async () => undefined,
 }));
-vi.mock('expo-notifications', () => ({ scheduleNotificationAsync: vi.fn() }));
+vi.mock('expo-notifications', () => ({ scheduleNotificationAsync: vi.fn(), setNotificationCategoryAsync: vi.fn(async () => undefined) }));
 vi.mock('react-native', () => ({ AppState: { currentState: 'active' }, Platform: { OS: 'android' } }));
 vi.mock('@/modal', () => ({ Modal: {} }));
 vi.mock('@/herd', () => ({ getSessionName: () => 'session' }));
