@@ -462,12 +462,81 @@ interface LiveSimulator {
     closed: boolean;
 }
 
+interface SpawnedHelperEntry {
+    children: Set<ChildProcess>;
+    closed: boolean;
+    phase: 'opening' | 'settled';
+}
+
+class SpawnedHelpers {
+    private readonly entries = new Map<string, SpawnedHelperEntry>();
+
+    private entryFor(udid: string): SpawnedHelperEntry {
+        let entry = this.entries.get(udid);
+        if (entry === undefined) {
+            entry = { children: new Set(), closed: false, phase: 'opening' };
+            this.entries.set(udid, entry);
+        }
+        return entry;
+    }
+
+    reopen(udid: string): void {
+        const entry = this.entryFor(udid);
+        entry.closed = false;
+        entry.phase = 'opening';
+    }
+
+    register(udid: string, child: ChildProcess): void {
+        const entry = this.entryFor(udid);
+        entry.children.add(child);
+        child.once('exit', () => {
+            this.entries.get(udid)?.children.delete(child);
+        });
+        if (entry.closed && child.pid !== undefined) {
+            try {
+                process.kill(child.pid, 'SIGTERM');
+            } catch {
+            }
+        }
+    }
+
+    settle(udid: string): void {
+        const entry = this.entries.get(udid);
+        if (entry !== undefined) entry.phase = 'settled';
+    }
+
+    isClosed(udid: string): boolean {
+        return this.entries.get(udid)?.closed === true;
+    }
+
+    keys(): string[] {
+        return [...this.entries.keys()];
+    }
+
+    async close(udid: string, onStraggler: (pid: number | undefined, phase: 'opening' | 'settled') => void): Promise<void> {
+        const entry = this.entryFor(udid);
+        entry.closed = true;
+        const tracked = [...entry.children];
+        for (const child of tracked) {
+            const pid = child.pid;
+            if (pid === undefined || child.exitCode !== null) continue;
+            try {
+                process.kill(pid, 'SIGTERM');
+            } catch {
+            }
+        }
+        const exited = await Promise.all(tracked.map((child) => waitForExit(child, CLOSE_EXIT_WAIT_MS)));
+        tracked.forEach((child, index) => {
+            if (exited[index] !== true) onStraggler(child.pid, entry.phase);
+        });
+    }
+}
+
 export class IosMirrors implements DeviceMirrors {
     private readonly options: IosMirrorOptions;
     private readonly mirrors = new Map<string, LiveSimulator>();
     private readonly opening = new Map<string, Promise<{ session: EncodedEngineSession; width: number; height: number }>>();
-    private readonly pendingChildren = new Map<string, Set<ChildProcess>>();
-    private readonly closeRequested = new Set<string>();
+    private readonly helpers = new SpawnedHelpers();
 
     constructor(options: IosMirrorOptions = {}) {
         this.options = options;
@@ -481,30 +550,12 @@ export class IosMirrors implements DeviceMirrors {
         if (existing !== undefined && !existing.closed) return { session: existing.session, width: existing.width, height: existing.height };
         const inflight = this.opening.get(udid);
         if (inflight !== undefined) return inflight;
-        this.closeRequested.delete(udid);
+        this.helpers.reopen(udid);
         const opening = this.start(udid, request).finally(() => {
             if (this.opening.get(udid) === opening) this.opening.delete(udid);
         });
         this.opening.set(udid, opening);
         return opening;
-    }
-
-    private trackChild(udid: string, child: ChildProcess): void {
-        let set = this.pendingChildren.get(udid);
-        if (set === undefined) {
-            set = new Set();
-            this.pendingChildren.set(udid, set);
-        }
-        set.add(child);
-        child.once('exit', () => {
-            this.pendingChildren.get(udid)?.delete(child);
-        });
-        if (child.pid !== undefined && this.closeRequested.has(udid)) {
-            try {
-                process.kill(child.pid, 'SIGTERM');
-            } catch {
-            }
-        }
     }
 
     private async start(
@@ -516,7 +567,7 @@ export class IosMirrors implements DeviceMirrors {
         });
         // Stream pixels per simulator point.
         const scale = VIDEO_SCALE * await screenScale(this.options.deviceTypeFor?.(udid)).catch(() => 3);
-        if (this.closeRequested.has(udid)) throw new EngineRefused('desktop-unavailable', 'the preview closed during open');
+        if (this.helpers.isClosed(udid)) throw new EngineRefused('desktop-unavailable', 'the preview closed during open');
         const workDir = mkdtempSync(join(homedir(), 'Library', 'Caches', 'muxr', '.sim-'));
         const video = spawn(join(dir, 'sim-video'), [
             'stream', '--set', DEVICE_SET, '--udid', udid,
@@ -525,11 +576,10 @@ export class IosMirrors implements DeviceMirrors {
         ], { stdio: ['pipe', 'pipe', 'pipe'] });
         video.stderr?.on('data', (chunk: Buffer) => this.options.onDiagnostic?.(`sim-video: ${chunk.toString().trim().slice(0, 200)}`));
         video.stdin?.on('error', () => undefined);
-        this.trackChild(udid, video);
+        this.helpers.register(udid, video);
         let hid: CompanionHid | undefined;
         const fail = (message: string): never => {
             this.options.onDiagnostic?.(`open failed: ${message}`);
-            this.pendingChildren.delete(udid);
             video.kill('SIGKILL');
             hid?.close();
             rmSync(workDir, { recursive: true, force: true });
@@ -555,10 +605,10 @@ export class IosMirrors implements DeviceMirrors {
         while (size === undefined && video.exitCode === null && Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 50));
         }
-        if (this.closeRequested.has(udid)) fail('the preview closed during open');
+        if (this.helpers.isClosed(udid)) fail('the preview closed during open');
         if (size === undefined) fail('the simulator sent no video');
         try {
-            hid = await CompanionHid.start(dir, udid, workDir, this.options.onDiagnostic, (child) => this.trackChild(udid, child));
+            hid = await CompanionHid.start(dir, udid, workDir, this.options.onDiagnostic, (child) => this.helpers.register(udid, child));
         } catch (error) {
             fail(error instanceof Error ? error.message : 'the simulator input service did not start');
         }
@@ -577,7 +627,7 @@ export class IosMirrors implements DeviceMirrors {
         } catch (error) {
             fail(error instanceof Error ? error.message : 'the live view did not start');
         }
-        if (this.closeRequested.has(udid)) {
+        if (this.helpers.isClosed(udid)) {
             await engine.close().catch(() => undefined);
             await engine.stop().catch(() => undefined);
             fail('the preview closed during open');
@@ -599,7 +649,7 @@ export class IosMirrors implements DeviceMirrors {
             closed: false,
         };
         this.mirrors.set(udid, mirror);
-        this.pendingChildren.delete(udid);
+        this.helpers.settle(udid);
         engine.onLive((event) => {
             if (mirror.closed) return;
             if (event.kind === 'keyframeRequest') {
@@ -669,28 +719,14 @@ export class IosMirrors implements DeviceMirrors {
     }
 
     async close(udid: string): Promise<void> {
-        this.closeRequested.add(udid);
         const inflight = this.opening.get(udid);
         if (inflight !== undefined) void inflight.catch(() => undefined);
-        const tracked = [...(this.pendingChildren.get(udid) ?? [])];
         const mirror = this.mirrors.get(udid);
         if (mirror !== undefined) {
             this.mirrors.delete(udid);
             mirror.closed = true;
-            if (!tracked.includes(mirror.video)) tracked.push(mirror.video);
         }
-        for (const child of tracked) {
-            const pid = child.pid;
-            if (pid === undefined || child.exitCode !== null) continue;
-            try {
-                process.kill(pid, 'SIGTERM');
-            } catch {
-            }
-        }
-        const exited = await Promise.all(tracked.map((child) => waitForExit(child, CLOSE_EXIT_WAIT_MS)));
-        tracked.forEach((child, index) => {
-            if (exited[index] !== true) this.options.onDiagnostic?.(`close: helper ${child.pid ?? '?'} did not exit`);
-        });
+        await this.helpers.close(udid, (pid, phase) => this.options.onDiagnostic?.(`close: helper ${pid ?? '?'} did not exit (${phase})`));
         if (mirror === undefined) return;
         mirror.splitter.stop();
         mirror.hid.close();
@@ -700,8 +736,7 @@ export class IosMirrors implements DeviceMirrors {
     }
 
     async closeAll(): Promise<void> {
-        const udids = new Set([...this.mirrors.keys(), ...this.opening.keys()]);
-        await Promise.all([...udids].map((udid) => this.close(udid)));
+        await Promise.all(this.helpers.keys().map((udid) => this.close(udid)));
     }
 }
 
