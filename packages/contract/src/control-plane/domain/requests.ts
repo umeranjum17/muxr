@@ -564,7 +564,6 @@ export interface RequestMap extends PeerRequestMap {
         };
         result: null;
     };
-    /** Answer a blocked agent's y/n question by typing the key into its pane (push actions). */
     /**
      * Answer the question an agent is blocked on with one key: `y`, `n` or a
      * choice number. With `eventId` the host refuses once that blocked event is
