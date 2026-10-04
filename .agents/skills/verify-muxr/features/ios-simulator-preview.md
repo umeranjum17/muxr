@@ -22,7 +22,7 @@ swipes and the Home key drive it through one long-lived idb HID session.
 - In an agent pane on the Mac: `muxr preview claim <udid>` for a simulator
   the agent booted.
 - On the phone, open that pane's terminal; tap the simulator chip; the
-  preview opens with a toolbar (Home, keyboard).
+  preview opens with a toolbar (Home only: iOS has no keyboard toggle, so a missing keyboard is not a failure).
 
 ## Driving it with the private stack
 

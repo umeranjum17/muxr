@@ -368,10 +368,14 @@ class CompanionHid {
             '--only', 'simulator',
         ], { stdio: ['ignore', 'ignore', 'pipe'] });
         onSpawn?.(companion);
+        let spawnError: unknown;
+        companion.once('error', (error) => {
+            spawnError = error;
+        });
         companion.stderr?.on('data', (chunk: Buffer) => onDiagnostic?.(`idb companion: ${chunk.toString().trim().slice(0, 200)}`));
         const deadline = Date.now() + COMPANION_START_TIMEOUT_MS;
         while (!existsSync(socket)) {
-            if (companion.exitCode !== null || Date.now() > deadline) {
+            if (spawnError !== undefined || companion.exitCode !== null || Date.now() > deadline) {
                 companion.kill('SIGKILL');
                 throw new EngineRefused('desktop-unavailable', 'the simulator input service did not start');
             }
@@ -489,7 +493,7 @@ class SpawnedHelpers {
     register(udid: string, child: ChildProcess): void {
         const entry = this.entryFor(udid);
         entry.children.add(child);
-        child.once('exit', () => {
+        child.once('close', () => {
             this.entries.get(udid)?.children.delete(child);
         });
         if (entry.closed && child.pid !== undefined) {
@@ -516,12 +520,11 @@ class SpawnedHelpers {
     async close(udid: string, onStraggler: (pid: number | undefined, phase: 'opening' | 'settled') => void): Promise<void> {
         const entry = this.entryFor(udid);
         entry.closed = true;
-        const tracked = [...entry.children];
+        const tracked = [...entry.children].filter((child) => child.pid !== undefined);
         for (const child of tracked) {
-            const pid = child.pid;
-            if (pid === undefined || child.exitCode !== null) continue;
+            if (child.exitCode !== null) continue;
             try {
-                process.kill(pid, 'SIGTERM');
+                process.kill(child.pid!, 'SIGTERM');
             } catch {
             }
         }
@@ -576,6 +579,10 @@ export class IosMirrors implements DeviceMirrors {
         ], { stdio: ['pipe', 'pipe', 'pipe'] });
         video.stderr?.on('data', (chunk: Buffer) => this.options.onDiagnostic?.(`sim-video: ${chunk.toString().trim().slice(0, 200)}`));
         video.stdin?.on('error', () => undefined);
+        let spawnError: unknown;
+        video.once('error', (error) => {
+            spawnError = error;
+        });
         this.helpers.register(udid, video);
         let hid: CompanionHid | undefined;
         const fail = (message: string): never => {
@@ -602,9 +609,10 @@ export class IosMirrors implements DeviceMirrors {
             splitter.push(chunk);
         });
         const deadline = Date.now() + VIDEO_START_TIMEOUT_MS;
-        while (size === undefined && video.exitCode === null && Date.now() < deadline) {
+        while (size === undefined && video.exitCode === null && spawnError === undefined && Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 50));
         }
+        if (spawnError !== undefined) fail('the simulator video service did not start');
         if (this.helpers.isClosed(udid)) fail('the preview closed during open');
         if (size === undefined) fail('the simulator sent no video');
         try {
