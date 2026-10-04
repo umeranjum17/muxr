@@ -15,7 +15,7 @@ const MAX_CHARS = 300;
 export function blockedQuestion(screen: string): string | undefined {
     const lines = screen.replace(ANSI, '').split('\n')
         .map((line) => line.replace(FRAME, ' ').replace(/\s+/g, ' ').trim())
-        .filter((line) => line !== '' && !KEY_HINT.test(line))
+        .filter((line) => line !== '' && (line.endsWith('?') || !KEY_HINT.test(line)))
         .slice(-MAX_LINES);
     const asks = lines.findLastIndex((line) => line.endsWith('?'));
     if (asks > 0) lines.splice(0, asks);
