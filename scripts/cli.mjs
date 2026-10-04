@@ -92,7 +92,7 @@ Agent instructions
   muxr skill <topic>              load one reference only when needed
   muxr name [--workspace ...]     name the current Herdr workspace/pane and report attribution
   muxr preview status [--json]    check whether the phone is driving this pane's browser or emulator
-  muxr share <path> [--title T]   save a file (or a versioned .html page) to this pane's Shared Artifacts
+  muxr share <path>               save a file to this pane's Shared Artifacts timeline [--title T versions an .html page in place]
   muxr artifacts [status|prune]   show what Shared Artifacts retention removed, or clear old history
 
 Build plugins
