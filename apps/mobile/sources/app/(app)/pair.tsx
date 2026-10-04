@@ -97,7 +97,7 @@ export default function PairScreen() {
             }).catch(() => undefined);
             return;
         }
-        setState({ phase: 'error', message: 'This pairing code is from an older muxr. Update muxr on both devices, run `muxr pair` on the computer, then scan its new link code.' });
+        setState({ phase: 'error', message: 'This pairing code is from an older muxr and will not work. On the computer, run the Update muxr action, then run `muxr pair` for a new code. If there is no Update muxr action, update muxr on the computer first — pairing needs the new version.' });
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const switching = getCachedConnectionSettings().machineId !== '';
@@ -110,7 +110,7 @@ export default function PairScreen() {
             if (cancelled || !raw) return false;
             if (!looksLikeLinkOffer(raw.trim())) {
                 if (!raw.includes('byokit-link:') && !raw.includes('pair=')) return false;
-                setState({ phase: 'error', message: 'This pairing code is from an older muxr. Run `muxr pair` on the computer for a new link code.' });
+                setState({ phase: 'error', message: 'This pairing code is from an older muxr and will not work. On the computer, run the Update muxr action, then run `muxr pair` for a new code. If there is no Update muxr action, update muxr on the computer first — pairing needs the new version.' });
                 return true;
             }
             reviewPairing(raw);
@@ -152,7 +152,7 @@ export default function PairScreen() {
             router.replace('/');
             return;
         }
-        throw new Error('This pairing code is from an older muxr. Run `muxr pair` on the computer for a new link code.');
+        throw new Error('This pairing code is from an older muxr and will not work. On the computer, run the Update muxr action, then run `muxr pair` for a new code. If there is no Update muxr action, update muxr on the computer first — pairing needs the new version.');
     }, [auth, router]);
 
     const sshInput = React.useCallback((): { ok: true; input?: SshFieldInput } | { ok: false; error: string } => {

@@ -21,7 +21,7 @@ export function useHostedPairing() {
             router.push({ pathname: '/pair', params: { offer: url.trim() } });
             return;
         }
-        Modal.alert('Pairing code expired', 'This pairing code is from an older muxr. Update muxr on both devices, run `muxr pair` on the computer, then scan its new link code.');
+        Modal.alert('Pairing code expired', 'This pairing code is from an older muxr and will not work. On the computer, run the Update muxr action, then run `muxr pair` for a new code. If there is no Update muxr action, update muxr on the computer first — pairing needs the new version.');
     }, [router]);
 }
 
