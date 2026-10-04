@@ -352,6 +352,7 @@ describe('ArtifactWatcher', () => {
                 '<img src="pixel.png" srcset="pixel.png 2x">',
                 '<picture><source srcset="pixel.png"></picture>',
                 '<div style="background: url(pixel.png)"></div>',
+                '<style>.a{background:url("data:image/png;base64,AAAA")} .b{background:url("https://example.com/x.png")}</style>',
             ]) {
                 writeFileSync(page, bad);
                 await expect(runShare(page, '--title', 'Demo page')).resolves.toMatchObject({ code: 1, stdout: '' });

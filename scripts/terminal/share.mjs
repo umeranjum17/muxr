@@ -77,9 +77,11 @@ function inlinePage(path) {
     for (const match of page.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)) liveCss.push(match[1]);
     for (const match of page.matchAll(/(?<![\w-])style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) liveCss.push(match[1] ?? match[2] ?? match[3]);
     const remoteUrl = liveCss.some((css) => {
-        const found = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^")'\s]+))\s*\)/i.exec(css);
-        const ref = found && (found[1] ?? found[2] ?? found[3]);
-        return typeof ref === 'string' && ref !== '' && !ref.startsWith('data:') && !ref.startsWith('#');
+        for (const found of css.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^")'\s]+))\s*\)/gi)) {
+            const ref = found[1] ?? found[2] ?? found[3];
+            if (ref !== '' && !ref.startsWith('data:') && !ref.startsWith('#')) return true;
+        }
+        return false;
     });
     if (remoteUrl) throw new Error('CSS url() images are not supported: use <img src> with a local file');
     return page;
