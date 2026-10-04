@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
@@ -159,18 +159,24 @@ function freshness(payload: UsageFigures | undefined, failed: boolean, refreshin
  */
 function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: boolean }) {
     const { theme } = useUnistyles();
+    // The mark centres on the first line, which grows with the reader's text size.
+    const { fontScale } = useWindowDimensions();
     return (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 8, rowGap: 1 }}>
             {plans.map((plan) => {
                 return (
-                    <View key={plan.provider.id} style={{ flexDirection: namesVisible ? 'column' : 'row', flexWrap: 'wrap', maxWidth: '100%', alignItems: namesVisible ? 'flex-start' : 'center', gap: namesVisible ? 0 : 4, width: namesVisible ? '100%' : undefined }}>
-                        <AgentGlyph name={plan.provider.glyph ?? plan.provider.id} size={MARK} />
+                    <View key={plan.provider.id} style={{ flexDirection: namesVisible ? 'column' : 'row', maxWidth: '100%', alignItems: 'flex-start', gap: namesVisible ? 0 : 4, width: namesVisible ? '100%' : undefined }}>
+                        <View style={{ height: FIGURE_LINE * fontScale, justifyContent: 'center' }}><AgentGlyph name={plan.provider.glyph ?? plan.provider.id} size={MARK} /></View>
+                        {/* A plan's figures wrap among themselves, so a continued line
+                            starts under its first figure, not under the mark. */}
+                        <View style={{ flexDirection: namesVisible ? 'column' : 'row', flexWrap: 'wrap', flexShrink: 1, columnGap: 4 }}>
                         {plan.figures.map((figure) => (
                             <View key={figure.name} style={{ flexDirection: 'row', alignItems: 'baseline', maxWidth: '100%' }}>
                                 <Text style={{ fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
                                 <Text style={{ marginLeft: namesVisible ? 4 : 0.5, flexShrink: 1, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`${namesVisible ? figure.name : figure.name.replace(/\s*·\s*Limit$/i, '')}${figure.cells.length > 1 ? `×${figure.cells.length}` : ''}`}</Text>
                             </View>
                         ))}
+                        </View>
                     </View>
                 );
             })}

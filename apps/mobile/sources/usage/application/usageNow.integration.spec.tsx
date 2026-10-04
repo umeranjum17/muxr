@@ -1053,7 +1053,7 @@ describe('the usage screen read path', () => {
                 : provider),
         };
         TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now() + 1, figures: withNow(undefined, namedNow) }); });
-        const codexText = () => card.root.findAllByType('AgentGlyph')[1]!.parent.findAllByType('Text')
+        const codexText = () => card.root.findAllByType('AgentGlyph')[1]!.parent.parent.findAllByType('Text')
             .map((node: any) => node.props.children) as string[];
         // Tags are whole however long, so each figure keeps its own name and a
         // long one wraps rather than being cut short.
