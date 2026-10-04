@@ -172,7 +172,7 @@ function PlanStrip({ plans, namesVisible }: { plans: LimitPlan[]; namesVisible: 
                         <View style={{ flexDirection: namesVisible ? 'column' : 'row', flexWrap: 'wrap', flexShrink: 1, columnGap: 4 }}>
                         {plan.figures.map((figure) => (
                             <View key={figure.name} style={{ flexDirection: 'row', alignItems: 'baseline', maxWidth: '100%' }}>
-                                <Text style={{ fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
+                                <Text style={{ fontSize: FIGURE_SIZE, lineHeight: FIGURE_LINE, ...Typography.mono('regular'), color: figureColor(theme, figure.cells.find((cell) => cell.tone === 'danger') ?? figure.cells.find((cell) => cell.tone === 'warning') ?? figure.cells[0]!) }}>{`${figure.cells[0]!.left}%`}</Text>
                                 <Text style={{ marginLeft: namesVisible ? 4 : 0.5, flexShrink: 1, fontSize: TAG_SIZE, ...Typography.mono('regular'), color: theme.colors.textSecondary }}>{`${namesVisible ? figure.name : figure.name.replace(/\s*·\s*Limit$/i, '')}${figure.cells.length > 1 ? `×${figure.cells.length}` : ''}`}</Text>
                             </View>
                         ))}
