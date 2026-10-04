@@ -3,14 +3,12 @@ import React from 'react';
 import TestRenderer from 'react-test-renderer';
 
 /**
- * The floating control's two modes are exclusive: the ring and the arrow
- * cluster are never on screen together, and a press that was only held (never
- * moved) must not turn the next press-and-slide into a drag. Both were review
- * findings against the real component, so this drives its own handlers rather
- * than trusting the reading of them.
+ * The quick-actions control's two modes are exclusive: the ring and the arrow
+ * cluster are never on screen together, and the control rests in the row under
+ * the terminal, never on its output. These were review findings against the
+ * real component, so this drives its own handlers rather than trusting the
+ * reading of them.
  */
-
-const sharedValues = vi.hoisted(() => [] as { value: number }[]);
 
 const theme = {
     colors: {
@@ -42,11 +40,7 @@ vi.mock('react-native-reanimated', () => ({
     interpolateColor: () => '#000000',
     useAnimatedStyle: (style: () => unknown) => style(),
     useReducedMotion: () => false,
-    useSharedValue: (initial: number) => {
-        const shared = { value: initial };
-        sharedValues.push(shared);
-        return shared;
-    },
+    useSharedValue: (initial: number) => ({ value: initial }),
     withTiming: (value: unknown) => value,
 }));
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
@@ -77,6 +71,7 @@ function mount(terminalHeight = 620) {
                 width={360}
                 height={740}
                 terminalHeight={terminalHeight}
+                restY={terminalHeight + 18}
                 slots={[arrows, other]}
                 clusterKeys={keys}
                 dim={{ value: 0 } as never}
@@ -94,6 +89,7 @@ const resize = (renderer: any, terminalHeight: number) => TestRenderer.act(() =>
             width={360}
             height={740}
             terminalHeight={terminalHeight}
+            restY={terminalHeight + 18}
             slots={[arrows, other]}
             clusterKeys={keys}
             dim={{ value: 0 } as never}
@@ -105,10 +101,10 @@ const control = (renderer: any) => renderer.root.findAll((node: any) =>
     node.props.accessibilityLabel === 'Terminal quick actions' || node.props.accessibilityLabel === 'Close terminal quick actions')[0];
 const slot = (renderer: any, label: string) => renderer.root.findAll((node: any) => node.props?.accessibilityLabel === label)[0];
 const pan = (renderer: any) => renderer.root.findAll((node: any) => typeof node.props.onPanResponderGrant === 'function')[0];
-/** The control's own box, which is what has to stay inside the terminal. */
+/** The control's own box, which has to stay off the terminal's output. */
 const puckBox = (renderer: any): { top: number; height: number } => {
     const node = renderer.root.findAll((node: any) => Array.isArray(node.props.style)
-        && node.props.style[0]?.position === 'absolute' && node.props.style[0]?.height === 44)[0];
+        && node.props.style[0]?.position === 'absolute' && node.props.style[0]?.height === 24)[0];
     return { top: node.props.style[0].top, height: node.props.style[0].height };
 };
 const clusterShown = (renderer: any) => renderer.root.findAll((node: any) => node.props.accessibilityLabel === 'Up arrow').length > 0;
@@ -117,12 +113,6 @@ const clusterShown = (renderer: any) => renderer.root.findAll((node: any) => nod
 const ringUp = (renderer: any) => slot(renderer, 'Other').props.disabled === false;
 
 const tap = (renderer: any, node: any) => TestRenderer.act(() => { node.props.onPress(); });
-const grant = (renderer: any, dx: number, dy: number) => TestRenderer.act(() => {
-    const event = { nativeEvent: { locationX: 22, locationY: 22 } };
-    const state = { dx, dy };
-    pan(renderer).props.onMoveShouldSetPanResponderCapture(event, state);
-    pan(renderer).props.onPanResponderGrant(event, state);
-});
 
 describe('floating terminal control', () => {
     it('puts one overlay up at a time, and the cluster dismisses through its own layer', () => {
@@ -161,12 +151,8 @@ describe('floating terminal control', () => {
         resize(renderer, 45);
         expect(clusterShown(renderer)).toBe(false);
         expect(control(renderer)).toBeDefined();
-        // And it stays inside the terminal it belongs to. This view does not
-        // clip, so a control hanging past the bottom edge sits over the key row
-        // and takes touches meant for those keys.
-        const box = puckBox(renderer);
-        expect(box.top).toBeGreaterThanOrEqual(0);
-        expect(box.top + box.height).toBeLessThanOrEqual(45);
+        // And it stays in the row under the terminal, off the output.
+        expect(puckBox(renderer).top).toBeGreaterThanOrEqual(45);
         expect(control(renderer).props.accessibilityLabel).toBe('Terminal quick actions');
         expect(control(renderer).props.accessibilityState).toEqual({ expanded: false });
 
@@ -188,10 +174,10 @@ describe('floating terminal control', () => {
         resize(renderer, 86);
         const responder = pan(renderer);
         const box = responder.props.style[0];
-        const target = ringFan({ x: box.left + 22, y: box.top + 22 }, { width: 360, height: 740 }, 86, 2, 48).offsets[0]!;
+        const target = ringFan({ x: box.left + 12, y: box.top + 12 }, { width: 360, height: 740 }, 86, 2, 48).offsets[0]!;
         TestRenderer.act(() => {
             responder.props.onMoveShouldSetPanResponderCapture({}, { dx: 12, dy: 0 });
-            responder.props.onPanResponderGrant({ nativeEvent: { locationX: 22, locationY: 22 } }, { dx: 12, dy: 0 });
+            responder.props.onPanResponderGrant({ nativeEvent: { locationX: 12, locationY: 12 } }, { dx: 12, dy: 0 });
             responder.props.onPanResponderMove({}, { dx: 12 + target.x, dy: target.y });
             responder.props.onPanResponderRelease({}, { dx: 12 + target.x, dy: target.y });
         });
@@ -199,33 +185,15 @@ describe('floating terminal control', () => {
         expect(arrows.run).not.toHaveBeenCalled();
     });
 
-    it('keeps a pickup for a captured drag but clears a still hold', () => {
-        const renderer = mount();
-        TestRenderer.act(() => { control(renderer).props.onLongPress(); });
-        TestRenderer.act(() => { control(renderer).props.onPressOut(); });
-        grant(renderer, 12, 0);
-        expect(ringUp(renderer)).toBe(true);
-
-        const dragged = mount();
-        TestRenderer.act(() => { control(dragged).props.onLongPress(); });
-        const responder = pan(dragged);
-        TestRenderer.act(() => {
-            responder.props.onMoveShouldSetPanResponderCapture({}, { dx: 12, dy: 0 });
-            control(dragged).props.onPressOut();
-            responder.props.onPanResponderGrant({ nativeEvent: { locationX: 22, locationY: 22 } }, { dx: 12, dy: 0 });
-        });
-        expect(ringUp(dragged)).toBe(false);
-    });
-
-    it('rides the keyboard with the rails and lands where the shorter terminal puts it', () => {
+    it('rides the keyboard with the rails and lands in the row under the shorter terminal', () => {
         const shift = { value: 0 };
         const render = (terminalHeight: number) => (
-            <FloatingTerminalControls width={360} height={740} terminalHeight={terminalHeight} slots={[arrows, other]} dim={{ value: 0 } as never} shift={shift as never} />
+            <FloatingTerminalControls width={360} height={740} terminalHeight={terminalHeight} restY={terminalHeight + 18} slots={[arrows, other]} dim={{ value: 0 } as never} shift={shift as never} />
         );
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(render(620)); });
-        const puck = () => renderer.root.findAll((node: any) => Array.isArray(node.props.style) && node.props.style[0]?.height === 44)[0];
-        const shown = () => puck().props.style[0].top + puck().props.style[1].transform[1].translateY;
+        const puck = () => renderer.root.findAll((node: any) => Array.isArray(node.props.style) && node.props.style[0]?.height === 24)[0];
+        const shown = () => puck().props.style[0].top + puck().props.style[1].transform[0].translateY;
         const resting = shown();
 
         // The keyboard has lifted the rails 300dp; the terminal is not yet re-measured.
@@ -237,23 +205,10 @@ describe('floating terminal control', () => {
         shift.value = 0;
         TestRenderer.act(() => { renderer.update(render(320)); });
         expect(shown()).toBe(resting - 300);
-        expect(shown() + 44).toBeLessThanOrEqual(320);
+        expect(shown()).toBeGreaterThanOrEqual(320);
     });
 
-    it('keeps a drag inside a 45dp terminal and routes compact actions through the pane menu', () => {
-        const dragged = mount(45);
-        const box = puckBox(dragged);
-        const dragY = sharedValues[sharedValues.length - 1]!;
-        TestRenderer.act(() => { control(dragged).props.onLongPress(); });
-        const responder = pan(dragged);
-        TestRenderer.act(() => {
-            responder.props.onMoveShouldSetPanResponderCapture({}, { dx: 0, dy: 12 });
-            control(dragged).props.onPressOut();
-            responder.props.onPanResponderGrant({ nativeEvent: { locationX: 22, locationY: 22 } }, { dx: 0, dy: 12 });
-            responder.props.onPanResponderMove({}, { dx: 0, dy: 200 });
-        });
-        expect(box.top + dragY.value + box.height).toBeLessThanOrEqual(45);
-
+    it('routes compact actions through the pane menu', () => {
         const run = Array.from({ length: 6 }, () => vi.fn());
         const actions: RingSlot[] = ['Continue', 'Review changes', 'Arrow keys', 'Commands', 'Paste', 'Browser'].map((label, index) => ({
             id: ['continue', 'changes', 'arrows', 'commands', 'paste', 'browser'][index]!, label, icon: 'code', run: run[index]!,
@@ -262,7 +217,7 @@ describe('floating terminal control', () => {
         let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(<>
-                <FloatingTerminalControls width={270} height={594} terminalHeight={43} slots={actions} dim={{ value: 0 } as never} />
+                <FloatingTerminalControls width={270} height={594} terminalHeight={43} restY={61} slots={actions} dim={{ value: 0 } as never} />
                 <TerminalMenuQuickActions slots={actions} terminalHeight={43} hasTools onClose={() => undefined} />
                 <TerminalKeyRow channel={{ sendText }} />
             </>);
