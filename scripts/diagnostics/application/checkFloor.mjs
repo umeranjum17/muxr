@@ -90,7 +90,7 @@ for (const line of diff.split('\n')) {
 
 const findings = [];
 const flag = (rule, f, n) => findings.push({ rule, file: f, line: n });
-const isTest = (f) => /\.(test|spec)\.|_test\.|test_/.test(f);
+const isTest = (f) => /\.(test|spec)\.|_test\.|test_|(?:^|[/.])selfcheck\./i.test(f);
 const isConstraints = (f) => /CONSTRAINTS\.md$/.test(f);
 // Documentation (and this guard itself) must be able to name what the floor
 // bans without tripping it; a suppression that works has to live in code.
@@ -166,16 +166,35 @@ const thresholds = (t) => {
     }
     return out;
 };
-const removedRules = removed.filter((l) => isConstraints(l.file) && ruleKey(l.text) !== null);
-const addedRules = added.filter((l) => isConstraints(l.file) && ruleKey(l.text) !== null);
+const rulesOf = (file, content) => {
+    const rules = [];
+    let rule = null;
+    for (const [i, text] of content.split('\n').entries()) {
+        if (ruleKey(text) !== null) {
+            rule = { file, line: i + 1, key: ruleKey(text), text };
+            rules.push(rule);
+        }
+        else if (rule && /^\s+\S/.test(text)) rule.text += ' ' + text.trim();
+        else rule = null;
+    }
+    return rules;
+};
+const constraintFiles = new Set([...removed, ...added].filter((l) => isConstraints(l.file)).map((l) => l.file));
+const removedRules = [], addedRules = [];
+for (const f of constraintFiles) {
+    const before = git(['show', `${mergeBase}:${f}`]);
+    if (before !== null) removedRules.push(...rulesOf(f, before));
+    if (existsSync(f)) addedRules.push(...rulesOf(f, readFileSync(f, 'utf8')));
+}
+const qualitativeRule = (text) => text.replace(/\d+(?:\.\d+)?/g, '#').replace(/\s+/g, ' ').trim();
 for (const r of removedRules) {
-    const a = addedRules.find((x) => ruleKey(x.text) === ruleKey(r.text));
+    const a = addedRules.find((x) => x.file === r.file && x.key === r.key);
     if (!a) {
         if (!isException(r.text)) flag('rule-removed', r.file, r.line); // dropping an exception tightens: silent
         continue;
     }
     const before = thresholds(r.text), after = thresholds(a.text);
-    let verdict = null;
+    let verdict = qualitativeRule(r.text) === qualitativeRule(a.text) ? null : 'rule-changed';
     for (const dir of ['min', 'max', null]) {
         const was = before.filter((x) => x.dir === dir), now = after.filter((x) => x.dir === dir);
         was.forEach((b, i) => {
