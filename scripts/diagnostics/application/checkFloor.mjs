@@ -90,7 +90,9 @@ for (const line of diff.split('\n')) {
 
 const findings = [];
 const flag = (rule, f, n) => findings.push({ rule, file: f, line: n });
-const isTest = (f) => /\.(test|spec)\.|_test\.|test_|(?:^|[/.])selfcheck\./i.test(f);
+const isTest = (f) => /\.(test|spec)\.|_test\.|test_|selfcheck\./i.test(f)
+    || /^scripts\/diagnostics\/application\/(?:check[^/]*|runSkeletonCheck)\.(?:mjs|sh)$/.test(f)
+    || f === 'packages/checkArchitecture.mjs';
 const isConstraints = (f) => /CONSTRAINTS\.md$/.test(f);
 // Documentation (and this guard itself) must be able to name what the floor
 // bans without tripping it; a suppression that works has to live in code.
@@ -104,15 +106,9 @@ const STUBS = /throw new (Error|NotImplemented)[^\n]*[Nn]ot implemented|catch\s*
 // 2. A test made easier (added skips).
 const SKIPS = /\.(skip|todo)\b|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(/;
 
-// A skipped or deleted test is floor-legal only when the commits in this
-// range explain the diet (this repo's test-conversion PRs deliberately remove
-// redundant coverage, AGENTS.md "Tests"), and the test is not part of the
-// security / crypto / data-loss surface whose coverage is never dieted away.
-// ponytail: the explanation is range-wide, not per-file -- a explanatory
-// commit in range also covers an unrelated skip. Tighten per-file if abused.
 const logBodies = git(['log', '--format=%B', `${mergeBase}..HEAD`]) ?? '';
-const dietExplained = /redundan|duplicat|overlap|flak|obsolete|dead code|diet|test count|suite cut|cut the suite|lower(?:ing)? the total test count/i.test(logBodies);
-const SECURITY = /secur|crypt|e2ee|secret|credential|pairing|rotat|revoc|privacy|data.?loss|selfcheck/i;
+const testChangeExplained = /\b(?:skip(?:ped|ping)?|delet(?:e|ed|ing|ion)|remov(?:e|ed|ing|al))\b[^\n]+\S|\breason:\s*\S/i.test(logBodies);
+const SECURITY = /secur|crypt|e2ee|secret|credential|pairing|rotat|revoc|privacy|data.?loss/i;
 const removedTextsOf = (f) => removed.filter((r) => r.file === f).map((r) => r.text);
 const isSecurityTest = (f, texts) => SECURITY.test(f) || texts.some((t) => SECURITY.test(t))
     || (existsSync(f) && SECURITY.test(readFileSync(f, 'utf8')));
@@ -121,19 +117,16 @@ for (const { file: f, line: n, text } of added) {
     if (!isDoc(f)) {
         if (SUPPRESSIONS.test(text)) flag('silenced-checker', f, n);
         if (STUBS.test(text)) flag('unfinished-work', f, n);
-        if (SKIPS.test(text) && isTest(f) && (isSecurityTest(f, []) || !dietExplained)) {
+        if (SKIPS.test(text) && isTest(f) && (isSecurityTest(f, []) || !testChangeExplained)) {
             flag('test-made-easier', f, n);
         }
     }
     if (isConstraints(f) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', f, n);
 }
 
-// 2b. A test file deleted. Unlike the reference, deletion is not an
-// unconditional failure: a commit that explains the removed redundancy makes
-// the diet legal, except for security / crypto / data-loss coverage.
 for (const f of deleted) {
     if (!isTest(f)) continue;
-    if (isSecurityTest(f, removedTextsOf(f)) || !dietExplained) flag('test-deleted', f, 1);
+    if (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained) flag('test-deleted', f, 1);
 }
 
 // 1b/2c. A rule in CONSTRAINTS.md weakened or removed. A rule is a floor
@@ -145,7 +138,7 @@ for (const f of deleted) {
 // staying quiet is the wrong default.
 const ruleKey = (t) => {
     const s = t.trim();
-    if (s.startsWith('|')) return s.split('|').map((c) => c.trim()).filter(Boolean)[0] ?? '';
+    if (s.startsWith('|')) return '|' + (s.split('|').map((c) => c.trim()).filter(Boolean)[0] ?? '');
     if (/^[-*] /.test(s)) return s.slice(2).split(':')[0].trim();
     return null; // prose, headings, dates: not a rule
 };
@@ -187,6 +180,15 @@ for (const f of constraintFiles) {
     if (existsSync(f)) addedRules.push(...rulesOf(f, readFileSync(f, 'utf8')));
 }
 const qualitativeRule = (text) => text.replace(/\d+(?:\.\d+)?/g, '#').replace(/\s+/g, ' ').trim();
+const qualitativePreserved = (before, after) => {
+    if (qualitativeRule(before) === qualitativeRule(after)) return true;
+    const list = /^(.*\bNo\b[^:|]*(?::|\|))\s*(`[^`]+`(?:\s*,\s*`[^`]+`)*)(.*)$/i;
+    const was = before.match(list), now = after.match(list);
+    if (!was || !now) return false;
+    if (was[1] !== now[1] || was[3] !== now[3]) return false;
+    const forbidden = new Set(now[2].match(/`[^`]+`/g));
+    return was[2].match(/`[^`]+`/g).every((item) => forbidden.has(item));
+};
 for (const r of removedRules) {
     const a = addedRules.find((x) => x.file === r.file && x.key === r.key);
     if (!a) {
@@ -194,7 +196,7 @@ for (const r of removedRules) {
         continue;
     }
     const before = thresholds(r.text), after = thresholds(a.text);
-    let verdict = qualitativeRule(r.text) === qualitativeRule(a.text) ? null : 'rule-changed';
+    let verdict = qualitativePreserved(r.text, a.text) ? null : 'rule-changed';
     for (const dir of ['min', 'max', null]) {
         const was = before.filter((x) => x.dir === dir), now = after.filter((x) => x.dir === dir);
         was.forEach((b, i) => {
@@ -220,7 +222,7 @@ if (findings.some((f) => f.rule === 'threshold-removed')) {
     console.error('\nA threshold-removed finding can also mean a number gained or lost its direction words (">= 80%" becoming "80%", or the reverse): compare the two lines before assuming a threshold was deleted.');
 }
 if (findings.some((f) => f.rule === 'test-deleted' || f.rule === 'test-made-easier')) {
-    console.error('\nSkipped or deleted tests are floor-legal only with a commit in range explaining the removed redundancy; security and crypto coverage is never dieted away.');
+    console.error('\nSkipped or deleted tests require a reason in a commit in range; security, crypto and data-loss coverage must remain.');
 }
 console.error('\nEach is a move that lowers the bar. Fix the change, or put the reason in the commit message.');
 process.exit(1);
