@@ -145,7 +145,7 @@ describe('push rides the byokit link relay', () => {
             const envelope = blocked.data as { id: string; data: Record<string, unknown> };
             expect(Object.keys(envelope.data).sort()).toEqual(['sealed', 'v']);
             const payload = openNotice(envelope.data, deviceSecret) as { title: string; body: string; data: Record<string, unknown> };
-            expect(payload.title).toBe('Ship it · Maria');
+            expect(payload.title).toBe('Maria · Ship it');
             expect(payload.body).toBe(question);
             expect(payload.data.presentationOwner).toBe('relay-push');
             expect(payload.data.eventId).toBe('evt-1');
@@ -153,7 +153,7 @@ describe('push rides the byokit link relay', () => {
             expect(payload.data.agentName).toBe('Maria');
             const paired = [{ machineId: 'machine-push-test', deviceKey: { secretKey: deviceSecret.toString('base64') } }];
             const opened = openLifecycleNotice(envelope, paired);
-            expect(opened).toMatchObject({ title: 'Ship it · Maria', body: question });
+            expect(opened).toMatchObject({ title: 'Maria · Ship it', body: question });
             expect(watchAgentLifecycle({ notificationData: opened.data, activeMachineId: 'machine-push-test' }).agentRoute).toBe('s1');
             expect(watchAgentLifecycle({ notificationData: opened.data, activeMachineId: 'machine-B' })).toEqual({ agentRoute: null, selectMachine: true });
             expect(openLifecycleNotice(envelope, [{ ...paired[0], deviceKey: { secretKey: randomBytes(32).toString('base64') } }])).toEqual({
@@ -176,7 +176,7 @@ describe('push rides the byokit link relay', () => {
             const waitUntil = (work: Promise<void>) => { pending = work; };
             workerHandlers.get('push')!({ data: { json: () => envelope }, waitUntil });
             await pending;
-            expect(shown[0].title).toBe('Ship it · Maria');
+            expect(shown[0].title).toBe('Maria · Ship it');
             expect(shown[0].options.body).toBe(question);
             expect(shown[0].options.tag).toBe('agent:s1');
             workerHandlers.get('notificationclick')!({ notification: { data: shown[0].options.data, close: () => undefined }, waitUntil });
@@ -285,7 +285,7 @@ describe('push rides the byokit link relay', () => {
             for (const send of fanout) {
                 const secret = send.to === 'ExponentPushToken[muxr-test-token]' ? deviceSecret : revokedSecret;
                 const other = send.to === 'ExponentPushToken[muxr-test-token]' ? revokedSecret : deviceSecret;
-                expect(openNotice((send.data as { data: unknown }).data, secret)).toMatchObject({ title: 'Ship it · Maria', body: 'Maria needs attention.' });
+                expect(openNotice((send.data as { data: unknown }).data, secret)).toMatchObject({ title: 'Maria · Ship it', body: 'Maria needs attention.' });
                 expect(openNotice((send.data as { data: unknown }).data, other)).toBeNull();
                 expect(JSON.stringify(send)).not.toContain('Maria');
             }
