@@ -345,7 +345,20 @@ describe('ArtifactWatcher', () => {
             expect(readFileSync(join(root, paneId, 'Demo page@v2.html'), 'utf8')).toBe(`<h1>v2</h1><img src="data:image/png;base64,${PIXEL.toString('base64')}">`);
             writeFileSync(page, '<img src="../pixel.png">');
             await expect(runShare(page, '--title', 'Demo page')).resolves.toMatchObject({ code: 1, stdout: '' });
-            const history = ['Demo page@v1.html', 'Demo page@v2.html', 'notes.md', 'pixel-1.png', 'pixel.png'];
+            writeFileSync(page, '<h1>v3</h1><img src=pixel.png>');
+            await expect(runShare(page, '--title', 'Demo page')).resolves.toEqual({ code: 0, stdout: 'Shared Demo page v3\n', stderr: '' });
+            expect(readFileSync(join(root, paneId, 'Demo page@v3.html'), 'utf8')).toBe(`<h1>v3</h1><img src="data:image/png;base64,${PIXEL.toString('base64')}">`);
+            for (const bad of [
+                '<img src="pixel.png" srcset="pixel.png 2x">',
+                '<picture><source srcset="pixel.png"></picture>',
+                '<div style="background: url(pixel.png)"></div>',
+            ]) {
+                writeFileSync(page, bad);
+                await expect(runShare(page, '--title', 'Demo page')).resolves.toMatchObject({ code: 1, stdout: '' });
+            }
+            writeFileSync(page, '<pre>url(pixel.png) and srcset are just text here</pre>');
+            await expect(runShare(page, '--title', 'Demo page')).resolves.toEqual({ code: 0, stdout: 'Shared Demo page v4\n', stderr: '' });
+            const history = ['Demo page@v1.html', 'Demo page@v2.html', 'Demo page@v3.html', 'Demo page@v4.html', 'notes.md', 'pixel-1.png', 'pixel.png'];
             await expect.poll(() => emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(history);
             expect(readdirSync(join(root, paneId)).sort()).toEqual(history);
 

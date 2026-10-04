@@ -55,8 +55,8 @@ function collisionName(name, suffix) {
  */
 function inlinePage(path) {
     const folder = realpathSync(dirname(path));
-    return readFileSync(path, 'utf8').replace(/(<img\b[^>]*?\bsrc\s*=\s*)(["'])(.*?)\2/gi, (_match, before, quote, ref) => {
-        if (ref.startsWith('data:')) return `${before}${quote}${ref}${quote}`;
+    const inlineFile = (ref) => {
+        if (ref.startsWith('data:')) return ref;
         if (/^([a-z][a-z0-9+.-]*:|\/|\\)/i.test(ref)) throw new Error(`image must be a file next to the page: ${ref}`);
         let image;
         try {
@@ -67,8 +67,22 @@ function inlinePage(path) {
         const type = IMAGE_TYPES[extname(image).slice(1).toLowerCase()];
         if (!image.startsWith(`${folder}${sep}`)) throw new Error(`image is outside the page's folder: ${ref}`);
         if (type === undefined || !statSync(image).isFile()) throw new Error(`not a png, jpeg, webp or gif image: ${ref}`);
-        return `${before}${quote}data:${type};base64,${readFileSync(image).toString('base64')}${quote}`;
+        return `data:${type};base64,${readFileSync(image).toString('base64')}`;
+    };
+    const page = readFileSync(path, 'utf8').replace(/(<img\b[^>]*?\bsrc\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s"'`>]+))/gi,
+        (_match, before, quoted, single, bare) => `${before}"${inlineFile(quoted ?? single ?? bare)}"`);
+    if (/<(?:img|source)\b[^>]*?\ssrcset\s*=/i.test(page)) throw new Error('srcset is not supported: use <img src> with a local file');
+    if (/<source\b[^>]*?\bsrc\s*=/i.test(page)) throw new Error('<source> is not supported: use <img src> with a local file');
+    const liveCss = [];
+    for (const match of page.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi)) liveCss.push(match[1]);
+    for (const match of page.matchAll(/(?<![\w-])style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) liveCss.push(match[1] ?? match[2] ?? match[3]);
+    const remoteUrl = liveCss.some((css) => {
+        const found = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^")'\s]+))\s*\)/i.exec(css);
+        const ref = found && (found[1] ?? found[2] ?? found[3]);
+        return typeof ref === 'string' && ref !== '' && !ref.startsWith('data:') && !ref.startsWith('#');
     });
+    if (remoteUrl) throw new Error('CSS url() images are not supported: use <img src> with a local file');
+    return page;
 }
 
 /** Page versions are `<title>@v<N>.html`; the title is the page's lasting identity. */

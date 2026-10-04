@@ -15,7 +15,9 @@ muxr share evidence.html --title "Release evidence"   # same title: v2
   jpeg, webp, or gif file inside the page's own folder. The command inlines each
   one, so each version is a single self-contained file. A remote URL, an
   absolute path, or a path that leaves the folder (`../`, a symlink pointing
-  outside) is refused with an error. Nothing is fetched later.
+  outside) is refused with an error. `srcset`, `<source>`, and CSS `url()`
+  image references are refused too: use plain `<img src="…">`, quoted or not.
+  Nothing is fetched later.
 - **Same title, same artifact.** The title is the page's identity in the pane.
   Sharing again with the same title adds the next version (`Shared Release
   evidence v2`). Earlier versions are never overwritten or removed. Without
