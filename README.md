@@ -156,7 +156,7 @@ Tap the mic in the composer and speak. In the app, speech is transcribed on your
 - **Desktop control** — see **Peek at your computer** above. Remote desktop works on Linux x64 hosts and macOS arm64; other Arm servers need the engine built from source. A Linux cloud server needs the virtual-display packages once. Android and web have desktop clients; on iPhone, open Computer in the web app (native iOS support is not yet available). [Remote desktop setup and limits](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server) · [Host engine](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md)
 - **[Extensions](https://trymuxr.com/docs/plugins)** — add phone-native controls and screens without forking the app.
 
-Relay alerts on a sleeping native app show “Agent update”; the task title appears once the app runs. Browser alerts can show the task title before you open the app. If an alert belongs to another computer, tapping it opens Settings so you can select that computer.
+Relay alerts on a sleeping native app show “Agent update”; the agent's name and its question appear once the app runs. Browser alerts can show them before you open the app. If an alert belongs to another computer, tapping it opens Settings so you can select that computer.
 
 If an accepted agent launch fails, its screen shows **Agent could not start**, a next step on the named computer, and **Back to Home**. When the terminal reports that the command was not found, the message asks you to install that agent CLI on the computer and try again; otherwise, it asks you to run the command there to see the error.
 
