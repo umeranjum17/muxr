@@ -90,7 +90,7 @@ The VPS menu includes **Machines** with friendly names and list-number selection
 - `apps/relay/src/auth.ts`, `apps/relay/src/selfhostTickets.ts`: credential-bound tickets.
 - `apps/relay/src/selfhostPairing.ts`: slug-scoped pair/device/grant operations and consumed short-code lookup.
 - `packages/crypto/src/index.ts`: shared pairing-code payload encryption.
-- `apps/host/src/main.ts`: accept machine-scoped self-host credentials and remote relay URLs.
+- Host startup: [host runtime map](../../apps/host/src/README.md).
 - `scripts/setup/application/inspectSetup.mjs`: split state, remote control base, enrollment claim, machine management, service modes.
 - `scripts/setup/presentation/setupWizard.mjs`, `scripts/cli.mjs`: separate VPS-host and remote-connect journeys.
 - `scripts/diagnostics/application/checkRemoteRelay.mjs`: one end-to-end multi-machine security flow.

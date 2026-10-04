@@ -77,6 +77,23 @@ export function limitPlans(providers: readonly UsageConnectedProvider[]): LimitP
     }).sort((a, b) => a.provider.label.localeCompare(b.provider.label));
 }
 
+/** The limit that blocks first: a window already refusing work, else the least
+ *  left of all a plan's windows. A tie goes to the longer window, which keeps its
+ *  plan blocked for longer. */
+export function bindingLimit(plan: LimitPlan): { name: string; cell: LimitCell } {
+    let binding = { name: plan.figures[0]!.name, cell: plan.figures[0]!.cells[0]! };
+    for (const { name, cells } of plan.figures) for (const cell of cells) {
+        const candidateIsDanger = cell.tone === 'danger';
+        const bindingIsDanger = binding.cell.tone === 'danger';
+        const candidateIsMoreUrgent = candidateIsDanger !== bindingIsDanger
+            ? candidateIsDanger
+            : cell.left < binding.cell.left
+                || cell.left === binding.cell.left && lengthInMinutes(name) >= lengthInMinutes(binding.name);
+        if (candidateIsMoreUrgent) binding = { name, cell };
+    }
+    return binding;
+}
+
 function limitCell(window: UsageLimitsWindow): LimitCell {
     const left = Math.min(100, Math.max(0, 100 - Math.round(window.used)));
     const tone = limitTone(window, left);

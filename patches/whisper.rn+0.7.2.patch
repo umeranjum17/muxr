@@ -1,0 +1,30 @@
+diff --git a/node_modules/whisper.rn/cpp/jsi/RNWhisperJSI.cpp b/node_modules/whisper.rn/cpp/jsi/RNWhisperJSI.cpp
+index 22a0e9a..a56a5af 100644
+--- a/node_modules/whisper.rn/cpp/jsi/RNWhisperJSI.cpp
++++ b/node_modules/whisper.rn/cpp/jsi/RNWhisperJSI.cpp
+@@ -1966,6 +1966,12 @@ void installJSIBindings(
+                         config.params.new_segment_callback_user_data = &segmentsState;
+                     }
+ 
++                    // params was copied with this capture but still points at the
++                    // original config's strings, freed when the call returned.
++                    config.params.initial_prompt = config.prompt.empty() ? nullptr : config.prompt.c_str();
++                    if (!config.language.empty()) {
++                        config.params.language = config.language.c_str();
++                    }
+                     rnwhisper::job *job = rnwhisper::job_new(config.jobId, config.params);
+                     if (job == nullptr) {
+                         throw JsiError("Failed to create transcription job");
+@@ -2082,6 +2088,12 @@ void installJSIBindings(
+                         config.params.new_segment_callback_user_data = &segmentsState;
+                     }
+ 
++                    // params was copied with this capture but still points at the
++                    // original config's strings, freed when the call returned.
++                    config.params.initial_prompt = config.prompt.empty() ? nullptr : config.prompt.c_str();
++                    if (!config.language.empty()) {
++                        config.params.language = config.language.c_str();
++                    }
+                     rnwhisper::job *job = rnwhisper::job_new(config.jobId, config.params);
+                     if (job == nullptr) {
+                         throw JsiError("Failed to create transcription job");

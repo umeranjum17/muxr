@@ -350,6 +350,8 @@ export const zhHant: TranslationStructure = {
         runtimeOffline: ({ name }: { name: string }) => `herdr 在 ${name} 上沒有回應`,
         runtimeStale: '工作階段可能已過期',
         liveEmpty: '沒有執行中的代理 · 在下方啟動',
+        emptyStart: '啟動一個代理，它的空間會在這裡開啟',
+        emptyWatch: '在這台電腦上開啟的空間會顯示在這裡',
     },
 
     emptySessions: {

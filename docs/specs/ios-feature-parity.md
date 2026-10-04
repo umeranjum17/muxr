@@ -66,6 +66,15 @@ it than that.
 Target `HerdLiveActivity`, bundle identifier `com.trymuxr.app.activity`, **no App Group**. Root
 verified the requirements against official ActivityKit documentation.
 
+`apps/mobile/plugins/withLiveActivities.js` keeps the extension linked to the application
+through `PBXTargetDependency` and `PBXContainerItemProxy` during prebuild, so EAS's
+native target discovery can enumerate both signable targets. It sets both targets'
+Debug and Release `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` from
+`apps/mobile/app.config.js` (`version`, resolved from `APP_VERSION` or the repository
+version, and `ios.buildNumber`). The extension's Info.plist binds its bundle versions
+to those build settings. Select existing or EAS-managed profiles for both targets
+through `eas credentials` in `apps/mobile`; do not create keys or certificates by hand.
+
 Fills the existing bridge rather than adding API. Each function below is implemented; the baseline
 constant it replaced is noted where it matters:
 

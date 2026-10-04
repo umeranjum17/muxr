@@ -178,7 +178,7 @@ The work lands as one cohesive feature PR.
 - `packages/contract/src/wire.ts`
 - `apps/relay/src/machineAuthority.ts`
 - `apps/relay/src/selfhostPairing.ts`
-- `apps/host/src/main.ts`
+- Host startup: [host runtime map](../../apps/host/src/README.md)
 - `apps/host/src/host.ts`
 - `apps/host/src/requests/createRequestDispatcher.ts`
 - `apps/host/src/herdr/herdrSessionSource.ts`

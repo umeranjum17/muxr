@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as React from 'react';
+import TestRenderer from 'react-test-renderer';
 import type { AgentLifecycle, HerdrTreePane, HerdrTreeWorkspace, LifecycleEvent, SessionEvent } from '@trymuxr/contract';
 import type { Session } from '../domain/sessionTypes';
 import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
@@ -16,11 +18,15 @@ import { loadLocalSettings, loadSpacePins } from './persistence';
 const request = vi.fn();
 const refreshSessions = vi.fn();
 const hostSync = vi.hoisted(() => ({
+    publicLink: false,
+    grant: undefined as import('@/pairing/e2ee').StoredHostedGrant | undefined,
+    activityHook: undefined as typeof import('@/herd/application/useActivityAcknowledgements').useActivityAcknowledgements | undefined,
+    replace: vi.fn(),
     request: vi.fn(),
     event: undefined as undefined | ((sessionId: string, event: SessionEvent) => void),
 }));
 const mmkvValues = vi.hoisted(() => {
-    Object.assign(globalThis, { __DEV__: false });
+    Object.assign(globalThis, { __DEV__: false, IS_REACT_ACT_ENVIRONMENT: true });
     return new Map<string, string>();
 });
 const voiceMocks = vi.hoisted(() => ({
@@ -40,20 +46,31 @@ vi.mock('@/connection', () => ({
     DEFAULT_CONNECTION: {},
 }));
 vi.mock('./sync', () => ({ sync: { request, refreshSessions } }));
-vi.mock('@/pairing/client', () => ({
-    LinkFirstClient: class {
-        state = 'open';
-        isLive() { return true; }
-        onStateChange() {}
-        onEvent(listener: typeof hostSync.event) { hostSync.event = listener; }
-        connect() {}
-        request = hostSync.request;
-    },
+vi.mock('@/pairing/client', async () => {
+    const real = await vi.importActual<typeof import('@/pairing/client')>('@/pairing/client');
+    return { LinkFirstClient: function (options: ConstructorParameters<typeof real.LinkFirstClient>[0]) {
+        if (hostSync.publicLink) return new real.LinkFirstClient(options);
+        return {
+            state: 'open', isLive: () => true, onStateChange: () => undefined,
+            onEvent: (listener: typeof hostSync.event) => { hostSync.event = listener; },
+            connect: () => undefined, request: hostSync.request,
+        };
+    } };
+});
+vi.mock('@/pairing/e2ee', () => ({ getCachedHostedGrant: () => hostSync.grant ?? { machineId: 'machine' } }));
+vi.mock('@/connection/sshTunnel', () => ({ sshRelayUrl: vi.fn(), stopSshTunnel: vi.fn(), SshConnectionError: class extends Error {} }));
+vi.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
+vi.mock('expo-router', () => ({ router: { replace: hostSync.replace } }));
+vi.mock('@react-native-async-storage/async-storage', () => ({ default: {
+    getItem: async (key: string) => mmkvValues.get(key) ?? null,
+    setItem: async (key: string, value: string) => { mmkvValues.set(key, value); },
+} }));
+vi.mock('@/terminal/presentation/TerminalScreen', () => ({
+    TerminalScreen: ({ id }: { id: string }) => React.createElement('terminal-screen', { id }),
 }));
-vi.mock('@/pairing/e2ee', () => ({ getCachedHostedGrant: () => ({ machineId: 'machine' }) }));
 vi.mock('../infrastructure/encryption/encryption', () => ({ Encryption: {} }));
 vi.mock('@/modal', () => ({ Modal: {} }));
-vi.mock('@/watch/lifecycleAlert', () => ({ alertAgent: vi.fn(), dismissAgentAlert: vi.fn() }));
+vi.mock('@/watch/lifecycleAlert', () => ({ alertAgent: vi.fn(), dismissAgentAlert: vi.fn(), agentOnScreen: () => () => undefined }));
 vi.mock('@/../modules/voice-overlay', () => ({
     startVoiceService: () => true,
     stopVoiceService: () => undefined,
@@ -88,13 +105,15 @@ vi.mock('react-native-mmkv', () => ({
         delete(key: string) { mmkvValues.delete(key); }
     },
 }));
-vi.mock('react-native', () => ({ Platform: { OS: 'web' } }));
+vi.mock('react-native', () => ({ Platform: { OS: 'web' }, AppState: { currentState: 'active' } }));
 vi.mock('expo-localization', () => ({ getLocales: () => [{ languageCode: 'en', languageTag: 'en-US' }] }));
 const installedVersion = vi.hoisted(() => ({ value: '0.1.27' }));
 vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.value }));
 vi.mock('@/herd', async () => {
     const { herdrPaneForSession } = await vi.importActual('@/herd/domain/agentPresentation');
+    const { lifecycleNotificationCopy } = await vi.importActual<typeof import('@/herd/domain/herd')>('@/herd/domain/herd');
     return {
+        useActivityAcknowledgements: () => hostSync.activityHook!(), lifecycleNotificationCopy,
         herdrPaneForSession,
         getSessionName: (session: Session, pane?: HerdrTreePane) =>
             pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
@@ -116,6 +135,9 @@ describe('session sync flow', () => {
     beforeEach(() => {
         vi.useRealTimers();
         vi.restoreAllMocks();
+        hostSync.publicLink = false;
+        hostSync.grant = undefined;
+        hostSync.replace.mockReset();
         refreshSessions.mockReset();
         request.mockReset();
         voiceMocks.voiceReport.mockClear();
@@ -135,6 +157,173 @@ describe('session sync flow', () => {
         storage.getState().setLifecycleScope('test-authority:machine');
         storage.getState().resetLifecycleCatalog();
         mmkvValues.clear();
+    });
+
+    it('public-kit Pi consumer reconnect baseline', { timeout: 30_000 }, async () => {
+        // Explicit wire fixtures qualify the mobile consumer, not host retention.
+        // No agent CLI, Herdr process, provider or private replay implementation.
+        const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
+        const { tmpdir } = await import('node:os');
+        const { join } = await import('node:path');
+        const { startRelay } = await import('@muxr/relay');
+        const { generateKeyPair, generateSigningKeyPair } = await import('@trymuxr/crypto');
+        const { machineHello } = await import('@trymuxr/contract');
+        const { LinkEndpoint } = await import('../../../../host/src/machine/index');
+        const { sync: realSync } = await vi.importActual<typeof import('./sync')>('./sync');
+        const { TerminalRoute } = await import('@/terminal/presentation/TerminalRoute');
+        const { useActivityAcknowledgements } = await import('@/herd/application/useActivityAcknowledgements');
+        hostSync.activityHook = useActivityAcknowledgements;
+        let dir: string | undefined;
+        let relay: Awaited<ReturnType<typeof startRelay>> | undefined;
+        let endpoint: Awaited<ReturnType<typeof LinkEndpoint.open>>;
+        let screen: ReturnType<typeof TestRenderer.create> | undefined;
+        let helloCount = 0;
+        let connected = false;
+        let hostStatus = 'connecting';
+        const act = TestRenderer.act;
+        try {
+            dir = mkdtempSync(join(tmpdir(), 'muxr-pi-consumer-'));
+            relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay') } });
+            const machine = generateKeyPair();
+            const signing = generateSigningKeyPair();
+            const phone = generateKeyPair();
+            const crypto = {
+                signingPublicKey: signing.publicKey, signingSecretKey: signing.secretKey,
+                boxPublicKey: machine.publicKey, boxSecretKey: machine.secretKey,
+                dataKey: Buffer.alloc(32).toString('base64'), keyVersion: 1,
+                devices: [{ deviceId: 'fixture-phone', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+                    devicePublicKey: phone.publicKey, ingressKey: 'fixture', authority: 'control' as const }],
+            };
+            const routeA = 'fixture-pi-a';
+            const routeB = 'fixture-pi-b';
+            const message = 'Pi is not installed on Umer. Install Pi in a terminal on Umer, then try again.';
+            const pane = (paneId: string, sessionId: string, promptable = false): HerdrTreePane => ({
+                paneId, tabId: 'fixture-tab', sessionId, focused: true,
+                agentKind: 'pi', agentName: 'Maria', agentStatus: promptable ? 'idle' : 'starting', promptable,
+            });
+            let panes = [pane('fixture-pane-a', routeA), pane('fixture-pane-b', routeB)];
+            const workspaces = (): HerdrTreeWorkspace[] => [{ workspaceId: 'fixture-workspace', focused: true,
+                agentStatus: 'idle', tabs: [{ tabId: 'fixture-tab', focused: true, agentStatus: 'idle', panes }] }];
+            let bootstrap: Array<{ sessionId: string; event: SessionEvent }> = [];
+            endpoint = await LinkEndpoint.open({
+                relayUrl: `ws://127.0.0.1:${relay.port}/relay`,
+                ownerToken: JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')),
+                machineId: 'machine', machineName: 'Umer', crypto, currentCrypto: () => crypto,
+                savePushLevel: () => undefined, grants: { load: () => [], save: () => undefined },
+                canView: () => false,
+                onStatus: (status) => { hostStatus = status; },
+                onDeviceConnection: (_device, active) => { connected = active; },
+                answer: async (frame) => {
+                    if (frame.type === 'machine.hello') {
+                        helloCount++;
+                        for (const fixture of bootstrap) endpoint!.broadcast({ type: 'session.event', ...fixture });
+                        return { type: 'result', requestId: frame.requestId, ok: true, data: machineHello('machine', '0.2.0') };
+                    }
+                    if (frame.type === 'herdr.tree') {
+                        return { type: 'result', requestId: frame.requestId, ok: true, data: { workspaces: workspaces(), connected: true } };
+                    }
+                    throw new Error(`Unexpected baseline request: ${frame.type}`);
+                },
+            });
+            let acknowledgements: ReturnType<typeof useActivityAcknowledgements> | undefined;
+            function Consumer({ id }: { id: string }) {
+                acknowledgements = useActivityAcknowledgements();
+                return React.createElement(TerminalRoute, { id });
+            }
+            const renderedRoute = () => (screen!.root as {
+                findByType(type: string): { props: { id: string } };
+            }).findByType('terminal-screen').props.id;
+            const unread = () => unseenActivityRows(storage.getState().lifecycleEvents, acknowledgements!.seenEventIds);
+            const reconnect = async () => {
+                const previous = helloCount;
+                await vi.waitFor(() => expect(connected).toBe(true), { timeout: 3_000 });
+                realSync.invalidateCatalog();
+                await vi.waitFor(() => expect(connected).toBe(false));
+                await act(async () => { await realSync.refreshHerdTree(); });
+                await vi.waitFor(() => expect(helloCount).toBe(previous + 1));
+            };
+            expect(endpoint).toBeDefined();
+            endpoint!.start();
+            await vi.waitFor(() => expect(hostStatus).toBe('online'), { timeout: 5_000 });
+            hostSync.publicLink = true;
+            hostSync.grant = {
+                machineId: 'machine', machineSigningPublicKey: signing.publicKey,
+                machineBoxPublicKey: machine.publicKey, deviceKey: phone,
+                devicePublicKey: phone.publicKey, deviceId: 'fixture-phone', keyVersion: 1,
+                dataKey: crypto.dataKey, ingressKey: 'fixture', expiresAt: Date.now() + 60_000,
+                credential: '', source: 'selfhost', authority: 'control', machineName: 'Umer',
+                relayUrl: `ws://127.0.0.1:${relay.port}/relay`,
+            };
+            storage.setState({ sessionErrors: {}, sessions: {}, herdrWorkspaces: [] });
+            // Bind the actual route component while the accepted route is live.
+            await realSync.refreshHerdTree();
+            await vi.waitFor(() => expect(storage.getState().herdrWorkspaces[0]?.tabs[0]?.panes[0]?.sessionId).toBe(routeA));
+            await act(async () => { screen = TestRenderer.create(React.createElement(Consumer, { id: routeA })); });
+            await vi.waitFor(() => expect(acknowledgements?.ready).toBe(true));
+            expect(renderedRoute()).toBe(routeA);
+            await vi.waitFor(() => expect(connected).toBe(true), { timeout: 3_000 });
+            realSync.invalidateCatalog();
+            await vi.waitFor(() => expect(connected).toBe(false));
+            panes = [pane('fixture-pane-a', 'shell:fixture-pane-a'), pane('fixture-pane-b', 'shell:fixture-pane-b')];
+            const failed: LifecycleEvent = { eventId: 'fixture-failure-a', sessionId: routeA,
+                agentName: 'Maria', agentKind: 'pi', taskTitle: 'Check Pi launch', state: 'failed',
+                reasonCode: 'start-launch-failed', at: new Date().toISOString() };
+            bootstrap = [
+                { sessionId: routeA, event: { type: 'session.error', message, seq: 1 } },
+                { sessionId: routeA, event: { type: 'lifecycle.update', event: failed, seq: 2 } },
+                { sessionId: routeB, event: { type: 'session.error', message, seq: 3 } },
+            ];
+            // The fixture supplies the offline failure at admission. Real sync
+            // stores it before the shell tree can redirect the mounted route.
+            await act(async () => { await realSync.refreshHerdTree(); });
+            await vi.waitFor(() => expect(storage.getState().sessionErrors[routeA]).toBe(message));
+            expect(renderedRoute()).toBe(routeA);
+            expect(hostSync.replace).not.toHaveBeenCalled();
+            expect(unread().map((row) => row.eventId)).toContain(failed.eventId);
+            await act(async () => { acknowledgements!.markSeen([failed.eventId]); });
+            expect(unread()).toEqual([]);
+            for (let repetition = 0; repetition < 2; repetition++) {
+                await reconnect();
+                expect(unread()).toEqual([]);
+                expect(renderedRoute()).toBe(routeA);
+                expect(storage.getState().sessionErrors[routeA]).toBe(message);
+            }
+            // Pane closure is a tree fact, independent of the other explanation.
+            // A cached retired-route error is deliberately not a live pane.
+            panes = [pane('fixture-pane-b', 'shell:fixture-pane-b')];
+            bootstrap = bootstrap.filter((fixture) => fixture.sessionId === routeB);
+            await reconnect();
+            expect(storage.getState().herdrWorkspaces[0]!.tabs[0]!.panes.map((value) => value.paneId)).toEqual(['fixture-pane-b']);
+            expect(storage.getState().sessionErrors[routeB]).toBe(message);
+            expect(unread()).toEqual([]);
+            await act(async () => { screen!.update(React.createElement(Consumer, { id: routeB })); });
+            expect(renderedRoute()).toBe(routeB);
+            // Authoritative recovery clears the real consumer's stale error.
+            bootstrap = [];
+            panes = [pane('fixture-pane-b', routeB, true)];
+            await reconnect();
+            expect(storage.getState().sessionErrors[routeB]).toBeUndefined();
+            // A successful replacement on that pane may now follow its route.
+            panes = [pane('fixture-pane-b', 'fixture-pi-success', true)];
+            await reconnect();
+            expect(hostSync.replace).toHaveBeenCalledWith('/session/fixture-pi-success');
+            expect(renderedRoute()).toBe('fixture-pi-success');
+            expect(storage.getState().sessionErrors['fixture-pi-success']).toBeUndefined();
+            expect(unread()).toEqual([]);
+        } catch (error) {
+            const { activeSessionClient } = await import('@/connection/sessionClientRef');
+            console.error('consumer baseline admission', { hostStatus, helloCount, connected,
+                clientState: activeSessionClient()?.state, socketError: storage.getState().socketError });
+            throw error;
+        } finally {
+            await act(async () => { screen?.unmount(); });
+            realSync.invalidateCatalog();
+            hostSync.publicLink = false;
+            hostSync.grant = undefined;
+            endpoint?.close();
+            await relay?.close();
+            if (dir) rmSync(dir, { recursive: true, force: true });
+        }
     });
 
     it('quit-agent-keeps-shell while a reported launch failure stays on the retired route', async () => {

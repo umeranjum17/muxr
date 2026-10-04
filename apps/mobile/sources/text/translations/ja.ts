@@ -351,6 +351,8 @@ export const ja: TranslationStructure = {
         runtimeOffline: ({ name }: { name: string }) => `${name} で herdr が応答していません`,
         runtimeStale: 'セッションが古い可能性があります',
         liveEmpty: '稼働中のエージェントなし · 下から開始',
+        emptyStart: 'エージェントを開始すると、ここにスペースが開きます',
+        emptyWatch: 'このコンピューターで開いたスペースがここに表示されます',
     },
 
     emptySessions: {

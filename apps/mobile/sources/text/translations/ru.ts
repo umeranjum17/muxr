@@ -336,6 +336,8 @@ export const ru: TranslationStructure = {
         runtimeOffline: ({ name }: { name: string }) => `herdr не отвечает на ${name}`,
         runtimeStale: 'сессии могут быть устаревшими',
         liveEmpty: 'Нет активных агентов · запустите ниже',
+        emptyStart: 'Запустите агента, и его пространство откроется здесь',
+        emptyWatch: 'Пространства, открытые на этом компьютере, появятся здесь',
     },
 
     emptySessions: {

@@ -49,6 +49,7 @@ import { herdrPaneForSession, navigateToSession } from '@/herd';
 import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } from '@/pairing/ui';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
+import { HomeEmptyState } from './HomeEmptyState';
 import { HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
 
 
@@ -477,6 +478,7 @@ export const MainView = React.memo(() => {
     // content: identity, live previews, and home cards. Spaces never duplicate
     // here because selecting them belongs to the permanent sidebar.
     if (useSplitView) {
+        const splitEmpty = homeTreeLoaded && homeWorkspaces.length === 0 && !splitRecovering && socketStatus.status === 'connected';
         return (
             <View style={styles.tabletDashboard}>
                 <ScrollView
@@ -507,13 +509,16 @@ export const MainView = React.memo(() => {
                             onFeedback={setHomeRecoveryFeedback}
                         />
                     ) : null}
-                    {!splitRecovering
-                        ? <LiveTerminalsRow visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} /> : null}
-                    {homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitRecovering && socketStatus.status === 'connected'
-                        ? <HomeDiscoveryRows /> : null}
+                    {/* The same order as the phone: plans and machine first, then Live,
+                        then what to start. */}
                     <PluginSlot slot="home.cards" context={{}} />
                     {!permanentRecovery && <RightNowCard />}
                     <DeclarativeHomeCards />
+                    {!splitRecovering
+                        ? <LiveTerminalsRow showZeroState={!splitEmpty} visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} /> : null}
+                    {splitEmpty ? <HomeEmptyState />
+                        : homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitRecovering && socketStatus.status === 'connected'
+                            ? <HomeDiscoveryRows /> : null}
                     {recentSessions.length > 0 && (
                         <View style={styles.recentSection}>
                             <SectionLabel style={styles.recentTitle}>Recent</SectionLabel>

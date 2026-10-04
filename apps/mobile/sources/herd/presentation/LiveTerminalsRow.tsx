@@ -350,6 +350,10 @@ export const LiveTerminalsRow = React.memo(({
         />
     );
 
+    // With nothing to show and no zero state wanted, there is no section: a
+    // lone heading over nothing is the orphan this prop exists to avoid.
+    if (cards.length === 0 && !showZeroState && needsYouRows.length === 0 && readyRows.length === 0) return null;
+
     return (
         <View style={stylesheet.strip} onLayout={handleLayout}>
             <View style={stylesheet.header}>

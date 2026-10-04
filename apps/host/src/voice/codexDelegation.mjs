@@ -88,8 +88,7 @@ function parseEventBlock(block) {
  * for the accounts integration and remaining kit gaps.
  */
 async function planningFetch(url, options, ownReader) {
-    const requestBody = JSON.stringify({ ...JSON.parse(options.body), parallel_tool_calls: false });
-    const response = await fetch(url, { ...options, body: requestBody, redirect: 'error' });
+    const response = await fetch(url, { ...options, redirect: 'error' });
     if (!response.body) return response;
     const reader = response.body.getReader();
     let released = false;
@@ -164,6 +163,7 @@ async function planTurn({ credential, input, model, signal }) {
             tools: catalog,
             tool_choice: 'auto',
             reasoning: { effort: 'low' },
+            parallelToolCalls: false,
             originator: 'muxr-voice-delegation',
             // Production destination is the kit default. Only the admitted
             // loopback fixture receives an override, with the kit's path suffix.

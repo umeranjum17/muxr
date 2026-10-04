@@ -4,6 +4,7 @@ dist/
 .expo/
 .pi-subagents/
 /.cache/muxr-dev/
+/.cache/pickerlab/
 
 # secrets / signing — never commit
 .env
@@ -57,3 +58,6 @@ apps/mobile/sources/components/artifact/preview.bundle.bin
 
 apps/mobile/public/pushNotice.bundle.js
 /data/
+
+# Dependency downloads owned by managed validation
+/.cache/managed-validation/
