@@ -47,7 +47,8 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
-  and the retention view of the same timeline.
+  versioned page shares and their refusals, and the retention view of the
+  same timeline.
 - [Check the self-host](./selfhost-health.md) — relay `/health`, version
   identity, and the owner-only hosts listing.
 - [Name the current workspace and pane](./agent-naming.md) — `muxr name`

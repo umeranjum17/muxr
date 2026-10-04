@@ -13,7 +13,7 @@ instead of overwriting.
 - `share-missing-target` a nonexistent path fails with exit code 1 and a clear stderr line.
 - `share-view` `muxr artifacts status` shows the retention view of the same timeline.
 - `share-page` `muxr share page.html --title T` stores `T@v1.html` with the page's local images inlined; the same title again stores `T@v2.html` and leaves v1 byte-identical.
-- `share-page-refusal` a page image that is remote, absolute, escapes the folder (`../`) or is a symlink out of it fails with exit code 1 and stores nothing.
+- `share-page-refusal` a page image that is remote, absolute, escapes the folder (`../`) or is a symlink out of it fails with exit code 1 and stores nothing; `srcset`, `<source>`, and CSS `url()` image references are refused the same way.
 
 ## How to get to it (user POV)
 
@@ -56,7 +56,9 @@ Preconditions:
 - **Page refusal (failure path).** A page with `<img src="../x.png">` exits `1`
   with `muxr share: missing image: ../x.png`; `https://…` gives
   `image must be a file next to the page`; a symlink to `/etc/hostname` gives
-  `image is outside the page's folder`. The pane directory is unchanged.
+  `image is outside the page's folder`. `srcset`, `<source>`, and any CSS
+  `url()` that is not `data:`/`#` are refused with their own `not supported`
+  error. The pane directory is unchanged.
 - **Read-only second view.** `node scripts/cli.mjs artifacts status` exits `0`,
   prints the retention policy (`keeps the newest … files of every pane`) and,
   on a fresh home, `No sweep has run on this machine yet.` — the same timeline
