@@ -1038,6 +1038,17 @@ describe('the usage screen read path', () => {
         expect(summary).toContain('7d 0% plugins.limits.percentLeft (plugins.limits.paceExhausted, plugins.rightNow.resetsIn(1d 5h))');
         expect(summary).toContain('Monthly 8% plugins.limits.percentLeft (plugins.limits.low, plugins.rightNow.resetsIn(18d))');
         expect(summary).not.toContain('Z.ai');
+        // A grouped figure prints its tightest share in its most severe cell's tone.
+        TestRenderer.act(() => { rememberShown('', { status: 'figures', at: Date.now(), figures: withNow(undefined, {
+            ...now,
+            connected: now.connected!.map((provider) => provider.id === 'codex'
+                ? { ...provider, windows: provider.windows.map((window) => window.window === '5h'
+                    ? { ...window, used: window.label === 'Session' ? 90 : 50, pace: window.label === 'Session' ? 'on pace' : 'limited' }
+                    : window) }
+                : provider),
+        }) }); });
+        const rows = figures();
+        expect(rows[rows.findIndex((row: any) => row[0] === '5h×2') - 1]).toEqual(['10%', 'tone:danger']);
 
         const longName = `${'model-'.repeat(12)}session`;
         const otherName = `${'model-'.repeat(12)}weekly`;
