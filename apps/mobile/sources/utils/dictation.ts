@@ -100,7 +100,12 @@ export function useDictation(getText: () => string, setText: (text: string) => v
             // and home names, plus the draft so far. A throwing draft reader
             // must never block the microphone.
             let draft = '';
-            try { draft = sinkRef.current.getText(); } catch { }
+            try {
+                draft = sinkRef.current.getText();
+            } catch {
+                // A throwing draft reader must never block the microphone; keep the empty draft.
+                draft = '';
+            }
             const bias = currentDictationContext(draft, sinkRef.current.hint);
             sessionRef.current = await startLiveTranscription({
                 hint: bias.prompt,
