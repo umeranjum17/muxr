@@ -102,12 +102,13 @@ const isDoc = (f) => /\.md$/i.test(f) || f === selfPath;
 // 1. Silenced checker.
 const SUPPRESSIONS = /@ts-ignore|@ts-nocheck|eslint-disable|biome-ignore|# *noqa|# *type: *ignore|istanbul ignore|nosemgrep|gitleaks:allow|Stryker disable/;
 // 4. Unfinished work: not-implemented throws and single-line empty catches.
-const STUBS = /throw new (Error|NotImplemented)[^\n]*[Nn]ot implemented|catch\s*\(\w*\)\s*\{\s*\}|catch\s*\{\s*\}/;
+const STUBS = /throw new (Error|NotImplemented)[^\n]*[Nn]ot implemented/;
+const EMPTY_CATCH = /catch\s*(\([^)]*\))?\s*\{\s*\}/s;
 // 2. A test made easier (added skips).
 const SKIPS = /\.(skip|todo)\b|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(/;
 
 const logBodies = git(['log', '--format=%B', `${mergeBase}..HEAD`]) ?? '';
-const testChangeExplained = /\b(?:skip(?:ped|ping)?|delet(?:e|ed|ing|ion)|remov(?:e|ed|ing|al))\b[^\n]*\b(?:because|since|due to|until|in favor of|in favour of|to avoid)\s+\S|^\s*reason:[ \t]*\S/im.test(logBodies);
+const testChangeExplained = /\b(?:skip(?:ped|ping)?|delet(?:e|ed|ing|ion)|remov(?:e|ed|ing|al))\b[^\n]*\b(?:because|since|due to|until|in favor of|in favour of|to avoid)\s+\S|^\s*reason:[^\n]*\b(?:because|since|due to|until|in favor of|in favour of|to avoid)\s+\S/im.test(logBodies);
 const SECURITY = /secur|crypt|e2ee|secret|credential|pairing|rotat|revoc|privacy|data.?loss|\bauth\b|authenticat|authoriz|authoris/i;
 const removedTextsOf = (f) => removed.filter((r) => r.file === f).map((r) => r.text);
 const isSecurityTest = (f, texts) => SECURITY.test(f) || texts.some((t) => SECURITY.test(t))
@@ -124,6 +125,16 @@ for (const { file: f, line: n, text } of added) {
     if (isConstraints(f) && /^\| *(W|E)\d+ *\|/.test(text)) flag('new-exception', f, n);
 }
 
+const addedByFile = new Map();
+for (const a of added) {
+    if (!addedByFile.has(a.file)) addedByFile.set(a.file, []);
+    addedByFile.get(a.file).push(a);
+}
+for (const [f, entries] of addedByFile) {
+    if (isDoc(f)) continue;
+    if (EMPTY_CATCH.test(entries.map((e) => e.text).join('\n'))) flag('unfinished-work', f, entries[0].line);
+}
+
 for (const f of deleted) {
     if (!isTest(f)) continue;
     if (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained) flag('test-deleted', f, 1);
@@ -131,7 +142,7 @@ for (const f of deleted) {
 
 for (const { file: f, line: n, text } of removed) {
     if (isDoc(f) || !isTest(f) || deleted.includes(f)) continue;
-    if (/\b(expect|assert|should)\b/.test(text)) flag('assertion-removed', f, n);
+    if (/\b(expect|assert|should)\b|(?:^|[^\w$])check\s*\(|(?:^|[^\w$])fail\s*\(|\bthrow\s+new\s+Error\b/.test(text)) flag('assertion-removed', f, n);
 }
 
 // 1b/2c. A rule in CONSTRAINTS.md weakened or removed. A rule is a floor
