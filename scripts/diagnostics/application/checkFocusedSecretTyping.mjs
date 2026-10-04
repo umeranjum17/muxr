@@ -14,7 +14,7 @@ import { execFile } from 'node:child_process';
 //   `%s` as a space.
 //
 // Usage:
-//   node typeFocusedSecret.mjs --serial <serial> --text <secret>
+//   node checkFocusedSecretTyping.mjs --serial <serial> --text <secret>
 //     [--expect <expected>] [--adb <path>]
 // `--expect` compares the readback against a different string instead, which
 // is how a corrupted readback is proven to fail. Exit 0 on match, 1 otherwise.
@@ -24,7 +24,7 @@ const serial = valueOf('--serial');
 const text = valueOf('--text');
 const expect = valueOf('--expect') ?? text;
 if (!serial || text === undefined) {
-    process.stderr.write('Usage: typeFocusedSecret.mjs --serial <serial> --text <secret> [--expect <expected>] [--adb <path>]\n');
+    process.stderr.write('Usage: checkFocusedSecretTyping.mjs --serial <serial> --text <secret> [--expect <expected>] [--adb <path>]\n');
     process.exit(2);
 }
 if (text.includes('%') || (valueOf('--expect') ?? '').includes('%')) {
