@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -297,7 +297,7 @@ describe('ArtifactWatcher', () => {
         }
     });
 
-    it('keeps muxr share and ordinary watched drops in one durable pane history', async () => {
+    it('keeps muxr share, page versions and ordinary watched drops in one durable pane history', async () => {
         const muxrHome = paneRoot();
         const root = join(muxrHome, 'attachments', 'pane');
         const paneId = 'pane:x:1';
@@ -305,11 +305,11 @@ describe('ArtifactWatcher', () => {
         writeFileSync(source, PIXEL);
         const { watcher, emits, waitFor } = collect(root, 15);
         watcher.start();
-        const runShare = () => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+        const runShare = (...args: string[]) => new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
             const child = spawn(process.execPath, [
                 fileURLToPath(new URL('../../../../../scripts/cli.mjs', import.meta.url)),
                 'share',
-                source,
+                ...(args.length > 0 ? args : [source]),
             ], {
                 env: { ...process.env, MUXR_HOME: muxrHome, HERDR_PANE_ID: paneId },
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -333,13 +333,26 @@ describe('ArtifactWatcher', () => {
             await expect(runShare()).resolves.toEqual({ code: 0, stdout: 'Shared pixel-1.png\n', stderr: '' });
             await expect.poll(() => emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
 
-            expect(emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
-            expect(readdirSync(join(root, paneId)).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
+            // A page republished under one title is a new version, never an unrelated file;
+            // its image travels inside it, and a reference out of its folder is refused.
+            mkdirSync(join(muxrHome, 'site'));
+            writeFileSync(join(muxrHome, 'site', 'pixel.png'), PIXEL);
+            const page = join(muxrHome, 'site', 'page.html');
+            writeFileSync(page, '<h1>v1</h1><img src="pixel.png">');
+            await expect(runShare(page, '--title', 'Demo page')).resolves.toEqual({ code: 0, stdout: 'Shared Demo page v1\n', stderr: '' });
+            writeFileSync(page, '<h1>v2</h1><img src="pixel.png">');
+            await expect(runShare(page, '--title', 'Demo page')).resolves.toEqual({ code: 0, stdout: 'Shared Demo page v2\n', stderr: '' });
+            expect(readFileSync(join(root, paneId, 'Demo page@v2.html'), 'utf8')).toBe(`<h1>v2</h1><img src="data:image/png;base64,${PIXEL.toString('base64')}">`);
+            writeFileSync(page, '<img src="../pixel.png">');
+            await expect(runShare(page, '--title', 'Demo page')).resolves.toMatchObject({ code: 1, stdout: '' });
+            const history = ['Demo page@v1.html', 'Demo page@v2.html', 'notes.md', 'pixel-1.png', 'pixel.png'];
+            await expect.poll(() => emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(history);
+            expect(readdirSync(join(root, paneId)).sort()).toEqual(history);
 
             watcher.dropPane(paneId);
             await watcher.resendAll([paneId]);
-            expect(emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
-            expect(readdirSync(join(root, paneId)).sort()).toEqual(['notes.md', 'pixel-1.png', 'pixel.png']);
+            expect(emits.at(-1)?.artifacts.map((entry) => entry.name).sort()).toEqual(history);
+            expect(readdirSync(join(root, paneId)).sort()).toEqual(history);
         } finally {
             watcher.dispose();
         }

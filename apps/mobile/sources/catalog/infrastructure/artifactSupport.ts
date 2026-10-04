@@ -35,7 +35,31 @@ function localDayKey(value: number): string {
     return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
+/** `muxr share page.html --title T` stores each version as `T@v<N>.html`. */
+export function pageVersion(name: string): { title: string; version: number } | null {
+    const match = /^(.+)@v(\d+)\.html$/.exec(name);
+    return match ? { title: match[1]!, version: Number(match[2]) } : null;
+}
+
+/** Latest version of each page plus every other artifact; `versions` holds each page's history, newest first. */
+export function groupPageVersions<T extends { name: string }>(artifacts: readonly T[]): { latest: T[]; versions: Map<string, T[]> } {
+    const versions = new Map<string, T[]>();
+    const latest: T[] = [];
+    for (const artifact of artifacts) {
+        const page = pageVersion(artifact.name);
+        if (page === null) latest.push(artifact);
+        else versions.set(page.title, [...(versions.get(page.title) ?? []), artifact]);
+    }
+    for (const list of versions.values()) {
+        list.sort((left, right) => pageVersion(right.name)!.version - pageVersion(left.name)!.version);
+        latest.push(list[0]!);
+    }
+    return { latest, versions };
+}
+
 export function sharedArtifactDisplayName(name: string): string {
+    const page = pageVersion(name);
+    if (page !== null) return page.title;
     const base = name.split(/[\\/]/).pop() || 'Shared file';
     const dot = base.lastIndexOf('.');
     return dot > 0 ? base.slice(0, dot) : base;

@@ -92,7 +92,7 @@ Agent instructions
   muxr skill <topic>              load one reference only when needed
   muxr name [--workspace ...]     name the current Herdr workspace/pane and report attribution
   muxr preview status [--json]    check whether the phone is driving this pane's browser or emulator
-  muxr share <path>               save a file to this pane's Shared Artifacts timeline
+  muxr share <path> [--title T]   save a file (or a versioned .html page) to this pane's Shared Artifacts
   muxr artifacts [status|prune]   show what Shared Artifacts retention removed, or clear old history
 
 Build plugins
@@ -112,7 +112,7 @@ const COMMAND_HELP = {
     'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
     name: `muxr name [--workspace LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]\n\nName the current Herdr workspace and pane through the Herdr CLI; no muxr host is needed.\nThe pane identity comes from HERDR_PANE_ID; names and metadata are passed verbatim within bounds.\n`,
     preview: `muxr preview status [--json]\n\nAsk whether the phone is driving this pane's browser or emulator right now.\nPrints human while a person holds control (pause browser input), none otherwise.\nThe pane identity comes from HERDR_PANE_ID; a pane can only read its own lease.\n`,
-    share: `muxr share <path> [--pane <pane-id>]\n\nSave a file to the given pane's durable Shared Artifacts timeline.\nUses HERDR_PANE_ID when --pane is omitted. Name collisions get a numeric suffix.\n`,
+    share: `muxr share <path> [--title <title>] [--pane <pane-id>]\n\nSave a file to the given pane's durable Shared Artifacts timeline.\nUses HERDR_PANE_ID when --pane is omitted. Name collisions get a numeric suffix.\nAn .html page is stored with its local images inlined; sharing the same --title\nagain adds a new version of that page (muxr skill artifact-pages).\n`,
     artifacts: `muxr artifacts [status]\nmuxr artifacts prune [--dry-run] [--yes]\n\nThe host sweeps Shared Artifacts daily and never touches files that predate retention.\nstatus prints the policy and the last sweep's removals. prune applies the same policy\nto the history that was already there: it deletes files, so it shows the plan first\nand --yes skips the question.\n`,
     'plugin create': `muxr plugin create <name>\n\nCreate a minimal three-file settings-screen plugin with a collision-resistant local id.\n`,
     'plugin check': `muxr plugin check <path>\n\nValidate Herdr identity, muxr manifest, slots, primitives, actions, RPCs, and streams without linking.\n`,
@@ -212,6 +212,7 @@ const SKILL_TOPICS = {
     collaboration: 'collaboration.md',
     'agent-browser-preview': 'agent-browser-preview.md',
     plugins: 'plugins.md',
+    'artifact-pages': 'artifact-pages.md',
 };
 
 function skillReference(root, name) {
