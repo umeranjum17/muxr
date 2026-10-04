@@ -762,6 +762,7 @@ export async function createHerdrSessionSource(
     const questionWaits = new Map<string, ReturnType<typeof setTimeout> | 'expired'>();
     /** The pane revision each blocked event's question was read at: an answer types only into that one. */
     const askedRevisions = new Map<string, { eventId: string; revision: number }>();
+    const notifiedBlocked = new Map<string, string>();
     let pluginPollTimer: NodeJS.Timeout | undefined;
     /** dispose/close run once: the host shutdown path and a lab script may both close. */
     let disposed = false;
@@ -1256,10 +1257,14 @@ export async function createHerdrSessionSource(
         switch (agentStatus) {
             case 'blocked':
                 changed = attention.clear(sessionId, 'failed') || changed;
-                if (attention.set(sessionId, 'waiting', 'Agent needs attention.')) {
-                    changed = true;
+                {
+                    const setChanged = attention.set(sessionId, 'waiting', 'Agent needs attention.');
+                    changed = setChanged || changed;
                     const eventId = options.lifecycle?.current(sessionId)?.eventId;
-                    if (eventId !== undefined) notifyAttention(sessionId, eventId, 'blocked');
+                    if (eventId !== undefined && (setChanged || notifiedBlocked.get(sessionId) !== eventId)) {
+                        notifiedBlocked.set(sessionId, eventId);
+                        notifyAttention(sessionId, eventId, 'blocked');
+                    }
                 }
                 break;
             case 'done':
@@ -1314,6 +1319,7 @@ export async function createHerdrSessionSource(
         if (wait !== undefined && wait !== 'expired') clearTimeout(wait);
         questionWaits.delete(sessionId);
         askedRevisions.delete(sessionId);
+        notifiedBlocked.delete(sessionId);
         publish(sessionId, { type: 'session.removed' });
     }
 
