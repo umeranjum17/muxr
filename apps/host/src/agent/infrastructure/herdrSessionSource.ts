@@ -721,6 +721,8 @@ export async function createHerdrSessionSource(
     const paneByAgentRoute = new Map<string, string>();
     const pendingCreatedRoutes = new Set<string>();
     const pendingLaunchByPane = new Map<string, HerdrAgentSessionRef>();
+    /** Current failure of an accepted launch; its route may retire before the phone reconnects. */
+    const launchFailureByPane = new Map<string, { sessionId: string; message: string }>();
     const stagedMovePanes = new Set<string>();
     /** Launches this host is still confirming. Herdr reports no kind until it
      * detects the process, so the phone would show the pane as a shell; the
@@ -1298,6 +1300,7 @@ export async function createHerdrSessionSource(
     function emitState(sessionId: string): void {
         const session = currentSession(sessionId);
         if (session === undefined) return;
+        if (agentPromptable(session)) launchFailureByPane.delete(session.paneId);
         const agentStatus = lifecycleOf(session);
         if (session.agent !== undefined) {
             const promptable = agentPromptable(session);
@@ -1335,6 +1338,20 @@ export async function createHerdrSessionSource(
         if (session.agent !== undefined) {
             reportObserved(session, agentStatus);
             applyAttention(sessionId, agentStatus);
+        }
+    }
+
+    function reconcileLaunchFailures(): void {
+        for (const [paneId, failure] of launchFailureByPane) {
+            if (!panesById.has(paneId)) {
+                launchFailureByPane.delete(paneId);
+                continue;
+            }
+            const session = currentSessionByPane(paneId);
+            if (session?.agent === undefined) continue;
+            const replaced = session.sessionId !== failure.sessionId
+                && publishedAgentSession(session.agent) !== undefined;
+            if (replaced || agentPromptable(session)) launchFailureByPane.delete(paneId);
         }
     }
 
@@ -1385,6 +1402,7 @@ export async function createHerdrSessionSource(
         // A pane that left Herdr's tree takes its screen, keeper and socket with it.
         screens?.releaseMissing(new Set(panesById.keys()), treesSince);
         await routes.flush();
+        reconcileLaunchFailures();
 
         const currentShells = new Set(
             [...panesById.values()]
@@ -1579,6 +1597,7 @@ export async function createHerdrSessionSource(
         const message = missing
             ? `${label} is not installed on ${computer}. Install ${label} in a terminal on ${computer}, then try again.`
             : `${label} could not start on ${computer}. Open a terminal on ${computer} and run ${kind} to see the error, then try again.`;
+        if (panesById.has(paneId)) launchFailureByPane.set(paneId, { sessionId, message });
         publish(sessionId, { type: 'session.error', message });
     }
 
@@ -3610,7 +3629,11 @@ export async function createHerdrSessionSource(
 
 
 
-        resendCumulativeState(): void {
+        resendCumulativeState(deliver: (sessionId: string, event: SessionEventBody) => void): void {
+            reconcileLaunchFailures();
+            for (const failure of launchFailureByPane.values()) {
+                deliver(failure.sessionId, { type: 'session.error', message: failure.message });
+            }
             // Invalidation frames are edge-triggered. If the machine→relay link
             // dropped one while clients stayed connected, host reconnect must
             // force a full mobile catalog reconciliation.

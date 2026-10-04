@@ -150,7 +150,7 @@ Tap the mic in the composer and speak. In the app, speech is transcribed on your
 
 **Also on your phone:**
 
-- **New agents and worktrees** — open the home composer to choose the machine, repository, worktree, and one of 20+ agent CLIs. The directory field suggests folders as you type; on a phone, focusing it brings the field to the top and keeps the scrollable suggestions above the keyboard. The resting dock hides Send until there's a draft or a submission in progress. On a short phone, scroll the open composer to reach its options and Start when the keyboard is visible. On a later launch, Home can show the last confirmed agents and spaces while reconnecting; they appear dimmed until the host responds, and closing a remembered space is unavailable.
+- **New agents and worktrees** — open the home composer to choose the machine, repository, worktree, and an installed agent. See [agent picker guidance](#use-the-agents-you-already-have). The directory field suggests folders as you type; on a phone, focusing it brings the field to the top and keeps the scrollable suggestions above the keyboard. The resting dock hides Send until there's a draft or a submission in progress. On a short phone, scroll the open composer to reach its options and Start when the keyboard is visible. On a later launch, Home can show the last confirmed agents and spaces while reconnecting; they appear dimmed until the host responds, and closing a remembered space is unavailable.
 - **Files, attachments, and changes** — inspect repository files, diffs, and agent outputs from your phone; download an agent's Shared Artifacts with progress and resume after a lost connection. On web, a download finished in the background offers **Save** when you return.
 - **Settings** — under Appearance, choose a theme, terminal text size, and terminal colors; the browser terminal also offers System or IBM Plex Mono. Gestures lists terminal actions and the swipe and zoom choices. Under Notifications, choose alerts for agents needing you or finishing; enable browser notifications in the web app or manage permission and sound in your phone's system settings.
 - **Desktop control** — see **Peek at your computer** above. Remote desktop works on Linux x64 hosts and macOS arm64; other Arm servers need the engine built from source. A Linux cloud server needs the virtual-display packages once. Android and web have desktop clients; on iPhone, open Computer in the web app (native iOS support is not yet available). [Remote desktop setup and limits](docs/SELF-HOSTING.md#remote-desktop-on-a-cloud-server) · [Host engine](https://github.com/umeranjum17/desklink/blob/main/packages/desktop-host/README.md)
@@ -159,6 +159,8 @@ Tap the mic in the composer and speak. In the app, speech is transcribed on your
 Relay alerts on a sleeping native app show “Agent update”; the task title appears once the app runs. Browser alerts can show the task title before you open the app. If an alert belongs to another computer, tapping it opens Settings so you can select that computer.
 
 If an accepted agent launch fails, its screen shows **Agent could not start**, a next step on the named computer, and **Back to Home**. When the terminal reports that the command was not found, the message asks you to install that agent CLI on the computer and try again; otherwise, it asks you to run the command there to see the error.
+
+If the phone is disconnected when the launch fails, reconnecting to the same running host delivers the failure to the original agent screen. Reconnecting again does not add unread activity for that failed launch. The host keeps the explanation while its pane remains open, until the agent recovers or a replacement agent session is detected there; closing another failed pane does not clear it.
 
 The [release history](https://github.com/umeranjum17/muxr/releases) is the real feature list.
 
@@ -208,6 +210,14 @@ The GitHub releases page ([latest stable release](https://github.com/umeranjum17
 ## Use the agents you already have
 
 muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already runs. Your CLIs, subscriptions, configuration, skills, and MCP servers stay as they are. muxr never edits agent instruction files; load the compact `muxr --skill`, then request one focused topic with `muxr skill <topic>` only when needed.
+
+Phone agent pickers show the agents installed on the connected computer, marked **Signed in**, **Needs sign-in**, or **Sign-in not checked**. Sign-in checks currently cover Claude Code and Codex; an unchecked sign-in is not confirmation that an agent is ready. Open **More agents** for install hints; uninstalled Pi has the hint **Installs on first start**. The home dock also offers **Shell (no agent)**.
+
+The initial choice is your saved agent if it is installed and signed in, otherwise the first installed, signed-in agent. Pi is never the default. Home preserves an explicitly chosen Shell, including when you reopen the dock. If no agent qualifies, the home dock selects Shell and the new-agent screen waits for you to pick. You can explicitly choose any installed agent, including one whose sign-in needs attention or has not been checked, and select up to four on the new-agent screen to start a squad.
+
+After installing or signing in on your computer, tap **Check again**. Refresh keeps your current installed selections, including squads, and removes agents no longer installed; if no selection remains, it applies the default rule above. On Home, refresh or reconnection also replaces an automatic Shell fallback when an eligible agent becomes available. Automatic defaults leave Home's saved-agent preference intact, so reopening the dock can restore it once that agent is eligible again.
+
+A successful refresh on the new-agent screen clears open agent details; tap a card again to see its current guidance. A fresh new-agent screen starts in your last-used directory, or `~`; its **Start** button stays below the scrolling options.
 
 <p align="center">
   <img src="docs/agents/icons/agent-grid-light.svg#gh-light-mode-only" width="760" alt="Pi, OMP, Claude Code, Codex, Gemini CLI, Cursor, OpenCode, GitHub Copilot CLI, Kimi Code, Grok, Hermes Agent, Amp, Factory Droid, Devin, Cline, Kiro, Kilo Code, Qoder CLI, Antigravity, MastraCode, Maki, and Shell" />
