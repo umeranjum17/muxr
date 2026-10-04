@@ -6,7 +6,7 @@ import { getBundledDictationModelUri } from '@/utils/dictationModelFiles';
 import { dictationMicrophone } from '@/utils/dictationMicrophone';
 
 const KEEP_WARM_MS = 3 * 60_000;
-const VOCABULARY_PROMPT = 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm.';
+const VOCABULARY_PROMPT = 'muxr, Herdr, Crewhouse, Treehouse, OpenClaw, ChatGPT, Codex, Claude, BYOKit, worktree, npm.';
 // Phone room noise reads 0.003-0.005 RMS, over the kit's default speech gate, so live
 // readings started on silence and stuck on "[BLANK_AUDIO]". The final reads the whole take either way.
 const SPEECH_GATE_RMS = 0.015;
@@ -79,8 +79,9 @@ export type LiveTranscription = {
 };
 
 /** App-owned capture and preferences; BYOKit owns recognition and transcript settlement. */
-export async function startLiveTranscription({ hint, onText, onLevel }: {
+export async function startLiveTranscription({ hint, keywords, onText, onLevel }: {
     hint?: string;
+    keywords?: string[];
     onText: (text: string) => void;
     onLevel: (level: number) => void;
 }): Promise<LiveTranscription> {
@@ -91,6 +92,7 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
         onDeviceOnly: true,
         languages: selectedEngine.multilingual ? (settings.dictationLanguage ? [settings.dictationLanguage] : undefined) : ['en'],
         prompt: hint,
+        keywords,
         replacements: Object.fromEntries(settings.dictationWordReplacements.map(({ from, to }) => [from, to])),
     });
     handle.on('partial', ({ segment }) => onText(dropNonSpeechLabels(segment.text)));

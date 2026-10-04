@@ -7,7 +7,9 @@ import { usePluginEvents } from '@/plugins/events';
 import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
 
 const mocks = vi.hoisted(() => ({
-    sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number }>,
+    sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number; metadata?: unknown }>,
+    tree: [] as Array<Record<string, unknown>>,
+    viewingSessionId: null as string | null,
     vadStandbyEnabled: false,
     applyLocalSettings: vi.fn(),
     modalAlert: vi.fn(),
@@ -84,6 +86,9 @@ vi.mock('@/catalog/store', () => ({
     }),
     getState: () => ({
         sessions: mocks.sessions,
+        herdrWorkspaces: mocks.tree,
+        homeSnapshot: null,
+        currentViewingSessionId: mocks.viewingSessionId,
         localSettings: { vadStandbyEnabled: mocks.vadStandbyEnabled },
         applyLocalSettings: (patch: { vadStandbyEnabled?: boolean }) => {
             if (patch.vadStandbyEnabled !== undefined) mocks.vadStandbyEnabled = patch.vadStandbyEnabled;
@@ -173,6 +178,8 @@ beforeEach(() => {
         'session-a': { id: 'session-a', activeAt: 1, updatedAt: 1 },
         'session-b': { id: 'session-b', activeAt: 2, updatedAt: 2 },
     };
+    mocks.tree = [];
+    mocks.viewingSessionId = null;
     mocks.permission.mockResolvedValue({ granted: true, canAskAgain: true });
     mocks.dictationModel = 'multilingual';
     mocks.dictationLanguage = 'fr';
@@ -257,12 +264,53 @@ describe('on-device dictation flow', () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.transcribe).toHaveBeenCalledTimes(readings + 2);
         expect(mocks.transcribe.mock.calls.at(-1)![1]).toHaveProperty('audioCtx', 0);
-        expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en', beamSize: 5, prompt: 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm.' });
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en', beamSize: 5 });
         expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(444 * 2_560 - 25 * 32_000 + 2_560);
         expect(appended.at(-1)).toBe('hello one two three 4 five six seven eight');
         expect(api!.live).toBe('');
         expect(api!.transcribing).toBe(false);
         expect(micOwners()).toEqual([]);
+        // Per-turn context reaches the real decode prompt: the focused agent,
+        // its task, the repo and the draft, inside the ~224-token budget.
+        mocks.sessions = {
+            'session-a': {
+                id: 'session-a', activeAt: 1, updatedAt: 1,
+                metadata: {
+                    summary: { text: 'Repair Crewhouse login' },
+                    path: '/home/umer/pockit',
+                    workspaceLabel: 'pockit',
+                    worktree: { repo: 'pockit', branch: 'main', path: '/home/umer/pockit' },
+                },
+            },
+            'session-b': { id: 'session-b', activeAt: 2, updatedAt: 2 },
+        };
+        mocks.viewingSessionId = 'session-a';
+        mocks.tree = [{
+            workspaceId: 'w', label: 'pockit', focused: true, agentStatus: 'working',
+            worktree: { repo: 'pockit' },
+            tabs: [{
+                tabId: 't', label: 'Crewhouse', focused: true, agentStatus: 'working',
+                panes: [{
+                    paneId: 'p', tabId: 't', label: 'Repair Crewhouse login with OpenClaw',
+                    focused: true, agentStatus: 'working', sessionId: 'session-a',
+                    agentName: 'zulu-2', promptable: true,
+                }],
+            }],
+        }];
+        base = 'ask ChatGPT about';
+        await act(async () => { api!.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        await act(async () => { await say(2); });
+        await act(async () => { await say(1.5, silence); });
+        await act(async () => { api!.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        const biased = (mocks.transcribe.mock.calls.at(-1)![1] as { prompt: string }).prompt;
+        for (const name of ['muxr', 'Herdr', 'Crewhouse', 'OpenClaw', 'ChatGPT', 'zulu-2', 'pockit']) {
+            expect(biased).toContain(name);
+        }
+        expect(biased.length).toBeLessThanOrEqual(1400);
+        expect(appended.at(-1)).toMatch(/^ask ChatGPT about/);
+        base = 'hello';
 
         // Cancelling takes the live words back out of the draft.
         appended = [];
