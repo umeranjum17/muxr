@@ -7,6 +7,7 @@ import type { SessionInfo } from '@trymuxr/contract';
 
 import { t } from '@/text';
 import type { DesktopOrigin } from '../request';
+import { previewIcon } from '../model/desktopCopy';
 
 /**
  * Presence of an agent's browser or emulator in the terminal header: a mark
@@ -112,9 +113,9 @@ function usePresence<T>(value: T | undefined, enterMs: number, exitMs: number): 
 }
 
 function kindCopy(kind: PreviewPresence['kind']) {
-    return kind === 'android'
-        ? { icon: 'logo-android' as const, chip: t('preview.chipAndroid'), intro: t('preview.introAndroid') }
-        : { icon: 'globe-outline' as const, chip: t('preview.chipBrowser'), intro: t('preview.introBrowser') };
+    if (kind === 'android') return { icon: previewIcon(kind), chip: t('preview.chipAndroid'), intro: t('preview.introAndroid') };
+    if (kind === 'ios') return { icon: previewIcon(kind), chip: t('preview.chipIos'), intro: t('preview.introIos') };
+    return { icon: previewIcon(kind), chip: t('preview.chipBrowser'), intro: t('preview.introBrowser') };
 }
 
 export const PreviewChip = React.memo((props: {

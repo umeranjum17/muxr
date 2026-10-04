@@ -89,7 +89,7 @@ import { agentCommands, destructiveCommand, type AgentCommand } from '../domain/
 import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
 import { PREVIEW_DOCK, previewDocks, requestDesktop, type DesktopOrigin } from '@/desktop/request';
-import { PreviewChip, PreviewTooltip, usePreviewGate } from '@/desktop/preview';
+import { PreviewChip, PreviewTooltip, previewIcon, usePreviewGate } from '@/desktop/preview';
 import { FindOutputSheet } from './FindOutputSheet';
 import { PendingChoices } from './PendingChoices';
 import { useTerminalQuickReplies } from '@/plugins/ui';
@@ -144,6 +144,8 @@ const RAIL_FADE = 32;
  */
 const SCROLLED_AWAY = new Set<string>();
 /** What the terminal answers for the program unasked: focus, cursor, mode, colour and mouse reports. */
+/** The menu row that opens a pane's preview, per kind. */
+const WATCH_LABEL = { browser: 'preview.watchBrowser', android: 'preview.watchAndroid', ios: 'preview.watchIos' } as const;
 const TERMINAL_REPLY = /^\u001b(?:\[[IO]$|\[[?>]?[\d;$]*[cRnty]$|\[\?[\d;]*u$|[\]P]|\[<|\[M)/;
 const DesktopSurface = React.lazy(async () => ({ default: (await import('@/desktop')).DesktopSurface }));
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
@@ -1841,10 +1843,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
                                     {preview.row && <Pressable onPress={() => watchPreview()} disabled={!preview.openable} accessibilityRole="button"
-                                        accessibilityLabel={t(preview.openable ? (preview.row.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser') : 'preview.reconnecting')}
+                                        accessibilityLabel={t(preview.openable ? WATCH_LABEL[preview.row.kind] : 'preview.reconnecting')}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: preview.openable ? 1 : 0.5 })}>
-                                        <Ionicons name={preview.row.kind === 'android' ? 'logo-android' : 'globe-outline'} size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t(preview.openable ? (preview.row.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser') : 'preview.reconnecting')}</Text>
+                                        <Ionicons name={previewIcon(preview.row.kind)} size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t(preview.openable ? WATCH_LABEL[preview.row.kind] : 'preview.reconnecting')}</Text>
                                         {preview.openable && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
                                     </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"

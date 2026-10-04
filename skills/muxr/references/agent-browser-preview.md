@@ -35,6 +35,14 @@ security, or privacy boundary requiring their action or approval.
      --message "Signed in, continuing"
    ```
 
+## iOS Simulator (macOS host)
+
+A simulator is not on the pane's screen, so the pane claims it: after booting a
+simulator you created, run `muxr preview claim <udid>` in that pane. The phone
+shows a simulator chip on the pane while the simulator is booted; taps, swipes
+and Home drive it. Run `muxr preview release` when done. Check `muxr preview
+status` before driving the simulator yourself, as for a browser.
+
 The phone's Computer action still shows this computer's own desktop; it is not
 the agent pane's browser. If the page must run on the machine's desktop
 instead, open it in that desktop's normal browser and say so plainly.

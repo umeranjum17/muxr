@@ -103,7 +103,8 @@ exist.
 ids (herdr pane ids change on cross-workspace moves), the attention/inbox
 derivation, plugin RPC execution, attachment files on disk, push triggers, the
 preview presence it measures from a pane's own screen or its pane-owned
-headless emulator (adb discovery), and the on-demand desktop
+headless emulator (adb discovery) or a pane-claimed iOS Simulator (vendored idb,
+macOS), and the on-demand desktop
 engine processes it starts and stops — the computer's screen for one authorized
 viewer, or a pane's screen for an agent preview. It manages no agent processes
 and keeps no lifecycle ledger — a closed pane simply disappears from the app.

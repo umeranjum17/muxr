@@ -33,15 +33,18 @@ export const ru: TranslationStructure = {
     preview: {
         chipBrowser: 'Браузер',
         chipAndroid: 'Эмулятор',
+        chipIos: 'Симулятор',
         introBrowser: 'Агент открыл браузер',
         introAndroid: 'Агент запустил эмулятор Android',
+        introIos: 'Агент занял симулятор iOS',
         watch: 'Смотреть',
         notNow: 'Не сейчас',
         watchBrowser: 'Смотреть браузер',
         watchAndroid: 'Смотреть эмулятор Android',
+        watchIos: 'Смотреть симулятор iOS',
         reconnecting: 'Переподключение…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
-            `${kind === 'android' ? 'Эмулятор Android используется' : 'Браузер используется'}${title ? `, ${title}` : ''}. Смотреть вживую`,
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
+            `${kind === 'android' ? 'Эмулятор Android используется' : kind === 'ios' ? 'Симулятор iOS используется' : 'Браузер используется'}${title ? `, ${title}` : ''}. Смотреть вживую`,
     },
 
     tabs: {

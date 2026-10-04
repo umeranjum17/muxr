@@ -19,7 +19,7 @@ import { getCachedConnectionSettings } from '@/connection';
 import { hapticsSelection } from '@/components/haptics';
 import { claimDesktopRequest, peekDesktopRequest, previewDocks, requestDesktop } from '../request';
 import { createDesktopSignaling } from '../application/desktopSignaling';
-import { desktopCopy, previewCopy } from '../model/desktopCopy';
+import { desktopCopy, previewCopy, previewIcon } from '../model/desktopCopy';
 import { describeDesktopOverlay, describeInputRejection, describePreviewOverlay, type PreviewKind } from '../model/desktopOverlay';
 import { DESKTOP_KEY_ROW_HEIGHT, DesktopKeyRow } from './DesktopKeyRow';
 
@@ -65,6 +65,7 @@ const GESTURES: readonly [gesture: string, effect: string][] = [
 const PREVIEW_GESTURES: Record<PreviewKind, readonly [gesture: string, effect: string][]> = {
     browser: [['Tap', 'Click'], ['Double-tap', 'Double-click'], ['Hold', 'Right-click'], ['Drag', 'Scroll'], ['Pinch', 'Zoom']],
     android: [['Tap', 'Tap'], ['Drag', 'Swipe'], ['Hold', 'Long press'], ['Pinch', 'Zoom']],
+    ios: [['Tap', 'Tap'], ['Drag', 'Swipe'], ['Hold', 'Long press'], ['Pinch', 'Zoom']],
 };
 
 type Icon = React.ComponentProps<typeof Ionicons>['name'];
@@ -84,6 +85,10 @@ const PREVIEW_KEYS: Record<PreviewKind, readonly { label: string; icon: Icon; na
         { label: 'Back', icon: 'caret-back-outline', name: 'Backspace', modifiers: ['Control'] },
         { label: 'Home', icon: 'ellipse-outline', character: 'h', modifiers: ['Control'] },
         { label: 'Recents', icon: 'square-outline', character: 'o', modifiers: ['Control'] },
+    ],
+    // The simulator's Home button; the host maps the same chord.
+    ios: [
+        { label: 'Home', icon: 'ellipse-outline', character: 'h', modifiers: ['Control'] },
     ],
 };
 
@@ -681,7 +686,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                     <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                 </Pressable>}
                 <View style={styles.title} accessible accessibilityRole="header" accessibilityLabel={`${copy.name}${target?.title ? `, ${target.title}` : ''}${previewStatusLine === null ? '' : `, ${previewStatusLine.label}`}`}>
-                    <Ionicons name={kind === 'android' ? 'logo-android' : 'globe-outline'} size={14} color={theme.colors.textSecondary} />
+                    <Ionicons name={previewIcon(kind)} size={14} color={theme.colors.textSecondary} />
                     <Text numberOfLines={1} style={[styles.titleText, styles.previewName, { color: theme.colors.text }]}>{copy.name}</Text>
                     {target?.title !== undefined && <Text numberOfLines={1} style={[styles.titleText, styles.previewTitle, { color: theme.colors.textSecondary }]}>{target.title}</Text>}
                 </View>
@@ -728,7 +733,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                     accessibilityLabel={preview ? copy.stage : `${computerName} desktop`}
                     keyboardClearance={clearance}
                     // ponytail: typed spread until the touch-profile desklink release is pinned; older builds keep desktop gestures.
-                    {...({ gestures: !preview ? 'desktop' : kind === 'android' ? 'device' : 'browser' } as object)}
+                    {...({ gestures: !preview ? 'desktop' : kind === 'browser' ? 'browser' : 'device' } as object)}
                 />
 
                 {/* Reconnecting keeps the last frame, dimmed, and says so above it. */}
@@ -879,7 +884,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                                 <Ionicons name="sync-outline" size={18} color={theme.colors.text} />
                             </Pressable>
                         )}
-                        {!viewOnly && (
+                        {!viewOnly && kind !== 'ios' && (
                             <Pressable onPress={toggleKeyboard} disabled={!live} accessibilityRole="button" accessibilityLabel={keyboardOpen ? 'Hide keyboard' : 'Keyboard'} accessibilityState={{ selected: keyboardOpen }} style={({ pressed }) => [disc(pressed, keyboardOpen), !live && styles.disabled]}>
                                 <MaterialCommunityIcons name={keyboardOpen ? 'keyboard-close-outline' : 'keyboard-outline'} size={20} color={theme.colors.text} />
                             </Pressable>

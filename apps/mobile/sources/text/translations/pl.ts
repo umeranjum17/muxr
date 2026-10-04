@@ -33,15 +33,18 @@ export const pl: TranslationStructure = {
     preview: {
         chipBrowser: 'Przeglądarka',
         chipAndroid: 'Emulator',
+        chipIos: 'Symulator',
         introBrowser: 'Twój agent otworzył przeglądarkę',
         introAndroid: 'Twój agent uruchomił emulator Androida',
+        introIos: 'Twój agent przejął symulator iOS',
         watch: 'Oglądaj',
         notNow: 'Nie teraz',
         watchBrowser: 'Oglądaj przeglądarkę',
         watchAndroid: 'Oglądaj emulator Androida',
+        watchIos: 'Oglądaj symulator iOS',
         reconnecting: 'Ponowne łączenie…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
-            `${kind === 'android' ? 'Emulator Androida w użyciu' : 'Przeglądarka w użyciu'}${title ? `, ${title}` : ''}. Oglądaj na żywo`,
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
+            `${kind === 'android' ? 'Emulator Androida w użyciu' : kind === 'ios' ? 'Symulator iOS w użyciu' : 'Przeglądarka w użyciu'}${title ? `, ${title}` : ''}. Oglądaj na żywo`,
     },
 
     tabs: {

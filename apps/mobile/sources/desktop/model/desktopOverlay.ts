@@ -82,7 +82,7 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     };
 }
 
-export type PreviewKind = 'browser' | 'android';
+export type PreviewKind = 'browser' | 'android' | 'ios';
 
 export interface PreviewOverlay {
     title: string;

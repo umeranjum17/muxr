@@ -168,12 +168,12 @@ export const MetadataSchema = z.object({
     tabId: z.string().optional(),
     tabLabel: z.string().optional(),
     spawnedBy: z.string().optional(),
-    /** The browser or emulator this pane's agent is showing on its own screen, while it shows one. */
+    /** The browser, emulator or simulator this pane's agent is showing, while it shows one. A kind this build does not know drops the preview, never the session. */
     preview: z.object({
-        kind: z.enum(['browser', 'android']),
+        kind: z.enum(['browser', 'android', 'ios']),
         title: z.string().optional(),
         since: z.number(),
-    }).optional(),
+    }).optional().catch(undefined),
     worktree: z.object({
         repo: z.string(),
         branch: z.string().optional(),

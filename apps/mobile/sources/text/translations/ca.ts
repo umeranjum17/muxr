@@ -22,15 +22,18 @@ export const ca: TranslationStructure = {
     preview: {
         chipBrowser: 'Navegador',
         chipAndroid: 'Emulador',
+        chipIos: 'Simulador',
         introBrowser: 'El teu agent ha obert un navegador',
         introAndroid: 'El teu agent ha iniciat un emulador d\'Android',
+        introIos: 'El teu agent ha reclamat un simulador d\'iOS',
         watch: 'Mira',
         notNow: 'Ara no',
         watchBrowser: 'Mira el navegador',
         watchAndroid: 'Mira l\'emulador d\'Android',
+        watchIos: 'Mira el simulador d\'iOS',
         reconnecting: 'Tornant a connectar…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
-            `${kind === 'android' ? 'Emulador d\'Android en ús' : 'Navegador en ús'}${title ? `, ${title}` : ''}. Mira en directe`,
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
+            `${kind === 'android' ? 'Emulador d\'Android en ús' : kind === 'ios' ? 'Simulador d\'iOS en ús' : 'Navegador en ús'}${title ? `, ${title}` : ''}. Mira en directe`,
     },
 
     tabs: {

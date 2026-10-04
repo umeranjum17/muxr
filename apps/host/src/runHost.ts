@@ -638,7 +638,11 @@ async function main(): Promise<void> {
         terminals.closeAll();
         peerRuntime?.close();
         diagnostics?.stopping();
-        void Promise.all([peerBroker?.close(), source.dispose(), diagnostics?.flush()]).finally(() => process.exit(0));
+        // host.close() disposes the source and stops every device mirror: their
+        // helpers (desklink-host, the idb companion) would otherwise outlive us.
+        // A helper that never answers must not hold the exit.
+        setTimeout(() => process.exit(0), 5000).unref();
+        void Promise.all([peerBroker?.close(), host.close(), diagnostics?.flush()]).finally(() => process.exit(0));
     };
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);

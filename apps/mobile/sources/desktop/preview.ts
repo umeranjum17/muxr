@@ -4,3 +4,4 @@
  * loading the desktop surface.
  */
 export { PreviewChip, PreviewTooltip, usePreviewGate } from './presentation/PreviewChip';
+export { previewIcon } from './model/desktopCopy';

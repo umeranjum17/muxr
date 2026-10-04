@@ -83,6 +83,11 @@ The vendored file exception is
 SHA-256): a Dalvik jar the host pushes onto a task-owned emulator at preview
 time. It never executes on the host, so it is data, not a native binary in
 the artifact, and its notice lives in `NOTICE` with its hash beside it.
+`resources/idb/idb-companion.macos-arm64.tar.gz` (Meta idb v1.6.5, MIT,
+with Apache-2.0 Swift packages inside, pinned SHA-256) is the one native
+executable the artifact itself carries: a macOS host unpacks it to mirror and
+drive an iOS simulator an agent pane claimed. It is the unchanged upstream
+release asset and never runs on Linux; its notice lives in `NOTICE`.
 
 ## Mobile artifact
 

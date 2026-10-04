@@ -62,6 +62,15 @@ export const previewCopy = {
         viewOnlyBody: 'This phone was paired to watch. It can see the emulator but not use it.',
         stage: "Live view of your agent's Android emulator",
     },
+    ios: {
+        name: 'iOS Simulator',
+        opening: 'Opening the simulator…',
+        closedTitle: 'The simulator closed',
+        unreachableTitle: "Can't show the simulator from here",
+        failedTitle: "Couldn't open the simulator",
+        viewOnlyBody: 'This phone was paired to watch. It can see the simulator but not use it.',
+        stage: "Live view of your agent's iOS Simulator",
+    },
     closedBody: 'Your agent finished with it.',
     closedAction: 'Back to the conversation',
     unreachableBody: 'Live view needs this phone to reach your computer directly or over Tailscale.',
@@ -78,3 +87,10 @@ export const previewCopy = {
     controlLabel: 'You’re in control',
     closedLabel: 'Closed',
 } as const;
+
+/** The icon for a preview's kind; an unknown kind reads as a browser. */
+export function previewIcon(kind: string) {
+    if (kind === 'android') return 'logo-android' as const;
+    if (kind === 'ios') return 'logo-apple' as const;
+    return 'globe-outline' as const;
+}
