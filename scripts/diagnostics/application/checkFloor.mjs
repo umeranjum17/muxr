@@ -107,8 +107,8 @@ const STUBS = /throw new (Error|NotImplemented)[^\n]*[Nn]ot implemented|catch\s*
 const SKIPS = /\.(skip|todo)\b|\bxit\(|\bxdescribe\(|@pytest\.mark\.skip|t\.Skip\(/;
 
 const logBodies = git(['log', '--format=%B', `${mergeBase}..HEAD`]) ?? '';
-const testChangeExplained = /\b(?:skip(?:ped|ping)?|delet(?:e|ed|ing|ion)|remov(?:e|ed|ing|al))\b[^\n]+\S|\breason:\s*\S/i.test(logBodies);
-const SECURITY = /secur|crypt|e2ee|secret|credential|pairing|rotat|revoc|privacy|data.?loss/i;
+const testChangeExplained = /\b(?:skip(?:ped|ping)?|delet(?:e|ed|ing|ion)|remov(?:e|ed|ing|al))\b[^\n]*\b(?:because|since|due to|until|in favor of|in favour of|to avoid)\s+\S|^\s*reason:[ \t]*\S/im.test(logBodies);
+const SECURITY = /secur|crypt|e2ee|secret|credential|pairing|rotat|revoc|privacy|data.?loss|\bauth\b|authenticat|authoriz|authoris/i;
 const removedTextsOf = (f) => removed.filter((r) => r.file === f).map((r) => r.text);
 const isSecurityTest = (f, texts) => SECURITY.test(f) || texts.some((t) => SECURITY.test(t))
     || (existsSync(f) && SECURITY.test(readFileSync(f, 'utf8')));
@@ -117,7 +117,7 @@ for (const { file: f, line: n, text } of added) {
     if (!isDoc(f)) {
         if (SUPPRESSIONS.test(text)) flag('silenced-checker', f, n);
         if (STUBS.test(text)) flag('unfinished-work', f, n);
-        if (SKIPS.test(text) && isTest(f) && (isSecurityTest(f, []) || !testChangeExplained)) {
+        if (SKIPS.test(text) && isTest(f) && (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained)) {
             flag('test-made-easier', f, n);
         }
     }
@@ -127,6 +127,11 @@ for (const { file: f, line: n, text } of added) {
 for (const f of deleted) {
     if (!isTest(f)) continue;
     if (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained) flag('test-deleted', f, 1);
+}
+
+for (const { file: f, line: n, text } of removed) {
+    if (isDoc(f) || !isTest(f) || deleted.includes(f)) continue;
+    if (/\b(expect|assert|should)\b/.test(text)) flag('assertion-removed', f, n);
 }
 
 // 1b/2c. A rule in CONSTRAINTS.md weakened or removed. A rule is a floor
