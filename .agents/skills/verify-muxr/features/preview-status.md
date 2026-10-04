@@ -1,7 +1,7 @@
 # Ask whether the phone is driving this pane
 
 `muxr preview status` answers one question from inside a Herdr pane: is a
-human on the phone currently driving this pane's browser or emulator
+human on the phone currently driving this pane's browser, emulator, or claimed simulator
 (`human`), or not (`none`)? A pane can only ever read its own lease.
 
 ## Sub-features
@@ -12,8 +12,7 @@ human on the phone currently driving this pane's browser or emulator
 
 ## How to get to it (user POV)
 
-- Inside a Herdr pane, run `muxr preview status` before opening a browser or
-  emulator chip the phone might already be driving.
+- Inside a Herdr pane, run `muxr preview status` before opening a browser, emulator, or simulator chip the phone might already be driving.
 
 ## Driving it with the private stack
 

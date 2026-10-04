@@ -10,7 +10,7 @@ function authFile() {
 }
 
 /**
- * Whether the phone is driving this pane's browser or emulator right now.
+ * Whether the phone is driving this pane's browser, emulator, or simulator right now.
  * The pane identity comes from HERDR_PANE_ID over the same authenticated
  * loopback as `muxr name`; a pane can only ever read its own lease.
  * Prints `human` or `none`, or the JSON record with --json.

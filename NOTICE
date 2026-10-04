@@ -115,3 +115,16 @@ scrcpy (server) — https://github.com/Genymobile/scrcpy
 Vendored as `resources/scrcpy/scrcpy-server-v4.0` (pinned SHA-256 in
 `resources/scrcpy/scrcpy-server-v4.0.sha256`); pushed to a task-owned emulator
 at preview time, never run on the host. License text: `LICENSES/Apache-2.0.txt`.
+
+--------------------------------------------------------------------------------
+idb (companion and sim-video) — https://github.com/facebook/idb
+
+  MIT License
+  Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Vendored unchanged as `resources/idb/idb-companion.macos-arm64.tar.gz` (release
+v1.6.5, pinned SHA-256 in `resources/idb/idb-companion.macos-arm64.tar.gz.sha256`);
+run on macOS hosts only, for iOS-simulator previews. The archive also carries
+the Swift packages idb links (swift-nio, swift-nio-ssl, swift-crypto,
+SwiftProtobuf; Apache-2.0). License texts: `LICENSES/MIT.txt`,
+`LICENSES/Apache-2.0.txt`.

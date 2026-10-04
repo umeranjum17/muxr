@@ -2,8 +2,8 @@ import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 /**
- * Who is driving an agent pane's screen: the agent, or a human who took
- * control of its browser or emulator from the phone.
+ * Who is driving an agent pane's preview: the agent, or a human who took
+ * control of its browser, emulator, or simulator from the phone.
  *
  * The mark lands on the first control-scoped target open (a `desktop.open`
  * whose permissions include `control`): input itself rides the WebRTC data

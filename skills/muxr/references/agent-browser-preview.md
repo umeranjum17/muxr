@@ -17,7 +17,7 @@ security, or privacy boundary requiring their action or approval.
    show: a headless browser never raises the chip. If a Chrome fails with a
    Wayland error, add --ozone-platform=x11.
 2. Tell the user where to look: "Your agent opened a browser — tap the browser
-   chip to watch" (emulator chip for an Android emulator). Never paste ports, token-bearing URLs, or internal ids.
+   chip to watch" (emulator chip for an Android emulator, simulator chip for a claimed iOS Simulator). Never paste ports, token-bearing URLs, or internal ids.
 3. In a Herdr pane, report the wall as blocked so muxr notifies the phone:
    ```sh
    herdr pane report-agent "$HERDR_PANE_ID" --source "$HERDR_PANE_ID" --agent <your-label> --state blocked \
@@ -25,7 +25,7 @@ security, or privacy boundary requiring their action or approval.
    ```
    Name the site and wall, not page contents or credentials. If `HERDR_PANE_ID`
    is unset, say that no pane is available to notify rather than guessing an id.
-4. Before touching the browser or emulator, check `muxr preview status`: while it prints
+4. Before touching the browser, emulator, or simulator, check `muxr preview status`: while it prints
    `human` the person is driving — no clicks, typing, refresh, or navigation.
    Wait for their message or check at most every 30–60 seconds.
 5. Verify the page has advanced before resuming, then report working with the
@@ -34,6 +34,14 @@ security, or privacy boundary requiring their action or approval.
    herdr pane report-agent "$HERDR_PANE_ID" --source "$HERDR_PANE_ID" --agent <your-label> --state working \
      --message "Signed in, continuing"
    ```
+
+## iOS Simulator (macOS host)
+
+A simulator is not on the pane's screen, so the pane claims it: after booting a
+simulator you created, run `muxr preview claim <udid>` in that pane. The phone
+shows a simulator chip on the pane while the simulator is booted; taps, swipes
+and Home drive it. Run `muxr preview release` when done. Check `muxr preview
+status` before driving the simulator yourself, as for a browser.
 
 The phone's Computer action still shows this computer's own desktop; it is not
 the agent pane's browser. If the page must run on the machine's desktop

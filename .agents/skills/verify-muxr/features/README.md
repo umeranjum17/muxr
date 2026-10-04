@@ -57,3 +57,6 @@ user-visible behavior, then exactly four H2 sections in this order:
   `muxr artifacts status` / `prune`.
 - [Ask whether the phone is driving this pane](./preview-status.md) —
   `muxr preview status` against the naming loopback.
+- [Watch and drive an iOS Simulator from the phone](./ios-simulator-preview.md) —
+  `muxr preview claim` on a macOS host, live stream, tap/swipe/Home, clean
+  helper shutdown.
