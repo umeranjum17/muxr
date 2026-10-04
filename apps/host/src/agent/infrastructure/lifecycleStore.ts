@@ -86,7 +86,7 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
             question = state === 'blocked' ? safeQuestion(question) : undefined;
             const previous = this.current(sessionId);
             // A rename is not a transition: the agent keeps its state and its age.
-            if (previous?.state === state && previous.reasonCode === reason) {
+            if (previous?.state === state && previous.reasonCode === reason && previous.question === question) {
                 if (previous.agentName !== agentName || previous.taskTitle !== taskTitle || previous.agentKind !== agentKind) {
                     const updated = { ...previous, agentName };
                     if (taskTitle === undefined) delete updated.taskTitle;
