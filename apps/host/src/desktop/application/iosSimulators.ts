@@ -500,6 +500,7 @@ class SpawnedHelpers {
             try {
                 process.kill(child.pid, 'SIGTERM');
             } catch {
+                // The child already exited between spawn and registration; the 'close' listener drops it.
             }
         }
     }
@@ -526,6 +527,7 @@ class SpawnedHelpers {
             try {
                 process.kill(child.pid!, 'SIGTERM');
             } catch {
+                // The child already exited; waitForExit below observes the exit instead of throwing here.
             }
         }
         const exited = await Promise.all(tracked.map((child) => waitForExit(child, CLOSE_EXIT_WAIT_MS)));
