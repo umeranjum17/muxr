@@ -159,8 +159,14 @@ export function agentTask(sources: AgentTaskSources): string | undefined {
         ?? meaningful(sources.workspaceLabel, noise);
 }
 
-/** A lifecycle alert's title: the work, then who is doing it. Host push and phone alert share it. */
+/**
+ * A lifecycle alert's title: the work, then who is doing it, in 120 characters.
+ * A long task is shortened, never the name. Host push and phone alert share it.
+ */
 export function agentAlertTitle(event: { taskTitle?: string | undefined; agentName: string; agentKind?: string | undefined }): string {
+    const name = event.agentName.slice(0, 120);
     const task = agentTask({ title: event.taskTitle, agentName: event.agentName, agentKind: event.agentKind });
-    return (task === undefined ? event.agentName : `${task} · ${event.agentName}`).slice(0, 120);
+    const room = 120 - name.length - ' · '.length;
+    if (task === undefined || room < 2) return name;
+    return `${task.length > room ? `${task.slice(0, room - 1)}…` : task} · ${name}`;
 }
