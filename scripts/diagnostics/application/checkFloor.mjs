@@ -67,7 +67,7 @@ const added = [], removed = [], deleted = [];
 // config renders the sides i/ (index), w/ (worktree), c/ and o/ (commits)
 // instead of a/ and b/; strip every form or path matching silently fails.
 const pathOf = (s) => s.replace(/^[abciow12]\//, '');
-let file = '', oldFile = '', inHeader = false, addLine = 0, remLine = 0;
+let file = '', oldFile = '', inHeader = false, addLine = 0, remLine = 0, hunk = 0;
 for (const line of diff.split('\n')) {
     if (line.startsWith('diff ')) inHeader = true;
     else if (line.startsWith('@@')) {
@@ -75,6 +75,7 @@ for (const line of diff.split('\n')) {
         const m = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
         remLine = m ? Number(m[1]) : 0;
         addLine = m ? Number(m[2]) : 0;
+        hunk += 1;
     }
     else if (inHeader) {
         if (line.startsWith('--- ')) oldFile = pathOf(line.slice(4));
@@ -84,8 +85,8 @@ for (const line of diff.split('\n')) {
             if (newFile === '/dev/null') deleted.push(file);
         }
     }
-    else if (line.startsWith('+')) added.push({ file, line: addLine++, text: line.slice(1) });
-    else if (line.startsWith('-')) removed.push({ file, line: remLine++, text: line.slice(1) });
+    else if (line.startsWith('+')) added.push({ file, line: addLine++, text: line.slice(1), hunk });
+    else if (line.startsWith('-')) removed.push({ file, line: remLine++, text: line.slice(1), hunk });
 }
 
 const findings = [];
@@ -140,9 +141,14 @@ for (const f of deleted) {
     if (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained) flag('test-deleted', f, 1);
 }
 
-for (const { file: f, line: n, text } of removed) {
+const ASSERTION = /\b(expect|assert|should)\b|(?:^|[^\w$])check\s*\(|(?:^|[^\w$])fail\s*\(|\bthrow\s+new\s+Error\b/;
+const assertionsIn = (lines, f, h) => lines.filter((l) => l.file === f && l.hunk === h && ASSERTION.test(l.text)).length;
+for (const { file: f, line: n, text, hunk: h } of removed) {
     if (isDoc(f) || !isTest(f) || deleted.includes(f)) continue;
-    if (!/\b(expect|assert|should)\b|(?:^|[^\w$])check\s*\(|(?:^|[^\w$])fail\s*\(|\bthrow\s+new\s+Error\b/.test(text)) continue;
+    if (!ASSERTION.test(text)) continue;
+    // An assertion rewritten in place keeps the floor, security tests included:
+    // the same hunk of the same file adds at least as many assertion lines.
+    if (assertionsIn(added, f, h) >= assertionsIn(removed, f, h)) continue;
     if (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained) flag('assertion-removed', f, n);
 }
 
