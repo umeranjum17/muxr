@@ -12,6 +12,8 @@ instead of overwriting.
 - `share-dotfile` renames a leading-dot file to `shared<original>`.
 - `share-missing-target` a nonexistent path fails with exit code 1 and a clear stderr line.
 - `share-view` `muxr artifacts status` shows the retention view of the same timeline.
+- `share-page` `muxr share page.html --title T` stores `T@v1.html` with the page's local images inlined; the same title again stores `T@v2.html` and leaves v1 byte-identical.
+- `share-page-refusal` a page image that is remote, absolute, escapes the folder (`../`) or is a symlink out of it fails with exit code 1 and stores nothing.
 
 ## How to get to it (user POV)
 
@@ -45,6 +47,16 @@ Preconditions:
 - **Missing target (failure path).** `node scripts/cli.mjs share "$RUN_ROOT/does-not-exist.txt"`
   exits `1` with stderr `muxr share: no such file: $RUN_ROOT/does-not-exist.txt`.
   Nothing is created in the pane directory.
+- **Versioned page.** Make a folder with `demo.html` containing
+  `<img src="hero.png">` plus a small `hero.png`, then
+  `node scripts/cli.mjs share "$RUN_ROOT/page/demo.html" --title "Demo"`: stdout
+  `Shared Demo v1`, stored `Demo@v1.html` holds the image as a `data:` URI. Change
+  the page and share it with the same title: stdout `Shared Demo v2`, and
+  `Demo@v1.html` keeps its earlier sha256.
+- **Page refusal (failure path).** A page with `<img src="../x.png">` exits `1`
+  with `muxr share: missing image: ../x.png`; `https://…` gives
+  `image must be a file next to the page`; a symlink to `/etc/hostname` gives
+  `image is outside the page's folder`. The pane directory is unchanged.
 - **Read-only second view.** `node scripts/cli.mjs artifacts status` exits `0`,
   prints the retention policy (`keeps the newest … files of every pane`) and,
   on a fresh home, `No sweep has run on this machine yet.` — the same timeline
