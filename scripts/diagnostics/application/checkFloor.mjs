@@ -1,7 +1,7 @@
 /**
  * Diff-scoped enforcement of the CONSTRAINTS.md floor: new checker
  * suppressions, unimplemented stubs / empty catches, unexplained skipped or
- * deleted tests, and weakened constraints. Adapted from the
+ * deleted tests and removed assertions, and weakened constraints. Adapted from the
  * constraint-driven-development floor-guard reference; the contract is
  * unchanged:
  *
@@ -142,7 +142,8 @@ for (const f of deleted) {
 
 for (const { file: f, line: n, text } of removed) {
     if (isDoc(f) || !isTest(f) || deleted.includes(f)) continue;
-    if (/\b(expect|assert|should)\b|(?:^|[^\w$])check\s*\(|(?:^|[^\w$])fail\s*\(|\bthrow\s+new\s+Error\b/.test(text)) flag('assertion-removed', f, n);
+    if (!/\b(expect|assert|should)\b|(?:^|[^\w$])check\s*\(|(?:^|[^\w$])fail\s*\(|\bthrow\s+new\s+Error\b/.test(text)) continue;
+    if (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained) flag('assertion-removed', f, n);
 }
 
 // 1b/2c. A rule in CONSTRAINTS.md weakened or removed. A rule is a floor
@@ -237,8 +238,8 @@ if (findings.some((f) => f.rule === 'rule-removed')) {
 if (findings.some((f) => f.rule === 'threshold-removed')) {
     console.error('\nA threshold-removed finding can also mean a number gained or lost its direction words (">= 80%" becoming "80%", or the reverse): compare the two lines before assuming a threshold was deleted.');
 }
-if (findings.some((f) => f.rule === 'test-deleted' || f.rule === 'test-made-easier')) {
-    console.error('\nSkipped or deleted tests require a reason in a commit in range; security, crypto and data-loss coverage must remain.');
+if (findings.some((f) => f.rule === 'test-deleted' || f.rule === 'test-made-easier' || f.rule === 'assertion-removed')) {
+    console.error('\nSkipped or deleted tests and removed assertions require a reason in a commit in range; security, crypto and data-loss coverage must remain.');
 }
 console.error('\nEach is a move that lowers the bar. Fix the change, or put the reason in the commit message.');
 process.exit(1);
