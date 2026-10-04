@@ -120,8 +120,13 @@ synthesizing flags.
 
 ## Evidence
 
-Capture, per proof, into a run directory that cleanup never touches (for
-example `/tmp/verify-muxr-evidence/<timestamp>/`, outside `RUN_ROOT`):
+Define the run's stable evidence directory up front; cleanup never touches it:
+
+```sh
+EVIDENCE="/tmp/verify-muxr-evidence/$(date +%Y%m%d-%H%M%S)"; mkdir -p "$EVIDENCE"
+```
+
+Capture, per proof, into `$EVIDENCE` (outside `RUN_ROOT`):
 
 - the command transcript (command line, stdout, stderr, exit code) —
   `… 2>&1 | tee "$EVIDENCE/NN-command.log"; echo "exit=$?" >> "$EVIDENCE/NN-command.log"`,
@@ -135,6 +140,27 @@ Standards: exercise the real user path (public CLI flags, running services) —
 never internal setters, test-only endpoints, or mocks standing in for the
 feature; the action and the resulting state, not just the final screen; the
 side effect verified where it is stored, not only where it is displayed.
+
+## Review evidence standard
+
+Fleet rule: every user-visible change is captured with each changed screen
+before/after, in every theme (dark and light) and form factor (phone and
+desktop width) the app has, plus one motion recording of each changed
+interaction — into the stable `$EVIDENCE` folder above. Applied to this skill:
+
+- Before/after: for each mutation proof, capture the read-only view before
+  the command as well as after (e.g. list the artifact timeline, run
+  `muxr share`, list again and `cmp` the bytes). A command transcript alone
+  is not a complete proof. Name the transcript and state files in the PR.
+- Skipped — no themed surfaces: the relay, host, and CLI this skill drives
+  render no dark/light UI, so there is nothing to capture per theme.
+- Skipped — no form factors: this skill drives headless services and a text
+  CLI; phone and desktop widths change no surface it verifies. The phone app
+  is a separate surface with its own verification.
+- Skipped — no motion: CLI output is text with no transitions or gestures,
+  so there is no interaction to motion-record; the command transcript
+  (`NN-command.log` with stdout, stderr, and exit code) is the equivalent
+  capture.
 
 ## Cleanup
 

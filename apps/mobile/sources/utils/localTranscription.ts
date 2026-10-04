@@ -11,6 +11,38 @@ const VOCABULARY_PROMPT = 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm.';
 // readings started on silence and stuck on "[BLANK_AUDIO]". The final reads the whole take either way.
 const SPEECH_GATE_RMS = 0.015;
 let warm: { modelUri: string; multilingual: boolean; engine: ReturnType<typeof whisperRnEngine> } | null = null;
+
+// whisper annotates non-speech audio with short parenthetical or bracketed
+// labels like "(wind howling)" or "[wind]". They describe the room, not the
+// speaker, and must never reach the composer. Legitimate words in parentheses
+// or brackets survive: a group is dropped only when every word in it is a
+// known non-speech label.
+// ponytail: bounded non-speech vocabulary; a novel sound word outside the set
+// would slip through, extend NON_SPEECH when that happens.
+const NON_SPEECH = new Set([
+    'blank', 'audio',
+    'silence', 'quiet',
+    'wind', 'howling', 'gust', 'breeze', 'rain', 'thunder', 'storm', 'hail',
+    'music', 'song', 'singing', 'hum', 'humming', 'melody',
+    'noise', 'sound', 'sounds', 'buzzing', 'beep', 'beeping', 'ticking', 'clicking', 'rumble', 'rumbling',
+    'applause', 'clapping', 'cheering', 'screaming', 'shouting', 'yelling',
+    'laughter', 'laughing', 'crying', 'sobbing', 'whisper', 'whispering', 'gasping', 'sigh', 'sighing', 'groaning',
+    'dog', 'barking', 'cat', 'meowing', 'birds', 'bird', 'car', 'engine', 'traffic', 'honking', 'siren', 'airplane', 'train',
+    'tv', 'radio', 'phone', 'ringing',
+]);
+
+function dropNonSpeechLabels(text: string): string {
+    const isNoise = (inner: string) => {
+        const words = inner.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+        return words.length === 0 || words.every((word) => NON_SPEECH.has(word));
+    };
+    return text
+        .replace(/\([^()]*\)/g, (group) => (isNoise(group.slice(1, -1)) ? '' : group))
+        .replace(/\[[^\]]*\]/g, (group) => (isNoise(group.slice(1, -1)) ? '' : group))
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+}
+
 let coolTimer: ReturnType<typeof setTimeout> | undefined;
 
 async function acquireEngine(modelId: string) {
@@ -61,7 +93,7 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
         prompt: hint,
         replacements: Object.fromEntries(settings.dictationWordReplacements.map(({ from, to }) => [from, to])),
     });
-    handle.on('partial', ({ segment }) => onText(segment.text));
+    handle.on('partial', ({ segment }) => onText(dropNonSpeechLabels(segment.text)));
     handle.on('level', ({ rms }) => onLevel(rms));
     try {
         await mic.opened;
@@ -73,7 +105,7 @@ export async function startLiveTranscription({ hint, onText, onLevel }: {
     return {
         async finish() {
             try {
-                return (await handle.finish()).text;
+                return dropNonSpeechLabels((await handle.finish()).text);
             } finally {
                 coolEngine();
             }
