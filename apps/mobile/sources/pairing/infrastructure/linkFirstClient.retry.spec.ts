@@ -83,6 +83,7 @@ describe('link retry across a version-skewed relay', () => {
                 throw new Error(`Unexpected retry-wedge request: ${frame.type}`);
             },
         });
+        if (endpoint === undefined) throw new Error('retry-wedge fixture endpoint did not open');
         return endpoint;
     }
 
