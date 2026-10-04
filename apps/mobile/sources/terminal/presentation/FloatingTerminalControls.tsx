@@ -3,7 +3,6 @@ import { BackHandler, PanResponder, Pressable, StyleSheet, Text, View } from 're
 import Animated, { Easing, FadeIn, FadeOut, interpolateColor, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming, type SharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
-import { useLocalSettingMutable } from '@/catalog/store';
 import { hapticsLight, hapticsSelection } from '@/components/haptics';
 import { RING_CAPTION_WIDTH, clusterLayout, ringFan, slotUnderFinger, type ClusterLayout } from '../domain/ringGeometry';
 
@@ -47,12 +46,13 @@ export type ClusterKey = {
 export type RingHandle = { close: () => void };
 
 /**
- * The floating control and its ring. The control belongs to the TERMINAL, not
- * to the composer: it rests on the terminal surface where the thumb left it,
- * and the arc is struck from wherever that is.
+ * The control and its ring. The control sits at the trailing end of the row
+ * under the terminal, never on the output: a disc resting on the terminal
+ * covered whatever the agent printed there. The arc is struck from it.
  */
-const CENTER = 44;
-export const floatingControlFits = (terminalHeight: number | undefined): boolean => terminalHeight !== undefined && terminalHeight >= CENTER;
+/** The shortest terminal the ring and the cluster are drawn over. */
+const RING_FLOOR = 44;
+export const floatingControlFits = (terminalHeight: number | undefined): boolean => terminalHeight !== undefined && terminalHeight >= RING_FLOOR;
 
 export function TerminalMenuQuickActions({ slots, terminalHeight, hasTools, onClose }: { slots: readonly RingSlot[]; terminalHeight: number | undefined; hasTools: boolean; onClose: () => void }) {
     const { theme } = useUnistyles();
@@ -66,48 +66,47 @@ export function TerminalMenuQuickActions({ slots, terminalHeight, hasTools, onCl
         </Pressable>
     ));
 }
-const CENTER_ICON = 18;
-/** Keep the resting control this far from the terminal's own edges. */
-const EDGE = 16;
-/** Where an untouched control rests: bottom-right, a thumb-reach up from the
- *  composer, clear of the centred jump-to-latest pill. */
-const REST_BOTTOM_PAD = 72;
+/** The control's disc: the height of the row it sits in. */
+export const CONTROL_SIZE = 24;
+/** Gap between the control and the region's trailing edge. */
+export const CONTROL_EDGE = 8;
+const CENTER = CONTROL_SIZE;
+const CENTER_ICON = 14;
 // Slots render at a disc size that follows the terminal's width: the full
 // 48dp discs on reference-width phones, a 38dp set on narrow PWA panes.
 const slotSize = (width: number): number => (width < 340 ? 38 : 48);
 const RING_CAP = 6;
 const MOVE_THRESHOLD = 8;
-const PICKUP_MS = 400;
 const OPEN_MS = 180;
+const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 const CLOSE_MS = 130;
 
-const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
-const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 /**
  * The terminal's quick actions: a floating control resting on the terminal
  * itself, blooming into a ring of labelled circular actions struck from that
  * control's own position. Tap opens and it stays; press and slide to a slot
- * and lift fires it in one motion; hold picks the control up and where it
- * comes to rest is remembered. Tap outside, lift on nothing, or hardware back
- * collapses it. The ring never dismisses the keyboard, and it is the only
+ * and lift fires it in one motion. Tap outside, lift on nothing, or hardware
+ * back collapses it. The ring never dismisses the keyboard, and it is the only
  * quick-actions overlay at a time: the Arrows slot stands the control down and
  * hands the surface to the cluster, which dismisses through its own layer or
  * hardware back.
  *
- * Everything that moves per frame — the bloom, the highlight, the scrim, the
- * drag — is a shared value read on the UI thread. The component re-renders
- * when the ring opens, when it closes, and when a drag ends; never while one
- * of those is running.
+ * Everything that moves per frame — the bloom, the highlight, the scrim — is
+ * a shared value read on the UI thread. The component re-renders when the
+ * ring opens and when it closes; never while either is running.
  */
 export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, {
     /** Region width (the terminal surface): the control and ring stay inside it. */
     width: number;
     /** The overlay's full height: terminal top down past the rails below it. */
     height: number;
-    /** How much of that is terminal. The control rests only here, and the arc
-     *  stays here too unless the terminal is too short to hold it. */
+    /** How much of that is terminal. The arc stays here unless the terminal
+     *  is too short to hold it. */
     terminalHeight: number;
+    /** The control's centre line, from the region's top: inside the row
+     *  under the terminal that holds its place. */
+    restY: number;
     slots: readonly RingSlot[];
     /** The cross a slot with `opens: 'cluster'` summons. */
     clusterKeys?: readonly ClusterKey[];
@@ -115,13 +114,12 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     dim: SharedValue<number>;
     /** How far the terminal's visible bottom currently sits from the one
      *  `terminalHeight` measured (negative while the keyboard lifts the rails
-     *  ahead of the next measure). The control rides it in proportion to where
-     *  it rests, so it moves with the keyboard instead of jumping. */
+     *  ahead of the next measure). The control rides it with the row it sits
+     *  in, so it moves with the keyboard instead of jumping. */
     shift?: SharedValue<number>;
-}>(function FloatingTerminalControls({ width, height, terminalHeight, slots, clusterKeys, dim, shift }, handle) {
+}>(function FloatingTerminalControls({ width, height, terminalHeight, restY, slots, clusterKeys, dim, shift }, handle) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
-    const [rest, setRest] = useLocalSettingMutable('terminalCommandKeyDock');
     // Every action reaches every pane: the arc spends its gap and its disc
     // size before it would drop a slot, so no width cap may truncate the ring
     // (the reference 270dp phone lost its last action to one).
@@ -135,20 +133,8 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     const open = overlay === 'ring';
     React.useImperativeHandle(handle, () => ({ close: () => setOverlay('none') }), []);
 
-    // Where the control rests, in region coordinates. The fraction form is
-    // what survives app restarts and terminal resizes.
-    const travelX = Math.max(0, width - CENTER - EDGE * 2);
-    const travelY = Math.max(0, terminalHeight - CENTER - EDGE * 2);
-    const center = React.useMemo(() => {
-        const y = EDGE + clamp01(rest?.fy ?? 1) * travelY + CENTER / 2 - (rest === null || rest === undefined ? Math.min(REST_BOTTOM_PAD, travelY) : 0);
-        return {
-            x: EDGE + clamp01(rest?.fx ?? 1) * travelX + CENTER / 2,
-            // On a terminal shorter than the control plus its edge padding the
-            // padding is what gives way, not the containment: the control sits
-            // tight to the edge rather than hanging past it into the key row.
-            y: Math.min(Math.max(y, CENTER / 2), Math.max(terminalHeight - CENTER / 2, CENTER / 2)),
-        };
-    }, [rest, travelX, travelY, terminalHeight]);
+    // Where the control rests, in region coordinates.
+    const center = React.useMemo(() => ({ x: width - CONTROL_EDGE - CENTER / 2, y: restY }), [width, restY]);
     const disc = slotSize(width);
     const fan = React.useMemo(
         () => ringFan(center, { width, height }, terminalHeight, count, disc),
@@ -186,7 +172,6 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     // move highlights without re-rendering anything.
     const highlight = useSharedValue(-1);
     const progress = useSharedValue(0);
-    const lifted = useSharedValue(0);
     React.useEffect(() => {
         const to = visible ? 1 : 0;
         if (reduceMotion) { progress.value = to; dim.value = to; return; }
@@ -202,29 +187,18 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     }, [up]);
 
     // Everything the stable responder closures read, one ref behind.
-    const live = React.useRef({ center, offsets, travelX, travelY, terminalHeight });
-    live.current = { center, offsets, travelX, travelY, terminalHeight };
+    const live = React.useRef({ offsets });
+    live.current = { offsets };
     const slotsRef = React.useRef(slots);
     slotsRef.current = slots;
     const gesture = React.useRef({
-        phase: 'idle' as 'idle' | 'sweep' | 'drag',
-        /** A hold asked to pick the control up. The drag itself begins when
-         *  the responder is granted, so a hold that never moves leaves nothing
-         *  half-started behind. */
-        armed: false,
-        capturing: false,
+        phase: 'idle' as 'idle' | 'sweep',
         grantDx: 0,
         grantDy: 0,
         /** The finger's offset from the control's centre when the sweep began. */
         fromCenterX: 0,
         fromCenterY: 0,
-        grabX: 0,
-        grabY: 0,
     });
-    // The control's live position while a drag is in flight, as an offset from
-    // where it rests. Nothing is committed until the finger lifts.
-    const dragX = useSharedValue(0);
-    const dragY = useSharedValue(0);
 
     const endSweep = React.useCallback(() => {
         setSweeping(false);
@@ -242,42 +216,16 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     }, [endSweep, clusterSpot]);
     const fireRef = React.useRef(fire);
     fireRef.current = fire;
-    const releaseDrag = React.useCallback(() => {
-        if (gesture.current.phase !== 'drag') return;
-        gesture.current.phase = 'idle';
-        lifted.value = withTiming(0, { duration: 140 });
-        const { center: from, travelX: rx, travelY: ry } = live.current;
-        const x = from.x + dragX.value - CENTER / 2;
-        const y = from.y + dragY.value - CENTER / 2;
-        dragX.value = 0;
-        dragY.value = 0;
-        setRest({ fx: clamp01(rx === 0 ? 1 : (x - EDGE) / rx), fy: clamp01(ry === 0 ? 1 : (y - EDGE) / ry) });
-    }, [dragX, dragY, lifted, setRest]);
 
     const pan = React.useRef(PanResponder.create({
         // The ring blooms on the first 8dp of travel rather than on
         // finger-down, which keeps tap discrimination on the platform's own
         // press path (Pressable) and avoids a second timing heuristic.
-        onMoveShouldSetPanResponderCapture: (_event, state) => {
-            const moving = Math.hypot(state.dx, state.dy) >= MOVE_THRESHOLD;
-            if (moving) gesture.current.capturing = true;
-            return moving;
-        },
+        onMoveShouldSetPanResponderCapture: (_event, state) => Math.hypot(state.dx, state.dy) >= MOVE_THRESHOLD,
         onPanResponderGrant: (event, state) => {
             const g = gesture.current;
-            g.capturing = false;
             g.grantDx = state.dx;
             g.grantDy = state.dy;
-            if (g.armed) {
-                // The hold is the pickup: the drag owns the gesture from here,
-                // and only its own release or terminate ends it.
-                g.armed = false;
-                g.phase = 'drag';
-                g.grabX = dragX.value;
-                g.grabY = dragY.value;
-                lifted.value = withTiming(1, { duration: 140 });
-                return;
-            }
             // The responder IS the control, so the touch already answers where
             // the finger is relative to its centre. No window measurement, and
             // so no coordinate space to get wrong.
@@ -292,14 +240,6 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
         },
         onPanResponderMove: (_event, state) => {
             const g = gesture.current;
-            if (g.phase === 'drag') {
-                const { center: from, travelX: rx, travelY: ry } = live.current;
-                dragX.value = clamp(g.grabX + state.dx - g.grantDx, EDGE + CENTER / 2 - from.x, EDGE + rx + CENTER / 2 - from.x);
-                const top = Math.min(EDGE + CENTER / 2, live.current.terminalHeight - CENTER / 2);
-                const bottom = Math.min(EDGE + ry + CENTER / 2, live.current.terminalHeight - CENTER / 2);
-                dragY.value = clamp(g.grabY + state.dy - g.grantDy, top - from.y, bottom - from.y);
-                return;
-            }
             const index = slotUnderFinger({
                 x: g.fromCenterX + (state.dx - g.grantDx),
                 y: g.fromCenterY + (state.dy - g.grantDy),
@@ -312,9 +252,6 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
         },
         onPanResponderRelease: (_event, state) => {
             const g = gesture.current;
-            g.armed = false;
-            g.capturing = false;
-            if (g.phase === 'drag') { releaseDrag(); return; }
             g.phase = 'idle';
             const index = slotUnderFinger({
                 x: g.fromCenterX + (state.dx - g.grantDx),
@@ -324,25 +261,18 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
             endSweep();
         },
         onPanResponderTerminate: () => {
-            const g = gesture.current;
-            g.armed = false;
-            g.capturing = false;
-            releaseDrag();
-            g.phase = 'idle';
+            gesture.current.phase = 'idle';
             endSweep();
         },
         onPanResponderTerminationRequest: () => false,
     })).current;
 
     const scrim = useAnimatedStyle(() => ({ opacity: progress.value }));
-    // A control resting low follows the terminal's bottom edge all the way; one
-    // resting high barely moves, the same as a resize would place it.
-    const shiftShare = clamp01(rest?.fy ?? 1);
     const controlStyle = useAnimatedStyle(() => ({
-        transform: [{ translateX: dragX.value }, { translateY: dragY.value + shiftShare * (shift?.value ?? 0) }, { scale: 1 + lifted.value * 0.08 }],
-    }), [shiftShare, shift]);
+        transform: [{ translateY: shift?.value ?? 0 }],
+    }), [shift]);
 
-    // At rest the control is a quiet disc on the terminal; opening it raises
+    // At rest the control is a quiet disc beside the tabs; opening it raises
     // the same material to the ring's own weight rather than swapping it for a
     // different one.
     const controlSurface = useAnimatedStyle(() => ({
@@ -353,9 +283,7 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
     }));
 
     if (count === 0) return null;
-    // Below its own size the control cannot sit inside the terminal at all, and
-    // this view does not clip: it would hang over the key row and take touches
-    // meant for those keys. Refuse rather than misplace.
+    // A terminal too short for the ring sends its actions to the pane menu.
     if (!floatingControlFits(terminalHeight)) return null;
 
     return (
@@ -413,27 +341,13 @@ export const FloatingTerminalControls = React.memo(React.forwardRef<RingHandle, 
                 <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={up ? 'Close terminal quick actions' : 'Terminal quick actions'}
-                    accessibilityHint="Quick actions around the control. Tap to open, press and slide to one, or hold to move it."
+                    accessibilityHint="Quick actions around the control. Tap to open, or press and slide to one."
                     accessibilityState={{ expanded: up }}
-                    accessibilityActions={[{ name: 'reset', label: 'Reset position' }]}
-                    onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'reset') setRest(null); }}
                     // A still short touch is tap mode; the sweep never reaches
-                    // here because the responder has claimed it, and a hold
-                    // became a drag below.
+                    // here because the responder has claimed it.
                     onPress={() => { hapticsLight(); setOverlay(up ? 'none' : 'ring'); }}
-                    onLongPress={() => {
-                        gesture.current.armed = true;
-                        gesture.current.capturing = false;
-                        setOverlay('none');
-                        endSweep();
-                        hapticsLight();
-                    }}
-                    onPressOut={() => {
-                        if (gesture.current.armed && !gesture.current.capturing) gesture.current.armed = false;
-                    }}
-                    delayLongPress={PICKUP_MS}
                     pressRetentionOffset={{ top: 40, bottom: 40, left: 40, right: 40 }}
-                    hitSlop={8}
+                    hitSlop={10}
                     style={({ pressed }) => ({ width: CENTER, height: CENTER, opacity: pressed ? 0.85 : 1 })}
                 >
                     <Animated.View style={[{

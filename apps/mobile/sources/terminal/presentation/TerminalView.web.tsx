@@ -286,7 +286,6 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                 let firstFrameWritten = false;
                 const needsRepaint = ahead !== undefined && (ahead.size.cols !== term.cols || ahead.size.rows !== term.rows);
                 let readyForFrame = !needsRepaint;
-                let repaintRequested = false;
                 let frameScheduled = false;
                 const flushFrames = (): void => {
                     frameScheduled = false;
@@ -316,18 +315,13 @@ export const TerminalView = React.memo((props: TerminalViewProps) => {
                         requestAnimationFrame(flushFrames);
                     }
                 });
-                opened.onState((state) => {
-                    if (repaintRequested && state === 'live') readyForFrame = true;
-                    onStatus?.(state);
-                });
+                opened.onState((state) => onStatus?.(state));
                 opened.onClose((reason) => onStatus?.(reason ?? 'closed'));
                 term.onData((data) => opened.sendText(data));
+                // Opened ahead at another size, Herdr's screen is the old one's
+                // until this resize brings its full frame back.
                 opened.resize(term.cols, term.rows);
-                // Opened ahead at another size, herdr's screen is the old one's.
-                if (needsRepaint) {
-                    repaintRequested = true;
-                    opened.repaint();
-                }
+                readyForFrame = true;
             })
             .catch((error: unknown) => {
                 if (disposed) return;
