@@ -42,7 +42,7 @@ export const desktopCopy = {
     textUsePaste: 'Use Paste from Phone.',
 } as const;
 
-/** The agent's own browser or emulator, watched live: one wording per kind. */
+/** The agent's own browser, emulator, or simulator, watched live: one wording per kind. */
 export const previewCopy = {
     browser: {
         name: 'Browser',

@@ -92,7 +92,7 @@ Agent instructions
   muxr --skill | muxr skill       print the compact muxr agent skill
   muxr skill <topic>              load one reference only when needed
   muxr name [--workspace ...]     name the current Herdr workspace/pane and report attribution
-  muxr preview status [--json]    check whether the phone is driving this pane's browser or emulator
+  muxr preview status [--json]    check whether the phone is driving this pane's browser, emulator, or simulator
   muxr preview claim <udid>       offer this pane's booted iOS simulator to the phone (release to stop)
   muxr share <path>               save a file to this pane's Shared Artifacts timeline [--title T versions an .html page in place]
   muxr artifacts [status|prune]   show what Shared Artifacts retention removed, or clear old history

@@ -27,7 +27,7 @@ export interface OpenDesktopOptions {
     maxHeight?: number;
     bitrateKbps?: number;
     maxFps?: number;
-    /** The session whose own screen to show (its agent's browser or emulator); absent is the desktop. */
+    /** The session whose preview to show (its agent's browser, emulator, or claimed simulator); absent is the desktop. */
     target?: { sessionId: string };
     /** Called as `desktop.open` is sent: from here the host may wait on consent. */
     onOpenSent?: () => void;

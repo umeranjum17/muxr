@@ -10,7 +10,7 @@ import type { DesktopOrigin } from '../request';
 import { previewIcon } from '../model/desktopCopy';
 
 /**
- * Presence of an agent's browser or emulator in the terminal header: a mark
+ * Presence of an agent's browser, emulator, or simulator in the terminal header: a mark
  * and a live dot while the host can show one, and a one-time tooltip when it
  * first appears. Nothing is reserved while there is none, and the chip is
  * shorter than the header row, so the terminal below never re-attaches.
@@ -26,7 +26,7 @@ const EASE_OUT = Easing.out(Easing.cubic);
 /** A window already introduced in this run of the app is never introduced again. */
 const introduced = new Set<string>();
 
-/** Whether the tooltip for this pane's current browser or emulator is up. */
+/** Whether the tooltip for this pane's current browser, emulator, or simulator is up. */
 function usePreviewTooltip(sessionId: string, preview: PreviewPresence | undefined): { open: boolean; dismiss: () => void } {
     const key = preview === undefined ? undefined : `${sessionId}\n${preview.since}`;
     const [open, setOpen] = React.useState<string>();

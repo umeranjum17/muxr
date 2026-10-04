@@ -114,9 +114,9 @@ export interface DesktopSurfaceProps {
     /** The conversation's mark, drawn before the title the way its own header draws it. */
     leading?: React.ReactNode;
     /**
-     * Show the session's own screen, the browser or emulator its agent is
-     * using, instead of this computer's desktop. `closed` once the agent's
-     * window is gone; the title is the page's, or the emulator's device name.
+     * Show the session's preview — the browser, emulator, or claimed simulator its agent is
+     * showing — instead of this computer's desktop. `closed` once the agent's
+     * window is gone; the title is the page's, or the device or simulator name.
      */
     target?: { sessionId: string; kind: PreviewKind; title?: string; closed?: boolean; viewOnly?: boolean };
 }

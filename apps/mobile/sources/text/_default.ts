@@ -36,7 +36,7 @@ export const en = {
     },
 
     preview: {
-        // Presence of an agent's browser or emulator in the terminal header
+        // Presence of an agent's browser, emulator, or simulator in the terminal header
         chipBrowser: 'Browser',
         chipAndroid: 'Emulator',
         chipIos: 'Simulator',
