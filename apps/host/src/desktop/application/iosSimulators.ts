@@ -360,13 +360,14 @@ class CompanionHid {
         private readonly onDiagnostic?: (line: string) => void,
     ) {}
 
-    static async start(dir: string, udid: string, workDir: string, onDiagnostic?: (line: string) => void): Promise<CompanionHid> {
+    static async start(dir: string, udid: string, workDir: string, onDiagnostic?: (line: string) => void, onSpawn?: (child: ChildProcess) => void): Promise<CompanionHid> {
         const socket = join(workDir, 'hid.sock');
         const companion = spawn(join(dir, 'idb_companion'), [
             '--udid', udid, '--grpc-domain-sock', socket, '--device-set-path', DEVICE_SET,
             // Simulators only: without it the companion opens a session to every attached device.
             '--only', 'simulator',
         ], { stdio: ['ignore', 'ignore', 'pipe'] });
+        onSpawn?.(companion);
         companion.stderr?.on('data', (chunk: Buffer) => onDiagnostic?.(`idb companion: ${chunk.toString().trim().slice(0, 200)}`));
         const deadline = Date.now() + COMPANION_START_TIMEOUT_MS;
         while (!existsSync(socket)) {
@@ -427,6 +428,22 @@ const KEY_FRAME_EVERY = 5;
  */
 const VIDEO_SCALE = 0.5;
 const VIDEO_START_TIMEOUT_MS = 15_000;
+const CLOSE_EXIT_WAIT_MS = 2_000;
+
+const waitForExit = (child: ChildProcess, timeoutMs: number): Promise<boolean> => {
+    if (child.exitCode !== null) return Promise.resolve(true);
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+            child.removeListener('exit', onExit);
+            resolve(false);
+        }, timeoutMs);
+        const onExit = (): void => {
+            clearTimeout(timer);
+            resolve(true);
+        };
+        child.once('exit', onExit);
+    });
+};
 
 interface LiveSimulator {
     engine: EncodedEngine;
@@ -449,6 +466,8 @@ export class IosMirrors implements DeviceMirrors {
     private readonly options: IosMirrorOptions;
     private readonly mirrors = new Map<string, LiveSimulator>();
     private readonly opening = new Map<string, Promise<{ session: EncodedEngineSession; width: number; height: number }>>();
+    private readonly pendingChildren = new Map<string, Set<ChildProcess>>();
+    private readonly closeRequested = new Set<string>();
 
     constructor(options: IosMirrorOptions = {}) {
         this.options = options;
@@ -462,11 +481,30 @@ export class IosMirrors implements DeviceMirrors {
         if (existing !== undefined && !existing.closed) return { session: existing.session, width: existing.width, height: existing.height };
         const inflight = this.opening.get(udid);
         if (inflight !== undefined) return inflight;
+        this.closeRequested.delete(udid);
         const opening = this.start(udid, request).finally(() => {
             if (this.opening.get(udid) === opening) this.opening.delete(udid);
         });
         this.opening.set(udid, opening);
         return opening;
+    }
+
+    private trackChild(udid: string, child: ChildProcess): void {
+        let set = this.pendingChildren.get(udid);
+        if (set === undefined) {
+            set = new Set();
+            this.pendingChildren.set(udid, set);
+        }
+        set.add(child);
+        child.once('exit', () => {
+            this.pendingChildren.get(udid)?.delete(child);
+        });
+        if (child.pid !== undefined && this.closeRequested.has(udid)) {
+            try {
+                process.kill(child.pid, 'SIGTERM');
+            } catch {
+            }
+        }
     }
 
     private async start(
@@ -478,6 +516,7 @@ export class IosMirrors implements DeviceMirrors {
         });
         // Stream pixels per simulator point.
         const scale = VIDEO_SCALE * await screenScale(this.options.deviceTypeFor?.(udid)).catch(() => 3);
+        if (this.closeRequested.has(udid)) throw new EngineRefused('desktop-unavailable', 'the preview closed during open');
         const workDir = mkdtempSync(join(homedir(), 'Library', 'Caches', 'muxr', '.sim-'));
         const video = spawn(join(dir, 'sim-video'), [
             'stream', '--set', DEVICE_SET, '--udid', udid,
@@ -486,9 +525,11 @@ export class IosMirrors implements DeviceMirrors {
         ], { stdio: ['pipe', 'pipe', 'pipe'] });
         video.stderr?.on('data', (chunk: Buffer) => this.options.onDiagnostic?.(`sim-video: ${chunk.toString().trim().slice(0, 200)}`));
         video.stdin?.on('error', () => undefined);
+        this.trackChild(udid, video);
         let hid: CompanionHid | undefined;
         const fail = (message: string): never => {
             this.options.onDiagnostic?.(`open failed: ${message}`);
+            this.pendingChildren.delete(udid);
             video.kill('SIGKILL');
             hid?.close();
             rmSync(workDir, { recursive: true, force: true });
@@ -514,9 +555,10 @@ export class IosMirrors implements DeviceMirrors {
         while (size === undefined && video.exitCode === null && Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 50));
         }
+        if (this.closeRequested.has(udid)) fail('the preview closed during open');
         if (size === undefined) fail('the simulator sent no video');
         try {
-            hid = await CompanionHid.start(dir, udid, workDir, this.options.onDiagnostic);
+            hid = await CompanionHid.start(dir, udid, workDir, this.options.onDiagnostic, (child) => this.trackChild(udid, child));
         } catch (error) {
             fail(error instanceof Error ? error.message : 'the simulator input service did not start');
         }
@@ -535,6 +577,11 @@ export class IosMirrors implements DeviceMirrors {
         } catch (error) {
             fail(error instanceof Error ? error.message : 'the live view did not start');
         }
+        if (this.closeRequested.has(udid)) {
+            await engine.close().catch(() => undefined);
+            await engine.stop().catch(() => undefined);
+            fail('the preview closed during open');
+        }
         const mirror: LiveSimulator = {
             engine,
             session: session!,
@@ -552,6 +599,7 @@ export class IosMirrors implements DeviceMirrors {
             closed: false,
         };
         this.mirrors.set(udid, mirror);
+        this.pendingChildren.delete(udid);
         engine.onLive((event) => {
             if (mirror.closed) return;
             if (event.kind === 'keyframeRequest') {
@@ -621,14 +669,30 @@ export class IosMirrors implements DeviceMirrors {
     }
 
     async close(udid: string): Promise<void> {
+        this.closeRequested.add(udid);
         const inflight = this.opening.get(udid);
-        if (inflight !== undefined) await inflight.catch(() => undefined);
+        if (inflight !== undefined) void inflight.catch(() => undefined);
+        const tracked = [...(this.pendingChildren.get(udid) ?? [])];
         const mirror = this.mirrors.get(udid);
+        if (mirror !== undefined) {
+            this.mirrors.delete(udid);
+            mirror.closed = true;
+            if (!tracked.includes(mirror.video)) tracked.push(mirror.video);
+        }
+        for (const child of tracked) {
+            const pid = child.pid;
+            if (pid === undefined || child.exitCode !== null) continue;
+            try {
+                process.kill(pid, 'SIGTERM');
+            } catch {
+            }
+        }
+        const exited = await Promise.all(tracked.map((child) => waitForExit(child, CLOSE_EXIT_WAIT_MS)));
+        tracked.forEach((child, index) => {
+            if (exited[index] !== true) this.options.onDiagnostic?.(`close: helper ${child.pid ?? '?'} did not exit`);
+        });
         if (mirror === undefined) return;
-        this.mirrors.delete(udid);
-        mirror.closed = true;
         mirror.splitter.stop();
-        if (mirror.video.exitCode === null) mirror.video.kill('SIGTERM');
         mirror.hid.close();
         rmSync(mirror.workDir, { recursive: true, force: true });
         await mirror.engine.close().catch(() => undefined);
@@ -636,7 +700,8 @@ export class IosMirrors implements DeviceMirrors {
     }
 
     async closeAll(): Promise<void> {
-        for (const udid of new Set([...this.mirrors.keys(), ...this.opening.keys()])) await this.close(udid);
+        const udids = new Set([...this.mirrors.keys(), ...this.opening.keys()]);
+        await Promise.all([...udids].map((udid) => this.close(udid)));
     }
 }
 
