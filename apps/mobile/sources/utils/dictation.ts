@@ -7,6 +7,7 @@ import { claimDictation, releaseDictation } from '@/conversation/session';
 import { voiceDiagnostic } from '@/conversation/diagnostics';
 import { appendTranscript } from '@/utils/transcription';
 import { startLiveTranscription, type LiveTranscription } from '@/utils/localTranscription';
+import { currentDictationContext } from '@/utils/dictationContext';
 
 // Put `spoken` where the last live words were, keeping anything typed before them.
 function replaceSpoken(draft: string, shown: string, spoken: string): string {
@@ -95,8 +96,15 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         setPending(null);
         setFinished(null);
         try {
+            // Per-turn bias from the live catalog: the focused agent, its repo
+            // and home names, plus the draft so far. A throwing draft reader
+            // must never block the microphone.
+            let draft = '';
+            try { draft = sinkRef.current.getText(); } catch { }
+            const bias = currentDictationContext(draft, sinkRef.current.hint);
             sessionRef.current = await startLiveTranscription({
-                hint: sinkRef.current.hint,
+                hint: bias.prompt,
+                keywords: bias.keywords,
                 onLevel: (value) => { level.value = value; },
                 onText: (spoken) => { if (!controller.signal.aborted) showSpoken(spoken); },
             });
