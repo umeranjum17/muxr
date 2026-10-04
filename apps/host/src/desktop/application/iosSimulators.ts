@@ -237,7 +237,11 @@ export function spsSize(stream: Buffer): { width: number; height: number } | und
         let bit = 0;
         const u = (n: number): number => {
             let value = 0;
-            for (let i = 0; i < n; i += 1, bit += 1) value = (value << 1) | ((raw[bit >> 3]! >> (7 - (bit & 7))) & 1);
+            for (let i = 0; i < n; i += 1, bit += 1) {
+                const byte = raw[bit >> 3];
+                if (byte === undefined) throw new Error('truncated SPS');
+                value = (value << 1) | ((byte >> (7 - (bit & 7))) & 1);
+            }
             return value;
         };
         const ue = (): number => {
@@ -481,6 +485,7 @@ export class IosMirrors implements DeviceMirrors {
             '--avg-bitrate', String(MIRROR_BIT_RATE), '--key-frame-rate', String(KEY_FRAME_EVERY), '-',
         ], { stdio: ['pipe', 'pipe', 'pipe'] });
         video.stderr?.on('data', (chunk: Buffer) => this.options.onDiagnostic?.(`sim-video: ${chunk.toString().trim().slice(0, 200)}`));
+        video.stdin?.on('error', () => undefined);
         let hid: CompanionHid | undefined;
         const fail = (message: string): never => {
             this.options.onDiagnostic?.(`open failed: ${message}`);
@@ -497,8 +502,12 @@ export class IosMirrors implements DeviceMirrors {
             else if (opening.length < 90 || keyframe) opening.push({ keyframe, unit });
         });
         let size: { width: number; height: number } | undefined;
+        let headerBytes = Buffer.alloc(0);
         video.stdout?.on('data', (chunk: Buffer) => {
-            size ??= spsSize(chunk);
+            if (size === undefined) {
+                if (headerBytes.length < 1024 * 1024) headerBytes = Buffer.concat([headerBytes, chunk]);
+                size = spsSize(headerBytes);
+            }
             splitter.push(chunk);
         });
         const deadline = Date.now() + VIDEO_START_TIMEOUT_MS;
@@ -546,7 +555,7 @@ export class IosMirrors implements DeviceMirrors {
         engine.onLive((event) => {
             if (mirror.closed) return;
             if (event.kind === 'keyframeRequest') {
-                video.stdin?.write('{"method":"force_keyframe"}\n');
+                if (video.exitCode === null) video.stdin?.write('{"method":"force_keyframe"}\n');
                 return;
             }
             this.applyInput(mirror, event.input);
@@ -627,7 +636,7 @@ export class IosMirrors implements DeviceMirrors {
     }
 
     async closeAll(): Promise<void> {
-        for (const udid of [...this.mirrors.keys()]) await this.close(udid);
+        for (const udid of new Set([...this.mirrors.keys(), ...this.opening.keys()])) await this.close(udid);
     }
 }
 
