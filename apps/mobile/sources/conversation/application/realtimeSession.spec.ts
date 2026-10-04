@@ -406,12 +406,18 @@ describe('generic realtime stream session', () => {
         const microphone = { kind: 'audio', enabled: true, stop: vi.fn() };
         const getUserMedia = vi.fn(async () => ({ getAudioTracks: () => [microphone], getTracks: () => [microphone] }));
         const replaceTrack = vi.fn(async (_track: unknown) => undefined);
+        let parameters = { encodings: [{ active: false }] };
+        const sender = {
+            replaceTrack,
+            getParameters: () => structuredClone(parameters),
+            setParameters: async (next: typeof parameters) => { parameters = structuredClone(next); },
+        };
         const peer: Record<string, any> = {
             connectionState: 'new',
             iceGatheringState: 'complete',
             localDescription: { sdp: 'v=0\r\na=offer' },
             createDataChannel: () => ({ readyState: 'connecting', bufferedAmount: 0, send: vi.fn(), close: vi.fn() }),
-            addTransceiver: vi.fn(() => ({ sender: { replaceTrack } })),
+            addTransceiver: vi.fn(() => ({ sender })),
             addTrack: vi.fn(),
             createOffer: async () => ({ type: 'offer', sdp: 'v=0\r\na=offer' }),
             setLocalDescription: async () => undefined,
