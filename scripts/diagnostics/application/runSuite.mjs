@@ -71,6 +71,7 @@ const checks = [
     ['e2e: web serving delivery (live relay + static server)', 'node', ['scripts/diagnostics/application/checkWebServing.mjs']],
     ['security: export chain isolation (canary export + full scan)', 'node', ['scripts/diagnostics/application/checkExportIsolation.mjs'], undefined, 420000],
     ['security: tracked/package secret scan', 'node', ['scripts/diagnostics/application/checkNoSecrets.mjs']],
+    ['policy: constraints floor (diff-scoped suppressions, stubs, skipped/deleted tests, weakened rules)', 'node', ['scripts/diagnostics/application/checkFloor.mjs']],
 ];
 
 /**
@@ -98,6 +99,7 @@ const FAST = new Set([
     'policy: mobile architecture',
     'policy: package architecture (module boundaries, domain purity, no nested ternaries)',
     'policy: tooling architecture (feature boundaries, layers, no nested ternaries)',
+    'policy: constraints floor (diff-scoped suppressions, stubs, skipped/deleted tests, weakened rules)',
 ]);
 
 const fastOnly = process.argv.includes('--fast');
