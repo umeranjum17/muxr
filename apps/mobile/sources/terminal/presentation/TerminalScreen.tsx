@@ -52,13 +52,13 @@ import { ComposerAttachments, type ComposerAttachment } from '@/components/Compo
 import { withAlpha } from '@/components/ui';
 import { LinearGradient } from 'expo-linear-gradient';
 import { readFileBytes } from '@/utils/readFileBytes';
-import { encodeBase64 } from '@/encryption/base64';
+import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { agentSwipeNeighbours, herdPanes, holdLiveTerminalOrder, selectLiveTerminalCards, sharedLiveTerminalCards } from '@/herd';
 import { openFileViewer, useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
-import { FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingHandle, type RingSlot } from './FloatingTerminalControls';
+import { CONTROL_EDGE, CONTROL_SIZE, FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingHandle, type RingSlot } from './FloatingTerminalControls';
 import { assembleRing } from './ringSlots';
 import { TerminalKeyRow } from './TerminalKeyRow';
 import { TerminalControlGrid, type ControlGridCategory } from './TerminalKeyRowEditor';
@@ -89,7 +89,7 @@ import { agentCommands, destructiveCommand, type AgentCommand } from '../domain/
 import { agentKindLabel } from '@/herd';
 import { t } from '@/text';
 import { PREVIEW_DOCK, previewDocks, requestDesktop, type DesktopOrigin } from '@/desktop/request';
-import { PreviewChip, PreviewTooltip, usePreviewGate } from '@/desktop/preview';
+import { PreviewChip, PreviewTooltip, previewIcon, usePreviewGate } from '@/desktop/preview';
 import { FindOutputSheet } from './FindOutputSheet';
 import { PendingChoices } from './PendingChoices';
 import { useTerminalQuickReplies } from '@/plugins/ui';
@@ -119,10 +119,8 @@ const CONNECT_STALLED = 'still connecting';
 const STATUS_GRACE_MS = 900;
 /** The pane tabs row: its chips and its + are all this tall. */
 const PANE_TABS_HEIGHT = 24;
-/** How long a scroll back may wait for the pane to redraw before it counts for nothing. */
-const SCROLL_ANSWER_MS = 1_000;
-/** Rows counted back in a program that scrolls itself, by pane route, across its streams. */
-const ALT_SCROLL_BACK = new Map<string, number>();
+/** The air above the rails' first row. */
+const RAILS_TOP_PAD = 6;
 
 /**
  * The session is one dark surface: the terminal paints dark whatever the app
@@ -139,6 +137,16 @@ const ALT_SCROLL_BACK = new Map<string, number>();
 /** The pane and key rows' trailing fade: wide enough that a chip or key cut by
  *  the edge dissolves instead of reading as a clipped glyph. */
 const RAIL_FADE = 32;
+/**
+ * Panes whose program's own screen the user scrolled back since last typing
+ * to it, by pane route. The program keeps its scroll across streams, so this
+ * outlives one: coming back to the pane, its answers still stand down.
+ */
+const SCROLLED_AWAY = new Set<string>();
+/** What the terminal answers for the program unasked: focus, cursor, mode, colour and mouse reports. */
+/** The menu row that opens a pane's preview, per kind. */
+const WATCH_LABEL = { browser: 'preview.watchBrowser', android: 'preview.watchAndroid', ios: 'preview.watchIos' } as const;
+const TERMINAL_REPLY = /^\u001b(?:\[[IO]$|\[[?>]?[\d;$]*[cRnty]$|\[\?[\d;]*u$|[\]P]|\[<|\[M)/;
 const DesktopSurface = React.lazy(async () => ({ default: (await import('@/desktop')).DesktopSurface }));
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
@@ -342,89 +350,74 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
 
     const { selectedImages, pickImages, clearImages } = useImagePicker();
 
-    const hostHasScrollback = React.useRef(false);
     /**
-     * The old counting behaviour, retained only for alternate-screen panes:
-     * there herdr reports maxOffsetFromBottom 0 no matter what the finger did,
-     * so nothing else can know a program's own scroll position. Claude Code,
-     * vim and less scroll themselves on the wheel reports the host turns a
-     * scroll into; a program that ignores them entirely will show a control
-     * that cannot move it -- accepted as the lesser harm than stranding
-     * someone inside one that does.
+     * Latest is muxr's only on a pane whose scrollback Herdr owns. A program on
+     * the alternate screen (Claude Code and every other full-screen harness)
+     * scrolls itself and draws its own way back, so a second control there
+     * would sit beside the program's own; Herdr reports no scrollback for it.
      */
-    const altBack = React.useRef(0);
     const [catchingUp, setCatchingUp] = React.useState(false);
     const [showJump, setShowJump] = React.useState(false);
+    /**
+     * The user scrolled a program's own screen back since last typing to it.
+     * Herdr cannot say where that program's view sits, so this is no position,
+     * only that the screen may now be history: a question's answers stand down
+     * until the user types or answers again.
+     */
+    const [scrolledAway, setScrolledAway] = React.useState(() => SCROLLED_AWAY.has(props.id));
+    const paneRoute = React.useRef(props.id);
+    paneRoute.current = props.id;
+    const markScrolledAway = React.useCallback((route: string, away: boolean) => {
+        if (away) SCROLLED_AWAY.add(route);
+        else SCROLLED_AWAY.delete(route);
+        if (route === paneRoute.current) setScrolledAway(away);
+    }, []);
     const stopWatchingChannel = React.useRef<(() => void) | undefined>(undefined);
     React.useEffect(() => () => stopWatchingChannel.current?.(), []);
 
-    const paneRoute = React.useRef(props.id);
-    paneRoute.current = props.id;
-    const countBack = React.useCallback((rows: number) => {
-        altBack.current = rows;
-        if (rows > 0) ALT_SCROLL_BACK.set(paneRoute.current, rows);
-        else ALT_SCROLL_BACK.delete(paneRoute.current);
-        setShowJump(rows > 0);
-    }, []);
     const onChannel = React.useCallback((channel: TerminalChannel | undefined) => {
         stopWatchingChannel.current?.();
         stopWatchingChannel.current = undefined;
-        hostHasScrollback.current = false;
         setCatchingUp(false);
-        // A program's own scroll position outlives the stream that moved it:
-        // coming back to its tab, the count is where it was left.
-        altBack.current = ALT_SCROLL_BACK.get(paneRoute.current) ?? 0;
+        setShowJump(false);
+        const route = paneRoute.current;
+        setScrolledAway(SCROLLED_AWAY.has(route));
         if (channel !== undefined) {
-            setShowJump(altBack.current > 0);
+            let hostHasScrollback = false;
             const stopBottom = channel.onBottomState((state) => {
                 setCatchingUp(state === 'catching-up');
-                if (state === 'complete') countBack(0);
-                else if (state === 'catching-up') setShowJump(true);
+                if (state === 'complete') {
+                    setShowJump(false);
+                    markScrolledAway(route, false);
+                } else if (hostHasScrollback) setShowJump(true);
             });
             const stopScrollState = channel.onScrollState(({ offsetFromBottom, maxOffsetFromBottom }) => {
-                if (maxOffsetFromBottom > 0) {
-                    hostHasScrollback.current = true;
-                    countBack(0);
-                    setShowJump(offsetFromBottom > 0);
-                } else {
-                    if (hostHasScrollback.current) altBack.current = 0;
-                    hostHasScrollback.current = false;
-                    countBack(altBack.current);
-                }
+                hostHasScrollback = maxOffsetFromBottom > 0;
+                setShowJump(hostHasScrollback && offsetFromBottom > 0);
+                if (hostHasScrollback && offsetFromBottom === 0) markScrolledAway(route, false);
             });
-            // A scroll back counts only once the pane redraws after it. A shell
-            // at its prompt with no scrollback yet ignores the scroll entirely,
-            // and counting it anyway put Latest over a screen already at its
-            // live edge. Scrolling forward always counts: it can only end one.
-            let unanswered = 0;
-            let askedAt = 0;
-            const stopAnswers = channel.onData(() => {
-                if (unanswered === 0) return;
-                if (Date.now() - askedAt < SCROLL_ANSWER_MS) countBack(altBack.current + unanswered);
-                unanswered = 0;
-            });
-            const rawScroll = channel.scroll.bind(channel);
+            const { scroll, sendText, sendBytes } = channel;
             channel.scroll = (lines, at) => {
-                if (!hostHasScrollback.current) {
-                    if (lines > 0) {
-                        unanswered += lines;
-                        askedAt = Date.now();
-                    } else {
-                        unanswered = 0;
-                        countBack(Math.max(0, altBack.current + lines));
-                    }
-                }
-                rawScroll(lines, at);
+                if (lines > 0) markScrolledAway(route, true);
+                scroll(lines, at);
+            };
+            channel.sendText = (text) => {
+                if (!TERMINAL_REPLY.test(text)) markScrolledAway(route, false);
+                sendText(text);
+            };
+            channel.sendBytes = (base64) => {
+                if (!TERMINAL_REPLY.test(String.fromCharCode(...decodeBase64(base64.slice(0, 64))))) markScrolledAway(route, false);
+                sendBytes(base64);
             };
             stopWatchingChannel.current = () => {
                 stopBottom();
                 stopScrollState();
-                stopAnswers();
+                Object.assign(channel, { scroll, sendText, sendBytes });
             };
         }
         channelRef.current = channel;
         setChannel(channel);
-    }, [countBack]);
+    }, [markScrolledAway]);
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
         if (channel === undefined) return;
@@ -665,11 +658,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             showDialogGuard();
             return;
         }
+        markScrolledAway(props.id, false);
         const request = disposition.kind === 'answer'
             ? sync.request('session.answer', { sessionId: props.id, answer: disposition.answer })
             : sync.sendMessage(props.id, command);
         void request.catch((error: unknown) => Modal.alert('Command failed', error instanceof Error ? error.message : String(error)));
-    }, [props.id, showDialogGuard]);
+    }, [markScrolledAway, props.id, showDialogGuard]);
     const openAgentCommands = React.useCallback(() => {
         if (!canControl) return;
         ringRef.current?.close();
@@ -996,6 +990,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         setDraft('');
         clearDraft();
         setAttachedImages([]);
+        markScrolledAway(props.id, false);
         const request = disposition.kind === 'answer'
             ? sync.request('session.answer', { sessionId: props.id, answer: disposition.answer })
             : sync.sendMessage(props.id, text);
@@ -1006,7 +1001,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, selectedImages.length, props.id, showDialogGuard]);
+    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, markScrolledAway, selectedImages.length, props.id, showDialogGuard]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
@@ -1324,6 +1319,30 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             const statusText = shownStatus === 'live' ? 'connected'
                 : shownStatus === 'unconfirmed' ? 'Connection unconfirmed'
                     : shownStatus;
+            // What the pane is doing while it is not live, or the hint a gesture
+            // left: one chip in the row under the terminal, never over output.
+            const noticeChip = { flexShrink: 1, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 6, height: PANE_TABS_HEIGHT, marginLeft: 4, paddingHorizontal: 10, borderRadius: PANE_TABS_HEIGHT / 2, backgroundColor: theme.colors.surfaceHigh, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider };
+            const noticeText = { flexShrink: 1, color: theme.colors.textSecondary, fontSize: 11 };
+            const terminalNotice = gestureHint !== null
+                ? <View pointerEvents="none" style={noticeChip}><Text numberOfLines={1} style={noticeText}>{gestureHint}</Text></View>
+                : showConnectingStatus
+                    ? <View pointerEvents="none" style={noticeChip}><ActivityIndicator size="small" color={theme.colors.textSecondary} style={{ transform: [{ scale: 0.7 }] }} /><Text numberOfLines={1} style={noticeText}>{shownStatus}</Text></View>
+                    : showUnconfirmedStatus
+                        ? <View pointerEvents="none" accessibilityLabel={statusText} style={noticeChip}><Text numberOfLines={1} style={noticeText}>{statusText}</Text></View>
+                        : showRetryStatus
+                            ? (
+                                <Pressable
+                                    onPress={retryTerminal}
+                                    hitSlop={8}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={shownStatus.includes('another device') ? 'Use this terminal here' : `Reconnect terminal. ${statusText}`}
+                                    style={({ pressed }) => [noticeChip, { opacity: pressed ? 0.7 : 1 }]}
+                                >
+                                    <Text numberOfLines={1} style={noticeText}>{statusText}</Text>
+                                    <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
+                                </Pressable>
+                            )
+                            : null;
 
             // Same shape as KeyboardAvoidingView, minus the animation: that padding
             // moves frame by frame and Ghostty reflows its whole grid on every size
@@ -1488,138 +1507,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 onClose={() => setLinkMenu(null)}
                             />
                         )}
-                        {gestureHint !== null && (
-                            <View
-                                pointerEvents="none"
-                                style={{
-                                    position: 'absolute',
-                                    top: 12,
-                                    alignSelf: 'center',
-                                    paddingHorizontal: 12,
-                                    paddingVertical: 6,
-                                    borderRadius: 999,
-                                    backgroundColor: theme.colors.surfaceHigh,
-                                    borderWidth: 1,
-                                    borderColor: theme.colors.divider,
-                                }}
-                            >
-                                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{gestureHint}</Text>
-                            </View>
-                        )}
-                        {showConnectingStatus && (
-                                <View
-                                    pointerEvents="none"
-                                    style={{
-                                        position: 'absolute',
-                                        top: 12,
-                                        alignSelf: 'center',
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        paddingHorizontal: 12,
-                                        paddingVertical: 6,
-                                        borderRadius: 999,
-                                        backgroundColor: theme.colors.surfaceHigh,
-                                        borderWidth: 1,
-                                        borderColor: theme.colors.divider,
-                                    }}
-                                >
-                                    <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{shownStatus}</Text>
-                                </View>
-                        )}
-                        {showUnconfirmedStatus && (
-                                <View
-                                    pointerEvents="none"
-                                    accessibilityLabel={statusText}
-                                    style={{
-                                        position: 'absolute',
-                                        top: 12,
-                                        alignSelf: 'center',
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        paddingHorizontal: 12,
-                                        paddingVertical: 6,
-                                        borderRadius: 999,
-                                        backgroundColor: theme.colors.surfaceHigh,
-                                        borderWidth: 1,
-                                        borderColor: theme.colors.divider,
-                                    }}
-                                >
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{statusText}</Text>
-                                </View>
-                        )}
-                        {showRetryStatus && (
-                                <Pressable
-                                    onPress={retryTerminal}
-                                    hitSlop={8}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={shownStatus.includes('another device') ? 'Use this terminal here' : `Reconnect terminal. ${statusText}`}
-                                    style={({ pressed }) => ({
-                                        position: 'absolute',
-                                        top: 12,
-                                        alignSelf: 'center',
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        paddingHorizontal: 12,
-                                        paddingVertical: 6,
-                                        borderRadius: 999,
-                                        backgroundColor: theme.colors.surfaceHigh,
-                                        borderWidth: 1,
-                                        borderColor: theme.colors.divider,
-                                        opacity: pressed ? 0.7 : 1,
-                                    })}
-                                >
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{statusText}</Text>
-                                    <Ionicons name="refresh-outline" size={12} color={theme.colors.textSecondary} />
-                                </Pressable>
-                        )}
-                        {/* Centred, because it is the way back to the live edge
-                            and not an accessory of the right-hand chrome, and
-                            because the reach that matters on a phone is the
-                            middle of the bottom. It fades in only once this
-                            pane is known to be off its live edge, so a pane at
-                            the bottom shows nothing at all. */}
-                        {showJump && (
-                            <Animated.View
-                                entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)}
-                                exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
-                                style={{ position: 'absolute', left: 0, right: 0, bottom: 14, alignItems: 'center' }}
-                            >
-                                <Pressable
-                                    onPress={jumpToBottom}
-                                    hitSlop={10}
-                                    accessibilityRole="button"
-                                    accessibilityLabel="Jump to latest output"
-                                    style={({ pressed }) => ({
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        minHeight: 36,
-                                        paddingLeft: 12,
-                                        paddingRight: 14,
-                                        borderRadius: 999,
-                                        backgroundColor: theme.colors.surfaceHigh,
-                                        borderWidth: StyleSheet.hairlineWidth,
-                                        borderColor: theme.colors.divider,
-                                        elevation: 6,
-                                        opacity: pressed ? 0.78 : 1,
-                                        transform: [{ scale: pressed ? 0.97 : 1 }],
-                                    })}
-                                >
-                                    <Ionicons name="arrow-down" size={15} color={theme.colors.text} />
-                                    <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: '600' }}>{catchingUp ? 'Still catching up' : 'Latest'}</Text>
-                                </Pressable>
-                            </Animated.View>
-                        )}
                         {/* A question lives at the live edge, so its answers
                             stand down while the pane is scrolled back. */}
                         <PendingChoices
                             key={props.id}
                             sessionId={props.id}
-                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !showJump && !desktopVisible}
+                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !showJump && !scrolledAway && !desktopVisible}
                             channel={channel}
                             onVisibilityChange={setChoicesVisible}
                         />
@@ -1631,7 +1524,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         composer read as the same piece of chrome rather than as
                         three stacked bands, and the whole of it recedes
                         together while the ring is open. */}
-                    <Animated.View style={[{ backgroundColor: railInk, paddingTop: 6 }, railsFollowKeyboard]}>
+                    <Animated.View style={[{ backgroundColor: railInk, paddingTop: RAILS_TOP_PAD }, railsFollowKeyboard]}>
 
                     {/* Tabs row: one chip per tab of this workspace, never
                         its panes -- those are the header's 1/3 and the pager.
@@ -1640,9 +1533,17 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         stays while the keyboard is up and while dictation
                         runs, and by default at one tab too, where its + is the
                         way to a second. No band, no underline. */}
-                    {paneTabsPending && <View style={{ height: PANE_TABS_HEIGHT, marginBottom: 4 }} />}
-                    {showPaneTabs && (
-                        <View style={{ marginBottom: 4 }}>
+                    {/* The row under the terminal: this workspace's tabs, then the
+                        terminal's own controls at its trailing end -- what the
+                        pane is doing while it is not live, the way back to its
+                        live edge, and the quick-actions control. They live here
+                        and never on the output, where they covered whatever the
+                        agent printed under them. The row holds its height from
+                        the first layout whatever it carries, so nothing in it
+                        resizes the grid the terminal attached at. */}
+                    <View style={{ height: PANE_TABS_HEIGHT, marginBottom: 4, flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ flex: 1, alignSelf: 'stretch' }}>
+                        {showPaneTabs && (<>
                         <ScrollView
                             aria-hidden={desktopVisible}
                             accessibilityElementsHidden={desktopVisible}
@@ -1734,8 +1635,43 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             end={{ x: 1, y: 0 }}
                             style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: RAIL_FADE }}
                         />
+                        </>)}
                         </View>
-                    )}
+                        {terminalNotice}
+                        {showJump && (
+                            <Animated.View
+                                entering={FadeIn.duration(140).reduceMotion(ReduceMotion.System)}
+                                exiting={FadeOut.duration(120).reduceMotion(ReduceMotion.System)}
+                            >
+                                <Pressable
+                                    onPress={jumpToBottom}
+                                    hitSlop={8}
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Jump to latest output"
+                                    style={({ pressed }) => ({
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        height: PANE_TABS_HEIGHT,
+                                        marginLeft: 4,
+                                        paddingLeft: 8,
+                                        paddingRight: 10,
+                                        borderRadius: PANE_TABS_HEIGHT / 2,
+                                        backgroundColor: theme.colors.surfaceHigh,
+                                        borderWidth: StyleSheet.hairlineWidth,
+                                        borderColor: theme.colors.divider,
+                                        opacity: pressed ? 0.78 : 1,
+                                    })}
+                                >
+                                    <Ionicons name="arrow-down" size={13} color={theme.colors.text} />
+                                    <Text style={{ color: theme.colors.text, fontSize: 11, fontWeight: '600' }}>{catchingUp ? 'Still catching up' : 'Latest'}</Text>
+                                </Pressable>
+                            </Animated.View>
+                        )}
+                        {/* The quick-actions control draws itself over this
+                            place, from the ring's overlay. */}
+                        <View style={{ width: hasTools ? CONTROL_SIZE + CONTROL_EDGE + 4 : 8 }} />
+                    </View>
 
                     {canControl && <View aria-hidden={desktopVisible}>
                         {/* The key strip stands down while dictation owns the footer
@@ -1784,12 +1720,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     </View>}
                     </Animated.View>
 
-                    {/* The control rests on the terminal and stands down while
-                        a link card is open. It stays while the keyboard is up,
-                        riding above the rails with them. Its overlay extends
-                        through the rails, never under the keyboard, so the ring
-                        can borrow room below a short terminal; the control
-                        itself stays on the terminal surface. */}
+                    {/* The control sits in the place the row under the terminal
+                        keeps for it and stands down while a link card is open.
+                        It stays while the keyboard is up, riding with the
+                        rails. Its overlay extends through the rails, never
+                        under the keyboard, so the ring can borrow room below a
+                        short terminal. */}
                     {hasTools && !choicesVisible && linkMenu === null && terminalBox !== undefined && floatingControlFits(terminalBox.height) && (
                         <Animated.View
                             aria-hidden={desktopVisible}
@@ -1802,6 +1738,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 width={terminalBox.width}
                                 height={Math.max(ringOverlay, terminalBox.height)}
                                 terminalHeight={terminalBox.height}
+                                restY={terminalBox.height + RAILS_TOP_PAD + PANE_TABS_HEIGHT / 2}
                                 slots={ringSlots}
                                 clusterKeys={clusterKeys}
                                 dim={ringDim}
@@ -1906,10 +1843,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
                                     {preview.row && <Pressable onPress={() => watchPreview()} disabled={!preview.openable} accessibilityRole="button"
-                                        accessibilityLabel={t(preview.openable ? (preview.row.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser') : 'preview.reconnecting')}
+                                        accessibilityLabel={t(preview.openable ? WATCH_LABEL[preview.row.kind] : 'preview.reconnecting')}
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: preview.openable ? 1 : 0.5 })}>
-                                        <Ionicons name={preview.row.kind === 'android' ? 'logo-android' : 'globe-outline'} size={18} color={theme.colors.textSecondary} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t(preview.openable ? (preview.row.kind === 'android' ? 'preview.watchAndroid' : 'preview.watchBrowser') : 'preview.reconnecting')}</Text>
+                                        <Ionicons name={previewIcon(preview.row.kind)} size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{t(preview.openable ? WATCH_LABEL[preview.row.kind] : 'preview.reconnecting')}</Text>
                                         {preview.openable && <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />}
                                     </Pressable>}
                                     <Pressable onPress={() => { setActionsOpen(false); router.push(`/session/${encodeURIComponent(props.id)}/history`); }} accessibilityRole="button" accessibilityLabel="Conversation history"

@@ -22,15 +22,18 @@ export const es: TranslationStructure = {
     preview: {
         chipBrowser: 'Navegador',
         chipAndroid: 'Emulador',
+        chipIos: 'Simulador',
         introBrowser: 'Tu agente abrió un navegador',
         introAndroid: 'Tu agente inició un emulador de Android',
+        introIos: 'Tu agente reclamó un simulador de iOS',
         watch: 'Ver',
         notNow: 'Ahora no',
         watchBrowser: 'Ver navegador',
         watchAndroid: 'Ver emulador de Android',
+        watchIos: 'Ver simulador de iOS',
         reconnecting: 'Reconectando…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
-            `${kind === 'android' ? 'Emulador de Android en uso' : 'Navegador en uso'}${title ? `, ${title}` : ''}. Ver en directo`,
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
+            `${kind === 'android' ? 'Emulador de Android en uso' : kind === 'ios' ? 'Simulador de iOS en uso' : 'Navegador en uso'}${title ? `, ${title}` : ''}. Ver en directo`,
     },
 
     tabs: {

@@ -370,9 +370,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         let beforeAckSize = 0;
         const deliverLinkFrame = (frame: object): void => {
             const type = (frame as { type?: unknown }).type;
-            const record = frame as { bytes?: unknown };
+            const record = frame as { bytes?: unknown; full?: unknown; width?: unknown; height?: unknown };
             if (type === 'terminal.frame' && typeof record.bytes === 'string') {
                 const bytes = record.bytes;
+                // A diff Herdr drew for the grid before a resize lands on cells
+                // the phone has already reflowed. The full frame every resize
+                // brings back repaints them; until then, skip the stale diffs.
+                if (record.full !== true && typeof record.width === 'number' && typeof record.height === 'number'
+                    && (record.width !== current.cols || record.height !== current.rows)) return;
                 if (frameCounts !== undefined) recordTerminalFrameReceived(frameCounts);
                 hostAnswered();
                 if (!firstFrameOfStream) {
@@ -630,26 +635,28 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
             predictEcho(new TextDecoder().decode(bytes));
             queueInput({ kind: 'bytes', bytes });
         },
+        // Herdr answers every resize, even to the size it has, with a full
+        // frame, and the pane stays locked to this phone throughout.
         resize: (cols, rows) => {
             current = { cols, rows };
             send({ type: 'terminal.resize', cols, rows });
         },
         repaint: () => {
             cancelBottom();
-            // herdr sends a complete screen only on attach; everything after is
-            // a diff against the screen it thinks we hold. So once the two
-            // disagree -- a reflow, a font change, a dropped frame -- the cells
-            // it believes are already correct are never drawn again, and the
-            // stale ones sit there forever. Re-attaching is the only way to ask
-            // for the whole screen back.
+            // A resize already brings a full frame back (see `resize`); this is
+            // for a screen that disagrees with Herdr's at the same size, such as
+            // a failed write. Re-attaching costs the agent a brief redraw at the
+            // desk's width: Herdr hands the pane back before it re-locks it.
             if (closedByUser) return;
             if (retryTimer !== undefined) {
                 clearTimeout(retryTimer);
                 retryTimer = undefined;
             }
-            const staleLink = linkWire;
+            // The live stream stays until its successor exists (attachViaLink
+            // retires it then). Retired first, it released the phone's size,
+            // Herdr handed the pane back to the desk's wider grid, and whatever
+            // the agent drew in that gap was laid out too wide for the phone.
             emitState('reconnecting');
-            if (staleLink !== undefined) retireLink(staleLink);
             attempts = 0;
             requestAttach(false);
         },

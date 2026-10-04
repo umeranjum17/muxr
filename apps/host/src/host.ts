@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@trymuxr/contract';
 import { deviceTableCanMutate, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
-import { AndroidEmulatorWatcher, DesktopSessions, PreviewDesktops, PreviewLeaseTracker, PreviewPresenceTracker, filePreviewLeaseSink, PREVIEW_LEASE_FILENAME, withPreview, type PaneScreens } from './desktop/index.js';
+import { AndroidEmulatorWatcher, DesktopSessions, IosSimulatorWatcher, PreviewDesktops, PreviewLeaseTracker, PreviewPresenceTracker, filePreviewLeaseSink, PREVIEW_LEASE_FILENAME, withPreview, type PaneScreens } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -127,8 +127,18 @@ export function startHost(options: HostOptions): Host {
         lease: previewLease,
     });
     androidWatcher.start();
-    // An emulator chip wins over a screen chip; a pane never shows both.
-    const combinedPreviewFor = (paneId: string) => androidWatcher.previewFor(paneId) ?? previewForPane(paneId);
+    // Simulators a pane claimed (`muxr preview claim`), macOS only. Without a
+    // state root there is nowhere to read claims from, so nothing is offered.
+    const iosWatcher = new IosSimulatorWatcher({
+        listSessions: () => source.list(),
+        claimsDir: join(options.stateRoot ?? '/nonexistent', 'preview', 'simulators'),
+        lease: previewLease,
+        onDiagnostic: (line) => process.stderr.write(`ios simulator: ${line}\n`),
+    });
+    if (options.stateRoot !== undefined) iosWatcher.start();
+    const devicePreviewFor = (paneId: string) => androidWatcher.previewFor(paneId) ?? iosWatcher.previewFor(paneId);
+    // A device chip wins over a screen chip; a pane never shows both.
+    const combinedPreviewFor = (paneId: string) => devicePreviewFor(paneId) ?? previewForPane(paneId);
     const dispatcher = createRequestDispatcher({
         source,
         domain,
@@ -144,8 +154,8 @@ export function startHost(options: HostOptions): Host {
         desktop,
         previewDesktops,
         previewForPane,
-        androidTargets: androidWatcher.targets,
-        androidPreviewForPane: androidWatcher.previewFor,
+        deviceTargets: [androidWatcher.targets, iosWatcher.targets],
+        devicePreviewForPane: devicePreviewFor,
         isDesktopConnectionActive: (id: string) => activeDesktopConnections.has(id),
         ...hostedDispatcherOptions,
     });
@@ -246,6 +256,7 @@ export function startHost(options: HostOptions): Host {
     // subscribes to announced changes rather than one call's return value.
     const unsubscribePresence = previewPresence.onChange(pushPresence);
     const unsubscribeAndroid = androidWatcher.onChange(pushPresence);
+    const unsubscribeIos = iosWatcher.onChange(pushPresence);
     const unsubscribePreview = options.paneScreens?.onWindows((paneId, windows) => {
         previewPresence.handleWindows(paneId, windows);
     });
@@ -272,12 +283,14 @@ export function startHost(options: HostOptions): Host {
             desktop.setLinkDeviceConnected(deviceId, active);
             previewDesktops.setLinkDeviceConnected(deviceId, active);
             androidWatcher.targets.setLinkDeviceConnected(deviceId, active);
+            iosWatcher.targets.setLinkDeviceConnected(deviceId, active);
         },
         closeDeviceDesktopSessions: async (deviceId, removed) => {
             await desktop.revokeDevice(deviceId, removed);
             // A removed device loses every target session too.
             await previewDesktops.revokeDevice(deviceId);
             await androidWatcher.targets.revokeDevice(deviceId);
+            await iosWatcher.targets.revokeDevice(deviceId);
         },
         onBroadcast: (listener) => { broadcastListeners.add(listener); },
         refreshLinkEnrolment,
@@ -287,10 +300,13 @@ export function startHost(options: HostOptions): Host {
             unsubscribePreview?.();
             unsubscribePresence();
             unsubscribeAndroid();
+            unsubscribeIos();
             previewPresence.stop();
             androidWatcher.stop();
+            iosWatcher.stop();
             await previewDesktops.closeAll();
             await androidWatcher.targets.closeAll();
+            await iosWatcher.targets.closeAll();
             await desktop.closeAll();
             desktop.stopVirtualDisplay();
             options.paneScreens?.stop();

@@ -40,10 +40,6 @@ export const LocalSettingsSchema = z.object({
         label: z.string().min(1).max(QUICK_ACTION_LABEL_LIMIT),
         text: z.string().min(1).max(QUICK_ACTION_TEXT_LIMIT),
     })).max(QUICK_ACTION_LIMIT).nullable().catch(null).describe('Personal terminal quick actions (null follows the built-in seeds)'),
-    // The floating terminal control rests where the person leaves it, as
-    // fractions of its travel from the terminal's own top-left corner, so the
-    // position survives a restart and a terminal of any size.
-    terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().catch(null).describe('Where the floating terminal command control rests, as fractions of the terminal surface'),
     terminalModifierIcons: z.boolean().describe('Draw ctrl and shift as modifier glyphs in the terminal key row'),
     terminalKeyRowVisible: z.boolean().catch(true).describe('Whether the terminal key row shows above the composer'),
     terminalPaneTabs: z.enum(['always', 'several']).catch('always').describe('Whether the tabs row above the key row always shows, or only when the workspace holds more than one tab'),
@@ -57,7 +53,6 @@ export const LocalSettingsSchema = z.object({
     terminalColors: z.record(z.string(), z.unknown()).catch({}).describe('Terminal colour overrides by slot (background, foreground, cursor, selection, ansi0-15)'),
     darkSurfaces: z.enum(['seamless', 'raised']).catch('seamless').describe('Whether dark-theme surfaces (cards, rows, sheets, bars, the terminal header and footer) blend into the near-black page or sit one step lighter'),
     desktopOpenedBefore: z.boolean().describe('Whether a desktop has opened on this device, which retires the screen-sharing approval hint'),
-    usageNamesSeen: z.boolean().describe('Whether the Home usage chips have been read with their plan names, which retires the names on first use'),
     vadStandbyEnabled: z.boolean().describe('Persistently wake realtime voice from local speech activity standby'),
     dictationLanguage: z.string().nullable().describe('Spoken dictation language (null for automatic detection)'),
     dictationModel: z.string().describe('Selected on-device dictation model'),
@@ -100,7 +95,6 @@ export const localSettingsDefaults: LocalSettings = {
     terminalFont: 'system',
     terminalKeyRow: null,
     terminalQuickActions: null,
-    terminalCommandKeyDock: null,
     terminalModifierIcons: false,
     terminalKeyRowVisible: true,
     terminalPaneTabs: 'always',
@@ -110,7 +104,6 @@ export const localSettingsDefaults: LocalSettings = {
     terminalColors: {},
     darkSurfaces: 'seamless',
     desktopOpenedBefore: false,
-    usageNamesSeen: false,
     vadStandbyEnabled: false,
     dictationLanguage: null,
     dictationModel: 'base.en-q5_1',

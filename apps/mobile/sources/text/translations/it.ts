@@ -22,15 +22,18 @@ export const it: TranslationStructure = {
     preview: {
         chipBrowser: 'Browser',
         chipAndroid: 'Emulatore',
+        chipIos: 'Simulatore',
         introBrowser: 'Il tuo agente ha aperto un browser',
         introAndroid: 'Il tuo agente ha avviato un emulatore Android',
+        introIos: 'Il tuo agente ha rivendicato un simulatore iOS',
         watch: 'Guarda',
         notNow: 'Non ora',
         watchBrowser: 'Guarda il browser',
         watchAndroid: 'Guarda l\'emulatore Android',
+        watchIos: 'Guarda il simulatore iOS',
         reconnecting: 'Riconnessione…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
-            `${kind === 'android' ? 'Emulatore Android in uso' : 'Browser in uso'}${title ? `, ${title}` : ''}. Guarda dal vivo`,
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
+            `${kind === 'android' ? 'Emulatore Android in uso' : kind === 'ios' ? 'Simulatore iOS in uso' : 'Browser in uso'}${title ? `, ${title}` : ''}. Guarda dal vivo`,
     },
 
     tabs: {

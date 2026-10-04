@@ -1,6 +1,6 @@
 ---
 name: muxr
-description: Set up and operate muxr (control coding agents from your phone) — watch an agent's live browser or emulator chip, open pages on a machine's desktop session for the user to watch through Computer, use durable Shared Artifacts, install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice, and author/install muxr plugins. Use for any muxr or Herdr setup, orchestration, collaboration, plugin, or troubleshooting task.
+description: Set up and operate muxr (control coding agents from your phone) — watch an agent's live browser, emulator, or simulator chip, open pages on a machine's desktop session for the user to watch through Computer, use durable Shared Artifacts, install/pair/self-host, drive Herdr workspaces/panes/agents/worktrees, hand browser login/2FA/CAPTCHA to the phone, connect computers for cross-machine collaboration and voice, and author/install muxr plugins. Use for any muxr or Herdr setup, orchestration, collaboration, plugin, or troubleshooting task.
 license: Apache-2.0
 compatibility: Requires the muxr and Herdr CLIs on a paired macOS or Linux host, with shell access for commands.
 ---
@@ -49,7 +49,7 @@ a second browser or sending a filesystem path as the user experience:
 
 - On a machine with a desktop session, open web pages in that desktop's browser;
   the user watches and takes over through the phone's Computer action. A
-  muxr-launched pane's own browser or emulator appears as a live chip instead. Load
+  muxr-launched pane's own browser, emulator, or claimed simulator appears as a live chip instead. Load
   `muxr skill agent-browser-preview` for preview and 2FA handoff rules.
 - Share a finished file with `muxr share <path>`. It resolves the current pane
   from `$HERDR_PANE_ID` and adds the file to that session's durable history.
@@ -66,7 +66,8 @@ work.
 | Install, pair a phone or browser, self-host, update, uninstall, diagnose | `muxr skill onboarding` · [source](references/onboarding.md) |
 | Create panes/tabs/workspaces/worktrees, run and read agents, socket API | `muxr skill herdr` · [source](references/herdr.md) |
 | Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
-| Watch an agent's browser or emulator live; hand a login, 2FA, or CAPTCHA to the phone | `muxr skill agent-browser-preview` · [source](references/agent-browser-preview.md) |
+| Watch an agent's browser, emulator, or iOS Simulator live; hand a login, 2FA, or CAPTCHA to the phone | `muxr skill agent-browser-preview` · [source](references/agent-browser-preview.md) |
+| Publish an HTML page with images, or a new version of it | `muxr skill artifact-pages` · [source](references/artifact-pages.md) |
 | Name the current Herdr workspace/pane | `muxr name --workspace LABEL --pane TITLE --provider PROVIDER --model MODEL` |
 | Build, install, debug, or override a plugin | `muxr skill plugins` · [source](references/plugins.md) |
 | Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
@@ -106,6 +107,10 @@ returns as soon as the durable copy is stored. The phone groups artifacts by day
 in the owning session. Images open in a swipeable gallery; readable documents
 open in a rich preview; every entry can download the original. Large files stay
 metadata-only until opened or downloaded.
+
+An HTML page with images is published the same way, and republishing it under the
+same title adds a new version of that one artifact instead of a new file:
+`muxr share page.html --title "Release evidence"` (`muxr skill artifact-pages`).
 
 Direct copies remain the underlying convention when a tool cannot call the CLI:
 
