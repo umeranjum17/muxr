@@ -52,7 +52,7 @@ import { ComposerAttachments, type ComposerAttachment } from '@/components/Compo
 import { withAlpha } from '@/components/ui';
 import { LinearGradient } from 'expo-linear-gradient';
 import { readFileBytes } from '@/utils/readFileBytes';
-import { encodeBase64 } from '@/encryption/base64';
+import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { agentSwipeNeighbours, herdPanes, holdLiveTerminalOrder, selectLiveTerminalCards, sharedLiveTerminalCards } from '@/herd';
 import { openFileViewer, useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
@@ -137,6 +137,14 @@ const RAILS_TOP_PAD = 6;
 /** The pane and key rows' trailing fade: wide enough that a chip or key cut by
  *  the edge dissolves instead of reading as a clipped glyph. */
 const RAIL_FADE = 32;
+/**
+ * Panes whose program's own screen the user scrolled back since last typing
+ * to it, by pane route. The program keeps its scroll across streams, so this
+ * outlives one: coming back to the pane, its answers still stand down.
+ */
+const SCROLLED_AWAY = new Set<string>();
+/** What the terminal answers for the program unasked: focus, cursor, mode, colour and mouse reports. */
+const TERMINAL_REPLY = /^\u001b(?:\[[IO]$|\[[?>]?[\d;$]*[cRnty]$|\[\?[\d;]*u$|[\]P]|\[<|\[M)/;
 const DesktopSurface = React.lazy(async () => ({ default: (await import('@/desktop')).DesktopSurface }));
 function DarkSurface({ children }: { children: (theme: ReturnType<typeof useUnistyles>['theme']) => React.ReactNode }): React.JSX.Element {
     const { theme } = useUnistyles();
@@ -348,6 +356,20 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
      */
     const [catchingUp, setCatchingUp] = React.useState(false);
     const [showJump, setShowJump] = React.useState(false);
+    /**
+     * The user scrolled a program's own screen back since last typing to it.
+     * Herdr cannot say where that program's view sits, so this is no position,
+     * only that the screen may now be history: a question's answers stand down
+     * until the user types or answers again.
+     */
+    const [scrolledAway, setScrolledAway] = React.useState(() => SCROLLED_AWAY.has(props.id));
+    const paneRoute = React.useRef(props.id);
+    paneRoute.current = props.id;
+    const markScrolledAway = React.useCallback((route: string, away: boolean) => {
+        if (away) SCROLLED_AWAY.add(route);
+        else SCROLLED_AWAY.delete(route);
+        if (route === paneRoute.current) setScrolledAway(away);
+    }, []);
     const stopWatchingChannel = React.useRef<(() => void) | undefined>(undefined);
     React.useEffect(() => () => stopWatchingChannel.current?.(), []);
 
@@ -356,25 +378,44 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         stopWatchingChannel.current = undefined;
         setCatchingUp(false);
         setShowJump(false);
+        const route = paneRoute.current;
+        setScrolledAway(SCROLLED_AWAY.has(route));
         if (channel !== undefined) {
             let hostHasScrollback = false;
             const stopBottom = channel.onBottomState((state) => {
                 setCatchingUp(state === 'catching-up');
-                if (state === 'complete') setShowJump(false);
-                else if (hostHasScrollback) setShowJump(true);
+                if (state === 'complete') {
+                    setShowJump(false);
+                    markScrolledAway(route, false);
+                } else if (hostHasScrollback) setShowJump(true);
             });
             const stopScrollState = channel.onScrollState(({ offsetFromBottom, maxOffsetFromBottom }) => {
                 hostHasScrollback = maxOffsetFromBottom > 0;
                 setShowJump(hostHasScrollback && offsetFromBottom > 0);
+                if (hostHasScrollback && offsetFromBottom === 0) markScrolledAway(route, false);
             });
+            const { scroll, sendText, sendBytes } = channel;
+            channel.scroll = (lines, at) => {
+                if (lines > 0) markScrolledAway(route, true);
+                scroll(lines, at);
+            };
+            channel.sendText = (text) => {
+                if (!TERMINAL_REPLY.test(text)) markScrolledAway(route, false);
+                sendText(text);
+            };
+            channel.sendBytes = (base64) => {
+                if (!TERMINAL_REPLY.test(String.fromCharCode(...decodeBase64(base64.slice(0, 64))))) markScrolledAway(route, false);
+                sendBytes(base64);
+            };
             stopWatchingChannel.current = () => {
                 stopBottom();
                 stopScrollState();
+                Object.assign(channel, { scroll, sendText, sendBytes });
             };
         }
         channelRef.current = channel;
         setChannel(channel);
-    }, []);
+    }, [markScrolledAway]);
     const jumpToBottom = React.useCallback(() => {
         const channel = channelRef.current;
         if (channel === undefined) return;
@@ -615,11 +656,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             showDialogGuard();
             return;
         }
+        markScrolledAway(props.id, false);
         const request = disposition.kind === 'answer'
             ? sync.request('session.answer', { sessionId: props.id, answer: disposition.answer })
             : sync.sendMessage(props.id, command);
         void request.catch((error: unknown) => Modal.alert('Command failed', error instanceof Error ? error.message : String(error)));
-    }, [props.id, showDialogGuard]);
+    }, [markScrolledAway, props.id, showDialogGuard]);
     const openAgentCommands = React.useCallback(() => {
         if (!canControl) return;
         ringRef.current?.close();
@@ -946,6 +988,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         setDraft('');
         clearDraft();
         setAttachedImages([]);
+        markScrolledAway(props.id, false);
         const request = disposition.kind === 'answer'
             ? sync.request('session.answer', { sessionId: props.id, answer: disposition.answer })
             : sync.sendMessage(props.id, text);
@@ -956,7 +999,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, selectedImages.length, props.id, showDialogGuard]);
+    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, markScrolledAway, selectedImages.length, props.id, showDialogGuard]);
 
     const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
 
@@ -1467,7 +1510,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         <PendingChoices
                             key={props.id}
                             sessionId={props.id}
-                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !showJump && !desktopVisible}
+                            waiting={canControl && isFocused && appActive && status === 'live' && paneLifecycle === 'blocked' && !showJump && !scrolledAway && !desktopVisible}
                             channel={channel}
                             onVisibilityChange={setChoicesVisible}
                         />
