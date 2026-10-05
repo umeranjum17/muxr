@@ -1405,7 +1405,7 @@ export interface AndroidWatcherOptions {
     runAdb?: AdbRunner;
     mirrors?: AndroidMirrors;
     tracker?: DevicePresenceTracker;
-    /** Engine binary for mirrors; unset means `MUXR_DESKLINK_ENGINE` or the pin. */
+    /** Engine binary for mirrors; unset means `DESKLINK_ENGINE` or the pin. */
     enginePath?: string;
     scanMs?: number;
     onDiagnostic?: (line: string) => void;

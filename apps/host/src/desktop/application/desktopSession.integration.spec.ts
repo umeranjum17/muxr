@@ -131,7 +131,9 @@ describe('desktop sessions, host side', () => {
             'shutdown',
         ]);
         expect(sent[2]?.params).toMatchObject({
-            permissions: ['view', 'control', 'clipboard'],
+            // @desklink/host 0.5.0 no longer sends permissions on the wire:
+            // pairing grants all available access, so the client drops the
+            // deprecated field and the engine ignores it.
             // The engine reads the snake_case wire names; a camelCase key is
             // ignored, not refused, so this is the only place the drop shows.
             max_width: 640,
@@ -397,7 +399,6 @@ describe('desktop sessions, host side', () => {
                 const sent = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { method: string; params: Record<string, unknown> });
                 expect(sent.find((request) => request.method === 'session.open')?.params).toMatchObject({
                     source: environment.DISPLAY === undefined ? { kind: 'x11' } : { kind: 'x11', display: ':77' },
-                    permissions: ['view', 'control'],
                 });
             }
 
