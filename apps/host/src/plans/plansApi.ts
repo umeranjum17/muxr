@@ -60,7 +60,7 @@ async function providerRooms(provider: PlanProvider, env: NodeJS.ProcessEnv, dep
     const reads = await Promise.all(records.map(async (record) => {
         const cli = managed.find((account) => account.id === record.id);
         if (!record.found && cli === undefined) return undefined;
-        const account = record.found ? await defaultAccount(record, env, deps) : fromCliAccount(cli!);
+        const account = record.found ? await defaultAccount(record, env, deps) : fromCliAccount(cli!, record, env);
         let room: Room = { left: 'unknown' };
         if (account.signedIn) {
             const scoped = accountEnvironment(env, record);
@@ -135,7 +135,7 @@ export async function resolvePlanLaunch(env: NodeJS.ProcessEnv, chosen: string, 
     if (!record.found) {
         try { status = await kit.status(record.id); } catch (error) { return planError(error); }
     }
-    const account = record.found ? await defaultAccount(record, env, deps) : fromCliAccount(status!);
+    const account = record.found ? await defaultAccount(record, env, deps) : fromCliAccount(status!, record, env);
     return account.signedIn ? record : undefined;
 }
 
@@ -146,7 +146,11 @@ export function resolvePlanEnv(env: NodeJS.ProcessEnv, accountId: string): Recor
 export async function renamePlanAccount(env: NodeJS.ProcessEnv, accountId: string, name: string, deps: PlansDeps = {}): Promise<{ account: PlanAccount }> {
     const record = resolvePlanRecord(env, accountId);
     if (!record.found) {
-        try { return { account: fromCliAccount(await planAccounts(env).rename(accountId, name)) }; } catch (error) { return planError(error); }
+        // Read the record again: the name just saved is the one to show.
+        try {
+            const renamed = fromCliAccount(await planAccounts(env).rename(accountId, name), resolvePlanRecord(env, accountId), env);
+            return { account: renamed };
+        } catch (error) { return planError(error); }
     }
     const clean = name.trim();
     if (clean === '' || clean.length > 64 || /[\x00-\x1f\x7f]/.test(clean)) {

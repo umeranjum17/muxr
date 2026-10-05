@@ -126,6 +126,21 @@ it('hides the feature with one account and lists two with names and emails', asy
     expect(accounts[1]).toMatchObject({ name: 'Work' });
 });
 
+/** A second account added beside the first one: each name comes from its own
+ *  email, and neither row lands on the name the person already chose. */
+it('never shows a second account under the first account name', async () => {
+    foundClaude();
+    const personal = addedClaude('umer');
+    const work = addedClaude('umer.work');
+    savePlanAccounts(env, [
+        { id: 'pa_umer', provider: 'claude', name: 'Umer', folder: personal, found: false },
+        { id: 'pa_umer_work', provider: 'claude', name: '', folder: work, found: false },
+    ]);
+    const accounts = (await listPlans(env)).providers[0]!.accounts;
+    expect(accounts.map((account) => account.email)).toEqual(['.claude@example.com', 'umer@example.com', 'umer.work@example.com']);
+    expect(accounts.map((account) => account.name)).toEqual(['Claude', 'Umer', 'Umer Work']);
+});
+
 it('reports a signed-out account without choosing it when its credentials are unreadable', async () => {
     const folder = foundClaude();
     writeFileSync(join(folder, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'secret', accountUuid: 'u' } }));
