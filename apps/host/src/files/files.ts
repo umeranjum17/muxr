@@ -11,7 +11,8 @@
  * 24 KiB / 240 lines, with binary files reported as unavailable.
  */
 import { execFileSync } from 'node:child_process';
-import { closeSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, openSync, readSync, realpathSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 export interface FilesInput {
     sessionId: string;
@@ -74,23 +75,39 @@ export function filesRepos(cwds: string[]): { title: string; repos: FilesRepo[] 
     return { title: `${repos.length} repositories`, repos };
 }
 
+export type FilesScope = 'repository' | 'folder';
+
 /** Resolve the requested root, or the session checkout when absent. An
- *  explicit root is honored only when it is a repository open in some
- *  session; otherwise callers could browse anywhere on the host. */
-function selectedRoot(cwd: string, allowedRoots: readonly string[], root?: string): string {
+ *  explicit root is honored when it is a repository open in some session.
+ *  Otherwise it is honored only as a user-named folder: an absolute path
+ *  the user asked for by name that exists as a directory on this host. A
+ *  named folder is listed from the filesystem (git cannot see empty or
+ *  ignored folders) and is presented as exactly that, never as a
+ *  repository root. Relative explicit roots still resolve against nothing,
+ *  so they stay unknown: the phone names every folder absolutely. */
+function selectedRoot(cwd: string, allowedRoots: readonly string[], root?: string): { root: string; scope: FilesScope } {
     const requested = String(root ?? '');
     if (requested !== '') {
         if (requested.includes('\0')) throw new Error('unknown repository');
-        if (allowedRoots.includes(requested)) return requested;
+        if (allowedRoots.includes(requested)) return { root: requested, scope: 'repository' };
         try {
             const real = realpathSync(requested);
-            if (allowedRoots.includes(real)) return real;
+            if (allowedRoots.includes(real)) return { root: real, scope: 'repository' };
         } catch {
-            // Not resolvable: unknown repository below.
+            // Not resolvable: named folder or unknown repository below.
+        }
+        if (requested.startsWith('/')) {
+            let real: string;
+            try {
+                real = realpathSync(requested);
+            } catch {
+                throw new Error('unknown repository');
+            }
+            if (statSync(real).isDirectory()) return { root: real, scope: 'folder' };
         }
         throw new Error('unknown repository');
     }
-    return sessionRoot(cwd);
+    return { root: sessionRoot(cwd), scope: 'repository' };
 }
 
 function fileTree(paths: string[], folder = ''): { tree: FilesTreeNode[]; total: number; note: string } {
@@ -128,24 +145,86 @@ function fileTree(paths: string[], folder = ''): { tree: FilesTreeNode[]; total:
 
 export function filesList(input: FilesInput & { path?: string; allowedRoots?: readonly string[] }): {
     root: string;
+    scope: FilesScope;
     title: string;
     count: string;
     tree: FilesTreeNode[];
     treeNote: string;
 } {
-    const root = selectedRoot(input.cwd, input.allowedRoots ?? [], input.root);
+    const selected = selectedRoot(input.cwd, input.allowedRoots ?? [], input.root);
+    const root = selected.root;
+    const folder = String(input.path ?? '').replace(/^\/+|\/+$/g, '');
+    if (folder.split('/').some((segment) => segment === '..')) throw new Error('invalid folder');
+    if (selected.scope === 'folder') {
+        const listed = folderTree(root, folder);
+        return {
+            root,
+            scope: selected.scope,
+            title: root.split('/').pop() ?? root,
+            count: `${listed.total} entries`,
+            tree: listed.tree,
+            treeNote: listed.note,
+        };
+    }
     const all = git(['ls-files', '--cached', '--others', '--exclude-standard', '-z'], root)
         .split('\0')
         .filter(Boolean);
-    const folder = String(input.path ?? '').replace(/^\/+|\/+$/g, '');
-    if (folder.split('/').some((segment) => segment === '..')) throw new Error('invalid folder');
     const listed = fileTree(all, folder);
     return {
         root,
+        scope: selected.scope,
         title: root.split('/').pop() ?? root,
         count: `${all.length} files`,
         tree: listed.tree,
         treeNote: listed.note,
+    };
+}
+
+/** One folder of a user-named directory, read from the filesystem: git
+ *  only knows tracked files, so empty, ignored, and untracked entries need
+ *  readdir. Symlinked escapes resolve outside the root and are refused with
+ *  the same class as repository reads. */
+function folderTree(root: string, folder: string): { tree: FilesTreeNode[]; total: number; note: string } {
+    const realRoot = realpathSync(root);
+    const target = folder === '' ? realRoot : join(realRoot, folder);
+    let realTarget: string;
+    try {
+        realTarget = realpathSync(target);
+    } catch {
+        throw new Error('file unavailable');
+    }
+    if (realTarget !== realRoot && !realTarget.startsWith(`${realRoot}/`)) throw new Error('outside repository');
+    let dirents;
+    try {
+        dirents = readdirSync(realTarget, { withFileTypes: true });
+    } catch {
+        throw new Error('file unavailable');
+    }
+    const nodes = dirents
+        .filter((entry) => entry.name !== '' && entry.name !== '.' && entry.name !== '..')
+        .map((entry): FilesTreeNode => {
+            let directory = entry.isDirectory();
+            if (!directory && entry.isSymbolicLink()) {
+                try {
+                    directory = statSync(join(realTarget, entry.name)).isDirectory();
+                } catch {
+                    directory = false;
+                }
+            }
+            const childPath = folder === '' ? entry.name : `${folder}/${entry.name}`;
+            return {
+                name: entry.name,
+                path: childPath,
+                kind: directory ? 'folder' : 'file',
+                ...(directory ? { hasChildren: true as const } : {}),
+            };
+        })
+        .sort((a, b) => Number(b.kind === 'folder') - Number(a.kind === 'folder') || a.name.localeCompare(b.name));
+    const tree = nodes.slice(0, MAX_TREE_NODES);
+    return {
+        tree,
+        total: nodes.length,
+        note: nodes.length > tree.length ? `Showing first ${MAX_TREE_NODES} of ${nodes.length}` : '',
     };
 }
 
@@ -155,7 +234,7 @@ export function filesRead(input: FilesInput & { path?: string; allowedRoots?: re
     body: string;
     note: string;
 } {
-    const root = selectedRoot(input.cwd, input.allowedRoots ?? [], input.root);
+    const root = selectedRoot(input.cwd, input.allowedRoots ?? [], input.root).root;
     const relative = String(input.path ?? '');
     const target = `${root}/${relative}`;
     const realRoot = realpathSync(root);

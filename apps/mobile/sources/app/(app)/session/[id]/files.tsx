@@ -157,7 +157,7 @@ export default function FilesScreen() {
                             </>
                             : listing !== undefined
                                 ? <>
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{listing.count}</Text>
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{listing.scope === 'folder' ? `On this computer \u00b7 ${listing.count}` : listing.count}</Text>
                                     {path !== '' && (
                                         <Pressable
                                             accessibilityRole="button"

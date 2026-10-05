@@ -6,6 +6,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { filesList, filesRead, filesRepos } from './files.js';
 import { historyLog, historyShow } from './history.js';
+import { createFakeSessionSource } from '../agent/index.js';
+import { createRequestDispatcher } from '../requests/application/createRequestDispatcher.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-files-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -66,6 +68,71 @@ describe('files tree', () => {
         writeFileSync(join(repo, 'blob.bin'), Buffer.from([0x89, 0x50, 0x00, 0x01]));
         const preview = filesRead({ ...input, root: repo, path: 'blob.bin' });
         expect(preview.body).toBe('Binary file — preview unavailable.');
+    });
+});
+
+describe('user-named folders outside the open repositories', () => {
+    const spaced = join(scratch, 'My Project');
+    mkdirSync(join(spaced, 'notes'), { recursive: true });
+    mkdirSync(join(spaced, 'emptydir'), { recursive: true });
+    writeFileSync(join(spaced, 'report.md'), '# plan\n\nThe full target.\n');
+    writeFileSync(join(spaced, 'notes', 'plan.txt'), 'wrapped and spaced\n');
+    writeFileSync(join(scratch, 'outside.txt'), 'outside\n');
+    symlinkSync(join(scratch, 'outside.txt'), join(spaced, 'escape'));
+
+    it('lists an absolute out-of-repository folder with spaces as a named folder, never a repository', () => {
+        const listed = filesList({ ...input, root: spaced });
+        expect(listed.scope).toBe('folder');
+        expect(listed.title).toBe('My Project');
+        expect(listed.tree.map((node) => `${node.kind}:${node.name}`).sort()).toEqual([
+            'file:escape',
+            'file:report.md',
+            'folder:emptydir',
+            'folder:notes',
+        ]);
+        const nested = filesList({ ...input, root: spaced, path: 'notes' });
+        expect(nested.tree.map((node) => node.name)).toEqual(['plan.txt']);
+        expect(filesRead({ ...input, root: spaced, path: 'report.md' }).body).toContain('The full target.');
+    });
+
+    it('answers an unverifiable path with stable classes the phone can map', () => {
+        expect(() => filesList({ ...input, root: join(spaced, 'missing') })).toThrow('unknown repository');
+        expect(() => filesRead({ ...input, root: spaced, path: 'missing.md' })).toThrow('file unavailable');
+        expect(() => filesList({ ...input, root: spaced, path: 'missing' })).toThrow('file unavailable');
+        // An empty folder still answers as a folder, with zero entries.
+        expect(filesList({ ...input, root: spaced, path: 'emptydir' }).tree).toEqual([]);
+    });
+
+    it('passes a user-named folder through the real dispatch path', async () => {
+        const source = createFakeSessionSource();
+        const started = await source.start({ cwd: repo });
+        if (!('info' in started)) throw new Error('fake session failed to start');
+        const { dispatch } = createRequestDispatcher({
+            source,
+            domain: {} as never,
+            machineId: 'm1',
+            hostVersion: '0.0.0',
+        });
+        const listed = await dispatch({
+            type: 'files.list',
+            requestId: 'r1',
+            params: { sessionId: started.info.id, root: spaced },
+        } as never);
+        expect(listed).toMatchObject({ ok: true, data: { scope: 'folder', title: 'My Project' } });
+        const preview = await dispatch({
+            type: 'files.read',
+            requestId: 'r2',
+            params: { sessionId: started.info.id, root: spaced, path: 'notes/plan.txt' },
+        } as never);
+        expect(preview).toMatchObject({ ok: true, data: { name: 'plan.txt' } });
+    });
+
+    it('keeps the refusal classes intact for named folders', () => {
+        expect(() => filesRead({ ...input, root: spaced, path: 'escape' })).toThrow('outside repository');
+        expect(() => filesList({ ...input, root: spaced, path: 'escape' })).toThrow('outside repository');
+        expect(() => filesList({ ...input, root: spaced, path: '../..' })).toThrow('invalid folder');
+        expect(() => filesList({ ...input, root: 'relative/path' })).toThrow('unknown repository');
+        expect(() => filesList({ ...input, root: `${spaced}\0` })).toThrow('unknown repository');
     });
 });
 

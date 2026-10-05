@@ -54,7 +54,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { agentSwipeNeighbours, herdPanes, holdLiveTerminalOrder, selectLiveTerminalCards, sharedLiveTerminalCards } from '@/herd';
-import { openFileViewer, useSessionPlugins } from '@/plugins';
+import { useSessionPlugins } from '@/plugins';
 import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
 import { useSlotContributions } from '@/plugins';
 import type { SessionMenu } from '@/plugins';
@@ -857,16 +857,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const paneCwd = storedPane?.cwd ?? session?.metadata?.path;
     const filesPaneId = session?.metadata?.paneId ?? storedPane?.paneId;
     /** Open a tapped path in Files: a folder at itself, a file previewed in
-     *  its folder. Files browses the repositories agents have open; a file
-     *  elsewhere opens in the file viewer instead. */
+     *  its folder. A path outside the open repositories is a folder the
+     *  user named on the computer, and Files opens it as exactly that — or
+     *  shows the designed missing state when it cannot be verified. */
     const openTerminalPath = React.useCallback((raw: string) => {
         locateTerminalPath(raw, { sessionId: props.id, cwd: paneCwd, observe: authority === 'observe' }).then((target) => {
             if (target === null) {
-                if (authority === 'observe') {
-                    Modal.alert('Not in Files', `Files browses the repositories your agents have open, and ${raw} is outside them.`);
-                    return;
-                }
-                Modal.alert('Could not open the path', 'This pane has no working directory yet to read it from.');
+                Modal.alert('Could not open the path', 'Files could not verify this path.');
                 return;
             }
             if (target.repo !== undefined) {
@@ -882,11 +879,16 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 } });
                 return;
             }
-            if (target.kind === 'file' && authority !== 'observe') {
-                router.push(openFileViewer({ sessionId: props.id, path: target.path }));
-                return;
-            }
-            Modal.alert('Not in Files', `Files browses the repositories your agents have open, and ${target.path} is outside them.`);
+            const trimmed = target.path.replace(/\/+$/, '');
+            const slash = trimmed.lastIndexOf('/');
+            const root = target.kind === 'folder' ? trimmed : slash <= 0 ? '/' : trimmed.slice(0, slash);
+            const file = target.kind === 'file' ? trimmed.slice(slash + 1) : undefined;
+            router.push({ pathname: '/session/[id]/files', params: {
+                id: props.id,
+                ...(filesPaneId === undefined ? {} : { paneId: filesPaneId }),
+                root,
+                ...(file === undefined ? {} : { file }),
+            } });
         }, (error: unknown) => Modal.alert('Could not open the path', humanError(error).message));
     }, [props.id, paneCwd, filesPaneId, authority]);
     const linkActions = React.useMemo<LinkAction[]>(() => {
