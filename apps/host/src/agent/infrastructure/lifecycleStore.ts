@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { AgentLifecycle, LifecycleCatalog, LifecycleEvent, LifecycleReasonCode } from '@trymuxr/contract';
 import { createPersistQueue, loadPersistedJson } from '../../platform/persistedJson.js';
-import { safeTaskTitle } from '../../platform/safeTaskTitle.js';
+import { safeQuestion, safeTaskTitle } from '../../platform/safeTaskTitle.js';
 
 interface LifecycleFile {
     revision: number;
@@ -15,7 +15,7 @@ export interface LifecycleStore {
     current(sessionId: string): LifecycleEvent | undefined;
     latestFor(sessionId: string): LifecycleEvent | undefined;
     remove(sessionId: string): void;
-    transition(sessionId: string, agentName: string, state: AgentLifecycle, reason: LifecycleReasonCode, taskTitle?: string, agentKind?: string): LifecycleEvent | undefined;
+    transition(sessionId: string, agentName: string, state: AgentLifecycle, reason: LifecycleReasonCode, taskTitle?: string, agentKind?: string, question?: string): LifecycleEvent | undefined;
 }
 
 const MAX_EVENTS = 50;
@@ -42,6 +42,7 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
         && typeof event.agentName === 'string' && STATES.has(event.state)
         && (event.taskTitle === undefined || safeTaskTitle(event.taskTitle) === event.taskTitle)
         && (event.agentKind === undefined || safeAgentKind(event.agentKind) === event.agentKind)
+        && (event.question === undefined || safeQuestion(event.question) === event.question)
         && Number.isFinite(Date.parse(event.at)) && now().getTime() - Date.parse(event.at) <= MAX_AGE_MS,
     ).slice(-MAX_EVENTS);
     const restoredCurrent = loaded.current === undefined ? events : Object.values(loaded.current);
@@ -49,7 +50,8 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
         .filter((event) => typeof event.sessionId === 'string' && typeof event.eventId === 'string'
             && typeof event.agentName === 'string' && STATES.has(event.state)
             && (event.taskTitle === undefined || safeTaskTitle(event.taskTitle) === event.taskTitle)
-            && (event.agentKind === undefined || safeAgentKind(event.agentKind) === event.agentKind))
+            && (event.agentKind === undefined || safeAgentKind(event.agentKind) === event.agentKind)
+            && (event.question === undefined || safeQuestion(event.question) === event.question))
         .sort((left, right) => left.at.localeCompare(right.at))
         .slice(-MAX_CURRENT)
         .map((event) => [event.sessionId, event]));
@@ -78,12 +80,13 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
         remove(sessionId) {
             if (current.delete(sessionId)) save();
         },
-        transition(sessionId, agentName, state, reason, taskTitle, agentKind) {
+        transition(sessionId, agentName, state, reason, taskTitle, agentKind, question) {
             taskTitle = safeTaskTitle(taskTitle);
             agentKind = safeAgentKind(agentKind);
+            question = state === 'blocked' ? safeQuestion(question) : undefined;
             const previous = this.current(sessionId);
             // A rename is not a transition: the agent keeps its state and its age.
-            if (previous?.state === state && previous.reasonCode === reason) {
+            if (previous?.state === state && previous.reasonCode === reason && previous.question === question) {
                 if (previous.agentName !== agentName || previous.taskTitle !== taskTitle || previous.agentKind !== agentKind) {
                     const updated = { ...previous, agentName };
                     if (taskTitle === undefined) delete updated.taskTitle;
@@ -105,6 +108,7 @@ export function createLifecycleStore(dataDir: string, now: () => Date = () => ne
                 agentName,
                 ...(taskTitle === undefined ? {} : { taskTitle }),
                 ...(agentKind === undefined ? {} : { agentKind }),
+                ...(question === undefined ? {} : { question }),
                 state,
                 reasonCode: reason,
                 reason,
