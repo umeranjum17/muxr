@@ -40,10 +40,6 @@ export const LocalSettingsSchema = z.object({
         label: z.string().min(1).max(QUICK_ACTION_LABEL_LIMIT),
         text: z.string().min(1).max(QUICK_ACTION_TEXT_LIMIT),
     })).max(QUICK_ACTION_LIMIT).nullable().catch(null).describe('Personal terminal quick actions (null follows the built-in seeds)'),
-    // The floating terminal control rests where the person leaves it, as
-    // fractions of its travel from the terminal's own top-left corner, so the
-    // position survives a restart and a terminal of any size.
-    terminalCommandKeyDock: z.object({ fx: z.number(), fy: z.number() }).nullable().catch(null).describe('Where the floating terminal command control rests, as fractions of the terminal surface'),
     terminalModifierIcons: z.boolean().describe('Draw ctrl and shift as modifier glyphs in the terminal key row'),
     terminalKeyRowVisible: z.boolean().catch(true).describe('Whether the terminal key row shows above the composer'),
     terminalPaneTabs: z.enum(['always', 'several']).catch('always').describe('Whether the tabs row above the key row always shows, or only when the workspace holds more than one tab'),
@@ -99,7 +95,6 @@ export const localSettingsDefaults: LocalSettings = {
     terminalFont: 'system',
     terminalKeyRow: null,
     terminalQuickActions: null,
-    terminalCommandKeyDock: null,
     terminalModifierIcons: false,
     terminalKeyRowVisible: true,
     terminalPaneTabs: 'always',

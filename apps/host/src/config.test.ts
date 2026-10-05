@@ -72,3 +72,68 @@ describe('muxr config file', () => {
         }
     });
 });
+
+it('built host help exits before inherited settings can start the host', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync } = await import('node:fs');
+    const { spawnSync } = await import('node:child_process');
+    const { join, resolve } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const home = mkdtempSync(join(tmpdir(), 'muxr-host-help-'));
+    const muxrHome = join(home, 'muxr');
+    mkdirSync(muxrHome);
+    const config = join(muxrHome, 'config.json');
+    writeFileSync(config, JSON.stringify({ mode: 'local', relayUrl: 'ws://127.0.0.1:1', machineName: 'Umer' }));
+    // Safety tripwires at OS boundaries: execute the real built entrypoint,
+    // but fail before a regression can reach Herdr, a listener, or a child.
+    const guard = `
+        import net from 'node:net';
+        import cp from 'node:child_process';
+        import { syncBuiltinESMExports } from 'node:module';
+        const stop = () => { process.stderr.write('unexpected host startup\\n'); process.exit(97); };
+        net.Socket.prototype.connect = stop;
+        net.Server.prototype.listen = stop;
+        for (const key of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) cp[key] = stop;
+        syncBuiltinESMExports();
+    `;
+    const env = {
+        PATH: process.env.PATH,
+        HOME: home,
+        XDG_CONFIG_HOME: join(home, 'config'),
+        XDG_STATE_HOME: join(home, 'state'),
+        MUXR_HOME: muxrHome,
+        MUXR_MODE: 'local',
+    };
+    const run = (args: string[]) => spawnSync(process.execPath, [
+        '--import', `data:text/javascript,${encodeURIComponent(guard)}`,
+        resolve('apps/host/dist/main.js'), ...args,
+    ], { env, encoding: 'utf8', timeout: 5000, maxBuffer: 100_000 });
+    try {
+        const help = run(['--help']);
+        expect(help.error).toBeUndefined();
+        expect(help.signal).toBeNull();
+        expect(help.status).toBe(0);
+        expect(help.stdout).toMatch(/Usage:.*host/);
+        expect(help.stderr).toBe('');
+        expect(readdirSync(muxrHome)).toEqual(['config.json']);
+
+        const configuredStartup = run([]);
+        expect(configuredStartup.status).toBe(97);
+        expect(configuredStartup.stderr).toContain('unexpected host startup');
+
+        // Broken settings and setup state must not mask help either.
+        writeFileSync(config, '{broken fixture config');
+        writeFileSync(join(muxrHome, 'selfhost.json'), '{broken fixture setup', { mode: 0o600 });
+        const shortHelp = run(['-h']);
+        expect(shortHelp.status).toBe(0);
+        expect(shortHelp.stdout).toBe(help.stdout);
+        expect(shortHelp.stderr).toBe('');
+
+        rmSync(join(muxrHome, 'selfhost.json'));
+        const startup = run([]);
+        expect(startup.status).toBe(1);
+        expect(startup.stderr).toContain('malformed JSON');
+        expect(startup.stdout).not.toContain('Usage:');
+    } finally {
+        rmSync(home, { recursive: true, force: true });
+    }
+});

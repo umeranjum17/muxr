@@ -17,11 +17,14 @@ self.addEventListener('push', (event) => {
             // An unreadable cache is an unknown preference, not an opt-out.
         }
         if (level === 'off' || (level === 'important' && notice.data.kind === 'done')) return;
+        const sessionId = typeof notice.data.sessionId === 'string' ? notice.data.sessionId : '';
         await self.registration.showNotification(notice.title, {
             body: notice.body,
             data: notice.data,
-            // The action deep-links to the blocked request; the approval
-            // itself happens in the app under the device grant.
+            // One alert per agent: a newer question replaces the one it asked before.
+            ...(sessionId === '' ? {} : { tag: `agent:${sessionId}`, renotify: true }),
+            // The action deep-links to the blocked question; a browser
+            // notification cannot carry a typed reply, so it is answered there.
             actions: [
                 { action: 'open', title: 'Open' },
             ],

@@ -79,15 +79,22 @@ export function normalizeWindow({ provider, windowKind, label, used, remaining, 
 /** Labels and pace belong to muxr; payload dialects belong to the kit. */
 const KIND_LABELS: Record<string, string> = { session: 'Session', weekly: 'Weekly', monthly: 'Monthly', rolling: 'Rolling' };
 
-export function toVM(window: Window, nowMs: number): UsageWindowVM {
+/** Claude's normalized rows name their kind but not its length. */
+const CLAUDE_MINUTES: Record<string, number> = { session: 300, weekly: 10_080 };
+
+/** The kit's reset times are epoch milliseconds. A row whose share is unknown,
+ *  or that covers one model only, has no window of its own here: undefined. */
+export function toVM(window: Window, nowMs: number): UsageWindowVM | undefined {
+    if (window.scope !== undefined) return undefined;
     const kindLabel = KIND_LABELS[window.kind] ?? 'Limit';
     return normalizeWindow({
         provider: window.provider, windowKind: window.kind,
         label: window.limit ? `${window.limit} · ${kindLabel}` : kindLabel,
-        used: window.usedPercent, windowMinutes: window.minutes,
-        resetEpochSec: window.resetsAt, nowMs,
+        used: window.usedPercent,
+        windowMinutes: window.minutes ?? (window.provider === 'claude' ? CLAUDE_MINUTES[window.kind] : undefined),
+        resetEpochSec: window.resetsAt === undefined ? undefined : window.resetsAt / 1000, nowMs,
         ...(window.limited === undefined ? {} : { limited: window.limited }),
-    })!;
+    });
 }
 
 /** The host's own line when muxr has no plan integration for the provider at

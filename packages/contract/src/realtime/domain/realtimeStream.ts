@@ -29,6 +29,13 @@ export type {
 
 export const MAX_REALTIME_PUBLIC_SESSIONS = 64;
 
+/**
+ * The `realtime.state` thinking detail the host sends when a spoken request
+ * goes to the planner (seconds, not the direct prompt path). The phone plays a
+ * short tone on it so a slow request is not met with silence.
+ */
+export const REALTIME_PLANNING_DETAIL = 'Working on that request.';
+
 /** Trusted host metadata delivered to the voice child in realtime.open. */
 export interface RealtimePluginPublicSession extends AgentInfo {
     sessionId: string;

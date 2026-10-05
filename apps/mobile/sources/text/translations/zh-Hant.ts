@@ -24,15 +24,18 @@ export const zhHant: TranslationStructure = {
     preview: {
         chipBrowser: '瀏覽器',
         chipAndroid: '模擬器',
+        chipIos: '模擬器',
         introBrowser: '你的代理開啟了瀏覽器',
         introAndroid: '你的代理啟動了 Android 模擬器',
+        introIos: '你的代理佔用了 iOS 模擬器',
         watch: '觀看',
         notNow: '稍後',
         watchBrowser: '觀看瀏覽器',
         watchAndroid: '觀看 Android 模擬器',
+        watchIos: '觀看 iOS 模擬器',
         reconnecting: '重新連線中…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
-            `${kind === 'android' ? 'Android 模擬器使用中' : '瀏覽器使用中'}${title ? `, ${title}` : ''}. 即時觀看`,
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
+            `${kind === 'android' ? 'Android 模擬器使用中' : kind === 'ios' ? 'iOS 模擬器使用中' : '瀏覽器使用中'}${title ? `, ${title}` : ''}. 即時觀看`,
     },
 
     tabs: {
@@ -321,6 +324,7 @@ export const zhHant: TranslationStructure = {
         // Spaces section on Home
         title: '空間',
         pinned: '置頂',
+        favourites: '最愛',
         empty: '沒有開啟的空間',
         rootFolder: '根資料夾',
         homeFolder: '主資料夾',
@@ -350,6 +354,8 @@ export const zhHant: TranslationStructure = {
         runtimeOffline: ({ name }: { name: string }) => `herdr 在 ${name} 上沒有回應`,
         runtimeStale: '工作階段可能已過期',
         liveEmpty: '沒有執行中的代理 · 在下方啟動',
+        emptyStart: '啟動一個代理，它的空間會在這裡開啟',
+        emptyWatch: '在這台電腦上開啟的空間會顯示在這裡',
     },
 
     emptySessions: {

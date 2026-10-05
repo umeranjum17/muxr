@@ -852,8 +852,8 @@ describe('android emulator target routing', () => {
             machineId: 'm1',
             hostVersion: '0.0.0',
             desktop: desktop as never,
-            androidTargets: androidTargets as never,
-            androidPreviewForPane: (paneId: string) => paneId === 'pane-1'
+            deviceTargets: [androidTargets as never],
+            devicePreviewForPane: (paneId: string) => paneId === 'pane-1'
                 ? { kind: 'android', title: 'Medium Phone', since: 1 }
                 : undefined,
         });

@@ -1,7 +1,8 @@
 /**
  * Zustand store for new session draft state, backed by MMKV.
  * Persists the user's last-used configuration (machine, path, agent, model, permissions, etc.)
- * so the new session screen restores the same defaults on next visit.
+ * Pickers validate the saved agent against the host catalog before using it
+ * as an initial choice; see README.md's agent picker guidance for default rules.
  */
 import { create } from 'zustand';
 import {
@@ -20,6 +21,7 @@ interface NewSessionDraftState {
     selectedMachineId: string | null;
     selectedPath: string | null;
     agentType: NewSessionAgentType;
+    preferredAgentType: NewSessionAgentType;
     agentTypeExplicit: boolean;
     permissionMode: PermissionModeKey | null;
     modelMode: string | null;
@@ -45,7 +47,7 @@ function persist(state: NewSessionDraftState) {
         input: state.input,
         selectedMachineId: state.selectedMachineId,
         selectedPath: state.selectedPath,
-        agentType: state.agentType,
+        agentType: state.preferredAgentType,
         agentTypeExplicit: state.agentTypeExplicit,
         permissionMode: state.permissionMode,
         modelMode: state.modelMode,
@@ -65,7 +67,8 @@ export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => (
     attachments: [],
     selectedMachineId: initial?.selectedMachineId ?? null,
     selectedPath: initial?.selectedPath ?? null,
-    agentType: initial?.agentType ?? 'pi',
+    agentType: initial?.agentType ?? 'shell',
+    preferredAgentType: initial?.agentType ?? 'shell',
     agentTypeExplicit: initial?.agentTypeExplicit ?? false,
     permissionMode: initial?.permissionMode ?? null,
     modelMode: initial?.modelMode ?? null,
@@ -77,11 +80,12 @@ export const useNewSessionDraft = create<NewSessionDraftState>()((set, get) => (
     setAttachments: (attachments) => { set({ attachments }); },
     setMachineId: (id) => { set({ selectedMachineId: id, selectedPath: null, worktreeKey: null }); persist(get()); },
     setPath: (path) => { set({ selectedPath: path, worktreeKey: null }); persist(get()); },
-    setAgentType: (agent) => { set({ agentType: agent, agentTypeExplicit: true }); persist(get()); },
+    setAgentType: (agent) => { set({ agentType: agent, preferredAgentType: agent, agentTypeExplicit: true }); persist(get()); },
     setDefaultAgentType: (agent) => {
-        if (get().agentTypeExplicit || get().agentType === agent) return;
+        // Catalog defaults are transient; only a manual choice replaces the saved preference.
+        if (get().agentTypeExplicit && get().preferredAgentType === 'shell') return;
+        if (get().agentType === agent) return;
         set({ agentType: agent });
-        persist(get());
     },
     setPermissionMode: (mode) => { set({ permissionMode: mode }); persist(get()); },
     setModelMode: (mode) => { set({ modelMode: mode }); persist(get()); },

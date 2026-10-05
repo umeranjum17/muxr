@@ -67,7 +67,7 @@ import {
 } from '../../plans/index.js';
 import { repairHost } from '../infrastructure/repairHost.js';
 import { runMachineShell } from '../infrastructure/runMachineShell.js';
-import { PreviewDesktops, androidCapabilities, withAndroidPreview, withPreview, type AndroidPreviewTargets } from '../../desktop/index.js';
+import { PreviewDesktops, deviceCapabilities, withPreview, type DevicePreviewTargets } from '../../desktop/index.js';
 import type { DesktopSessions } from '../../desktop/index.js';
 import { AgentCatalog } from './agentCatalog.js';
 
@@ -93,10 +93,10 @@ export interface RequestDispatcherOptions {
     previewDesktops?: PreviewDesktops;
     /** Announced presence by pane, for stamping session lists. */
     previewForPane?: (paneId: string) => PreviewPresence | undefined;
-    /** Target sessions for a pane's headless emulator; absent means android targets are refused. */
-    androidTargets?: AndroidPreviewTargets;
-    /** Announced android presence by pane, for stamping session lists. */
-    androidPreviewForPane?: (paneId: string) => PreviewPresence | undefined;
+    /** Target routers for pane-owned devices (emulators, claimed simulators); absent means device targets are refused. */
+    deviceTargets?: DevicePreviewTargets[];
+    /** Announced device presence by pane, for stamping session lists. */
+    devicePreviewForPane?: (paneId: string) => PreviewPresence | undefined;
     isDesktopConnectionActive?: (connectionId: string) => boolean;
 }
 
@@ -141,6 +141,32 @@ function desktopOrThrow(options: RequestDispatcherOptions): DesktopSessions {
 function previewOrThrow(options: RequestDispatcherOptions): PreviewDesktops {
     if (options.previewDesktops === undefined) throw new Error('This host has no agent screens to watch.');
     return options.previewDesktops;
+}
+
+/**
+ * Try each device router in turn: the first that owns the session answers.
+ * A refusal means "not my kind"; when no router answers, a screen target is
+ * tried next, or the last refusal stands. Any other failure is the answer.
+ */
+async function firstDeviceTarget<T>(
+    options: RequestDispatcherOptions,
+    attempt: (targets: DevicePreviewTargets) => Promise<T>,
+): Promise<{ answered: true; value: T } | { answered: false }> {
+    let refusal: unknown;
+    for (const targets of options.deviceTargets ?? []) {
+        try {
+            return { answered: true, value: await attempt(targets) };
+        } catch (error) {
+            if ((error as { code?: unknown })?.code !== 'permission-denied') throw error;
+            refusal = error;
+        }
+    }
+    if (refusal !== undefined && options.previewDesktops === undefined) throw refusal;
+    return { answered: false };
+}
+
+function deviceTargetFor(options: RequestDispatcherOptions, desktopId: string): DevicePreviewTargets | undefined {
+    return options.deviceTargets?.find((targets) => targets.owns(desktopId));
 }
 
 function isPluginExecutionRequest(request: ClientRequest): request is PluginExecutionRequest {
@@ -202,7 +228,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     const sessionCwds = (sessions: Awaited<ReturnType<SessionSource['list']>>): string[] =>
         sessions.map((session) => session.cwd ?? '').filter((cwd) => cwd !== '');
 
-    /** Every repository open in some session; explicit files roots must be one of these. */
+    /** Every repository open in some session; repository roots must be one of these, while a user-named folder passes selectedRoot's own checks. */
     const openRepoRoots = async (): Promise<string[]> => {
         const sessions = await source.list();
         return filesRepos(sessionCwds(sessions)).repos.map((repo) => repo.root);
@@ -251,13 +277,13 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'session.list': async (params) => {
             const listed = await listAgents(source, params.cwd === undefined ? {} : { cwd: params.cwd });
             if (!listed.ok) return useCaseData(listed);
-            const androidFor = options.androidPreviewForPane;
+            const deviceFor = options.devicePreviewForPane;
             const keeperFor = options.previewForPane;
-            // An emulator chip wins over a screen chip; a pane never shows both.
-            if (androidFor !== undefined && keeperFor !== undefined) {
-                return withPreview(listed.data, (paneId) => androidFor(paneId) ?? keeperFor(paneId));
+            // A device chip wins over a screen chip; a pane never shows both.
+            if (deviceFor !== undefined && keeperFor !== undefined) {
+                return withPreview(listed.data, (paneId) => deviceFor(paneId) ?? keeperFor(paneId));
             }
-            if (androidFor !== undefined) return withAndroidPreview(listed.data, androidFor);
+            if (deviceFor !== undefined) return withPreview(listed.data, deviceFor);
             if (keeperFor !== undefined) return withPreview(listed.data, keeperFor);
             return useCaseData(listed);
         },
@@ -341,18 +367,13 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'host.update': (params, context) => repairHost(params, context.deviceId),
         'desktop.capabilities': async (params) => {
             if (params.target !== undefined) {
-                // An emulator target wins; a screen target answers next. A
+                // A device target wins; a screen target answers next. A
                 // named target must resolve before anything is reported
                 // about it, and the answer is that target's, never the
                 // desktop's; an unknown session is refused, never the desktop.
-                if (options.androidTargets !== undefined) {
-                    try {
-                        await options.androidTargets.resolveTarget(params.target.sessionId);
-                        return androidCapabilities();
-                    } catch (error) {
-                        if (options.previewDesktops === undefined || (error as { code?: unknown })?.code !== 'permission-denied') throw error;
-                    }
-                }
+                const sessionId = params.target.sessionId;
+                const device = await firstDeviceTarget(options, (targets) => targets.resolveTarget(sessionId));
+                if (device.answered) return deviceCapabilities();
                 return previewOrThrow(options).capabilitiesFor(params.target.sessionId);
             }
             if (options.desktop === undefined) {
@@ -368,19 +389,15 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 isConnected: () => options.isDesktopConnectionActive?.(connectionId) === true,
             };
             if (params.target !== undefined) {
-                // An emulator target wins; a screen target opens next. Neither
+                // A device target wins; a screen target opens next. Neither
                 // ever falls back to the whole desktop.
-                if (options.androidTargets !== undefined) {
-                    try {
-                        return await options.androidTargets.openTarget(params.target.sessionId, {
-                            permissions: params.permissions,
-                            ...(params.maxFps === undefined ? {} : { maxFps: params.maxFps }),
-                            ...(params.loopbackTcp === true ? { loopbackTcp: true } : {}),
-                        }, owner === undefined ? undefined : { deviceId: owner.deviceId });
-                    } catch (error) {
-                        if (options.previewDesktops === undefined || (error as { code?: unknown })?.code !== 'permission-denied') throw error;
-                    }
-                }
+                const sessionId = params.target.sessionId;
+                const device = await firstDeviceTarget(options, (targets) => targets.openTarget(sessionId, {
+                    permissions: params.permissions,
+                    ...(params.maxFps === undefined ? {} : { maxFps: params.maxFps }),
+                    ...(params.loopbackTcp === true ? { loopbackTcp: true } : {}),
+                }, owner === undefined ? undefined : { deviceId: owner.deviceId }));
+                if (device.answered) return device.value;
                 return previewOrThrow(options).openTarget(params.target.sessionId, {
                     permissions: params.permissions,
                     ...(params.maxWidth === undefined ? {} : { maxWidth: params.maxWidth }),
@@ -405,8 +422,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             }, owner);
         },
         'desktop.answer': async (params, context) => {
-            if (options.androidTargets?.owns(params.desktopId) === true) {
-                return options.androidTargets.answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
+            const device = deviceTargetFor(options, params.desktopId);
+            if (device !== undefined) {
+                return device.answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
             }
             if (options.previewDesktops?.owns(params.desktopId) === true) {
                 return options.previewDesktops.answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
@@ -414,8 +432,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return desktopOrThrow(options).answer(params.desktopId, params.sdp, context.connectionId, context.deviceId);
         },
         'desktop.candidate': async (params, context) => {
-            if (options.androidTargets?.owns(params.desktopId) === true) {
-                return options.androidTargets.candidate(
+            const device = deviceTargetFor(options, params.desktopId);
+            if (device !== undefined) {
+                return device.candidate(
                     params.desktopId,
                     params.candidate,
                     params.sdpMid ?? null,
@@ -444,8 +463,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             );
         },
         'desktop.poll': async (params, context) => {
-            if (options.androidTargets?.owns(params.desktopId) === true) {
-                return options.androidTargets.poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
+            const device = deviceTargetFor(options, params.desktopId);
+            if (device !== undefined) {
+                return device.poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
             }
             if (options.previewDesktops?.owns(params.desktopId) === true) {
                 return options.previewDesktops.poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
@@ -453,8 +473,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return desktopOrThrow(options).poll(params.desktopId, params.cursor, context.connectionId, context.deviceId);
         },
         'desktop.close': async (params, context) => {
-            if (options.androidTargets?.owns(params.desktopId) === true) {
-                return options.androidTargets.close(params.desktopId, context.connectionId, context.deviceId);
+            const device = deviceTargetFor(options, params.desktopId);
+            if (device !== undefined) {
+                return device.close(params.desktopId, context.connectionId, context.deviceId);
             }
             if (options.previewDesktops?.owns(params.desktopId) === true) {
                 return options.previewDesktops.close(params.desktopId, context.connectionId, context.deviceId);

@@ -87,10 +87,14 @@ import {
     type HerdrLayoutNode,
 } from '../domain/layout.js';
 import { rollupLifecycle } from '../domain/lifecycle.js';
+import { blockedQuestion } from '../domain/blockedQuestion.js';
 import { reportAgentOutcome } from '../application/reportAgentOutcome.js';
 import { agentKindsFromManifests } from '../domain/agentKinds.js';
 
 const PROMPT_READY_TIMEOUT_MS = 30_000;
+/** How long a blocked alert waits for the kit to read the agent's question before going out without it. */
+const QUESTION_WAIT_MS = 3_000;
+const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 
@@ -398,6 +402,7 @@ export interface CreateHerdrSessionSourceOptions {
         reasonCode?: string;
         agentName?: string;
         taskTitle?: string;
+        question?: string;
     }) => void;
     /** Writes bounded semantic prompt outcomes to the owner-only host diagnostics journal. */
     onRealtimePromptDiagnostic?: (event: RealtimePromptDiagnostic) => void;
@@ -720,6 +725,8 @@ export async function createHerdrSessionSource(
     const paneByAgentRoute = new Map<string, string>();
     const pendingCreatedRoutes = new Set<string>();
     const pendingLaunchByPane = new Map<string, HerdrAgentSessionRef>();
+    /** Current failure of an accepted launch; its route may retire before the phone reconnects. */
+    const launchFailureByPane = new Map<string, { sessionId: string; message: string }>();
     const stagedMovePanes = new Set<string>();
     /** Launches this host is still confirming. Herdr reports no kind until it
      * detects the process, so the phone would show the pane as a shell; the
@@ -751,6 +758,11 @@ export async function createHerdrSessionSource(
     }
     /** One in-flight agent.watch per session; re-arming replaces the old one. */
     const watches = new Map<string, ReturnType<typeof setTimeout>>();
+    /** Blocked sessions waiting for the kit to read their question; 'expired' alerts without it. */
+    const questionWaits = new Map<string, ReturnType<typeof setTimeout> | 'expired'>();
+    /** The pane revision each blocked event's question was read at: an answer types only into that one. */
+    const askedRevisions = new Map<string, { eventId: string; revision: number }>();
+    const notifiedBlocked = new Map<string, string>();
     let pluginPollTimer: NodeJS.Timeout | undefined;
     /** dispose/close run once: the host shutdown path and a lab script may both close. */
     let disposed = false;
@@ -1136,6 +1148,8 @@ export async function createHerdrSessionSource(
     function reportObserved(session: CurrentSession, state: AgentLifecycle): void {
         if (options.lifecycle === undefined || session.agent?.name === undefined || session.agent.name === null) return;
         const taskTitle = taskTitleForSession(session);
+        const asked = state === 'blocked' ? client.kit.blocked().find((entry) => entry.paneId === session.paneId) : undefined;
+        const question = asked === undefined ? undefined : blockedQuestion(asked.prompt);
         const result = reportAgentOutcome(options.lifecycle, {
             sessionId: session.sessionId,
             agentName: session.agent.name,
@@ -1146,8 +1160,12 @@ export async function createHerdrSessionSource(
                 : { previousReason: options.lifecycle.latestFor(session.sessionId)!.reasonCode }),
             ...(taskTitle === undefined ? {} : { taskTitle }),
             ...(session.agent.agent === undefined || session.agent.agent === null ? {} : { agentKind: session.agent.agent }),
+            ...(question === undefined ? {} : { question }),
         });
-        if (result.data !== undefined) publish(session.sessionId, { type: 'lifecycle.update', event: result.data });
+        if (result.data === undefined) return;
+        if (asked === undefined || result.data.state !== 'blocked') askedRevisions.delete(session.sessionId);
+        else askedRevisions.set(session.sessionId, { eventId: result.data.eventId, revision: asked.revision });
+        publish(session.sessionId, { type: 'lifecycle.update', event: result.data });
     }
 
     function statusFor(sessionId: string): SessionStatus {
@@ -1217,6 +1235,7 @@ export async function createHerdrSessionSource(
             ...(lifecycle === undefined ? {} : { reasonCode: lifecycle.reasonCode }),
             ...(lifecycle?.agentName === undefined ? {} : { agentName: lifecycle.agentName }),
             ...(lifecycle?.taskTitle === undefined ? {} : { taskTitle: lifecycle.taskTitle }),
+            ...(lifecycle?.question === undefined ? {} : { question: lifecycle.question }),
         };
         options.onLinkAttention?.({
             sessionId: payload.sessionId,
@@ -1226,6 +1245,7 @@ export async function createHerdrSessionSource(
             ...(payload.reasonCode === undefined ? {} : { reasonCode: payload.reasonCode }),
             ...(payload.agentName === undefined ? {} : { agentName: payload.agentName }),
             ...(payload.taskTitle === undefined ? {} : { taskTitle: payload.taskTitle }),
+            ...(payload.question === undefined ? {} : { question: payload.question }),
         });
 
     }
@@ -1237,10 +1257,14 @@ export async function createHerdrSessionSource(
         switch (agentStatus) {
             case 'blocked':
                 changed = attention.clear(sessionId, 'failed') || changed;
-                if (attention.set(sessionId, 'waiting', 'Agent needs attention.')) {
-                    changed = true;
+                {
+                    const setChanged = attention.set(sessionId, 'waiting', 'Agent needs attention.');
+                    changed = setChanged || changed;
                     const eventId = options.lifecycle?.current(sessionId)?.eventId;
-                    if (eventId !== undefined) notifyAttention(sessionId, eventId, 'blocked');
+                    if (eventId !== undefined && (setChanged || notifiedBlocked.get(sessionId) !== eventId)) {
+                        notifiedBlocked.set(sessionId, eventId);
+                        notifyAttention(sessionId, eventId, 'blocked');
+                    }
                 }
                 break;
             case 'done':
@@ -1291,12 +1315,18 @@ export async function createHerdrSessionSource(
         lastStateSignature.delete(sessionId);
         lastInfoSignature.delete(sessionId);
         lastReadinessBySession.delete(sessionId);
+        const wait = questionWaits.get(sessionId);
+        if (wait !== undefined && wait !== 'expired') clearTimeout(wait);
+        questionWaits.delete(sessionId);
+        askedRevisions.delete(sessionId);
+        notifiedBlocked.delete(sessionId);
         publish(sessionId, { type: 'session.removed' });
     }
 
     function emitState(sessionId: string): void {
         const session = currentSession(sessionId);
         if (session === undefined) return;
+        if (agentPromptable(session)) launchFailureByPane.delete(session.paneId);
         const agentStatus = lifecycleOf(session);
         if (session.agent !== undefined) {
             const promptable = agentPromptable(session);
@@ -1331,10 +1361,47 @@ export async function createHerdrSessionSource(
             lastInfoSignature.set(sessionId, signature);
             publish(sessionId, { type: 'session.updated', session: info });
         }
-        if (session.agent !== undefined) {
+        if (session.agent !== undefined && !awaitingQuestion(session, agentStatus)) {
             reportObserved(session, agentStatus);
             applyAttention(sessionId, agentStatus);
         }
+    }
+
+    function reconcileLaunchFailures(): void {
+        for (const [paneId, failure] of launchFailureByPane) {
+            if (!panesById.has(paneId)) {
+                launchFailureByPane.delete(paneId);
+                continue;
+            }
+            const session = currentSessionByPane(paneId);
+            if (session?.agent === undefined) continue;
+            const replaced = session.sessionId !== failure.sessionId
+                && publishedAgentSession(session.agent) !== undefined;
+            if (replaced || agentPromptable(session)) launchFailureByPane.delete(paneId);
+        }
+    }
+
+    /**
+     * A blocked agent's alert carries its question, which the kit reads off the
+     * pane just after the status flips. Hold the blocked report until the kit
+     * has it (its onBlocked re-emits) or QUESTION_WAIT_MS passes without it.
+     */
+    function awaitingQuestion(session: CurrentSession, agentStatus: AgentLifecycle): boolean {
+        const wait = questionWaits.get(session.sessionId);
+        const asked = agentStatus === 'blocked' && client.kit.blocked().some((entry) => entry.paneId === session.paneId);
+        if (agentStatus !== 'blocked' || asked) {
+            if (wait !== undefined && wait !== 'expired') clearTimeout(wait);
+            questionWaits.delete(session.sessionId);
+            return false;
+        }
+        if (wait === 'expired') return false;
+        if (wait === undefined) {
+            questionWaits.set(session.sessionId, setTimeout(() => {
+                questionWaits.set(session.sessionId, 'expired');
+                emitState(session.sessionId);
+            }, QUESTION_WAIT_MS));
+        }
+        return true;
     }
 
     /** Bind routes to current Herdr generations and remove every vanished generation first. */
@@ -1384,6 +1451,7 @@ export async function createHerdrSessionSource(
         // A pane that left Herdr's tree takes its screen, keeper and socket with it.
         screens?.releaseMissing(new Set(panesById.keys()), treesSince);
         await routes.flush();
+        reconcileLaunchFailures();
 
         const currentShells = new Set(
             [...panesById.values()]
@@ -1426,9 +1494,16 @@ export async function createHerdrSessionSource(
         }
     }
 
+    // A voice roster lookup has just paid for this snapshot. Only prompt routing
+    // may reuse it, briefly, and never across a routing event or reconnect.
+    let snapshotReadAt = 0;
+    let routingEpoch = 0;
+    let snapshotRoutingEpoch = -1;
+
     async function refreshSnapshotOnce(): Promise<void> {
         if (disposed) throw new Error('herdr: source disposed');
         const treesSince = Date.now();
+        const routingEpochAtStart = routingEpoch;
         const lifecycleEpochAtStart = new Map(lifecycleEpochByPane);
         const result = await client.call<{
             snapshot?: {
@@ -1466,6 +1541,8 @@ export async function createHerdrSessionSource(
         }
         for (const tab of result.snapshot?.tabs ?? []) tabsById.set(tab.tab_id, tab);
         await syncDiscovery(treesSince);
+        snapshotReadAt = treesSince;
+        snapshotRoutingEpoch = routingEpochAtStart;
     }
 
     let snapshotInFlight: Promise<void> | undefined;
@@ -1475,9 +1552,17 @@ export async function createHerdrSessionSource(
         snapshotInFlight = request;
         try {
             await request;
+        } catch (cause) {
+            snapshotReadAt = 0;
+            throw cause;
         } finally {
             if (snapshotInFlight === request) snapshotInFlight = undefined;
         }
+    }
+
+    async function refreshSnapshotFresh(): Promise<void> {
+        while (snapshotInFlight !== undefined) await snapshotInFlight.catch(() => {});
+        await refreshSnapshot();
     }
 
     function scheduleResnapshot(): void {
@@ -1513,8 +1598,15 @@ export async function createHerdrSessionSource(
     // the same resolved binary the host would exec, not a PATH lookup.
     const herdrBin = options.herdrBin ?? process.env.HERDR_BIN ?? 'herdr';
     const client = new KitHerdrClient(herdrBin, socketPath, () => {
+        routingEpoch += 1;
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});
         void refreshSnapshot().then(emitAllStates).catch(() => {});
+    });
+    // The kit reads a blocked agent's question once its status flips; that releases the held alert.
+    const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
+        if (change !== 'added') return;
+        const session = currentSessionByPane(entry.paneId);
+        if (session !== undefined) emitState(session.sessionId);
     });
 
     function rememberLaunch(paneId: string, kind: string, launchName: string): HerdrAgentSessionRef {
@@ -1560,6 +1652,7 @@ export async function createHerdrSessionSource(
         const message = missing
             ? `${label} is not installed on ${computer}. Install ${label} in a terminal on ${computer}, then try again.`
             : `${label} could not start on ${computer}. Open a terminal on ${computer} and run ${kind} to see the error, then try again.`;
+        if (panesById.has(paneId)) launchFailureByPane.set(paneId, { sessionId, message });
         publish(sessionId, { type: 'session.error', message });
     }
 
@@ -1720,6 +1813,8 @@ export async function createHerdrSessionSource(
     client.onEvent((event) => {
         // Wire kinds arrive dot-style per the subscription schema; tolerate snake_case too.
         const kind = event.type.replace(/_/g, '.');
+        if (['pane.moved', 'pane.closed', 'pane.exited', 'pane.agent.detected',
+            'tab.closed', 'workspace.closed'].includes(kind)) routingEpoch += 1;
         const pane = (event.pane ?? event.agent) as AgentRecord | PaneRecord | undefined;
         if (pane !== undefined && typeof pane.pane_id === 'string') {
             const currentPaneStatus = panesById.get(pane.pane_id)?.agent_status;
@@ -1816,10 +1911,19 @@ export async function createHerdrSessionSource(
         return `${session.paneId}\u0000${reference === undefined ? 'shell' : herdrAgentSessionKey(reference)}`;
     }
 
-    async function resolvePane(sessionId: string): Promise<CurrentSession> {
+    async function resolvePane(sessionId: string, reusePromptSnapshot = false): Promise<CurrentSession> {
+        const snapshotAge = Date.now() - snapshotReadAt;
+        const recentPromptSnapshot = reusePromptSnapshot && client.connected
+            && snapshotRoutingEpoch === routingEpoch
+            && snapshotAge >= 0 && snapshotAge <= PROMPT_SNAPSHOT_MAX_AGE_MS;
+        if (recentPromptSnapshot) {
+            const cached = currentSession(sessionId);
+            // A miss must discover the target rather than reject from a cache.
+            if (cached !== undefined) return cached;
+        }
         // An unreadable snapshot says nothing about the route. Fail closed as a
         // temporary outage: only a snapshot that actually came back may claim
-        // the agent is gone, and cached panes never authorize anything.
+        // the agent is gone. Other operations always revalidate with Herdr.
         try {
             await refreshSnapshot();
         } catch (cause) {
@@ -2123,7 +2227,7 @@ export async function createHerdrSessionSource(
     async function promptSession(sessionId: string, text: string): Promise<void> {
         let session: CurrentSession;
         try {
-            session = await resolvePane(sessionId);
+            session = await resolvePane(sessionId, true);
             if (!agentPromptable(session)) {
                 // Cheap event-driven wait first, then a short poll for the route
                 // rebind that adoption performs a beat later.
@@ -2143,22 +2247,37 @@ export async function createHerdrSessionSource(
             throw promptNotSent(error);
         }
         const generation = sessionGenerationKey(session);
-        await client.kit.prompt({ paneId: session.paneId }, text);
-        let current: CurrentSession;
+        const receipt = await client.kit.prompt({ paneId: session.paneId }, text);
+        // Herdr names the conversation the prompt reached; a match needs no confirming read.
+        const reached = parseHerdrAgentSession(receipt.agentSession);
+        if (reached !== undefined && `${receipt.paneId}\u0000${herdrAgentSessionKey(reached)}` === generation) return;
         try {
-            current = await resolvePane(sessionId);
+            await refreshSnapshotFresh();
+            const current = currentSession(sessionId);
+            if (current === undefined || sessionGenerationKey(current) !== generation) {
+                throw new Error('The prompt generation changed before its receipt could be confirmed.');
+            }
         } catch (cause) {
-            throw Object.assign(new Error('The prompt outcome could not be confirmed.'), { code: 'prompt-outcome-unknown', cause });
-        }
-        if (sessionGenerationKey(current) !== generation) {
-            throw Object.assign(new Error('The prompt generation changed before its receipt could be confirmed.'), { code: 'prompt-outcome-unknown' });
+            throw Object.assign(new Error('The prompt outcome could not be confirmed.'), {
+                code: 'prompt-outcome-unknown', cause,
+            });
         }
     }
 
-    async function sendSessionKeys(sessionId: string, keys: string[]): Promise<void> {
+    async function sendSessionKeys(sessionId: string, keys: string[], question?: { eventId: string }): Promise<void> {
         const session = await resolvePane(sessionId);
         if (session.agent === undefined) throw agentUnavailable();
-        await client.kit.sendKeys(session, keys);
+        if (question === undefined) {
+            await client.kit.sendKeys(session, keys);
+            return;
+        }
+        // An answer from a notification may arrive long after it was asked: it
+        // types only into the question that alert showed.
+        const asked = askedRevisions.get(sessionId);
+        if (asked === undefined || asked.eventId !== question.eventId || options.lifecycle?.current(sessionId)?.eventId !== question.eventId) {
+            throw Object.assign(new Error('That question was already answered or changed.'), { code: 'approval-stale' });
+        }
+        await client.kit.answer(session.paneId, keys, { revision: asked.revision });
     }
 
     type RealtimePaneReadSource = 'visible' | 'recent' | 'recent_unwrapped';
@@ -3575,7 +3694,11 @@ export async function createHerdrSessionSource(
 
 
 
-        resendCumulativeState(): void {
+        resendCumulativeState(deliver: (sessionId: string, event: SessionEventBody) => void): void {
+            reconcileLaunchFailures();
+            for (const failure of launchFailureByPane.values()) {
+                deliver(failure.sessionId, { type: 'session.error', message: failure.message });
+            }
             // Invalidation frames are edge-triggered. If the machine→relay link
             // dropped one while clients stayed connected, host reconnect must
             // force a full mobile catalog reconciliation.
@@ -3611,6 +3734,10 @@ export async function createHerdrSessionSource(
             // without this a script that only watched never exits.
             for (const guard of watches.values()) clearTimeout(guard);
             watches.clear();
+            for (const wait of questionWaits.values()) if (wait !== 'expired') clearTimeout(wait);
+            questionWaits.clear();
+            askedRevisions.clear();
+            stopBlockedWatch();
             await settle(() => voiceStreams?.closeAll());
             await settle(() => codingCoordinator?.close());
             await settle(() => stopArtifactRetention());

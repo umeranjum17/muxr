@@ -22,15 +22,18 @@ export const es: TranslationStructure = {
     preview: {
         chipBrowser: 'Navegador',
         chipAndroid: 'Emulador',
+        chipIos: 'Simulador',
         introBrowser: 'Tu agente abrió un navegador',
         introAndroid: 'Tu agente inició un emulador de Android',
+        introIos: 'Tu agente reclamó un simulador de iOS',
         watch: 'Ver',
         notNow: 'Ahora no',
         watchBrowser: 'Ver navegador',
         watchAndroid: 'Ver emulador de Android',
+        watchIos: 'Ver simulador de iOS',
         reconnecting: 'Reconectando…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
-            `${kind === 'android' ? 'Emulador de Android en uso' : 'Navegador en uso'}${title ? `, ${title}` : ''}. Ver en directo`,
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
+            `${kind === 'android' ? 'Emulador de Android en uso' : kind === 'ios' ? 'Simulador de iOS en uso' : 'Navegador en uso'}${title ? `, ${title}` : ''}. Ver en directo`,
     },
 
     tabs: {
@@ -320,6 +323,7 @@ export const es: TranslationStructure = {
         // Spaces section on Home
         title: 'Espacios',
         pinned: 'Fijados',
+        favourites: 'Favoritos',
         empty: 'No hay espacios abiertos',
         rootFolder: 'Carpeta raíz',
         homeFolder: 'Carpeta de inicio',
@@ -349,6 +353,8 @@ export const es: TranslationStructure = {
         runtimeOffline: ({ name }: { name: string }) => `herdr no responde en ${name}`,
         runtimeStale: 'las sesiones pueden estar obsoletas',
         liveEmpty: 'No hay agentes activos · inicia uno abajo',
+        emptyStart: 'Inicia un agente y su espacio se abrirá aquí',
+        emptyWatch: 'Los espacios abiertos en este ordenador aparecen aquí',
     },
 
     emptySessions: {

@@ -13,12 +13,12 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import type { HerdrTreePane, HerdrTreeWorkspace } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
 import { Modal } from '@/modal';
-import { storage, useSpacePins } from '@/catalog/store';
+import { storage, useSpacePins, useSpacesLayout } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useNavigateToSession } from '../application/useNavigateToSession';
 import { agentStatusColor } from '../application/sessionUtils';
 import { useUnseenDoneSessionIds } from '../application/useActivityAcknowledgements';
-import { agentCounts, buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
+import { agentCounts, buildSpaceRows, displayedWorkspaceNames, effectiveExpandedSpaces, groupKind, groupSummaryCounts, moveSpace, workspaceCloseMessage, workspaceName, type HerdChildSpace, type HerdSpaceRow } from '../domain/herdTree';
 import { agentLabels, agentStateLabel, agentWhoLine, agentWhoStateLine, isShellLabels } from '../domain/agentPresentation';
 import { Typography } from '@/constants/Typography';
 import { StatusDot } from '@/components/StatusDot';
@@ -27,7 +27,7 @@ import { t } from '@/text';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { layout } from '@/components/layout';
 import { useDeviceAuthority } from '@/pairing';
-import { showPaneActions } from '../application/renameInHerdr';
+import { renamePane } from '../application/renameInHerdr';
 import { ActionsPopover, type SessionActionsAnchor, type PopoverAction } from './SessionActionsPopover';
 
 // Tree geometry in dp from the card's left edge. Depth 1 hangs off the card's
@@ -389,6 +389,14 @@ interface SpacesTreeProps {
     stale?: boolean;
 }
 
+/**
+ * The id a favourite keeps: the agent's route, which the host holds for the
+ * agent's life. A shell has none; its route is its reusable pane id.
+ */
+function favouriteAgentRoute(pane: HerdrTreePane): string | undefined {
+    return pane.agentKind === undefined ? undefined : pane.sessionId;
+}
+
 /** One pane as a tree row: its kind's glyph, task (else name), who and state under it, status on the right edge. */
 export const AgentRow = React.memo(({
     pane,
@@ -397,18 +405,19 @@ export const AgentRow = React.memo(({
     onNavigatePane,
     compact,
     selected,
-    canClose,
+    hasActions,
     unseenDone,
     subtitle: subtitleOverride,
     spaceLabel,
 }: {
     pane: HerdrTreePane;
     first?: boolean;
-    onLongPress: (pane: HerdrTreePane) => void;
+    onLongPress: (pane: HerdrTreePane, event: GestureResponderEvent) => void;
     onNavigatePane?: (sessionId: string) => void;
     compact: boolean;
     selected: boolean;
-    canClose: boolean;
+    /** Whether a long-press has anything to offer. */
+    hasActions: boolean;
     unseenDone: boolean;
     /** Replaces the identity line, e.g. a shell's working directory. */
     subtitle?: string;
@@ -436,7 +445,7 @@ export const AgentRow = React.memo(({
             {first !== true && <View style={styles.separator} />}
             <Pressable
                 onPress={sessionId === undefined ? undefined : () => (onNavigatePane ?? navigateToSession)(sessionId)}
-                onLongPress={canClose ? () => onLongPress(pane) : undefined}
+                onLongPress={hasActions ? (event) => onLongPress(pane, event) : undefined}
                 disabled={sessionId === undefined}
                 style={({ pressed }) => [
                     styles.agentPressable,
@@ -636,8 +645,8 @@ const ChildRow = React.memo(({
     child: HerdChildSpace;
     name: string;
     onToggle: (workspaceId: string) => void;
-    onLongPress: (workspace: HerdrTreeWorkspace) => void;
-    onLongPressPane: (pane: HerdrTreePane) => void;
+    onLongPress: (workspace: HerdrTreeWorkspace, event: GestureResponderEvent) => void;
+    onLongPressPane: (pane: HerdrTreePane, event: GestureResponderEvent) => void;
     onNavigatePane?: (sessionId: string) => void;
     selectedSessionId?: string;
     canClose: boolean;
@@ -664,7 +673,9 @@ const ChildRow = React.memo(({
     const onPress = singleSessionId !== undefined
         ? () => (onNavigatePane ?? navigateToSession)(singleSessionId)
         : agentPanes.length > 1 ? () => onToggle(child.workspace.workspaceId) : undefined;
-    const interactive = onPress !== undefined || canClose;
+    // Its one agent can be a favourite whatever the device's authority.
+    const hasActions = canClose || (singleAgent !== undefined && favouriteAgentRoute(singleAgent) !== undefined);
+    const interactive = onPress !== undefined || hasActions;
     // The agent row's weight rule: settled and seen goes quiet.
     const quiet = (child.workspace.agentStatus === 'done' || child.workspace.agentStatus === 'idle')
         && !panes.some((pane) => pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId));
@@ -680,7 +691,7 @@ const ChildRow = React.memo(({
                 <RowElbow depth={depth} />
                 <Pressable
                     onPress={onPress}
-                    onLongPress={canClose ? () => onLongPress(child.workspace) : undefined}
+                    onLongPress={hasActions ? (event) => onLongPress(child.workspace, event) : undefined}
                     style={({ pressed }) => [
                         styles.childPressable,
                         { marginLeft: inset },
@@ -718,7 +729,7 @@ const ChildRow = React.memo(({
                             onNavigatePane={onNavigatePane}
                             compact={false}
                             selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
-                            canClose={canClose}
+                            hasActions
                             unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
                         />
                     ))}
@@ -761,8 +772,8 @@ const WorkspaceCard = React.memo(({
     onToggle: (workspaceId: string) => void;
     onToggleChild: (workspaceId: string) => void;
     onLongPress: (workspace: HerdrTreeWorkspace, event: GestureResponderEvent) => void;
-    onLongPressChild: (workspace: HerdrTreeWorkspace) => void;
-    onLongPressPane: (pane: HerdrTreePane) => void;
+    onLongPressChild: (workspace: HerdrTreeWorkspace, event: GestureResponderEvent) => void;
+    onLongPressPane: (pane: HerdrTreePane, event: GestureResponderEvent) => void;
     onNavigatePane?: (sessionId: string) => void;
     compact: boolean;
     selectedSessionId?: string;
@@ -829,14 +840,6 @@ const WorkspaceCard = React.memo(({
                     <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
                         {suffix === undefined ? name : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>}
                     </Text>
-                    {pinned && (
-                        <Ionicons
-                            name="pin"
-                            size={13}
-                            color={theme.colors.textSecondary}
-                            {...railHidden}
-                        />
-                    )}
                     {branch !== undefined && (
                         <View style={styles.branchPill}>
                             <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
@@ -861,7 +864,7 @@ const WorkspaceCard = React.memo(({
                     spaceLabel={workspace.label}
                     compact={compact}
                     selected={pane.sessionId !== undefined && pane.sessionId === selectedSessionId}
-                    canClose={canClose}
+                    hasActions
                     unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
                 />
             ))}
@@ -929,9 +932,18 @@ export const SpacesTree = React.memo(({
     const searching = searchQuery.trim() !== '';
     const pinnedIds = useSpacePins();
     const pinned = React.useMemo(() => new Set(pinnedIds), [pinnedIds]);
+    const layout = useSpacesLayout();
+    const favouriteIds = React.useMemo(() => new Set(layout.favourites), [layout.favourites]);
+    // Favourites lead in the order they were added; an agent not running now waits, unseen, for its return.
+    const favouritePanes = React.useMemo(() => {
+        if (searching || layout.favourites.length === 0) return [];
+        const byRoute = new Map(workspaces.flatMap((ws) => ws.tabs.flatMap((tab) => tab.panes))
+            .flatMap((pane) => favouriteAgentRoute(pane) === undefined ? [] : [[pane.sessionId!, pane] as const]));
+        return layout.favourites.flatMap((route) => byRoute.get(route) ?? []);
+    }, [layout.favourites, searching, workspaces]);
     const previousRows = React.useRef(new Map<string, HerdSpaceRow>());
     const sections = React.useMemo(() => {
-        const rows = buildSpaceRows(workspaces, expanded, searchQuery, pinned).map((row) => {
+        const rows = buildSpaceRows(workspaces, expanded, searchQuery, pinned, layout.order).map((row) => {
             const previous = previousRows.current.get(row.workspace.workspaceId);
             return previous !== undefined && deepEqual(previous, row) ? previous : row;
         });
@@ -945,7 +957,7 @@ export const SpacesTree = React.memo(({
             { key: 'pinned', title: t('spacesTree.pinned'), data: pinnedRows },
             { key: 'spaces', title: t('spacesTree.title'), data: rows.filter((row) => !pinned.has(row.workspace.workspaceId)) },
         ].filter((section) => section.data.length > 0);
-    }, [expanded, pinned, searchQuery, workspaces]);
+    }, [expanded, layout.order, pinned, searchQuery, workspaces]);
     const names = React.useMemo(() => displayedWorkspaceNames(sections.flatMap((section) => section.data)), [sections]);
     const namesRef = React.useRef(names);
     namesRef.current = names;
@@ -1012,29 +1024,74 @@ export const SpacesTree = React.memo(({
         ]);
     }, [refresh]);
 
-    const [workspaceMenu, setWorkspaceMenu] = React.useState<{ workspace: HerdrTreeWorkspace; anchor: SessionActionsAnchor } | null>(null);
-    const workspaceActions = React.useCallback((workspace: HerdrTreeWorkspace, event: GestureResponderEvent) => {
-        setWorkspaceMenu({ workspace, anchor: { type: 'point', x: event.nativeEvent.pageX, y: event.nativeEvent.pageY } });
+    const [menu, setMenu] = React.useState<{ actions: PopoverAction[]; anchor: SessionActionsAnchor } | null>(null);
+    const openMenu = React.useCallback((actions: PopoverAction[], event: GestureResponderEvent) => {
+        setMenu({
+            actions: [...actions, { id: 'cancel', label: 'Cancel', icon: 'close-outline', onPress: () => setMenu(null) }],
+            anchor: { type: 'point', x: event.nativeEvent.pageX, y: event.nativeEvent.pageY },
+        });
     }, []);
-    const menuWorkspace = workspaceMenu?.workspace;
-    const menuActions: PopoverAction[] = menuWorkspace === undefined ? [] : [
-        {
-            id: 'pin', label: pinned.has(menuWorkspace.workspaceId) ? 'Unpin' : 'Pin to top', icon: 'pin',
-            onPress: () => storage.getState().toggleSpacePin(menuWorkspace.workspaceId),
-        },
-        ...(canClose ? [{
-            id: 'close', label: 'Close workspace', icon: 'close-circle-outline' as const, destructive: true,
-            onPress: () => confirmCloseWorkspace(menuWorkspace),
-        }] : []),
-        { id: 'cancel', label: 'Cancel', icon: 'close-outline', onPress: () => setWorkspaceMenu(null) },
-    ];
-    const childActions = React.useCallback((workspace: HerdrTreeWorkspace) => {
-        confirmCloseWorkspace(workspace);
-    }, [confirmCloseWorkspace]);
+    const favouriteActions = React.useCallback((pane: HerdrTreePane): PopoverAction[] => {
+        const route = favouriteAgentRoute(pane);
+        if (route === undefined) return [];
+        const toggle = () => storage.getState().toggleFavouriteAgent(route);
+        return [favouriteIds.has(route)
+            ? { id: 'favourite', label: 'Remove from favourites', icon: 'star', onPress: toggle }
+            : { id: 'favourite', label: 'Add to favourites', icon: 'star-outline', onPress: toggle }];
+    }, [favouriteIds]);
 
-    const paneActions = React.useCallback((pane: HerdrTreePane) => {
-        showPaneActions(pane, pane.sessionId === undefined ? undefined : () => confirmClosePane(pane));
-    }, [confirmClosePane]);
+    const workspaceActions = React.useCallback((workspace: HerdrTreeWorkspace, event: GestureResponderEvent) => {
+        const id = workspace.workspaceId;
+        // Moves stay inside the card's own section; a search shows only part of it.
+        const group = searching ? [] : (sections.find((section) => section.data.some((row) => row.workspace.workspaceId === id))
+            ?.data.map((row) => row.workspace.workspaceId) ?? []);
+        const at = group.indexOf(id);
+        const open = new Set(sections.flatMap((section) => section.data.map((row) => row.workspace.workspaceId)));
+        const move = (step: -1 | 1) => () =>
+            storage.getState().setSpaceOrder(moveSpace(layout.order, group, id, step, open));
+        openMenu([
+            {
+                id: 'pin', label: pinned.has(id) ? 'Unpin' : 'Pin to top', icon: 'pin',
+                onPress: () => storage.getState().toggleSpacePin(id),
+            },
+            ...(at > 0 ? [{ id: 'up', label: 'Move up', icon: 'arrow-up' as const, onPress: move(-1) }] : []),
+            ...(at >= 0 && at < group.length - 1 ? [{ id: 'down', label: 'Move down', icon: 'arrow-down' as const, onPress: move(1) }] : []),
+            ...(canClose ? [{
+                id: 'close', label: 'Close workspace', icon: 'close-circle-outline' as const, destructive: true,
+                onPress: () => confirmCloseWorkspace(workspace),
+            }] : []),
+        ], event);
+    }, [canClose, confirmCloseWorkspace, layout.order, openMenu, pinned, searching, sections]);
+
+    const childActions = React.useCallback((workspace: HerdrTreeWorkspace, event: GestureResponderEvent) => {
+        const agents = workspace.tabs.flatMap((tab) => tab.panes).filter((pane) => pane.agentKind !== undefined);
+        // Only a one-agent row stands for an agent; any other still closes on long-press.
+        const favourite = agents.length === 1 ? favouriteActions(agents[0]!) : [];
+        if (favourite.length === 0) {
+            confirmCloseWorkspace(workspace);
+            return;
+        }
+        openMenu([
+            ...favourite,
+            ...(canClose ? [{
+                id: 'close', label: 'Close workspace', icon: 'close-circle-outline' as const, destructive: true,
+                onPress: () => confirmCloseWorkspace(workspace),
+            }] : []),
+        ], event);
+    }, [canClose, confirmCloseWorkspace, favouriteActions, openMenu]);
+
+    const paneActions = React.useCallback((pane: HerdrTreePane, event: GestureResponderEvent) => {
+        openMenu([
+            ...favouriteActions(pane),
+            ...(canClose ? [
+                { id: 'rename', label: 'Rename', icon: 'pencil-outline' as const, onPress: () => void renamePane(pane) },
+                ...(pane.sessionId === undefined ? [] : [{
+                    id: 'close', label: 'Close pane', icon: 'close-circle-outline' as const, destructive: true,
+                    onPress: () => confirmClosePane(pane),
+                }]),
+            ] : []),
+        ], event);
+    }, [canClose, confirmClosePane, favouriteActions, openMenu]);
 
     const renderItem = React.useCallback(({ item }: { item: HerdSpaceRow }) => (
         <View style={stale && styles.stale}>
@@ -1074,10 +1131,10 @@ export const SpacesTree = React.memo(({
     return (
         <View style={[styles.contentContainer, { maxWidth: maxContentWidth }]}>
             <ActionsPopover
-                anchor={workspaceMenu?.anchor ?? null}
-                actions={menuActions}
-                onClose={() => setWorkspaceMenu(null)}
-                visible={workspaceMenu !== null}
+                anchor={menu?.anchor ?? null}
+                actions={menu?.actions ?? []}
+                onClose={() => setMenu(null)}
+                visible={menu !== null}
             />
             <SectionList
                 sections={sections}
@@ -1090,7 +1147,29 @@ export const SpacesTree = React.memo(({
                     </View>
                 )}
                 stickySectionHeadersEnabled={false}
-                ListHeaderComponent={listHeaderComponent === undefined ? undefined : <>{listHeaderComponent}</>}
+                ListHeaderComponent={<>
+                    {listHeaderComponent}
+                    {favouritePanes.length > 0 && <>
+                        <View style={[styles.sectionHeader, compact && styles.sectionHeaderCompact]}>
+                            <SectionLabel>{t('spacesTree.favourites')}</SectionLabel>
+                        </View>
+                        <View style={[styles.card, compact && styles.cardCompact, stale && styles.stale]}>
+                            {favouritePanes.map((pane, index) => (
+                                <AgentRow
+                                    key={pane.paneId}
+                                    pane={pane}
+                                    first={index === 0}
+                                    onLongPress={paneActions}
+                                    onNavigatePane={onNavigatePane}
+                                    compact={compact}
+                                    selected={pane.sessionId === selectedSessionId}
+                                    hasActions
+                                    unseenDone={pane.sessionId !== undefined && unseenDoneSessionIds.has(pane.sessionId)}
+                                />
+                            ))}
+                        </View>
+                    </>}
+                </>}
                 ListFooterComponent={<>
                     {(sections[0]?.data.length ?? 0) === 0
                         ? <Text style={styles.empty}>{searching ? t('spacesTree.noMatches') : (emptyText ?? t('spacesTree.empty'))}</Text>

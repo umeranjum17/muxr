@@ -1,3 +1,4 @@
+import { transform } from 'esbuild';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import {
@@ -405,6 +406,13 @@ try {
         'scripts/setup/domain/dist', 'scripts/plugin/domain/dist', 'apps/mobile/dist']) {
         if (existsSync(join(root, output))) cpSync(join(root, output), join(snapshot, output), { recursive: true });
     }
+    // Equivalent emitted ESM uses double-quoted imports. Packaging must resolve
+    // the workspace contract regardless of the emitter's spelling of an import.
+    const stagedStream = join(snapshot, 'apps/host/dist/voice/stream.mjs');
+    const { code: streamCode } = await transform(readFileSync(stagedStream, 'utf8'), {
+        format: 'esm', target: 'node22',
+    });
+    writeFileSync(stagedStream, streamCode);
     symlinkSync(join(root, 'node_modules'), join(snapshot, 'node_modules'), 'dir');
     run('git', ['init', '-q', snapshot]);
     const gitInSnapshot = (...args) => run('git', ['-c', 'user.name=muxr package smoke', '-c', 'user.email=package-smoke@muxr.invalid', ...args], { cwd: snapshot });
@@ -705,6 +713,7 @@ try {
     // The engines are @byokit/realtime's: the packaged stream entry must load it
     // (and accounts) from the installed runtime dependencies. Without an open
     // frame it closes with its own reason, which proves every import resolved.
+    assert.equal(existsSync(join(installDir, 'node_modules', '@trymuxr', 'contract')), false, 'consumer must not supply the workspace contract');
     const voiceStart = run(process.execPath, [join(packagedVoice, 'stream.mjs')], { cwd: installDir, env: providerEnv, input: '' });
     assert.deepEqual(JSON.parse(voiceStart.stdout), { type: 'realtime.closed', reason: 'realtime stream expected realtime.open first' }, `packaged voice runtime did not load: ${voiceStart.stderr}`);
     run(process.execPath, ['-e', `const { voiceProviderSet, voiceKeySet } = await import(${JSON.stringify(join(packagedVoice, 'product.mjs'))});await voiceProviderSet('xai');await voiceKeySet('smoke-key');`], { cwd: installDir, env: providerEnv });

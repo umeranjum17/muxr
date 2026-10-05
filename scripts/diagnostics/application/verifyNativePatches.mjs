@@ -161,10 +161,10 @@ const checks = [
             createHash('sha256').update(whisperModel).digest('hex') === '4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f',
     ],
     [
-        // Without it every dictation reading pays for a full 30 s window.
-        'dictation readings size the Whisper window to the audio',
-        whisperPatch.includes('+    config.params.audio_ctx =') &&
-            (whisperJsi.match(/getIntProperty\(runtime, options, "audioCtx", config\.params\.audio_ctx\)/g) ?? []).length === 2,
+        // Without it every dictation prompt reaches whisper.cpp as freed memory.
+        'dictation readings keep their vocabulary prompt alive',
+        whisperPatch.includes('+                    config.params.initial_prompt = config.prompt.empty() ? nullptr : config.prompt.c_str();') &&
+            (whisperJsi.match(/config\.params\.initial_prompt = config\.prompt\.empty\(\) \? nullptr : config\.prompt\.c_str\(\);\n\s+if \(!config\.language\.empty\(\)\) \{\n\s+config\.params\.language = config\.language\.c_str\(\);\n\s+\}\n\s+rnwhisper::job \*job = rnwhisper::job_new/g) ?? []).length === 2,
     ],
     [
         'notification Talk foregrounds the Activity before microphone capture',

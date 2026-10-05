@@ -77,6 +77,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    vi.unstubAllGlobals();
     mockState.failRefreshAllocation = false;
     mockState.failRefreshCleanup = false;
     rmSync(root, { recursive: true, force: true });
@@ -213,19 +214,42 @@ function claudeSnapshot(folder: string, fiveHour: number, sevenDay: number): voi
 }
 
 it('auto picks the roomier account and says which in one line', async () => {
+    const fetch = vi.fn(async () => new Response('{}', { status: 503 }));
+    vi.stubGlobal('fetch', fetch);
     const found = foundClaude();
     claudeSnapshot(found, 20, 70);
     const second = addedClaude('work');
     claudeSnapshot(second, 10, 40);
+    for (const [folder, account] of [[found, 'found-account'], [second, 'work-account']] as const) {
+        writeFileSync(join(folder, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'fixture-token', accountUuid: account } }));
+    }
     savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
     const listed = await listPlans(env);
     const provider = listed.providers[0]!;
     expect(provider.accounts.map((account) => account.roomLeftPercent)).toEqual([30, 60]);
     expect(provider.auto.accountId).toBe('pa_work');
     expect(provider.auto.reason).toBe('Right now that\'s Work: 60% left this week');
+    // Snapshot-only hints have no account identity and cannot seed the
+    // standing quota cache, even though Auto can use their current room.
+    expect(existsSync(join(env.MUXR_HOME!, 'usage', 'plans-v2.json'))).toBe(false);
     claudeSnapshot(second, 95, 99);
     expect((await resolvePlanLaunch(env, 'auto', 'claude'))?.id).toBe('found-claude');
     expect((await resolvePlanLaunch(env, 'pa_work', 'claude'))?.id).toBe('pa_work');
+    rmSync(join(second, 'last-statusline-input.json'));
+    const withoutSnapshot = (await listPlans(env)).providers[0]!;
+    expect(withoutSnapshot.accounts.map((account) => account.roomLeftPercent)).toEqual([30, undefined]);
+    expect(existsSync(join(env.MUXR_HOME!, 'usage', 'plans-v2.json'))).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 61_000).toISOString();
+    fetch.mockImplementation(async () => Response.json({ seven_day: { utilization: 40, resets_at: new Date(Date.now() + 3_600_000).toISOString() } }));
+    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([30, 60]);
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 122_000).toISOString();
+    fetch.mockImplementation(async () => new Response('{}', { status: 429 }));
+    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([30, undefined]);
+    const attempts = fetch.mock.calls.length;
+    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([30, undefined]);
+    expect(fetch).toHaveBeenCalledTimes(attempts);
+    expect(existsSync(join(env.MUXR_HOME!, 'usage', 'plans-v2.json'))).toBe(false);
 });
 
 it('reads one stalled provider without waiting on the other', async () => {

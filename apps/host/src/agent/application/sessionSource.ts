@@ -209,8 +209,11 @@ export interface SessionSource {
     closeWorkspace(workspaceId: string): Promise<void>;
     /** Rename an agent (by its pane), a pane, a tab or a workspace in Herdr. */
     rename(target: HerdrRenameTarget, id: string, name: string): Promise<void>;
-    /** Send literal keys to the session's pane (blocked-agent answers). */
-    sendKeys(sessionId: string, keys: string[]): Promise<void>;
+    /**
+     * Send literal keys to the session's pane (blocked-agent answers). With
+     * `question`, only while that blocked event is still the one waiting.
+     */
+    sendKeys(sessionId: string, keys: string[], question?: { eventId: string }): Promise<void>;
     paneZoom(options: { sessionId: string; mode?: 'toggle' | 'on' | 'off' }): Promise<{
         changed: boolean;
         zoomed: boolean;
@@ -236,8 +239,9 @@ export interface SessionSource {
     subscribe(listener: (sessionId: string, event: SessionEventBody) => void): () => void;
     /** Machine-scoped frames share the encrypted session stream and are additive. */
     subscribeMachine?(listener: (frame: PluginsInvalidatedFrame) => void): () => void;
-    /** A client just connected: re-push state that only ships on change. */
-    resendCumulativeState?(): void;
+    /** Re-push state that only ships on change after connection or admission.
+     * Use deliver for retained session events so replay does not record new unread activity. */
+    resendCumulativeState?(deliver: (sessionId: string, event: SessionEventBody) => void): void;
     dispose(): Promise<void>;
     /** Lab-script spelling of dispose: closing the source releases every
      *  socket, subscription and timer it owns so the process can exit. */

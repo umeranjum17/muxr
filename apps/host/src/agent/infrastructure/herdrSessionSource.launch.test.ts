@@ -6,7 +6,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
-import type { HerdrTreeWorkspace } from '@trymuxr/contract';
+import type { HostFrame, HerdrTreeWorkspace } from '@trymuxr/contract';
+import { WebSocket } from 'ws';
+import { DeviceLink, hostId, type DeviceGrant } from '@byokit/link';
+import { generateKeyPair } from '@trymuxr/crypto';
+import { startRelay } from '@muxr/relay';
+import { createAgentWatchStores } from '../application/watchStores.js';
+import { startHost } from '../../host.js';
+import { LinkEndpoint, type MachineCryptoState } from '../../machine/index.js';
 import type { PaneScreens } from '../../desktop/index.js';
 import { createHerdrSessionSource, boundedWorkspaceTokens, MUXR_AGENT_ENV } from './herdrSessionSource.js';
 
@@ -216,37 +223,133 @@ function treePane(tree: { workspaces: HerdrTreeWorkspace[] }, paneId: string) {
 }
 
 describe('phone launch before herdr detects the agent', () => {
-    it('reports a missing Pi executable when Herdr drops the launch but keeps the shell pane', async () => {
-        const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-missing-'));
+    it('delivers retired launch failures on reconnect until their own pane closes or recovers', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-reconnect-'));
         const herdr = fakeHerdr(dir, dir);
+        const domain = createAgentWatchStores({ dataDir: join(dir, 'host') });
         const source = await createHerdrSessionSource({
-            socketPath: herdr.socketPath, dataDir: join(dir, 'data'),
-            artifactsDir: join(dir, 'attachments'), hostHttpPort: 0, machineName: 'Umer',
+            socketPath: herdr.socketPath, dataDir: join(dir, 'host'),
+            artifactsDir: join(dir, 'artifacts'), hostHttpPort: 0,
+            machineName: 'Umer', attention: domain.attention, lifecycle: domain.lifecycle,
         });
-        const errors: string[] = [];
-        const removed: string[] = [];
-        const off = source.subscribe((id, event) => {
-            if (event.type === 'session.error') errors.push(event.message);
-            if (event.type === 'session.removed') removed.push(id);
+        const relay = await startRelay({ port: 0, config: { dataDir: join(dir, 'relay'), advertiseMdns: false } });
+        const relayUrl = `ws://127.0.0.1:${relay.port}/relay`;
+        const host = startHost({ source, domain, relayUrl, machineId: 'launch-lab', machineName: 'Umer', stateRoot: join(dir, 'host') });
+        const machine = generateKeyPair();
+        const phone = generateKeyPair();
+        const b64 = (value: Uint8Array): string => Buffer.from(value).toString('base64');
+        const b64url = (value: string): string => Buffer.from(value, 'base64').toString('base64url');
+        const crypto: MachineCryptoState = {
+            signingPublicKey: b64(new Uint8Array(32)), signingSecretKey: b64(new Uint8Array(64)),
+            boxPublicKey: machine.publicKey, boxSecretKey: machine.secretKey,
+            dataKey: b64(new Uint8Array(32)), keyVersion: 1,
+            devices: [{ deviceId: 'fixture-phone', devicePublicKey: phone.publicKey,
+                ingressKey: b64(new Uint8Array(32)), authority: 'control',
+                expiresAt: new Date(Date.now() + 3_600_000).toISOString() }],
+        };
+        const linkStates = new Map<string, boolean>();
+        const endpoint = await LinkEndpoint.open({
+            relayUrl, machineName: 'Umer', crypto, currentCrypto: () => crypto,
+            // This is only the newly created private relay's fixture enrolment.
+            ownerToken: JSON.parse(readFileSync(join(dir, 'relay', 'mint-secret'), 'utf8')) as string,
+            savePushLevel: () => undefined, grants: { load: () => [], save: () => undefined },
+            answer: host.answer, canView: host.canView,
+            onDeviceConnection: (id, active) => { linkStates.set(id, active); host.setLinkDeviceConnection(id, active); },
         });
-        try {
-            const started = await source.start({ cwd: dir, kind: 'pi' });
-            if (!('info' in started)) throw new Error('launch rejected');
-            await source.refreshHerdr();
-            expect(treePane(await source.herdrTree(), 'w1:p1').agentKind).toBe('pi');
+        host.onBroadcast((frame) => endpoint!.broadcast(frame));
+        endpoint!.start();
+        const grant: DeviceGrant = {
+            v: 1, secretKey: b64url(phone.secretKey), host: b64url(machine.publicKey), hostName: 'Umer',
+            urls: [`ws://127.0.0.1:${relay.port}/link/v1/${hostId(Buffer.from(machine.publicKey, 'base64'))}`],
+            device: { id: '', name: 'Fixture phone', role: 'control' },
+        };
+        let phoneLink: DeviceLink | undefined;
+        let delivered: HostFrame[] = [];
+        let admissionErrors: HostFrame[] = [];
+        const connect = async () => {
+            delivered = [];
+            phoneLink = new DeviceLink(grant, { WebSocket, onEvent: (value) => delivered.push(value as HostFrame) });
+            await vi.waitFor(() => expect(phoneLink!.status).toBe('online'), { timeout: 15_000 });
+            await vi.waitFor(() => expect(linkStates.get('fixture-phone')).toBe(true), { timeout: 5_000 });
+            await phoneLink.request('machine.hello', { type: 'machine.hello', requestId: 'fixture-handshake', params: {} });
+            admissionErrors = delivered.filter((frame) => frame.type === 'session.event' && frame.event.type === 'session.error');
+            await phoneLink.request('session.list', { type: 'session.list', requestId: 'fixture-catalog', params: {} });
+        };
+        let requestSeq = 0;
+        const start = async () => {
+            const result = await phoneLink!.request('session.start', {
+                type: 'session.start', requestId: `launch-${++requestSeq}`, params: { cwd: dir, kind: 'pi' },
+            }) as { ok: boolean; data?: { info: { id: string } } };
+            expect(result.ok).toBe(true);
+            return result.data!.info.id;
+        };
+        const errors = (id: string) => delivered.filter((frame) => frame.type === 'session.event'
+            && frame.sessionId === id && frame.event.type === 'session.error');
+        const fail = async (pane: string) => {
             herdr.state.paneText = 'bash: pi: command not found\n';
-            herdr.agents.splice(0);
+            const index = herdr.agents.findIndex((agent) => agent.pane_id === pane);
+            herdr.agents.splice(index, 1);
             await source.refreshHerdr();
-            expect(errors).toEqual(['Pi is not installed on Umer. Install Pi in a terminal on Umer, then try again.']);
-            expect(removed).toContain(started.info.id);
-            expect(treePane(await source.herdrTree(), 'w1:p1')).toMatchObject({ sessionId: 'shell:w1:p1', promptable: false });
+        };
+        try {
+            await connect();
+            const connectedId = await start();
             await source.refreshHerdr();
-            expect(errors).toHaveLength(1);
+            await fail('w1:p1');
+            await vi.waitFor(() => expect(errors(connectedId)).toHaveLength(1));
+            expect(errors(connectedId)[0]).toMatchObject({ event: { message: 'Pi is not installed on Umer. Install Pi in a terminal on Umer, then try again.' } });
+
+            const disconnectedId = await start();
+            await source.refreshHerdr();
+            phoneLink!.stop();
+            await vi.waitFor(() => expect(linkStates.get('fixture-phone')).toBe(false), { timeout: 5_000 });
+            await fail('w1:p2');
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(connectedId);
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(disconnectedId);
+            await connect();
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(connectedId);
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(disconnectedId);
+            // Admission delivers the original-route error before a catalog can follow its shell.
+            expect(errors(disconnectedId)).toHaveLength(1);
+            expect(admissionErrors).toContainEqual(expect.objectContaining({ sessionId: disconnectedId }));
+            expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ sessionId: 'shell:w1:p2', promptable: false });
+
+            // Closing one failed pane cannot erase the other pane's explanation.
+            herdr.panes.splice(herdr.panes.findIndex((pane) => pane.pane_id === 'w1:p1'), 1);
+            phoneLink!.stop();
+            await connect();
+            expect(errors(connectedId)).toHaveLength(0);
+            expect(errors(disconnectedId)).toHaveLength(1);
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(connectedId);
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(disconnectedId);
+
+            // A detected, ready replacement on that same pane ends its retired failure.
+            herdr.agents.push({ pane_id: 'w1:p2', name: 'Umer', agent: 'pi', agent_status: 'idle', interactive_ready: true,
+                agent_session: { source: 'herdr', agent: 'pi', kind: 'id', value: 'recovered-pi' } });
+            phoneLink!.stop();
+            await connect();
+            expect(treePane(await source.herdrTree(), 'w1:p2')).toMatchObject({ agentKind: 'pi', promptable: true });
+            expect(errors(disconnectedId)).toHaveLength(0);
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).not.toContain(disconnectedId);
+
+            const successfulId = await start();
+            Object.assign(herdr.agents.find((agent) => agent.pane_id === 'w1:p3')!, {
+                agent: 'pi', agent_status: 'idle', interactive_ready: true,
+                agent_session: { source: 'herdr', agent: 'pi', kind: 'id', value: 'successful-pi' },
+            });
+            herdr.emit('pane.agent_detected', { pane_id: 'w1:p3', agent: 'pi' });
+            await source.refreshHerdr();
+            phoneLink!.stop();
+            await connect();
+            expect(treePane(await source.herdrTree(), 'w1:p3')).toMatchObject({ sessionId: successfulId, promptable: true });
+            expect(domain.unread.catalog().entries.map((entry) => entry.sessionId)).toContain(successfulId);
+            expect(delivered.filter((frame) => frame.type === 'session.event' && frame.event.type === 'session.error')).toEqual([]);
         } finally {
-            off(); await source.close(); herdr.close();
+            phoneLink?.stop(); endpoint?.close(); await host.close();
+            await source.dispose(); await relay.close(); herdr.close();
             rmSync(dir, { recursive: true, force: true });
         }
-    });
+    }, 60_000);
 
     it('keeps the requested kind through the boot window and drops it once the launch gives up', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-launch-'));
@@ -529,7 +632,7 @@ describe('agent started at the desk in an existing pane', () => {
 });
 
 describe('realtime prompt boundary', () => {
-    it('reports a pre-send failure as not sent and a post-send read failure as unknown', async () => {
+    it('rejects unresolved targets and reports an unknown outcome when fresh confirmation fails', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'muxr-prompt-'));
         const cwd = join(dir, 'repo');
         const herdr = fakeHerdr(dir, cwd);
@@ -553,7 +656,7 @@ describe('realtime prompt boundary', () => {
                 .rejects.toMatchObject({ code: 'prompt-not-sent' });
             await expect(source.prompt({ sessionId: started.info.id, text: 'hello' })).resolves.toBeUndefined();
 
-            // The receipt was accepted, so a failed confirmation read is ambiguous.
+            // The prompt was accepted, but a failed fresh confirmation is ambiguous.
             herdr.state.failSnapshotAfterPrompt = true;
             await expect(source.prompt({ sessionId: started.info.id, text: 'again' }))
                 .rejects.toMatchObject({ code: 'prompt-outcome-unknown' });

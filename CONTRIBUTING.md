@@ -13,7 +13,8 @@ yarn install --frozen-lockfile
 yarn build
 ```
 
-You need Node ≥ 22, yarn 1.x, and — for anything touching the live backend —
+You need Node ≥ 22, the Yarn version declared by `packageManager` in
+[package.json](package.json), and — for anything touching the live backend —
 [herdr](https://herdr.dev) running (`herdr server`). Without herdr, the fake
 host (`yarn host`) drives a scripted agent so mobile work needs no real agents.
 
@@ -25,6 +26,11 @@ The unsupported local relay fixture lives in
 
 ## Verify before you push
 
+For managed validation, [.no-mistakes.yaml](.no-mistakes.yaml) owns the
+preparation command, focused consumer baseline and its qualification limits.
+Run its `commands.prepare` before `commands.test`; the fixture baseline does
+not replace the pull-request suite below or live backend validation.
+
 The automatic pull-request lane, and the full suite behind it:
 
 ```bash
@@ -34,6 +40,13 @@ yarn run check        # everything above plus the e2e, web-export, install and s
 
 Both invoke `scripts/diagnostics/application/runSuite.mjs`, which owns both
 lists; CI's `fast` and `suite` jobs run these on every pull request. A pull request from a fork runs the same `suite` check; if you are a first-time or outside contributor, the checks wait for a maintainer to approve the run before they start. `main` requires the branch to be up to date with `main` before merge.
+
+Each stage's complete stdout/stderr is saved in a private `muxr-suite-*`
+directory under the system temporary directory. The summary prints the directory
+and each failed stage's log path; the inline failure preview remains the last
+12 lines. Logs survive suite exit and child scratch cleanup; remove the printed
+directory when it is no longer needed. Treat logs as local diagnostics and review
+them before sharing.
 
 Two e2e checks in the suite — the live herdr backend loop and the worktree
 session — skip automatically when no herdr socket is present, so on a GitHub
@@ -215,7 +228,8 @@ style.
 
 Module first, layers second. Host and relay live under
 `<module>/{domain,application,infrastructure}` — only layers that
-contain real code. Composition stays at `apps/host/src/{main,host}.ts` and
+contain real code. Host composition is mapped in
+[apps/host/src/README.md](apps/host/src/README.md); relay composition stays at
 `apps/relay/src/{main,relay,httpHandlers}.ts`.
 
 - **Domain** is pure TypeScript. Rich entities and value objects own invariants,

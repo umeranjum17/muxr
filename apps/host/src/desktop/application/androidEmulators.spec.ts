@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { createServer, type Server, type Socket } from 'node:net';
 import { describe, expect, it } from 'vitest';
 
-import { AndroidEmulatorWatcher, AndroidPreviewTargets, AndroidPresenceTracker, adbRunner } from './androidEmulators.js';
+import { AndroidEmulatorWatcher, DevicePreviewTargets, DevicePresenceTracker, adbRunner } from './androidEmulators.js';
 import { PreviewLeaseTracker, type PreviewLeaseSnapshot } from './previewLease.js';
 
 /**
@@ -245,7 +245,7 @@ describe('a headless emulator in an agent pane', () => {
                 procRoot: proc,
                 adb: adb,
                 runAdb: adbRunner(adb),
-                tracker: new AndroidPresenceTracker({ announceAfterMs: 10, withdrawAfterMs: 10 }),
+                tracker: new DevicePresenceTracker({ announceAfterMs: 10, withdrawAfterMs: 10 }),
                 enginePath: engine,
                 scanMs: 60_000,
             });
@@ -340,7 +340,7 @@ describe('a headless emulator in an agent pane', () => {
     it('marks the pane human while a control-scoped emulator target is live', async () => {
         const saved: PreviewLeaseSnapshot[] = [];
         const lease = new PreviewLeaseTracker({ idleMs: 60, persist: (snapshot) => saved.push(snapshot) });
-        const targets = new AndroidPreviewTargets({
+        const targets = new DevicePreviewTargets({
             mirrors: {
                 open: async () => ({
                     session: {

@@ -33,12 +33,12 @@ behaviour it claims to cover and watch it go red.
 - Voice adapters are product code under the host voice module: no catalog entry, manifest hash, or per-device plugin approval. Several engines are selectable; the default is Codex Voice (experimental).
 - Never display or speak internal ids (`pp_*`, pane ids, session ids).
 - The microphone foreground service must be running before the realtime mic opens, or Android silently returns a deaf session.
-- Dictation speed rests on `patches/whisper.rn+0.7.2.patch`, which passes `audioCtx` to whisper.cpp; without it every reading pays for a full 30 s window (~2.5 s on a flagship). Carry it across whisper.rn upgrades; `verifyNativePatches.mjs` checks it.
+- Dictation decoding belongs to `@byokit/dictation`; muxr supplies capture, model storage and its vocabulary prompt in `utils/localTranscription.ts`. Keep recognition tuning in the kit; shortened Whisper windows previously dropped words.
 
 ## Naming
 
 - A manual rename goes to Herdr through the host's `herdr.rename` (`apps/mobile/sources/herd/application/renameInHerdr.ts`), never a name kept on the phone: Herdr owns every name, so all clients and the naming plugin agree. An agent's name is Herdr's handle (a–z, 0–9, `-`, `_`, 32 max).
-- Every surface leads with what an agent is working on and says who under it (`pi · zulu-2 · Working`): `agentLabels()` in `apps/mobile/sources/herd/domain/agentPresentation.ts`, with `agentWhoLine()` / `agentBesideName()` for the name. The task comes from `agentTask()` in `packages/contract/src/herd/domain/agentTask.ts`, which the host uses too (pane label, then the harness's window title, then Herdr title metadata, then a sole-agent task workspace label, else the name). It drops sources that only name the folder, repo, program or agent; extend that filter rather than demoting the task again, which is how every agent once read as its name.
+- Every surface leads with what an agent is working on and says who under it (`pi · zulu-2 · Working`), except a lifecycle alert's title, which leads with the name (`agentAlertTitle()`) because the shade cuts it from the end: `agentLabels()` in `apps/mobile/sources/herd/domain/agentPresentation.ts`, with `agentWhoLine()` / `agentBesideName()` for the name. The task comes from `agentTask()` in `packages/contract/src/herd/domain/agentTask.ts`, which the host uses too (pane label, then the harness's window title, then Herdr title metadata, then a sole-agent task workspace label, else the name). It drops sources that only name the folder, repo, program or agent; extend that filter rather than demoting the task again, which is how every agent once read as its name.
 
 ## Terminal
 

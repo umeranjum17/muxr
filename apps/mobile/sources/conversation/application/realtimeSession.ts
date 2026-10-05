@@ -1,5 +1,7 @@
 import { MAX_REALTIME_TEXT_BYTES, realtimeClient, type AudioPorts } from '@byokit/realtime';
 import { webRtcPeer } from '@byokit/realtime/webrtc';
+import { REALTIME_OUTPUT_RATE, REALTIME_PLANNING_DETAIL } from '@trymuxr/contract';
+import { encodeBase64 } from '@/encryption/base64';
 import { isVoiceServiceReady, releaseVoiceAudio, routeVoiceAudio, startVoiceService } from '@/../modules/voice-overlay';
 import { refreshRealtimeStreamSnapshot } from '../infrastructure/realtimeStream';
 import { createRealtimePlayback } from '@/playback';
@@ -24,6 +26,28 @@ function fitFrame(text: string): string {
     let fitted = text;
     while (new TextEncoder().encode(fitted).length > MAX_REALTIME_TEXT_BYTES) fitted = fitted.slice(0, Math.floor(fitted.length * 0.9));
     return fitted;
+}
+
+let planningTone: string | undefined;
+
+/**
+ * Two soft rising notes, ~160 ms of PCM16 at the output rate: heard as "working
+ * on it", not as speech. Trailing silence pads it to 600 ms: the native
+ * streaming track only starts once its buffer fills, so a bare 160 ms clip
+ * would never play.
+ */
+function planningToneAudio(): string {
+    if (planningTone !== undefined) return planningTone;
+    const noteSamples = Math.round(REALTIME_OUTPUT_RATE * 0.08);
+    const samples = new Int16Array(Math.round(REALTIME_OUTPUT_RATE * 0.6));
+    [660, 880].forEach((hz, note) => {
+        for (let i = 0; i < noteSamples; i++) {
+            const envelope = Math.sin(Math.PI * i / noteSamples);
+            samples[note * noteSamples + i] = Math.round(0.2 * 32767 * envelope * Math.sin(2 * Math.PI * hz * i / REALTIME_OUTPUT_RATE));
+        }
+    });
+    planningTone = encodeBase64(new Uint8Array(samples.buffer));
+    return planningTone;
 }
 
 /** Android returns a deaf session unless the microphone service is foreground first. */
@@ -77,6 +101,14 @@ export function startRealtimeSession(options: {
         retryableClose: (reason) => reason === undefined || /(?:connection failed|disconnected|timed out|input failed)/i.test(reason),
         onStatus: (status, detail) => {
             if (status === 'disconnected') resetEnergy();
+            // A planner request takes seconds; the tone fills the silence. Codex
+            // speaks over WebRTC, so the PCM player is otherwise idle.
+            if (status === 'thinking' && detail === REALTIME_PLANNING_DETAIL) {
+                try {
+                    playback.ensure(REALTIME_OUTPUT_RATE);
+                    if (playback.admit(planningToneAudio()) === 'ok') playback.finish();
+                } catch { /* a missing cue never ends the call */ }
+            }
             options.onStatus(status, detail);
         },
         onTurn: options.onTurn,
