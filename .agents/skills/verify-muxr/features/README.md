@@ -60,3 +60,5 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Watch and drive an iOS Simulator from the phone](./ios-simulator-preview.md) —
   `muxr preview claim` on a macOS host, live stream, tap/swipe/Home, clean
   helper shutdown.
+- [See pinned spaces on the phone's Spaces list](./spaces-pinned.md) —
+  native app on an emulator over a fake-Herdr stack: pin, themes, tablet width.
