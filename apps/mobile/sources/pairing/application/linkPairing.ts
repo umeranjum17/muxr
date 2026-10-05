@@ -103,6 +103,10 @@ export async function pairOverLink(scanned: string, options: { onWords?: (words:
     assertSupportedOffer(scanned);
     const previous = await readPendingPair();
     if (previous?.scanned === scanned && previous.claimed === true) return completeLinkPairing(previous, { ...options, mode: 'resume' });
+    // An earlier pairing whose acknowledgement went unanswered is settled
+    // before its key is replaced, so a device the computer kept is not lost.
+    // ponytail: best effort; if that computer is unreachable now, its key is dropped and it keeps an unused device record.
+    if (previous?.answer !== undefined) await completeLinkPairing(previous, { mode: 'resume' }).catch(() => undefined);
     const secretKey = newPairingSecretKey();
     const pending: PendingLinkPair = { scanned, name: pairingDeviceName(), secretKey, startedAt: Date.now() };
     await writePendingPair(pending);

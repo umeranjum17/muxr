@@ -52,6 +52,8 @@ export function pairingFailure(cause: unknown): string {
 }
 
 const NOT_FINISHED = "This pairing didn't finish on your computer. Run `muxr pair` there and scan the new code.";
+/** The computer revoked this key mid-request: it rolled the pairing back. */
+const rolledBack = (cause: unknown): boolean => cause instanceof LinkError && cause.code === 'removed';
 const lost = (cause: unknown): boolean => cause instanceof LinkError && (cause.code === 'unreachable' || cause.code === 'timeout');
 /** The computer answers this once its pairing has closed, whether it kept this device or rolled it back. */
 const pairingClosed = (cause: unknown): boolean => cause instanceof LinkError && (cause.code === 'not-allowed' || cause.code === 'view-only');
@@ -140,6 +142,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
     let wordsShown = false;
     try {
         if (options.mode === 'claim') {
+            if (parseOffer(pending.scanned, 0).expires < Date.now()) throw new LinkError('expired');
             // A fresh scan claims the single-use ticket; a resumed phone was
             // already approved, so it reconnects by its key alone — the ticket
             // burned on the first connection.
@@ -185,6 +188,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
                 if (pending.answer !== undefined) return { ...pending.answer, key };
                 throw new PairingNeedsNewCode(NOT_FINISHED);
             }
+            if (rolledBack(cause)) throw new PairingNeedsNewCode(NOT_FINISHED);
             if (lost(cause)) throw new Error("Approved, but your computer didn't send its details in time. Try again.");
             throw cause;
         }
@@ -201,6 +205,7 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         await options.onProven?.(answer);
         try { await pairing.request('pair.verified', {}, { timeoutMs: 10_000 }); }
         catch (cause) {
+            if (rolledBack(cause)) throw new PairingNeedsNewCode(NOT_FINISHED);
             // Nothing says whether the computer saved this device; a retry
             // resumes by key and finds out instead of claiming a spent code.
             if (lost(cause) || pairingClosed(cause)) throw new Error('Your computer may not have saved this pairing. Try again to finish — no new code needed.');
