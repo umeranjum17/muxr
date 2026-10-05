@@ -621,6 +621,8 @@ const EVENT_KINDS = [
 
 const EMPTY_TOKENS = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
+const PLAN_MOVE_KINDS: Record<string, string[]> = { claude: ['claude', 'pi'], codex: ['codex', 'pi'] };
+
 const SHELL_ROUTE_PREFIX = 'shell:';
 const DEFAULT_WATCH_MS = 30 * 60_000;
 // ponytail: hard ceiling so a forgotten watch cannot hold a herdr connection
@@ -3083,6 +3085,9 @@ export async function createHerdrSessionSource(
                 throw Object.assign(new Error('The agent has no conversation to move yet. Wait for it to start, then try again.'), { code: 'plan-move-too-early' });
             }
             const kind = record.agent?.agent ?? moveOptions.provider;
+            if (!(PLAN_MOVE_KINDS[moveOptions.provider] ?? []).includes(kind)) {
+                throw Object.assign(new Error('This conversation cannot move to that account.'), { code: 'plan-move-unsupported' });
+            }
             let args: string[];
             try { args = moveOptions.resumeArgs(kind, conversation); }
             catch {
