@@ -196,24 +196,38 @@ if (field !== undefined) {
 }
 
 // Clear the field the way a person would, then prove it is empty before a
-// single character goes in. An empty field reports its placeholder as text, so
-// the hint counts as empty.
+// single character goes in.
 await shell('input', 'keycombination', 'KEYCODE_CTRL_LEFT', 'KEYCODE_A');
 await shell('input', 'keyevent', 'KEYCODE_DEL');
-let residue;
-let clearedTag;
-for (let attempt = 0; attempt < 10 && clearedTag === undefined; attempt++) {
-    await sleep(300);
-    const tag = nodeTags(await dump()).find((candidate) => (
-        attr(candidate, 'focused') === 'true' && attr(candidate, 'text') !== undefined && (field === undefined || hasIdentity(candidate))
-    ));
-    if (tag === undefined) continue;
-    const value = attr(tag, 'text');
-    residue = value === '' || value === attr(tag, 'hint') ? undefined : value;
-    if (residue === undefined) clearedTag = tag;
+
+// The focused target field, read until `settled` accepts it (else the last read).
+async function readTarget(settled) {
+    let tag;
+    for (let attempt = 0; attempt < 10; attempt++) {
+        await sleep(300);
+        tag = nodeTags(await dump()).find((candidate) => (
+            attr(candidate, 'focused') === 'true' && attr(candidate, 'text') !== undefined && (field === undefined || hasIdentity(candidate))
+        ));
+        if (tag !== undefined && settled(tag)) break;
+    }
+    return tag;
 }
-if (clearedTag === undefined && residue === undefined) fail(`no focused text field left on ${serial} after clearing; nothing was typed`);
-if (clearedTag === undefined) fail(`field still holds residue after select-all and delete on ${serial}: ${JSON.stringify(residue)}; nothing was typed`);
+const textOf = (tag) => (tag === undefined ? undefined : attr(tag, 'text'));
+
+const cleared = await readTarget((tag) => textOf(tag) === '' || textOf(tag) === attr(tag, 'hint'));
+if (cleared === undefined) fail(`no focused text field left on ${serial} after clearing; nothing was typed`);
+const left = textOf(cleared);
+if (left !== '' && left !== attr(cleared, 'hint')) {
+    // An empty field reports its placeholder as its text, and API 35's dump has
+    // no hint attribute to tell the two apart. One probe character settles it:
+    // only a field that was empty reads back as exactly that character.
+    await shell('input', 'text', 'x');
+    const probed = textOf(await readTarget((tag) => textOf(tag) !== left));
+    await shell('input', 'keyevent', 'KEYCODE_DEL');
+    if (probed !== 'x') fail(`field still holds residue after select-all and delete on ${serial}: ${JSON.stringify(left)}; nothing was typed`);
+    const restored = textOf(await readTarget((tag) => textOf(tag) === left));
+    if (restored !== left) fail(`the emptiness probe did not delete cleanly on ${serial}: read ${JSON.stringify(restored)}; nothing was typed`);
+}
 
 // Strictly sequential: one awaited adb call per character. Batching or
 // parallel calls reintroduce the drop/reorder behaviour this helper exists
