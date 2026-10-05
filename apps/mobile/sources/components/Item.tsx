@@ -23,6 +23,7 @@ export interface ItemProps {
     subtitleLines?: number; // set 0 or undefined for auto/multiline
     /** Facts line beneath the prose subtitle. */
     meta?: string;
+    metaLines?: number; // default 1; set 0 to wrap
     detail?: string;
     icon?: React.ReactNode;
     leftElement?: React.ReactNode;
@@ -135,6 +136,7 @@ export const Item = React.memo<ItemProps>((props) => {
         subtitle,
         subtitleLines,
         meta,
+        metaLines,
         detail,
         icon,
         leftElement,
@@ -229,7 +231,7 @@ export const Item = React.memo<ItemProps>((props) => {
                             </Text>
                         );
                     })()}
-                    {meta && <Text style={styles.meta} numberOfLines={1}>{meta}</Text>}
+                    {meta && <Text style={styles.meta} numberOfLines={metaLines === 0 ? undefined : (metaLines ?? 1)}>{meta}</Text>}
                     {progress !== undefined && subtitle !== undefined && (
                         <Meter ratio={progress} style={{ marginTop: 6 }} />
                     )}
