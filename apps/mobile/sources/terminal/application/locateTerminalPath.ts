@@ -19,17 +19,25 @@ export interface TerminalPathTarget {
  * as a file, so Files or the file viewer shows its own not-found state.
  * Null when a relative path has no working directory to read it from.
  */
+/** A tapped path with cosmetic trailing slashes removed. The filesystem
+ *  root survives: '/' stays '/', never the empty string that would fall
+ *  back to the session repository. Both the resolver below and the Files
+ *  route normalise through here, so a root means the same thing on both
+ *  sides. */
+export function trimmedTapPath(path: string): string {
+    const trimmed = path.replace(/\/+$/, '');
+    return trimmed === '' ? '/' : trimmed;
+}
+
 /** The parent folder and entry name a user-named absolute path verifies
  *  against: Files lists the parent from the filesystem and reads the entry
  *  inside it. Undefined for paths with no parent to ask about. */
 function namedDirTarget(absolutePath: string): { dir: string; base: string } | undefined {
-    const trimmed = absolutePath.replace(/\/+$/, '');
+    const trimmed = trimmedTapPath(absolutePath);
     if (!trimmed.startsWith('/')) return undefined;
+    if (trimmed === '/') return { dir: '/', base: '' };
     const slash = trimmed.lastIndexOf('/');
-    const dir = slash <= 0 ? '/' : trimmed.slice(0, slash);
-    const base = trimmed.slice(slash + 1);
-    if (base === '') return undefined;
-    return { dir, base };
+    return { dir: slash <= 0 ? '/' : trimmed.slice(0, slash), base: trimmed.slice(slash + 1) };
 }
 
 export async function locateTerminalPath(

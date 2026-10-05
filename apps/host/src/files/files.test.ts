@@ -103,6 +103,13 @@ describe('user-named folders outside the open repositories', () => {
         expect(filesList({ ...input, root: spaced, path: 'emptydir' }).tree).toEqual([]);
     });
 
+    it("tapping '/' opens the filesystem root itself, never the session repository", () => {
+        const listed = filesList({ ...input, root: '/' });
+        expect(listed.scope).toBe('folder');
+        expect(listed.root).toBe('/');
+        expect(listed.title).toBe('/');
+    });
+
     it('passes a user-named folder through the real dispatch path', async () => {
         const source = createFakeSessionSource();
         const started = await source.start({ cwd: repo });

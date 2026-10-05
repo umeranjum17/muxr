@@ -160,7 +160,7 @@ export function filesList(input: FilesInput & { path?: string; allowedRoots?: re
         return {
             root,
             scope: selected.scope,
-            title: root.split('/').pop() ?? root,
+            title: root.split('/').pop() || root,
             count: `${listed.total} entries`,
             tree: listed.tree,
             treeNote: listed.note,
@@ -173,7 +173,7 @@ export function filesList(input: FilesInput & { path?: string; allowedRoots?: re
     return {
         root,
         scope: selected.scope,
-        title: root.split('/').pop() ?? root,
+        title: root.split('/').pop() || root,
         count: `${all.length} files`,
         tree: listed.tree,
         treeNote: listed.note,

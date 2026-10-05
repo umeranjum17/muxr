@@ -79,7 +79,7 @@ import { getCachedConnectionSettings } from '@/connection';
 import { displayLink } from '../domain/TerminalLink';
 import { TerminalLinkMenu, terminalLinkCardFits, type LinkAction } from './TerminalLinkMenu';
 import { isTerminalPath, openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
-import { locateTerminalPath } from '../application/locateTerminalPath';
+import { locateTerminalPath, trimmedTapPath } from '../application/locateTerminalPath';
 import { humanError } from '@/utils/errors';
 import { MoveAccountRow } from '@/plans/ui';
 import { CommandPalette } from '@/components/CommandPalette';
@@ -879,7 +879,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                 } });
                 return;
             }
-            const trimmed = target.path.replace(/\/+$/, '');
+            const trimmed = trimmedTapPath(target.path);
             const slash = trimmed.lastIndexOf('/');
             const root = target.kind === 'folder' ? trimmed : slash <= 0 ? '/' : trimmed.slice(0, slash);
             const file = target.kind === 'file' ? trimmed.slice(slash + 1) : undefined;
