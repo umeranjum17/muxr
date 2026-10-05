@@ -52,7 +52,9 @@ import {
     planAccountStatus,
     planLaunchEnv,
     planPaneAccount,
-    planSignInLaunch,
+    planAccounts,
+    cancelPlanSignIn,
+    finishPlanSignIn,
     preparePlanSignIn,
     rememberPlanPane,
     rememberSignInTab,
@@ -256,10 +258,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     };
 
     /** Close a sign-in tab muxr opened: its only pane, and the tab with it. */
-    const closeSignInTab = async (accountId: string): Promise<{ created: boolean } | undefined> => {
+    const closeSignInTab = async (accountId: string): Promise<string | undefined> => {
         const tab = signInTab(accountId);
         if (tab === undefined) return undefined;
-        const session = (await source.list()).find((candidate) => candidate.paneId === tab.paneId || candidate.id === tab.paneId);
+        const session = (await source.list()).find((candidate) => candidate.paneId === tab || candidate.id === tab);
         if (session !== undefined) {
             let result = await source.stop(session.id, {});
             if (result.status === 'confirmationRequired' && result.scope === 'tab') {
@@ -269,7 +271,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 throw new Error("Couldn't close the sign-in tab. Try again.");
             }
         }
-        forgetSignInTab(accountId, tab.paneId);
+        forgetSignInTab(accountId, tab);
         return tab;
     };
 
@@ -332,8 +334,8 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return presentAttachmentItems(listing.artifacts);
         },
         'session.start': async (params) => {
-            const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, signIn: _signIn, ...start } =
-                params as typeof params & { planEnv?: unknown; signIn?: unknown };
+            const { peerMutation: _peerMutation, planAccount, planEnv: _planEnv, planUnset: _planUnset, signIn: _signIn, ...start } =
+                params as typeof params & { planEnv?: unknown; planUnset?: unknown; signIn?: unknown };
             if (planAccount !== undefined && (start.kinds !== undefined || start.members !== undefined)) {
                 throw Object.assign(
                     new Error('A squad cannot start on one plan account. Start its agents separately.'),
@@ -341,13 +343,14 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 );
             }
             const record = planAccount === undefined ? undefined : await resolvePlanLaunch(process.env, planAccount, start.kind);
+            const launchEnv = record === undefined ? undefined : planLaunchEnv(process.env, record);
             const started = useCaseData(await startAgent({
                 exists: existsSync,
                 create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
                 start: (command) => source.start(command),
             }, {
                 ...start,
-                ...(record === undefined ? {} : { planEnv: planLaunchEnv(record) }),
+                ...(launchEnv === undefined ? {} : { planEnv: launchEnv.set, planUnset: launchEnv.unset }),
             }));
             if (record !== undefined && 'info' in started) await rememberPane(started.info.paneId ?? started.info.id, record.id);
             return started;
@@ -602,10 +605,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'usage.now': (params) => usageNow(process.env, { ...(params.refresh === undefined ? {} : { refresh: params.refresh }) }),
         'plans.list': () => listPlans(process.env),
         'plans.acknowledgeAutoTerms': async () => acknowledgeAutoTerms(process.env),
-        'plans.rename': async (params) => renamePlanAccount(process.env, params.accountId, params.name),
+        'plans.rename': (params) => withPlanSignIn(params.accountId, () => renamePlanAccount(process.env, params.accountId, params.name)),
         'plans.remove': (params) => withPlanSignIn(params.accountId, async () => {
             await closeSignInTab(params.accountId);
-            return removePlanAccount(process.env, params.accountId);
+            const removed = await removePlanAccount(process.env, params.accountId);
+            finishPlanSignIn(params.accountId);
+            return removed;
         }),
         'plans.move': async (params) => {
             if (planMoveInProgress) {
@@ -632,7 +637,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     return moved;
                 } catch (error) {
                     const exposed = error as { code?: unknown; paneId?: unknown };
-                    if (exposed.code === 'plan-move-extra-copy' && typeof exposed.paneId === 'string') {
+                    if (typeof exposed.paneId === 'string') {
                         await rememberPane(exposed.paneId, record.id);
                     }
                     if ((error as { code?: unknown }).code === 'plan-move-start-failed') {
@@ -648,38 +653,51 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             }
         },
         'plans.add': async (params) => {
-            const prepared = params.accountId === undefined ? await preparePlanSignIn(process.env, params.provider) : undefined;
+            if (params.accountId !== undefined && resolvePlanRecord(process.env, params.accountId).provider !== params.provider) {
+                throw Object.assign(new Error('That account belongs to another provider.'), { code: 'plan-kind-mismatch' });
+            }
+            const prepare = async (folder: string, provider: string) => {
+                const folderVar = provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
+                const result = await source.herdrCli(['integration', 'install', provider], 15_000, { [folderVar]: folder });
+                if (result.exitCode !== 0 || result.timedOut) throw new Error('Account hook preparation failed.');
+            };
+            const prepared = params.accountId === undefined ? await preparePlanSignIn(process.env, params.provider, undefined, prepare) : undefined;
             const accountId = params.accountId ?? prepared!.record.id;
             return withPlanSignIn(accountId, async () => {
-                const { record, created } = prepared ?? await preparePlanSignIn(process.env, params.provider, accountId);
-                let previous: { created: boolean } | undefined;
+                let attemptPrepared = prepared !== undefined;
+                let pendingId = accountId;
                 try {
-                    previous = await closeSignInTab(record.id);
-                    const { launch, completionPath } = planSignInLaunch(process.env, record);
+                    await closeSignInTab(accountId);
+                    const { record, launch } = prepared ?? await preparePlanSignIn(process.env, params.provider, accountId, prepare);
+                    attemptPrepared = true;
+                    pendingId = record.id;
+                    await closeSignInTab(record.id);
                     const started = useCaseData(await startAgent({
                         exists: existsSync,
                         create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
                         start: (command) => source.start(command),
                     }, { cwd: homedir(), ...launch }));
                     if (!('info' in started)) throw new Error(`Couldn't open ${PLAN_LABELS[record.provider]} sign-in. Try again.`);
-                    rememberSignInTab(record.id, started.info.paneId ?? started.info.id, created || previous?.created === true, completionPath);
+                    rememberSignInTab(record.id, started.info.paneId ?? started.info.id);
                     return { accountId: record.id, sessionId: started.info.id };
                 } catch (error) {
-                    if (created || previous?.created === true) removePlanAccount(process.env, record.id);
+                    if (attemptPrepared) await cancelPlanSignIn(process.env, pendingId).catch(() => undefined);
                     throw error;
                 }
             });
         },
         'plans.status': (params) => withPlanSignIn(params.accountId, async () => {
             const status = await planAccountStatus(process.env, params.accountId);
-            if (status.account.signedIn) await closeSignInTab(params.accountId);
+            if (status.account.signedIn) {
+                await closeSignInTab(params.accountId);
+                finishPlanSignIn(params.accountId);
+            }
             return status;
         }),
         'plans.cancel': (params) => withPlanSignIn(params.accountId, async () => {
             const tab = await closeSignInTab(params.accountId);
-            if (tab?.created !== true) return { removed: false };
-            removePlanAccount(process.env, params.accountId);
-            return { removed: true };
+            if (tab === undefined) return { removed: false };
+            return cancelPlanSignIn(process.env, params.accountId);
         }),
         'plans.agent': async (params) => planPaneAccount(process.env, await planPaneOf(params.sessionId)),
         'voice.status': () => voiceStatus(),

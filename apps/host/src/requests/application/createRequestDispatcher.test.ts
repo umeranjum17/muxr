@@ -553,7 +553,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
 
     it('starts on the stored account env, and refuses unknown ids, squads and kind mismatches', async () => {
         const { savePlanAccounts } = await import('../../plans/planStore.js');
-        const folder = join(home, 'muxr', 'plans', 'claude', 'work');
+        const folder = join(home, 'muxr', 'plans', 'claude', 'aabbcc');
         const { mkdirSync } = await import('node:fs');
         mkdirSync(folder, { recursive: true });
         savePlanAccounts(process.env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }]);
@@ -596,7 +596,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
         process.env.MUXR_HOME = join(home3, 'muxr');
         try {
             const { mkdirSync } = await import('node:fs');
-            const folder = join(home3, 'muxr', 'plans', 'claude', 'work');
+            const folder = join(home3, 'muxr', 'plans', 'claude', 'aabbcc');
             mkdirSync(folder, { recursive: true });
             savePlanAccounts(process.env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }]);
             const starts: unknown[] = [];
@@ -610,13 +610,14 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
             const cwd = mkdtempSync(join(tmpdir(), 'muxr-plan-env-start-'));
 
-            const bare = await dispatch({ type: 'session.start', requestId: 'e1', params: { cwd, kind: 'claude', planEnv: { PATH: '/evil', CLAUDE_CONFIG_DIR: '/evil' } } } as never);
+            const bare = await dispatch({ type: 'session.start', requestId: 'e1', params: { cwd, kind: 'claude', planEnv: { PATH: '/evil', CLAUDE_CONFIG_DIR: '/evil' }, planUnset: ['PATH'] } } as never);
             expect(bare).toMatchObject({ ok: true });
             expect(starts[0]).not.toHaveProperty('planEnv');
+            expect(starts[0]).not.toHaveProperty('planUnset');
 
             const ok = await dispatch({ type: 'session.start', requestId: 'e2', params: { cwd, kind: 'claude', planAccount: 'pa_work', planEnv: { CLAUDE_CONFIG_DIR: '/evil' } } } as never);
             expect(ok).toMatchObject({ ok: true });
-            expect(starts[1]).toMatchObject({ planEnv: { CLAUDE_CONFIG_DIR: folder } });
+            expect(starts[1]).toMatchObject({ planEnv: { CLAUDE_CONFIG_DIR: folder }, planUnset: expect.arrayContaining(['ANTHROPIC_API_KEY']) });
         } finally {
             if (keepHome === undefined) delete process.env.HOME;
             else process.env.HOME = keepHome;
@@ -633,7 +634,9 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
         process.env.HOME = home2;
         process.env.MUXR_HOME = join(home2, 'muxr');
         try {
-            savePlanAccounts(process.env, [{ id: 'pa_w', provider: 'codex', name: 'Work', folder: join(home2, 'c'), found: false }]);
+            const folder = join(home2, 'muxr', 'plans', 'codex', 'aabbcc');
+            mkdirSync(folder, { recursive: true });
+            savePlanAccounts(process.env, [{ id: 'pa_w', provider: 'codex', name: 'Work', folder, found: false }]);
             const moves: unknown[] = [];
             let finishMove!: () => void;
             const moveFinished = new Promise<void>((resolve) => { finishMove = resolve; });
@@ -718,7 +721,9 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
         process.env.HOME = home4;
         process.env.MUXR_HOME = join(home4, 'muxr');
         try {
-            savePlanAccounts(process.env, [{ id: 'pa_s', provider: 'claude', name: 'Side', folder: join(home4, 'c'), found: false }]);
+            const folder = join(home4, 'muxr', 'plans', 'claude', 'aabbcc');
+            mkdirSync(folder, { recursive: true });
+            savePlanAccounts(process.env, [{ id: 'pa_s', provider: 'claude', name: 'Side', folder, found: false }]);
             const sessions: Array<{ id: string; paneId: string }> = [];
             const stopped: string[] = [];
             let launches = 0;
@@ -768,6 +773,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             let folderPresentAtStart = false;
             let recordsAtStart: string[] = [];
             const failing = {
+                async herdrCli() { return { stdout: '', stderr: '', exitCode: 0, timedOut: false }; },
                 async start() {
                     failedStarts += 1;
                     const records = loadPlanAccounts(process.env);
@@ -795,7 +801,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
     });
 
     it('records the Auto terms acknowledgment the one-time note needs', async () => {
-        const { autoTermsAcknowledged } = await import('../../plans/planStore.js');
+        const { planAccounts } = await import('../../plans/planAccounts.js');
         const home3 = mkdtempSync(join(tmpdir(), 'muxr-plans-terms-'));
         const keepHome = process.env.HOME;
         const keepMuxr = process.env.MUXR_HOME;
@@ -804,10 +810,10 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
         try {
             const source = {} as unknown as SessionSource;
             const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
-            expect(autoTermsAcknowledged(process.env)).toBe(false);
+            expect(planAccounts(process.env).termsAcknowledged()).toBe(false);
             const acked = await dispatch({ type: 'plans.acknowledgeAutoTerms', requestId: 't1', params: {} });
             expect(acked).toMatchObject({ ok: true, data: { acknowledged: true } });
-            expect(autoTermsAcknowledged(process.env)).toBe(true);
+            expect(planAccounts(process.env).termsAcknowledged()).toBe(true);
         } finally {
             if (keepHome === undefined) delete process.env.HOME;
             else process.env.HOME = keepHome;
