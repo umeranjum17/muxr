@@ -1,10 +1,15 @@
+import * as React from 'react';
+import { AppState } from 'react-native';
+import { InferError, errorWords, summarizePane, summaryWords, words, type InferState, type LocalModel, type WordKey } from '@byokit/infer';
+import { openOnDeviceModel } from '../infrastructure/onDeviceModel';
+
 /**
  * Pane summaries run on this phone through BYOKit's on-device generation kit
  * and nothing else: no provider, cloud or raw model SDK behind them. These are
  * the kit's six states as the summary sheet presents them.
  */
 export type OnDeviceGenerationState =
-    | { kind: 'unsupported'; reason: 'device' | 'unpublished' }
+    | { kind: 'unsupported'; reason: 'device' | 'build' }
     | { kind: 'needs-download'; bytes?: number }
     | { kind: 'downloading'; fraction?: number }
     | { kind: 'ready' }
@@ -19,15 +24,65 @@ export type OnDeviceSummarizer = {
     summarize?: (output: string) => Promise<string>;
 };
 
-const UNPUBLISHED: OnDeviceSummarizer = { state: { kind: 'unsupported', reason: 'unpublished' } };
+let kit: LocalModel | null | undefined;
+let phase: InferState = { phase: 'not-installed' };
+const listeners = new Set<() => void>();
+
+function onDeviceModel(): LocalModel | null {
+    if (kit !== undefined) return kit;
+    kit = openOnDeviceModel((next) => { phase = next; listeners.forEach((listener) => listener()); });
+    if (kit !== null) { phase = kit.state; void kit.check().catch(() => undefined); }
+    return kit;
+}
+
+function subscribe(listener: () => void): () => void {
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+}
+
+const FAILED_WORDS: Partial<Record<NonNullable<InferState['why']>, WordKey>> = {
+    integrity: 'infer.integrity', storage: 'infer.noSpace', network: 'infer.network',
+};
+
+function presented(state: InferState, model: LocalModel): OnDeviceGenerationState {
+    switch (state.phase) {
+        case 'unsupported': return { kind: 'unsupported', reason: state.why === 'binding' ? 'build' : 'device' };
+        case 'not-installed': return { kind: 'needs-download', bytes: model.model.bytes };
+        case 'installing': return { kind: 'downloading', fraction: state.total ? (state.received ?? 0) / state.total : undefined };
+        case 'installed':
+        case 'ready': return { kind: 'ready' };
+        case 'loading':
+        case 'busy': return { kind: 'busy' };
+        case 'failed': return { kind: 'failed', message: words((state.why && FAILED_WORDS[state.why]) || 'infer.failed') };
+    }
+}
 
 /**
- * The summarizer for this phone. The on-device kit is not published yet, so
- * this says so rather than pretending: no download, no generation.
+ * The summarizer for this phone, over BYOKit's on-device kit. The kit owns the
+ * prompt, redaction and the 3–4 line shape; the model is released when the
+ * sheet closes or the app leaves the foreground.
  */
-// ponytail: fixed until the published byk-ondevice-kit pin replaces this body with the kit's state and calls.
 export function useOnDeviceSummarizer(): OnDeviceSummarizer {
-    return UNPUBLISHED;
+    const model = onDeviceModel();
+    const state = React.useSyncExternalStore(subscribe, () => phase);
+    React.useEffect(() => {
+        if (model === null) return;
+        const background = AppState.addEventListener('change', (next) => { if (next !== 'active') void model.release(); });
+        return () => { background.remove(); void model.release(); };
+    }, [model]);
+    if (model === null) return { state: { kind: 'unsupported', reason: 'build' } };
+    const shown = presented(state, model);
+    return {
+        state: shown,
+        download: shown.kind === 'needs-download' || shown.kind === 'failed' ? () => { void model.install().catch(() => undefined); } : undefined,
+        summarize: shown.kind === 'ready' ? async (output) => {
+            const summary = await summarizePane(model, output.split('\n')).catch((reason: unknown) => {
+                throw reason instanceof InferError ? new Error(errorWords(reason)) : reason;
+            });
+            if (!summary.ok) throw new Error(summaryWords(summary.code));
+            return summary.lines.join('\n');
+        } : undefined,
+    };
 }
 
 const MAX_INPUT_CHARS = 8_000;
