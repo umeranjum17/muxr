@@ -7,7 +7,7 @@ import { loadPlanAccounts, PLAN_LABELS, plansDir } from './planStore.js';
 
 // A completed attempt releases its kit: a later re-sign-in must not inherit add's cancel ownership.
 const attempts = new Map<string, { kit: ReturnType<typeof planAccounts>; created: boolean; adoptedId?: string }>();
-const signInTabs = new Map<string, { paneId: string; created: boolean }>();
+const signInTabs = new Map<string, string>();
 const signInOperations = new Map<string, Promise<unknown>>();
 
 export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string, accountId?: string, prepare?: PlanPreparation) {
@@ -61,14 +61,14 @@ export function withPlanSignIn<T>(accountId: string, action: () => Promise<T>): 
     });
 }
 
-export function rememberSignInTab(accountId: string, paneId: string, created: boolean): void {
-    signInTabs.set(accountId, { paneId, created });
+export function rememberSignInTab(accountId: string, paneId: string): void {
+    signInTabs.set(accountId, paneId);
 }
 
 export function signInTab(accountId: string) { return signInTabs.get(accountId); }
 
 export function forgetSignInTab(accountId: string, paneId: string): void {
-    if (signInTabs.get(accountId)?.paneId === paneId) signInTabs.delete(accountId);
+    if (signInTabs.get(accountId) === paneId) signInTabs.delete(accountId);
 }
 
 export function finishPlanSignIn(accountId: string): void {

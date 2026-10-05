@@ -258,10 +258,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     };
 
     /** Close a sign-in tab muxr opened: its only pane, and the tab with it. */
-    const closeSignInTab = async (accountId: string): Promise<{ created: boolean } | undefined> => {
+    const closeSignInTab = async (accountId: string): Promise<string | undefined> => {
         const tab = signInTab(accountId);
         if (tab === undefined) return undefined;
-        const session = (await source.list()).find((candidate) => candidate.paneId === tab.paneId || candidate.id === tab.paneId);
+        const session = (await source.list()).find((candidate) => candidate.paneId === tab || candidate.id === tab);
         if (session !== undefined) {
             let result = await source.stop(session.id, {});
             if (result.status === 'confirmationRequired' && result.scope === 'tab') {
@@ -271,7 +271,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 throw new Error("Couldn't close the sign-in tab. Try again.");
             }
         }
-        forgetSignInTab(accountId, tab.paneId);
+        forgetSignInTab(accountId, tab);
         return tab;
     };
 
@@ -675,7 +675,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                 let pendingId = accountId;
                 try {
                     await closeSignInTab(accountId);
-                    const { record, created, launch } = prepared ?? await preparePlanSignIn(process.env, params.provider, accountId, prepare);
+                    const { record, launch } = prepared ?? await preparePlanSignIn(process.env, params.provider, accountId, prepare);
                     attemptPrepared = true;
                     pendingId = record.id;
                     await closeSignInTab(record.id);
@@ -685,7 +685,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                         start: (command) => source.start(command),
                     }, { cwd: homedir(), ...launch }));
                     if (!('info' in started)) throw new Error(`Couldn't open ${PLAN_LABELS[record.provider]} sign-in. Try again.`);
-                    rememberSignInTab(record.id, started.info.paneId ?? started.info.id, created);
+                    rememberSignInTab(record.id, started.info.paneId ?? started.info.id);
                     return { accountId: record.id, sessionId: started.info.id };
                 } catch (error) {
                     if (attemptPrepared) await cancelPlanSignIn(process.env, pendingId).catch(() => undefined);
