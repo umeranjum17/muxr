@@ -338,6 +338,8 @@ export const en = {
         title: 'Spaces',
         // Section label above the pinned cards, shown only when something is pinned
         pinned: 'Pinned',
+        // Section label above favourite panes, shown only when one is open
+        favourites: 'Favourites',
         empty: 'No spaces open',
         rootFolder: 'Root folder',
         homeFolder: 'Home folder',

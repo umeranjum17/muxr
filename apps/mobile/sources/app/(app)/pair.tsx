@@ -10,7 +10,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode, STALE_PAIRING_CODE } from '@/pairing/e2ee';
-import { pairLinkConsent, pairLinkOffer, usePairQrScanner, type PairingProgress } from '@/pairing';
+import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScanner, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
@@ -233,7 +233,7 @@ export default function PairScreen() {
                         : state.machineName ?? 'Securely pair this device'}
                 </Text>
                 {state?.phase === 'confirm' && (
-                    <Text style={styles.subtitle}>wants to pair with this {browser ? 'browser' : 'phone'}</Text>
+                    <Text style={styles.subtitle}>wants to pair with this {pairingDeviceNoun()}</Text>
                 )}
             </View>
 
@@ -349,7 +349,7 @@ export default function PairScreen() {
                         <Text style={styles.routeHint}>{browser
                             ? 'Shown by `muxr pair --browser` on that computer.'
                             : sshRoute
-                                ? 'The string proves the machine consented; the SSH details decide how this phone reaches it.'
+                                ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
                                 : 'For a computer you are not standing at — copy the string from its terminal.'}</Text>
                         {!sshRoute && <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />

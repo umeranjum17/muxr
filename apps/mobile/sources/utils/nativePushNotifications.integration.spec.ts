@@ -7,7 +7,7 @@ const persistence = vi.hoisted(() => ({
 }));
 
 vi.mock('expo-constants', () => ({ default: {} }));
-vi.mock('expo-notifications', () => ({}));
+vi.mock('expo-notifications', () => ({ setNotificationCategoryAsync: async () => null }));
 vi.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
 vi.mock('@/connection/sessionClientRef', () => ({ activeSessionClient: () => persistence.client }));
 vi.mock('@/catalog/application/persistence', () => ({

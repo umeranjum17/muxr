@@ -9,6 +9,7 @@ import { requestNotificationPermission } from '@/utils/microphonePermissions';
 import { storage } from '@/catalog/store';
 import { listPairedGrants } from '@/pairing';
 import { isSealedLifecyclePush, openLifecycleNotice } from './openLifecycleNotice';
+import { QUESTION_CATEGORY } from '@/watch/lifecycleAlert';
 
 let registering: Promise<boolean> | null = null;
 let pendingNotificationLevel: LifecycleNotificationLevel | null = null;
@@ -52,7 +53,12 @@ export async function receiveLifecyclePush(notification: Notifications.Notificat
     await Notifications.dismissNotificationAsync(notification.request.identifier);
     await Notifications.scheduleNotificationAsync({
         identifier: notification.request.identifier,
-        content: { title: notice.title, body: notice.body, data },
+        content: {
+            title: notice.title,
+            body: notice.body,
+            data,
+            ...(notice.data.kind === 'blocked' ? { categoryIdentifier: QUESTION_CATEGORY } : {}),
+        },
         trigger: null,
     });
 }
