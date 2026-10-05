@@ -37,13 +37,15 @@ export function planLaunchEnv(env: NodeJS.ProcessEnv, record: PlanAccountRecord)
 
 function accountEnvironment(env: NodeJS.ProcessEnv, record: PlanAccountRecord): NodeJS.ProcessEnv {
     if (record.found) return { ...env, ...defaultFolderEnv(record) };
-    const kit = planAccounts(env);
-    const codex = kit.usageSource(record.id);
-    // Explicit account unsets win over both inherited values and usage-source settings.
-    // Consumers spawn with env as a replacement, so absent keys cannot be re-inherited.
-    return launchEnv({ base: env, account: kit.launchEnv(record.id),
-        ...(codex === undefined ? {} : { set: codex.env }),
-    }).env;
+    try {
+        const kit = planAccounts(env);
+        const codex = kit.usageSource(record.id);
+        // Explicit account unsets win over both inherited values and usage-source settings.
+        // Consumers spawn with env as a replacement, so absent keys cannot be re-inherited.
+        return launchEnv({ base: env, account: kit.launchEnv(record.id),
+            ...(codex === undefined ? {} : { set: codex.env }),
+        }).env;
+    } catch (error) { return planError(error); }
 }
 
 function defaultFolderEnv(record: PlanAccountRecord): Record<string, string> {
@@ -127,7 +129,11 @@ export async function resolvePlanLaunch(env: NodeJS.ProcessEnv, chosen: string, 
     if (kind !== undefined && kind !== 'shell' && !kinds.includes(kind)) {
         throw Object.assign(new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${kind} one.`), { code: 'plan-kind-mismatch' });
     }
-    const account = record.found ? await defaultAccount(record, env, deps) : fromCliAccount(await kit.status(record.id));
+    let status;
+    if (!record.found) {
+        try { status = await kit.status(record.id); } catch (error) { return planError(error); }
+    }
+    const account = record.found ? await defaultAccount(record, env, deps) : fromCliAccount(status!);
     return account.signedIn ? record : undefined;
 }
 

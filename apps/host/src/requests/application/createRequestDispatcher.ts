@@ -672,10 +672,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             const accountId = params.accountId ?? prepared!.record.id;
             return withPlanSignIn(accountId, async () => {
                 let attemptPrepared = prepared !== undefined;
+                let pendingId = accountId;
                 try {
                     await closeSignInTab(accountId);
                     const { record, created, launch } = prepared ?? await preparePlanSignIn(process.env, params.provider, accountId, prepare);
                     attemptPrepared = true;
+                    pendingId = record.id;
                     const started = useCaseData(await startAgent({
                         exists: existsSync,
                         create: async (cwd) => { await mkdir(cwd, { recursive: true }); },
@@ -685,7 +687,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                     rememberSignInTab(record.id, started.info.paneId ?? started.info.id, created);
                     return { accountId: record.id, sessionId: started.info.id };
                 } catch (error) {
-                    if (attemptPrepared) await cancelPlanSignIn(process.env, accountId);
+                    if (attemptPrepared) await cancelPlanSignIn(process.env, pendingId);
                     throw error;
                 }
             });
