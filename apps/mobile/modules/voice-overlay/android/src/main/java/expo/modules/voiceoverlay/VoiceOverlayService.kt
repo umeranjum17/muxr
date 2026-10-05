@@ -52,10 +52,8 @@ class VoiceOverlayService : Service() {
     private var herdNames = ""
     private var herdEventKey = ""
     private var attentionRoute: String? = null
-    private var lastAttentionKeys = emptySet<String>()
     private var lastFocusedRoute: String? = null
     private var lastFinishedKey = ""
-    private var pendingAttentionKeys = emptySet<String>()
     private var pendingFinishedIds = emptySet<String>()
     private var pendingEventAlert = false
     /**
@@ -152,30 +150,20 @@ class VoiceOverlayService : Service() {
           else -> "working:" + shown.joinToString(",") { it["id"].toString() }
         }).trim().take(200)
         when (mode) {
-          "attention" -> {
-            val current = eventKey.removePrefix("attention:").split(",").filter(String::isNotBlank).toSet()
-            pendingAttentionKeys = ((pendingAttentionKeys intersect current) + (current - lastAttentionKeys))
-              .filterNot { Uri.decode(it) == focusedRoute }.toSet()
-            pendingFinishedIds = emptySet()
-            lastAttentionKeys = current
-            lastFinishedKey = ""
-          }
           "finished" -> {
             pendingFinishedIds = (if (eventKey != lastFinishedKey) finishedIds else pendingFinishedIds intersect finishedIds)
               .filterNot { it == focusedRoute }.toSet()
-            pendingAttentionKeys = emptySet()
-            lastAttentionKeys = emptySet()
             lastFinishedKey = eventKey
           }
           else -> {
-            pendingAttentionKeys = emptySet()
             pendingFinishedIds = emptySet()
-            lastAttentionKeys = emptySet()
             lastFinishedKey = ""
           }
         }
         pendingEventAlert = when (herdMode) {
-          "attention" -> pendingAttentionKeys.isNotEmpty()
+          // The agent's own alert rings with its question and an Answer button;
+          // this row only keeps the herd's status, so it changes silently.
+          "attention" -> false
           "finished" -> pendingFinishedIds.isNotEmpty()
           else -> false
         }
@@ -251,9 +239,7 @@ class VoiceOverlayService : Service() {
         lastPostedSignature = ""
         lastPostAt = 0L
         pendingEventAlert = false
-        pendingAttentionKeys = emptySet()
         pendingFinishedIds = emptySet()
-        lastAttentionKeys = emptySet()
         lastFocusedRoute = null
         lastFinishedKey = ""
         manager(appContext).run {
@@ -420,7 +406,6 @@ class VoiceOverlayService : Service() {
       runCatching {
         manager(context).notify(HERD_NOTIFICATION_ID, buildNotification(context, false))
         pendingEventAlert = false
-        pendingAttentionKeys = emptySet()
         pendingFinishedIds = emptySet()
       }.onFailure { Log.w("VoiceOverlay", "herd notification failed", it) }
     }
@@ -635,7 +620,6 @@ class VoiceOverlayService : Service() {
         startForeground(HERD_NOTIFICATION_ID, notification)
       }
       pendingEventAlert = false
-      pendingAttentionKeys = emptySet()
       pendingFinishedIds = emptySet()
     }.onFailure {
       Log.w("VoiceOverlay", "herd foreground service refused", it)
@@ -652,7 +636,6 @@ class VoiceOverlayService : Service() {
       } else if (herdMode == "working" || herdMode == "attention") {
         manager(this).notify(HERD_NOTIFICATION_ID, buildNotification(this, false))
         pendingEventAlert = false
-        pendingAttentionKeys = emptySet()
         pendingFinishedIds = emptySet()
       } else {
         // A settled lifecycle is no longer a foreground-service reason. Remove
@@ -663,7 +646,6 @@ class VoiceOverlayService : Service() {
         if (herdMode == "finished") {
           manager(this).notify(HERD_NOTIFICATION_ID, buildNotification(this, false))
           pendingEventAlert = false
-          pendingAttentionKeys = emptySet()
           pendingFinishedIds = emptySet()
         } else {
           manager(this).cancel(HERD_NOTIFICATION_ID)
