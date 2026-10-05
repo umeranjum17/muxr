@@ -41,8 +41,8 @@ export function agentAvailabilitySpoken(
     return 'installation status unknown';
 }
 
-export function startButtonLabel(kinds: readonly string[]): string {
-    return new SpawnRequest('', kinds, kinds.length > 1, false).startButtonLabel();
+export function startButtonLabel(kinds: readonly string[], directory: string): string {
+    return new SpawnRequest(directory, kinds, kinds.length > 1, false).startButtonLabel();
 }
 
 export function workspaceJoinPath(workspace: HerdrTreeWorkspace): string | undefined {
