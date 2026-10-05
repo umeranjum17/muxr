@@ -322,6 +322,7 @@ export const it: TranslationStructure = {
         // Spaces section on Home
         title: 'Spazi',
         pinned: 'Fissati',
+        favourites: 'Preferiti',
         empty: 'Nessuno spazio aperto',
         rootFolder: 'Cartella radice',
         homeFolder: 'Cartella Home',
