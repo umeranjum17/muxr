@@ -17,6 +17,7 @@ export function basename(path: string): string {
 
 /** One folder, however it was written: `/a/b` and `/a/b/` are the same choice. */
 export function folderKey(path: string): string {
+    if (path === '') return '';
     return path.replace(/\/+$/, '') || '/';
 }
 

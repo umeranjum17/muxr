@@ -87,7 +87,8 @@ export function undoSmartPunctuation(previous: string, next: string): string {
     const inserted = next.slice(start, next.length - end);
     const quote = STRAIGHT[inserted];
     const straight = quote !== undefined && (removed === '' || removed === quote) ? quote
-        : (inserted === '—' || inserted === '–') && (removed === '-' || removed === '--') ? '--'
-            : undefined;
+        : inserted === '—' && removed === '--' ? '--'
+            : (inserted === '—' || inserted === '–') && removed === '-' ? '-'
+                : undefined;
     return straight === undefined ? next : next.slice(0, start) + straight + next.slice(next.length - end);
 }
