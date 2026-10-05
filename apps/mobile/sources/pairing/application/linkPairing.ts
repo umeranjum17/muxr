@@ -1,5 +1,6 @@
 import { probeDiscoveredRelay } from '../infrastructure/linkGrant';
 import { cachedGrant, clearGrants, deleteGrant, loadGrants, storeGrant } from '../infrastructure/grantStore';
+import { PairingNeedsNewCode } from '../domain/pairingString';
 import { assertSupportedOffer, pairingDeviceName } from '../infrastructure/pairingPlatform';
 import {
     type DeviceGrant,
@@ -16,7 +17,7 @@ import { clearPairingSecrets, deletePendingPair, readPendingPair, writePendingPa
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
 import { restoreConnection } from './restoreConnection';
 
-export { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, looksLikeLinkOffer, prepareHostedPairingInput } from '../domain/pairingString';
+export { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, looksLikeLinkOffer, PairingNeedsNewCode, prepareHostedPairingInput, STALE_PAIRING_CODE } from '../domain/pairingString';
 
 export interface StoredHostedGrant extends DeviceGrant {
     deviceKey: KeyPair;
@@ -95,9 +96,13 @@ export async function resumePendingHostedPairing(): Promise<StoredHostedGrant | 
  * over the machine's real link before anything is stored.
  * The pending pairing is persisted before the first connection, so a process
  * death resumes it rather than leaving the computer holding an unused grant.
+ * Retrying a code this phone already claimed resumes by its key: the code is
+ * single-use, and claiming it again could only fail.
  */
 export async function pairOverLink(scanned: string, options: { onWords?: (words: string) => void; tunnelPort?: number } = {}): Promise<StoredHostedGrant> {
     assertSupportedOffer(scanned);
+    const previous = await readPendingPair();
+    if (previous?.scanned === scanned && previous.claimed === true) return completeLinkPairing(previous, { ...options, mode: 'resume' });
     const secretKey = newPairingSecretKey();
     const pending: PendingLinkPair = { scanned, name: pairingDeviceName(), secretKey, startedAt: Date.now() };
     await writePendingPair(pending);
@@ -110,7 +115,9 @@ export async function linkPairMachineName(scanned: string): Promise<string | und
 }
 
 async function resumePendingLinkPairing(pending: PendingLinkPair): Promise<StoredHostedGrant | undefined> {
-    if (Date.now() - pending.startedAt > 4 * 60_000) {
+    // Once the acknowledgement was sent only the computer knows whether it
+    // landed, so that pairing is asked, never expired.
+    if (pending.answer === undefined && Date.now() - pending.startedAt > 4 * 60_000) {
         await deletePendingPair();
         return undefined;
     }
@@ -121,21 +128,27 @@ async function resumePendingLinkPairing(pending: PendingLinkPair): Promise<Store
     }
 }
 
+/**
+ * The grant is stored only once the computer is known to keep this device;
+ * until then the pending pairing holds the key and the machine's answer, so an
+ * unconfirmed pairing never shows as a paired machine or replaces a working one.
+ */
 async function completeLinkPairing(pending: PendingLinkPair, options: { onWords?: (words: string) => void; tunnelPort?: number; mode: 'claim' | 'resume' }): Promise<StoredHostedGrant> {
-    let stored: StoredHostedGrant | undefined;
+    let current = pending;
+    const persist = async (next: PendingLinkPair) => { current = next; await writePendingPair(next); };
+    let result: Awaited<ReturnType<typeof claimLinkPairing>>;
     try {
-        await claimLinkPairing(pending, { ...options, onProven: async (answer, key) => {
-            stored = provenLinkGrant(answer, key);
-            await storeGrant(stored);
-        } });
+        result = await claimLinkPairing(current, { ...options,
+            onClaimed: () => persist({ ...current, claimed: true }),
+            onProven: (answer) => persist({ ...current, answer }),
+        });
     } catch (cause) {
-        const failure = pairingFailure(cause);
-        if (Date.now() - pending.startedAt > 4 * 60_000 || failure.discard) {
-            await deletePendingPair();
-        }
-        throw new Error(failure.message);
+        // An unclaimed key was never granted; a spent or rolled-back pairing cannot resume.
+        if (cause instanceof PairingNeedsNewCode || (options.mode === 'claim' && current.claimed !== true)) await deletePendingPair();
+        throw cause instanceof PairingNeedsNewCode ? cause : new Error(pairingFailure(cause));
     }
-    if (stored === undefined) throw new Error('the computer did not prove this pairing');
+    const stored = provenLinkGrant(result, result.key);
+    await storeGrant(stored);
     await deletePendingPair();
     return stored;
 }
