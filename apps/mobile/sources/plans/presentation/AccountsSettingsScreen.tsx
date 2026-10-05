@@ -58,13 +58,14 @@ export function AccountsSettingsScreen() {
         { text: 'Cancel', style: 'cancel' },
     ]);
 
-    // At 270 dp the email keeps one ellipsized line and the usage gets its own line beneath it.
+    // At 270 dp the email keeps one ellipsized line; the usage gets its own line and wraps between whole
+    // words rather than cutting the plan name. A no-break space keeps each "·" with the word before it.
     const subtitle = (account: PlanAccount): string | undefined => (account.signedIn ? account.email : 'Signed out');
     const facts = (account: PlanAccount): string | undefined => {
         if (!account.signedIn) return undefined;
         const room = account.roomLeftPercent === undefined ? undefined : `${account.roomLeftPercent}% left`;
         return [room, account.plan, account.foundOnComputer ? 'found on this computer' : undefined]
-            .filter(Boolean).join(' · ') || undefined;
+            .filter(Boolean).join('\u00a0· ') || undefined;
     };
 
     return (
@@ -89,6 +90,7 @@ export function AccountsSettingsScreen() {
                                 subtitle={subtitle(account)}
                                 subtitleLines={1}
                                 meta={facts(account)}
+                                metaLines={0}
                                 icon={<Ionicons
                                     name={account.signedIn ? 'person-circle-outline' : 'alert-circle-outline'}
                                     size={28}
