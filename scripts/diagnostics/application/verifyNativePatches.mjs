@@ -250,6 +250,9 @@ const failed = checks.filter(([, ok]) => !ok);
 if (failed.length > 0) {
     for (const [name] of failed) console.error(`✗ ${name}`);
     console.error('Required patches or Android build prerequisites are missing/stale; refusing to continue.');
+    // Most often an install whose lifecycle scripts never ran, so say the one
+    // command that repairs it instead of leaving a typecheck to guess.
+    console.error('`yarn install --frozen-lockfile` re-applies every patch in patches/.');
     process.exit(1);
 }
 for (const [name] of checks) console.log(`✓ ${name}`);

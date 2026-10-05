@@ -15,7 +15,12 @@ export default defineConfig({
         // `tsc --build` the compiled copy of every suite gets collected too --
         // and the architecture tests, which resolve paths from their own
         // location, then look for `.ts` sources next to the emitted `.js`.
-        exclude: [...configDefaults.exclude, '**/dist/**', 'dist-npm/**', 'perf/**'],
+        // `/.cache/` and `/data/` are this repo's own scratch (lane labs,
+        // evidence bundles, packed candidates). Both are untracked and already
+        // ignored, but vitest's glob walks them, so a seeded worktree collects
+        // whole stale source copies that a clean CI checkout never has -- a
+        // fast lane that fails only where lanes work.
+        exclude: [...configDefaults.exclude, '**/dist/**', 'dist-npm/**', 'perf/**', '.cache/**', 'data/**'],
     },
     resolve: {
         alias: [
