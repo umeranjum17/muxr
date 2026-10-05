@@ -68,8 +68,12 @@ function encodeChar(char) {
     return char;
 }
 
+// uiautomator writes a newline in a field as `&#10;`, so numeric references
+// are decoded too; left raw, each line break reads back as five extra chars.
 function unescapeXml(value) {
-    return value.replace(/&(amp|lt|gt|quot|apos);/g, (_, name) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name]));
+    return value.replace(/&(?:(amp|lt|gt|quot|apos)|#(\d+)|#x([0-9a-fA-F]+));/g, (_, name, dec, hex) => (
+        name ? { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name] : String.fromCodePoint(dec ? Number(dec) : parseInt(hex, 16))
+    ));
 }
 
 function focusedTexts(xml) {
