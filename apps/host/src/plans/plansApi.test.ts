@@ -440,13 +440,17 @@ it('keeps the sibling account listed while one tool stalls, then reads it whole'
 
 
 
-it('keeps the previous store when a crash lands mid-write', () => {
+it('keeps the previous store when a crash lands mid-write', async () => {
     const second = addedClaude('work');
     savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
     mockState.failRename = true;
     try {
         expect(() => savePlanAccounts(env, [])).toThrow();
         expect(loadPlanAccounts(env).map((record) => record.id)).toEqual(['pa_work']);
+        // A write that never landed acknowledges nothing: the Auto terms are
+        // still owed rather than silently marked accepted.
+        expect((await listPlans(env)).autoTermsAcknowledged).toBe(false);
+        expect((await listPlans(env)).autoTermsNote).toBe(AUTO_TERMS_NOTE);
     } finally {
         mockState.failRename = false;
     }
