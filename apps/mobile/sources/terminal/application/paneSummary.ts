@@ -28,9 +28,14 @@ let kit: LocalModel | null | undefined;
 let phase: InferState = { phase: 'not-installed' };
 const listeners = new Set<() => void>();
 
+function publish(next: InferState): void {
+    phase = next;
+    listeners.forEach((listener) => listener());
+}
+
 function onDeviceModel(): LocalModel | null {
     if (kit !== undefined) return kit;
-    kit = openOnDeviceModel((next) => { phase = next; listeners.forEach((listener) => listener()); });
+    kit = openOnDeviceModel(publish);
     if (kit !== null) { phase = kit.state; void kit.check().catch(() => undefined); }
     return kit;
 }
@@ -40,9 +45,9 @@ function subscribe(listener: () => void): () => void {
     return () => { listeners.delete(listener); };
 }
 
-const FAILED_WORDS: Partial<Record<NonNullable<InferState['why']>, WordKey>> = {
-    integrity: 'infer.integrity', storage: 'infer.noSpace', network: 'infer.network',
-};
+// `storage` covers more than a full disk, so only the kit's own error says which.
+const FAILED_WORDS: Partial<Record<NonNullable<InferState['why']>, WordKey>> = { integrity: 'infer.integrity', network: 'infer.network' };
+let installError: InferError | undefined;
 
 function presented(state: InferState, model: LocalModel): OnDeviceGenerationState {
     switch (state.phase) {
@@ -53,7 +58,7 @@ function presented(state: InferState, model: LocalModel): OnDeviceGenerationStat
         case 'ready': return { kind: 'ready' };
         case 'loading':
         case 'busy': return { kind: 'busy' };
-        case 'failed': return { kind: 'failed', message: words((state.why && FAILED_WORDS[state.why]) || 'infer.failed') };
+        case 'failed': return { kind: 'failed', message: state.why === 'storage' && installError ? errorWords(installError) : words((state.why && FAILED_WORDS[state.why]) || 'infer.failed') };
     }
 }
 
@@ -67,14 +72,17 @@ export function useOnDeviceSummarizer(): OnDeviceSummarizer {
     const state = React.useSyncExternalStore(subscribe, () => phase);
     React.useEffect(() => {
         if (model === null) return;
-        const background = AppState.addEventListener('change', (next) => { if (next !== 'active') void model.release(); });
+        const background = AppState.addEventListener('change', (next) => { if (next === 'background') void model.release(); });
         return () => { background.remove(); void model.release(); };
     }, [model]);
     if (model === null) return { state: { kind: 'unsupported', reason: 'build' } };
     const shown = presented(state, model);
     return {
         state: shown,
-        download: shown.kind === 'needs-download' || shown.kind === 'failed' ? () => { void model.install().catch(() => undefined); } : undefined,
+        download: shown.kind === 'needs-download' || shown.kind === 'failed' ? () => {
+            installError = undefined;
+            void model.install().catch((reason: unknown) => { if (reason instanceof InferError) { installError = reason; publish({ ...phase }); } });
+        } : undefined,
         summarize: shown.kind === 'ready' ? async (output) => {
             const summary = await summarizePane(model, output.split('\n')).catch((reason: unknown) => {
                 throw reason instanceof InferError ? new Error(errorWords(reason)) : reason;

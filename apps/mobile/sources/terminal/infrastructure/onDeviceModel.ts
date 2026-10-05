@@ -7,14 +7,16 @@ import { LocalModel, model, type InferModelStore, type InferState } from '@byoki
 const DIR = `${RNFS.DocumentDirectoryPath}/models`;
 
 // The kit's model store over the app's files: it downloads only the kit's pinned URL and hashes natively.
+// ponytail: restarts an interrupted download from zero despite the kit's `resume`; resume via a ranged download if it bites.
 const store: InferModelStore = {
     path: (m) => `${DIR}/${m.id}.gguf`,
     size: async (m) => (await RNFS.exists(store.path(m))) ? Number((await RNFS.stat(store.path(m))).size) : undefined,
     download: async (m, o) => {
-        await RNFS.mkdir(DIR);
+        // Re-downloadable, so kept out of iOS backups.
+        await RNFS.mkdir(DIR, { NSURLIsExcludedFromBackupKey: true });
         if (o.signal?.aborted) throw new Error('Download cancelled before the request.');
         const job = RNFS.downloadFile({ fromUrl: m.url, toFile: store.path(m), progressInterval: 500, progressDivider: 1,
-            progress: (p) => o.onProgress?.(p.bytesWritten, p.contentLength) });
+            progress: (p) => o.onProgress?.(p.bytesWritten, p.contentLength > 0 ? p.contentLength : m.bytes) });
         const stop = () => RNFS.stopDownload(job.jobId);
         o.signal?.addEventListener('abort', stop, { once: true });
         try {

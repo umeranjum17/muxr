@@ -14,3 +14,6 @@ local.properties
 
 # Bundle artifacts
 *.jsbundle
+
+# llama.rn copies its Hexagon libraries here on every build
+app/src/main/assets/ggml-hexagon/
