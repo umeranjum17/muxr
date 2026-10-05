@@ -196,18 +196,23 @@ export function SignInBanner({ bottom }: { bottom: number }) {
     const pathRef = React.useRef(path);
     pathRef.current = path;
     const here = pending !== null && onTab(path);
-    const leaveTab = React.useCallback(() => { if (onTabRef.current(pathRef.current) && router.canGoBack()) router.back(); }, [router]);
+    // The host closes the tab before it answers, so the tree can drop its pane
+    // first: ask whether the phone is on the tab before the request, then step
+    // back only if it is still on that same route.
+    const tabRoute = React.useCallback((): string | undefined => (onTabRef.current(pathRef.current) ? pathRef.current : undefined), []);
+    const leaveTab = React.useCallback((route: string | undefined) => { if (route !== undefined && pathRef.current === route && router.canGoBack()) router.back(); }, [router]);
 
     React.useEffect(() => {
         if (pending === null || pending.cancelled || pending.failure !== undefined) return;
         let stopped = false;
         const tick = async () => {
             if (!samePlanConnection(connection) || useFlows.getState().pending !== pending) return;
+            const route = tabRoute();
             const state = await signInState(pending.accountId, connection).catch(() => null);
             if (!samePlanConnection(connection) || stopped || useFlows.getState().pending !== pending) return;
             if (state?.account.signedIn) {
                 // The host has closed the tab: step back off it, then name the account.
-                leaveTab();
+                leaveTab(route);
                 useFlows.setState({ pending: null, naming: { account: state.account, again: pending.again } });
                 void refreshPlans();
                 return;
@@ -220,7 +225,7 @@ export function SignInBanner({ bottom }: { bottom: number }) {
         };
         let timer = setTimeout(tick, POLL_MS);
         return () => { stopped = true; clearTimeout(timer); };
-    }, [pending, leaveTab, connection]);
+    }, [pending, leaveTab, tabRoute, connection]);
 
     if (pending === null || (!here && !pending.cancelled && pending.failure === undefined)) return null;
     const cancel = async (): Promise<boolean> => {
@@ -228,11 +233,12 @@ export function SignInBanner({ bottom }: { bottom: number }) {
         setCancelling(true);
         const cancelled = { ...pending, cancelled: true };
         useFlows.setState({ pending: cancelled });
+        const route = tabRoute();
         try {
             await cancelSignIn(pending.accountId, connection);
             if (!samePlanConnection(connection)) return false;
             if (useFlows.getState().pending === cancelled) useFlows.setState({ pending: null });
-            leaveTab();
+            leaveTab(route);
             return true;
         } catch (error) {
             if (!samePlanConnection(connection)) return false;
