@@ -12,11 +12,19 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AUTO_TERMS_NOTE, acknowledgeAutoTerms, listPlans, removePlanAccount, renamePlanAccount, resolvePlanEnv, resolvePlanLaunch } from './plansApi.js';
 import { loadPlanAccounts, plansDir, savePlanAccounts } from './planStore.js';
 
-const mockState = vi.hoisted(() => ({ failRename: false }));
+const mockState = vi.hoisted(() => ({ failRename: false, failRefreshAllocation: false, failRefreshCleanup: false }));
 vi.mock('node:fs', async (importOriginal) => {
     const actual = await importOriginal<typeof import('node:fs')>();
     return {
         ...actual,
+        mkdtempSync: (...args: Parameters<typeof actual.mkdtempSync>) => {
+            if (mockState.failRefreshAllocation && String(args[0]).includes('muxr-usage-refresh-')) throw new Error('crash allocating the usage refresh scratch');
+            return actual.mkdtempSync(...args);
+        },
+        rmSync: (...args: Parameters<typeof actual.rmSync>) => {
+            actual.rmSync(...args);
+            if (mockState.failRefreshCleanup && String(args[0]).includes('muxr-usage-refresh-')) throw new Error('crash clearing the usage refresh scratch');
+        },
         renameSync: (...args: Parameters<typeof actual.renameSync>) => {
             if (mockState.failRename) throw new Error('crash before rename');
             return actual.renameSync(...args);
@@ -74,6 +82,8 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    mockState.failRefreshAllocation = false;
+    mockState.failRefreshCleanup = false;
     rmSync(root, { recursive: true, force: true });
 });
 
@@ -85,6 +95,15 @@ function foundClaude(name = '.claude'): string {
 
 function addedClaude(name: string): string {
     const folder = join(root, 'muxr', 'plans', 'claude', Buffer.from(name).toString('hex'));
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, 'fixture-name'), name);
+    return folder;
+}
+
+/** The kit names every managed folder with a hex basename, so the fixture
+ *  carries its own human name inside the folder. */
+function addedCodex(name: string): string {
+    const folder = join(root, 'muxr', 'plans', 'codex', Buffer.from(name).toString('hex'));
     mkdirSync(folder, { recursive: true });
     writeFileSync(join(folder, 'fixture-name'), name);
     return folder;
@@ -160,6 +179,69 @@ it('never deletes the plans root itself when a record points at it', async () =>
     expect(loadPlanAccounts(env).map((record) => record.id)).toEqual(['pa_root', 'pa_work']);
 });
 
+/** P1: two Codex sign-ins stay separate through a switch, and a usage refresh
+ *  that cannot allocate or clear its scratch never drops or invents an
+ *  account's room. Ported from the pre-kit local implementation onto the
+ *  published kit's managed folders. */
+it('keeps selected Codex sign-ins separate through switches and failed reads', async () => {
+    const fetch = vi.fn(async () => new Response('{}', { status: 503 }));
+    vi.stubGlobal('fetch', fetch);
+    const home = join(root, '.codex');
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, 'auth.json'), JSON.stringify({ tokens: { access_token: 'fixture-a' } }));
+    const second = addedCodex('tight');
+    writeFileSync(join(second, 'auth.json'), JSON.stringify({ tokens: { access_token: 'fixture-b' } }));
+    savePlanAccounts(env, [{ id: 'pa_x', provider: 'codex', name: 'Tight', folder: second, found: false }]);
+    const listed = await listPlans(env);
+    expect(listed.providers.map((entry) => entry.provider)).toEqual(['codex']);
+    expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual(['.codex@example.com', 'tight@example.com']);
+    expect(listed.providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
+    expect(listed.providers[0]!.auto.accountId).toBe('found-codex');
+
+    // The refresh scratch cannot be allocated: both accounts still list, still
+    // report their own sign-in, and simply have no room to quote.
+    mockState.failRefreshAllocation = true;
+    const unavailable = (await listPlans(env)).providers[0]!.accounts;
+    expect(unavailable.map((account) => account.email)).toEqual(['.codex@example.com', 'tight@example.com']);
+    expect(unavailable.map((account) => account.signedIn)).toEqual([true, true]);
+    expect(unavailable.map((account) => account.roomLeftPercent)).toEqual([undefined, undefined]);
+    expect((await resolvePlanLaunch(env, 'pa_x', 'codex'))?.id).toBe('pa_x');
+    expect(await resolvePlanLaunch(env, 'auto', 'codex')).toBeDefined();
+
+    // The scratch allocates but cannot be cleared: the reading still lands and
+    // Auto still ranks on it, rather than losing the account.
+    mockState.failRefreshAllocation = false;
+    mockState.failRefreshCleanup = true;
+    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([75, 10]);
+    expect((await resolvePlanLaunch(env, 'auto', 'codex'))?.id).toBe('found-codex');
+    mockState.failRefreshCleanup = false;
+
+    // Each account is read through its own folder, so one account's quota can
+    // never be reported against the other's sign-in.
+    const { collectUsage } = await import('../usage/index.js');
+    const selected = { ...env, ...resolvePlanEnv(env, 'pa_x') };
+    const selectedWindows = (await collectUsage({ provider: 'codex', refresh: true }, selected)).limits.windows;
+    const foundWindows = (await collectUsage({ provider: 'codex', refresh: true }, { ...env, CODEX_HOME: home })).limits.windows;
+    expect(selectedWindows.length).toBeGreaterThan(0);
+    expect(foundWindows.length).toBeGreaterThan(0);
+    expect(selectedWindows.map((window) => window.used)).toEqual([90]);
+    expect(foundWindows.map((window) => window.used)).toEqual([25]);
+    expect(selectedWindows.map((window) => window.used)).not.toEqual(foundWindows.map((window) => window.used));
+
+    // A provider that stops answering yields no window for the account that
+    // still reports, rather than a stale or borrowed one.
+    env.MUXR_USAGE_NOW = new Date(Date.now() + 600_000).toISOString();
+    writeFileSync(join(home, 'fail'), '');
+    expect((await listPlans(env)).providers[0]!.accounts.map((account) => account.roomLeftPercent)).toEqual([undefined, 10]);
+    rmSync(join(home, 'fail'));
+
+    // Neither the computer's own sign-in nor the managed folder is disturbed by
+    // any of the above.
+    expect(existsSync(home)).toBe(true);
+    expect(existsSync(second)).toBe(true);
+    expect(loadPlanAccounts(env).map((record) => record.id).sort()).toEqual(['found-codex', 'pa_x']);
+});
+
 
 
 /** P2: room left per account plus the Auto rule, from snapshots the same
@@ -219,7 +301,43 @@ it('auto picks the roomier account and says which in one line', async () => {
     expect(unknown.auto.reason).toBe("Right now that's Work (no recent reading)");
 });
 
-
+/** A stalled provider must not hold up the other one: each account's sign-in
+ *  is read concurrently, so one hanging tool cannot serialise the list. */
+it('reads one stalled provider without waiting on the other', async () => {
+    foundClaude();
+    const secondClaude = addedClaude('work');
+    const codexHome = join(root, '.codex');
+    mkdirSync(codexHome, { recursive: true });
+    const secondCodex = addedCodex('other');
+    savePlanAccounts(env, [
+        { id: 'pa_work', provider: 'claude', name: '', folder: secondClaude, found: false },
+        { id: 'pa_x', provider: 'codex', name: 'Other', folder: secondCodex, found: false },
+    ]);
+    const started: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const run = async () => {
+        started.push('claude');
+        await gate;
+        return { stdout: '{"loggedIn":false}' };
+    };
+    const codexRead = async () => {
+        started.push('codex');
+        await gate;
+        return { account: null };
+    };
+    const pending = listPlans(env, { run, codexRead });
+    const deadline = Date.now() + 2_000;
+    while (!(started.includes('claude') && started.includes('codex')) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const overlapping = [...started];
+    release();
+    const listed = await pending;
+    expect(overlapping).toContain('claude');
+    expect(overlapping).toContain('codex');
+    expect(listed.providers.map((entry) => entry.provider)).toEqual(['claude', 'codex']);
+});
 
 it('shows the Auto terms note until acknowledged, then remembers', async () => {
     foundClaude();
@@ -232,6 +350,31 @@ it('shows the Auto terms note until acknowledged, then remembers', async () => {
     const after = await listPlans(env);
     expect(after.autoTermsAcknowledged).toBe(true);
     expect(after.autoTermsNote).toBe(AUTO_TERMS_NOTE);
+});
+
+/** Acknowledging must not report success it could not record. The terms
+ *  record is the kit's own atomic file, so a store that cannot land it has to
+ *  surface instead of leaving the note claiming it was accepted. */
+it('refuses to acknowledge the Auto terms when the record cannot be written', async () => {
+    foundClaude();
+    const second = addedClaude('work');
+    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
+    expect((await listPlans(env)).autoTermsAcknowledged).toBe(false);
+    // A real fault the kit cannot route around: its atomic rename cannot land
+    // on a path that is already a directory. (vi.mock('node:fs') never reaches
+    // the kit, which vitest resolves from node_modules, so this is a disk fault
+    // rather than an injected one.)
+    rmSync(join(plansDir(env), 'auto-terms-v1.json'), { force: true });
+    mkdirSync(join(plansDir(env), 'auto-terms-v1.json'), { recursive: true });
+    expect(() => acknowledgeAutoTerms(env)).toThrow();
+    rmSync(join(plansDir(env), 'auto-terms-v1.json'), { recursive: true, force: true });
+    // Nothing was recorded, so the note is still owed.
+    expect((await listPlans(env)).autoTermsAcknowledged).toBe(false);
+    expect((await listPlans(env)).autoTermsNote).toBe(AUTO_TERMS_NOTE);
+    // And a later acknowledgement still succeeds and is then remembered.
+    expect(acknowledgeAutoTerms(env)).toEqual({ acknowledged: true });
+    expect((await listPlans(env)).autoTermsAcknowledged).toBe(true);
+    expect(loadPlanAccounts(env).map((record) => record.id).sort()).toEqual(['found-claude', 'pa_work']);
 });
 
 it('registers both found sign-ins without dropping either', async () => {
@@ -262,6 +405,37 @@ it('auto skips signed-out accounts and names the earliest refill when all are ou
     const provider = listed.providers[0]!;
     expect(provider.auto.accountId).toBe('found-claude');
     expect(provider.auto.reason).toMatch(/out of room/);
+});
+
+/** A tool that never answers must not cost the other account its place in the
+ *  list, and must not leave a half-read account behind once it does answer. */
+it('keeps the sibling account listed while one tool stalls, then reads it whole', async () => {
+    foundClaude();
+    const second = addedClaude('work');
+    savePlanAccounts(env, [{ id: 'pa_work', provider: 'claude', name: '', folder: second, found: false }]);
+    const started: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let settled = false;
+    const run = async (_command: string, _args: string[], runEnv: NodeJS.ProcessEnv) => {
+        started.push(String(runEnv.CLAUDE_CONFIG_DIR));
+        await gate;
+        return { stdout: '{"loggedIn":false}' };
+    };
+    const pending = listPlans(env, { run }).then((listed) => { settled = true; return listed; });
+    const deadline = Date.now() + 2_000;
+    while (started.length < 1 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    // The stalled read is genuinely in flight, not already finished.
+    expect(settled).toBe(false);
+    expect(started).toHaveLength(1);
+    release();
+    const listed = await pending;
+    // Once it answers, both accounts are present and each was read on its own.
+    expect(listed.providers[0]!.accounts.map((account) => account.email)).toEqual([undefined, 'work@example.com']);
+    expect(listed.providers[0]!.accounts.map((account) => account.signedIn)).toEqual([false, true]);
+    expect(listed.providers[0]!.accounts.map((account) => account.id)).toEqual(['found-claude', 'pa_work']);
 });
 
 
