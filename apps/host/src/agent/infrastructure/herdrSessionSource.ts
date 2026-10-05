@@ -47,6 +47,7 @@ import type {
     SessionSource,
     SessionStartOptions,
     SessionStopOptions,
+    PlanMoveOptions,
 } from '../application/sessionSource.js';
 import { KitHerdrClient, type HerdrCaller } from './herdrKitClient.js';
 import type { AgentStatus } from '@byokit/herdr';
@@ -102,22 +103,6 @@ const SCREEN_BROWSER = 'Browser: this pane has its own screen that the user can 
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
 const BROWSER_GUIDANCE = ' Run browsers headed (not headless). If a Chrome fails with a Wayland error, add --ozone-platform=x11.';
 const ARTIFACT_GUIDANCE = " Shared artifacts: muxr share <path> saves to this pane's durable Shared Artifacts timeline. Full reference: muxr --skill.";
-
-/** Which agent kinds one provider's sign-in can run: Claude's folder serves
- *  Claude Code and Pi on a Claude model; Codex's serves Codex and Pi. */
-const PLAN_ACCOUNT_KINDS: Record<string, string[]> = { claude: ['claude', 'pi'], codex: ['codex', 'pi'] };
-
-/** Resume the same conversation on the new account: the new sign-in has
- *  nothing cached, so it reads the conversation once from the start. */
-function planResumeArgs(kind: string, ref: HerdrAgentSessionRef): string[] {
-    if (kind === 'claude' && ref.kind === 'id') return ['--resume', ref.value];
-    if (kind === 'codex' && ref.kind === 'id') return ['resume', ref.value];
-    if (kind === 'pi' && ref.kind === 'path') return ['--session', ref.value];
-    throw Object.assign(
-        new Error('Only Claude, Codex and Pi conversations can move between accounts.'),
-        { code: 'plan-move-unsupported' },
-    );
-}
 
 /**
  * Provider-neutral hint inherited by every pane muxr creates through Herdr.
@@ -635,6 +620,8 @@ const EVENT_KINDS = [
 ];
 
 const EMPTY_TOKENS = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+
+const PLAN_MOVE_KINDS: Record<string, string[]> = { claude: ['claude', 'pi'], codex: ['codex', 'pi'] };
 
 const SHELL_ROUTE_PREFIX = 'shell:';
 const DEFAULT_WATCH_MS = 30 * 60_000;
@@ -1656,12 +1643,12 @@ export async function createHerdrSessionSource(
         publish(sessionId, { type: 'session.error', message });
     }
 
-    /** The rc caveat: a login shell may override the env Herdr was given. A
-     *  move refuses rather than starts on the wrong sign-in. */
-    async function checkPaneEnv(paneId: string, name: string, expected: string): Promise<boolean> {
+    /** Launch-only product glue: a shell rc must not redirect the selected account. Moves use kit.move. */
+    async function checkPaneEnv(paneId: string, name: string, expected: string, absent = false): Promise<boolean> {
         const marker = `MUXR_PLAN_CHECK_${randomBytes(4).toString('hex')}`;
         try {
-            await client.call('pane.send_text', { pane_id: paneId, text: `echo ${marker}=$${name}\n` });
+            const expansion = absent ? '${' + name + '+x}' : '$' + name;
+            await client.call('pane.send_text', { pane_id: paneId, text: `echo ${marker}="${expansion}"\n` });
         } catch {
             return false;
         }
@@ -2101,6 +2088,13 @@ export async function createHerdrSessionSource(
         screens?.bind(screen, paneId);
 
         try {
+            if (startOptions.planUnset !== undefined && startOptions.planUnset.length > 0) {
+                // Names come only from the host-resolved published account contract; no credential values are echoed.
+                await client.call('pane.send_text', { pane_id: paneId, text: `unset ${startOptions.planUnset.join(' ')}\n` });
+                for (const name of startOptions.planUnset) {
+                    if (!await checkPaneEnv(paneId, name, '', true)) throw new Error('The selected account could not shed inherited credentials.');
+                }
+            }
             for (const [name, folder] of Object.entries(startOptions.planEnv ?? {})) {
                 if (!await checkPaneEnv(paneId, name, folder)) {
                     throw new Error('The selected account did not reach the new pane.');
@@ -2945,7 +2939,7 @@ export async function createHerdrSessionSource(
         },
 
         /** Full herdr power without a shell: each argument stays one argument. */
-        async herdrCli(args: string[], timeoutMs?: number): Promise<{
+        async herdrCli(args: string[], timeoutMs?: number, env?: Record<string, string>): Promise<{
             stdout: string; stderr: string; exitCode: number | null; timedOut: boolean;
         }> {
             if (!Array.isArray(args) || args.length === 0 || args.some((arg) => typeof arg !== 'string')) {
@@ -2957,7 +2951,7 @@ export async function createHerdrSessionSource(
             const requested = timeoutMs === undefined || !Number.isFinite(timeoutMs) ? 60_000 : timeoutMs;
             const clamped = Math.max(1_000, Math.min(requested, 5 * 60_000));
             try {
-                return await client.kit.cli(args, { timeoutMs: clamped });
+                return await client.kit.cli(args, { timeoutMs: clamped, ...(env === undefined ? {} : { env }) });
             } catch (error) {
                 // The dispatcher never rejects: errors ride the reply shape.
                 return {
@@ -3083,117 +3077,79 @@ export async function createHerdrSessionSource(
             }
         },
 
-        /** Keep the original authoritative while the replacement resumes the
-         *  conversation and becomes interactive. Staging hides the replacement
-         *  from discovery until the original closes; failed cleanup exposes it
-         *  as an extra copy so the person can close it. */
-        async movePlanAccount(moveOptions: { sessionId: string; provider: string; folder: string }): Promise<{ sessionId: string }> {
-            const kinds = PLAN_ACCOUNT_KINDS[moveOptions.provider] ?? [];
+        /** The kit owns the move transaction; muxr owns hidden staging, screens and session routes. */
+        async movePlanAccount(moveOptions: PlanMoveOptions): Promise<{ sessionId: string }> {
             const record = await resolvePane(moveOptions.sessionId);
-            const kind = record.agent?.agent ?? undefined;
-            if (kind === undefined || kind === null || !kinds.includes(kind)) {
-                throw Object.assign(
-                    new Error('Only Claude, Codex and Pi conversations can move between accounts.'),
-                    { code: 'plan-move-unsupported' },
-                );
-            }
             const conversation = publishedAgentSession(record.agent);
             if (conversation === undefined || isMuxrLaunchSession(conversation)) {
-                throw Object.assign(
-                    new Error('The agent has no conversation to move yet. Wait for it to start, then try again.'),
-                    { code: 'plan-move-too-early' },
-                );
+                throw Object.assign(new Error('The agent has no conversation to move yet. Wait for it to start, then try again.'), { code: 'plan-move-too-early' });
             }
-            const args = planResumeArgs(kind, conversation);
-            const accountEnv = moveOptions.provider === 'claude'
-                ? { CLAUDE_CONFIG_DIR: moveOptions.folder }
-                : { CODEX_HOME: moveOptions.folder };
+            const kind = record.agent?.agent ?? moveOptions.provider;
+            if (!(PLAN_MOVE_KINDS[moveOptions.provider] ?? []).includes(kind)) {
+                throw Object.assign(new Error('This conversation cannot move to that account.'), { code: 'plan-move-unsupported' });
+            }
+            let args: string[];
+            try { args = moveOptions.resumeArgs(kind, conversation); }
+            catch {
+                throw Object.assign(new Error('This conversation cannot move to that account.'), { code: 'plan-move-unsupported' });
+            }
             const screen = await screens?.allocate();
-            let split: { pane?: { pane_id?: string } };
-            try {
-                split = await client.call<{ pane?: { pane_id?: string } }>('pane.split', {
-                    direction: 'right',
-                    target_pane_id: record.paneId,
-                    env: { ...paneEnvironment(screen), ...accountEnv },
-                    focus: false,
-                });
-            } catch (error) {
-                screens?.releaseScreen(screen);
-                throw error;
-            }
-            const newPaneId = split.pane?.pane_id;
-            if (newPaneId === undefined) {
-                screens?.releaseScreen(screen);
-                throw new Error('herdr: pane.split returned no pane');
-            }
-            stagedMovePanes.add(newPaneId);
-            screens?.bind(screen, newPaneId);
-            const varName = moveOptions.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
+            let staged: string | undefined;
             const name = record.agent?.name ?? undefined;
-            try {
-                if (!await checkPaneEnv(newPaneId, varName, moveOptions.folder)) {
-                    throw Object.assign(
-                        new Error(`The account did not reach the new pane: a shell startup file may override ${varName}.`),
-                        { code: 'plan-move-env-mismatch' },
-                    );
+            let tagged: Promise<void> | undefined;
+            const moved = await client.kit.move({
+                paneId: record.paneId, kind: moveOptions.provider, args,
+                set: { ...paneEnvironment(screen), ...moveOptions.launchEnv.set },
+                unset: moveOptions.launchEnv.unset,
+                onStaged: (paneId) => {
+                    staged = paneId;
+                    stagedMovePanes.add(paneId);
+                    screens?.bind(screen, paneId);
+                    seedLaunchPane(paneId, { pane_id: paneId });
+                    tagged = tagSpawn(paneId, record.sessionId);
+                },
+                onReplaced: () => {
+                    agentsByPane.delete(record.paneId);
+                    panesById.delete(record.paneId);
+                    forgetLaunch(record.paneId);
+                    statusWatches.get(record.paneId)?.();
+                    statusWatches.delete(record.paneId);
+                    lifecycleEpochByPane.delete(record.paneId);
+                    artifacts.dropPane(record.paneId);
+                },
+            }).finally(async () => {
+                if (staged !== undefined) {
+                    forgetLaunch(staged);
+                    stagedMovePanes.delete(staged);
                 }
-                await tagSpawn(newPaneId, record.sessionId);
-                const launchName = `pp_${randomBytes(8).toString('hex')}`;
-                seedLaunchPane(newPaneId, { pane_id: newPaneId });
-                rememberLaunch(newPaneId, kind, launchName);
-                try {
-                    await startManagedAgent(newPaneId, kind, launchName, args);
-                    await waitForMatchingKind(newPaneId, kind, 60_000, true);
-                    await waitForInteractiveAgent(newPaneId, 60_000);
-                    if (!panesById.has(newPaneId) || publishedAgentSession(agentsByPane.get(newPaneId)) === undefined) {
-                        throw new Error('The replacement did not publish its conversation.');
-                    }
-                } catch (error) {
-                    throw Object.assign(new Error('The new account did not start. The original conversation is still running. Try again.'), {
-                        code: 'plan-move-start-failed', cause: error,
-                    });
-                }
-                try {
-                    await client.call('pane.close', { pane_id: record.paneId });
-                } catch (error) {
-                    throw Object.assign(new Error('The old pane could not be closed, so the move was aborted. Try again.'), {
-                        code: 'plan-move-close-failed', cause: error,
-                    });
-                }
-            } catch (error) {
-                try {
-                    await client.call('pane.close', { pane_id: newPaneId });
-                } catch (cleanupError) {
-                    forgetLaunch(newPaneId);
-                    stagedMovePanes.delete(newPaneId);
-                    bindListedPane(newPaneId);
-                    await refreshSnapshot().catch(() => undefined);
-                    emitAllStates();
+                await tagged;
+                await refreshSnapshotFresh();
+                if (staged === undefined || !panesById.has(staged)) screens?.releaseScreen(screen);
+                emitAllStates();
+            });
+            if (!moved.ok) {
+                const replacement = moved.live !== undefined && moved.live !== record.paneId;
+                if (replacement && panesById.has(record.paneId)) {
                     throw Object.assign(new Error('The move did not finish. An extra copy is open; you can close it from its pane.'), {
-                        code: 'plan-move-extra-copy', paneId: newPaneId, cause: cleanupError,
+                        code: 'plan-move-extra-copy', paneId: moved.live,
                     });
                 }
-                agentsByPane.delete(newPaneId);
-                panesById.delete(newPaneId);
-                forgetLaunch(newPaneId);
-                stagedMovePanes.delete(newPaneId);
-                screens?.releaseScreen(screen);
-                await refreshSnapshot();
-                throw error;
+                // A lost close ACK can leave only the verified replacement. Preserve its name/account without claiming success.
+                if (replacement && name !== undefined && !panesById.has(record.paneId)) {
+                    await renameInHerdr(client, 'agent', moved.live!, name).catch(() => undefined);
+                    await refreshSnapshotFresh();
+                    emitAllStates();
+                }
+                throw Object.assign(new Error(moved.message), {
+                    code: `plan-move-${moved.code.replaceAll('_', '-')}`,
+                    ...(replacement ? { paneId: moved.live } : {}),
+                });
             }
-            agentsByPane.delete(record.paneId);
-            panesById.delete(record.paneId);
-            forgetLaunch(newPaneId);
-            stagedMovePanes.delete(newPaneId);
-            const found = bindListedPane(newPaneId)!;
-            forgetLaunch(record.paneId);
-            statusWatches.get(record.paneId)?.();
-            statusWatches.delete(record.paneId);
-            lifecycleEpochByPane.delete(record.paneId);
-            artifacts.dropPane(record.paneId);
+            const found = bindListedPane(moved.paneId);
+            if (found === undefined) throw new Error('The moved conversation could not be listed.');
             if (found.sessionId !== record.sessionId) forgetClosedSession(record.sessionId, record.paneId);
             const named = (async () => {
-                if (name !== undefined) await renameInHerdr(client, 'agent', newPaneId, name);
+                if (name !== undefined) await renameInHerdr(client, 'agent', moved.paneId, name);
                 await refreshSnapshot();
                 emitAllStates();
             })().catch(() => undefined);

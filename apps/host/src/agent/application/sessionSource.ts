@@ -101,6 +101,8 @@ export interface PlanMoveOptions {
     sessionId: string;
     provider: string;
     folder: string;
+    launchEnv: { set: Record<string, string>; unset: string[] };
+    resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[];
 }
 
 export interface SessionSaveAttachmentsOptions {

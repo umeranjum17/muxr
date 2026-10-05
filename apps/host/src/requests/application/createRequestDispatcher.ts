@@ -627,11 +627,18 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
                         { code: 'host-contract-mismatch' },
                     );
                 }
+                const launchEnv = planLaunchEnv(process.env, record);
+                if (record.found) {
+                    if (record.provider === 'claude') launchEnv.set.CLAUDE_CONFIG_DIR = record.folder;
+                    else launchEnv.set.CODEX_HOME = record.folder;
+                }
                 try {
                     const moved = await source.movePlanAccount({
                         sessionId: params.sessionId,
                         provider: record.provider,
                         folder: record.folder,
+                        launchEnv,
+                        resumeArgs: (kind, ref) => planAccounts(process.env).resumeArgs(kind, ref),
                     });
                     await rememberPane(await planPaneOf(moved.sessionId), record.id);
                     return moved;
