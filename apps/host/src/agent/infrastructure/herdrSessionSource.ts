@@ -2095,7 +2095,9 @@ export async function createHerdrSessionSource(
                     if (!await checkPaneEnv(paneId, name, '', true)) throw new Error('The selected account could not shed inherited credentials.');
                 }
             }
-            for (const [name, folder] of Object.entries(startOptions.planEnv ?? {})) {
+            // A sign-in's own script sets its folder; echoing a check into
+            // that tab would only show muxr's plumbing above the sign-in.
+            for (const [name, folder] of Object.entries(startOptions.signIn === undefined ? startOptions.planEnv ?? {} : {})) {
                 if (!await checkPaneEnv(paneId, name, folder)) {
                     throw new Error('The selected account did not reach the new pane.');
                 }
