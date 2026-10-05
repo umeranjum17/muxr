@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { filesList, filesRead, filesRepos } from './files.js';
@@ -66,6 +66,63 @@ describe('files tree', () => {
         writeFileSync(join(repo, 'blob.bin'), Buffer.from([0x89, 0x50, 0x00, 0x01]));
         const preview = filesRead({ ...input, root: repo, path: 'blob.bin' });
         expect(preview.body).toBe('Binary file — preview unavailable.');
+    });
+});
+
+describe('user-named folders outside the open repositories', () => {
+    const spaced = join(scratch, 'My Project');
+    mkdirSync(join(spaced, 'notes'), { recursive: true });
+    mkdirSync(join(spaced, 'emptydir'), { recursive: true });
+    writeFileSync(join(spaced, 'report.md'), '# plan\n\nThe full target.\n');
+    writeFileSync(join(spaced, 'notes', 'plan.txt'), 'wrapped and spaced\n');
+    writeFileSync(join(scratch, 'outside.txt'), 'outside\n');
+    symlinkSync(join(scratch, 'outside.txt'), join(spaced, 'escape'));
+
+    it('lists an absolute out-of-repository folder with spaces as a named folder, never a repository', () => {
+        const listed = filesList({ ...input, root: spaced });
+        expect(listed.scope).toBe('folder');
+        expect(listed.title).toBe('My Project');
+        expect(listed.tree.map((node) => `${node.kind}:${node.name}`).sort()).toEqual([
+            'file:escape',
+            'file:report.md',
+            'folder:emptydir',
+            'folder:notes',
+        ]);
+        const nested = filesList({ ...input, root: spaced, path: 'notes' });
+        expect(nested.tree.map((node) => node.name)).toEqual(['plan.txt']);
+        expect(filesRead({ ...input, root: spaced, path: 'report.md' }).body).toContain('The full target.');
+        expect(filesRead({ ...input, root: spaced, path: 'notes/plan.txt' }).body).toContain('wrapped and spaced');
+    });
+
+    it('answers an unverifiable path with stable classes the phone can map', () => {
+        expect(() => filesList({ ...input, root: join(spaced, 'missing') })).toThrow('unknown repository');
+        expect(() => filesRead({ ...input, root: spaced, path: 'missing.md' })).toThrow('file unavailable');
+        expect(() => filesList({ ...input, root: spaced, path: 'missing' })).toThrow('file unavailable');
+        // An empty folder still answers as a folder, with zero entries.
+        expect(filesList({ ...input, root: spaced, path: 'emptydir' }).tree).toEqual([]);
+    });
+
+    it("tapping '/' opens the filesystem root itself, never the session repository", () => {
+        const listed = filesList({ ...input, root: '/' });
+        expect(listed.scope).toBe('folder');
+        expect(listed.root).toBe('/');
+        expect(listed.title).toBe('/');
+    });
+
+    it('reads through the filesystem root without mistaking it for an escape', () => {
+        const dirRel = relative('/', join(spaced, 'notes'));
+        const fileRel = relative('/', join(spaced, 'notes', 'plan.txt'));
+        const listed = filesList({ ...input, root: '/', path: dirRel });
+        expect(listed.tree.map((node) => node.name)).toEqual(['plan.txt']);
+        expect(filesRead({ ...input, root: '/', path: fileRel }).body).toContain('wrapped and spaced');
+    });
+
+    it('keeps the refusal classes intact for named folders', () => {
+        expect(() => filesRead({ ...input, root: spaced, path: 'escape' })).toThrow('outside repository');
+        expect(() => filesList({ ...input, root: spaced, path: 'escape' })).toThrow('outside repository');
+        expect(() => filesList({ ...input, root: spaced, path: '../..' })).toThrow('invalid folder');
+        expect(() => filesList({ ...input, root: 'relative/path' })).toThrow('unknown repository');
+        expect(() => filesList({ ...input, root: `${spaced}\0` })).toThrow('unknown repository');
     });
 });
 

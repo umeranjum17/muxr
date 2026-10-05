@@ -44,6 +44,7 @@ vi.mock('expo-notifications', () => ({
         return identifier;
     }),
     dismissNotificationAsync: vi.fn(async (identifier: string) => { harness.shade.delete(identifier); }),
+    setNotificationCategoryAsync: async () => null,
 }));
 vi.mock('react-native', () => ({
     AppState: {
