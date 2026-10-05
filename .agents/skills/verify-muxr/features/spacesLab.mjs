@@ -6,6 +6,10 @@ import { startFakeStack } from './perf/lib/fakeStack.mjs';
 
 setAndroidSerial(process.env.SERIAL);
 const stack = await startFakeStack({ panes: 1, agents: 1, titleChurnHz: 0 });
+let pairing;
+// A standalone run has no command scope, so nothing else stops the stack.
+const stop = (code = 0) => { pairing?.release(); stack.stop(); process.exit(code); };
+for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => stop());
 const herdrSocket = stack.cellMetricsJsonl.replace(/\.cell-metrics\.jsonl$/, '');
 let next = 0;
 const rpc = (method, params) => new Promise((resolve, reject) => {
@@ -23,16 +27,20 @@ const rpc = (method, params) => new Promise((resolve, reject) => {
         }
     });
 });
-for (const [label, agents] of [['api-server', ['umer-api', 'umer-auth']], ['infra', ['umer-certs']], ['mobile-app', ['umer-ui']]]) {
-    const { workspace } = await rpc('workspace.create', { label, cwd: `/tmp/${label}` });
-    for (const name of agents) {
-        const { root_pane } = await rpc('tab.create', { workspace_id: workspace.workspace_id, label: name });
-        await rpc('agent.start', { pane_id: root_pane.pane_id, kind: 'pi', name });
+try {
+    for (const [label, agents] of [['api-server', ['umer-api', 'umer-auth']], ['infra', ['umer-certs']], ['mobile-app', ['umer-ui']]]) {
+        const { workspace } = await rpc('workspace.create', { label, cwd: `/tmp/${label}` });
+        for (const name of agents) {
+            const { root_pane } = await rpc('tab.create', { workspace_id: workspace.workspace_id, label: name });
+            await rpc('agent.start', { pane_id: root_pane.pane_id, kind: 'pi', name });
+        }
     }
+    pairing = await stack.mintPairing();
+} catch (error) {
+    console.error(error);
+    stop(1);
 }
-const pairing = await stack.mintPairing();
 // Maestro does not see every emulator serial; the app's own pair link does.
 const opened = spawnSync('adb', ['-s', process.env.SERIAL, 'shell', 'am', 'start', '-a', 'android.intent.action.VIEW',
     '-d', `'muxr://pair#${pairing.code}'`, 'com.trymuxr.app'], { stdio: 'inherit' });
 console.log(opened.status === 0 ? `lab ready on relay port ${stack.relayPort}: tap Pair on the phone` : `pair link failed: ${opened.status}`);
-for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { pairing.release(); stack.stop(); process.exit(0); });
