@@ -1,13 +1,21 @@
 import { Platform } from 'react-native';
+import { getDeviceType } from '@/utils/responsive';
 import type { StoredHostedGrant } from '../application/linkPairing';
 import { cachedGrant, loadGrants } from './grantStore';
 import { isBrowserLinkOffer } from './linkPairClient';
 import { looksLikeLinkOffer, PairingNeedsNewCode, STALE_PAIRING_CODE } from '../domain/pairingString';
 
+/** What this device calls itself in pairing copy: an iPad is never "this phone". */
+export function pairingDeviceNoun(): 'browser' | 'iPad' | 'iPhone' | 'tablet' | 'phone' {
+    if (Platform.OS === 'web') return 'browser';
+    if (Platform.OS === 'ios') return Platform.isPad ? 'iPad' : 'iPhone';
+    return getDeviceType() === 'tablet' ? 'tablet' : 'phone';
+}
+
 export function pairingDeviceName(): string {
-    if (Platform.OS === 'ios') return 'iPhone';
-    if (Platform.OS === 'android') return 'Android phone';
-    return 'Browser';
+    const noun = pairingDeviceNoun();
+    if (noun === 'phone' || noun === 'tablet') return `Android ${noun}`;
+    return noun === 'browser' ? 'Browser' : noun;
 }
 
 export function assertSupportedOffer(scanned: string): void {
