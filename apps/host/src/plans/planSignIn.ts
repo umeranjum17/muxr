@@ -133,7 +133,7 @@ export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: strin
     let account: PlanAccount;
     if (record.found) account = await defaultAccount(record, env, {});
     else {
-        try { account = fromCliAccount(await (attempts.get(accountId)?.kit ?? planAccounts(env)).status(accountId)); }
+        try { account = fromCliAccount(await (attempts.get(accountId)?.kit ?? planAccounts(env)).status(accountId), record, env); }
         catch (error) { return planError(error); }
     }
     return { account, ...(!account.signedIn && signInFailed(accountId)

@@ -4,7 +4,7 @@
  * decides Auto; this module turns that into the phone's words and choices.
  */
 
-import type { PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
+import { accountNameFrom, type PlanAccount, type PlanProviderAccounts } from '@trymuxr/contract';
 
 export type { PlanAccount, PlanProviderAccounts };
 export type PlanProvider = 'claude' | 'codex';
@@ -138,12 +138,18 @@ export function runningOn(entry: PlanProviderAccounts, recorded: string | undefi
         ?? (recorded === undefined ? entry.accounts.find((account) => account.foundOnComputer) : undefined);
 }
 
-/** Suggest familiar account names instead of numbering provider sign-ins. */
+/** Suggest familiar account names instead of numbering provider sign-ins. The
+ *  first is the account's own name from its own email, never a repeat of one
+ *  `taken`. */
 export function nameSuggestions(account: PlanAccount, taken: readonly string[]): string[] {
     const email = account.email;
     const domain = email?.split('@')[1]?.toLowerCase();
     const personal = domain === undefined || /^(gmail|googlemail|outlook|hotmail|live|icloud|me|yahoo|proton|protonmail|pm)\./.test(domain);
-    const options = personal ? ['Personal', 'Work'] : ['Work', 'Personal', domain];
+    const labels = personal ? ['Personal', 'Work'] : ['Work', 'Personal', domain];
+    const held = new Set(taken.map((name) => name.trim().toLowerCase()));
+    const options = [accountNameFrom(email, account.provider, taken), ...labels];
     if (email !== undefined) options.push(email);
-    return [...new Set(options)].filter((name): name is string => name !== undefined && !taken.includes(name)).slice(0, 3);
+    return [...new Set(options)]
+        .filter((name): name is string => name !== undefined && !held.has(name.trim().toLowerCase()))
+        .slice(0, 3);
 }

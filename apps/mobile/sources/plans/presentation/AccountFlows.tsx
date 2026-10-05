@@ -294,8 +294,9 @@ export function NameAccountSheet() {
     const [name, setName] = React.useState('');
     const [saving, setSaving] = React.useState(false);
     const account = naming?.account;
+    // Every other account of this provider holds a name, signed in or not.
     const others = React.useMemo(
-        () => (providerEntry(list, account?.provider ?? null)?.accounts ?? []).filter((other) => other.id !== account?.id && other.signedIn),
+        () => (providerEntry(list, account?.provider ?? null)?.accounts ?? []).filter((other) => other.id !== account?.id),
         [list, account],
     );
     const suggestions = React.useMemo(
