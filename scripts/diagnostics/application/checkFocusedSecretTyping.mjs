@@ -50,6 +50,10 @@ if (!serial || text === undefined) {
     process.stderr.write('Usage: checkFocusedSecretTyping.mjs --serial <serial> --text <secret> [--field <identity>] [--expect <expected>] [--adb <path>]\n');
     process.exit(2);
 }
+if (process.argv.includes('--field') && (!field || field.startsWith('--'))) {
+    process.stderr.write('FAIL: --field needs a testID or content-desc\n');
+    process.exit(2);
+}
 if (text.includes('%') || (valueOf('--expect') ?? '').includes('%')) {
     process.stderr.write('FAIL: text contains % which `adb shell input text` reserves (%s means space)\n');
     process.exit(2);
@@ -102,7 +106,11 @@ const fail = (message) => {
     process.exit(1);
 };
 
+// A failed `uiautomator dump` still exits 0 and leaves the previous file in
+// place, so the old file goes first: a failed dump then fails the cat instead
+// of replaying a stale screen.
 async function dump() {
+    await shell('rm', '-f', dumpPath);
     await shell('uiautomator', 'dump', dumpPath);
     return shell('cat', dumpPath);
 }
@@ -137,9 +145,17 @@ async function keyboardShown() {
 // screen. uiautomator also lists nodes scrolled out of view or covered, with
 // bounds clipped to nothing (bottom above top), so a field only counts once
 // enough of it is visible to take a tap.
-const tappable = (tag) => {
+// A clickable node drawn after the field (a sticky bar, a floating button)
+// that is not inside it covers the tap point, so that field is not tappable yet.
+const tappable = (tag, tags) => {
     const [x1, y1, x2, y2] = bounds(tag);
-    return x2 > x1 && y2 - y1 >= 40;
+    if (x2 <= x1 || y2 - y1 < 40) return false;
+    const [x, y] = centre(tag);
+    return !tags.slice(tags.indexOf(tag) + 1).some((later) => {
+        const [lx1, ly1, lx2, ly2] = bounds(later);
+        const inside = lx1 >= x1 && ly1 >= y1 && lx2 <= x2 && ly2 <= y2;
+        return attr(later, 'clickable') === 'true' && !inside && x >= lx1 && x <= lx2 && y >= ly1 && y <= ly2;
+    });
 };
 
 async function findField() {
@@ -153,7 +169,7 @@ async function findField() {
     for (let swipes = 0; swipes <= 24; swipes++) {
         const tags = nodeTags(await dump());
         const matches = tags.filter(hasIdentity);
-        const tag = matches.find(tappable);
+        const tag = matches.find((match) => tappable(match, tags));
         if (tag) return tag;
         offscreen ||= matches.length > 0;
         // The form has stopped moving once every node sits where it sat
