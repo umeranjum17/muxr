@@ -40,7 +40,7 @@ import { useTauriDrag } from '@/hooks/useTauriDrag';
 import { useWebViewport } from '@/hooks/useWebViewport';
 import { BrowserNavigationShortcuts } from '@/hooks/useBrowserNavigationShortcuts';
 import { KernelNotifications } from '@/herd/ui';
-import { notificationResponseKey } from '@/watch/lifecycleAlert';
+import { ANSWER_ACTION, OPEN_ACTION, notificationResponseKey, settleAnsweredAlert } from '@/watch/lifecycleAlert';
 import { acknowledgeLifecyclePush, openNativeLifecyclePush, receiveLifecyclePush } from '@/utils/nativePushNotifications';
 import { realtimeAppController } from '@/conversation/application/realtimeAppControl';
 
@@ -72,6 +72,35 @@ if (Platform.OS === 'android') {
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#FF231F7C',
     });
+}
+
+/**
+ * Answer a blocked Agent from its alert without opening the app: the reply
+ * goes over the paired link, and only to the question that alert showed.
+ */
+async function answerFromNotification(
+    response: Notifications.NotificationResponse,
+    data: Record<string, unknown>,
+    watched: { agentRoute: string | null; selectMachine: boolean },
+): Promise<void> {
+    // Phone keyboards capitalise the first letter; the agent wants y, not Y.
+    const answer = response.userText?.trim().toLowerCase() ?? '';
+    const eventId = typeof data.eventId === 'string' ? data.eventId : undefined;
+    if (watched.selectMachine || watched.agentRoute === null || eventId === undefined) {
+        await settleAnsweredAlert(response, 'Open muxr to answer this one.');
+        return;
+    }
+    if (answer === '') {
+        await settleAnsweredAlert(response, 'Nothing was sent. Type an answer, or open muxr.');
+        return;
+    }
+    try {
+        await sync.request('session.answer', { sessionId: watched.agentRoute, answer, eventId });
+        await settleAnsweredAlert(response);
+    } catch (error) {
+        const reason = error instanceof Error && error.message !== '' ? error.message : 'The answer was not sent.';
+        await settleAnsweredAlert(response, `${reason} Open muxr to answer.`);
+    }
 }
 
 // Expo Router's stock screen shows only the message. Preserve the JS call site
@@ -378,12 +407,17 @@ export default function RootLayout() {
         acknowledgeLifecyclePush(data);
 
         try {
-            if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) {
-                console.log(`[PUSH ROUTING] Ignoring non-default action: ${response.actionIdentifier}`);
+            const action = response.actionIdentifier;
+            if (action !== Notifications.DEFAULT_ACTION_IDENTIFIER && action !== OPEN_ACTION && action !== ANSWER_ACTION) {
+                console.log(`[PUSH ROUTING] Ignoring unknown action: ${action}`);
                 return;
             }
 
             const watched = watchAgentLifecycle({ notificationData: data, activeMachineId: getCachedConnectionSettings().machineId });
+            if (action === ANSWER_ACTION) {
+                await answerFromNotification(response, data, watched);
+                return;
+            }
             if (watched.selectMachine) {
                 router.push('/settings');
                 return;

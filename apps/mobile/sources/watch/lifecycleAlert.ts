@@ -71,15 +71,67 @@ export function dismissAgentAlert(agentRoute: string): void {
     dismissAlert(agentRoute);
 }
 
-/** Post an Agent's lifecycle alert unless its terminal is in front of the person. */
-export async function alertAgent(agentRoute: string, title: string, body: string): Promise<void> {
+/** A blocked Agent's alert: Open lands on its prompt; Answer opens muxr to send the typed reply. */
+export const QUESTION_CATEGORY = 'agent-question';
+export const OPEN_ACTION = 'open';
+export const ANSWER_ACTION = 'answer';
+
+if (Platform.OS !== 'web') {
+    void Notifications.setNotificationCategoryAsync(QUESTION_CATEGORY, [
+        { identifier: OPEN_ACTION, buttonTitle: 'Open', options: { opensAppToForeground: true } },
+        {
+            identifier: ANSWER_ACTION,
+            buttonTitle: 'Answer in muxr',
+            textInput: { submitButtonTitle: 'Open and send', placeholder: 'y, n or a choice number' },
+            // The app sends the reply over its link, so it opens to do it: iOS suspends a
+            // background app before the reply leaves, and Android has no task to send it yet.
+            options: { opensAppToForeground: true },
+        },
+    ]).catch(() => undefined);
+}
+
+/**
+ * Post an Agent's lifecycle alert unless its terminal is in front of the
+ * person. `question` names the blocked event an Answer may reply to.
+ */
+export async function alertAgent(agentRoute: string, title: string, body: string, question?: { eventId: string }): Promise<void> {
     if (Platform.OS === 'web') return;
     await orderedAlert(agentRoute, async () => {
         if (focusedAgentRoute() === agentRoute) return;
         await Notifications.scheduleNotificationAsync({
             identifier: alertId(agentRoute),
-            content: { title, body, data: { url: `/session/${encodeURIComponent(agentRoute)}` } },
+            content: {
+                title,
+                body,
+                data: {
+                    url: `/session/${encodeURIComponent(agentRoute)}`,
+                    ...(question === undefined ? {} : { sessionId: agentRoute, eventId: question.eventId }),
+                },
+                ...(question === undefined ? {} : { categoryIdentifier: QUESTION_CATEGORY }),
+            },
             trigger: null,
         });
+    });
+}
+
+/**
+ * An answered alert goes away; one whose answer failed says why instead, so
+ * the reply field never hangs waiting. Either only while the alert still shows
+ * the question that was answered: a newer one for the Agent stays put.
+ */
+export async function settleAnsweredAlert(response: Notifications.NotificationResponse, failure?: string): Promise<void> {
+    if (Platform.OS === 'web') return;
+    const { identifier, content } = response.notification.request;
+    const presented = (await Notifications.getPresentedNotificationsAsync())
+        .find((notification) => notification.request.identifier === identifier);
+    if (presented !== undefined && presented.request.content.data?.eventId !== content.data?.eventId) return;
+    if (failure === undefined) {
+        await Notifications.dismissNotificationAsync(identifier);
+        return;
+    }
+    await Notifications.scheduleNotificationAsync({
+        identifier,
+        content: { title: content.title ?? 'muxr', body: failure, data: content.data ?? {} },
+        trigger: null,
     });
 }

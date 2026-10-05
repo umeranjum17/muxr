@@ -47,6 +47,7 @@ export {
     ATTENTION_REASONS,
     SESSION_EVENT_TYPES,
     agentIsWorking,
+    agentAlertTitle,
     agentTask,
     agentRoute,
     attentionOutranks,

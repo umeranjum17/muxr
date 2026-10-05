@@ -87,10 +87,13 @@ import {
     type HerdrLayoutNode,
 } from '../domain/layout.js';
 import { rollupLifecycle } from '../domain/lifecycle.js';
+import { blockedQuestion } from '../domain/blockedQuestion.js';
 import { reportAgentOutcome } from '../application/reportAgentOutcome.js';
 import { agentKindsFromManifests } from '../domain/agentKinds.js';
 
 const PROMPT_READY_TIMEOUT_MS = 30_000;
+/** How long a blocked alert waits for the kit to read the agent's question before going out without it. */
+const QUESTION_WAIT_MS = 3_000;
 const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
 const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
@@ -399,6 +402,7 @@ export interface CreateHerdrSessionSourceOptions {
         reasonCode?: string;
         agentName?: string;
         taskTitle?: string;
+        question?: string;
     }) => void;
     /** Writes bounded semantic prompt outcomes to the owner-only host diagnostics journal. */
     onRealtimePromptDiagnostic?: (event: RealtimePromptDiagnostic) => void;
@@ -754,6 +758,11 @@ export async function createHerdrSessionSource(
     }
     /** One in-flight agent.watch per session; re-arming replaces the old one. */
     const watches = new Map<string, ReturnType<typeof setTimeout>>();
+    /** Blocked sessions waiting for the kit to read their question; 'expired' alerts without it. */
+    const questionWaits = new Map<string, ReturnType<typeof setTimeout> | 'expired'>();
+    /** The pane revision each blocked event's question was read at: an answer types only into that one. */
+    const askedRevisions = new Map<string, { eventId: string; revision: number }>();
+    const notifiedBlocked = new Map<string, string>();
     let pluginPollTimer: NodeJS.Timeout | undefined;
     /** dispose/close run once: the host shutdown path and a lab script may both close. */
     let disposed = false;
@@ -1139,6 +1148,8 @@ export async function createHerdrSessionSource(
     function reportObserved(session: CurrentSession, state: AgentLifecycle): void {
         if (options.lifecycle === undefined || session.agent?.name === undefined || session.agent.name === null) return;
         const taskTitle = taskTitleForSession(session);
+        const asked = state === 'blocked' ? client.kit.blocked().find((entry) => entry.paneId === session.paneId) : undefined;
+        const question = asked === undefined ? undefined : blockedQuestion(asked.prompt);
         const result = reportAgentOutcome(options.lifecycle, {
             sessionId: session.sessionId,
             agentName: session.agent.name,
@@ -1149,8 +1160,12 @@ export async function createHerdrSessionSource(
                 : { previousReason: options.lifecycle.latestFor(session.sessionId)!.reasonCode }),
             ...(taskTitle === undefined ? {} : { taskTitle }),
             ...(session.agent.agent === undefined || session.agent.agent === null ? {} : { agentKind: session.agent.agent }),
+            ...(question === undefined ? {} : { question }),
         });
-        if (result.data !== undefined) publish(session.sessionId, { type: 'lifecycle.update', event: result.data });
+        if (result.data === undefined) return;
+        if (asked === undefined || result.data.state !== 'blocked') askedRevisions.delete(session.sessionId);
+        else askedRevisions.set(session.sessionId, { eventId: result.data.eventId, revision: asked.revision });
+        publish(session.sessionId, { type: 'lifecycle.update', event: result.data });
     }
 
     function statusFor(sessionId: string): SessionStatus {
@@ -1220,6 +1235,7 @@ export async function createHerdrSessionSource(
             ...(lifecycle === undefined ? {} : { reasonCode: lifecycle.reasonCode }),
             ...(lifecycle?.agentName === undefined ? {} : { agentName: lifecycle.agentName }),
             ...(lifecycle?.taskTitle === undefined ? {} : { taskTitle: lifecycle.taskTitle }),
+            ...(lifecycle?.question === undefined ? {} : { question: lifecycle.question }),
         };
         options.onLinkAttention?.({
             sessionId: payload.sessionId,
@@ -1229,6 +1245,7 @@ export async function createHerdrSessionSource(
             ...(payload.reasonCode === undefined ? {} : { reasonCode: payload.reasonCode }),
             ...(payload.agentName === undefined ? {} : { agentName: payload.agentName }),
             ...(payload.taskTitle === undefined ? {} : { taskTitle: payload.taskTitle }),
+            ...(payload.question === undefined ? {} : { question: payload.question }),
         });
 
     }
@@ -1240,10 +1257,14 @@ export async function createHerdrSessionSource(
         switch (agentStatus) {
             case 'blocked':
                 changed = attention.clear(sessionId, 'failed') || changed;
-                if (attention.set(sessionId, 'waiting', 'Agent needs attention.')) {
-                    changed = true;
+                {
+                    const setChanged = attention.set(sessionId, 'waiting', 'Agent needs attention.');
+                    changed = setChanged || changed;
                     const eventId = options.lifecycle?.current(sessionId)?.eventId;
-                    if (eventId !== undefined) notifyAttention(sessionId, eventId, 'blocked');
+                    if (eventId !== undefined && (setChanged || notifiedBlocked.get(sessionId) !== eventId)) {
+                        notifiedBlocked.set(sessionId, eventId);
+                        notifyAttention(sessionId, eventId, 'blocked');
+                    }
                 }
                 break;
             case 'done':
@@ -1294,6 +1315,11 @@ export async function createHerdrSessionSource(
         lastStateSignature.delete(sessionId);
         lastInfoSignature.delete(sessionId);
         lastReadinessBySession.delete(sessionId);
+        const wait = questionWaits.get(sessionId);
+        if (wait !== undefined && wait !== 'expired') clearTimeout(wait);
+        questionWaits.delete(sessionId);
+        askedRevisions.delete(sessionId);
+        notifiedBlocked.delete(sessionId);
         publish(sessionId, { type: 'session.removed' });
     }
 
@@ -1335,7 +1361,7 @@ export async function createHerdrSessionSource(
             lastInfoSignature.set(sessionId, signature);
             publish(sessionId, { type: 'session.updated', session: info });
         }
-        if (session.agent !== undefined) {
+        if (session.agent !== undefined && !awaitingQuestion(session, agentStatus)) {
             reportObserved(session, agentStatus);
             applyAttention(sessionId, agentStatus);
         }
@@ -1353,6 +1379,29 @@ export async function createHerdrSessionSource(
                 && publishedAgentSession(session.agent) !== undefined;
             if (replaced || agentPromptable(session)) launchFailureByPane.delete(paneId);
         }
+    }
+
+    /**
+     * A blocked agent's alert carries its question, which the kit reads off the
+     * pane just after the status flips. Hold the blocked report until the kit
+     * has it (its onBlocked re-emits) or QUESTION_WAIT_MS passes without it.
+     */
+    function awaitingQuestion(session: CurrentSession, agentStatus: AgentLifecycle): boolean {
+        const wait = questionWaits.get(session.sessionId);
+        const asked = agentStatus === 'blocked' && client.kit.blocked().some((entry) => entry.paneId === session.paneId);
+        if (agentStatus !== 'blocked' || asked) {
+            if (wait !== undefined && wait !== 'expired') clearTimeout(wait);
+            questionWaits.delete(session.sessionId);
+            return false;
+        }
+        if (wait === 'expired') return false;
+        if (wait === undefined) {
+            questionWaits.set(session.sessionId, setTimeout(() => {
+                questionWaits.set(session.sessionId, 'expired');
+                emitState(session.sessionId);
+            }, QUESTION_WAIT_MS));
+        }
+        return true;
     }
 
     /** Bind routes to current Herdr generations and remove every vanished generation first. */
@@ -1552,6 +1601,12 @@ export async function createHerdrSessionSource(
         routingEpoch += 1;
         void client.subscribeEvents(EVENT_KINDS).catch(() => {});
         void refreshSnapshot().then(emitAllStates).catch(() => {});
+    });
+    // The kit reads a blocked agent's question once its status flips; that releases the held alert.
+    const stopBlockedWatch = client.kit.onBlocked((entry, change) => {
+        if (change !== 'added') return;
+        const session = currentSessionByPane(entry.paneId);
+        if (session !== undefined) emitState(session.sessionId);
     });
 
     function rememberLaunch(paneId: string, kind: string, launchName: string): HerdrAgentSessionRef {
@@ -2209,10 +2264,20 @@ export async function createHerdrSessionSource(
         }
     }
 
-    async function sendSessionKeys(sessionId: string, keys: string[]): Promise<void> {
+    async function sendSessionKeys(sessionId: string, keys: string[], question?: { eventId: string }): Promise<void> {
         const session = await resolvePane(sessionId);
         if (session.agent === undefined) throw agentUnavailable();
-        await client.kit.sendKeys(session, keys);
+        if (question === undefined) {
+            await client.kit.sendKeys(session, keys);
+            return;
+        }
+        // An answer from a notification may arrive long after it was asked: it
+        // types only into the question that alert showed.
+        const asked = askedRevisions.get(sessionId);
+        if (asked === undefined || asked.eventId !== question.eventId || options.lifecycle?.current(sessionId)?.eventId !== question.eventId) {
+            throw Object.assign(new Error('That question was already answered or changed.'), { code: 'approval-stale' });
+        }
+        await client.kit.answer(session.paneId, keys, { revision: asked.revision });
     }
 
     type RealtimePaneReadSource = 'visible' | 'recent' | 'recent_unwrapped';
@@ -3669,6 +3734,10 @@ export async function createHerdrSessionSource(
             // without this a script that only watched never exits.
             for (const guard of watches.values()) clearTimeout(guard);
             watches.clear();
+            for (const wait of questionWaits.values()) if (wait !== 'expired') clearTimeout(wait);
+            questionWaits.clear();
+            askedRevisions.clear();
+            stopBlockedWatch();
             await settle(() => voiceStreams?.closeAll());
             await settle(() => codingCoordinator?.close());
             await settle(() => stopArtifactRetention());

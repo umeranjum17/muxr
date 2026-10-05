@@ -325,6 +325,7 @@ export const ja: TranslationStructure = {
         // Spaces section on Home
         title: 'スペース',
         pinned: 'ピン留め',
+        favourites: 'お気に入り',
         empty: '開いているスペースはありません',
         rootFolder: 'ルートフォルダー',
         homeFolder: 'ホームフォルダー',
