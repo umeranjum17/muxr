@@ -4,6 +4,7 @@ import { pairLinkOffer } from './usePairing';
 
 const harness = vi.hoisted(() => ({
     device: 'phone' as 'phone' | 'browser',
+    noun: 'iPhone',
     machineName: 'Desk',
     approved: false,
     alerts: [] as string[],
@@ -24,6 +25,7 @@ vi.mock('@/modal', () => ({
 }));
 vi.mock('../infrastructure/pairingPlatform', () => ({
     pairingDeviceKind: () => harness.device,
+    pairingDeviceNoun: () => harness.noun,
 }));
 vi.mock('./linkPairing', () => ({
     linkPairMachineName: async () => harness.machineName,
@@ -47,6 +49,7 @@ beforeEach(() => {
     harness.approved = false;
     harness.alerts.length = 0;
     harness.device = 'phone';
+    harness.noun = 'iPhone';
     harness.machineName = 'Desk';
 });
 
@@ -89,18 +92,20 @@ describe('pairLinkOffer consent', () => {
 
 it('pairs with one screen consent and inline progress without an alert over Home', async () => {
     harness.approved = true;
+    harness.noun = 'iPad';
     const progress: Array<{ phase: string; words?: string }> = [];
     const login = vi.fn(async () => undefined);
-    const consent = vi.fn(async () => true);
+    const consent = vi.fn(async (_title: string, _body: string) => true);
     expect(await pairLinkOffer(linkOffer({ role: 'control', name: 'Desk' }), { login } as never, {
         confirm: consent,
         onProgress: (view) => progress.push(view),
     })).toBe(true);
     expect(consent).toHaveBeenCalledTimes(1);
+    expect(consent.mock.calls[0]?.[1]).toContain('This iPad will be able to see and change things on it');
     expect(harness.confirms).toHaveLength(0);
     expect(progress).toEqual([
         expect.objectContaining({ phase: 'compare', words: 'spark castle' }),
-        expect.objectContaining({ phase: 'paired' }),
+        expect.objectContaining({ phase: 'paired', title: 'This iPad is paired with Desk.' }),
     ]);
     expect(login).toHaveBeenCalledWith('credential', 'key');
     expect(harness.alerts).toHaveLength(0);
