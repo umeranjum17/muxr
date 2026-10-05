@@ -500,6 +500,11 @@ it('adopts a found default sign-in into its own managed folder', async () => {
     execFileSync('/bin/sh', ['-c', prepared.launch.signIn], { env: { ...env, ...prepared.launch.planEnv } });
     expect((await planAccountStatus(env, prepared.record.id)).account.signedIn).toBe(true);
     finishPlanSignIn(prepared.record.id);
+    const work = await preparePlanSignIn(env, 'claude', undefined, async () => {});
+    execFileSync('/bin/sh', ['-c', work.launch.signIn], { env: { ...env, ...work.launch.planEnv } });
+    // The adopted copy replaces the found row: one row per sign-in, not the same address twice.
+    const { providers } = await listPlans(env, { room: async () => ({ left: 'unknown' }) });
+    expect(providers[0]?.accounts.map((account) => account.id).sort()).toEqual([prepared.record.id, work.record.id].sort());
     expect(readFileSync(canary, 'utf8')).toBe('default-fixture-untouched');
     expect(JSON.stringify(prepared)).not.toContain('fixture-token-unlogged');
 });

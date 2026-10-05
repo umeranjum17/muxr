@@ -54,7 +54,9 @@ function defaultFolderEnv(record: PlanAccountRecord): Record<string, string> {
 }
 
 async function providerRooms(provider: PlanProvider, env: NodeJS.ProcessEnv, deps: PlansDeps, managed: CliAccount[]) {
-    const records = providerRecords(provider, env);
+    // Once its adopted copy is signed in, the found row is that same sign-in: list it once.
+    const adopted = new Set(managed.filter((account) => account.state === 'ready').map((account) => account.adoptedFrom));
+    const records = providerRecords(provider, env).filter((record) => !(record.found && adopted.has(record.id)));
     const reads = await Promise.all(records.map(async (record) => {
         const cli = managed.find((account) => account.id === record.id);
         if (!record.found && cli === undefined) return undefined;

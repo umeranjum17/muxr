@@ -58,11 +58,13 @@ export function AccountsSettingsScreen() {
         { text: 'Cancel', style: 'cancel' },
     ]);
 
-    const subtitle = (account: PlanAccount): string => {
-        if (!account.signedIn) return 'Signed out';
+    // At 270 dp the email keeps one ellipsized line and the usage gets its own line beneath it.
+    const subtitle = (account: PlanAccount): string | undefined => (account.signedIn ? account.email : 'Signed out');
+    const facts = (account: PlanAccount): string | undefined => {
+        if (!account.signedIn) return undefined;
         const room = account.roomLeftPercent === undefined ? undefined : `${account.roomLeftPercent}% left`;
-        return [account.email, account.plan, room, account.foundOnComputer ? 'found on this computer' : undefined]
-            .filter(Boolean).join(' · ');
+        return [room, account.plan, account.foundOnComputer ? 'found on this computer' : undefined]
+            .filter(Boolean).join(' · ') || undefined;
     };
 
     return (
@@ -85,7 +87,8 @@ export function AccountsSettingsScreen() {
                                 key={account.id}
                                 title={account.name}
                                 subtitle={subtitle(account)}
-                                subtitleLines={2}
+                                subtitleLines={1}
+                                meta={facts(account)}
                                 icon={<Ionicons
                                     name={account.signedIn ? 'person-circle-outline' : 'alert-circle-outline'}
                                     size={28}
@@ -96,7 +99,7 @@ export function AccountsSettingsScreen() {
                                 showChevron={account.signedIn}
                                 onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
                                 onLongPress={() => actions(account)}
-                                accessibilityLabel={`${account.name}, ${subtitle(account)}`}
+                                accessibilityLabel={[account.name, subtitle(account), facts(account)].filter(Boolean).join(', ')}
                             />
                         ))}
                         <Item
