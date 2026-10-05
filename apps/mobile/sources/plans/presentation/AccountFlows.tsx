@@ -196,7 +196,7 @@ export function SignInBanner({ bottom }: { bottom: number }) {
     const pathRef = React.useRef(path);
     pathRef.current = path;
     const here = pending !== null && onTab(path);
-    const leaveTab = () => { if (onTabRef.current(pathRef.current) && router.canGoBack()) router.back(); };
+    const leaveTab = React.useCallback(() => { if (onTabRef.current(pathRef.current) && router.canGoBack()) router.back(); }, [router]);
 
     React.useEffect(() => {
         if (pending === null || pending.cancelled || pending.failure !== undefined) return;
@@ -220,9 +220,7 @@ export function SignInBanner({ bottom }: { bottom: number }) {
         };
         let timer = setTimeout(tick, POLL_MS);
         return () => { stopped = true; clearTimeout(timer); };
-        // leaveTab reads refs only.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pending, router, connection]);
+    }, [pending, leaveTab, connection]);
 
     if (pending === null || (!here && !pending.cancelled && pending.failure === undefined)) return null;
     const cancel = async (): Promise<boolean> => {
