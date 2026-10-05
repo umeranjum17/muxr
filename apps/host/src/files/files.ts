@@ -1,13 +1,16 @@
 /**
- * Bounded repository tree and text preview. Product code (the browse half of
+ * Bounded file tree and text preview: the session repository's tracked tree,
+ * plus any user-named folder on the computer. Product code (the browse half of
  * the extracted Files add-on's files.mjs, ported with its flow tests).
- * Read-only: every command here is a git read or a bounded file read; nothing
- * mutates the repository or the index.
+ * Read-only: repository listings are git reads, named-folder listings are
+ * filesystem reads, previews are bounded file reads; nothing mutates the
+ * repository or the index.
  *
  * Trust boundary: the caller supplies only the sessionId; the dispatcher
- * injects the session cwd. A caller-chosen `root` is honored only when it is
- * the session repository itself (single-repo sessions resolve there anyway).
- * File reads stay inside the repository root (symlinks resolved), capped at
+ * injects the session cwd. A caller-chosen `root` is honored when it is a
+ * repository open in some session, or as a user-named absolute folder that
+ * exists as a directory on this host. File reads stay inside the resolved
+ * root (symlinks resolved), capped at
  * 24 KiB / 240 lines, with binary files reported as unavailable.
  */
 import { execFileSync } from 'node:child_process';
