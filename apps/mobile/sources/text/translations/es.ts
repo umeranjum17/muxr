@@ -323,6 +323,7 @@ export const es: TranslationStructure = {
         // Spaces section on Home
         title: 'Espacios',
         pinned: 'Fijados',
+        favourites: 'Favoritos',
         empty: 'No hay espacios abiertos',
         rootFolder: 'Carpeta raíz',
         homeFolder: 'Carpeta de inicio',

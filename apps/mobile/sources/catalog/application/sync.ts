@@ -704,6 +704,7 @@ class MuxrSync {
             storage.getState().applyHerdrTree([]);
             storage.getState().applyHomeSnapshot(null);
         }
+        storage.getState().setActiveMachine(settings.machineId);
         // The client refreshes the grant before every dial, so startup does
         // not wait on the relay for it here.
         if (settings.mode === 'hosted' && settings.machineId !== '') {
