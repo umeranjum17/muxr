@@ -1220,25 +1220,25 @@
   resolved "https://registry.yarnpkg.com/@chevrotain/types/-/types-11.1.2.tgz#e83a1a2704f0c5e49e7592b214031a0f4a34d7e5"
   integrity sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==
 
-"@desklink/host-darwin-arm64@0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.3.0.tgz#e9fbab64b2e3cdf6833730747c2f0f0ffb195880"
-  integrity sha512-+w19ZRRttZMS22Bbq1raNyxMt1b2A1djm0kS/a28lYFu6rrpIRFmzLtMVz8OKNmsDwdxw13cloO7ixK6Bdqssw==
+"@desklink/host-darwin-arm64@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.5.0.tgz#1abf85d6a257cd5f1aee1e4d8bb6abd5cb8fa5c9"
+  integrity sha512-ZZ5zlL0/+Qz7TuxWV/k14FRnrqN/ld0cdNOk/YebrdNWZ8eJfgODT0THXUg6FsaZlBXC0KwCrTYI1WXpb3qitg==
 
-"@desklink/host-linux-x64-gnu@0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.3.0.tgz#6fafe8472325cd0c1c1ea214b67ce3c7dfe6b812"
-  integrity sha512-rNl3W7Zww543GtShlBpqnUXvLCHLwCVGcV0DWkCe4fdEDDLdBP3984emzrF3ER2isl2DpaorsecwrH82h8/FUA==
+"@desklink/host-linux-x64-gnu@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.5.0.tgz#9dd3d540e68a7682cb297145f3f2d654568dd939"
+  integrity sha512-puGmxmIqOCM8DChsSB/mSyfKMAiKCAkm2bu/9fAbMi2danh4eAUtxSltnFL+sfxAkEZHQ6B2oR+KnA/k24F1Rg==
 
-"@desklink/host@0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.3.0.tgz#58a964599fa6010b4b1625198d7511de5a25db95"
-  integrity sha512-DYhKfivubtblgL6E4hI8qy1slQM3hPNe0TUOBg3d/h7ZwA0Lf5SNKeOIXgAi9IVIst8Vw/3hsYoVAV4gPylKSw==
+"@desklink/host@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.5.0.tgz#6c7d8aefcf017097e05dababf14e6c5218164ce2"
+  integrity sha512-oFIdvDiuIGGsRy9Vq3dt11DKWh4ZU+MJlKjuVJOmeYbKkDeLrGeFBtv6sofN78QOQoNSH+fsVPO5GhunzV92ng==
   dependencies:
-    ws "^8.18.0"
+    ws "8.21.3"
   optionalDependencies:
-    "@desklink/host-darwin-arm64" "0.3.0"
-    "@desklink/host-linux-x64-gnu" "0.3.0"
+    "@desklink/host-darwin-arm64" "0.5.0"
+    "@desklink/host-linux-x64-gnu" "0.5.0"
 
 "@desklink/react-native@0.3.0":
   version "0.3.0"
@@ -7819,10 +7819,10 @@ postcss@8.5.26, postcss@^8.5.14, postcss@^8.5.26, postcss@~8.4.32:
     picocolors "^1.1.1"
     source-map-js "^1.2.1"
 
-preact@10.29.8, preact@^10.29.8:
-  version "10.29.8"
-  resolved "https://registry.yarnpkg.com/preact/-/preact-10.29.8.tgz#fc85b82dc2474e245b1430b51781d417361f5fc3"
-  integrity sha512-ej2aVZ+vZ8WO7tvlQWRM9N63A0KzF9q4mWJfDUHgYaIofWY9hu74QdnQrjoPMmZi2/nZ5gN0bJCQF49xQqx09Q==
+preact@10.29.1, preact@^10.29.8:
+  version "10.29.1"
+  resolved "https://registry.yarnpkg.com/preact/-/preact-10.29.1.tgz#2a5b936efe91cfe1e773cdb55dceb55d148d1d4b"
+  integrity sha512-gQCLc/vWroE8lIpleXtdJhTFDogTdZG9AjMUpVkDf2iTCNwYNWA+u16dL41TqUDJO4gm2IgrcMv3uTpjd4Pwmg==
 
 pretty-format@^29.7.0:
   version "29.7.0"

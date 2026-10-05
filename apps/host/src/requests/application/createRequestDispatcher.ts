@@ -228,7 +228,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
     const sessionCwds = (sessions: Awaited<ReturnType<SessionSource['list']>>): string[] =>
         sessions.map((session) => session.cwd ?? '').filter((cwd) => cwd !== '');
 
-    /** Every repository open in some session; explicit files roots must be one of these. */
+    /** Every repository open in some session; repository roots must be one of these, while a user-named folder passes selectedRoot's own checks. */
     const openRepoRoots = async (): Promise<string[]> => {
         const sessions = await source.list();
         return filesRepos(sessionCwds(sessions)).repos.map((repo) => repo.root);
