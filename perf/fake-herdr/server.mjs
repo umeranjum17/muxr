@@ -271,7 +271,10 @@ export async function startFakeHerdr(options) {
             return { workspace: workspaceView(live, workspace) };
         },
         'workspace.create': (params) => {
-            const workspace = addWorkspace(live, params.cwd ?? live.cwd, params.label ?? params.cwd);
+            const cwd = params.cwd ?? live.cwd;
+            const workspace = addWorkspace(live, cwd, params.label ?? params.cwd);
+            // Herdr reports a worktree only for a checkout: a folder outside the fake repo has none.
+            if (cwd !== live.cwd && !cwd.startsWith(`${live.cwd}/`)) delete workspace.worktree;
             if (params.focus === true) focusWorkspace(live, workspace.workspace_id);
             return { workspace: workspaceView(live, workspace) };
         },
