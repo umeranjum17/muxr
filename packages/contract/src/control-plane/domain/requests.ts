@@ -840,8 +840,11 @@ export interface RequestMap extends PeerRequestMap {
      * the tab is the returned session.
      */
     'plans.add': { params: { provider: string; accountId?: string }; result: { accountId: string; sessionId: string } };
-    /** One account as its tool reports it now, polled while the person signs in. Once signed in, its sign-in tab closes. */
-    'plans.status': { params: { accountId: string }; result: { account: PlanAccount } };
+    /**
+     * One account as its tool reports it now, polled while the person signs in. Once signed in, its sign-in tab closes.
+     * `failure` says why a tracked sign-in ended without signing in (the login failed, or its tab was closed).
+     */
+    'plans.status': { params: { accountId: string }; result: { account: PlanAccount; failure?: string } };
     /** Stop waiting for a sign-in: its tracked tab closes, and an account created for that tab is removed. */
     'plans.cancel': { params: { accountId: string }; result: { removed: boolean } };
     /** The account a running agent was started or moved on; absent means the computer's own sign-in. */

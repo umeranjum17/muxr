@@ -65,7 +65,19 @@ export function launchAccount(entry: PlanProviderAccounts | undefined, stored: s
     return choice === '' ? undefined : choice;
 }
 
-export function choiceLine(entry: PlanProviderAccounts, choice: string): { value: string; detail?: string } {
+/** The person's pick when it can't be launched on now, because it is signed out. */
+export function signedOutPick(entry: PlanProviderAccounts | undefined, stored: string | undefined): PlanAccount | undefined {
+    return stored === undefined ? undefined : entry?.accounts.find((account) => account.id === stored && !account.signedIn);
+}
+
+/** The dock's line. A signed-out pick is named, never swapped for another account in silence. */
+export function choiceLine(entry: PlanProviderAccounts, stored: string | undefined, autoOn = true): { value: string; detail?: string } {
+    const choice = effectiveChoice(entry, stored, autoOn);
+    const pick = signedOutPick(entry, stored);
+    if (pick !== undefined) {
+        const instead = chosenAccount(entry, choice);
+        return { value: `${pick.name} is signed out`, detail: instead === undefined ? 'Sign in to use it' : `Sign in, or use ${instead.name}` };
+    }
     const account = chosenAccount(entry, choice);
     let value = account?.name ?? 'Auto';
     if (choice === AUTO && account !== undefined) value = `Auto · ${account.name}`;
@@ -77,6 +89,46 @@ export function bestMoveTarget(accounts: readonly PlanAccount[], currentId: stri
     return accounts
         .filter((account) => account.signedIn && account.id !== currentId)
         .sort((a, b) => (b.roomLeftPercent ?? -1) - (a.roomLeftPercent ?? -1))[0];
+}
+
+/** What Start asks before launching on `choice`: the pick is signed out, or
+ *  the account it lands on has no room left. `instead` is the choice to
+ *  launch on if the person takes the offer; `anyway` starts on `choice`. */
+export interface LaunchQuestion {
+    title: string;
+    message: string;
+    instead?: { label: string; choice: string };
+    anyway?: string;
+}
+
+export function launchQuestion(entry: PlanProviderAccounts, stored: string | undefined, choice: string): LaunchQuestion | undefined {
+    const pick = signedOutPick(entry, stored);
+    const account = chosenAccount(entry, choice);
+    if (pick !== undefined) {
+        return {
+            title: `${pick.name} is signed out`,
+            message: account === undefined
+                ? `Sign in to ${pick.name} from the Account row first.`
+                : `This agent would start on ${account.name} instead. To use ${pick.name}, cancel and sign in from the Account row.`,
+            ...(account === undefined ? {} : { instead: { label: `Use ${account.name}`, choice } }),
+        };
+    }
+    if (account?.roomLeftPercent !== 0) return undefined;
+    const roomier = bestMoveTarget(entry.accounts, account.id);
+    if (roomier === undefined || roomier.roomLeftPercent === 0) {
+        const name = providerName(entry.provider);
+        return {
+            title: `All ${name} accounts are out of room`,
+            message: `${entry.auto.reason.includes('out of room') ? entry.auto.reason : `No ${name} account has room left.`} An agent started now can't answer until then.`,
+            anyway: 'Start anyway',
+        };
+    }
+    return {
+        title: `${account.name} is out of room`,
+        message: `An agent started on ${account.name} can't answer until it refills.${roomier.roomLeftPercent === undefined ? '' : ` ${roomier.name} has ${roomier.roomLeftPercent}% left.`}`,
+        instead: { label: `Use ${roomier.name}`, choice: roomier.id },
+        anyway: 'Start anyway',
+    };
 }
 
 /** Which account a running agent is on: the one muxr put it on, else the
