@@ -29,7 +29,11 @@ import { execFile } from 'node:child_process';
 const adbPath = valueOf('--adb') || process.env.ADB || 'adb';
 const serial = valueOf('--serial');
 const text = valueOf('--text');
-const expect = valueOf('--expect') ?? text;
+// Multi-line mode compares against the accumulated text (separators removed);
+// without `\n` in the typed text the expectation is the raw value as before.
+const multiline = text?.includes('\n') ?? false;
+const accumulated = (value) => value.replace(/\r?\n/g, '');
+const expect = multiline ? accumulated(valueOf('--expect') ?? text) : valueOf('--expect') ?? text;
 if (!serial || text === undefined) {
     process.stderr.write('Usage: checkFocusedSecretTyping.mjs --serial <serial> --text <secret> [--expect <expected>] [--adb <path>]\n');
     process.exit(2);
@@ -42,12 +46,6 @@ if (!/^[A-Za-z0-9 \/+=\-.,_:@\n]*$/.test(text)) {
     process.stderr.write('FAIL: text has characters outside the input-safe charset [A-Za-z0-9 /+=.,_:@, space and newline]\n');
     process.exit(2);
 }
-
-// Multi-line mode: without `\n` in the typed text every line below is the
-// identity, so the single-line path compares and reports exactly as before.
-const multiline = text.includes('\n');
-const accumulated = (value) => value.replace(/\r?\n/g, '');
-const expected = multiline ? accumulated(expect) : expect;
 
 function valueOf(flag) {
     const index = process.argv.indexOf(flag);
@@ -114,8 +112,8 @@ for (let attempt = 0; attempt < 30; attempt++) {
     await shell('uiautomator', 'dump', dumpPath);
     const xml = await shell('cat', dumpPath);
     const focused = focusedTexts(xml).map((value) => (multiline ? accumulated(value) : value));
-    if (focused.includes(expected)) {
-        readback = expected;
+    if (focused.includes(expect)) {
+        readback = expect;
         break;
     }
     if (focused.length > 0) readback = focused[0];
@@ -125,14 +123,14 @@ if (readback === undefined) {
     process.stderr.write(`FAIL: no focused text field readable on ${serial} (uiautomator dump has no focused node)\n`);
     process.exit(1);
 }
-if (readback !== expected) {
-    const first = [...expected].findIndex((char, index) => char !== readback[index]);
-    const at = first === -1 ? Math.min(expected.length, readback.length) : first;
+if (readback !== expect) {
+    const first = [...expect].findIndex((char, index) => char !== readback[index]);
+    const at = first === -1 ? Math.min(expect.length, readback.length) : first;
     const show = (value) => (at < value.length ? `'${value[at]}' (U+${value.codePointAt(at).toString(16).toUpperCase()})` : '<end of string>');
     process.stderr.write(
-        `FAIL: readback differs at index ${at}: expected ${show(expected)} got ${show(readback)} ` +
-        `(expected ${expected.length} chars, read ${readback.length})\n`,
+        `FAIL: readback differs at index ${at}: expected ${show(expect)} got ${show(readback)} ` +
+        `(expected ${expect.length} chars, read ${readback.length})\n`,
     );
     process.exit(1);
 }
-process.stdout.write(`PASS: typed and verified ${expected.length} chars on ${serial}\n`);
+process.stdout.write(`PASS: typed and verified ${expect.length} chars on ${serial}\n`);
