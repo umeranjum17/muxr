@@ -1,7 +1,8 @@
 /** muxr owns sign-in tabs and pane/account bookkeeping. Each sign-in attempt owns a kit instance. */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import type { PlanAccount } from '@trymuxr/contract';
+import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
 import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRecord, type PlanPreparation } from './planAccounts.js';
 import { loadPlanAccounts, PLAN_LABELS, plansDir } from './planStore.js';
 
@@ -9,6 +10,45 @@ import { loadPlanAccounts, PLAN_LABELS, plansDir } from './planStore.js';
 const attempts = new Map<string, { kit: ReturnType<typeof planAccounts>; adoptedId?: string }>();
 const signInTabs = new Map<string, string>();
 const signInOperations = new Map<string, Promise<unknown>>();
+/** Each attempt's private script; it records how the login ended, which the kit's own marker only says on success. */
+const signInScripts = new Map<string, string>();
+
+const quote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
+
+/**
+ * The tab runs one private script, so all it shows is the provider's own
+ * sign-in: the script clears the screen, runs the kit's command (which sets
+ * the account's folder itself), and records a login that failed.
+ */
+function signInScript(env: NodeJS.ProcessEnv, accountId: string, shell: string): Record<string, string> {
+    forgetSignInScript(accountId);
+    mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
+    const script = join(plansDir(env), `signin-${randomBytes(12).toString('hex')}.sh`);
+    writeFileSync(script, [
+        "printf '\\033[H\\033[2J\\033[3J'",
+        `if ${shell}; then :; else (umask 077; printf failed > ${quote(`${script}.result`)}); fi`,
+        '',
+    ].join('\n'), { mode: 0o700 });
+    signInScripts.set(accountId, script);
+    return { MUXR_PLAN_SIGNIN: script };
+}
+
+function forgetSignInScript(accountId: string): void {
+    const script = signInScripts.get(accountId);
+    if (script === undefined) return;
+    rmSync(script, { force: true });
+    rmSync(`${script}.result`, { force: true });
+    signInScripts.delete(accountId);
+}
+
+function signInFailed(accountId: string): boolean {
+    const script = signInScripts.get(accountId);
+    try {
+        return script !== undefined && readFileSync(`${script}.result`, 'utf8').trim() === 'failed';
+    } catch {
+        return false;
+    }
+}
 
 export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string, accountId?: string, prepare?: PlanPreparation) {
     if (provider !== 'claude' && provider !== 'codex') {
@@ -45,8 +85,9 @@ export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string
         attempts.set(id, { kit });
         if (accountId !== undefined && accountId !== id) attempts.set(accountId, { kit, adoptedId: id });
         return { record: resolvePlanRecord(env, id), launch: {
-            kind: 'shell', label: `Sign in · ${PLAN_LABELS[provider]}`, signIn: signIn.shell,
-            planEnv: kit.launchEnv(id).set,
+            // A leading space keeps it out of the shell's history.
+            kind: 'shell', label: `Sign in · ${PLAN_LABELS[provider]}`, signIn: ' sh "$MUXR_PLAN_SIGNIN"',
+            planEnv: signInScript(env, id, signIn.shell),
         } };
     } catch (error) { return planError(error); }
 }
@@ -67,7 +108,9 @@ export function rememberSignInTab(accountId: string, paneId: string): void {
 export function signInTab(accountId: string) { return signInTabs.get(accountId); }
 
 export function forgetSignInTab(accountId: string, paneId: string): void {
-    if (signInTabs.get(accountId) === paneId) signInTabs.delete(accountId);
+    if (signInTabs.get(accountId) !== paneId) return;
+    signInTabs.delete(accountId);
+    forgetSignInScript(accountId);
 }
 
 export function finishPlanSignIn(accountId: string): void {
@@ -84,11 +127,17 @@ export async function cancelPlanSignIn(env: NodeJS.ProcessEnv, accountId: string
     finally { attempts.delete(accountId); }
 }
 
-export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: string): Promise<{ account: PlanAccount }> {
+/** The account as its tool reports it now. `failure` says why a tracked sign-in ended without signing in. */
+export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: string): Promise<{ account: PlanAccount; failure?: string }> {
     const record = resolvePlanRecord(env, accountId);
-    if (record.found) return { account: await defaultAccount(record, env, {}) };
-    try { return { account: fromCliAccount(await (attempts.get(accountId)?.kit ?? planAccounts(env)).status(accountId)) }; }
-    catch (error) { return planError(error); }
+    let account: PlanAccount;
+    if (record.found) account = await defaultAccount(record, env, {});
+    else {
+        try { account = fromCliAccount(await (attempts.get(accountId)?.kit ?? planAccounts(env)).status(accountId)); }
+        catch (error) { return planError(error); }
+    }
+    return { account, ...(!account.signedIn && signInFailed(accountId)
+        ? { failure: `${PLAN_LABELS[record.provider]} sign-in ended without signing in. Its tab shows why.` } : {}) };
 }
 
 function panesPath(env: NodeJS.ProcessEnv): string {
@@ -111,6 +160,39 @@ export function rememberPlanPane(env: NodeJS.ProcessEnv, paneId: string, account
     const kept = [...loadPanes(env).filter(([id]) => id !== paneId && livePaneIds.includes(id)), [paneId, accountId] as [string, string]];
     mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
     writeFileSync(panesPath(env), JSON.stringify(kept), { mode: 0o600 });
+}
+
+/**
+ * Names the account each agent in the tree runs on, from the accounts the
+ * host last listed: only for a provider with a choice of account (the list
+ * holds no other), and never on a sign-in tab. Reading names from that list
+ * keeps the tree's own cadence free of any provider tool call.
+ */
+export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>(env: NodeJS.ProcessEnv, tree: T, listed: readonly PlanProviderAccounts[] | undefined): T {
+    if (listed === undefined || listed.length === 0) return tree;
+    const recorded = new Map(loadPanes(env));
+    const signingIn = new Set(signInTabs.values());
+    const accountOn = (pane: HerdrTreePane): string | undefined => {
+        const kind = pane.agentKind;
+        const provider = kind === 'claude' || kind === 'pi' ? 'claude' : kind === 'codex' ? 'codex' : undefined;
+        const entry = listed.find((candidate) => candidate.provider === provider);
+        if (entry === undefined || signingIn.has(pane.paneId)) return undefined;
+        const id = recorded.get(pane.paneId);
+        return (id === undefined ? entry.accounts.find((account) => account.foundOnComputer) : entry.accounts.find((account) => account.id === id))?.name;
+    };
+    return {
+        ...tree,
+        workspaces: tree.workspaces.map((workspace) => ({
+            ...workspace,
+            tabs: workspace.tabs.map((tab) => ({
+                ...tab,
+                panes: tab.panes.map((pane) => {
+                    const planAccount = accountOn(pane);
+                    return planAccount === undefined ? pane : { ...pane, planAccount };
+                }),
+            })),
+        })),
+    };
 }
 
 /** The account an agent's pane runs on, when muxr started or moved it onto

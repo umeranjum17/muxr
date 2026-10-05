@@ -470,7 +470,7 @@ it('keeps managed sign-ins isolated through completion, re-sign-in cancellation 
     expect(prepared).toEqual([first.record.folder, second.record.folder]);
     expect(first.record.folder).not.toBe(second.record.folder);
     expect((await planAccountStatus(env, first.record.id)).account.signedIn).toBe(false);
-    execFileSync('/bin/sh', ['-c', first.launch.signIn], { env });
+    execFileSync('/bin/sh', ['-c', first.launch.signIn], { env: { ...env, ...first.launch.planEnv } });
     expect((await planAccountStatus(env, first.record.id)).account.signedIn).toBe(true);
     expect((await planAccountStatus(env, second.record.id)).account.signedIn).toBe(false);
     finishPlanSignIn(first.record.id);
@@ -497,7 +497,7 @@ it('adopts a found default sign-in into its own managed folder', async () => {
     const prepared = await preparePlanSignIn(env, 'claude', 'found-claude', async () => {});
     expect(prepared.record.found).toBe(false);
     expect(prepared.record.folder).not.toBe(own);
-    execFileSync('/bin/sh', ['-c', prepared.launch.signIn], { env });
+    execFileSync('/bin/sh', ['-c', prepared.launch.signIn], { env: { ...env, ...prepared.launch.planEnv } });
     expect((await planAccountStatus(env, prepared.record.id)).account.signedIn).toBe(true);
     finishPlanSignIn(prepared.record.id);
     expect(readFileSync(canary, 'utf8')).toBe('default-fixture-untouched');
