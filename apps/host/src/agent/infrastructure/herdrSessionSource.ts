@@ -3082,8 +3082,9 @@ export async function createHerdrSessionSource(
             if (conversation === undefined || isMuxrLaunchSession(conversation)) {
                 throw Object.assign(new Error('The agent has no conversation to move yet. Wait for it to start, then try again.'), { code: 'plan-move-too-early' });
             }
+            const kind = record.agent?.agent ?? moveOptions.provider;
             let args: string[];
-            try { args = moveOptions.resumeArgs(moveOptions.provider, conversation); }
+            try { args = moveOptions.resumeArgs(kind, conversation); }
             catch {
                 throw Object.assign(new Error('This conversation cannot move to that account.'), { code: 'plan-move-unsupported' });
             }

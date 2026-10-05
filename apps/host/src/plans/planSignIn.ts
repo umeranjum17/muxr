@@ -6,7 +6,7 @@ import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRec
 import { loadPlanAccounts, PLAN_LABELS, plansDir } from './planStore.js';
 
 // A completed attempt releases its kit: a later re-sign-in must not inherit add's cancel ownership.
-const attempts = new Map<string, { kit: ReturnType<typeof planAccounts>; created: boolean }>();
+const attempts = new Map<string, { kit: ReturnType<typeof planAccounts>; created: boolean; adoptedId?: string }>();
 const signInTabs = new Map<string, { paneId: string; created: boolean }>();
 const signInOperations = new Map<string, Promise<unknown>>();
 
@@ -31,13 +31,20 @@ export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string
             if (record.found) {
                 // A found default row is read-only here: the kit adopts it into a managed folder it
                 // creates, and never reads or copies the discovered one.
-                const adopted = await kit.adopt(id);
-                id = adopted.account.id;
-                signIn = adopted.signIn;
+                const liveAdopted = prior?.adoptedId !== undefined && attempts.has(prior.adoptedId) ? prior.adoptedId : undefined;
+                if (liveAdopted !== undefined) {
+                    id = liveAdopted;
+                    signIn = kit.signInAgain(id);
+                } else {
+                    const adopted = await kit.adopt(id);
+                    id = adopted.account.id;
+                    signIn = adopted.signIn;
+                }
             } else signIn = kit.signInAgain(id);
         }
         const created = accountId === undefined || prior?.created === true;
         attempts.set(id, { kit, created });
+        if (accountId !== undefined && accountId !== id) attempts.set(accountId, { kit, created, adoptedId: id });
         return { record: resolvePlanRecord(env, id), created, launch: {
             kind: 'shell', label: `Sign in · ${PLAN_LABELS[provider]}`, signIn: signIn.shell,
             planEnv: kit.launchEnv(id).set,
@@ -64,7 +71,13 @@ export function forgetSignInTab(accountId: string, paneId: string): void {
     if (signInTabs.get(accountId)?.paneId === paneId) signInTabs.delete(accountId);
 }
 
-export function finishPlanSignIn(accountId: string): void { attempts.delete(accountId); }
+export function finishPlanSignIn(accountId: string): void {
+    if (attempts.get(accountId)?.adoptedId !== undefined) return;
+    attempts.delete(accountId);
+    for (const [key, entry] of attempts) {
+        if (entry.adoptedId === accountId) attempts.delete(key);
+    }
+}
 
 export async function cancelPlanSignIn(env: NodeJS.ProcessEnv, accountId: string): Promise<{ removed: boolean }> {
     try { return await (attempts.get(accountId)?.kit ?? planAccounts(env)).cancel(accountId); }
