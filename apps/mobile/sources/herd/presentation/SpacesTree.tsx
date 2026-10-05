@@ -829,14 +829,6 @@ const WorkspaceCard = React.memo(({
                     <Text numberOfLines={1} style={[styles.cardTitle, compact && styles.cardTitleCompact]}>
                         {suffix === undefined ? name : <>{baseName}<Text style={styles.nameSuffix}>{suffix}</Text></>}
                     </Text>
-                    {pinned && (
-                        <Ionicons
-                            name="pin"
-                            size={13}
-                            color={theme.colors.textSecondary}
-                            {...railHidden}
-                        />
-                    )}
                     {branch !== undefined && (
                         <View style={styles.branchPill}>
                             <Text numberOfLines={1} style={styles.branchPillText}>{branch}</Text>
