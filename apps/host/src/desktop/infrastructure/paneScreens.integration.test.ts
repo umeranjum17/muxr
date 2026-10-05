@@ -55,7 +55,7 @@ describe('a private screen per agent pane', () => {
         const keeper = stub(bin, 'keeper', KEEPER_STUB);
         const noKeeper = stub(bin, 'no-keeper', NO_KEEPER_STUB);
         const screens = new PaneScreens({
-            env: { ...process.env, PATH: bin, MUXR_DESKLINK_ENGINE: keeper, MUXR_TEST_SOCKET_DIR: sockets },
+            env: { ...process.env, PATH: bin, DESKLINK_ENGINE: keeper, MUXR_TEST_SOCKET_DIR: sockets },
             socketDirectory: sockets,
             stateDirectory: join(root, 'state'),
             onDiagnostic: () => {},
@@ -112,7 +112,7 @@ describe('a private screen per agent pane', () => {
             // one status line, said once however many panes ask.
             const diagnostics: string[] = [];
             const withoutKeeper = new PaneScreens({
-                env: { ...process.env, PATH: bin, MUXR_DESKLINK_ENGINE: noKeeper, MUXR_TEST_SOCKET_DIR: sockets },
+                env: { ...process.env, PATH: bin, DESKLINK_ENGINE: noKeeper, MUXR_TEST_SOCKET_DIR: sockets },
                 socketDirectory: sockets,
                 stateDirectory: join(root, 'state2'),
                 onDiagnostic: (line) => diagnostics.push(line),
@@ -126,6 +126,69 @@ describe('a private screen per agent pane', () => {
             }
         } finally {
             screens.stop();
+            rmSync(root, { recursive: true, force: true });
+        }
+    }, 30_000);
+
+    it('reads the published DESKLINK_ENGINE name and fails loudly on the retired MUXR_DESKLINK_ENGINE name', async () => {
+        const root = mkdtempSync(join(tmpdir(), 'muxr-screens-engine-env-'));
+        const bin = join(root, 'bin');
+        const sockets = join(root, 'sockets');
+        mkdirSync(bin);
+        mkdirSync(sockets);
+        stub(bin, 'Xvfb', XVFB_STUB);
+        const keeper = stub(bin, 'keeper', KEEPER_STUB);
+        try {
+            // The published name configures the engine: a screen allocates.
+            const screens = new PaneScreens({
+                env: { ...process.env, PATH: bin, DESKLINK_ENGINE: keeper, MUXR_DESKLINK_ENGINE: undefined, MUXR_TEST_SOCKET_DIR: sockets },
+                socketDirectory: sockets,
+                stateDirectory: join(root, 'state'),
+                onDiagnostic: () => {},
+            });
+            try {
+                expect((await screens.allocate())?.display).toMatch(/^:\d+$/);
+            } finally {
+                screens.stop();
+            }
+
+            // Both names set: the published name wins, and the retired one is
+            // still reported instead of silently ignored.
+            const bothDiagnostics: string[] = [];
+            const both = new PaneScreens({
+                env: { ...process.env, PATH: bin, DESKLINK_ENGINE: keeper, MUXR_DESKLINK_ENGINE: keeper, MUXR_TEST_SOCKET_DIR: sockets },
+                socketDirectory: sockets,
+                stateDirectory: join(root, 'state-both'),
+                onDiagnostic: (line) => bothDiagnostics.push(line),
+            });
+            try {
+                expect((await both.allocate())?.display).toMatch(/^:\d+$/);
+                expect(bothDiagnostics).toEqual([
+                    'MUXR_DESKLINK_ENGINE is no longer read; set DESKLINK_ENGINE to the desktop engine binary instead.',
+                ]);
+            } finally {
+                both.stop();
+            }
+
+            // Only the retired name: no screen from the stale path, and one
+            // actionable diagnostic naming the published name — never a
+            // silent fallback.
+            const diagnostics: string[] = [];
+            const legacy = new PaneScreens({
+                env: { ...process.env, PATH: bin, DESKLINK_ENGINE: undefined, MUXR_DESKLINK_ENGINE: keeper, MUXR_TEST_SOCKET_DIR: sockets },
+                socketDirectory: sockets,
+                stateDirectory: join(root, 'state-legacy'),
+                onDiagnostic: (line) => diagnostics.push(line),
+            });
+            try {
+                expect(await legacy.allocate()).toBeUndefined();
+                expect(diagnostics).toEqual([
+                    'MUXR_DESKLINK_ENGINE is no longer read; set DESKLINK_ENGINE to the desktop engine binary instead.',
+                ]);
+            } finally {
+                legacy.stop();
+            }
+        } finally {
             rmSync(root, { recursive: true, force: true });
         }
     }, 30_000);

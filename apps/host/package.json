@@ -13,7 +13,7 @@
         "@byokit/realtime": "0.2.1",
         "@byokit/relay": "0.5.0",
         "@byokit/usage": "0.6.0",
-        "@desklink/host": "0.3.0",
+        "@desklink/host": "0.5.0",
         "@trymuxr/contract": "0.1.0",
         "@trymuxr/crypto": "0.1.0",
         "ws": "^8.18.0"
