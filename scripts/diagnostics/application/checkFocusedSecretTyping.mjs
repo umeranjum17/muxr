@@ -128,11 +128,20 @@ function centre(tag) {
 }
 
 async function keyboardShown() {
-    return /\bmInputShown=true\b/.test(await shell('dumpsys', 'input_method'));
+    // Filtered on the device: the full dump overruns execFile's output buffer.
+    return /\bmInputShown=true\b/.test(await shell('dumpsys input_method | grep mInputShown || true'));
 }
 
 // Hide the keyboard (an IME consumes BACK while shown, so this never navigates),
-// then scroll the form down to its end and back up until the field appears.
+// then scroll the form down to its end and back up until the field is on
+// screen. uiautomator also lists nodes scrolled out of view or covered, with
+// bounds clipped to nothing (bottom above top), so a field only counts once
+// enough of it is visible to take a tap.
+const tappable = (tag) => {
+    const [x1, y1, x2, y2] = bounds(tag);
+    return x2 > x1 && y2 - y1 >= 40;
+};
+
 async function findField() {
     if (await keyboardShown()) {
         await shell('input', 'keyevent', 'KEYCODE_BACK');
@@ -140,10 +149,13 @@ async function findField() {
     }
     let direction = 1;
     let previous;
+    let offscreen = false;
     for (let swipes = 0; swipes <= 24; swipes++) {
         const tags = nodeTags(await dump());
-        const tag = tags.find(hasIdentity);
+        const matches = tags.filter(hasIdentity);
+        const tag = matches.find(tappable);
         if (tag) return tag;
+        offscreen ||= matches.length > 0;
         // The form has stopped moving once every node sits where it sat
         // before the last swipe: that end is reached, so turn around.
         const layout = tags.map((candidate) => attr(candidate, 'bounds')).join();
@@ -158,14 +170,16 @@ async function findField() {
             .filter((candidate) => attr(candidate, 'scrollable') === 'true')
             .sort((a, b) => height(b) - height(a))[0];
         if (!scroller) {
-            fail(`field '${field}' not found on ${serial}: no node has that resource-id or content-desc and the screen has no scrollable form to search`);
+            fail(`field '${field}' not found on ${serial}: ${offscreen ? 'it is in the layout but not tappable' : 'no node has that resource-id or content-desc'} and the screen has no scrollable form to search; nothing was tapped`);
         }
         const [x, y] = centre(scroller);
         const reach = Math.round(height(scroller) / 4);
         await shell('input', 'swipe', `${x}`, `${y + direction * reach}`, `${x}`, `${y - direction * reach}`, '400');
         await sleep(500);
     }
-    fail(`field '${field}' not found on ${serial}: no node has that resource-id or content-desc anywhere in the scrolled form; nothing was tapped`);
+    fail(offscreen
+        ? `field '${field}' not found on ${serial}: it is in the layout but never scrolled into a tappable view; nothing was tapped`
+        : `field '${field}' not found on ${serial}: no node has that resource-id or content-desc anywhere in the scrolled form; nothing was tapped`);
 }
 
 if (field !== undefined) {
