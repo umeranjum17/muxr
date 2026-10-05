@@ -6,7 +6,7 @@ import { planAccounts, planError, defaultAccount, fromCliAccount, resolvePlanRec
 import { loadPlanAccounts, PLAN_LABELS, plansDir } from './planStore.js';
 
 // A completed attempt releases its kit: a later re-sign-in must not inherit add's cancel ownership.
-const attempts = new Map<string, { kit: ReturnType<typeof planAccounts>; created: boolean; adoptedId?: string }>();
+const attempts = new Map<string, { kit: ReturnType<typeof planAccounts>; adoptedId?: string }>();
 const signInTabs = new Map<string, string>();
 const signInOperations = new Map<string, Promise<unknown>>();
 
@@ -42,10 +42,9 @@ export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string
                 }
             } else signIn = kit.signInAgain(id);
         }
-        const created = accountId === undefined || prior?.created === true;
-        attempts.set(id, { kit, created });
-        if (accountId !== undefined && accountId !== id) attempts.set(accountId, { kit, created, adoptedId: id });
-        return { record: resolvePlanRecord(env, id), created, launch: {
+        attempts.set(id, { kit });
+        if (accountId !== undefined && accountId !== id) attempts.set(accountId, { kit, adoptedId: id });
+        return { record: resolvePlanRecord(env, id), launch: {
             kind: 'shell', label: `Sign in · ${PLAN_LABELS[provider]}`, signIn: signIn.shell,
             planEnv: kit.launchEnv(id).set,
         } };
