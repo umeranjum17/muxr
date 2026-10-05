@@ -18,11 +18,22 @@ import { execFile } from 'node:child_process';
 //     [--expect <expected>] [--adb <path>]
 // `--expect` compares the readback against a different string instead, which
 // is how a corrupted readback is proven to fail. Exit 0 on match, 1 otherwise.
+//
+// A multi-line secret (`--text` containing `\n`, e.g. an SSH public key) is
+// typed one line at a time with an Enter keypress between lines, and the
+// readback is compared against the accumulated text: the lines concatenated
+// with the separators removed, so the Enter keypresses never count as content
+// and leave no residue in the comparison. Without `\n` the helper matches the
+// whole field exactly as before.
 
 const adbPath = valueOf('--adb') || process.env.ADB || 'adb';
 const serial = valueOf('--serial');
 const text = valueOf('--text');
-const expect = valueOf('--expect') ?? text;
+// Multi-line mode compares against the accumulated text (separators removed);
+// without `\n` in the typed text the expectation is the raw value as before.
+const multiline = text?.includes('\n') ?? false;
+const accumulated = (value) => value.replace(/\r?\n/g, '');
+const expect = multiline ? accumulated(valueOf('--expect') ?? text) : valueOf('--expect') ?? text;
 if (!serial || text === undefined) {
     process.stderr.write('Usage: checkFocusedSecretTyping.mjs --serial <serial> --text <secret> [--expect <expected>] [--adb <path>]\n');
     process.exit(2);
@@ -31,8 +42,8 @@ if (text.includes('%') || (valueOf('--expect') ?? '').includes('%')) {
     process.stderr.write('FAIL: text contains % which `adb shell input text` reserves (%s means space)\n');
     process.exit(2);
 }
-if (!/^[A-Za-z0-9 \/+=\-.,_:@]*$/.test(text)) {
-    process.stderr.write('FAIL: text has characters outside the input-safe charset [A-Za-z0-9 /+=.,_:@ and space]\n');
+if (!/^[A-Za-z0-9 \/+=\-.,_:@\n]*$/.test(text)) {
+    process.stderr.write('FAIL: text has characters outside the input-safe charset [A-Za-z0-9 /+=.,_:@, space and newline]\n');
     process.exit(2);
 }
 
@@ -57,8 +68,12 @@ function encodeChar(char) {
     return char;
 }
 
+// uiautomator writes a newline in a field as `&#10;`, so numeric references
+// are decoded too; left raw, each line break reads back as five extra chars.
 function unescapeXml(value) {
-    return value.replace(/&(amp|lt|gt|quot|apos);/g, (_, name) => ({ amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name]));
+    return value.replace(/&(?:(amp|lt|gt|quot|apos)|#(\d+)|#x([0-9a-fA-F]+));/g, (_, name, dec, hex) => (
+        name ? { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }[name] : String.fromCodePoint(dec ? Number(dec) : parseInt(hex, 16))
+    ));
 }
 
 function focusedTexts(xml) {
@@ -79,16 +94,28 @@ if (focusedTexts(await shell('cat', dumpPath)).length === 0) {
 
 // Strictly sequential: one awaited adb call per character. Batching or
 // parallel calls reintroduce the drop/reorder behaviour this helper exists
-// to avoid.
-for (const char of text) {
-    await shell('input', 'text', encodeChar(char));
+// to avoid. Between the lines of a multi-line secret an Enter keypress
+// separates the lines; it carries no content and is stripped from both sides
+// of the comparison below.
+if (!multiline) {
+    for (const char of text) {
+        await shell('input', 'text', encodeChar(char));
+    }
+} else {
+    const lines = text.split('\n');
+    for (let index = 0; index < lines.length; index++) {
+        for (const char of lines[index]) {
+            await shell('input', 'text', encodeChar(char));
+        }
+        if (index < lines.length - 1) await shell('input', 'keyevent', '66');
+    }
 }
 
 let readback;
 for (let attempt = 0; attempt < 30; attempt++) {
     await shell('uiautomator', 'dump', dumpPath);
     const xml = await shell('cat', dumpPath);
-    const focused = focusedTexts(xml);
+    const focused = focusedTexts(xml).map((value) => (multiline ? accumulated(value) : value));
     if (focused.includes(expect)) {
         readback = expect;
         break;

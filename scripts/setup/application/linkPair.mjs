@@ -167,7 +167,9 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl) {
                 }
             } catch (error) { failure = error instanceof Error ? error.message : String(error); }
             finally {
-                endpoint.stopPairing();
+                // Revoke unverified devices before the pairing closes: a phone
+                // reads a closed pairing that still accepts its key as kept.
+                session.handle = async () => { throw new Error('pairing: closing'); };
                 for (const claim of claims.values()) {
                     clearTimeout(claim.timer);
                     if (claim.answered && !claim.verified) {
@@ -175,6 +177,7 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl) {
                         await endpoint.rejectPairedDevice(claim.grantId);
                     }
                 }
+                endpoint.stopPairing();
                 busy = false;
                 if (controller.signal.aborted) failure = 'pairing cancelled';
                 if (failure !== undefined) send({ error: failure });

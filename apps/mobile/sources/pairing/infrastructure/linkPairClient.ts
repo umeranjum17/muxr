@@ -8,11 +8,11 @@ import {
     keyPair as linkKeyPair,
     keyPairFrom,
     pairWithOffer,
-    pendingGrant,
     parseOffer,
     unb64url,
     type DeviceGrant as LinkDeviceGrant,
 } from '@byokit/link';
+import { PairingNeedsNewCode } from '../domain/pairingString';
 
 /**
  * The byokit pairing protocol, behind one port: application code asks this
@@ -26,6 +26,8 @@ export interface LinkPairPending {
     name: string;
     /** base64url; persisted by the caller before the first connection. */
     secretKey: string;
+    /** The machine details, persisted once this key proved itself and before `pair.verified` is sent. */
+    answer?: LinkPairAnswer;
 }
 
 export interface LinkPairAnswer {
@@ -44,11 +46,17 @@ export function newPairingSecretKey(): string {
     return b64url(linkKeyPair().secretKey);
 }
 
-export function pairingFailure(cause: unknown): { message: string; discard: boolean } {
-    const message = cause instanceof LinkError && cause.code in LINK_WORDS
+export function pairingFailure(cause: unknown): string {
+    return cause instanceof LinkError && cause.code in LINK_WORDS
         ? LINK_WORDS[cause.code] : cause instanceof Error ? cause.message : String(cause);
-    return { message, discard: message === 'Your computer said no to this device.' || message.includes('run out') };
 }
+
+const NOT_FINISHED = "This pairing didn't finish on your computer. Run `muxr pair` there and scan the new code.";
+/** The computer revoked this key mid-request: it rolled the pairing back. */
+const rolledBack = (cause: unknown): boolean => cause instanceof LinkError && cause.code === 'removed';
+const lost = (cause: unknown): boolean => cause instanceof LinkError && (cause.code === 'unreachable' || cause.code === 'timeout');
+/** The computer answers this once its pairing has closed, whether it kept this device or rolled it back. */
+const pairingClosed = (cause: unknown): boolean => cause instanceof LinkError && (cause.code === 'not-allowed' || cause.code === 'view-only');
 
 export function provenLinkGrant(answer: LinkPairAnswer, key: { publicKey: Uint8Array; secretKey: Uint8Array }): StoredHostedGrant {
     const deviceKey = {
@@ -96,7 +104,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * something other than the expected host answered, or neither inside
  * `timeoutMs`. The caller owns `link.stop()` in every case.
  */
-function openLink(grant: LinkDeviceGrant, timeoutMs: number, route?: (url: string) => string): Promise<{ link: DeviceLink; online: boolean; refused: boolean }> {
+function openLink(grant: LinkDeviceGrant, timeoutMs: number, route?: (url: string) => string): Promise<{ link: DeviceLink; online: boolean; refused: boolean; removed: boolean }> {
     return new Promise((resolve) => {
         let settled = false;
         const link = new DeviceLink(grant, {
@@ -104,14 +112,14 @@ function openLink(grant: LinkDeviceGrant, timeoutMs: number, route?: (url: strin
             ...(route === undefined ? {} : { resolve: route }),
             onStatus: (status) => {
                 if (settled) return;
-                if (status === 'online') { settled = true; resolve({ link, online: true, refused: false }); }
-                else if (status === 'removed' || status === 'refused') { settled = true; resolve({ link, online: false, refused: status === 'refused' }); }
+                if (status === 'online') { settled = true; resolve({ link, online: true, refused: false, removed: false }); }
+                else if (status === 'removed' || status === 'refused') { settled = true; resolve({ link, online: false, refused: status === 'refused', removed: status === 'removed' }); }
             },
         });
         setTimeout(() => {
             if (settled) return;
             settled = true;
-            resolve({ link, online: false, refused: false });
+            resolve({ link, online: false, refused: false, removed: false });
         }, timeoutMs);
     });
 }
@@ -122,7 +130,7 @@ function openLink(grant: LinkDeviceGrant, timeoutMs: number, route?: (url: strin
  * machine's real link. The proof only settles once the machine's link served
  * this key, so the caller learns the pairing truly reached the computer.
  */
-export async function claimLinkPairing(pending: LinkPairPending, options: { mode: 'claim' | 'resume'; onWords?: (words: string) => void; tunnelPort?: number; onProven?: (answer: LinkPairAnswer, key: ReturnType<typeof keyPairFrom>) => Promise<void> }): Promise<LinkPairAnswer & { key: ReturnType<typeof keyPairFrom> }> {
+export async function claimLinkPairing(pending: LinkPairPending, options: { mode: 'claim' | 'resume'; onWords?: (words: string) => void; tunnelPort?: number; onClaimed?: () => Promise<void>; onProven?: (answer: LinkPairAnswer) => Promise<void> }): Promise<LinkPairAnswer & { key: ReturnType<typeof keyPairFrom> }> {
     const resolve = options.tunnelPort === undefined ? undefined : (url: string) => {
         const target = new URL(url);
         target.protocol = 'ws:';
@@ -130,11 +138,11 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         return target.toString();
     };
     const key = keyPairFrom(unb64url(pending.secretKey));
-    const grant = pendingGrant(pending.scanned, { name: pending.name, key });
     let claim: LinkDeviceGrant;
     let wordsShown = false;
     try {
         if (options.mode === 'claim') {
+            if (parseOffer(pending.scanned, 0).expires < Date.now()) throw new LinkError('expired');
             // A fresh scan claims the single-use ticket; a resumed phone was
             // already approved, so it reconnects by its key alone — the ticket
             // burned on the first connection.
@@ -145,26 +153,43 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
                 ...(resolve === undefined ? {} : { resolve }),
             });
         } else {
-            claim = grant;
+            // By key alone, past the code's expiry and with no grace for a key
+            // the computer does not know: either it approved this key, or the
+            // pairing it belonged to is over.
+            const offer = parseOffer(pending.scanned, 0);
+            claim = { v: 1, secretKey: pending.secretKey, host: offer.host, hostName: offer.name, urls: offer.urls,
+                device: { id: '', name: pending.name, role: offer.role ?? 'view' } };
         }
     } catch (cause) {
-        if (wordsShown && cause instanceof LinkError && (cause.code === 'unreachable' || cause.code === 'timeout')) {
-            throw new Error('The pairing link closed after the two words, before approval completed. Run `muxr pair` again and approve the fresh code before it expires.');
+        // The computer only grants a device whose link is still open when it
+        // approves, and the code is single-use: neither can be retried.
+        if (wordsShown && lost(cause)) {
+            throw new PairingNeedsNewCode('The pairing link closed after the two words, before approval completed. Run `muxr pair` again and approve the fresh code before it expires.');
         }
+        if (cause instanceof LinkError && (cause.code === 'expired' || cause.code === 'declined')) throw new PairingNeedsNewCode(LINK_WORDS[cause.code]);
         throw cause instanceof Error ? cause : new Error('pairing failed');
     }
+    if (options.mode === 'claim') await options.onClaimed?.();
     // The pairing host lives in the `muxr pair` process; reconnect with the
     // grant it just approved to trade the machine details.
     const dial = await openLink(claim, 15_000, resolve);
     const pairing = dial.link;
     try {
-        if (!dial.online) throw new Error(dial.refused ? LINK_WORDS['wrong-host'] : 'Approved, but the phone could not reconnect to the pairing link for machine details. Run `muxr pair` again.');
+        // The computer forgot this key: it ended the pairing and rolled it back.
+        if (dial.removed) throw new PairingNeedsNewCode(NOT_FINISHED);
+        if (!dial.online) throw new Error(dial.refused ? LINK_WORDS['wrong-host'] : "Approved, but the phone couldn't reach your computer to finish. Check it's on, then try again.");
         let answer: LinkPairAnswer;
         try { answer = await pairing.request('pair.complete', { deviceName: pending.name }, { timeoutMs: 15_000 }) as unknown as LinkPairAnswer; }
         catch (cause) {
-            if (cause instanceof LinkError && (cause.code === 'unreachable' || cause.code === 'timeout')) {
-                throw new Error('Approved, but the pairing link closed before the computer sent its details. Run `muxr pair` again.');
+            // Closed, yet this key still connects: the computer revokes a
+            // rolled-back device as its pairing closes, so it kept this one
+            // only because the acknowledgement landed.
+            if (pairingClosed(cause)) {
+                if (pending.answer !== undefined) return { ...pending.answer, key };
+                throw new PairingNeedsNewCode(NOT_FINISHED);
             }
+            if (rolledBack(cause)) throw new PairingNeedsNewCode(NOT_FINISHED);
+            if (lost(cause)) throw new Error("Approved, but your computer didn't send its details in time. Try again.");
             throw cause;
         }
         if (typeof answer?.machineId !== 'string' || typeof answer?.machineBoxPublicKey !== 'string'
@@ -177,12 +202,13 @@ export async function claimLinkPairing(pending: LinkPairPending, options: { mode
         await verifyMachineLink(answer, key, pending.name, resolve);
         // Persist before acknowledging: if the reply is lost after the computer
         // commits, both sides still hold the same device rather than an orphan.
-        await options.onProven?.(answer, key);
+        await options.onProven?.(answer);
         try { await pairing.request('pair.verified', {}, { timeoutMs: 10_000 }); }
         catch (cause) {
-            if (cause instanceof LinkError && (cause.code === 'unreachable' || cause.code === 'timeout')) {
-                throw new Error('The phone reached the computer, but its pairing acknowledgement was lost. Reopen muxr to resume the saved link.');
-            }
+            if (rolledBack(cause)) throw new PairingNeedsNewCode(NOT_FINISHED);
+            // Nothing says whether the computer saved this device; a retry
+            // resumes by key and finds out instead of claiming a spent code.
+            if (lost(cause) || pairingClosed(cause)) throw new Error('Your computer may not have saved this pairing. Try again to finish — no new code needed.');
             throw cause;
         }
         return { ...answer, key };
@@ -220,7 +246,7 @@ async function verifyMachineLink(answer: LinkPairAnswer, key: ReturnType<typeof 
         // yet (the record was written moments ago); retry inside the proof
         // window before failing the pairing.
         if (Date.now() >= deadline) {
-            throw new Error('the phone could not reach the computer over the link. Make sure muxr is running there, then run `muxr pair` again.');
+            throw new Error("The phone couldn't reach your computer to finish. Make sure muxr is running there, then try again.");
         }
         await sleep(1_500);
     }
