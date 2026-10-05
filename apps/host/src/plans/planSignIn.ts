@@ -28,7 +28,13 @@ export async function preparePlanSignIn(env: NodeJS.ProcessEnv, provider: string
             if (record.provider !== provider) {
                 throw Object.assign(new Error('That account belongs to another provider.'), { code: 'plan-kind-mismatch' });
             }
-            signIn = kit.signInAgain(id);
+            if (record.found) {
+                // A found default row is read-only here: the kit adopts it into a managed folder it
+                // creates, and never reads or copies the discovered one.
+                const adopted = await kit.adopt(id);
+                id = adopted.account.id;
+                signIn = adopted.signIn;
+            } else signIn = kit.signInAgain(id);
         }
         const created = accountId === undefined || prior?.created === true;
         attempts.set(id, { kit, created });

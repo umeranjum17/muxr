@@ -305,3 +305,20 @@ it('keeps managed sign-ins isolated through completion, re-sign-in cancellation 
     expect(await removePlanAccount(env, first.record.id)).toEqual({ deletedFolder: true });
     expect(readFileSync(canary, 'utf8')).toBe('default-fixture-untouched');
 });
+
+/** Signing in again from the found default row adopts into a managed folder and leaves the default alone. */
+it('adopts a found default sign-in into its own managed folder', async () => {
+    env.ANTHROPIC_API_KEY = 'fixture-token-unlogged';
+    const own = foundClaude();
+    const canary = join(own, 'canary');
+    writeFileSync(canary, 'default-fixture-untouched');
+    savePlanAccounts(env, [{ id: 'found-claude', provider: 'claude', name: '', folder: own, found: true }]);
+    const prepared = await preparePlanSignIn(env, 'claude', 'found-claude', async () => {});
+    expect(prepared.record.found).toBe(false);
+    expect(prepared.record.folder).not.toBe(own);
+    execFileSync('/bin/sh', ['-c', prepared.launch.signIn], { env });
+    expect((await planAccountStatus(env, prepared.record.id)).account.signedIn).toBe(true);
+    finishPlanSignIn(prepared.record.id);
+    expect(readFileSync(canary, 'utf8')).toBe('default-fixture-untouched');
+    expect(JSON.stringify(prepared)).not.toContain('fixture-token-unlogged');
+});
