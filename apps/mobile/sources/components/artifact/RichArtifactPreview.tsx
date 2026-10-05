@@ -2,12 +2,29 @@ import * as React from 'react';
 import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useUnistyles } from 'react-native-unistyles';
-import { readRichArtifact } from '@/utils/richArtifactPreview';
+import { DOCUMENT_PREVIEW_BYTES, readRichArtifact, richPreviewKind } from '@/utils/richArtifactPreview';
 import { richPreviewHtml } from '@/utils/richPreviewHtml';
-import type { ArtifactAction } from '@/utils/artifactPreview';
+import { artifactPreview, previewBase64, type ArtifactAction } from '@/utils/artifactPreview';
 import { downloadArtifact } from '@/utils/downloadArtifact';
 import { loadPreviewRuntime } from './loadPreviewRuntime';
 import { PreviewSurface } from './PreviewSurface';
+import { pageVersion } from '@/catalog/infrastructure/artifactSupport';
+
+/**
+ * A page is read through the content-addressed preview cache, so a version
+ * opened once reopens offline; anything else is one bounded in-memory read.
+ */
+async function readPreview(sessionId: string, artifact: ArtifactAction, signal: AbortSignal) {
+    if (richPreviewKind(artifact.name) !== 'html' || !/^[0-9a-f]{64}$/.test(artifact.id) || artifact.size > DOCUMENT_PREVIEW_BYTES) {
+        return readRichArtifact(sessionId, artifact, signal);
+    }
+    const source = await artifactPreview(sessionId, artifact);
+    try {
+        return { kind: 'html' as const, base64: await previewBase64(source.uri) };
+    } finally {
+        source.dispose?.();
+    }
+}
 
 export function RichArtifactPreview({ sessionId, artifact, onClose }: { sessionId: string; artifact: ArtifactAction; onClose: () => void }) {
     const insets = useSafeAreaInsets();
@@ -18,7 +35,7 @@ export function RichArtifactPreview({ sessionId, artifact, onClose }: { sessionI
     React.useEffect(() => {
         const controller = new AbortController();
         setHtml(undefined); setError(undefined);
-        void Promise.all([loadPreviewRuntime(), readRichArtifact(sessionId, artifact, controller.signal)])
+        void Promise.all([loadPreviewRuntime(), readPreview(sessionId, artifact, controller.signal)])
             .then(([runtime, payload]) => { if (!controller.signal.aborted) setHtml(richPreviewHtml(runtime, payload, { dark: theme.dark, ...theme.colors })); })
             .catch((cause: unknown) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Preview unavailable.'); });
         return () => controller.abort();
@@ -26,11 +43,12 @@ export function RichArtifactPreview({ sessionId, artifact, onClose }: { sessionI
         // palette does, so the page is rebuilt on a theme switch and the
         // effect cannot re-enter on a fresh theme object identity.
     }, [sessionId, artifact.id, artifact.name, artifact.size, theme.dark]);
+    const page = pageVersion(artifact.name);
     const buttonStyle = { minWidth: 44, minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 12 };
     return <Modal visible animationType="slide" onRequestClose={onClose}>
         <View style={{ flex: 1, backgroundColor: theme.colors.surface, paddingTop: insets.top, paddingBottom: insets.bottom }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: theme.colors.divider, paddingHorizontal: 8 }}>
-                <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 14, padding: 8 }}>{artifact.name}</Text>
+                <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 14, padding: 8 }}>{page === null ? artifact.name : `${page.title} · v${page.version}`}</Text>
                 <Pressable accessibilityRole="button" accessibilityLabel="Download original" disabled={downloading} style={buttonStyle} onPress={() => {
                     setDownloading(true);
                     void downloadArtifact(sessionId, { ...artifact, mimeType: artifact.mimeType ?? 'application/octet-stream' })

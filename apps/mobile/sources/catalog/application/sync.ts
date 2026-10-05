@@ -38,7 +38,7 @@ import {
     sessionInfoToSession,
 } from '../infrastructure/sessionMapping';
 import { agentStatusUnchanged, applyHostInfoToAgent } from '../domain/agent';
-import { agentTask, type HerdrTreePane, type SessionInfo } from '@trymuxr/contract';
+import { agentAlertTitle, type HerdrTreePane, type SessionInfo } from '@trymuxr/contract';
 import { agentLabels } from '@/herd/labels';
 import { lifecycleIsWorking, lifecycleWatchOutcome, watchAgentLifecycle } from '@/watch';
 // Its own entry, like wakeAndReport: it pulls in expo-notifications, which the barrel keeps out.
@@ -277,6 +277,9 @@ class MuxrSync {
         client.onStateChange((state) => {
             recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));
+            // Every permanent error is reported after the state change that precedes it,
+            // so a fresh connecting stretch drops only a stale transient message.
+            if (state === 'connecting') storage.getState().setSocketError(null);
             // Events emitted while the socket was down are gone: nothing replays them.
             // Re-open from the host snapshot instead of leaving a stale transcript
             // that only a manual app reload could fix.
@@ -455,9 +458,15 @@ class MuxrSync {
                     storage.getState().markLifecyclePresented(event.eventId);
                     continue;
                 }
-                // What it was working on heads the alert, as on a relay push; who and what happened is the body.
-                const task = agentTask({ title: event.taskTitle, agentName: event.agentName, agentKind: event.agentKind });
-                await alertAgent(event.sessionId, task ?? 'muxr', lifecycleNotificationCopy(event));
+                // The work and who is doing it head the alert, as on a relay push; a blocked
+                // agent's own question is the body, and the alert can answer it.
+                const blocked = event.state === 'blocked';
+                await alertAgent(
+                    event.sessionId,
+                    agentAlertTitle(event),
+                    blocked && event.question !== undefined ? event.question : lifecycleNotificationCopy(event),
+                    blocked ? { eventId: event.eventId } : undefined,
+                );
                 storage.getState().markLifecyclePresented(event.eventId);
             } catch (error) {
                 console.error('lifecycle notification failed', error);
@@ -698,6 +707,7 @@ class MuxrSync {
             storage.getState().applyHerdrTree([]);
             storage.getState().applyHomeSnapshot(null);
         }
+        storage.getState().setActiveMachine(settings.machineId);
         // The client refreshes the grant before every dial, so startup does
         // not wait on the relay for it here.
         if (settings.mode === 'hosted' && settings.machineId !== '') {

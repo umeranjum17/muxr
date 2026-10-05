@@ -58,7 +58,7 @@ vi.mock('expo-secure-store', () => ({
     setItemAsync: async () => undefined,
     deleteItemAsync: async () => undefined,
 }));
-vi.mock('expo-notifications', () => ({ scheduleNotificationAsync: vi.fn() }));
+vi.mock('expo-notifications', () => ({ scheduleNotificationAsync: vi.fn(), setNotificationCategoryAsync: vi.fn(async () => undefined) }));
 vi.mock('react-native', () => ({ AppState: { currentState: 'active' }, Platform: { OS: 'android' } }));
 vi.mock('@/modal', () => ({ Modal: {} }));
 vi.mock('@/herd', () => ({ getSessionName: () => 'session' }));
@@ -194,6 +194,7 @@ vi.mock('../../catalog/application/storage', () => ({
             deleteSession: (sessionId: string) => { delete harness.sessions[sessionId]; },
             applyHerdrTree: vi.fn(),
             pruneSpacePins: vi.fn(),
+            setActiveMachine: vi.fn(),
             applyHomeSnapshot: vi.fn(),
             restoreHome: vi.fn(),
             markSessionsLoaded: () => { harness.sessionsLoaded = true; },
@@ -317,13 +318,28 @@ describe('link session sync flow', () => {
             return harness.clients.at(-1)!;
         };
 
+        // A version skew on a merely offline link is a host coming back, not a
+        // permanent incompatibility: the phone keeps retrying instead of
+        // landing on the Update-needed card.
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
         (await dial()).fire('offline');
+        await vi.waitFor(() => expect(harness.socketError).toContain('reached the muxr relay'));
+        expect(harness.socketError).not.toContain('Update needed');
+        expect(harness.socketStatus).not.toBe('error');
+
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.1.9', linkProtocol: 1 }) });
+        (await dial()).fire('offline');
+        await vi.waitFor(() => expect(harness.socketError).toContain('reached the muxr relay'));
+        expect(harness.socketError).not.toContain('Update needed');
+
+        // The same skew on a refused pairing genuinely explains the refusal.
+        health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
+        (await dial()).fire('refused');
         await vi.waitFor(() => expect(harness.socketError).toContain('computer runs muxr 0.2.1'));
         expect(harness.socketStatus).toBe('error');
 
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.1.9', linkProtocol: 1 }) });
-        (await dial()).fire('offline');
+        (await dial()).fire('refused');
         await vi.waitFor(() => expect(harness.socketError).toContain('Update muxr on the computer'));
 
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, onlineMachines: 1 }) });

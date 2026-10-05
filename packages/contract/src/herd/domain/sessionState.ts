@@ -62,12 +62,14 @@ export interface SessionInfo extends SessionRef, AgentInfo {
 
 /**
  * The live thing an agent put on its pane's screen: a browser window, or an
- * Android emulator. Measured from the screen itself (a mapped window), so it is
- * the same answer whatever tool opened it and never a claim made by a tool.
+ * Android emulator — measured from the screen or the process tree, so it is
+ * the same answer whatever tool opened it — or an iOS simulator the pane
+ * claimed (`muxr preview claim`), since a simulator belongs to no pane's
+ * process tree. A client must tolerate a kind it does not know.
  */
 export interface PreviewPresence {
-    kind: 'browser' | 'android';
-    /** Page title, or the AVD name for an emulator. Client-facing, never an id. */
+    kind: 'browser' | 'android' | 'ios';
+    /** Page title, the AVD name, or the simulator's name. Client-facing, never an id. */
     title?: string;
     /** Epoch ms the presence was first seen, so a client can order arrivals. */
     since: number;
@@ -332,6 +334,8 @@ export interface LifecycleEvent {
     taskTitle?: string;
     /** Agent Kind captured with the transition for presentation. */
     agentKind?: string;
+    /** What a blocked agent is asking, as the host read it off the pane. Bounded; blocked events only. */
+    question?: string;
     state: AgentLifecycle;
     reasonCode: LifecycleReasonCode;
     /** @deprecated Read reasonCode. Kept for older clients during rollout. */

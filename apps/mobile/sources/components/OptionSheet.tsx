@@ -273,20 +273,16 @@ export function OptionSheet({
                                         />
                                     </View>
                                 )}
-                                {models.length === 0 ? (
-                                    <Text style={styles.emptyText}>{emptyText ?? t('agentInput.model.configureInCli')}</Text>
-                                ) : (
-                                    <FlatList
-                                        data={visibleModels}
-                                        keyExtractor={(model) => model.key}
-                                        renderItem={({ item }) => renderRow(item)}
-                                        keyboardShouldPersistTaps="handled"
-                                        ListHeaderComponent={custom ? renderRow({ key: custom, name: t('optionSheet.useCustom', { value: custom }) }) : null}
-                                        ListEmptyComponent={custom ? null : <Text style={styles.emptyText}>{t('optionSheet.noResults')}</Text>}
-                                        ListFooterComponent={footer ? <>{footer}</> : null}
-                                        initialNumToRender={12}
-                                    />
-                                )}
+                                <FlatList
+                                    data={visibleModels}
+                                    keyExtractor={(model) => model.key}
+                                    renderItem={({ item }) => renderRow(item)}
+                                    keyboardShouldPersistTaps="handled"
+                                    ListHeaderComponent={custom ? renderRow({ key: custom, name: t('optionSheet.useCustom', { value: custom }) }) : null}
+                                    ListEmptyComponent={custom ? null : <Text style={styles.emptyText}>{models.length === 0 ? emptyText ?? t('agentInput.model.configureInCli') : t('optionSheet.noResults')}</Text>}
+                                    ListFooterComponent={footer ? <>{footer}</> : null}
+                                    initialNumToRender={12}
+                                />
                             </View>
                         </View>
                         )}

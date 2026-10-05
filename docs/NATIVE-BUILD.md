@@ -196,6 +196,31 @@ release credential. Local EAS profiles remain available for development APKs.
 Changing the production app identifier creates a separate store identity unless
 the owner arranges a transfer/update under the final identifier.
 
+## Signing configuration check
+
+The committed Android project requires explicit Gradle properties `appVersion`
+(`major.minor.patch`) and `androidVersionCode` (a positive integer) for release
+tasks, independently of signing. EAS may inject its managed signer; manual signing
+requires all four properties: `releaseStoreFile`, `releaseStorePassword`,
+`releaseKeyAlias` and `releaseKeyPassword`. Partial manual credentials are rejected
+even with EAS injection. Before any release build task executes, Gradle requires
+a signer named `release`, an existing store file and nonempty passwords/key alias;
+null and debug signing configurations are rejected.
+
+For signing/version configuration only, run
+`node scripts/diagnostics/application/checkAndroidReleaseSigning.mjs [evidence-directory]`
+from the repository root. It drives the committed Android Gradle project with
+`assembleRelease --dry-run --offline`, a throwaway keystore and Expo's standard
+EAS signing injection. It checks manual/EAS signers, explicit release versions,
+and missing, partial, null and debug signer rejection. It requires the prepared
+Android toolchain and cached Gradle dependencies; it refuses to overwrite an
+existing `apps/mobile/credentials.json` and removes its own fixtures afterward.
+Supply an evidence directory to retain the per-case logs and `results.json`;
+without one, the evidence is written into the temporary fixture directory and
+removed during cleanup.
+This proves build configuration only; native builds, uploads and device journeys
+remain unvalidated.
+
 ## Fast bundle check
 
 Before a native build, catch Metro/import failures in seconds:
@@ -268,7 +293,7 @@ stuck disconnected.
 | Gradle daemon disappears/type-tag errors | JVM memory exhaustion | Apply the Gradle memory settings above |
 | App installs but never connects | Missing baked connection values | Check the secrets file or Settings → Connection |
 | App remains disconnected over HTTPS | Self-signed or invalid TLS chain | Install a trusted certificate |
-| Native recorder/terminal verifier fails | `patch-package` output is stale | Run `yarn install`, then `node scripts/diagnostics/application/verifyNativePatches.mjs` |
+| Native patch verifier fails | `patch-package` output is stale | Run `yarn install`, then `node scripts/diagnostics/application/verifyNativePatches.mjs` |
 | Android startup SIGSEGV in `MountingCoordinator::pullTransaction` | `react-native-screens` 4.22.0 mounting-listener initialization race | Apply the checked-in screens patch with `yarn install`, verify native patches, then rebuild the APK; Metro refresh cannot replace native code |
 
 The screens patch backports the listener-lifetime fix from

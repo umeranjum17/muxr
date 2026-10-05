@@ -21,6 +21,13 @@ const hasHerdr = existsSync(herdrSocket);
 const labHelper = process.env.HERDR_LAB_HELPER?.trim();
 
 const checks = [
+    // First, because an install that skipped lifecycle scripts leaves
+    // node_modules unpatched, and the app then typechecks against the
+    // dependency patches/ amends: TS2339 on TerminalViewRef methods, props the
+    // app passes that the package does not declare, and implicit anys from
+    // those untyped props -- all in files nobody touched. Name that cause
+    // before the typecheck reports its symptoms.
+    ['deps: checked-in native patches are applied', 'node', ['scripts/diagnostics/application/verifyNativePatches.mjs']],
     ['typecheck: workspace (strict)', 'npx', ['tsc', '--build', '--force']],
     ['typecheck: mobile (expo/RN)', 'npx', ['tsc', '--noEmit', '--project', 'apps/mobile/tsconfig.json']],
     ['unit: crypto (pairing and grant proofs)', 'node', ['packages/crypto/dist/selfCheck.js']],
@@ -71,6 +78,7 @@ const checks = [
     ['e2e: web serving delivery (live relay + static server)', 'node', ['scripts/diagnostics/application/checkWebServing.mjs']],
     ['security: export chain isolation (canary export + full scan)', 'node', ['scripts/diagnostics/application/checkExportIsolation.mjs'], undefined, 420000],
     ['security: tracked/package secret scan', 'node', ['scripts/diagnostics/application/checkNoSecrets.mjs']],
+    ['policy: constraints floor (diff-scoped suppressions, stubs, skipped/deleted tests, weakened rules)', 'node', ['scripts/diagnostics/application/checkFloor.mjs']],
 ];
 
 /**
@@ -83,6 +91,7 @@ const checks = [
  * full suite -- the fast lane is early feedback, not a release gate.
  */
 const FAST = new Set([
+    'deps: checked-in native patches are applied',
     'typecheck: workspace (strict)',
     'typecheck: mobile (expo/RN)',
     'unit: crypto (pairing and grant proofs)',
@@ -98,6 +107,7 @@ const FAST = new Set([
     'policy: mobile architecture',
     'policy: package architecture (module boundaries, domain purity, no nested ternaries)',
     'policy: tooling architecture (feature boundaries, layers, no nested ternaries)',
+    'policy: constraints floor (diff-scoped suppressions, stubs, skipped/deleted tests, weakened rules)',
 ]);
 
 const fastOnly = process.argv.includes('--fast');

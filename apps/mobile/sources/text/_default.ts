@@ -36,18 +36,21 @@ export const en = {
     },
 
     preview: {
-        // Presence of an agent's browser or emulator in the terminal header
+        // Presence of an agent's browser, emulator, or simulator in the terminal header
         chipBrowser: 'Browser',
         chipAndroid: 'Emulator',
+        chipIos: 'Simulator',
         introBrowser: 'Your agent opened a browser',
         introAndroid: 'Your agent started an Android emulator',
+        introIos: 'Your agent claimed an iOS simulator',
         watch: 'Watch',
         notNow: 'Not now',
         watchBrowser: 'Watch browser',
         watchAndroid: 'Watch Android emulator',
+        watchIos: 'Watch iOS simulator',
         reconnecting: 'Reconnecting…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
-            `${kind === 'android' ? 'Android emulator in use' : 'Browser in use'}${title ? `, ${title}` : ''}. Watch live`,
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
+            `${kind === 'android' ? 'Android emulator in use' : kind === 'ios' ? 'iOS simulator in use' : 'Browser in use'}${title ? `, ${title}` : ''}. Watch live`,
     },
 
     plugins: {
@@ -335,6 +338,8 @@ export const en = {
         title: 'Spaces',
         // Section label above the pinned cards, shown only when something is pinned
         pinned: 'Pinned',
+        // Section label above favourite panes, shown only when one is open
+        favourites: 'Favourites',
         empty: 'No spaces open',
         rootFolder: 'Root folder',
         homeFolder: 'Home folder',

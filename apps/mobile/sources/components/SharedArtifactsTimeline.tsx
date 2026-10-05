@@ -4,11 +4,13 @@ import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import { MMKV } from 'react-native-mmkv';
 import type { RequestResult, SessionArtifact } from '@trymuxr/contract';
 
 import { sync, registerArtifactUpdateHandler } from '@/catalog/sync';
 import { useHerdrTree } from '@/catalog/store';
-import { buildSharedArtifactTimeline, planArtifactHeal, sharedArtifactDisplayName, type SharedArtifactTimelineRow } from '@/catalog/infrastructure/artifactSupport';
+import { getCachedConnectionSettings } from '@/connection';
+import { buildSharedArtifactTimeline, groupPageVersions, pageVersion, planArtifactHeal, sharedArtifactDisplayName, type SharedArtifactTimelineRow } from '@/catalog/infrastructure/artifactSupport';
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { ArtifactGallery, ArtifactThumbnail, type GalleryImage } from '@/components/ArtifactGallery';
 import { RichArtifactPreview } from '@/components/artifact/RichArtifactPreview';
@@ -25,6 +27,21 @@ type TimelineRow = SharedArtifactTimelineRow<SessionArtifact>;
 
 const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const EMPTY_ARTIFACTS: SessionArtifact[] = [];
+const savedListings = new MMKV();
+
+// The last listing is kept so a page cached on the phone still opens offline.
+function listingKey(sessionId: string): string {
+    return `shared-artifacts-v1:${getCachedConnectionSettings().machineId}:${sessionId}`;
+}
+
+function savedListing(sessionId: string): ArtifactList | undefined {
+    try {
+        const raw = savedListings.getString(listingKey(sessionId));
+        return raw === undefined ? undefined : JSON.parse(raw) as ArtifactList;
+    } catch {
+        return undefined;
+    }
+}
 
 function artifactAction(artifact: SessionArtifact): ArtifactAction {
     return {
@@ -65,7 +82,12 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
     const pane = herdrPaneForSession(workspaces, sessionId);
     const labels = agentLabels(pane);
     const glyph = pane?.agentKind ?? (isShellLabels(labels) ? 'shell' : labels.agentName);
-    const [listing, setListing] = React.useState<ArtifactList>();
+    const [listing, setLiveListing] = React.useState<ArtifactList | undefined>(() => savedListing(sessionId));
+    const setListing = React.useCallback((next: ArtifactList) => {
+        setLiveListing(next);
+        savedListings.set(listingKey(sessionId), JSON.stringify(next));
+    }, [sessionId]);
+    const [historyTitle, setHistoryTitle] = React.useState<string>();
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState<string>();
     const [galleryIndex, setGalleryIndex] = React.useState<number>();
@@ -90,19 +112,20 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
             })
             .catch((cause: unknown) => {
                 if (generation !== requestGeneration.current) return;
+                setLiveListing((current) => current ?? savedListing(sessionId));
                 setError(cause instanceof Error ? cause.message : 'Shared Artifacts are unavailable.');
             })
             .finally(() => {
                 if (generation === requestGeneration.current) setLoading(false);
             });
-    }, [sessionId]);
+    }, [sessionId, setListing]);
 
     React.useEffect(() => registerArtifactUpdateHandler((updatedSessionId, event) => {
         if (updatedSessionId !== sessionId) return;
         liveRevision.current += 1;
         setListing({ artifacts: event.artifacts, total: event.total, truncated: event.truncated });
         setError(undefined);
-    }), [sessionId]);
+    }), [sessionId, setListing]);
 
     useFocusEffect(React.useCallback(() => {
         load();
@@ -115,6 +138,7 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
         snippetSession.current = sessionId;
         setSnippets({});
         setVisibleTextIds([]);
+        setHistoryTitle(undefined);
     }, [sessionId]);
     // A snippet is one line under a row's name, and it costs a whole-file
     // fetch plus a decode to produce. Rows nobody has scrolled to do not get
@@ -124,7 +148,7 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
     React.useEffect(() => {
         const unique = new Map<string, SessionArtifact>();
         for (const artifact of artifacts) {
-            if (artifact.mimeType.startsWith('text/') && visibleTextSet.has(artifact.id) && !attemptedSnippets.current.has(artifact.id)) unique.set(artifact.id, artifact);
+            if (artifact.mimeType.startsWith('text/') && visibleTextSet.has(artifact.id) && pageVersion(artifact.name) === null && !attemptedSnippets.current.has(artifact.id)) unique.set(artifact.id, artifact);
         }
         const plan = planArtifactHeal([...unique.values()]);
         for (const artifact of plan.candidates) attemptedSnippets.current.add(artifact.id);
@@ -142,7 +166,10 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
             }
         }));
     }, [artifacts, sessionId, visibleTextSet]);
-    const rows = React.useMemo(() => buildSharedArtifactTimeline(artifacts), [artifacts]);
+    const pages = React.useMemo(() => groupPageVersions(artifacts), [artifacts]);
+    const rows = React.useMemo(() => buildSharedArtifactTimeline(historyTitle === undefined
+        ? pages.latest
+        : pages.versions.get(historyTitle) ?? EMPTY_ARTIFACTS), [historyTitle, pages]);
     const galleryImages = React.useMemo<GalleryImage[]>(() => artifacts.flatMap((artifact) => (
         artifact.mimeType.startsWith('image/') && richPreviewKind(artifact.name) !== 'svg'
             ? [{
@@ -192,7 +219,9 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
     const renderArtifact = (row: Extract<TimelineRow, { type: 'artifact' }>) => {
         const artifact = row.artifact;
         const imageIndex = galleryIndexByKey.get(`${artifact.id}:${artifact.name}:${artifact.at}`);
-        const subtitle = `${TIME_FORMAT.format(new Date(artifact.at))} · ${sizeLabel(artifact.size)} · ${kindLabel(artifact)}`;
+        const page = pageVersion(artifact.name);
+        const versionCount = page === null ? 0 : pages.versions.get(page.title)?.length ?? 0;
+        const subtitle = `${page === null ? '' : `v${page.version} · `}${TIME_FORMAT.format(new Date(artifact.at))} · ${sizeLabel(artifact.size)} · ${kindLabel(artifact)}`;
         return <View style={styles.card}>
             {imageIndex === undefined
                 ? <View style={styles.iconTile}><Ionicons name={iconFor(artifact)} size={24} color={theme.colors.textSecondary} /></View>
@@ -213,6 +242,16 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
                 <Text numberOfLines={snippets[artifact.id] === undefined ? 2 : 1} style={styles.title}>{sharedArtifactDisplayName(artifact.name)}</Text>
                 {snippets[artifact.id] !== undefined && <Text numberOfLines={1} style={styles.snippet}>{snippets[artifact.id]}</Text>}
                 <TransferMeta key={sessionId} sessionId={sessionId} artifact={artifact} subtitle={subtitle} lines={snippets[artifact.id] === undefined ? 2 : 1} />
+                {page !== null && historyTitle === undefined && versionCount > 1 && <Pressable
+                    onPress={() => setHistoryTitle(page.title)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Version history of ${page.title}, ${versionCount} versions`}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.history, pressed && styles.pressed]}
+                >
+                    <Text style={styles.historyText}>{versionCount} versions</Text>
+                    <Ionicons name="chevron-forward" size={12} color={theme.colors.textLink} />
+                </Pressable>}
             </Pressable>
             <TransferControl key={sessionId} sessionId={sessionId} artifact={artifact} onDownload={download} />
         </View>;
@@ -260,10 +299,16 @@ export function SharedArtifactsTimeline({ sessionId }: { sessionId: string }) {
             initialNumToRender={8}
             maxToRenderPerBatch={6}
             windowSize={5}
-            ListHeaderComponent={error === undefined ? null : <Pressable onPress={load} accessibilityRole="button" accessibilityLabel="Retry refreshing Shared Artifacts" style={styles.stale}>
-                <Ionicons name="warning-outline" size={16} color={theme.colors.textSecondary} />
-                <Text style={styles.staleText}>Showing the last update. Tap to retry.</Text>
-            </Pressable>}
+            ListHeaderComponent={<>
+                {historyTitle !== undefined && <Pressable onPress={() => setHistoryTitle(undefined)} accessibilityRole="button" accessibilityLabel="Back to all Shared Artifacts" style={styles.stale}>
+                    <Ionicons name="chevron-back" size={16} color={theme.colors.textSecondary} />
+                    <Text numberOfLines={1} style={styles.staleText}>{historyTitle} · version history</Text>
+                </Pressable>}
+                {error !== undefined && <Pressable onPress={load} accessibilityRole="button" accessibilityLabel="Retry refreshing Shared Artifacts" style={styles.stale}>
+                    <Ionicons name="warning-outline" size={16} color={theme.colors.textSecondary} />
+                    <Text style={styles.staleText}>Showing the last update. Tap to retry.</Text>
+                </Pressable>}
+            </>}
             ListFooterComponent={listing?.truncated ? <Text style={styles.footer}>Showing newest {artifacts.length} of {listing.total}</Text> : <View style={styles.footerSpace} />}
         />}
 
@@ -434,6 +479,8 @@ const styles = StyleSheet.create((theme) => ({
     title: { color: theme.colors.text, fontSize: 15, lineHeight: 19, fontWeight: '600' },
     snippet: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 16, marginTop: 3 },
     meta: { color: theme.colors.textSecondary, fontSize: 11, lineHeight: 16, marginTop: 4, fontVariant: ['tabular-nums'] },
+    history: { flexDirection: 'row', alignItems: 'center', gap: 2, alignSelf: 'flex-start', marginTop: 4 },
+    historyText: { color: theme.colors.textLink, fontSize: 12, fontWeight: '600' },
     metaFailed: { color: theme.colors.textDestructive },
     track: { height: 3, borderRadius: 1.5, marginTop: 7, overflow: 'hidden', backgroundColor: theme.colors.surfaceHighest },
     fill: { height: 3, borderRadius: 1.5, backgroundColor: theme.colors.text },

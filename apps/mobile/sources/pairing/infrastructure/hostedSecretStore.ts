@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { deleteNativeSecret, getNativeSecret, setNativeSecret } from './nativeSecretStore';
+import type { LinkPairPending } from './linkPairClient';
 import { deleteWebSecret, getWebSecret, listWebSecretNames, setWebSecret } from './webSecureStore';
 
 export const secretGet = (key: string): Promise<string | null> => Platform.OS === 'web' ? getWebSecret(key) : getNativeSecret(key);
@@ -10,11 +11,10 @@ const DEVICE_KEY = 'muxr.hosted-e2ee.device.v2';
 const PENDING_PAIR_KEY = 'muxr.hosted-e2ee.pending-pair.v1';
 const PENDING_LINK_PAIR_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
 
-export interface PendingLinkPair {
-    scanned: string;
-    name: string;
-    secretKey: string;
+export interface PendingLinkPair extends LinkPairPending {
     startedAt: number;
+    /** The computer took this code's single-use ticket for this key. */
+    claimed?: boolean;
 }
 
 export async function readPendingPair(): Promise<PendingLinkPair | undefined> {

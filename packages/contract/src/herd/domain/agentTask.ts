@@ -158,3 +158,14 @@ export function agentTask(sources: AgentTaskSources): string | undefined {
         ?? meaningful(sources.title, noise)
         ?? meaningful(sources.workspaceLabel, noise);
 }
+
+/**
+ * A lifecycle alert's title: who needs you, then their work, in 120 characters.
+ * The name leads because a phone's shade cuts a long title from the end.
+ * Host push and phone alert share it.
+ */
+export function agentAlertTitle(event: { taskTitle?: string | undefined; agentName: string; agentKind?: string | undefined }): string {
+    const task = agentTask({ title: event.taskTitle, agentName: event.agentName, agentKind: event.agentKind });
+    const title = task === undefined ? event.agentName : `${event.agentName} · ${task}`;
+    return title.length > 120 ? `${title.slice(0, 119)}…` : title;
+}

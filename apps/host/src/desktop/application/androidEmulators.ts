@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { connect, createServer, type Server, type Socket } from 'node:net';
 
 import { EngineClient, EngineRefused, resolveEngine } from '@desklink/host';
-import type { DesktopEvent, DesktopPermission, DesktopSurfaceGeometry, PreviewPresence, SessionInfo } from '@trymuxr/contract';
+import type { DesktopEvent, DesktopPermission, DesktopSurfaceGeometry, PreviewPresence } from '@trymuxr/contract';
 
 import { onPath } from '../infrastructure/x11Display.js';
 import type { PreviewLeaseTracker } from './previewLease.js';
@@ -235,31 +235,36 @@ export const SCRCPY_SERVER_VERSION = '4.0';
 const SCRCPY_JAR = 'scrcpy-server-v4.0';
 const SCRCPY_DEVICE_PATH = '/data/local/tmp/scrcpy-server.jar';
 
-/** The vendored jar at this path, or undefined when it is not installed here. A present jar with a missing or mismatched hash throws. */
-function verifiedScrcpyJar(jar: string): string | undefined {
-    const hashFile = `${jar}.sha256`;
-    if (!existsSync(jar) || !existsSync(hashFile)) return undefined;
+/** The vendored file at this path, or undefined when it is not installed here. A present file with a missing or mismatched hash throws. */
+function verifiedResource(file: string, label: string): string | undefined {
+    const hashFile = `${file}.sha256`;
+    if (!existsSync(file) || !existsSync(hashFile)) return undefined;
     const expected = readFileSync(hashFile, 'utf8').split(/\s+/)[0]?.trim();
-    const actual = createHash('sha256').update(readFileSync(jar)).digest('hex');
+    const actual = createHash('sha256').update(readFileSync(file)).digest('hex');
     if (expected === undefined || expected === '' || actual !== expected) {
-        throw new Error('the vendored scrcpy server failed its pinned hash check');
+        throw new Error(`the vendored ${label} failed its pinned hash check`);
     }
-    return jar;
+    return file;
 }
 
-export function resolveScrcpyServer(start = dirname(fileURLToPath(import.meta.url))): string {
+/** `resources/<parts>` from the checkout above `start`, or the packed `resources/` beside the bundle, hash-checked. */
+export function resolveVendoredResource(parts: string[], label: string, start = dirname(fileURLToPath(import.meta.url))): string {
     let dir = start;
     for (let depth = 0; depth < 8; depth += 1) {
-        const verified = verifiedScrcpyJar(join(dir, 'resources', 'scrcpy', SCRCPY_JAR));
+        const verified = verifiedResource(join(dir, 'resources', ...parts), label);
         if (verified !== undefined) return verified;
         const parent = dirname(dir);
         if (parent === dir) break;
         dir = parent;
     }
     // The packed artifact lays `resources/` beside the host bundle.
-    const packed = verifiedScrcpyJar(join(start, 'resources', 'scrcpy', SCRCPY_JAR));
+    const packed = verifiedResource(join(start, 'resources', ...parts), label);
     if (packed !== undefined) return packed;
-    throw new Error('the vendored scrcpy server is not installed');
+    throw new Error(`the vendored ${label} is not installed`);
+}
+
+export function resolveScrcpyServer(start = dirname(fileURLToPath(import.meta.url))): string {
+    return resolveVendoredResource(['scrcpy', SCRCPY_JAR], 'scrcpy server', start);
 }
 
 // ---------------------------------------------------------------------------
@@ -276,18 +281,23 @@ interface AndroidPaneState {
     timer: ReturnType<typeof setTimeout> | undefined;
 }
 
+/** The kinds a device mirror announces; screens announce through the keeper. */
+export type DevicePreviewKind = Extract<PreviewPresence['kind'], 'android' | 'ios'>;
+
 /**
- * Discovered emulators → one announced `android` presence per pane.
- * Same hysteresis as the keeper road: no flicker on an emulator restart.
+ * Discovered devices → one announced presence of this tracker's kind per pane.
+ * Same hysteresis as the keeper road: no flicker on a device restart.
  */
-export class AndroidPresenceTracker {
+export class DevicePresenceTracker {
+    private readonly kind: DevicePreviewKind;
     private readonly announceAfterMs: number;
     private readonly withdrawAfterMs: number;
     private readonly now: () => number;
     private readonly panes = new Map<string, AndroidPaneState>();
     private readonly listeners = new Set<(paneId: string) => void>();
 
-    constructor(options: { announceAfterMs?: number; withdrawAfterMs?: number; now?: () => number } = {}) {
+    constructor(options: { kind?: DevicePreviewKind; announceAfterMs?: number; withdrawAfterMs?: number; now?: () => number } = {}) {
+        this.kind = options.kind ?? 'android';
         this.announceAfterMs = options.announceAfterMs ?? ANDROID_ANNOUNCE_AFTER_MS;
         this.withdrawAfterMs = options.withdrawAfterMs ?? ANDROID_WITHDRAW_AFTER_MS;
         this.now = options.now ?? Date.now;
@@ -338,11 +348,11 @@ export class AndroidPresenceTracker {
             this.panes.set(paneId, state);
         }
         const announced = state.announced;
-        if (announced !== undefined && announced.kind === 'android') {
+        if (announced !== undefined && announced.kind === this.kind) {
             if (announced.title !== emulator.title) {
                 state.announced = emulator.title === undefined
-                    ? { kind: 'android', since: announced.since }
-                    : { kind: 'android', title: emulator.title, since: announced.since };
+                    ? { kind: this.kind, since: announced.since }
+                    : { kind: this.kind, title: emulator.title, since: announced.since };
                 this.emit(paneId);
                 return true;
             }
@@ -390,8 +400,8 @@ export class AndroidPresenceTracker {
         if (state === undefined || candidate === undefined) return false;
         state.candidate = undefined;
         state.announced = candidate.title === undefined
-            ? { kind: 'android', since: candidate.firstSeen }
-            : { kind: 'android', title: candidate.title, since: candidate.firstSeen };
+            ? { kind: this.kind, since: candidate.firstSeen }
+            : { kind: this.kind, title: candidate.title, since: candidate.firstSeen };
         this.emit(paneId);
         return true;
     }
@@ -399,23 +409,6 @@ export class AndroidPresenceTracker {
     private emit(paneId: string): void {
         for (const listener of this.listeners) listener(paneId);
     }
-}
-
-/**
- * Stamp a session list the way the keeper road does: absent means unwatchable.
- * Merge note (P1.3): compose with `withPreview` there as
- * `(paneId) => androidPreview(paneId) ?? keeperPreview(paneId)`; this stays
- * until that lands so the android road is provable on its own.
- */
-export function withAndroidPreview(
-    sessions: SessionInfo[],
-    previewFor: (paneId: string) => PreviewPresence | undefined,
-): SessionInfo[] {
-    return sessions.map((session) => {
-        const preview = session.paneId === undefined ? undefined : previewFor(session.paneId);
-        if (preview === undefined) return session;
-        return { ...session, preview };
-    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1143,26 +1136,54 @@ export class AndroidMirrors {
 // Targets: desktop.* by session, for headless emulators
 // ---------------------------------------------------------------------------
 
-export interface AndroidTargetsOptions {
-    mirrors: AndroidMirrors;
+/** What a target router needs from a source's mirrors: one live mirror per device. */
+export interface DeviceMirrors {
+    open(
+        serial: string,
+        request: { permissions: DesktopPermission[]; maxFps?: number; loopbackTcp?: boolean },
+    ): Promise<{ session: EncodedEngineSession; width: number; height: number }>;
+    engineFor(serial: string): EncodedEngine | undefined;
+    close(serial: string): Promise<void>;
+    closeAll(): Promise<void>;
+}
+
+export interface DeviceTargetsOptions {
+    /** The presence kind this router opens; any other kind is not its session. */
+    kind?: DevicePreviewKind;
+    mirrors: DeviceMirrors;
     listSessions: () => Promise<Array<{ id: string; paneId?: string }>>;
     previewFor: (paneId: string) => PreviewPresence | undefined;
-    /** The adb-confirmed serial behind an announced pane; the map is the grant. */
+    /** The confirmed device behind an announced pane (adb serial, simulator UDID); the map is the grant. */
     serialForPane: (paneId: string) => string | undefined;
     lease?: PreviewLeaseTracker;
 }
 
-const ANDROID_TARGET_PREFIX = 'av';
+/** Handle prefixes per kind, so answer/candidate/poll/close route back to the right router. */
+const TARGET_PREFIX: Record<DevicePreviewKind, string> = { android: 'av', ios: 'is' };
 
 /**
- * Routes `desktop.* { target }` at headless emulators. Handles carry an `av`
- * prefix so later answer/candidate/poll/close route back here and never at
- * the Computer session; the prefix alone grants nothing, the map does.
- * Merge note (P1.3): fold into `PreviewDesktops` there as its android
+ * A device's H.264 offered as Constrained Baseline. Android's WebRTC decoder
+ * factory negotiates High only on Qualcomm and Exynos decoders, so a High
+ * offer (the iOS Simulator's VideoToolbox stream) fails before a frame on
+ * every other phone and the emulator, though their decoders play it.
+ * ponytail: label only; a phone whose decoder truly lacks High shows nothing.
+ */
+function offeredAsBaseline(sdp: string): string {
+    return sdp.replace(/profile-level-id=64[0-9a-f]{4}/gi, 'profile-level-id=42e01f');
+}
+
+/**
+ * Routes `desktop.* { target }` at one kind of device mirror (headless
+ * emulators, claimed simulators). Handles carry the kind's prefix so later
+ * answer/candidate/poll/close route back here and never at the Computer
+ * session; the prefix alone grants nothing, the map does.
+ * Merge note (P1.3): fold into `PreviewDesktops` there as its device
  * branch once that lands; the shapes match on purpose.
  */
-export class AndroidPreviewTargets {
-    private readonly mirrors: AndroidMirrors;
+export class DevicePreviewTargets {
+    readonly kind: DevicePreviewKind;
+    private readonly prefix: string;
+    private readonly mirrors: DeviceMirrors;
     private readonly listSessions: () => Promise<Array<{ id: string; paneId?: string }>>;
     private readonly previewFor: (paneId: string) => PreviewPresence | undefined;
     private readonly serialForPane: (paneId: string) => string | undefined;
@@ -1172,7 +1193,9 @@ export class AndroidPreviewTargets {
     private readonly disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private counter = 0;
 
-    constructor(options: AndroidTargetsOptions) {
+    constructor(options: DeviceTargetsOptions) {
+        this.kind = options.kind ?? 'android';
+        this.prefix = TARGET_PREFIX[this.kind];
         this.mirrors = options.mirrors;
         this.listSessions = options.listSessions;
         this.previewFor = options.previewFor;
@@ -1180,19 +1203,20 @@ export class AndroidPreviewTargets {
         this.lease = options.lease;
     }
 
-    /** The pane's emulator for a session, or a refusal when it cannot be shown. */
+    /** The pane's device for a session, or a refusal when it cannot be shown. */
     async resolveTarget(sessionId: string): Promise<{ paneId: string; serial: string }> {
+        const missing = this.kind === 'ios' ? 'that session has no simulator to watch' : 'that session has no emulator to watch';
         const sessions = await this.listSessions();
         const paneId = sessions.find((session) => session.id === sessionId)?.paneId;
         const preview = paneId === undefined ? undefined : this.previewFor(paneId);
-        if (paneId === undefined || preview?.kind !== 'android') {
-            // Mandatory for android opens: never fall back to the whole desktop.
-            throw new EngineRefused('permission-denied', 'that session has no emulator to watch');
+        if (paneId === undefined || preview?.kind !== this.kind) {
+            // Mandatory for device opens: never fall back to the whole desktop.
+            throw new EngineRefused('permission-denied', missing);
         }
         // The serial is the discovery's; the tracker only announces panes the
-        // watcher confirmed over adb, so a serial exists for every announced pane.
+        // watcher confirmed, so a serial exists for every announced pane.
         const serial = this.serialForPane(paneId);
-        if (serial === undefined) throw new EngineRefused('permission-denied', 'that session has no emulator to watch');
+        if (serial === undefined) throw new EngineRefused('permission-denied', missing);
         return { paneId, serial };
     }
 
@@ -1204,7 +1228,7 @@ export class AndroidPreviewTargets {
         const { paneId, serial } = await this.resolveTarget(sessionId);
         const { session } = await this.mirrors.open(serial, request);
         this.counter += 1;
-        const desktopId = `${ANDROID_TARGET_PREFIX}${this.counter.toString(36)}`;
+        const desktopId = `${this.prefix}${this.counter.toString(36)}`;
         const controlling = request.permissions.includes('control');
         this.serialByTarget.set(desktopId, {
             serial,
@@ -1216,9 +1240,9 @@ export class AndroidPreviewTargets {
         return { desktopId, generation: session.generation, geometry: session.geometry, source: session.source };
     }
 
-    /** A client handle from an android open, never a Computer handle. */
+    /** A client handle from this router's open, never a Computer handle. */
     owns(desktopId: string): boolean {
-        return desktopId.startsWith(ANDROID_TARGET_PREFIX) && this.serialByTarget.has(desktopId);
+        return desktopId.startsWith(this.prefix) && this.serialByTarget.has(desktopId);
     }
 
     private requiredTarget(desktopId: string, connectionId?: string, deviceId?: string): { serial: string; paneId: string; controlling: boolean; ownerDeviceId?: string } {
@@ -1257,7 +1281,7 @@ export class AndroidPreviewTargets {
         if (engine === undefined) throw new EngineRefused('session', 'that desktop session is not open');
         for (const signal of engine.drainSignaling()) {
             if (signal.kind === 'offer') {
-                this.append(desktopId, { kind: 'offer', generation: Number(signal.generation ?? 0), sdp: String(signal.sdp ?? '') });
+                this.append(desktopId, { kind: 'offer', generation: Number(signal.generation ?? 0), sdp: offeredAsBaseline(String(signal.sdp ?? '')) });
             } else if (signal.kind === 'candidate') {
                 this.append(desktopId, {
                     kind: 'candidate',
@@ -1380,8 +1404,8 @@ export interface AndroidWatcherOptions {
     adb?: string;
     runAdb?: AdbRunner;
     mirrors?: AndroidMirrors;
-    tracker?: AndroidPresenceTracker;
-    /** Engine binary for mirrors; unset means `MUXR_DESKLINK_ENGINE` or the pin. */
+    tracker?: DevicePresenceTracker;
+    /** Engine binary for mirrors; unset means `DESKLINK_ENGINE` or the pin. */
     enginePath?: string;
     scanMs?: number;
     onDiagnostic?: (line: string) => void;
@@ -1396,9 +1420,9 @@ const WATCH_SCAN_MS = 2000;
  * `targets`, which shares the watcher's serial map.
  */
 export class AndroidEmulatorWatcher {
-    readonly tracker: AndroidPresenceTracker;
+    readonly tracker: DevicePresenceTracker;
     readonly mirrors: AndroidMirrors;
-    readonly targets: AndroidPreviewTargets;
+    readonly targets: DevicePreviewTargets;
     private readonly options: AndroidWatcherOptions;
     private readonly serialByPane = new Map<string, string>();
     private timer: ReturnType<typeof setInterval> | undefined;
@@ -1407,7 +1431,7 @@ export class AndroidEmulatorWatcher {
 
     constructor(options: AndroidWatcherOptions) {
         this.options = options;
-        this.tracker = options.tracker ?? new AndroidPresenceTracker();
+        this.tracker = options.tracker ?? new DevicePresenceTracker();
         const adb = options.adb ?? findAdb();
         this.runAdb = options.runAdb ?? (adb === undefined ? undefined : adbRunner(adb));
         this.mirrors = options.mirrors ?? new AndroidMirrors({
@@ -1416,7 +1440,7 @@ export class AndroidEmulatorWatcher {
             ...(options.enginePath === undefined ? {} : { enginePath: options.enginePath }),
             ...(options.onDiagnostic === undefined ? {} : { onDiagnostic: options.onDiagnostic }),
         });
-        this.targets = new AndroidPreviewTargets({
+        this.targets = new DevicePreviewTargets({
             mirrors: this.mirrors,
             listSessions: options.listSessions,
             previewFor: (paneId) => this.tracker.previewFor(paneId),
@@ -1479,6 +1503,6 @@ export class AndroidEmulatorWatcher {
     }
 }
 
-export function androidCapabilities(): { available: boolean; input: boolean; clipboard: boolean; codec: string } {
+export function deviceCapabilities(): { available: boolean; input: boolean; clipboard: boolean; codec: string } {
     return { available: true, input: true, clipboard: false, codec: 'h264' };
 }

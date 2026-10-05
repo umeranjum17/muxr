@@ -14,6 +14,9 @@ import {
 
 export const ACTIVE_SESSION_MS = AGENT_STILL_LISTED_MS;
 
+/** Preview kinds this build can open; the host may announce newer ones. */
+const KNOWN_PREVIEW_KINDS = new Set<string>(['browser', 'android', 'ios']);
+
 function parseTime(value: string | undefined, fallback = Date.now()): number {
     if (value === undefined) return fallback;
     const parsed = Date.parse(value);
@@ -103,8 +106,9 @@ function sessionMetadataFromInfo(
         ...(info.tabLabel === undefined || info.tabLabel === '' ? {} : { tabLabel: info.tabLabel }),
         ...(info.spawnedBy === undefined || info.spawnedBy === '' ? {} : { spawnedBy: info.spawnedBy }),
         // Always present, even when absent: a frame without it must clear the
-        // one the merge with known metadata would otherwise keep.
-        preview: info.preview,
+        // one the merge with known metadata would otherwise keep. A kind a
+        // newer host announces and this build cannot open shows no chip.
+        preview: info.preview !== undefined && KNOWN_PREVIEW_KINDS.has(info.preview.kind) ? info.preview : undefined,
         startedBy: 'daemon',
         rigMetadataVersion: 1,
         capabilities: {

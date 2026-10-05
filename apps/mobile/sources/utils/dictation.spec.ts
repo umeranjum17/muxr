@@ -7,7 +7,9 @@ import { usePluginEvents } from '@/plugins/events';
 import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
 
 const mocks = vi.hoisted(() => ({
-    sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number }>,
+    sessions: {} as Record<string, { id: string; activeAt: number; updatedAt: number; metadata?: unknown }>,
+    tree: [] as Array<Record<string, unknown>>,
+    viewingSessionId: null as string | null,
     vadStandbyEnabled: false,
     applyLocalSettings: vi.fn(),
     modalAlert: vi.fn(),
@@ -84,6 +86,9 @@ vi.mock('@/catalog/store', () => ({
     }),
     getState: () => ({
         sessions: mocks.sessions,
+        herdrWorkspaces: mocks.tree,
+        homeSnapshot: null,
+        currentViewingSessionId: mocks.viewingSessionId,
         localSettings: { vadStandbyEnabled: mocks.vadStandbyEnabled },
         applyLocalSettings: (patch: { vadStandbyEnabled?: boolean }) => {
             if (patch.vadStandbyEnabled !== undefined) mocks.vadStandbyEnabled = patch.vadStandbyEnabled;
@@ -173,6 +178,8 @@ beforeEach(() => {
         'session-a': { id: 'session-a', activeAt: 1, updatedAt: 1 },
         'session-b': { id: 'session-b', activeAt: 2, updatedAt: 2 },
     };
+    mocks.tree = [];
+    mocks.viewingSessionId = null;
     mocks.permission.mockResolvedValue({ granted: true, canAskAgain: true });
     mocks.dictationModel = 'multilingual';
     mocks.dictationLanguage = 'fr';
@@ -257,12 +264,53 @@ describe('on-device dictation flow', () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.transcribe).toHaveBeenCalledTimes(readings + 2);
         expect(mocks.transcribe.mock.calls.at(-1)![1]).toHaveProperty('audioCtx', 0);
-        expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en', beamSize: 5, prompt: 'muxr, Herdr, Codex, Claude, BYOKit, worktree, npm.' });
+        expect(mocks.transcribe.mock.calls.at(-1)![1]).toMatchObject({ language: 'en', beamSize: 5 });
         expect(mocks.transcribe.mock.calls.at(-1)![0].byteLength).toBe(444 * 2_560 - 25 * 32_000 + 2_560);
         expect(appended.at(-1)).toBe('hello one two three 4 five six seven eight');
         expect(api!.live).toBe('');
         expect(api!.transcribing).toBe(false);
         expect(micOwners()).toEqual([]);
+        // Per-turn context reaches the real decode prompt: the focused agent,
+        // its task, the repo and the draft, inside the ~224-token budget.
+        mocks.sessions = {
+            'session-a': {
+                id: 'session-a', activeAt: 1, updatedAt: 1,
+                metadata: {
+                    summary: { text: 'Repair Crewhouse login' },
+                    path: '/home/umer/pockit',
+                    workspaceLabel: 'pockit',
+                    worktree: { repo: 'pockit', branch: 'main', path: '/home/umer/pockit' },
+                },
+            },
+            'session-b': { id: 'session-b', activeAt: 2, updatedAt: 2 },
+        };
+        mocks.viewingSessionId = 'session-a';
+        mocks.tree = [{
+            workspaceId: 'w', label: 'pockit', focused: true, agentStatus: 'working',
+            worktree: { repo: 'pockit' },
+            tabs: [{
+                tabId: 't', label: 'Crewhouse', focused: true, agentStatus: 'working',
+                panes: [{
+                    paneId: 'p', tabId: 't', label: 'Repair Crewhouse login with OpenClaw',
+                    focused: true, agentStatus: 'working', sessionId: 'session-a',
+                    agentName: 'zulu-2', promptable: true,
+                }],
+            }],
+        }];
+        base = 'ask ChatGPT about';
+        await act(async () => { api!.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        await act(async () => { await say(2); });
+        await act(async () => { await say(1.5, silence); });
+        await act(async () => { api!.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        const biased = (mocks.transcribe.mock.calls.at(-1)![1] as { prompt: string }).prompt;
+        for (const name of ['muxr', 'Herdr', 'Crewhouse', 'OpenClaw', 'ChatGPT', 'zulu-2', 'pockit']) {
+            expect(biased).toContain(name);
+        }
+        expect(biased.length).toBeLessThanOrEqual(1400);
+        expect(appended.at(-1)).toMatch(/^ask ChatGPT about/);
+        base = 'hello';
 
         // Cancelling takes the live words back out of the draft.
         appended = [];
@@ -795,5 +843,98 @@ describe('on-device dictation flow', () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(mocks.liveAudio.stop).toHaveBeenCalledOnce();
         expect(api!.transcribing).toBe(false);
+    });
+
+    it('never lets whisper non-speech labels reach the draft, on insert or on Undo', async () => {
+        // The 127 fixture: an unsent baseline that a noise-only reading must
+        // neither append labels to nor restore, on either the direct-insert or
+        // the Cancel-then-Undo path.
+        base = 'QA fixture 127 undo unsent';
+        appended = [];
+        const prior = mocks.transcribe.getMockImplementation()!;
+        const noise = '(wind howling) [wind]';
+        const mixed = 'the wind is cold (see notes) [wind]';
+        // One final reading per phase below: noise-only insert, noise-only
+        // Undo, then a mixed reading whose real words and legitimate
+        // parenthetical must survive the sanitise.
+        const finalReadings = [noise, noise, mixed];
+        let finalIndex = 0;
+        // Inject the phase's final reading and hold it in flight for 600ms so a
+        // Cancel pressed right after stop lands inside it. Live readings keep
+        // the kit's normal words and resolve as usual.
+        const finalText = (out: { result: string; segments: { t0: number; t1: number; text: string }[]; isAborted: boolean }) => {
+            const text = finalReadings[finalIndex++]!;
+            return { ...out, result: text, segments: [{ t0: 0, t1: 0, text }] };
+        };
+        mocks.transcribe.mockImplementation((data, options) => {
+            const reading = prior(data, options);
+            const prompt = (options as { prompt?: string }).prompt;
+            const final = typeof prompt === 'string' && prompt.includes('muxr, Herdr');
+            if (!final) return reading;
+            const promise: Promise<{ result: string; segments: { t0: number; t1: number; text: string }[]; isAborted: boolean }> =
+                reading.promise.then(finalText).then((value) => new Promise<{ result: string; segments: { t0: number; t1: number; text: string }[]; isAborted: boolean }>((resolve) => { setTimeout(() => resolve(value), 600); }));
+            return { ...reading, promise };
+        });
+        const speech = Buffer.alloc(2560, 0x11).toString('base64');
+        const say = async (seconds: number) => {
+            for (let i = 0; i < seconds * 12.5; i++) {
+                onData?.(speech);
+                await vi.advanceTimersByTimeAsync(80);
+            }
+        };
+
+        await renderDictation();
+        // Start and speak enough for live readings to seed the draft.
+        const begin = async () => {
+            await act(async () => { api!.toggle(); });
+            await vi.advanceTimersByTimeAsync(0);
+            await act(async () => { await say(3); });
+        };
+        // Stop, let the in-flight final start, then Cancel inside the reading
+        // and settle it so the reading lands in the discard.
+        const cancelAndSettle = async () => {
+            await act(async () => { api!.toggle(); });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(api!.transcribing).toBe(true);
+            await act(async () => { await vi.advanceTimersByTimeAsync(150); api!.cancel(); });
+            expect(api!.discarded).toBe(true);
+            expect(appended.at(-1)).toBe(base);
+            // The final holds 600ms after stop; leave margin for the stop-
+            // wake and the whole-take reread round-trip.
+            await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+            expect(api!.transcribing).toBe(false);
+        };
+
+        // A noise-only final reading appends nothing and leaves the untouched
+        // baseline without a stray separator.
+        await begin();
+        await act(async () => { api!.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+        await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+        expect(api!.transcribing).toBe(false);
+        expect(appended.at(-1)).toBe(base);
+        expect(appended.join('\n')).not.toMatch(/\(wind howling\)|\[wind\]/);
+
+        // The 127 defect: Cancel takes the words out, the reading keeps going,
+        // and Undo restores the reading with its labels already dropped - here
+        // none, so the baseline stays exactly as it was.
+        appended = [];
+        await begin();
+        await cancelAndSettle();
+        await act(async () => { api!.undoCancel(); });
+        expect(api!.discarded).toBe(false);
+        expect(appended.at(-1)).toBe(base);
+        expect(appended.join('\n')).not.toMatch(/\(wind howling\)|\[wind\]/);
+
+        // A mixed reading restored through Undo drops the label but keeps the
+        // real words and the legitimate parenthetical.
+        appended = [];
+        await begin();
+        await cancelAndSettle();
+        await act(async () => { api!.undoCancel(); });
+        expect(api!.discarded).toBe(false);
+        expect(appended.at(-1)).toBe('QA fixture 127 undo unsent the wind is cold (see notes)');
+
+        mocks.transcribe.mockImplementation(prior);
     });
 });

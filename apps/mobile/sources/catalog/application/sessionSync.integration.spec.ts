@@ -7,13 +7,13 @@ import { ApiUpdateContainerSchema } from '../infrastructure/apiTypes';
 import { normalizeRawMessage } from '../infrastructure/typesRaw';
 import { completionAlerts, completionNotificationState, completionTransition, herdNotificationState, HERD_STATUS_LABELS, lifecycleNotificationCopy, lifecycleNotificationState, nativeLifecycleNotificationState, sortHerd } from '@/herd/model';
 import { normalizeRequestFailure, requestRequiresE2ee } from '@trymuxr/contract';
-import { buildSpaceRows, workspaceName, workspaceNames } from '@/herd/model';
+import { buildSpaceRows, moveSpace, workspaceName, workspaceNames } from '@/herd/model';
 import { selectLiveTerminalCards } from '../../herd/application/liveTerminalOrder';
 import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels } from '../../herd/domain/agentPresentation';
 import { terminalPaneCanSend, terminalPaneStatus } from '../../terminal/domain/promptAvailability';
 import { unseenActivityRows } from '../../herd/domain/recentActivity';
-import { loadLocalSettings, loadSpacePins } from './persistence';
+import { loadLocalSettings, loadSpacePins, loadSpacesLayouts } from './persistence';
 
 const request = vi.fn();
 const refreshSessions = vi.fn();
@@ -112,9 +112,10 @@ vi.mock('@/utils/appVersion', () => ({ getAppVersion: () => installedVersion.val
 vi.mock('@/herd', async () => {
     const { herdrPaneForSession } = await vi.importActual('@/herd/domain/agentPresentation');
     const { lifecycleNotificationCopy } = await vi.importActual<typeof import('@/herd/domain/herd')>('@/herd/domain/herd');
+    const { dropOldestAbsent } = await vi.importActual<typeof import('@/herd/domain/herdTree')>('@/herd/domain/herdTree');
     return {
         useActivityAcknowledgements: () => hostSync.activityHook!(), lifecycleNotificationCopy,
-        herdrPaneForSession,
+        herdrPaneForSession, dropOldestAbsent,
         getSessionName: (session: Session, pane?: HerdrTreePane) =>
             pane?.taskTitle ?? pane?.agentName ?? session.metadata?.summary?.text ?? session.id,
         getSessionSubtitle: (_session: Session, pane?: HerdrTreePane) => pane?.agentName ?? '',
@@ -1284,5 +1285,62 @@ describe('session sync flow', () => {
         ]);
         expect(storage.getState().pinnedSpaceIds).toEqual(['w-pin']);
         expect(loadSpacePins()).toEqual(['w-pin']);
+    });
+
+    it('moves top-level spaces within their pin group and keeps favourite agents per machine', () => {
+        mmkvValues.clear();
+        storage.setState({ pinnedSpaceIds: [], spacesLayouts: {} });
+        const pane = (paneId: string, sessionId = `route-${paneId}`): HerdrTreePane =>
+            ({ paneId, tabId: `${paneId}-tab`, sessionId, focused: false, agentStatus: 'idle', agentKind: 'pi', promptable: true });
+        const space = (workspaceId: string, order: number, tokens?: Record<string, string>): HerdrTreeWorkspace => ({
+            workspaceId, label: workspaceId, focused: false, agentStatus: 'idle', order, ...(tokens ? { tokens } : {}),
+            tabs: [{ tabId: `${workspaceId}-tab`, focused: false, agentStatus: 'idle', panes: [pane(`${workspaceId}-pane`)] }],
+        });
+        const tree = [space('a', 1), space('b', 2), space('c', 3), space('d', 4), space('a-child', 5, { parent: 'a' })];
+        const layout = () => storage.getState().spacesLayouts[storage.getState().activeMachineId];
+        const rows = () => buildSpaceRows(tree, new Set(['a']), '', new Set(storage.getState().pinnedSpaceIds), layout()?.order);
+        const drawn = () => rows().map((row) => row.workspace.workspaceId);
+        const move = (id: string, step: -1 | 1) => {
+            const group = drawn().filter((entry) => !storage.getState().pinnedSpaceIds.includes(entry));
+            storage.getState().setSpaceOrder(moveSpace(layout()?.order ?? [], group, id, step, new Set(drawn())));
+        };
+        storage.getState().setActiveMachine('mac');
+        storage.getState().applyHerdrTree(tree);
+
+        storage.getState().toggleSpacePin('a');
+        move('d', -1);
+        move('d', -1);
+        move('d', -1);
+        // Pinned still leads, the move stops at the top of its own group, and the child stays in its parent.
+        expect(drawn()).toEqual(['a', 'd', 'b', 'c']);
+        expect(rows()[0]!.children.map((child) => child.workspace.workspaceId)).toEqual(['a-child']);
+        // A closed workspace keeps its rank for when it returns.
+        tree.splice(3, 1);
+        expect(drawn()).toEqual(['a', 'b', 'c']);
+        tree.push(space('d', 4));
+        expect(drawn()).toEqual(['a', 'd', 'b', 'c']);
+
+        // A favourite is the agent's route, so a new agent in a reused pane id is not it.
+        storage.getState().toggleFavouriteAgent('route-c-pane');
+        expect(layout()!.favourites).toEqual(['route-c-pane']);
+        // Past the cap the oldest agent not running goes; a running favourite never does.
+        for (let index = 0; index < 64; index++) storage.getState().toggleFavouriteAgent(`gone-${index}`);
+        expect(layout()!.favourites).toHaveLength(64);
+        expect(layout()!.favourites[0]).toBe('route-c-pane');
+        expect(layout()!.favourites).not.toContain('gone-0');
+
+        // Another machine has its own layout; switching back finds this one intact, on disk too.
+        storage.getState().setActiveMachine('other-mac');
+        expect(layout()).toBeUndefined();
+        storage.getState().toggleFavouriteAgent('route-b-pane');
+        storage.getState().setActiveMachine('mac');
+        expect(drawn()).toEqual(['a', 'd', 'b', 'c']);
+        expect(loadSpacesLayouts()).toEqual({
+            mac: { order: ['d', 'b', 'c'], favourites: layout()!.favourites },
+            'other-mac': { order: [], favourites: ['route-b-pane'] },
+        });
+        storage.getState().toggleFavouriteAgent('route-c-pane');
+        expect(loadSpacesLayouts().mac!.favourites).not.toContain('route-c-pane');
+        expect(loadSpacePins()).toEqual(['a']);
     });
 });

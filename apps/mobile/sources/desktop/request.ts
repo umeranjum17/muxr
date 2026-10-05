@@ -25,7 +25,7 @@ const origins = new Map<string, DesktopOrigin>();
 
 /**
  * The computer's desktop, or (`preview`) the session's own screen: the
- * browser or emulator its agent is using. A tap on one never opens the other.
+ * browser, emulator, or claimed simulator its agent is showing. A tap on one never opens the other.
  */
 const requestKey = (machineId: string, sessionId: string, preview: boolean) => JSON.stringify([machineId, sessionId, preview]);
 

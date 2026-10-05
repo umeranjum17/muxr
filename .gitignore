@@ -3,7 +3,10 @@ dist/
 *.tsbuildinfo
 .expo/
 .pi-subagents/
-/.cache/muxr-dev/
+# Repo scratch: lane labs, evidence bundles, packed candidates. Nothing here is
+# tracked, and each clone's own .git/info/exclude used to hide it per-checkout
+# -- so a lane worktree and a clean CI checkout disagreed about the tree.
+/.cache/
 
 # secrets / signing — never commit
 .env

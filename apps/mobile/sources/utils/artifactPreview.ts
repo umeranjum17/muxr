@@ -14,6 +14,10 @@ function safeName(name: string): string {
     return (name.replace(/[^A-Za-z0-9._-]/g, '_') || 'image').slice(0, 64);
 }
 
+export function previewBase64(uri: string): Promise<string> {
+    return new File(uri).base64();
+}
+
 /** Materialize an image only when its thumbnail or gallery page mounts. */
 export async function artifactPreview(sessionId: string, artifact: ArtifactAction): Promise<ArtifactPreviewSource> {
     const settings = getCachedConnectionSettings();

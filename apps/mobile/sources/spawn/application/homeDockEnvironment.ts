@@ -5,7 +5,7 @@
  */
 
 import type { Session } from '@/catalog';
-import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType } from '@/catalog';
+import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType, type AgentCatalogOption } from '@/catalog';
 import { formatPathRelativeToHome } from '@/herd';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { listWorktrees } from './worktree';
@@ -15,6 +15,7 @@ export interface DockOption {
     name: string;
     description?: string;
     agentKind?: string;
+    disabled?: boolean;
 }
 
 const AGENT_NAMES: Partial<Record<NewSessionAgentType, string>> = {
@@ -98,14 +99,36 @@ export function applyWorktreeSelection(key: string): { sessionType: NewSessionSe
     return { sessionType: selection.sessionType, worktreeKey: selection.worktreeKey };
 }
 
-export function visibleDockAgents(
-    hostAgentKinds: string[] | null,
-    _authoritative: boolean,
-    agentType: NewSessionAgentType,
-): DockOption[] {
-    const visibleKeys = new Set(hostAgentKinds ?? ['shell', agentType]);
-    visibleKeys.add(agentType);
-    return DOCK_AGENTS.filter((agent) => visibleKeys.has(agent.key));
+export function agentName(kind: string): string {
+    return DOCK_AGENTS.find((agent) => agent.key === kind)?.name ?? kind.replace(/(^|[-_])(\w)/g, (_, prefix, letter) => `${prefix ? ' ' : ''}${letter.toUpperCase()}`);
+}
+
+export function agentReadinessLabel(option: AgentCatalogOption): string {
+    if (option.kind === 'shell') return 'Ready';
+    if (option.availability !== 'installed') {
+        if (option.kind === 'pi') return 'Installs on first start';
+        return option.installHint ?? `Install ${agentName(option.kind)} on the computer`;
+    }
+    if (option.signedIn === 'yes') return 'Signed in';
+    if (option.signedIn === 'no') return 'Needs sign-in';
+    return 'Sign-in not checked';
+}
+
+export function defaultAgentKind(options: readonly AgentCatalogOption[], preferred?: string): string | null {
+    const signedIn = options.filter((option) => option.availability === 'installed' && option.signedIn === 'yes' && option.kind !== 'pi');
+    return signedIn.find((option) => option.kind === preferred)?.kind ?? signedIn[0]?.kind ?? null;
+}
+
+export function visibleDockAgents(options: readonly AgentCatalogOption[] | null, more = false): DockOption[] {
+    const agents = (options ?? []).filter((option) => (option.availability === 'installed') !== more).map((option) => ({
+        key: option.kind,
+        name: agentName(option.kind),
+        description: [agentReadinessLabel(option), option.availability === 'installed' ? option.signInHint : undefined].filter(Boolean).join(' · '),
+        agentKind: option.kind,
+        disabled: more,
+    }));
+    if (more) return agents;
+    return [...agents, { key: 'shell', name: 'Shell (no agent)', description: 'Ready' }];
 }
 
 export function currentDockAgent(available: DockOption[], agentType: NewSessionAgentType): DockOption {
