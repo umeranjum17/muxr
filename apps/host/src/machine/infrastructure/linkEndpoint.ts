@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import { Host, PublicLinkError, hostId, keyPairFrom, type Grant, type GrantStore, type LinkRequest, type LinkStream, type PairRequest } from '@byokit/link';
 import { isExpoToken, linkUrl, ownerClient, RelayOwnerError, RelayClient, type RelayClientStore } from '@byokit/relay';
 import {
+    agentAlertTitle,
     lifecycleNotificationAllowed,
     parseClientFrame,
     parseLifecycleNotificationLevel,
@@ -15,7 +16,7 @@ import {
 } from '@trymuxr/contract';
 import { attachFailureCode, type LinkTerminalAttachParams, type LinkTerminalPort, type TerminalPipe } from '../domain/terminal.js';
 import type { MachineCryptoState, MachineDeviceRecord } from '../domain/crypto.js';
-import { safeTaskTitle } from '../../platform/safeTaskTitle.js';
+import { safeQuestion, safeTaskTitle } from '../../platform/safeTaskTitle.js';
 
 /** How the host answers one device's frame: the same answer the relay transport sends back. */
 export type LinkAnswer = (frame: ClientFrame, deviceId: string, connectionId?: string) => Promise<HostFrame | undefined>;
@@ -77,6 +78,9 @@ export interface LinkEndpointOptions {
 }
 
 interface DeviceMeta { muxrDeviceId: string }
+
+/** The relay's cap on a push's data, which carries the sealed notice. */
+const SEALED_NOTICE_MAX = 2048;
 
 /** Kept in step with the relay's push builder — same copy for both transports. */
 const COPY_SUFFIX: Record<string, string> = {
@@ -344,6 +348,7 @@ export class LinkEndpoint {
         reasonCode?: string;
         agentName?: string;
         taskTitle?: string;
+        question?: string;
     }): void {
         if (input.agentName === undefined || this.client === undefined) return;
         const crypto = this.currentCrypto();
@@ -354,14 +359,16 @@ export class LinkEndpoint {
         });
         if (recipients.length === 0) return;
         const taskTitle = safeTaskTitle(input.taskTitle);
-        const title = taskTitle ?? 'Agent update';
+        const title = agentAlertTitle({ taskTitle, agentName: input.agentName });
         const suffix = input.kind === 'failed' && COPY_SUFFIX.failed !== undefined && input.reasonCode !== undefined
             && ['start-launch-failed', 'start-timeout', 'squad-rolled-back', 'agent-unavailable'].includes(input.reasonCode)
             ? ' could not start.'
             : COPY_SUFFIX[input.kind];
-        const notice = {
+        const question = input.kind === 'blocked' ? safeQuestion(input.question) : undefined;
+        const notice = (asked: string | undefined) => ({
             title,
-            body: `${input.agentName}${suffix}`,
+            // A blocked agent's own question is the alert; the sealed notice keeps it from the relay.
+            body: asked ?? `${input.agentName}${suffix}`,
             data: {
                 eventId: input.eventId,
                 kind: input.kind,
@@ -372,13 +379,17 @@ export class LinkEndpoint {
                 machineId: input.machineId,
                 presentationOwner: 'relay-push',
             },
-        };
+        });
         for (const grant of recipients) {
+            const key = Buffer.from(grant.key, 'base64url');
+            let sealed = sealNotice(notice(question), key);
+            // The relay refuses push data over 2 KB; a wide question gives way to the plain copy.
+            if (JSON.stringify(sealed).length > SEALED_NOTICE_MAX) sealed = sealNotice(notice(undefined), key);
             void this.client.notify({
                 id: createHash('sha256').update(JSON.stringify([input.eventId, grant.id])).digest('hex'),
                 title: 'Agent update',
                 body: 'An agent has an update.',
-                data: sealNotice(notice, Buffer.from(grant.key, 'base64url')),
+                data: sealed,
                 to: [grant.id],
                 urgency: input.kind === 'blocked' ? 'high' : 'normal',
             }, { includeContent: true }).catch((cause: unknown) => {

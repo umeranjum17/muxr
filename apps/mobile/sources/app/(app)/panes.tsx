@@ -189,7 +189,7 @@ const TabCard = React.memo(function TabCard(props: {
                     onNavigatePane={open}
                     compact={false}
                     selected={false}
-                    canClose={props.canControl}
+                    hasActions={props.canControl}
                     unseenDone={pane.sessionId !== undefined && props.unseenDone.has(pane.sessionId)}
                     subtitle={subtitleOf(pane)}
                 />

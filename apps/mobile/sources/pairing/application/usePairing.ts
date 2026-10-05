@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { consentWords, pairingView } from '@byokit/ui-core/link';
-import { pairingDeviceKind } from '../infrastructure/pairingPlatform';
+import { pairingDeviceKind, pairingDeviceNoun } from '../infrastructure/pairingPlatform';
 import { useRouter } from 'expo-router';
 import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
@@ -34,12 +34,14 @@ export function pairLinkConsent(scanned: string, machineName: string): string {
     const device = pairingDeviceKind();
     const role = linkOfferRole(scanned);
     if (role === undefined) {
-        return `${device === 'browser' ? 'This browser' : 'This phone'} will receive the access shown on the pairing screen. Only continue if you just ran ${device === 'browser' ? '`muxr pair --browser`' : '`muxr pair`'} on that computer.`;
+        return `This ${pairingDeviceNoun()} will receive the access shown on the pairing screen. Only continue if you just ran ${device === 'browser' ? '`muxr pair --browser`' : '`muxr pair`'} on that computer.`;
     }
     let detail = pairLinkDetail(device, role);
     if (device === 'browser') detail = `Machine keys stay end-to-end encrypted in this browser for ${hostedPairingDuration(scanned)}. ${detail}`;
-    return consentWords({ hostName: machineName, role, device, detail });
+    return nameDevice(consentWords({ hostName: machineName, role, device, detail }));
 }
+
+export { pairingDeviceNoun };
 
 export type PairingProgress = ReturnType<typeof pairingView>;
 
@@ -78,7 +80,7 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
             Modal.alert('Pairing failed', 'Pairing failed');
             return false;
         }
-        options.onProgress?.(pairingView({ phase: 'paired', hostName: machineName, device }));
+        options.onProgress?.(pairedView(machineName, device));
         await auth.login(retried.credential, retried.secretKey);
         return true;
     }
@@ -86,9 +88,19 @@ export async function pairLinkOffer(scanned: string, auth: ReturnType<typeof use
         Modal.alert('Pairing failed', paired.message ?? 'Pairing failed');
         return false;
     }
-    options.onProgress?.(pairingView({ phase: 'paired', hostName: machineName, device }));
+    options.onProgress?.(pairedView(machineName, device));
     await auth.login(paired.credential, paired.secretKey);
     return true;
+}
+
+/** The kit only knows "This phone"; name the device the person is actually holding. */
+function nameDevice(text: string): string {
+    return text.replace(/(^|\? )This phone\b/, `$1This ${pairingDeviceNoun()}`);
+}
+
+function pairedView(machineName: string, device: 'phone' | 'browser'): PairingProgress {
+    const view = pairingView({ phase: 'paired', hostName: machineName, device });
+    return { ...view, title: nameDevice(view.title) };
 }
 
 function pairLinkDetail(device: 'phone' | 'browser', role: 'control' | 'view'): string {
