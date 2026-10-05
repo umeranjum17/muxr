@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -723,8 +724,10 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             const stopped: string[] = [];
             let launches = 0;
             let closeUnavailable = false;
+            let lastStart: { signIn?: string; planEnv?: Record<string, string> } = {};
             const source = {
-                async start() {
+                async start(command: { signIn?: string; planEnv?: Record<string, string> }) {
+                    lastStart = command;
                     launches += 1;
                     // The first launch reports no paneId at all, like a source that only knows the tab id.
                     const info = launches === 1 ? { id: 'tab-1' } : { id: `tab-${launches}`, paneId: `w9:p${launches}` };
@@ -745,6 +748,18 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             // Pane-id fallback: the tab is still found by its session id and closed on cancel.
             const added = await dispatch({ type: 'plans.add', requestId: 'a1', params: { provider: 'claude', accountId: 'pa_s' } });
             expect(added).toMatchObject({ ok: true });
+
+            // The tab shows only the provider's sign-in: no folder, no marker on its command line.
+            expect(lastStart.signIn).toBe(' sh "$MUXR_PLAN_SIGNIN"');
+            const script = lastStart.planEnv!.MUXR_PLAN_SIGNIN!;
+            expect(readFileSync(script, 'utf8')).toContain(`CLAUDE_CONFIG_DIR='${join(home4, 'c')}'`);
+            // A login that fails ends the wait with why, instead of polling forever.
+            const bin = join(home4, 'bin');
+            mkdirSync(bin);
+            writeFileSync(join(bin, 'claude'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+            execFileSync('sh', [script], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+            const failedLogin = await dispatch({ type: 'plans.status', requestId: 's1', params: { accountId: 'pa_s' } });
+            expect(failedLogin).toMatchObject({ ok: true, data: { account: { signedIn: false }, failure: expect.stringContaining('ended without signing in') } });
             closeUnavailable = true;
             expect(await dispatch({ type: 'plans.cancel', requestId: 'c0', params: { accountId: 'pa_s' } })).toMatchObject({ ok: false });
             expect(sessions).toHaveLength(1);
@@ -759,8 +774,12 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
                 dispatch({ type: 'plans.add', requestId: 'a3', params: { provider: 'claude', accountId: 'pa_s' } }),
             ]);
             expect(stopped).toEqual(['tab-1', 'tab-2']);
+            // Closing the tab by hand is a failure the phone can show, not a silent wait.
+            sessions.splice(0, sessions.length);
+            const closedTab = await dispatch({ type: 'plans.status', requestId: 's2', params: { accountId: 'pa_s' } });
+            expect(closedTab).toMatchObject({ ok: true, data: { failure: 'The sign-in tab was closed before you signed in.' } });
             await dispatch({ type: 'plans.cancel', requestId: 'c2', params: { accountId: 'pa_s' } });
-            expect(stopped).toEqual(['tab-1', 'tab-2', 'tab-3']);
+            expect(stopped).toEqual(['tab-1', 'tab-2']);
 
             // A launch that fails after creating the record leaves no phantom behind.
             let failedStarts = 0;

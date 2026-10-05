@@ -33,9 +33,10 @@ export function unseenAutoTerms(): string | undefined {
     return list?.autoTermsAcknowledged === false ? list.autoTermsNote : undefined;
 }
 
-/** The account being signed in, as its tool reports it now. */
-export function signInState(accountId: string, connection = planConnection()): Promise<PlanAccount> {
-    return requestPlan(connection, 'plans.status', { accountId }).then((answer) => answer.account);
+/** The account being signed in, as its tool reports it now, and why its
+ *  sign-in ended without signing in, once it has. */
+export function signInState(accountId: string, connection = planConnection()): Promise<{ account: PlanAccount; failure?: string }> {
+    return requestPlan(connection, 'plans.status', { accountId });
 }
 
 /** Cancel the tracked sign-in through `plans.cancel`, then refresh accounts. */

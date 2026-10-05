@@ -12,7 +12,7 @@ import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
-import type { PlanAccount } from '@trymuxr/contract';
+import type { HerdrTreePane, HerdrTreeWorkspace, PlanAccount, PlanProviderAccounts } from '@trymuxr/contract';
 import { claudeIdentity, codexIdentity } from './planIdentity.js';
 import { suggestPlanName, resolvePlanRecord } from './plansApi.js';
 import {
@@ -95,32 +95,61 @@ export function forgetSignInTab(accountId: string, paneId: string): void {
     const tab = signInTabs.get(accountId);
     if (tab?.paneId !== paneId) return;
     rmSync(tab.completionPath, { force: true });
+    rmSync(`${tab.completionPath}.sh`, { force: true });
     signInTabs.delete(accountId);
 }
 
+const quote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
+
+/**
+ * The tab runs one private script, so all it shows is the provider's own
+ * sign-in: the script clears the screen, points the tool at the account's
+ * folder itself (after the shell's rc files, which could override it), and
+ * records how the login ended.
+ */
 export function planSignInLaunch(env: NodeJS.ProcessEnv, record: PlanAccountRecord): { completionPath: string; launch: { kind: string; label: string; signIn: string; planEnv: Record<string, string> } } {
     mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
     const completionPath = join(plansDir(env), `signin-${randomBytes(12).toString('hex')}`);
-    const quotedPath = "'" + completionPath.replaceAll("'", "'\\''") + "'";
+    const folderVar = record.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
     const login = record.provider === 'claude' ? 'claude auth login --claudeai' : 'codex login --device-auth';
+    writeFileSync(`${completionPath}.sh`, [
+        "printf '\\033[H\\033[2J\\033[3J'",
+        `export ${folderVar}=${quote(record.folder)}`,
+        `if ${login}; then result=complete; else result=failed; fi`,
+        `(umask 077; printf %s "$result" > ${quote(completionPath)})`,
+        '',
+    ].join('\n'), { mode: 0o700 });
     return {
         completionPath,
         launch: {
             kind: 'shell',
             label: `Sign in · ${PLAN_LABELS[record.provider]}`,
-            signIn: `${login} && (umask 077; printf complete > ${quotedPath})`,
-            planEnv: record.provider === 'claude' ? { CLAUDE_CONFIG_DIR: record.folder } : { CODEX_HOME: record.folder },
+            // A leading space keeps it out of the shell's history.
+            signIn: ' sh "$MUXR_PLAN_SIGNIN"',
+            planEnv: { MUXR_PLAN_SIGNIN: `${completionPath}.sh` },
         },
     };
 }
 
+function signInResult(completionPath: string): string | undefined {
+    try {
+        return readFileSync(completionPath, 'utf8').trim();
+    } catch {
+        return undefined;
+    }
+}
+
 /** The account as its tool reports it right now: the phone polls this while
- *  the person signs in, and moves on once it reads signed in. */
-export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: string): Promise<{ account: PlanAccount }> {
+ *  the person signs in, and moves on once it reads signed in. `failure` says
+ *  why a tracked sign-in ended without signing in. */
+export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: string): Promise<{ account: PlanAccount; failure?: string }> {
     const record = resolvePlanRecord(env, accountId);
     const identity = record.provider === 'claude'
         ? await claudeIdentity(record.folder, env)
         : await codexIdentity(record.folder, env);
+    const tab = signInTabs.get(accountId);
+    const result = tab === undefined ? undefined : signInResult(tab.completionPath);
+    const signedIn = identity.signedIn && (tab === undefined || result === 'complete');
     return {
         account: {
             id: record.id,
@@ -129,8 +158,9 @@ export async function planAccountStatus(env: NodeJS.ProcessEnv, accountId: strin
             ...(identity.email === undefined ? {} : { email: identity.email }),
             ...(identity.plan === undefined ? {} : { plan: identity.plan }),
             ...(record.found ? { foundOnComputer: true as const } : {}),
-            signedIn: identity.signedIn && (signInTabs.get(accountId) === undefined || existsSync(signInTabs.get(accountId)!.completionPath)),
+            signedIn,
         },
+        ...(!signedIn && result !== undefined ? { failure: `${PLAN_LABELS[record.provider]} sign-in ended without signing in. Its tab shows why.` } : {}),
     };
 }
 
@@ -154,6 +184,39 @@ export function rememberPlanPane(env: NodeJS.ProcessEnv, paneId: string, account
     const kept = [...loadPanes(env).filter(([id]) => id !== paneId && livePaneIds.includes(id)), [paneId, accountId] as [string, string]];
     mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
     writeFileSync(panesPath(env), JSON.stringify(kept), { mode: 0o600 });
+}
+
+/**
+ * Names the account each agent in the tree runs on, from the accounts the
+ * host last listed: only for a provider with a choice of account (the list
+ * holds no other), and never on a sign-in tab. Reading names from that list
+ * keeps the tree's own cadence free of any provider tool call.
+ */
+export function withPlanAccounts<T extends { workspaces: HerdrTreeWorkspace[] }>(env: NodeJS.ProcessEnv, tree: T, listed: readonly PlanProviderAccounts[] | undefined): T {
+    if (listed === undefined || listed.length === 0) return tree;
+    const recorded = new Map(loadPanes(env));
+    const signingIn = new Set([...signInTabs.values()].map((tab) => tab.paneId));
+    const accountOn = (pane: HerdrTreePane): string | undefined => {
+        const kind = pane.agentKind;
+        const provider = kind === 'claude' || kind === 'pi' ? 'claude' : kind === 'codex' ? 'codex' : undefined;
+        const entry = listed.find((candidate) => candidate.provider === provider);
+        if (entry === undefined || signingIn.has(pane.paneId)) return undefined;
+        const id = recorded.get(pane.paneId);
+        return (id === undefined ? entry.accounts.find((account) => account.foundOnComputer) : entry.accounts.find((account) => account.id === id))?.name;
+    };
+    return {
+        ...tree,
+        workspaces: tree.workspaces.map((workspace) => ({
+            ...workspace,
+            tabs: workspace.tabs.map((tab) => ({
+                ...tab,
+                panes: tab.panes.map((pane) => {
+                    const planAccount = accountOn(pane);
+                    return planAccount === undefined ? pane : { ...pane, planAccount };
+                }),
+            })),
+        })),
+    };
 }
 
 /** The account an agent's pane runs on, when muxr started or moved it onto

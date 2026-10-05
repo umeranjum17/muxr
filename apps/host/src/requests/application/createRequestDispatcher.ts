@@ -5,6 +5,7 @@ import type {
     ClientRequest,
     PeerClientRequest,
     PeerRequestType,
+    PlanProviderAccounts,
     PluginManifestV1,
     PreviewPresence,
     RequestMap,
@@ -49,6 +50,7 @@ import {
     PLAN_LABELS,
     acknowledgeAutoTerms,
     listPlans,
+    withPlanAccounts,
     planAccountStatus,
     planLaunchEnv,
     planPaneAccount,
@@ -246,6 +248,9 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         return { sessionId, cwd: record.cwd ?? '', ...(root === undefined ? {} : { root }) };
     };
 
+    /** The accounts as last listed, which name the account on each agent in the tree. */
+    let lastPlans: PlanProviderAccounts[] | undefined;
+
     /** An agent's route can change once it settles; its pane is what a plan account rides on. */
     const planPaneOf = async (sessionId: string): Promise<string> =>
         (await source.list()).find((session) => session.id === sessionId)?.paneId ?? sessionId;
@@ -353,7 +358,7 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             return started;
         },
         'session.open': async (params) => useCaseData(await openAgent(source, params)),
-        'herdr.tree': async () => source.herdrTree(),
+        'herdr.tree': async () => withPlanAccounts(process.env, await source.herdrTree(), lastPlans),
         'applications.list': async () => source.applicationsList(),
         'applications.launch': async (params) => source.applicationsLaunch(params),
         'herdr.agentKinds': async (params) => agentCatalog.read(params.refresh),
@@ -600,7 +605,11 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             ...(params.refresh === undefined ? {} : { refresh: params.refresh }),
         }),
         'usage.now': (params) => usageNow(process.env, { ...(params.refresh === undefined ? {} : { refresh: params.refresh }) }),
-        'plans.list': () => listPlans(process.env),
+        'plans.list': async () => {
+            const listed = await listPlans(process.env);
+            lastPlans = listed.providers;
+            return listed;
+        },
         'plans.acknowledgeAutoTerms': async () => acknowledgeAutoTerms(process.env),
         'plans.rename': async (params) => renamePlanAccount(process.env, params.accountId, params.name),
         'plans.remove': (params) => withPlanSignIn(params.accountId, async () => {
@@ -673,7 +682,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'plans.status': (params) => withPlanSignIn(params.accountId, async () => {
             const status = await planAccountStatus(process.env, params.accountId);
             if (status.account.signedIn) await closeSignInTab(params.accountId);
-            return status;
+            const tab = signInTab(params.accountId);
+            if (status.account.signedIn || status.failure !== undefined || tab === undefined) return status;
+            const open = (await source.list()).some((session) => session.paneId === tab.paneId || session.id === tab.paneId);
+            return open ? status : { ...status, failure: 'The sign-in tab was closed before you signed in.' };
         }),
         'plans.cancel': (params) => withPlanSignIn(params.accountId, async () => {
             const tab = await closeSignInTab(params.accountId);

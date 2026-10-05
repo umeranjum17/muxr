@@ -1380,13 +1380,17 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
-                        <Pressable onPress={() => { setActionsOpen(false); setOverviewOpen(true); }} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentWhoLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. Open panes` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
+                        <Pressable onPress={() => { setActionsOpen(false); setOverviewOpen(true); }} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentWhoLine(labels)}${currentPane?.planAccount === undefined ? '' : `. On ${currentPane.planAccount}`}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. Open panes` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
                             {identityKnown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
                             {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{contextTitle}</Text>}
                             {/* Whose task it is, after the task: the same order as the
                                 Spaces row that opened this. A name is short, so the task
                                 gives way first. */}
                             {identityKnown && contextName !== undefined && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '40%', color: theme.colors.textSecondary, fontSize: 13 }}>{contextName}</Text>}
+                            {/* The plan account it runs on, only when there is a choice of
+                                account. In this row, not a new one: chrome that appears late
+                                would re-attach the terminal. */}
+                            {identityKnown && currentPane?.planAccount !== undefined && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '30%', color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane.planAccount}</Text>}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).
