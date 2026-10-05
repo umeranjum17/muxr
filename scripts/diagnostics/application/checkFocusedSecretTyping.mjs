@@ -18,6 +18,13 @@ import { execFile } from 'node:child_process';
 //     [--expect <expected>] [--adb <path>]
 // `--expect` compares the readback against a different string instead, which
 // is how a corrupted readback is proven to fail. Exit 0 on match, 1 otherwise.
+//
+// A multi-line secret (`--text` containing `\n`, e.g. an SSH public key) is
+// typed one line at a time with an Enter keypress between lines, and the
+// readback is compared against the accumulated text: the lines concatenated
+// with the separators removed, so the Enter keypresses never count as content
+// and leave no residue in the comparison. Without `\n` the helper matches the
+// whole field exactly as before.
 
 const adbPath = valueOf('--adb') || process.env.ADB || 'adb';
 const serial = valueOf('--serial');
@@ -31,10 +38,16 @@ if (text.includes('%') || (valueOf('--expect') ?? '').includes('%')) {
     process.stderr.write('FAIL: text contains % which `adb shell input text` reserves (%s means space)\n');
     process.exit(2);
 }
-if (!/^[A-Za-z0-9 \/+=\-.,_:@]*$/.test(text)) {
-    process.stderr.write('FAIL: text has characters outside the input-safe charset [A-Za-z0-9 /+=.,_:@ and space]\n');
+if (!/^[A-Za-z0-9 \/+=\-.,_:@\n]*$/.test(text)) {
+    process.stderr.write('FAIL: text has characters outside the input-safe charset [A-Za-z0-9 /+=.,_:@, space and newline]\n');
     process.exit(2);
 }
+
+// Multi-line mode: without `\n` in the typed text every line below is the
+// identity, so the single-line path compares and reports exactly as before.
+const multiline = text.includes('\n');
+const accumulated = (value) => value.replace(/\r?\n/g, '');
+const expected = multiline ? accumulated(expect) : expect;
 
 function valueOf(flag) {
     const index = process.argv.indexOf(flag);
@@ -79,18 +92,30 @@ if (focusedTexts(await shell('cat', dumpPath)).length === 0) {
 
 // Strictly sequential: one awaited adb call per character. Batching or
 // parallel calls reintroduce the drop/reorder behaviour this helper exists
-// to avoid.
-for (const char of text) {
-    await shell('input', 'text', encodeChar(char));
+// to avoid. Between the lines of a multi-line secret an Enter keypress
+// separates the lines; it carries no content and is stripped from both sides
+// of the comparison below.
+if (!multiline) {
+    for (const char of text) {
+        await shell('input', 'text', encodeChar(char));
+    }
+} else {
+    const lines = text.split('\n');
+    for (let index = 0; index < lines.length; index++) {
+        for (const char of lines[index]) {
+            await shell('input', 'text', encodeChar(char));
+        }
+        if (index < lines.length - 1) await shell('input', 'keyevent', '66');
+    }
 }
 
 let readback;
 for (let attempt = 0; attempt < 30; attempt++) {
     await shell('uiautomator', 'dump', dumpPath);
     const xml = await shell('cat', dumpPath);
-    const focused = focusedTexts(xml);
-    if (focused.includes(expect)) {
-        readback = expect;
+    const focused = focusedTexts(xml).map((value) => (multiline ? accumulated(value) : value));
+    if (focused.includes(expected)) {
+        readback = expected;
         break;
     }
     if (focused.length > 0) readback = focused[0];
@@ -100,14 +125,14 @@ if (readback === undefined) {
     process.stderr.write(`FAIL: no focused text field readable on ${serial} (uiautomator dump has no focused node)\n`);
     process.exit(1);
 }
-if (readback !== expect) {
-    const first = [...expect].findIndex((char, index) => char !== readback[index]);
-    const at = first === -1 ? Math.min(expect.length, readback.length) : first;
+if (readback !== expected) {
+    const first = [...expected].findIndex((char, index) => char !== readback[index]);
+    const at = first === -1 ? Math.min(expected.length, readback.length) : first;
     const show = (value) => (at < value.length ? `'${value[at]}' (U+${value.codePointAt(at).toString(16).toUpperCase()})` : '<end of string>');
     process.stderr.write(
-        `FAIL: readback differs at index ${at}: expected ${show(expect)} got ${show(readback)} ` +
-        `(expected ${expect.length} chars, read ${readback.length})\n`,
+        `FAIL: readback differs at index ${at}: expected ${show(expected)} got ${show(readback)} ` +
+        `(expected ${expected.length} chars, read ${readback.length})\n`,
     );
     process.exit(1);
 }
-process.stdout.write(`PASS: typed and verified ${expect.length} chars on ${serial}\n`);
+process.stdout.write(`PASS: typed and verified ${expected.length} chars on ${serial}\n`);
