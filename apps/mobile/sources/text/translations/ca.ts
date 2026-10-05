@@ -22,15 +22,18 @@ export const ca: TranslationStructure = {
     preview: {
         chipBrowser: 'Navegador',
         chipAndroid: 'Emulador',
+        chipIos: 'Simulador',
         introBrowser: 'El teu agent ha obert un navegador',
         introAndroid: 'El teu agent ha iniciat un emulador d\'Android',
+        introIos: 'El teu agent ha reclamat un simulador d\'iOS',
         watch: 'Mira',
         notNow: 'Ara no',
         watchBrowser: 'Mira el navegador',
         watchAndroid: 'Mira l\'emulador d\'Android',
+        watchIos: 'Mira el simulador d\'iOS',
         reconnecting: 'Tornant a connectar…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
-            `${kind === 'android' ? 'Emulador d\'Android en ús' : 'Navegador en ús'}${title ? `, ${title}` : ''}. Mira en directe`,
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
+            `${kind === 'android' ? 'Emulador d\'Android en ús' : kind === 'ios' ? 'Simulador d\'iOS en ús' : 'Navegador en ús'}${title ? `, ${title}` : ''}. Mira en directe`,
     },
 
     tabs: {
@@ -320,6 +323,7 @@ export const ca: TranslationStructure = {
         // Spaces section on Home
         title: 'Espais',
         pinned: 'Fixats',
+        favourites: 'Preferits',
         empty: 'Cap espai obert',
         rootFolder: 'Carpeta arrel',
         homeFolder: 'Carpeta d’inici',
@@ -349,6 +353,8 @@ export const ca: TranslationStructure = {
         runtimeOffline: ({ name }: { name: string }) => `herdr no respon a ${name}`,
         runtimeStale: 'les sessions poden estar desactualitzades',
         liveEmpty: 'Cap agent actiu · inicia\'n un a sota',
+        emptyStart: 'Inicia un agent i el seu espai s\'obrirà aquí',
+        emptyWatch: 'Els espais oberts en aquest ordinador apareixen aquí',
     },
 
     emptySessions: {

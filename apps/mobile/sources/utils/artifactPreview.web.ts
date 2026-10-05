@@ -1,5 +1,5 @@
 import type { PluginAction } from '@trymuxr/contract';
-import { decodeBase64 } from '@/encryption/base64';
+import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 
@@ -9,6 +9,10 @@ export type ArtifactPreviewSource = { uri: string; dispose?: () => void };
 const CHUNK_BYTES = 512 * 1024;
 const MAX_PREVIEW_BYTES = 8 * 1024 * 1024;
 const previewInflight = new Map<string, Promise<Blob>>();
+
+export async function previewBase64(uri: string): Promise<string> {
+    return encodeBase64(new Uint8Array(await (await fetch(uri)).arrayBuffer()));
+}
 
 /** Web materializes one bounded, visible preview through authenticated chunks. */
 export async function artifactPreview(sessionId: string, artifact: ArtifactAction): Promise<ArtifactPreviewSource> {

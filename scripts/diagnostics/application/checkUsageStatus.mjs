@@ -3,7 +3,7 @@ import { usage } from '@byokit/usage';
 import { createRequire } from 'node:module';
 let DatabaseSync;
 try { ({ DatabaseSync } = await import('node:sqlite')); } catch {};
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -113,7 +113,7 @@ const claudeLimits = {
 const { collectUsage, usageNow } = await import('../../../apps/host/dist/usage/index.js');
 const { tightestWindow } = await import('../../../apps/host/dist/usage/domain/usageWindows.js');
 
-const ENV_KEYS = ['HOME', 'PATH', 'TZ', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'PI_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'OPENCODE_AUTH_CONTENT', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'MUXR_HOME', 'MUXR_CCUSAGE_BIN', 'MUXR_USAGE_NOW', 'MUXR_USAGE_PROVIDER', 'NODE_OPTIONS'];
+const ENV_KEYS = ['HOME', 'PATH', 'TZ', 'XDG_DATA_HOME', 'PI_CONFIG_DIR', 'PI_CODING_AGENT_DIR', 'PI_AGENT_DIR', 'OMP_PROFILE', 'PI_PROFILE', 'OPENCODE_DB', 'OPENCODE_DATA_DIR', 'OPENCODE_AUTH_CONTENT', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'MUXR_HOME', 'MUXR_CCUSAGE_BIN', 'MUXR_USAGE_NOW', 'MUXR_USAGE_PROVIDER', 'NODE_OPTIONS', 'BASH_FUNC_muxr%%'];
 let fetchStub = undefined;
 const realFetch = globalThis.fetch;
 async function stubbedFetch(url, options) {
@@ -205,6 +205,8 @@ const baseEnv = () => ({
     MUXR_HOME: scratch,
     MUXR_CCUSAGE_BIN: ccusage,
     CODEX_HOME: join(scratch, '.codex'),
+    // A host started from a shell inherits its exported functions, newlines and all.
+    'BASH_FUNC_muxr%%': '() {  true\n}',
     // undefined deletes: the disk Go account is the default unless a run pins
     // the OPENCODE_AUTH_CONTENT override itself.
     OPENCODE_AUTH_CONTENT: undefined,
@@ -233,6 +235,9 @@ try {
     writeTranscript(join(scratch, '.claude/projects/-fixture/session.jsonl'), [claudeTurn('thinking'), claudeTurn('text')]);
     writeFileSync(join(scratch, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'fixture-claude-token', accountUuid: 'fixture-claude-account', expiresAt: Date.now() + 3_600_000 } }));
     writeFileSync(join(scratch, '.claude', 'last-statusline-input.json'), JSON.stringify(claudeLimits));
+    // Snapshot observation time uses the same clock as the kit reading it.
+    const claudeSnapshot = join(scratch, '.claude', 'last-statusline-input.json');
+    utimesSync(claudeSnapshot, today, today);
     writeFileSync(join(scratch, 'codex'), `#!/usr/bin/env node\nimport { appendFileSync } from 'node:fs';appendFileSync(${JSON.stringify(codexMarker)}, 'x');let b='';process.stdin.setEncoding('utf8');process.stdin.on('data',d=>{b+=d;for(;;){const i=b.indexOf('\\n');if(i<0)break;const line=b.slice(0,i);b=b.slice(i+1);const m=JSON.parse(line);if(m.id===1)console.log(JSON.stringify({id:1,result:{}}));if(m.id===2)console.log(JSON.stringify({id:2,result:{rateLimitsByLimitId:{codex:{limitId:'codex',primary:{usedPercent:25,windowDurationMins:300,resetsAt:Math.floor(Date.now()/1000)+3600},secondary:{usedPercent:90,windowDurationMins:10080,resetsAt:Math.floor(Date.now()/1000)+86400}}}}}));}});\n`, { mode: 0o755 });
     for (const command of ['claude', 'kimi', 'opencode', 'hermes', 'github-copilot', 'cursor-agent', 'omp', 'gemini', 'grok', 'amp', 'droid', 'codebuff', 'goose', 'openclaw', 'kilocode', 'qwen', 'devin', 'kiro-cli', 'cline', 'maki', 'mastra', 'qoder', 'antigravity']) writeFileSync(join(scratch, command), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 
@@ -543,6 +548,8 @@ try {
     // The host-internal section runs on the real clock like the live host: the
     // transcripts it writes are fresh, so no pinned MUXR_USAGE_NOW here.
     const hostEnvironment = { HOME: scratch, PATH: `${scratch}:${process.env.PATH}`, XDG_DATA_HOME: hostRoot, PI_CONFIG_DIR: '.omp', OMP_PROFILE: 'host.flow', PI_PROFILE: '', CLAUDE_CONFIG_DIR: join(scratch, '.claude'), CODEX_HOME: join(scratch, '.codex'), TZ: 'UTC', MUXR_HOME: scratch, MUXR_CCUSAGE_BIN: ccusage, MUXR_USAGE_NOW: undefined, OPENCODE_AUTH_CONTENT: '{}' };
+    const hostNow = new Date();
+    utimesSync(claudeSnapshot, hostNow, hostNow);
     const launched = await drive(hostEnvironment, { provider: 'omp' });
     assert.equal(launched.provider, 'omp');
     assert.equal(launched.todayTokens, '150');
@@ -764,7 +771,8 @@ try {
     // default OMP tab borrows nothing. Remove
     // the real-clock reading from the host-env fixture above before comparing
     // it with this pinned-clock collection.
-    rmSync(join(scratch, 'usage', 'plans-v1.json'), { force: true });
+    for (const file of ['plans-v1.json', 'plans-v2.json']) rmSync(join(scratch, 'usage', file), { force: true });
+    utimesSync(claudeSnapshot, today, today);
     const nowPayload = await driveNow(baseEnv());
     const defaultTab = await run({});
     assert.equal(defaultTab.provider, 'omp');

@@ -80,7 +80,7 @@ and a central primitive registry. The phone is a dumb translator of `muxr-ui.jso
 it mounts slots and draws widgets. Realtime voice, usage and machine health,
 dictation, the terminal key row, the workspace tree, and Panes are product code,
 not plugins. The phone no longer has a separate in-conversation Browser surface:
-a muxr-launched pane's own browser or emulator appears as a live chip while it
+a muxr-launched pane's own browser, emulator, or claimed simulator appears as a live chip while it
 is there, and on a machine with a desktop session, agents can also open pages
 in its desktop browser for the user to finish through Computer. Plugins do not expose a preview action.
 Navigation destinations open `/plugin`.
@@ -103,7 +103,8 @@ exist.
 ids (herdr pane ids change on cross-workspace moves), the attention/inbox
 derivation, plugin RPC execution, attachment files on disk, push triggers, the
 preview presence it measures from a pane's own screen or its pane-owned
-headless emulator (adb discovery), and the on-demand desktop
+headless emulator (adb discovery) or a pane-claimed iOS Simulator (vendored idb,
+macOS), and the on-demand desktop
 engine processes it starts and stops — the computer's screen for one authorized
 viewer, or a pane's screen for an agent preview. It manages no agent processes
 and keeps no lifecycle ledger — a closed pane simply disappears from the app.
@@ -208,7 +209,8 @@ Beyond the session basics, the host exposes herdr's topology to the app:
   started together.
 - `SessionInfo` carries `workspaceId`/`tabId`/`workspaceLabel`, `terminalTitle`
   (OSC title breadcrumb), worktree provenance, and `preview` when the agent is
-  showing a watchable browser or emulator on its pane's own screen;
+  showing a watchable browser or emulator on its pane's own screen, or a
+  simulator the pane claimed;
   `session.updated` events push changes, presence included, so cards and rows
   refresh live.
 
@@ -278,11 +280,16 @@ after showing him the plan.
 ## Push notifications
 
 Notifications open the app; requests travel over the authenticated link.
-They never synthesize a plaintext answer.
+A blocked agent's alert names it and carries its question; the native Answer
+action, "Answer in muxr", opens muxr to send one key as `session.answer` over
+the link, and the host types it only while that alert's blocked event is still
+the one waiting. A browser notification, including the installed iPhone web app,
+has no reply field, so answering there is platform-limited and its tap opens the
+agent.
 
 The host seals each lifecycle notice separately to the recipient's raw device
-box key using `@byokit/seal`. Task title, agent name, event kind and machine/session
-scope stay inside the sealed notice; the relay and push provider receive generic
+box key using `@byokit/seal`. Task title, agent name, a blocked agent's question,
+event kind and machine/session scope stay inside the sealed notice; the relay and push provider receive generic
 alert text and ciphertext. Clients open notices with stored paired grants and
 fall back to generic text when opening fails. The browser service worker reads
 paired grants through `pairing/infrastructure/webSecureStore.ts` to open notices;

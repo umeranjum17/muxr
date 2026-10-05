@@ -1,242 +1,120 @@
-import { Buffer } from 'buffer';
-import LiveAudioStream from 'react-native-live-audio-stream';
-import { initWhisper, type WhisperContext } from 'whisper.rn';
+import { Dictation, whisperRnEngine } from '@byokit/dictation';
+import { initWhisper } from 'whisper.rn';
 import { loadLocalSettings } from '@/catalog/application/persistence';
-import { applyWordReplacements, pcm16ChunksToArrayBuffer, settleWords } from '@/utils/transcription';
 import { BUNDLED_DICTATION_MODEL_ID, getInstalledDictationModelUri } from '@/utils/dictationModels';
-import { bundledDictationModel } from '@/utils/dictationModelFiles';
+import { getBundledDictationModelUri } from '@/utils/dictationModelFiles';
+import { dictationMicrophone } from '@/utils/dictationMicrophone';
 
-const BYTES_PER_SECOND = 16_000 * 2;
-const LIVE_WINDOW_BYTES = 30 * BYTES_PER_SECOND;
-// Read what has been said again once this much more has arrived.
-const READ_EVERY_BYTES = BYTES_PER_SECOND;
-// Below this level a chunk holds no speech.
-const SILENT_LEVEL = 0.06;
-// Six threads read fastest on a current flagship phone; eight start competing
-// with the app itself.
-const THREADS = 6;
-// Loading the model is part of the wait after every tap, so it stays loaded
-// between dictations and is let go once dictation has gone quiet.
 const KEEP_WARM_MS = 3 * 60_000;
+const VOCABULARY_PROMPT = 'muxr, Herdr, Crewhouse, Treehouse, OpenClaw, ChatGPT, Codex, Claude, BYOKit, worktree, npm.';
+// Phone room noise reads 0.003-0.005 RMS, over the kit's default speech gate, so live
+// readings started on silence and stuck on "[BLANK_AUDIO]". The final reads the whole take either way.
+const SPEECH_GATE_RMS = 0.015;
+let warm: { modelUri: string; multilingual: boolean; engine: ReturnType<typeof whisperRnEngine> } | null = null;
 
-let warm: { modelId: string; context: Promise<WhisperContext> } | null = null;
-let coolTimer: ReturnType<typeof setTimeout> | undefined;
-// A whisper.cpp context takes one reading at a time, so a dictation begins
-// only once the one before it has finished with the shared model.
-let previousDone: Promise<void> = Promise.resolve();
+// whisper annotates non-speech audio with short parenthetical or bracketed
+// labels like "(wind howling)" or "[wind]". They describe the room, not the
+// speaker, and must never reach the composer. Legitimate words in parentheses
+// or brackets survive: a group is dropped only when every word in it is a
+// known non-speech label.
+// ponytail: bounded non-speech vocabulary; a novel sound word outside the set
+// would slip through, extend NON_SPEECH when that happens.
+const NON_SPEECH = new Set([
+    'blank', 'audio',
+    'silence', 'quiet',
+    'wind', 'howling', 'gust', 'breeze', 'rain', 'thunder', 'storm', 'hail',
+    'music', 'song', 'singing', 'hum', 'humming', 'melody',
+    'noise', 'sound', 'sounds', 'buzzing', 'beep', 'beeping', 'ticking', 'clicking', 'rumble', 'rumbling',
+    'applause', 'clapping', 'cheering', 'screaming', 'shouting', 'yelling',
+    'laughter', 'laughing', 'crying', 'sobbing', 'whisper', 'whispering', 'gasping', 'sigh', 'sighing', 'groaning',
+    'dog', 'barking', 'cat', 'meowing', 'birds', 'bird', 'car', 'engine', 'traffic', 'honking', 'siren', 'airplane', 'train',
+    'tv', 'radio', 'phone', 'ringing',
+]);
 
-function acquireModel(modelId: string): Promise<WhisperContext> {
-    clearTimeout(coolTimer);
-    if (warm?.modelId !== modelId) {
-        void releaseModel(warm?.context);
-        const context = initWhisper({ filePath: getInstalledDictationModelUri(modelId) ?? bundledDictationModel });
-        warm = { modelId, context };
-        context.catch(() => { if (warm?.context === context) warm = null; });
-    }
-    return warm.context;
+function dropNonSpeechLabels(text: string): string {
+    const isNoise = (inner: string) => {
+        const words = inner.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+        return words.length === 0 || words.every((word) => NON_SPEECH.has(word));
+    };
+    return text
+        .replace(/\([^()]*\)/g, (group) => (isNoise(group.slice(1, -1)) ? '' : group))
+        .replace(/\[[^\]]*\]/g, (group) => (isNoise(group.slice(1, -1)) ? '' : group))
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
 }
 
-function coolModel(): void {
+let coolTimer: ReturnType<typeof setTimeout> | undefined;
+
+async function acquireEngine(modelId: string) {
+    clearTimeout(coolTimer);
+    const installedModelUri = getInstalledDictationModelUri(modelId);
+    const modelUri = installedModelUri ?? await getBundledDictationModelUri();
+    const multilingual = installedModelUri !== null && modelId !== BUNDLED_DICTATION_MODEL_ID;
+    if (warm?.modelUri === modelUri) return warm;
+    const previous = warm;
+    warm = null;
+    await previous?.engine.release();
+    const engine = whisperRnEngine({
+        model: modelUri,
+        multilingual,
+        initWhisper,
+        settings: { initialPrompt: VOCABULARY_PROMPT, beamSize: 5, vad: { threshold: SPEECH_GATE_RMS } },
+    });
+    warm = { modelUri, multilingual, engine };
+    return warm;
+}
+
+function coolEngine(): void {
     clearTimeout(coolTimer);
     coolTimer = setTimeout(() => {
-        const context = warm?.context;
+        const previous = warm;
         warm = null;
-        void releaseModel(context);
+        void previous?.engine.release().catch((error) => console.error('Could not release dictation model:', error));
     }, KEEP_WARM_MS);
 }
 
-async function releaseModel(context: Promise<WhisperContext> | undefined): Promise<void> {
-    await (await context?.catch(() => null))?.release().catch(() => undefined);
-}
-
-/**
- * whisper.cpp reads a fixed 30 s window unless told the audio is shorter; a
- * window sized to the audio makes a short reading several times faster. It
- * also drops or repeats words, noisy audio worst (scripts/dictation), so only
- * the live words use it and the transcript is read with the full window.
- */
-function audioContextFor(bytes: number): number {
-    return Math.min(1500, Math.ceil((bytes / BYTES_PER_SECOND) * 50) + 256);
-}
-
-/** Real input level from the PCM chunks already flowing to Whisper; no extra capture. */
-function rmsLevel(buf: Buffer): number {
-    const samples = Math.floor(buf.length / 2);
-    if (samples === 0) return 0;
-    const step = Math.max(1, Math.floor(samples / 64));
-    let sum = 0;
-    let count = 0;
-    for (let i = 0; i < samples; i += step) {
-        const s = buf.readInt16LE(i * 2) / 32768;
-        sum += s * s;
-        count += 1;
-    }
-    return Math.min(1, Math.sqrt(sum / count) * 4);
-}
-
 export type LiveTranscription = {
-    /** Stop the microphone and resolve with the finished transcript. */
     finish(): Promise<string>;
-    /** Stop the microphone and drop everything heard. */
     cancel(): void;
 };
 
-/**
- * Dictate on-device with whisper.cpp while the user speaks. Everything said
- * is read again every second, in the background, and its words show once two
- * readings agree. Stopping reads it all once more with the full window, which
- * is the transcript.
- */
-export async function startLiveTranscription({ hint, onText, onLevel }: {
+/** App-owned capture and preferences; BYOKit owns recognition and transcript settlement. */
+export async function startLiveTranscription({ hint, keywords, onText, onLevel }: {
     hint?: string;
+    keywords?: string[];
     onText: (text: string) => void;
     onLevel: (level: number) => void;
 }): Promise<LiveTranscription> {
     const settings = loadLocalSettings();
-    const replacements = settings.dictationWordReplacements;
-    const modelId = settings.dictationModel || BUNDLED_DICTATION_MODEL_ID;
-    // The bundled model only knows English; 'auto' would still run a language
-    // detection pass on every reading and throw its answer away.
-    const language = modelId === BUNDLED_DICTATION_MODEL_ID ? 'en' : settings.dictationLanguage ?? 'auto';
-
-    const chunks: string[] = [];
-    // Each chunk's level and where it ends, to tell whether unread audio holds speech.
-    const levels: { level: number; end: number }[] = [];
-    let total = 0;
-    let recording = false;
-    let cancelled = false;
-    // The latest reading: how far it reached and what it heard.
-    let readTo = 0;
-    let previewFrom = 0;
-    let prefix = '';
-    let heard = '';
-    let shown = '';
-    let reading: { stop: () => Promise<void>; done: Promise<void> } | null = null;
-
-    const spokenAfter = (at: number) => levels.some(({ level, end }) => end > at && level >= SILENT_LEVEL);
-    const text = (said: string) => applyWordReplacements(said, replacements).trim();
-    const liveText = () => [prefix, shown].filter(Boolean).join(' ');
-
-    const model = previousDone.then(() => acquireModel(modelId));
-    let released!: () => void;
-    previousDone = new Promise<void>((resolve) => { released = resolve; });
-    const done = () => void model.then(coolModel, coolModel).finally(released);
-    const stopMicrophone = async () => {
-        if (!recording) return;
-        recording = false;
-        await LiveAudioStream.stop();
-    };
-
-    const audioRange = (from: number, to: number): ArrayBuffer => {
-        let low = 0;
-        let high = levels.length;
-        while (low < high) {
-            const middle = (low + high) >>> 1;
-            if (levels[middle].end <= from) low = middle + 1;
-            else high = middle;
-        }
-        const first = low;
-        let last = first;
-        while (last < levels.length && levels[last].end < to) last += 1;
-        const chunkStart = first === 0 ? 0 : levels[first - 1].end;
-        const chunkEnd = last < levels.length ? levels[last].end : chunkStart;
-        const selected = pcm16ChunksToArrayBuffer(chunks.slice(first, last + 1));
-        return selected.slice(from - chunkStart, Math.min(to, chunkEnd) - chunkStart);
-    };
-
-    const read = async (context: WhisperContext, to: number, live: boolean) => {
-        const requestedFrom = live ? Math.max(previewFrom, to - LIVE_WINDOW_BYTES) : 0;
-        const from = live ? requestedFrom + (requestedFrom % 2) : requestedFrom;
-        const audio = live ? audioRange(from, to) : pcm16ChunksToArrayBuffer(chunks);
-        const job = context.transcribeData(audio, {
-            language,
-            maxThreads: THREADS,
-            ...(live ? { audioCtx: audioContextFor(to - from) } : {}),
-            prompt: hint,
-        });
-        const done = job.promise.then(() => undefined, () => undefined);
-        reading = { stop: job.stop, done };
-        try {
-            const { result, isAborted } = await job.promise;
-            if (isAborted) return false;
-            shown = recording ? settleWords(shown, heard, result.trim()) : result.trim();
-            heard = result.trim();
-            readTo = to;
-            return true;
-        } finally {
-            reading = null;
-        }
-    };
-
-    const follow = () => {
-        if (!recording || reading !== null || total - readTo < READ_EVERY_BYTES) return;
-        // Nothing new has been said; the last reading still stands.
-        if (!spokenAfter(readTo)) return;
-        if (total - previewFrom > LIVE_WINDOW_BYTES) {
-            prefix = [prefix, shown].filter(Boolean).join(' ');
-            previewFrom = readTo;
-            heard = '';
-            shown = '';
-        }
-        void model.then(async (context) => {
-            if (!recording || reading !== null) return;
-            if (await read(context, total, true).catch(() => false)) {
-                if (recording && !cancelled) onText(text(liveText()));
-            }
-            follow();
-        }, () => undefined);
-    };
-
-    await LiveAudioStream.init({
-        sampleRate: 16_000,
-        channels: 1,
-        bitsPerSample: 16,
-        audioSource: 6,
-        bufferSize: 2560,
-        wavFile: '',
+    const selectedEngine = await acquireEngine(settings.dictationModel || BUNDLED_DICTATION_MODEL_ID);
+    const mic = dictationMicrophone();
+    const handle = new Dictation({ engine: selectedEngine.engine, audio: mic.audio }).listen({
+        onDeviceOnly: true,
+        languages: selectedEngine.multilingual ? (settings.dictationLanguage ? [settings.dictationLanguage] : undefined) : ['en'],
+        prompt: hint,
+        keywords,
+        replacements: Object.fromEntries(settings.dictationWordReplacements.map(({ from, to }) => [from, to])),
     });
-    LiveAudioStream.on('data', (chunk) => {
-        if (!recording) return;
-        chunks.push(chunk);
-        const buf = Buffer.from(chunk, 'base64');
-        const level = rmsLevel(buf);
-        total += buf.byteLength;
-        levels.push({ level, end: total });
-        onLevel(level);
-        follow();
-    });
-    recording = true;
+    handle.on('partial', ({ segment }) => onText(dropNonSpeechLabels(segment.text)));
+    handle.on('level', ({ rms }) => onLevel(rms));
     try {
-        await LiveAudioStream.start();
+        await mic.opened;
     } catch (error) {
-        recording = false;
-        done();
+        handle.cancel();
+        coolEngine();
         throw error;
     }
-
-    let finishing: Promise<unknown> = Promise.resolve();
-
-    const finish = async (): Promise<string> => {
-        await stopMicrophone();
-        const context = await model;
-        // The model reads one thing at a time; let a running reading land.
-        await reading?.done;
-        if (cancelled) return '';
-        if (total > 0) await read(context, total, false);
-        return cancelled ? '' : text(heard);
-    };
-
     return {
-        finish() {
-            const finished = finish();
-            finishing = finished.catch(() => undefined);
-            void finishing.finally(done);
-            return finished;
+        async finish() {
+            try {
+                return dropNonSpeechLabels((await handle.finish()).text);
+            } finally {
+                coolEngine();
+            }
         },
         cancel() {
-            cancelled = true;
-            void reading?.stop().catch(() => undefined);
-            void Promise.all([stopMicrophone().catch(() => undefined), finishing]).finally(done);
+            handle.cancel();
+            coolEngine();
         },
     };
 }

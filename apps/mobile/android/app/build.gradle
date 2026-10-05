@@ -109,26 +109,45 @@ def releaseKeyAlias = findProperty('releaseKeyAlias')
 def releaseKeyPassword = findProperty('releaseKeyPassword')
 def releaseSigningValues = [releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword]
 
-def validateReleaseConfiguration = {
+def releaseVersionConfigured = releaseVersionName ==~ /\d+\.\d+\.\d+/ &&
+    releaseVersionCode ==~ /[1-9]\d*/
+def manualSigningRequested = releaseSigningValues.any { it }
+def manualSigningConfigured = releaseSigningValues.every { it }
+
+def validateReleaseVersion = {
     if (!(releaseVersionName ==~ /\d+\.\d+\.\d+/)) {
         throw new GradleException('A semantic appVersion is required for release builds')
     }
     if (!(releaseVersionCode ==~ /[1-9]\d*/)) {
         throw new GradleException('A positive androidVersionCode is required for release builds')
     }
-    if (releaseSigningValues.any { !it }) {
+}
+def validateManualSigning = {
+    if (!manualSigningConfigured) {
         throw new GradleException('All release signing properties are required for release builds')
     }
     if (!file(releaseStoreFile).isFile()) {
         throw new GradleException('The release signing store does not exist')
     }
 }
-if (releaseRequested) validateReleaseConfiguration()
-def releaseConfigured = releaseVersionName ==~ /\d+\.\d+\.\d+/ &&
-    releaseVersionCode ==~ /[1-9]\d*/ && releaseSigningValues.every { it }
+if (releaseRequested) {
+    validateReleaseVersion()
+    if (manualSigningRequested) validateManualSigning()
+}
 
 gradle.taskGraph.whenReady { graph ->
-    if (graph.allTasks.any { it.project == project && it.name.toLowerCase().contains('release') }) validateReleaseConfiguration()
+    if (graph.allTasks.any { it.project == project && it.name.toLowerCase().contains('release') }) {
+        validateReleaseVersion()
+        if (manualSigningRequested) validateManualSigning()
+        // EAS populates Release signing in its injected tasks.whenTaskAdded callback.
+        // Inspect the real configuration after that callback, before any build task runs.
+        def signer = android.buildTypes.release.signingConfig
+        if (signer == null || signer.name != 'release' || signer == android.signingConfigs.findByName('debug') ||
+            signer.storeFile == null || !signer.storeFile.isFile() ||
+            !signer.storePassword || !signer.keyAlias || !signer.keyPassword) {
+            throw new GradleException('A configured Release signer and existing signing store are required')
+        }
+    }
 }
 
 android {
@@ -154,13 +173,13 @@ android {
         resValue 'string', 'muxr_link_scheme', developmentDistribution ? 'muxr-dev' : 'muxr'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode releaseConfigured ? releaseVersionCode.toInteger() : 12
+        versionCode releaseVersionConfigured ? releaseVersionCode.toInteger() : 12
         versionName releaseVersionName ?: "0.1.12"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
     signingConfigs {
-        if (releaseConfigured) {
+        if (manualSigningConfigured) {
             release {
                 storeFile file(releaseStoreFile)
                 storePassword releaseStorePassword

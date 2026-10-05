@@ -13,10 +13,13 @@ export function richPreviewKind(name: string): RichPreviewKind | null {
     return null;
 }
 
+export const DOCUMENT_PREVIEW_BYTES = 8 * 1024 * 1024;
+
 /** One bounded read, through the same authenticated transport as artifacts. */
 export async function readRichArtifact(sessionId: string, artifact: ArtifactAction, signal: AbortSignal): Promise<{ kind: RichPreviewKind; base64: string }> {
     const kind = richPreviewKind(artifact.name);
-    const limit = kind === 'pdf' || kind === 'xlsx' ? 8 * 1024 * 1024 : 256 * 1024;
+    // An html page carries its images inlined, so it gets the document limit.
+    const limit = kind === 'pdf' || kind === 'xlsx' || kind === 'html' ? DOCUMENT_PREVIEW_BYTES : 256 * 1024;
     if (kind === null || !Number.isSafeInteger(artifact.size) || artifact.size < 0 || artifact.size > limit) throw new Error('This file exceeds the preview limit. Download it to view the original.');
     const machine = getCachedConnectionSettings().machineId;
     const deadline = Date.now() + 25000;

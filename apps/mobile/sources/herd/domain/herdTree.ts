@@ -250,13 +250,15 @@ export function defaultExpandedSpaces(workspaces: HerdrTreeWorkspace[]): string[
  * creation order. A non-empty `searchQuery` filters cards to workspaces with
  * matching names or panes; a matching descendant keeps the chain above it,
  * and its card opens. Pinned top-level cards lead, each group keeping
- * creation order; nested workspaces stay inside their parent cards.
+ * creation order unless `spaceOrder` (this machine's Move up/down) ranks it;
+ * nested workspaces stay inside their parent cards.
  */
 export function buildSpaceRows(
     workspaces: HerdrTreeWorkspace[],
     expanded: ReadonlySet<string>,
     searchQuery: string,
     pinnedSpaceIds?: ReadonlySet<string>,
+    spaceOrder: readonly string[] = [],
 ): HerdSpaceRow[] {
     const query = searchQuery.trim().toLocaleLowerCase();
     const searching = query !== '';
@@ -286,6 +288,9 @@ export function buildSpaceRows(
         if (siblings === undefined) childrenOf.set(spawner, [ws]);
         else siblings.push(ws);
     }
+    // A moved card keeps its saved rank; one never moved follows, in creation order.
+    const rank = new Map(spaceOrder.map((id, index) => [id, index] as const));
+    topLevel.sort((a, b) => (rank.get(a.workspaceId) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.workspaceId) ?? Number.MAX_SAFE_INTEGER));
     const anyPinned = pinnedSpaceIds !== undefined && topLevel.some((ws) => pinnedSpaceIds.has(ws.workspaceId));
     const orderedTopLevel = anyPinned
         ? [
@@ -345,6 +350,32 @@ export function buildSpaceRows(
         });
     }
     return rows;
+}
+
+const SPACE_ORDER_LIMIT = 256;
+
+/** Trim `ids` to `limit` by dropping the oldest not in `open`; open ids always stay. */
+export function dropOldestAbsent(ids: readonly string[], open: ReadonlySet<string>, limit: number): string[] {
+    let excess = ids.length - limit;
+    return ids.filter((id) => excess <= 0 || open.has(id) || excess-- <= 0);
+}
+
+/**
+ * The saved order after moving `workspaceId` one place within `group`, the
+ * top-level ids of its section as drawn. Unranked group members join the end
+ * in drawn order, so ranking them changes nothing on screen; ids not open now
+ * keep their rank for when they return, until the cap drops the oldest of
+ * them. An `open` workspace's rank is never dropped.
+ */
+export function moveSpace(order: readonly string[], group: readonly string[], workspaceId: string, step: -1 | 1, open: ReadonlySet<string>): string[] {
+    const from = group.indexOf(workspaceId);
+    const neighbour = group[from + step];
+    if (from < 0 || neighbour === undefined) return [...order];
+    const next = [...order, ...group.filter((id) => !order.includes(id))];
+    const a = next.indexOf(workspaceId);
+    const b = next.indexOf(neighbour);
+    [next[a], next[b]] = [next[b]!, next[a]!];
+    return dropOldestAbsent(next, open, SPACE_ORDER_LIMIT);
 }
 
 export function displayedWorkspaceNames(rows: readonly HerdSpaceRow[]): ReadonlyMap<string, string> {

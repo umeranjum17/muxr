@@ -12,6 +12,11 @@ const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e
 const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#|^byokit-link:1:/i;
 const LINK_OFFER = /^byokit-link:1:[A-Za-z0-9_-]+$/;
 
+export const STALE_PAIRING_CODE = 'This pairing code is from an older muxr and will not work. On the computer, run the Update muxr action, then run `muxr pair` for a new code. If there is no Update muxr action, update muxr on the computer first — pairing needs the new version.';
+
+/** A pairing this code can no longer finish: the next step is a new code from the computer, not a retry. */
+export class PairingNeedsNewCode extends Error {}
+
 /** Unwrap only the registered app schemes or an HTTPS /pair link; byokit validates the offer itself. */
 export function linkOfferFromUrl(value: string): string | undefined {
     const input = value.trim();

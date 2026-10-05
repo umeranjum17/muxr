@@ -1,12 +1,14 @@
 # Host runtime
 
-The Machine process. Composition lives at `main.ts` / `host.ts`. Modules own the rest.
+The Machine process. `main.ts` handles help before loading the runtime;
+composition lives at `runHost.ts` / `host.ts`. Modules own the rest.
 
 ## Tree
 
 ```
 src/
-  main.ts host.ts            composition / presentation
+  main.ts                   process entry / help
+  runHost.ts host.ts         composition / presentation
   platform/                  Node file IO used by infrastructure
   agent/{domain,application,infrastructure}/
   machine/{domain,infrastructure}/

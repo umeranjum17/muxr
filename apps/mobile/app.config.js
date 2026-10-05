@@ -131,6 +131,7 @@ export default {
         ios: {
             supportsTablet: true,
             bundleIdentifier: bundleId,
+            buildNumber: '52',
             ...(publicHost ? { associatedDomains: [`applinks:${publicHost}`] } : {}),
             config: {
                 usesNonExemptEncryption: false

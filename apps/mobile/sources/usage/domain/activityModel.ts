@@ -65,6 +65,10 @@ export interface Insight {
 }
 
 
+function listOf(names: string[]): string {
+    return names.length <= 2 ? names.join(' and ') : `${names.slice(0, 2).join(', ')} and others`;
+}
+
 function when(ms: number, now: Date): string {
     if (ms < 3_600_000) return `in ${Math.max(1, Math.round(ms / 60_000))} min`;
     if (ms < 20 * 3_600_000) return `in about ${Math.round(ms / 3_600_000)}h`;
@@ -107,9 +111,16 @@ export function activityInsights(input: {
     const week = rangeSummary(activity, 7);
     if (week.total === 0) {
         const last = activity.lastActiveAt === undefined ? undefined : new Date(activity.lastActiveAt);
-        insights.push({ icon: 'moon-outline', text: last === undefined || Number.isNaN(last.getTime())
-            ? `No ${tab} activity in the last 30 days`
-            : `No ${tab} activity this week · last used ${last.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })}` });
+        // The tab's own figures count its own sessions; the plan can still have
+        // been spent by another harness, which "no activity" would deny.
+        const users = (activity.sources ?? []).filter((source) => source.week > 0 && source.label !== tab).map((source) => source.label);
+        const own = users.length === 0 ? `No ${tab} activity` : `No ${tab} sessions ran`;
+        const since = last === undefined || Number.isNaN(last.getTime())
+            ? `${own} in the last 30 days`
+            : `${own} this week · last used ${last.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })}`;
+        insights.push({ icon: users.length === 0 ? 'moon-outline' : 'people-outline', text: users.length === 0
+            ? since
+            : `${since}, but ${listOf(users)} used this plan this week` });
         return insights.slice(0, 3);
     }
 

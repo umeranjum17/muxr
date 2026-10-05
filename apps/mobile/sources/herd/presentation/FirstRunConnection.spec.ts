@@ -111,7 +111,8 @@ describe('guided first-connection chooser', () => {
         await TestRenderer.act(async () => { scanOnScanned!({ data: 'wss://relay?pair=abc' }); });
         expect(dismissScanner).toHaveBeenCalledTimes(1);
         expect(routerPush).not.toHaveBeenCalled();
-        expect(pairingAlert).toHaveBeenCalledWith('Pairing code expired', expect.stringContaining('Update muxr on both devices, run `muxr pair`'));
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code expired', expect.stringContaining('run the Update muxr action, then run `muxr pair`'));
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code expired', expect.stringContaining('update muxr on the computer first'));
         pairingAlert.mockClear();
         press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
         await TestRenderer.act(async () => {});

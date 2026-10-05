@@ -25,15 +25,18 @@ export const ja: TranslationStructure = {
     preview: {
         chipBrowser: 'ブラウザ',
         chipAndroid: 'エミュレータ',
+        chipIos: 'シミュレータ',
         introBrowser: 'エージェントがブラウザを開きました',
         introAndroid: 'エージェントが Android エミュレータを起動しました',
+        introIos: 'エージェントが iOS シミュレータを使用しています',
         watch: '見る',
         notNow: '後で',
         watchBrowser: 'ブラウザを見る',
         watchAndroid: 'Android エミュレータを見る',
+        watchIos: 'iOS シミュレータを見る',
         reconnecting: '再接続中…',
-        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android'; title?: string }) =>
-            `${kind === 'android' ? 'Android エミュレータを使用中' : 'ブラウザを使用中'}${title ? `, ${title}` : ''}. ライブで見る`,
+        chipAccessibility: ({ kind, title }: { kind: 'browser' | 'android' | 'ios'; title?: string }) =>
+            `${kind === 'android' ? 'Android エミュレータを使用中' : kind === 'ios' ? 'iOS シミュレータ使用中' : 'ブラウザを使用中'}${title ? `, ${title}` : ''}. ライブで見る`,
     },
 
     tabs: {
@@ -322,6 +325,7 @@ export const ja: TranslationStructure = {
         // Spaces section on Home
         title: 'スペース',
         pinned: 'ピン留め',
+        favourites: 'お気に入り',
         empty: '開いているスペースはありません',
         rootFolder: 'ルートフォルダー',
         homeFolder: 'ホームフォルダー',
@@ -351,6 +355,8 @@ export const ja: TranslationStructure = {
         runtimeOffline: ({ name }: { name: string }) => `${name} で herdr が応答していません`,
         runtimeStale: 'セッションが古い可能性があります',
         liveEmpty: '稼働中のエージェントなし · 下から開始',
+        emptyStart: 'エージェントを開始すると、ここにスペースが開きます',
+        emptyWatch: 'このコンピューターで開いたスペースがここに表示されます',
     },
 
     emptySessions: {

@@ -7,6 +7,16 @@ const keyboardHandler = vi.hoisted(() => ({ current: null as null | {
     onEnd: (event: { height: number }) => void;
 } }));
 const scrollToEnd = vi.hoisted(() => vi.fn());
+const values = vi.hoisted(() => new Map<string, string>());
+vi.mock('react-native-mmkv', () => ({
+    MMKV: class {
+        getString(key: string) { return values.get(key); }
+        set(key: string, value: string) { values.set(key, value); }
+        delete(key: string) { values.delete(key); }
+    },
+}));
+const socketStatus = vi.hoisted(() => ({ status: 'disconnected' as string }));
+const catalogResult = vi.hoisted(() => ({ options: [] as Array<{ kind: string; availability: string; signedIn: string }> }));
 const theme = vi.hoisted(() => ({ colors: {
     glass: { border: '#333', backgroundStrong: '#222', backgroundSubtle: '#222' },
     text: '#fff', textSecondary: '#aaa', surface: '#000', surfaceHighest: '#222',
@@ -40,7 +50,9 @@ vi.mock('react-native-reanimated', () => ({
 vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
 vi.mock('@/components/MobileGlass', () => ({ MobileGlassSurface: 'MobileGlassSurface' }));
 vi.mock('@/components/ComposerDictation', () => ({ useComposerDictation: () => ({ recording: false, transcribing: false }), DictateAction: () => null, DictationStrip: () => null }));
-vi.mock('@/components/OptionSheet', () => ({ OptionSheet: () => null }));
+vi.mock('@/components/OptionSheet', () => ({
+    OptionSheet: (props: { footer?: React.ReactNode }) => React.createElement('OptionSheet', props, props.footer),
+}));
 vi.mock('@/components/BubblePressable', () => ({ BubblePressable: 'BubblePressable' }));
 vi.mock('@/settings', () => ({ NativeSettingsMenu: 'NativeSettingsMenu' }));
 vi.mock('@/terminal/ui', () => ({ AgentInputAttachmentStrip: () => null }));
@@ -48,36 +60,95 @@ vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }
 vi.mock('@/components/layout', () => ({ layout: { maxWidth: 600 } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: null }) }));
-vi.mock('../application/useNewSessionDraft', () => {
-    const state = {
-        agentType: 'pi', selectedMachineId: null, selectedPath: null, sessionType: 'simple', worktreeKey: null,
-        setMachineId: vi.fn(), setAgentType: vi.fn(), setPath: vi.fn(), setSessionType: vi.fn(),
-        setWorktreeKey: vi.fn(), setAttachments: vi.fn(),
-    };
-    return { useNewSessionDraft: Object.assign((select: (snapshot: typeof state) => unknown) => select(state), { getState: () => state }) };
-});
 vi.mock('@/plugins/ui', () => ({ PluginSlot: () => null }));
 vi.mock('@/conversation/ui', () => ({ RealtimeTalkButton: () => null }));
 vi.mock('@/plans', () => ({ useAccountLine: () => null }));
 vi.mock('@/plans/ui', () => ({ AccountSheet: () => null }));
 vi.mock('@/catalog/store', () => ({
-    useAllMachines: () => [], useSessions: () => [], useSocketStatus: () => ({ status: 'disconnected' }),
+    useAllMachines: () => [], useSessions: () => [], useSocketStatus: () => socketStatus,
 }));
 vi.mock('@/pairing', () => ({ isMachineOnline: () => false }));
 vi.mock('@/utils/pathUtils', () => ({ resolveAbsolutePath: () => null }));
 vi.mock('@/hooks/useImagePicker', () => ({ useImagePicker: () => ({
     selectedImages: [], pickImages: vi.fn(), removeImage: vi.fn(), clearImages: vi.fn(),
 }) }));
-vi.mock('@/catalog/sync', () => ({ sync: { request: vi.fn() } }));
-vi.mock('@/catalog', () => ({ resolveAgentCatalog: vi.fn() }));
-vi.mock('../application/homeDockEnvironment', () => ({
-    applyWorktreeSelection: vi.fn(), currentDockAgent: () => ({ key: 'pi', name: 'Pi' }),
-    listWorktreeOptions: () => Promise.resolve([]), projectDockOptions: () => [],
-    resolveDockOption: () => null, selectedWorktreeKey: () => null,
-    visibleDockAgents: () => [{ key: 'pi', name: 'Pi' }], worktreeDockOptions: () => [],
+vi.mock('@/catalog/sync', () => ({ sync: { request: vi.fn(() => Promise.resolve(catalogResult)) } }));
+vi.mock('@/catalog', async () => ({
+    ...await import('@/catalog/application/persistence'), resolveAgentCatalog: () => catalogResult,
 }));
+vi.mock('@/herd', () => ({ formatPathRelativeToHome: vi.fn() }));
+vi.mock('../application/worktree', () => ({ listWorktrees: vi.fn() }));
+vi.mock('../application/homeDockEnvironment', async (importOriginal) => {
+    const { defaultAgentKind } = await importOriginal<typeof import('../application/homeDockEnvironment')>();
+    return {
+        applyWorktreeSelection: vi.fn(), currentDockAgent: () => ({ key: 'pi', name: 'Pi' }),
+        defaultAgentKind,
+        listWorktreeOptions: () => Promise.resolve([]), projectDockOptions: () => [],
+        resolveDockOption: () => null, selectedWorktreeKey: () => null,
+        visibleDockAgents: () => [{ key: 'pi', name: 'Pi' }], worktreeDockOptions: () => [],
+    };
+});
 
 import { HomeDock } from './HomeDock';
+import { useNewSessionDraft } from '../application/useNewSessionDraft';
+import { loadNewSessionDraft } from '@/catalog';
+
+it('reevaluates automatic Shell on readiness refresh while preserving explicit choices', async () => {
+    useNewSessionDraft.getState().setAgentType('codex');
+    socketStatus.status = 'connected';
+    catalogResult.options = [
+        { kind: 'pi', availability: 'installed', signedIn: 'yes' },
+        { kind: 'codex', availability: 'installed', signedIn: 'no' },
+    ];
+    let screen: any;
+    const render = () => <HomeDock prompt="" onPromptChange={vi.fn()} onSubmit={async () => true} onStartBlank={async () => true} isSubmitting={false} />;
+    const checkAgain = () => screen.root.findAll((node: any) => node.type === 'Pressable'
+        && node.findAll((child: any) => child.type === 'Text' && child.props.children === 'Check again').length > 0)[0].props.onPress();
+    try {
+        await TestRenderer.act(async () => { screen = TestRenderer.create(render()); });
+        expect(useNewSessionDraft.getState().agentType).toBe('shell');
+        TestRenderer.act(() => { useNewSessionDraft.getState().setInput('saved prompt'); });
+        expect(loadNewSessionDraft()?.agentType).toBe('codex');
+        TestRenderer.act(() => { screen.unmount(); });
+        await TestRenderer.act(async () => { screen = TestRenderer.create(render()); });
+        await TestRenderer.act(async () => { checkAgain(); });
+        expect(useNewSessionDraft.getState().agentType).toBe('shell');
+
+        socketStatus.status = 'disconnected';
+        await TestRenderer.act(async () => { screen.update(render()); });
+        catalogResult.options = [
+            { kind: 'pi', availability: 'installed', signedIn: 'yes' },
+            { kind: 'claude', availability: 'installed', signedIn: 'yes' },
+            { kind: 'codex', availability: 'installed', signedIn: 'yes' },
+        ];
+        socketStatus.status = 'connected';
+        await TestRenderer.act(async () => { screen.update(render()); });
+        expect(useNewSessionDraft.getState().agentType).toBe('codex');
+        TestRenderer.act(() => { screen.unmount(); });
+        await TestRenderer.act(async () => { screen = TestRenderer.create(render()); });
+        expect(useNewSessionDraft.getState().agentType).toBe('codex');
+
+        catalogResult.options = [
+            { kind: 'claude', availability: 'installed', signedIn: 'yes' },
+            { kind: 'codex', availability: 'installed', signedIn: 'no' },
+        ];
+        await TestRenderer.act(async () => { checkAgain(); });
+        expect(useNewSessionDraft.getState().agentType).toBe('codex');
+
+        TestRenderer.act(() => { screen.root.findAllByType('OptionSheet').find((node: any) => node.props.title === 'Agent').props.onSelect({ key: 'shell' }); });
+        await TestRenderer.act(async () => { checkAgain(); });
+        expect(useNewSessionDraft.getState().agentType).toBe('shell');
+        TestRenderer.act(() => { screen.unmount(); });
+        await TestRenderer.act(async () => { screen = TestRenderer.create(render()); });
+        expect(useNewSessionDraft.getState().agentType).toBe('shell');
+        expect(loadNewSessionDraft()?.agentType).toBe('shell');
+    } finally {
+        if (screen) TestRenderer.act(() => { screen.unmount(); });
+        socketStatus.status = 'disconnected';
+        useNewSessionDraft.setState({ agentType: 'pi', preferredAgentType: 'pi', agentTypeExplicit: false, input: '' });
+        values.clear();
+    }
+});
 
 it('keeps the short-screen composer below Back and makes Start reachable by scrolling', () => {
     const previousFrame = globalThis.requestAnimationFrame;

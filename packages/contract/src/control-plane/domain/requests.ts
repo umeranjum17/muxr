@@ -287,7 +287,7 @@ export interface RequestMap extends PeerRequestMap {
              */
             awaitConsent?: boolean;
             /**
-             * Watch that session's own screen (the browser or emulator its agent
+             * Watch that session's preview (the browser, emulator, or claimed simulator its agent
              * is using) instead of this computer's desktop. The client names a
              * session, never a display: the host resolves it and refuses an
              * unknown or screen-less one with `permission-denied`. Absent means
@@ -564,8 +564,12 @@ export interface RequestMap extends PeerRequestMap {
         };
         result: null;
     };
-    /** Answer a blocked agent's y/n question by typing the key into its pane (push actions). */
-    'session.answer': { params: { sessionId: string; answer: 'y' | 'n' }; result: null };
+    /**
+     * Answer the question an agent is blocked on with one key: `y`, `n` or a
+     * choice number. With `eventId` the host refuses once that blocked event is
+     * no longer the one waiting.
+     */
+    'session.answer': { params: { sessionId: string; answer: string; eventId?: string }; result: null };
     'session.status': { params: { sessionId: string }; result: SessionStatus };
 
     // --- push ---------------------------------------------------------------
@@ -727,18 +731,20 @@ export interface RequestMap extends PeerRequestMap {
     // Product-owned since the muxr.code plugin fold-in: the Files tree,
     // bounded file previews, and git history. The host runs git, clients
     // render. The session cwd is host-injected from sessionId; `root` may
-    // narrow to the session repository itself, never anywhere else.
+    // narrow to the session repository itself, or name one absolute folder
+    // on the computer the user asked for (listed from the filesystem and
+    // presented as a named folder, never as a repository).
     /** Every repository open across the host's sessions. */
     'files.repos': {
         params: Record<string, never>;
         result: { title: string; repos: FilesRepo[] };
     };
-    /** One folder of the session repository's tracked tree, folders first. */
+    /** One folder of the session repository's tracked tree, folders first; or of a user-named folder on the computer. */
     'files.list': {
         params: { sessionId: string; root?: string; path?: string };
         result: FilesListing;
     };
-    /** Bounded text preview of one file inside the session repository. */
+    /** Bounded text preview of one file inside the session repository or a user-named folder. */
     'files.read': {
         params: { sessionId: string; root?: string; path?: string };
         result: FilesPreview;
@@ -927,6 +933,8 @@ export interface FilesTreeNode {
 
 export interface FilesListing {
     root: string;
+    /** A repository root, or a folder the user named on the computer (never a repository). */
+    scope: 'repository' | 'folder';
     title: string;
     count: string;
     tree: FilesTreeNode[];

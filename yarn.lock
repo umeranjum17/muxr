@@ -1099,28 +1099,33 @@
   resolved "https://registry.yarnpkg.com/@braintree/sanitize-url/-/sanitize-url-7.1.2.tgz#ca2035b0fefe956a8676ff0c69af73e605fcd81f"
   integrity sha512-jigsZK+sMF/cuiB7sERuo9V7N9jx+dhmHHnQyDSVdpZwVutaBu7WvNYqMDLSgFgfB30n452TP3vjDAvFC973mA==
 
-"@byokit/accounts@0.9.0":
-  version "0.9.0"
-  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.9.0.tgz#e22085edba46ae5d5934e9f658a05f3f99369109"
-  integrity sha512-S2pAZiN8SK6Oe7U74qjzUAhgAGHswSmkOvuY544Y3bw0djceBzcCppulYlt8GkWpMg2HrjfogHTbeOrxIeg9QQ==
+"@byokit/accounts@0.13.0":
+  version "0.13.0"
+  resolved "https://registry.yarnpkg.com/@byokit/accounts/-/accounts-0.13.0.tgz#2b5fd7346709ed4711877841be7c5e365acbb066"
+  integrity sha512-OaexnDghPQ/qIqc1xAfOvsnXTjeJxwL8pmvPgnkPO3NG+oTTZaBHojUTFdWBkDWKKQ1xlDnC/xWecwnvEeynJw==
   dependencies:
     "@earendil-works/pi-ai" "0.87.1"
 
-"@byokit/herdr@0.1.10":
-  version "0.1.10"
-  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.1.10.tgz#d1856bcbf8e95af3057484157e452b98f8f93343"
-  integrity sha512-Vt+7DiNHB1MhYcw7Vs/Ho3QEBtF1hj+OB7+v7kg1EPCZiE5UbJ3hFpO/jyCufItPoBHwtmP5gn7JyPONQs22rQ==
+"@byokit/dictation@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@byokit/dictation/-/dictation-0.3.0.tgz#b2b2930bfb3280108c59b9f51d23366c5d17e64e"
+  integrity sha512-XPLF6p9Z/7hm45LyCWJMEu7vbof8FjtMG0OsiVXGHVvsN5S6w6vnodOTdp2ZdktJVPsWtFiynGVcrsX691pOkg==
+
+"@byokit/herdr@0.3.0":
+  version "0.3.0"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.3.0.tgz#6770537f17363802e014c545df70fc84e4c38bee"
+  integrity sha512-8m8XJkF+JWEguX+IRLf1918MO1Ua1dViLkW9d1dW5RO86VltjWUeuijq2R6T25+hNGPeMEFibHsh9LU0SDjHYw==
   dependencies:
-    "@byokit/link" "0.6.0"
-    "@byokit/reach" "0.4.0"
-    "@byokit/relay" "0.4.2"
+    "@byokit/link" "0.7.0"
+    "@byokit/reach" "0.5.0"
+    "@byokit/relay" "0.5.0"
     "@byokit/seal" "0.2.0"
     ws "8.21.3"
 
-"@byokit/link@0.6.0":
-  version "0.6.0"
-  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.6.0.tgz#db6ef52e4761b98f2836d1bd66fc8b12ec8c9f55"
-  integrity sha512-egk/SqqfTksGrB/SrdrRz+oLPlCoZvvsZ0/oLDSJCaXzTocL1WGdgQlkYwHsLt8fT/bCRc76UjMPG16YtnWIKw==
+"@byokit/link@0.7.0":
+  version "0.7.0"
+  resolved "https://registry.yarnpkg.com/@byokit/link/-/link-0.7.0.tgz#37b35c77bf6a515e1b17b1f41aa5f1a16339228b"
+  integrity sha512-Rw/kiNDmn1pSWSw10aWR9bAOglppI7FlGmvkfbPTX35pFmvjPFzq3iunIq4lmVQRmOvVAGosXv5nAHWEq8/kug==
   dependencies:
     "@noble/ciphers" "2.4.0"
     b4a "1.9.0"
@@ -1129,35 +1134,28 @@
     sodium-native "5.1.0"
     sodium-universal "5.0.1"
 
-"@byokit/reach@0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.3.0.tgz#8e56cefd4f9f2a1c68906f9c152d403c1ccc40a3"
-  integrity sha512-FTdSfKXXUg768dMfh1qD3AMZ84LTU1OyOgtorgZhTQlneR4FePNUP6VsMG/0RhxtKMBQMzc8muyKGYd6lgTMAw==
+"@byokit/reach@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.5.0.tgz#4acc84b9b6ffb1768b73fe0093ca392e463c88d0"
+  integrity sha512-93MAMadMI6vWVAFX6EHvQn1yXwooXVJbrFCQwswcgdTc/UavAOzaBaFJ+ohNlRisJF3VOTNeaxbgj8z6dswqGg==
   dependencies:
+    "@byokit/ui-core" "0.5.0"
     bonjour-service "^1.4.4"
     react-native-zeroconf "0.14.0"
 
-"@byokit/reach@0.4.0":
-  version "0.4.0"
-  resolved "https://registry.yarnpkg.com/@byokit/reach/-/reach-0.4.0.tgz#39452973301c5942b63788632b9d6e696b363850"
-  integrity sha512-12kAxesXSTovENDNwO+qcy6XuygRyx4ounb6qQtrwWKhLk+kZp498VDTdAeh4ds0WmIesUUSF7t9FLF2j/6tNg==
-  dependencies:
-    bonjour-service "^1.4.4"
-    react-native-zeroconf "0.14.0"
-
-"@byokit/realtime@0.2.0":
-  version "0.2.0"
-  resolved "https://registry.yarnpkg.com/@byokit/realtime/-/realtime-0.2.0.tgz#0b1f368a38885ef8820d8fad86c7d65ad4565abd"
-  integrity sha512-1O8BxoAZ7CjoLbYzRuKldQuk3wRKzCzCT0PQKRf8vIW1jDDgJVIjsxGgolAgI4k6xDVBzABQw5KSSDi/OL5EPA==
+"@byokit/realtime@0.2.1":
+  version "0.2.1"
+  resolved "https://registry.yarnpkg.com/@byokit/realtime/-/realtime-0.2.1.tgz#8ba8d89cc253f45365d89ebbbe8af75b09502904"
+  integrity sha512-yEl6UhnI0a9CTj0/sPeY+CdycsH2X7ZHJn/sqwHo/PJ3t5aCIOzNaXAaXr4I7nSXD1A7eRufhq2l9qLp8E3n3w==
   dependencies:
     ws "8.21.3"
 
-"@byokit/relay@0.4.2":
-  version "0.4.2"
-  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.4.2.tgz#b192e0a2e9fa4238f895d7d001ee3992682a3f89"
-  integrity sha512-+grFHuYT2iYpfsxhxnLNgukur4QVMEtHMgBWA4pbMAMk6oZMV0Wmp0oi2CByyZus6W4/LOOh4Al2L03B6Cjbeg==
+"@byokit/relay@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@byokit/relay/-/relay-0.5.0.tgz#17c40c4e9c40b31b9068062ffa0a5b2b865744bb"
+  integrity sha512-QfcY0IH+aF8i3MuO6IMu7QiuKvEuxvfOPKhJqdWGcFB//tVHOPzowWYJF0XOwE2rYM32rQinpJkNy2TqKAZ2iQ==
   dependencies:
-    "@byokit/link" "0.6.0"
+    "@byokit/link" "0.7.0"
     web-push "3.6.7"
     ws "8.21.3"
 
@@ -1175,17 +1173,17 @@
   resolved "https://registry.yarnpkg.com/@byokit/statusbar/-/statusbar-0.1.1.tgz#cbd9298829b4833c9db6c23459b05c2080fe7b4e"
   integrity sha512-TcGsKu4QMTYgmyxeDMSwMo9err113QLFa5BlTVdLKV7dcB/UlhDIbNz470KPCk6v0TH4joiZECZecCbxS86i1g==
 
-"@byokit/ui-core@0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@byokit/ui-core/-/ui-core-0.3.0.tgz#948eb050e04ebddbf43243622e3c33a7d5fc40e0"
-  integrity sha512-UOdkYpdcARAFWAQl4zLoxM7coCBYVSHZ5qkd5uVoyuSZyoSvtWiK8wB+tbJtZ+snxOixfIyEAt0NoZwLUQUzjA==
+"@byokit/ui-core@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@byokit/ui-core/-/ui-core-0.5.0.tgz#8533b1fec8cdec81f58c5e5b73d482967e3ad469"
+  integrity sha512-kEXIIqTLYr8VWs9rrlihfZOTmgTu5YQQOpdkm5UF7QSWnGc07tZKKj+XhM5IEAviqFHNJXiMW/kMueQkVx+TGQ==
   dependencies:
     uqr "0.1.3"
 
-"@byokit/usage@0.1.0":
-  version "0.1.0"
-  resolved "https://registry.yarnpkg.com/@byokit/usage/-/usage-0.1.0.tgz#6bea8ddf5381978cd54dd672536736aafb6c283d"
-  integrity sha512-By+Ky/Ibaons4NLn8YZTHfr4QCKLcqNQs5Hm5q9mmyklS+BOtrQ4NdG4fQ/MY/6mM8SMG7a5H25WADmzfd+Z6w==
+"@byokit/usage@0.6.0":
+  version "0.6.0"
+  resolved "https://registry.yarnpkg.com/@byokit/usage/-/usage-0.6.0.tgz#ca90c91fe01b745b6052f8fc6994d38f06766e04"
+  integrity sha512-0rATzabj0LnEKk9Jesrd2M/BPpq7ee6E5k6IYLl3G/9ns/GikBc+MfC2qdGNGZqHZct4qdq9KM06sGAZ75NXbw==
 
 "@ccusage/ccusage-darwin-arm64@20.0.20":
   version "20.0.20"
@@ -1222,25 +1220,25 @@
   resolved "https://registry.yarnpkg.com/@chevrotain/types/-/types-11.1.2.tgz#e83a1a2704f0c5e49e7592b214031a0f4a34d7e5"
   integrity sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==
 
-"@desklink/host-darwin-arm64@0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.3.0.tgz#e9fbab64b2e3cdf6833730747c2f0f0ffb195880"
-  integrity sha512-+w19ZRRttZMS22Bbq1raNyxMt1b2A1djm0kS/a28lYFu6rrpIRFmzLtMVz8OKNmsDwdxw13cloO7ixK6Bdqssw==
+"@desklink/host-darwin-arm64@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host-darwin-arm64/-/host-darwin-arm64-0.5.0.tgz#1abf85d6a257cd5f1aee1e4d8bb6abd5cb8fa5c9"
+  integrity sha512-ZZ5zlL0/+Qz7TuxWV/k14FRnrqN/ld0cdNOk/YebrdNWZ8eJfgODT0THXUg6FsaZlBXC0KwCrTYI1WXpb3qitg==
 
-"@desklink/host-linux-x64-gnu@0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.3.0.tgz#6fafe8472325cd0c1c1ea214b67ce3c7dfe6b812"
-  integrity sha512-rNl3W7Zww543GtShlBpqnUXvLCHLwCVGcV0DWkCe4fdEDDLdBP3984emzrF3ER2isl2DpaorsecwrH82h8/FUA==
+"@desklink/host-linux-x64-gnu@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host-linux-x64-gnu/-/host-linux-x64-gnu-0.5.0.tgz#9dd3d540e68a7682cb297145f3f2d654568dd939"
+  integrity sha512-puGmxmIqOCM8DChsSB/mSyfKMAiKCAkm2bu/9fAbMi2danh4eAUtxSltnFL+sfxAkEZHQ6B2oR+KnA/k24F1Rg==
 
-"@desklink/host@0.3.0":
-  version "0.3.0"
-  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.3.0.tgz#58a964599fa6010b4b1625198d7511de5a25db95"
-  integrity sha512-DYhKfivubtblgL6E4hI8qy1slQM3hPNe0TUOBg3d/h7ZwA0Lf5SNKeOIXgAi9IVIst8Vw/3hsYoVAV4gPylKSw==
+"@desklink/host@0.5.0":
+  version "0.5.0"
+  resolved "https://registry.yarnpkg.com/@desklink/host/-/host-0.5.0.tgz#6c7d8aefcf017097e05dababf14e6c5218164ce2"
+  integrity sha512-oFIdvDiuIGGsRy9Vq3dt11DKWh4ZU+MJlKjuVJOmeYbKkDeLrGeFBtv6sofN78QOQoNSH+fsVPO5GhunzV92ng==
   dependencies:
-    ws "^8.18.0"
+    ws "8.21.3"
   optionalDependencies:
-    "@desklink/host-darwin-arm64" "0.3.0"
-    "@desklink/host-linux-x64-gnu" "0.3.0"
+    "@desklink/host-darwin-arm64" "0.5.0"
+    "@desklink/host-linux-x64-gnu" "0.5.0"
 
 "@desklink/react-native@0.3.0":
   version "0.3.0"

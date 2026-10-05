@@ -1,6 +1,126 @@
 {
     "releases": [
         {
+            "appVersion": "0.2.4",
+            "title": "iPhone and Mac polish, Files from the terminal, and voice on BYOKit",
+            "summary": "Folder suggestions and dialogs stay above the iPhone keyboard, tapped paths open in Files, the iPhone app can connect over SSH, and voice, dictation and usage now run on BYOKit. Update the phone app and computer together.",
+            "features": [
+                {
+                    "title": "Open tapped paths in Files",
+                    "detail": "Tap a file or folder path in the terminal and choose Open: folders open at their location in Files and files open previewed in their folder, on iPhone, Android and web."
+                },
+                {
+                    "title": "SSH connection on iPhone",
+                    "detail": "The native iPhone app can pair and connect through an SSH tunnel, as Android already could."
+                },
+                {
+                    "title": "Voice runs on BYOKit",
+                    "detail": "Realtime voice on the phone and the computer now runs on the shared BYOKit realtime library, and the Codex sign-in check comes from the same library. A simple request to ask or tell one named agent something goes straight to that agent without a planning step, and agent stop reports arrive sooner."
+                },
+                {
+                    "title": "Dictation runs on BYOKit",
+                    "detail": "On-device dictation now runs on the shared BYOKit dictation library with settings chosen from measured runs: English is used directly, the whole recording is read again when you stop so missed words come back, and the last words spoken before stopping are kept."
+                },
+                {
+                    "title": "Agent status chips on Android",
+                    "detail": "On Android, busy, attention and voice status chips use the shared BYOKit status bar library."
+                },
+                {
+                    "title": "Smoother first run",
+                    "detail": "Setup on the computer shows each connection route with its requirements and one recommendation. On the phone, pairing opens the scanner directly, shows one consent screen and the matching words, then opens Home. In the browser, the first-run screen tells you to paste the pairing link instead of scanning a QR code."
+                }
+            ],
+            "fixes": [
+                {
+                    "title": "Folder suggestions while typing",
+                    "detail": "The project folder field and its suggestions stay visible above the keyboard, match folder names regardless of case (Documents on a Mac), include linked folders, keep focus while you browse, and show a ~/project example on any computer."
+                },
+                {
+                    "title": "Keyboard on iPhone",
+                    "detail": "The pairing dialog and terminal link actions stay clear of the keyboard, Safari no longer zooms in on a focused field, and the page lines up again after the keyboard closes."
+                },
+                {
+                    "title": "Photos on iPhone",
+                    "detail": "Choosing a photo in Safari or the installed web app attaches it instead of failing."
+                },
+                {
+                    "title": "Files while an agent starts",
+                    "detail": "Opening Files while an agent is still starting shows a waiting state and then loads, instead of an Unknown session error."
+                },
+                {
+                    "title": "Option sheets on Android",
+                    "detail": "On Android, option sheets move above the keyboard instead of being covered by it."
+                },
+                {
+                    "title": "Tapped paths and links",
+                    "detail": "Tapping a file path in the terminal shows Copy, Insert and Open actions as web links already did."
+                },
+                {
+                    "title": "Web terminal reopens by itself",
+                    "detail": "Reopening the web app onto a terminal reconnects without tapping Retry when the link was not ready yet."
+                },
+                {
+                    "title": "Default agent is one you have",
+                    "detail": "The Home dock no longer picks Pi when the computer does not have it installed; a choice you made yourself is kept."
+                },
+                {
+                    "title": "Paths from your home folder",
+                    "detail": "A path like ~/project or project starts agents, lists folders and runs commands from your home folder."
+                },
+                {
+                    "title": "Agent start errors",
+                    "detail": "When an agent cannot start, the phone says why and offers Back to Home instead of waiting silently."
+                },
+                {
+                    "title": "Usage readings",
+                    "detail": "Codex, OpenCode Go and Z.ai plan limits come from the shared BYOKit usage library and stay separate per account."
+                },
+                {
+                    "title": "Plugins no longer cut off voice",
+                    "detail": "Enabling, updating or disabling a plugin no longer ends an active voice call. Plugin-declared computer streams are retired."
+                },
+                {
+                    "title": "Updated libraries",
+                    "detail": "The computer uses desklink 0.3 (adding macOS Apple silicon desktop support), the accounts library 0.9 with single-use refresh protection, and newer link, relay and Herdr libraries. Codex status checks no longer hold up other requests."
+                }
+            ],
+            "verification": [
+                {
+                    "title": "Desktop engine release prerequisite",
+                    "status": "partial",
+                    "detail": "npm serves the pinned @desklink/host 0.3.0 with its Linux x64 and macOS arm64 engine packages, as checked during preparation. This checks availability, not desktop behaviour on the release candidate."
+                },
+                {
+                    "title": "Automated checks on the release candidate",
+                    "status": "not-run",
+                    "detail": "The full suite and signed Android/npm candidate build had not run for this version when these notes were written. Checks on the individual changes are not acceptance of the combined release."
+                },
+                {
+                    "title": "Mac and iPhone acceptance",
+                    "status": "not-run",
+                    "detail": "Some iPhone and Mac fixes (photo attach, Files while an agent starts, web keyboard layout, home paths, web terminal reopen, pairing dialog, folder placeholder, path Open, default agent) were checked on a private Mac host with an iPhone simulator before they merged. Others, including iPhone SSH, folder suggestions above the keyboard and terminal link actions, were not run on a Mac or iPhone. The combined candidate has not yet been run on a Mac host with an iPhone."
+                },
+                {
+                    "title": "Real-phone dictation and voice",
+                    "status": "not-run",
+                    "detail": "Dictation settings were chosen from recorded-speech measurements and an emulator; dictation and realtime voice on a real phone have not been checked for this candidate."
+                },
+                {
+                    "title": "Android acceptance",
+                    "status": "not-run",
+                    "detail": "The exact signed candidate has not been installed or accepted on an Android phone or emulator."
+                }
+            ],
+            "knownLimits": [
+                "Update the phone app and computer together: several new phone features (opening tapped paths, home-relative and linked folders, photo attach in Safari, voice on BYOKit) depend on the new computer, and mixed versions were not tested. Install the phone candidate first, then update the computer before reconnecting.",
+                "Voice can take a moment to connect when it starts; connecting ahead of time waits on a BYOKit fix.",
+                "Files browses only the projects your agents have open: a tapped folder outside them shows Not in Files (a file outside them opens in the file viewer).",
+                "A self-hosted computer and relay are required. Native iPhone desktop viewing is not available yet; open Computer in the web app on iPhone.",
+                "Transient blank terminal frames around an explicit keyboard resize remain a known limitation.",
+                "This is a candidate for acceptance. npm latest and Play production are not updated by building it; a successful build does not prove phone, microphone or desktop behaviour."
+            ]
+        },
+        {
             "appVersion": "0.2.3",
             "title": "Choose your accounts, watch your agents, and send files",
             "summary": "Pick a subscription account for each agent, add or sign in to accounts from the phone, browse files and send prompt attachments, and watch an agent’s browser or emulator live. Update the phone app and computer together.",

@@ -298,9 +298,29 @@ export class PaneScreens {
         return this.keeperProbe;
     }
 
+    /**
+     * The engine binary the host runs. `DESKLINK_ENGINE` is the name
+     * @desklink/host publishes; `MUXR_DESKLINK_ENGINE` is no longer read.
+     * A stale old name fails loudly instead of silently picking another
+     * engine: `false` means the configured path must not be used at all.
+     */
+    private enginePath(): string | undefined | false {
+        const legacy = this.env.MUXR_DESKLINK_ENGINE;
+        if (legacy !== undefined && legacy.trim() !== '') {
+            this.onDiagnostic(
+                'MUXR_DESKLINK_ENGINE is no longer read; set DESKLINK_ENGINE to the desktop engine binary instead.',
+            );
+            const configured = this.env.DESKLINK_ENGINE;
+            if (configured === undefined || configured.trim() === '') return false;
+        }
+        return this.env.DESKLINK_ENGINE;
+    }
+
     /** Asked once per host: the engine's own usage must list the keeper mode. */
     private async probeKeeper(): Promise<{ command: string; args: string[] } | undefined> {
-        const resolved = resolveEngine(this.env.MUXR_DESKLINK_ENGINE);
+        const configured = this.enginePath();
+        if (configured === false) return undefined;
+        const resolved = resolveEngine(configured);
         if (resolved !== null && await engineHasKeeperMode(resolved.command)) {
             return { command: resolved.command, args: [...resolved.args.filter((arg) => arg !== 'serve'), KEEPER_MODE] };
         }

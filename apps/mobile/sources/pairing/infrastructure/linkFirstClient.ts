@@ -421,7 +421,7 @@ export class LinkFirstClient implements SessionClient {
         if (status === 'refused') {
             this.stopLink();
             this.setState('stale', true);
-            void this.checkHealth();
+            void this.checkHealth(true);
             return;
         }
         if (status === 'offline' && Date.now() - this.lastHealthCheck > 10_000) void this.checkHealth();
@@ -453,7 +453,7 @@ export class LinkFirstClient implements SessionClient {
         }
     }
 
-    private async checkHealth(): Promise<void> {
+    private async checkHealth(refused = false): Promise<void> {
         const stored = this.options.hostedGrant;
         if (stored === undefined || this.closed) return;
         this.lastHealthCheck = Date.now();
@@ -476,7 +476,10 @@ export class LinkFirstClient implements SessionClient {
             if (health.linkProtocol !== 1) {
                 message = 'Update needed: This computer runs an older muxr connection protocol. Update muxr on the computer, then pair again.';
                 permanent = true;
-            } else if (computer && /^\d+\.\d+\.\d+/.test(computer)) {
+            } else if (refused && computer && /^\d+\.\d+\.\d+/.test(computer)) {
+                // Differing versions only explain a refusal. A relay that answers while
+                // the link is merely offline is a host coming back, and machine.hello
+                // re-checks its protocol on the next handshake.
                 const { getAppVersion } = await import('@/utils/appVersion');
                 const app = getAppVersion();
                 if (/^\d+\.\d+\.\d+/.test(app) && computer.split(/[-+]/)[0] !== app.split(/[-+]/)[0]) {
