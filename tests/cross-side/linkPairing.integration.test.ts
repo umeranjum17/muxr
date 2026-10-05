@@ -10,8 +10,8 @@
  *
  * Covered: a successful pairing (the same two words on both screens, the
  * device record durable, the machine link serving the new phone), a declined
- * approval, and a phone that resumes by key after dying between approval and
- * completion.
+ * approval, a phone that resumes by key after dying between approval and
+ * completion, and each lost acknowledgement settled by retrying the same code.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import WebSocket from 'ws';
 import {
     DeviceLink,
+    LinkError,
     b64url,
     hostId,
     keyPair,
@@ -67,7 +68,7 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }));
 
 const { linkPair: runComputerPairing, readSelfhostState } = await import('./hostSetup.js');
-const { pairOverLink: runPhonePairing, resumePendingHostedPairing, loadHostedGrant, reconnectViaDiscoveredRelay } = await import('../../apps/mobile/sources/pairing/application/linkPairing.js');
+const { pairOverLink: runPhonePairing, resumePendingHostedPairing, loadHostedGrant, reconnectViaDiscoveredRelay, PairingNeedsNewCode } = await import('../../apps/mobile/sources/pairing/application/linkPairing.js');
 const { getCachedConnectionSettings, saveConnectionSettings } = await import('../../apps/mobile/sources/connection/connectionSettings.js');
 
 const PENDING_LINK_KEY = 'muxr.hosted-e2ee.pending-link-pair.v1';
@@ -225,6 +226,11 @@ describe('native pairing over the byokit link', () => {
         } finally {
             phone.platform = 'android';
         }
+        // A code from an older muxr names the update instead of dead-ending.
+        const stale = runPhonePairing('muxr://pair#payload=older');
+        await expect(stale).rejects.toBeInstanceOf(PairingNeedsNewCode);
+        await expect(stale).rejects.toThrow('run the Update muxr action');
+        expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     });
 
     it('re-pairs an older phone with matching words and carries all events and RPC over the link', async () => {
@@ -345,29 +351,71 @@ describe('native pairing over the byokit link', () => {
         expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
     }, 90_000);
 
-    it('keeps the phone grant if the verified reply is lost after the computer commits', async () => {
+    it('settles every lost pairing acknowledgement by retrying the same code, never by claiming it again', async () => {
         const machineId = readSelfhostState().machine.id;
-        const previous = await loadHostedGrant(machineId);
-        const { pairing, offer } = await showPairingQr({ approve: () => true });
-        const original = DeviceLink.prototype.request;
-        const lost = vi.spyOn(DeviceLink.prototype, 'request').mockImplementation(async function (...args) {
-            const answer = await original.apply(this, args);
-            if (args[0] === 'pair.verified') throw new Error('lost verification reply');
-            return answer;
-        });
-        try { await expect(runPhonePairing(offer)).rejects.toThrow('lost verification reply'); }
-        finally { lost.mockRestore(); }
-        await pairing;
-        const persisted = await loadHostedGrant(machineId);
-        expect(persisted?.deviceId).not.toBe(previous?.deviceId);
-        expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === persisted?.deviceId)).toBe(true);
-    }, 90_000);
+        const hostHas = (deviceId: string | undefined) => readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === deviceId);
+        const pendingAnswer = () => (JSON.parse(phone.secure.get(PENDING_LINK_KEY) ?? '{}') as { answer?: { deviceId: string } }).answer;
+        /** `pair.verified` times out on the phone; `delivered` says whether the computer heard it first. */
+        const loseAcknowledgement = async (offer: string, delivered: boolean) => {
+            const original = DeviceLink.prototype.request;
+            const lost = vi.spyOn(DeviceLink.prototype, 'request').mockImplementation(async function (this: DeviceLink, ...args) {
+                if (args[0] !== 'pair.verified') return original.apply(this, args);
+                if (delivered) await original.apply(this, args);
+                throw new LinkError('timeout');
+            });
+            const previous = await loadHostedGrant(machineId);
+            try {
+                const attempt = runPhonePairing(offer);
+                await expect(attempt).rejects.toThrow('Your computer may not have saved this pairing. Try again');
+                await expect(attempt).rejects.not.toBeInstanceOf(PairingNeedsNewCode);
+            } finally { lost.mockRestore(); }
+            // Unconfirmed, so nothing shows as paired or replaces the working grant.
+            expect((await loadHostedGrant(machineId))?.deviceId).toBe(previous?.deviceId);
+            return pendingAnswer()!.deviceId;
+        };
+
+        // Acknowledged: the computer saved the device, only the reply was lost.
+        let qr = await showPairingQr({ approve: () => true });
+        try {
+            let deviceId = await loseAcknowledgement(qr.offer, true);
+            expect(await qr.pairing).toMatchObject({ deviceId });
+            expect((await runPhonePairing(qr.offer)).deviceId).toBe(deviceId);
+            expect((await loadHostedGrant(machineId))?.deviceId).toBe(deviceId);
+            expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+
+            // Timed out: the acknowledgement never arrived; Try again finishes it.
+            qr = await showPairingQr({ approve: () => true });
+            deviceId = await loseAcknowledgement(qr.offer, false);
+            expect((await runPhonePairing(qr.offer)).deviceId).toBe(deviceId);
+            expect(await qr.pairing).toMatchObject({ deviceId });
+            expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+
+            // Rolled back: the computer gave up first, so the phone asks for a new code.
+            qr = await showPairingQr({ approve: () => true });
+            const kept = await loadHostedGrant(machineId);
+            deviceId = await loseAcknowledgement(qr.offer, false);
+            await qr.abort();
+            expect(hostHas(deviceId)).toBe(false);
+            const retry = runPhonePairing(qr.offer);
+            await expect(retry).rejects.toBeInstanceOf(PairingNeedsNewCode);
+            await expect(retry).rejects.toThrow("This pairing didn't finish on your computer. Run `muxr pair` there and scan the new code.");
+            expect((await loadHostedGrant(machineId))?.deviceId).toBe(kept?.deviceId);
+            expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
+        } finally {
+            // A failed step must not wedge the computer's one pairing slot.
+            await qr.abort();
+        }
+    }, 120_000);
 
     it('pairs nothing when the person at the computer declines', async () => {
         const { pairing, offer, abort } = await showPairingQr({ approve: async () => false });
         await expect(runPhonePairing(offer)).rejects.toThrow('Your computer said no to this device.');
+        // The computer has replaced the spent code; the old one says to use the new one.
+        const superseded = runPhonePairing(offer);
+        await expect(superseded).rejects.toBeInstanceOf(PairingNeedsNewCode);
+        await expect(superseded).rejects.toThrow('That pairing code has run out. Show a new one on your computer.');
         const state = readSelfhostState();
-        expect(state.machine.crypto.devices).toHaveLength(4); // phone, browser, forwarded, and lost-reply pairings
+        expect(state.machine.crypto.devices).toHaveLength(5); // phone, browser, forwarded, and two lost-acknowledgement pairings
         await abort();
         await expect(pairing).rejects.toThrow('cancelled');
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
@@ -399,7 +447,7 @@ describe('native pairing over the byokit link', () => {
     it('lists and revokes a link-paired phone from the host record', async () => {
         const state = readSelfhostState();
         const paired = state.machine.crypto.devices;
-        expect(paired).toHaveLength(5);
+        expect(paired).toHaveLength(6);
         const target = paired[0]!;
         const listing = launch([cliMain, 'devices', 'list']);
         await until(() => (listing.exitCode === null ? undefined : listing.exitCode), 'devices list finishes');
@@ -435,8 +483,11 @@ describe('native pairing over the byokit link', () => {
             return true;
         } });
         try {
-            await expect(runPhonePairing(offer, { onWords: () => undefined }))
-                .rejects.toThrow('The pairing link closed after the two words');
+            const dropped = runPhonePairing(offer, { onWords: () => undefined });
+            await expect(dropped).rejects.toThrow('The pairing link closed after the two words');
+            // The code is spent and nothing was granted: no Try again, no pending key.
+            await expect(dropped).rejects.toBeInstanceOf(PairingNeedsNewCode);
+            expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
         } finally {
             await abort();
             await pairing.catch(() => undefined);

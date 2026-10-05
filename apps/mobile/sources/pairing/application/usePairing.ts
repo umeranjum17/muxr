@@ -6,7 +6,7 @@ import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
 import { linkPairMachineName, pairOverLink } from './linkPairing';
-import { hostedPairingDuration, linkOfferRole, looksLikeLinkOffer, looksLikePairingLink } from '../domain/pairingString';
+import { hostedPairingDuration, linkOfferRole, looksLikeLinkOffer, looksLikePairingLink, STALE_PAIRING_CODE } from '../domain/pairingString';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
 import { deliverScannedPairingLink } from './deliverScannedPairing';
@@ -21,7 +21,7 @@ export function useHostedPairing() {
             router.push({ pathname: '/pair', params: { offer: url.trim() } });
             return;
         }
-        Modal.alert('Pairing code expired', 'This pairing code is from an older muxr. Update muxr on both devices, run `muxr pair` on the computer, then scan its new link code.');
+        Modal.alert('Pairing code expired', STALE_PAIRING_CODE);
     }, [router]);
 }
 

@@ -9,7 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { linkPairMachineName, looksLikeLinkOffer } from '@/pairing/e2ee';
+import { linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode, STALE_PAIRING_CODE } from '@/pairing/e2ee';
 import { pairLinkConsent, pairLinkOffer, usePairQrScanner, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
@@ -97,7 +97,7 @@ export default function PairScreen() {
             }).catch(() => undefined);
             return;
         }
-        setState({ phase: 'error', message: 'This pairing code is from an older muxr. Update muxr on both devices, run `muxr pair` on the computer, then scan its new link code.' });
+        setState({ phase: 'error', message: STALE_PAIRING_CODE });
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const switching = getCachedConnectionSettings().machineId !== '';
@@ -110,7 +110,7 @@ export default function PairScreen() {
             if (cancelled || !raw) return false;
             if (!looksLikeLinkOffer(raw.trim())) {
                 if (!raw.includes('byokit-link:') && !raw.includes('pair=')) return false;
-                setState({ phase: 'error', message: 'This pairing code is from an older muxr. Run `muxr pair` on the computer for a new link code.' });
+                setState({ phase: 'error', message: STALE_PAIRING_CODE });
                 return true;
             }
             reviewPairing(raw);
@@ -152,7 +152,7 @@ export default function PairScreen() {
             router.replace('/');
             return;
         }
-        throw new Error('This pairing code is from an older muxr. Run `muxr pair` on the computer for a new link code.');
+        throw new PairingNeedsNewCode(STALE_PAIRING_CODE);
     }, [auth, router]);
 
     const sshInput = React.useCallback((): { ok: true; input?: SshFieldInput } | { ok: false; error: string } => {
@@ -187,11 +187,11 @@ export default function PairScreen() {
         setProgress(undefined);
         setState({ phase: 'working', url, machineName: machineName ?? 'this machine' });
         void pair(url, parsedInput.input).catch((cause) => {
+            // A spent code drops to the new-code form; anything else keeps Try again on this code.
             setState({
                 phase: 'error',
                 message: cause instanceof Error ? cause.message : String(cause),
-                url,
-                machineName,
+                ...(cause instanceof PairingNeedsNewCode ? {} : { url, machineName }),
             });
         });
     }, [state, pair, sshInput]);
