@@ -43,4 +43,23 @@ describe('locateTerminalPath in observe mode', () => {
         expect(mocks.request).not.toHaveBeenCalled();
         expect(mocks.sessionReadFile).not.toHaveBeenCalled();
     });
+
+    it("opens the filesystem root itself when '/' is tapped outside every repository", async () => {
+        mocks.filesRepos.mockResolvedValue({ repos: [] });
+        // A directory is not a readable file: the real host refuses the
+        // read, and the folder listing verifies it instead.
+        mocks.filesRead.mockRejectedValueOnce(new Error('outside repository'));
+        mocks.filesList.mockResolvedValue({ tree: [] });
+
+        const target = await locateTerminalPath('/', {
+            sessionId: 'session-1',
+            cwd: '/home/umer/project',
+            observe: true,
+        });
+
+        expect(target).toEqual({ kind: 'folder', path: '/' });
+        expect(mocks.filesList).toHaveBeenCalledWith('session-1', { root: '/', path: '' });
+        expect(mocks.request).not.toHaveBeenCalled();
+        expect(mocks.sessionReadFile).not.toHaveBeenCalled();
+    });
 });

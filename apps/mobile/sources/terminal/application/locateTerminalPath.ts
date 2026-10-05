@@ -3,7 +3,8 @@ import { sync } from '@/catalog/sync';
 import { terminalPathCandidates } from '../domain/safeTerminalLink';
 
 /** A tapped path as the host knows it. `repo` is set when the path sits in a
- *  repository open in some session, the only places the Files view browses. */
+ *  repository open in some session; without it the path is a user-named
+ *  folder or file on the computer, which Files opens as exactly that. */
 export interface TerminalPathTarget {
     kind: 'folder' | 'file';
     path: string;
@@ -18,6 +19,27 @@ export interface TerminalPathTarget {
  * as a file, so Files or the file viewer shows its own not-found state.
  * Null when a relative path has no working directory to read it from.
  */
+/** A tapped path with cosmetic trailing slashes removed. The filesystem
+ *  root survives: '/' stays '/', never the empty string that would fall
+ *  back to the session repository. Both the resolver below and the Files
+ *  route normalise through here, so a root means the same thing on both
+ *  sides. */
+export function trimmedTapPath(path: string): string {
+    const trimmed = path.replace(/\/+$/, '');
+    return trimmed === '' ? '/' : trimmed;
+}
+
+/** The parent folder and entry name a user-named absolute path verifies
+ *  against: Files lists the parent from the filesystem and reads the entry
+ *  inside it. Undefined for paths with no parent to ask about. */
+function namedDirTarget(absolutePath: string): { dir: string; base: string } | undefined {
+    const trimmed = trimmedTapPath(absolutePath);
+    if (!trimmed.startsWith('/')) return undefined;
+    if (trimmed === '/') return { dir: '/', base: '' };
+    const slash = trimmed.lastIndexOf('/');
+    return { dir: slash <= 0 ? '/' : trimmed.slice(0, slash), base: trimmed.slice(slash + 1) };
+}
+
 export async function locateTerminalPath(
     raw: string,
     input: { sessionId: string; cwd?: string | null; observe?: boolean },
@@ -51,24 +73,43 @@ export async function locateTerminalPath(
                 ? `${home}/${hostPath.slice(2)}`
                 : hostPath;
             const repo = repoOf(absolutePath);
-            if (repo === undefined) continue;
-            let isFile = true;
+            if (repo !== undefined) {
+                let isFile = true;
+                try {
+                    await filesRead(input.sessionId, { root: repo.root, path: repo.relative });
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    if (message !== 'file unavailable' && message !== 'outside repository') throw error;
+                    isFile = false;
+                }
+                if (isFile) {
+                    return target('file', absolutePath);
+                }
+                const parent = repo.relative.split('/').slice(0, -1).join('/');
+                const name = repo.relative.split('/').pop();
+                const listing = await filesList(input.sessionId, { root: repo.root, ...(parent === '' ? {} : { path: parent }) });
+                if (repo.relative === '' || repo.relative === '.'
+                    || listing.tree.some((node) => node.name === name && node.kind === 'folder')) {
+                    return target('folder', absolutePath);
+                }
+                continue;
+            }
+            // Outside every open repository the path is still openable when
+            // the user named it: verify the parent folder on the host, which
+            // lists from the filesystem (empty and ignored entries included).
+            const named = namedDirTarget(absolutePath);
+            if (named === undefined) continue;
             try {
-                await filesRead(input.sessionId, { root: repo.root, path: repo.relative });
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                if (message !== 'file unavailable' && message !== 'outside repository') throw error;
-                isFile = false;
-            }
-            if (isFile) {
+                await filesRead(input.sessionId, { root: named.dir, path: named.base });
                 return target('file', absolutePath);
+            } catch {
+                // Not a readable file: it may be a folder instead.
             }
-            const parent = repo.relative.split('/').slice(0, -1).join('/');
-            const name = repo.relative.split('/').pop();
-            const listing = await filesList(input.sessionId, { root: repo.root, ...(parent === '' ? {} : { path: parent }) });
-            if (repo.relative === '' || repo.relative === '.'
-                || listing.tree.some((node) => node.name === name && node.kind === 'folder')) {
+            try {
+                await filesList(input.sessionId, { root: named.dir, path: named.base });
                 return target('folder', absolutePath);
+            } catch {
+                // Unverifiable here; the next candidate may still name it.
             }
         }
         return null;
