@@ -194,6 +194,9 @@ it('auto picks the roomier account and says which in one line', async () => {
     expect(existsSync(join(env.MUXR_HOME!, 'usage', 'plans-v2.json'))).toBe(false);
     claudeSnapshot(second, 95, 99);
     expect((await resolvePlanLaunch(env, 'auto', 'claude'))?.id).toBe('found-claude');
+    // Pi keeps its previous Auto mapping onto these Claude accounts until the Pi kind is a product decision.
+    expect((await resolvePlanLaunch(env, 'auto', 'pi'))?.id).toBe('found-claude');
+    expect((await resolvePlanLaunch(env, 'pa_work', 'pi'))?.id).toBe('pa_work');
     expect((await resolvePlanLaunch(env, 'pa_work', 'claude'))?.id).toBe('pa_work');
     rmSync(join(second, 'last-statusline-input.json'));
     const withoutSnapshot = (await listPlans(env)).providers[0]!;

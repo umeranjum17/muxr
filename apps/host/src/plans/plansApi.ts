@@ -112,16 +112,19 @@ export async function resolvePlanLaunch(env: NodeJS.ProcessEnv, chosen: string, 
     const kit = planAccounts(env);
     let record: PlanAccountRecord;
     if (chosen === 'auto') {
-        if (kind !== 'claude' && kind !== 'codex') {
+        // Pi keeps its previous mapping onto the Claude accounts until the Pi account kind is a product decision.
+        if (kind !== 'claude' && kind !== 'codex' && kind !== 'pi') {
             throw Object.assign(new Error('Choose a provider agent for Auto.'), { code: 'plan-kind-mismatch' });
         }
-        const reads = await providerRooms(kind, env, deps, await kit.list());
+        const reads = await providerRooms(kind === 'codex' ? 'codex' : 'claude', env, deps, await kit.list());
         if (reads.length < 2) return undefined;
         const pick = selection(reads, chosen);
         if (!pick.ok) return undefined;
         record = resolvePlanRecord(env, pick.account.id);
     } else record = resolvePlanRecord(env, chosen);
-    if (kind !== undefined && kind !== 'shell' && !kit.kinds(record.provider).includes(kind)) {
+    // The kit owns which kinds an account sign-in can launch; Pi keeps its old mapping above.
+    const kinds = kind === 'pi' ? [...kit.kinds(record.provider), kind] : kit.kinds(record.provider);
+    if (kind !== undefined && kind !== 'shell' && !kinds.includes(kind)) {
         throw Object.assign(new Error(`That account is a ${PLAN_LABELS[record.provider]} sign-in, not a ${kind} one.`), { code: 'plan-kind-mismatch' });
     }
     const account = record.found ? await defaultAccount(record, env, deps) : fromCliAccount(await kit.status(record.id));
