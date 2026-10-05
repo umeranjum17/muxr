@@ -7,6 +7,7 @@ import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { defaultPlanFolder, muxrHome, plansDir, loadPlanAccounts, type PlanAccountRecord } from './planStore.js';
 import type { PlanAccount } from '@trymuxr/contract';
+import { accountNameFrom } from '@trymuxr/contract';
 import { claudeIdentity, codexIdentity, type DefaultLoginDeps, type PlanIdentity } from './planIdentity.js';
 
 export type PlanPreparation = (folder: string, provider: CliProvider) => Promise<void>;
@@ -57,15 +58,30 @@ export function planError(error: unknown): never {
     throw error;
 }
 
-export function fromCliAccount(account: CliAccount): PlanAccount {
-    const { id, provider, name, email, plan } = account;
-    return { id, provider, name, signedIn: account.state === 'ready',
+/** Names this provider's other accounts already carry: what a fresh
+ *  suggestion must never duplicate. */
+function savedNames(env: NodeJS.ProcessEnv, record: PlanAccountRecord): string[] {
+    return loadPlanAccounts(env)
+        .filter((entry) => entry.provider === record.provider && entry.id !== record.id)
+        .map((entry) => entry.name.trim())
+        .filter((name) => name !== '');
+}
+
+/** The person's own name for an account, or a suggestion from that account's
+ *  OWN email when nobody has named it yet. */
+export function accountName(record: PlanAccountRecord, env: NodeJS.ProcessEnv, email: string | undefined): string {
+    return record.name.trim() || accountNameFrom(email, record.provider, savedNames(env, record));
+}
+
+export function fromCliAccount(account: CliAccount, record: PlanAccountRecord, env: NodeJS.ProcessEnv): PlanAccount {
+    const { id, provider, email, plan } = account;
+    return { id, provider, name: accountName(record, env, email), signedIn: account.state === 'ready',
         ...(email === undefined ? {} : { email }), ...(plan === undefined ? {} : { plan }) };
 }
 
 function describeDefault(record: PlanAccountRecord, identity: PlanIdentity, env: NodeJS.ProcessEnv): PlanAccount {
     return { id: record.id, provider: record.provider,
-        name: record.name.trim() || planAccounts(env).suggestName(identity.email, record.provider),
+        name: accountName(record, env, identity.email),
         signedIn: identity.signedIn, foundOnComputer: true,
         ...(identity.email === undefined ? {} : { email: identity.email }),
         ...(identity.plan === undefined ? {} : { plan: identity.plan }) };
