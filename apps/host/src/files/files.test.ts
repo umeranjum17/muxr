@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { filesList, filesRead, filesRepos } from './files.js';
@@ -107,6 +107,14 @@ describe('user-named folders outside the open repositories', () => {
         expect(listed.scope).toBe('folder');
         expect(listed.root).toBe('/');
         expect(listed.title).toBe('/');
+    });
+
+    it('reads through the filesystem root without mistaking it for an escape', () => {
+        const dirRel = relative('/', join(spaced, 'notes'));
+        const fileRel = relative('/', join(spaced, 'notes', 'plan.txt'));
+        const listed = filesList({ ...input, root: '/', path: dirRel });
+        expect(listed.tree.map((node) => node.name)).toEqual(['plan.txt']);
+        expect(filesRead({ ...input, root: '/', path: fileRel }).body).toContain('wrapped and spaced');
     });
 
     it('keeps the refusal classes intact for named folders', () => {

@@ -110,6 +110,14 @@ function selectedRoot(cwd: string, allowedRoots: readonly string[], root?: strin
     return { root: sessionRoot(cwd), scope: 'repository' };
 }
 
+/** Whether a resolved target stays inside its resolved root. The prefix is
+ *  built with exactly one trailing slash, so the filesystem root still
+ *  contains everything beneath it instead of matching nothing. */
+function withinRoot(realRoot: string, realTarget: string): boolean {
+    const prefix = `${realRoot.replace(/\/+$/, '')}/`;
+    return realTarget === realRoot || realTarget.startsWith(prefix);
+}
+
 function fileTree(paths: string[], folder = ''): { tree: FilesTreeNode[]; total: number; note: string } {
     const prefix = folder === '' ? '' : `${folder}/`;
     const nodes = new Map<string, FilesTreeNode>();
@@ -193,7 +201,7 @@ function folderTree(root: string, folder: string): { tree: FilesTreeNode[]; tota
     } catch {
         throw new Error('file unavailable');
     }
-    if (realTarget !== realRoot && !realTarget.startsWith(`${realRoot}/`)) throw new Error('outside repository');
+    if (!withinRoot(realRoot, realTarget)) throw new Error('outside repository');
     let dirents;
     try {
         dirents = readdirSync(realTarget, { withFileTypes: true });
@@ -244,7 +252,7 @@ export function filesRead(input: FilesInput & { path?: string; allowedRoots?: re
     } catch {
         throw new Error('file unavailable');
     }
-    if (!realTarget.startsWith(`${realRoot}/`)) throw new Error('outside repository');
+    if (!withinRoot(realRoot, realTarget)) throw new Error('outside repository');
     const stat = statSync(realTarget);
     if (!stat.isFile()) throw new Error('outside repository');
     const bytes = Buffer.alloc(Math.min(stat.size, PREVIEW_BYTES));

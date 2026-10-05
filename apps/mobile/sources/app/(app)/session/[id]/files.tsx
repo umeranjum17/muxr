@@ -17,7 +17,8 @@ type Preview = Awaited<ReturnType<typeof filesRead>>;
  * The session's Files browser: repositories, tree, and bounded previews over
  * host-run git. Product surface (the browse half of the retired Files
  * add-on); the session cwd never travels from the client — the host injects
- * it, and an explicit root must be a repository open in some session.
+ * it, and an explicit root is either a repository open in some session or a
+ * user-named absolute folder on the computer (listed from the filesystem).
  */
 export default function FilesScreen() {
     // A tapped terminal path opens here with its repository, folder, and file.
