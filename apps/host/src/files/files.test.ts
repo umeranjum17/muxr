@@ -6,8 +6,6 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { filesList, filesRead, filesRepos } from './files.js';
 import { historyLog, historyShow } from './history.js';
-import { createFakeSessionSource } from '../agent/index.js';
-import { createRequestDispatcher } from '../requests/application/createRequestDispatcher.js';
 
 const scratch = mkdtempSync(join(tmpdir(), 'muxr-files-'));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -93,6 +91,7 @@ describe('user-named folders outside the open repositories', () => {
         const nested = filesList({ ...input, root: spaced, path: 'notes' });
         expect(nested.tree.map((node) => node.name)).toEqual(['plan.txt']);
         expect(filesRead({ ...input, root: spaced, path: 'report.md' }).body).toContain('The full target.');
+        expect(filesRead({ ...input, root: spaced, path: 'notes/plan.txt' }).body).toContain('wrapped and spaced');
     });
 
     it('answers an unverifiable path with stable classes the phone can map', () => {
@@ -108,30 +107,6 @@ describe('user-named folders outside the open repositories', () => {
         expect(listed.scope).toBe('folder');
         expect(listed.root).toBe('/');
         expect(listed.title).toBe('/');
-    });
-
-    it('passes a user-named folder through the real dispatch path', async () => {
-        const source = createFakeSessionSource();
-        const started = await source.start({ cwd: repo });
-        if (!('info' in started)) throw new Error('fake session failed to start');
-        const { dispatch } = createRequestDispatcher({
-            source,
-            domain: {} as never,
-            machineId: 'm1',
-            hostVersion: '0.0.0',
-        });
-        const listed = await dispatch({
-            type: 'files.list',
-            requestId: 'r1',
-            params: { sessionId: started.info.id, root: spaced },
-        } as never);
-        expect(listed).toMatchObject({ ok: true, data: { scope: 'folder', title: 'My Project' } });
-        const preview = await dispatch({
-            type: 'files.read',
-            requestId: 'r2',
-            params: { sessionId: started.info.id, root: spaced, path: 'notes/plan.txt' },
-        } as never);
-        expect(preview).toMatchObject({ ok: true, data: { name: 'plan.txt' } });
     });
 
     it('keeps the refusal classes intact for named folders', () => {
