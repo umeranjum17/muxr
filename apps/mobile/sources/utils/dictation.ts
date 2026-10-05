@@ -121,7 +121,8 @@ export function useDictation(getText: () => string, setText: (text: string) => v
             releaseDictation();
             const message = recordingErrorMessage(error);
             console.error('Failed to start recording:', message);
-            const microphoneUnavailable = message.startsWith('AudioQueueStart failed (NSOSStatusErrorDomain -66628)');
+            const microphoneUnavailable = message.startsWith('AudioQueueStart failed (NSOSStatusErrorDomain -66628)')
+                || message.startsWith('AVAudioSession setActive failed');
             const explanation = microphoneUnavailable ? `Microphone not available. Check the microphone, then try again.\n\nDetails: ${message}` : message;
             Modal.alert('Dictation failed', explanation, [
                 { text: 'Cancel', style: 'cancel' },

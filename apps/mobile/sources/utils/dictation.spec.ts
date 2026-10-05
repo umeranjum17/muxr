@@ -749,6 +749,18 @@ describe('on-device dictation flow', () => {
         expect(appended).toEqual([]);
     });
 
+    it('explains a failed audio session activation the same way', async () => {
+        mocks.liveAudio.start.mockRejectedValueOnce(new Error('AVAudioSession setActive failed (AVFAudioDomain 17001).'));
+        const dictation = await renderDictation();
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+
+        const [title, message, buttons] = mocks.modalAlert.mock.calls[0]!;
+        expect(title).toBe('Dictation failed');
+        expect(message).toBe('Microphone not available. Check the microphone, then try again.\n\nDetails: AVAudioSession setActive failed (AVFAudioDomain 17001).');
+        expect(buttons.find((button: { text: string }) => button.text === 'Retry')).toBeTruthy();
+    });
+
     it('does not claim the mic when permission is denied and blocks Realtime while dictating', async () => {
         mocks.permission.mockResolvedValue({ granted: false, canAskAgain: false });
         const dictation = await renderDictation();
