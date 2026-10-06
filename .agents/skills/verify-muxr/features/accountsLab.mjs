@@ -33,8 +33,8 @@ const stack = await startFakeStack({
 });
 let pairing;
 // A standalone run has no command scope, so nothing else stops the stack.
-const stop = () => { pairing?.release(); stack.stop(); process.exit(0); };
-for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, stop);
+const stop = (code = 0) => { pairing?.release(); stack.stop(); process.exit(code); };
+for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => stop());
 // Each SIGUSR1 mints one pairing link (5 minutes), one per simulator.
 const mint = async () => {
     pairing?.release();
@@ -43,4 +43,9 @@ const mint = async () => {
 };
 process.on('SIGUSR1', () => void mint().catch((error) => console.error(error)));
 console.log(`lab ready: relay 127.0.0.1:${stack.relayPort}, pid ${process.pid}`);
-await mint();
+try {
+    await mint();
+} catch (error) {
+    console.error(error);
+    stop(1);
+}
