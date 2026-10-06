@@ -27,8 +27,10 @@ interface FlowState {
     naming: { account: PlanAccount; again: boolean } | null;
     /** The account a sign-in just finished on: Accounts marks its row for a moment. */
     landed: string | null;
-    /** `overSession`: it lands on an agent screen, so it reads that screen's dark theme. */
-    notice: { title: string; detail: string; overSession?: boolean } | null;
+    /** It stays up until it is tapped or another notice replaces it: a timer
+     *  owned a message the person still had to read, and one shorter than the
+     *  trip to Appearance meant it could never be seen in the other theme. */
+    notice: { title: string; detail: string } | null;
 }
 
 export const useFlows = create<FlowState>()(() => ({ adding: null, pending: null, naming: null, landed: null, notice: null }));
@@ -44,8 +46,8 @@ usePlansStore.subscribe((state, previous) => {
 const seen = new MMKV();
 const termsKey = (provider: string) => `plans-terms-seen:${provider}`;
 
-export function showNotice(title: string, detail: string, overSession = false): void {
-    useFlows.setState({ notice: { title, detail, overSession } });
+export function showNotice(title: string, detail: string): void {
+    useFlows.setState({ notice: { title, detail } });
 }
 
 /** After Start, says which account the agent started on, as the host
@@ -57,11 +59,11 @@ export async function announceStartAccount(sessionId: string, agentKind: string,
     try {
         account = runningOn(entry, await agentAccount(sessionId, connection));
     } catch (error) {
-        if (samePlanConnection(connection)) showNotice('Agent started', `Couldn't check which account it is on: ${planFailure(error)}`, true);
+        if (samePlanConnection(connection)) showNotice('Agent started', `Couldn't check which account it is on: ${planFailure(error)}`);
         return;
     }
     if (account === undefined || !samePlanConnection(connection)) return;
-    showNotice(`Started on ${account.name}${choice === AUTO ? ' (Auto)' : ''}`, account.roomLabel ?? `${providerName(entry.provider)} account`, true);
+    showNotice(`Started on ${account.name}${choice === AUTO ? ' (Auto)' : ''}`, account.roomLabel ?? `${providerName(entry.provider)} account`);
 }
 
 /** Add an account, or sign an existing one in again. `leave` closes whatever
@@ -391,24 +393,24 @@ export function NameAccountSheet() {
     );
 }
 
-const NOTICE_MS = 3_200;
 const LANDED_MS = 4_000;
 
-/** A short confirmation at the top: "Moved to Work", "Added Work". */
+/** A confirmation at the top: "Moved to Work", "Added Work", "Started on
+ *  Work". It reads the app theme it is shown in, so changing the theme while it
+ *  is up repaints it rather than leaving it in the palette it arrived with, and
+ *  it stays up until a tap or the next notice. It carries its own surface and
+ *  lets touches past its own corners, so it neither fights the screen under it
+ *  nor hides one. */
 export function Notice({ top }: { top: number }) {
     const { theme } = useUnistyles();
     const notice = useFlows((state) => state.notice);
-    React.useEffect(() => {
-        if (notice === null) return;
-        const timer = setTimeout(() => useFlows.setState({ notice: null }), NOTICE_MS);
-        return () => clearTimeout(timer);
-    }, [notice]);
     if (notice === null) return null;
     return (
         <Animated.View
             entering={FadeInUp.duration(180).reduceMotion(ReduceMotion.System)}
             exiting={FadeOutUp.duration(160).reduceMotion(ReduceMotion.System)}
             style={[styles.banner, { top }]}
+            pointerEvents="box-none"
             accessibilityLiveRegion="polite"
         >
             <Ionicons name="checkmark-circle" size={24} color={theme.colors.success} />
