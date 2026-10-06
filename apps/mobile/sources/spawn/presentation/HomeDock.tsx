@@ -346,6 +346,10 @@ const styles = StyleSheet.create((theme) => ({
         fontSize: 17,
         ...Typography.default(),
     },
+    focusConfigStack: {
+        flex: 1,
+        minWidth: 0,
+    },
     // The account row's room left, quieter than the account it qualifies.
     focusConfigDetail: {
         color: theme.colors.textSecondary,
@@ -804,11 +808,15 @@ export const HomeDock = React.memo(({
         value: string;
         detail?: string;
         icon: React.ComponentProps<typeof Ionicons>['name'];
+        /** The account row stacks its guidance under its value: on the
+         *  narrowest phone "Work is signed out · Sign in, or use Umer"
+         *  never fits one line, and the guidance is the point. */
+        stacked?: boolean;
     };
 
     const environmentRows: SettingsRow[] = [
         { page: 'agent', label: 'AGENT', value: currentAgent.name, detail: currentAgent.description, icon: 'hardware-chip-outline' },
-        ...(accountLine === null ? [] : [{ page: 'account', label: 'ACCOUNT', value: accountLine.value, detail: accountLine.detail, icon: 'person-circle-outline' as const }]),
+        ...(accountLine === null ? [] : [{ page: 'account', label: 'ACCOUNT', value: accountLine.value, detail: accountLine.detail, icon: 'person-circle-outline' as const, stacked: true }]),
         { page: 'project', label: 'PROJECT', value: currentProject?.name ?? '~', icon: 'folder-outline' },
         { page: 'worktree', label: 'WORKTREE', value: currentWorktree?.name ?? 'No worktree', icon: 'git-branch-outline' },
     ];
@@ -840,10 +848,17 @@ export const HomeDock = React.memo(({
                 <View style={styles.focusConfigIcon}>
                     <Ionicons name={row.icon} size={21} color={theme.colors.text} />
                 </View>
-                <Text style={styles.focusConfigValue} numberOfLines={1}>
-                    {row.value}
-                    {row.detail !== undefined && <Text style={styles.focusConfigDetail}> · {row.detail}</Text>}
-                </Text>
+                {row.stacked === true && row.detail !== undefined ? (
+                    <View style={styles.focusConfigStack}>
+                        <Text style={styles.focusConfigValue} numberOfLines={1}>{row.value}</Text>
+                        <Text style={styles.focusConfigDetail} numberOfLines={1}>{row.detail}</Text>
+                    </View>
+                ) : (
+                    <Text style={styles.focusConfigValue} numberOfLines={1}>
+                        {row.value}
+                        {row.detail !== undefined && <Text style={styles.focusConfigDetail}> · {row.detail}</Text>}
+                    </Text>
+                )}
                 <View style={styles.focusConfigChevron}>
                     <Ionicons name="chevron-up" size={12} color={theme.colors.text} />
                     <Ionicons name="chevron-down" size={12} color={theme.colors.text} />
