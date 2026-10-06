@@ -29,8 +29,8 @@ export function resolveTabPane(tab: HerdrTreeTab, scope: { machineId: string; wo
 
 type AgentNavigation = Pick<Router, 'canDismiss' | 'dismissTo' | 'push'>;
 
-export function navigateToSession(router: AgentNavigation, sessionId: string) {
-    const { href, action } = focusAgent({ agentRoute: sessionId, aboveHome: router.canDismiss() });
+export function navigateToSession(router: AgentNavigation, sessionId: string, options?: { comeBack?: boolean }) {
+    const { href, action } = focusAgent({ agentRoute: sessionId, aboveHome: router.canDismiss(), comeBack: options?.comeBack });
     if (action === 'dismissTo') router.dismissTo(href);
     else router.push(href);
 }

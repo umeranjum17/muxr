@@ -25,18 +25,20 @@ interface FlowState {
     adding: string | null;
     pending: Pending | null;
     naming: { account: PlanAccount; again: boolean } | null;
+    /** The account a sign-in just finished on: Accounts marks its row for a moment. */
+    landed: string | null;
     /** `overSession`: it lands on an agent screen, so it reads that screen's dark theme. */
     notice: { title: string; detail: string; overSession?: boolean } | null;
 }
 
-export const useFlows = create<FlowState>()(() => ({ adding: null, pending: null, naming: null, notice: null }));
+export const useFlows = create<FlowState>()(() => ({ adding: null, pending: null, naming: null, landed: null, notice: null }));
 
 let opening: { cancelled: boolean } | null = null;
 
 usePlansStore.subscribe((state, previous) => {
     if (state.connection === previous.connection) return;
     opening = null;
-    useFlows.setState({ adding: null, pending: null, naming: null, notice: null });
+    useFlows.setState({ adding: null, pending: null, naming: null, landed: null, notice: null });
 });
 
 const seen = new MMKV();
@@ -89,7 +91,8 @@ export function useAccountFlows(leave?: () => void) {
                 }
                 useFlows.setState({ adding: null, pending });
                 leave?.();
-                navigateToSession(router, started.sessionId);
+                // Over the screen the flow started on: the tab steps back to it when it ends.
+                navigateToSession(router, started.sessionId, { comeBack: true });
             } catch (error) {
                 if (!samePlanConnection(connection)) return;
                 if (!attempt.cancelled) useFlows.setState({ adding: null });
@@ -213,7 +216,7 @@ export function SignInBanner({ bottom }: { bottom: number }) {
             if (state?.account.signedIn) {
                 // The host has closed the tab: step back off it, then name the account.
                 leaveTab(route);
-                useFlows.setState({ pending: null, naming: { account: state.account, again: pending.again } });
+                useFlows.setState({ pending: null, naming: { account: state.account, again: pending.again }, landed: state.account.id });
                 void refreshPlans();
                 return;
             }
@@ -309,6 +312,13 @@ export function NameAccountSheet() {
         // Only when a new account arrives, never while typing.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [naming]);
+    // The row stays marked while it is being named, then a moment longer.
+    const landed = useFlows((state) => state.landed);
+    React.useEffect(() => {
+        if (landed === null || naming !== null) return;
+        const timer = setTimeout(() => useFlows.setState({ landed: null }), LANDED_MS);
+        return () => clearTimeout(timer);
+    }, [landed, naming]);
     const close = () => useFlows.setState({ naming: null });
     if (account === undefined) return <OptionSheet visible={false} title="" options={[]} onSelect={() => {}} onClose={close} body={<View />} />;
     const trimmed = name.trim();
@@ -382,6 +392,7 @@ export function NameAccountSheet() {
 }
 
 const NOTICE_MS = 3_200;
+const LANDED_MS = 4_000;
 
 /** A short confirmation at the top: "Moved to Work", "Added Work". */
 export function Notice({ top }: { top: number }) {
