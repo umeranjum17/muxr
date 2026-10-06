@@ -159,7 +159,7 @@ async function ccusageRange(env: NodeJS.ProcessEnv, since: string): Promise<{ ra
     const { binary, failure } = ccusageBinary(env);
     if (binary === undefined) return failure === undefined ? {} : { failure };
     const result = await runJson<CcusageRange>(binary, ['daily', '--by-agent', '--sections', 'daily,session', '--json', '--offline', '--since', since], 120_000);
-    if (!Array.isArray(result?.daily)) return { failure: 'Local activity unavailable · reopen Usage in a minute' };
+    if (!Array.isArray(result?.daily)) return { failure: 'Local activity unavailable · refresh to try again' };
     return { range: result };
 }
 
@@ -173,7 +173,9 @@ async function extrasRange(env: NodeJS.ProcessEnv, since: string): Promise<{ ran
     if (extras === undefined || extras.key !== key || Date.now() - extras.at > EXTRAS_REUSE_MS) {
         const settled = extras?.settled;
         const next: NonNullable<typeof extras> = { at: Date.now(), key, answer: ccusageRange(env, since) };
-        void next.answer.then((answer) => { if (answer.range !== undefined) next.settled = { at: Date.now(), range: answer.range }; });
+        // A failed run is not kept for the reuse window: the next ask, a
+        // refresh included, runs it again, as the failure line promises.
+        void next.answer.then((answer) => { if (answer.range !== undefined) next.settled = { at: Date.now(), range: answer.range }; else next.at = 0; });
         if (settled !== undefined) next.settled = settled;
         extras = next;
     }
