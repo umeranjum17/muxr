@@ -11,7 +11,7 @@ const AGENT = 'session/[id]';
 /** The app stack under the real React Navigation router, driven the way expo-router drives it. */
 function appStack() {
     const router = StackRouter({ initialRouteName: 'index' });
-    const options = { routeNames: ['index', 'panes', 'new-agent', AGENT], routeParamList: {}, routeGetIdList: {} };
+    const options = { routeNames: ['index', 'panes', 'new-agent', 'settings', 'settings/accounts', AGENT], routeParamList: {}, routeGetIdList: {} };
     let state = router.getInitialState(options) as State;
     const apply = (action: Parameters<typeof router.getStateForAction>[1]) => {
         state = (router.getStateForAction(state, action, options) as State | null) ?? state;
@@ -53,5 +53,16 @@ describe('agent stack', () => {
         app.router.push('/new-agent');
         open('e');
         expect(app.screens()).toEqual(['index', 'agent:e']);
+    });
+
+    it('stacks a sign-in tab over the screen it started from, so leaving it lands there', () => {
+        const app = appStack();
+        app.router.push('/settings');
+        app.router.push('/settings/accounts');
+
+        navigateToSession(app.router as never, 'shell:p9', { comeBack: true }); // Add a Claude account
+        expect(app.screens()).toEqual(['index', 'settings', 'settings/accounts', 'agent:shell:p9']);
+        app.back(); // signed in, cancelled, or back
+        expect(app.screens()).toEqual(['index', 'settings', 'settings/accounts']);
     });
 });

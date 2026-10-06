@@ -21,6 +21,13 @@ const hasHerdr = existsSync(herdrSocket);
 const labHelper = process.env.HERDR_LAB_HELPER?.trim();
 
 const checks = [
+    // First, because an install that skipped lifecycle scripts leaves
+    // node_modules unpatched, and the app then typechecks against the
+    // dependency patches/ amends: TS2339 on TerminalViewRef methods, props the
+    // app passes that the package does not declare, and implicit anys from
+    // those untyped props -- all in files nobody touched. Name that cause
+    // before the typecheck reports its symptoms.
+    ['deps: checked-in native patches are applied', 'node', ['scripts/diagnostics/application/verifyNativePatches.mjs']],
     ['typecheck: workspace (strict)', 'npx', ['tsc', '--build', '--force']],
     ['typecheck: mobile (expo/RN)', 'npx', ['tsc', '--noEmit', '--project', 'apps/mobile/tsconfig.json']],
     ['unit: crypto (pairing and grant proofs)', 'node', ['packages/crypto/dist/selfCheck.js']],
@@ -84,6 +91,7 @@ const checks = [
  * full suite -- the fast lane is early feedback, not a release gate.
  */
 const FAST = new Set([
+    'deps: checked-in native patches are applied',
     'typecheck: workspace (strict)',
     'typecheck: mobile (expo/RN)',
     'unit: crypto (pairing and grant proofs)',

@@ -144,6 +144,8 @@ export interface HerdrTreePane extends AgentInfo {
     focused: boolean;
     /** Agent Route, or an explicit ephemeral Shell route for a bare pane. */
     sessionId?: string;
+    /** The plan account the agent runs on ("Work"), only when its provider has more than one. */
+    planAccount?: string;
 }
 
 export interface HerdrTreeTab {

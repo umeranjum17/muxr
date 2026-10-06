@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { MMKV } from 'react-native-mmkv';
 import { storage, useSocketStatus } from '@/catalog/store';
 import { getCachedConnectionSettings } from '@/connection';
-import { AUTO, effectiveChoice, launchAccount, providerEntry, providerForAgent, type PlanProviderAccounts, type PlansList } from '../domain/planAccounts';
+import { AUTO, effectiveChoice, launchAccount, launchQuestion, providerEntry, providerForAgent, type LaunchQuestion, type PlanProviderAccounts, type PlansList } from '../domain/planAccounts';
 import { sync } from '@/catalog/sync';
 
 const saved = new MMKV();
@@ -142,6 +142,18 @@ export function planAccountForLaunch(agentKind: string): string | undefined {
     const { list, choices, autoOn } = usePlansStore.getState();
     const provider = providerForAgent(agentKind);
     return launchAccount(providerEntry(list, provider), provider === null ? undefined : choices[provider], autoOn);
+}
+
+/** What Start must ask before launching this agent on `choice` (see
+ *  `launchQuestion`). Once the person has answered about their pick,
+ *  `pickAnswered` leaves only the room left to ask about. */
+export function planLaunchQuestion(agentKind: string, choice: string, pickAnswered = false): LaunchQuestion | undefined {
+    planConnection();
+    const { list, choices } = usePlansStore.getState();
+    const provider = providerForAgent(agentKind);
+    const entry = providerEntry(list, provider);
+    if (entry === undefined || provider === null) return undefined;
+    return launchQuestion(entry, pickAnswered ? undefined : choices[provider], choice);
 }
 
 /** One agent's provider, its accounts and the current choice, from what the

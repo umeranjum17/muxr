@@ -22,10 +22,13 @@ export class SpawnRequest {
         return null;
     }
 
+    /** Says what will start and where, or what is still missing. */
     startButtonLabel(): string {
-        if (this.kinds.length === 0) return 'Select an installed agent';
-        if (this.kinds.length > 1) return `Start squad (${this.kinds.length})`;
-        return `Start ${this.kinds[0]}`;
+        if (this.kinds.length === 0) return 'Choose an agent to start';
+        if (this.directory === '') return 'Choose a folder to start';
+        const where = this.directory.split('/').filter(Boolean).pop() ?? this.directory;
+        const what = this.kinds.length > 1 ? `${this.kinds.length} agents` : this.kinds[0];
+        return `Start ${what} in ${where}`;
     }
 
     startParams(createCwd: boolean): Record<string, unknown> {

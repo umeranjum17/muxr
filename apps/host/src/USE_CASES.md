@@ -5,9 +5,9 @@ Navigate by intent. Socket handlers in `host.ts` / `createRequestDispatcher.ts` 
 | Capability | Use case | Domain owner | Adapters |
 |---|---|---|---|
 | Start an Agent | `agent/application/startAgent.ts` | Agent identity (Route authorizes; names never do) | `session.start` dispatcher |
-| Choose a Plan Account at launch | `plans/plansApi.ts` (`resolvePlanLaunch`) | Plan Account | `session.start` dispatcher |
-| Add or sign in to a Plan Account | `plans/planSignIn.ts` | Plan Account | `plans.add`, `plans.status`, `plans.cancel` |
-| Manage or move Plan Accounts | `plans/plansApi.ts`, `agent/infrastructure/herdrSessionSource.ts` | Plan Account / Agent Route | `plans.list`, `plans.rename`, `plans.remove`, `plans.move`, `plans.agent`, `plans.acknowledgeAutoTerms` |
+| Choose a Plan Account at launch | `plans/plansApi.ts` (`resolvePlanLaunch`) | BYOKit selection; muxr wire | `session.start` dispatcher |
+| Add or sign in to a Plan Account | `plans/planSignIn.ts`, `plans/planAccounts.ts` | BYOKit managed folders; muxr tabs | `plans.add`, `plans.status`, `plans.cancel` |
+| Manage or move Plan Accounts | `plans/plansApi.ts`, `agent/infrastructure/herdrSessionSource.ts` | BYOKit accounts/move; muxr default row and Agent Route | `plans.list`, `plans.rename`, `plans.remove`, `plans.move`, `plans.agent`, `plans.acknowledgeAutoTerms` |
 | Prompt an Agent | `agent/application/promptAgent.ts` | Agent Route | `session.prompt` |
 | Open an Agent | `agent/application/openAgent.ts` | Agent Route | `session.open` |
 | Read an Agent session | `agent/application/readAgentSession.ts` | Agent Route | `session.status`, `pane.read`, `session.readFile` |

@@ -97,17 +97,24 @@ export default function TextSelectionScreen() {
                     { paddingBottom: insets.bottom + 16 }
                 ]}
             >
-                <TextInput
-                    style={[styles.textInput, { 
-                        color: theme.colors.text,
-                        backgroundColor: 'transparent'
-                    }]}
-                    value={fullText}
-                    multiline={true}
-                    editable={false}
-                    selectTextOnFocus={false}
-                    scrollEnabled={false}
-                />
+                {/* Android disables a read-only TextInput, so it selects nothing there;
+                    iOS selectable Text only copies the whole block. Each gets the view
+                    whose native handles move. */}
+                {Platform.OS === 'android' ? (
+                    <Text selectable style={[styles.textInput, { color: theme.colors.text }]}>{fullText}</Text>
+                ) : (
+                    <TextInput
+                        style={[styles.textInput, { 
+                            color: theme.colors.text,
+                            backgroundColor: 'transparent'
+                        }]}
+                        value={fullText}
+                        multiline={true}
+                        editable={false}
+                        selectTextOnFocus={false}
+                        scrollEnabled={false}
+                    />
+                )}
             </ScrollView>
             </MobileGlassSurface>
         </View>
