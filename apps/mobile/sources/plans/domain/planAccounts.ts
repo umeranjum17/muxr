@@ -101,6 +101,22 @@ export interface LaunchQuestion {
     anyway?: string;
 }
 
+/** The host's Auto line split into the clock and who refills first, from
+ *  "All Claude accounts are out of room until 6:09 PM. Personal refills first."
+ *  Its first sentence is this alert's title, so only what follows belongs in
+ *  the body. Absent on an older host or a reason in other words. */
+const REFILL_REASON = /^All \S+ accounts are out of room(?: until ([^.]+))?\.\s*(\S[^.]*?) refills first\.$/;
+
+/** What an empty account leaves the body to say: the provider's own reset time,
+ *  and that starting now buys nothing. Never the title again. */
+function emptyRoomMessage(reason: string, providerLabel: string): string {
+    const refill = REFILL_REASON.exec(reason);
+    const first = refill?.[2];
+    const when = refill?.[1] === undefined ? '' : ` at ${refill[1]}`;
+    const who = first === undefined ? `A ${providerLabel} account refills first` : `${first} refills first`;
+    return `${who}${when}. An agent started now can't answer until then.`;
+}
+
 export function launchQuestion(entry: PlanProviderAccounts, stored: string | undefined, choice: string): LaunchQuestion | undefined {
     const pick = signedOutPick(entry, stored);
     const account = chosenAccount(entry, choice);
@@ -119,7 +135,7 @@ export function launchQuestion(entry: PlanProviderAccounts, stored: string | und
         const name = providerName(entry.provider);
         return {
             title: `All ${name} accounts are out of room`,
-            message: `${entry.auto.reason.includes('out of room') ? entry.auto.reason : `No ${name} account has room left.`} An agent started now can't answer until then.`,
+            message: emptyRoomMessage(entry.auto.reason, name),
             anyway: 'Start anyway',
         };
     }
