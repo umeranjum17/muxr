@@ -230,14 +230,14 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         // is really gone leaves through the tree). Any other close is a real
         // failure (e.g. herdr stream exited / input failed) and surfaces at
         // once like before, instead of retrying silently behind 'reconnecting'.
-        if (reason !== 'control moved to another device' && reason !== undefined && /not found|no longer available/i.test(reason)) {
+        if (reason !== undefined && /not found|no longer available/i.test(reason)) {
             if (linkWire !== undefined) retireLink(linkWire);
             scheduleRetry();
             return;
         }
         // Automatic foreground/reconnect must not steal control back.
         // Only the user's visible retry action may reverse a takeover.
-        closedByTakeover = true;
+        closedByTakeover = reason === 'control moved to another device';
         cancelBottom();
         closedByHost = true;
         lastCloseReason = reason;
@@ -245,7 +245,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         finalizeCounts();
         recordTerminalChannel('disconnected', {
             ok: false,
-            code: 'takeover',
+            code: closedByTakeover ? 'takeover' : 'disconnected',
         });
         unwatchHost();
         for (const listener of closeListeners) listener(reason);
