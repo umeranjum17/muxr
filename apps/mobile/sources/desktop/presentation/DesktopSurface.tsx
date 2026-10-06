@@ -695,7 +695,15 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                     <Text numberOfLines={1} style={[styles.titleText, styles.previewName, { color: theme.colors.text }]}>{copy.name}</Text>
                     {target?.title !== undefined && <Text numberOfLines={1} style={[styles.titleText, styles.previewTitle, { color: theme.colors.textSecondary }]}>{target.title}</Text>}
                 </View>
-                {previewStatusLine !== null && (
+                {/* Driving it, the agent holds off until it is handed back. The
+                    control sits in the bar, never over the picture's own status bar. */}
+                {controlling ? (
+                    <Animated.View entering={popIn}>
+                        <Pressable onPress={disarm} accessibilityRole="button" accessibilityLabel={previewCopy.handBack} accessibilityHint={previewCopy.controlTitle} hitSlop={8} style={({ pressed }) => [styles.handBack, { backgroundColor: theme.colors.button.primary.background }, pressed && styles.pressed]}>
+                            <Text style={[styles.handBackLabel, { color: theme.colors.button.primary.tint }]}>{previewCopy.handBack}</Text>
+                        </Pressable>
+                    </Animated.View>
+                ) : previewStatusLine !== null && (
                     <Animated.View key={previewStatusLine.label} entering={popIn} style={styles.statusLine}>
                         {previewStatusLine.spinner === true
                             ? <ActivityIndicator size={10} color={previewStatusLine.color} />
@@ -748,19 +756,6 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                         <View style={[styles.pill, styles.topPill, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }]}>
                             <ActivityIndicator size="small" color={theme.colors.text} />
                             <Text accessibilityLiveRegion="polite" style={[styles.armLabel, { color: theme.colors.text }]}>{desktopCopy.reconnectingTitle}</Text>
-                        </View>
-                    </Animated.View>
-                )}
-
-                {/* Driving the agent's browser: the agent holds off until it is handed back. */}
-                {preview && live && armed && (
-                    <Animated.View entering={popIn} exiting={popOut} pointerEvents="box-none" style={styles.topLane}>
-                        <View style={[styles.pill, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }]}>
-                            <View style={[styles.statusDot, { backgroundColor: theme.colors.status.working }]} />
-                            <Text accessibilityLiveRegion="polite" style={[styles.armLabel, { color: theme.colors.text }]}>{previewCopy.controlTitle}</Text>
-                            <Pressable onPress={disarm} accessibilityRole="button" accessibilityLabel={previewCopy.handBack} hitSlop={8} style={({ pressed }) => [styles.handBack, { backgroundColor: theme.colors.button.primary.background }, pressed && styles.pressed]}>
-                                <Text style={[styles.handBackLabel, { color: theme.colors.button.primary.tint }]}>{previewCopy.handBack}</Text>
-                            </Pressable>
                         </View>
                     </Animated.View>
                 )}
@@ -1008,7 +1003,6 @@ const styles = StyleSheet.create({
     dim: { backgroundColor: 'rgba(0, 0, 0, 0.55)' },
     pill: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 36, paddingLeft: 14, paddingRight: 6, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 18, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
     topPill: { position: 'absolute', top: 12, alignSelf: 'center', paddingRight: 14 },
-    topLane: { position: 'absolute', top: 12, left: 0, right: 0, alignItems: 'center' },
     handBack: { height: 26, borderRadius: 13, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
     handBackLabel: { ...Typography.default('semiBold'), fontSize: 12 },
     toolbar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 12 },
