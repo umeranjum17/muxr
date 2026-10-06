@@ -742,7 +742,8 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
             <View style={styles.body}>
                 <DesktopView
                     sessionId={session.nativeId}
-                    style={[styles.surface, preview && { backgroundColor: stageColor, marginBottom: TOOLBAR + bottomInset }]}
+                    // On its side with the keyboard up, the compact row sits above the picture, never over it.
+                    style={[styles.surface, preview && { backgroundColor: stageColor, marginBottom: TOOLBAR + bottomInset }, compactKeyboard && styles.belowCompactHeader]}
                     accessibilityLabel={preview ? copy.stage : `${computerName} desktop`}
                     keyboardClearance={clearance}
                     // The top is paid by the container, and a preview's bottom by its toolbar margin.
@@ -942,6 +943,7 @@ const styles = StyleSheet.create({
     body: { flex: 1, minHeight: 0 },
     surface: { flex: 1 },
     compactHeader: { position: 'absolute', top: 8, left: EDGE, right: EDGE, height: BUTTON, flexDirection: 'row', justifyContent: 'space-between', zIndex: 2 },
+    belowCompactHeader: { marginTop: 8 + BUTTON + 8 },
     overlay: {
         position: 'absolute',
         left: 0,
