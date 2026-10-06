@@ -29,8 +29,9 @@ export function AgentEmptyBanner({ sessionId, agentKind, working }: {
                 {/* The reference phone at large text needs two lines for the
                     name and the window; shorter screens still show one. */}
                 <Text style={styles.title} numberOfLines={2}>Out of room on {account.name}</Text>
+                {/* The Move button beside it is the way forward; no third line. */}
                 <Text style={parts.facts} numberOfLines={2}>
-                    {account.roomLabel ?? 'No room left'} · move to keep going
+                    {account.roomLabel ?? 'No room left'}
                 </Text>
             </View>
             <Pressable onPress={move} accessibilityRole="button" accessibilityLabel={`Move to another account, now on ${account.name}`} hitSlop={8}
