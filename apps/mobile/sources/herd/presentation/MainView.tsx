@@ -587,6 +587,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
                         onScroll={handleContentScroll}
                         onRecoveryChange={handlePhoneRecoveryChange}
                         searchQuery={searchQuery}
+                        liveCardBadge={liveCardBadge}
                     />
                 </View>
                 {Platform.OS !== 'web' && phoneHeader}

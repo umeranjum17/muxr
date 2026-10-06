@@ -30,7 +30,7 @@ import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
 import { HomeEmptyState } from './HomeEmptyState';
 import { BusyConnectingCard, HomeRecoveryCard, recoveryMode, useBusyConnecting } from './HomeRecoveryCard';
-import { LiveTerminalsRow } from './LiveTerminalsRow';
+import { LiveTerminalsRow, type LiveCardBadgeInfo } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
 import { Typography } from '@/constants/Typography';
@@ -104,6 +104,7 @@ export const HerdView = React.memo(({
     onRecoveryChange,
     searchQuery = '',
     maxContentWidth = layout.maxWidth,
+    liveCardBadge,
 }: {
     topContentInset?: number;
     bottomContentInset?: number;
@@ -112,6 +113,8 @@ export const HerdView = React.memo(({
     onRecoveryChange?: (active: boolean, linkDown: boolean) => void;
     searchQuery?: string;
     maxContentWidth?: number;
+    /** A per-card line under the agent's name; Home passes the empty-room badge. */
+    liveCardBadge?: React.ComponentType<LiveCardBadgeInfo>;
 }) => {
     const { theme } = useUnistyles();
     const styles = stylesheet;
@@ -260,6 +263,7 @@ export const HerdView = React.memo(({
                     showZeroState={false}
                     visibilityTop={topContentInset}
                     visibilityBottomInset={bottomContentInset}
+                    cardBadge={liveCardBadge}
                 />}
                 {needsRecovery && (mode === 'host' || mode === 'runtime') ? (
                     <Text style={styles.quietLine}>Your terminals will reappear when the computer reconnects.</Text>
@@ -324,6 +328,7 @@ export const HerdView = React.memo(({
                     {!needsRecovery && searchQuery.trim() === '' && <LiveTerminalsRow
                         visibilityTop={topContentInset}
                         visibilityBottomInset={bottomContentInset}
+                        cardBadge={liveCardBadge}
                     />}
                     {noAgents && !needsRecovery && !busy && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
                 </>}
