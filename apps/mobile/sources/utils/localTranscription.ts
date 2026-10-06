@@ -13,16 +13,17 @@ const SPEECH_GATE_RMS = 0.015;
 let warm: { modelUri: string; multilingual: boolean; engine: ReturnType<typeof whisperRnEngine> } | null = null;
 
 // whisper annotates non-speech audio with short parenthetical or bracketed
-// labels like "(wind howling)" or "[wind]". They describe the room, not the
-// speaker, and must never reach the composer. Legitimate words in parentheses
+// labels like "(wind howling)", "[wind]" or "[inaudible]", and music as "♪".
+// They describe the room, not the speaker, and must never reach the composer. Legitimate words in parentheses
 // or brackets survive: a group is dropped only when every word in it is a
 // known non-speech label.
 // ponytail: bounded non-speech vocabulary; a novel sound word outside the set
 // would slip through, extend NON_SPEECH when that happens.
 const NON_SPEECH = new Set([
     'blank', 'audio',
-    'silence', 'quiet',
-    'wind', 'howling', 'gust', 'breeze', 'rain', 'thunder', 'storm', 'hail',
+    'silence', 'quiet', 'inaudible', 'unintelligible', 'indistinct', 'mumbling', 'muttering', 'muffled', 'static',
+    'background', 'chatter', 'chattering', 'crosstalk',
+    'wind', 'howling', 'water', 'rushing', 'gust', 'breeze', 'rain', 'thunder', 'storm', 'hail',
     'music', 'song', 'singing', 'hum', 'humming', 'melody',
     'noise', 'sound', 'sounds', 'buzzing', 'beep', 'beeping', 'ticking', 'clicking', 'rumble', 'rumbling',
     'applause', 'clapping', 'cheering', 'screaming', 'shouting', 'yelling',
@@ -39,6 +40,7 @@ function dropNonSpeechLabels(text: string): string {
     return text
         .replace(/\([^()]*\)/g, (group) => (isNoise(group.slice(1, -1)) ? '' : group))
         .replace(/\[[^\]]*\]/g, (group) => (isNoise(group.slice(1, -1)) ? '' : group))
+        .replace(/[♪♫]+/g, '')
         .replace(/[ \t]{2,}/g, ' ')
         .trim();
 }
