@@ -4,4 +4,5 @@
 export { planConnection, samePlanConnection, waitForPlanDiscovery, planAccountForLaunch, planLaunchQuestion, usePlanAccountsAvailable } from './application/plansStore';
 export type { LaunchQuestion } from './domain/planAccounts';
 export { useAccountLine, type AccountLine } from './application/accountHints';
+export { useEmptyRoom, type EmptyRoom } from './application/emptyRoom';
 export { acknowledgeAutoTerms, unseenAutoTerms } from './application/plansApi';

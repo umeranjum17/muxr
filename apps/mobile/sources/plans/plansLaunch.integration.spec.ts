@@ -94,7 +94,7 @@ describe('which account a launch carries', () => {
         await refreshPlans();
         usePlansStore.getState().choose('claude', 'auto');
         expect(planLaunchQuestion('claude', 'auto')).toEqual({
-            title: 'All Claude accounts are out of room',
+            title: 'All accounts are out of room',
             message: "Personal refills first at 6:09 PM. An agent started now can't answer until then.",
             anyway: 'Start anyway',
         });

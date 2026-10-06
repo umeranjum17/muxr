@@ -24,6 +24,14 @@ usePlansStore.subscribe((state, previous) => {
     if (state.connection !== previous.connection) useMoving.setState({ moving: null });
 });
 
+/** Opens the move sheet for an agent from anywhere: banners offer Move
+ *  without going through the agent's menu first. */
+export function openMoveSheet(args: { sessionId: string; agentKind: string; working: boolean; currentId?: string }): void {
+    const connection = planConnection();
+    if (!samePlanConnection(connection)) return;
+    useMoving.setState({ moving: { connection, ...args } });
+}
+
 /**
  * One row in a running agent's menu, and only when its provider has another
  * account to move to: "Move to another account · On Personal · 18% left".
