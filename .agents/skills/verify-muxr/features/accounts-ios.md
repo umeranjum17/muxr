@@ -40,7 +40,9 @@ Preconditions:
   Accounts, tap `Add a Claude account`, `Open Claude sign-in`. The stand-in
   signs in as `umer.work@example.com` at once and the name sheet opens
   prefilled `Umer`. Start `xcrun simctl io <udid> recordVideo`, tap `Save`,
-  and screenshot within a second: the notice stays 3.2 s. `axe describe-ui`
+  and screenshot at leisure: the notice stays up until it is tapped (no timer).
+  On builds before PR #680 it dismissed after 3.2 s, so capture within a second
+  there. Stop the recording with SIGINT after the list capture. `axe describe-ui`
   reads both surfaces as text: the notice is one button labelled
   `Added Umer. Claude accounts: …`, each row `<name>, <email>, …`.
 - **Reset** with the `umer.work@example.com` row › `Remove` › `Remove`, so the
