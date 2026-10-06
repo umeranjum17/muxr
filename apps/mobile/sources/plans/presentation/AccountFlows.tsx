@@ -337,7 +337,7 @@ export function NameAccountSheet() {
         setSaving(true);
         try {
             // A new account's name is only a suggestion until saved.
-            if (trimmed !== account.name) await renameAccount(account.id, trimmed, connection);
+            await renameAccount(account.id, trimmed, connection);
             if (!samePlanConnection(connection)) return;
             close();
             // The names the list below shows, read from the host's own list after
