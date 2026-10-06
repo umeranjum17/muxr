@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -553,7 +554,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
 
     it('starts on the stored account env, and refuses unknown ids, squads and kind mismatches', async () => {
         const { savePlanAccounts } = await import('../../plans/planStore.js');
-        const folder = join(home, 'muxr', 'plans', 'claude', 'work');
+        const folder = join(home, 'muxr', 'plans', 'claude', 'aabbcc');
         const { mkdirSync } = await import('node:fs');
         mkdirSync(folder, { recursive: true });
         savePlanAccounts(process.env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }]);
@@ -596,7 +597,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
         process.env.MUXR_HOME = join(home3, 'muxr');
         try {
             const { mkdirSync } = await import('node:fs');
-            const folder = join(home3, 'muxr', 'plans', 'claude', 'work');
+            const folder = join(home3, 'muxr', 'plans', 'claude', 'aabbcc');
             mkdirSync(folder, { recursive: true });
             savePlanAccounts(process.env, [{ id: 'pa_work', provider: 'claude', name: 'Work', folder, found: false }]);
             const starts: unknown[] = [];
@@ -610,13 +611,14 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
             const cwd = mkdtempSync(join(tmpdir(), 'muxr-plan-env-start-'));
 
-            const bare = await dispatch({ type: 'session.start', requestId: 'e1', params: { cwd, kind: 'claude', planEnv: { PATH: '/evil', CLAUDE_CONFIG_DIR: '/evil' } } } as never);
+            const bare = await dispatch({ type: 'session.start', requestId: 'e1', params: { cwd, kind: 'claude', planEnv: { PATH: '/evil', CLAUDE_CONFIG_DIR: '/evil' }, planUnset: ['PATH'] } } as never);
             expect(bare).toMatchObject({ ok: true });
             expect(starts[0]).not.toHaveProperty('planEnv');
+            expect(starts[0]).not.toHaveProperty('planUnset');
 
             const ok = await dispatch({ type: 'session.start', requestId: 'e2', params: { cwd, kind: 'claude', planAccount: 'pa_work', planEnv: { CLAUDE_CONFIG_DIR: '/evil' } } } as never);
             expect(ok).toMatchObject({ ok: true });
-            expect(starts[1]).toMatchObject({ planEnv: { CLAUDE_CONFIG_DIR: folder } });
+            expect(starts[1]).toMatchObject({ planEnv: { CLAUDE_CONFIG_DIR: folder }, planUnset: expect.arrayContaining(['ANTHROPIC_API_KEY']) });
         } finally {
             if (keepHome === undefined) delete process.env.HOME;
             else process.env.HOME = keepHome;
@@ -633,7 +635,9 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
         process.env.HOME = home2;
         process.env.MUXR_HOME = join(home2, 'muxr');
         try {
-            savePlanAccounts(process.env, [{ id: 'pa_w', provider: 'codex', name: 'Work', folder: join(home2, 'c'), found: false }]);
+            const folder = join(home2, 'muxr', 'plans', 'codex', 'aabbcc');
+            mkdirSync(folder, { recursive: true });
+            savePlanAccounts(process.env, [{ id: 'pa_w', provider: 'codex', name: 'Work', folder, found: false }]);
             const moves: unknown[] = [];
             let finishMove!: () => void;
             const moveFinished = new Promise<void>((resolve) => { finishMove = resolve; });
@@ -718,13 +722,17 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
         process.env.HOME = home4;
         process.env.MUXR_HOME = join(home4, 'muxr');
         try {
-            savePlanAccounts(process.env, [{ id: 'pa_s', provider: 'claude', name: 'Side', folder: join(home4, 'c'), found: false }]);
+            const folder = join(home4, 'muxr', 'plans', 'claude', 'aabbcc');
+            mkdirSync(folder, { recursive: true });
+            savePlanAccounts(process.env, [{ id: 'pa_s', provider: 'claude', name: 'Side', folder, found: false }]);
             const sessions: Array<{ id: string; paneId: string }> = [];
             const stopped: string[] = [];
             let launches = 0;
             let closeUnavailable = false;
+            let lastStart: { signIn?: string; planEnv?: Record<string, string> } = {};
             const source = {
-                async start() {
+                async start(command: { signIn?: string; planEnv?: Record<string, string> }) {
+                    lastStart = command;
                     launches += 1;
                     // The first launch reports no paneId at all, like a source that only knows the tab id.
                     const info = launches === 1 ? { id: 'tab-1' } : { id: `tab-${launches}`, paneId: `w9:p${launches}` };
@@ -745,6 +753,22 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             // Pane-id fallback: the tab is still found by its session id and closed on cancel.
             const added = await dispatch({ type: 'plans.add', requestId: 'a1', params: { provider: 'claude', accountId: 'pa_s' } });
             expect(added).toMatchObject({ ok: true });
+
+            // The tab shows only the provider's sign-in: no folder, no marker on its command line.
+            expect(lastStart.signIn).toBe(' sh "$MUXR_PLAN_SIGNIN"');
+            const script = lastStart.planEnv!.MUXR_PLAN_SIGNIN!;
+            expect(readFileSync(script, 'utf8')).toContain(`CLAUDE_CONFIG_DIR=${folder}`);
+            // A login that fails ends the wait with why, instead of polling forever.
+            const stub = join(home, 'bin', 'claude');
+            const signedInStub = readFileSync(stub, 'utf8');
+            writeFileSync(stub, '#!/bin/sh\nexit 1\n');
+            try {
+                execFileSync('sh', [script]);
+                const failedLogin = await dispatch({ type: 'plans.status', requestId: 's1', params: { accountId: 'pa_s' } });
+                expect(failedLogin).toMatchObject({ ok: true, data: { account: { signedIn: false }, failure: expect.stringContaining('ended without signing in') } });
+            } finally {
+                writeFileSync(stub, signedInStub);
+            }
             closeUnavailable = true;
             expect(await dispatch({ type: 'plans.cancel', requestId: 'c0', params: { accountId: 'pa_s' } })).toMatchObject({ ok: false });
             expect(sessions).toHaveLength(1);
@@ -759,8 +783,12 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
                 dispatch({ type: 'plans.add', requestId: 'a3', params: { provider: 'claude', accountId: 'pa_s' } }),
             ]);
             expect(stopped).toEqual(['tab-1', 'tab-2']);
+            // Closing the tab by hand is a failure the phone can show, not a silent wait.
+            sessions.splice(0, sessions.length);
+            const closedTab = await dispatch({ type: 'plans.status', requestId: 's2', params: { accountId: 'pa_s' } });
+            expect(closedTab).toMatchObject({ ok: true, data: { failure: 'The sign-in tab was closed before you signed in.' } });
             await dispatch({ type: 'plans.cancel', requestId: 'c2', params: { accountId: 'pa_s' } });
-            expect(stopped).toEqual(['tab-1', 'tab-2', 'tab-3']);
+            expect(stopped).toEqual(['tab-1', 'tab-2']);
 
             // A launch that fails after creating the record leaves no phantom behind.
             let failedStarts = 0;
@@ -768,6 +796,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
             let folderPresentAtStart = false;
             let recordsAtStart: string[] = [];
             const failing = {
+                async herdrCli() { return { stdout: '', stderr: '', exitCode: 0, timedOut: false }; },
                 async start() {
                     failedStarts += 1;
                     const records = loadPlanAccounts(process.env);
@@ -795,7 +824,7 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
     });
 
     it('records the Auto terms acknowledgment the one-time note needs', async () => {
-        const { autoTermsAcknowledged } = await import('../../plans/planStore.js');
+        const { planAccounts } = await import('../../plans/planAccounts.js');
         const home3 = mkdtempSync(join(tmpdir(), 'muxr-plans-terms-'));
         const keepHome = process.env.HOME;
         const keepMuxr = process.env.MUXR_HOME;
@@ -804,10 +833,10 @@ echo '{"id":2,"result":{"account":{"email":"work@example.com"}}}'
         try {
             const source = {} as unknown as SessionSource;
             const { dispatch } = createRequestDispatcher({ source, domain: {} as never, machineId: 'm1', hostVersion: '0.0.0' });
-            expect(autoTermsAcknowledged(process.env)).toBe(false);
+            expect(planAccounts(process.env).termsAcknowledged()).toBe(false);
             const acked = await dispatch({ type: 'plans.acknowledgeAutoTerms', requestId: 't1', params: {} });
             expect(acked).toMatchObject({ ok: true, data: { acknowledged: true } });
-            expect(autoTermsAcknowledged(process.env)).toBe(true);
+            expect(planAccounts(process.env).termsAcknowledged()).toBe(true);
         } finally {
             if (keepHome === undefined) delete process.env.HOME;
             else process.env.HOME = keepHome;

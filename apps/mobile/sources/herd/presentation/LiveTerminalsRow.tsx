@@ -108,6 +108,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
     const live = terminalIsLive(card);
     const shell = isShellLabels(labels);
     const state = liveCardState(labels, card.agentStatus, card.id, events, now);
+    const planAccount = storage((state) => herdrPaneForSession(state.herdrWorkspaces, card.id)?.planAccount);
     const rename = () => {
         const pane = herdrPaneForSession(storage.getState().herdrWorkspaces, card.id);
         if (pane !== undefined) showPaneActions(pane);
@@ -132,7 +133,7 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
                     <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={16} />
                     <View style={stylesheet.footerCopy}>
                         <Text numberOfLines={1} style={stylesheet.title}>{labels.title}</Text>
-                        <Text numberOfLines={1} style={stylesheet.identity}>{agentWhoLine(labels)}</Text>
+                        <Text numberOfLines={1} style={stylesheet.identity}>{agentWhoLine(labels)}{planAccount === undefined ? '' : ` · on ${planAccount}`}</Text>
                     </View>
                     <View style={stylesheet.status}>
                         <Text numberOfLines={1} style={[stylesheet.statusText, { color: dot.color }]}>

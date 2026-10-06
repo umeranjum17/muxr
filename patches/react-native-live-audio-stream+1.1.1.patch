@@ -193,7 +193,7 @@ index b846438..35490e3 100644
    }
 
 diff --git a/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m b/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m
-index a6f2317..e129074 100644
+index a6f2317..9ab10a5 100644
 --- a/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m
 +++ b/node_modules/react-native-live-audio-stream/ios/RNLiveAudioStream.m
 @@ -4,7 +4,10 @@
@@ -208,7 +208,7 @@ index a6f2317..e129074 100644
      RCTLogInfo(@"[RNLiveAudioStream] init");
      _recordState.mDataFormat.mSampleRate        = options[@"sampleRate"] == nil ? 44100 : [options[@"sampleRate"] doubleValue];
      _recordState.mDataFormat.mBitsPerChannel    = options[@"bitsPerSample"] == nil ? 16 : [options[@"bitsPerSample"] unsignedIntValue];
-@@ -17,57 +20,80 @@ RCT_EXPORT_METHOD(init:(NSDictionary *) options) {
+@@ -17,57 +20,91 @@ RCT_EXPORT_METHOD(init:(NSDictionary *) options) {
      _recordState.mDataFormat.mFormatFlags       = _recordState.mDataFormat.mBitsPerChannel == 8 ? kLinearPCMFormatFlagIsPacked : (kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked);
      _recordState.bufferByteSize                 = options[@"bufferSize"] == nil ? 2048 : [options[@"bufferSize"] unsignedIntValue];
      _recordState.mSelf = self;
@@ -246,17 +246,26 @@ index a6f2317..e129074 100644
      }
      if (!success || error != nil) {
 -        RCTLog(@"[RNLiveAudioStream] Problem setting up AVAudioSession category and mode. Error: %@", error);
-+        reject(@"E_AUDIO_SESSION", @"Could not configure the iOS audio session", error);
++        RCTLogError(@"[RNLiveAudioStream] setCategory failed: success=%d domain=%@ code=%ld description=%@", success, error.domain, (long)error.code, error.localizedDescription);
++        reject(@"E_AUDIO_SESSION", error ? [NSString stringWithFormat:@"AVAudioSession setCategory failed (%@ %ld): %@", error.domain, (long)error.code, error.localizedDescription] : @"AVAudioSession setCategory failed (NSError unavailable)", error);
          return;
      }
-
+ 
++    // Category setup alone does not activate the recording session.
++    success = [audioSession setActive:YES error:&error];
++    if (!success || error != nil) {
++        reject(@"E_AUDIO_ACTIVATE", error ? [NSString stringWithFormat:@"AVAudioSession setActive failed (%@ %ld): %@", error.domain, (long)error.code, error.localizedDescription] : @"AVAudioSession setActive failed (NSError unavailable)", error);
++        return;
++    }
++
 -    _recordState.mIsRunning = true;
 -
      OSStatus status = AudioQueueNewInput(&_recordState.mDataFormat, HandleInputBuffer, &_recordState, NULL, NULL, 0, &_recordState.mQueue);
 -    if (status != 0) {
 -        RCTLog(@"[RNLiveAudioStream] Record Failed. Cannot initialize AudioQueueNewInput. status: %i", (int) status);
 +    if (status != noErr) {
-+        reject(@"E_AUDIO_QUEUE", @"Could not create the iOS audio input queue", [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
++        RCTLogError(@"[RNLiveAudioStream] AudioQueueNewInput failed: OSStatus=%d", (int)status);
++        reject(@"E_AUDIO_QUEUE", [NSString stringWithFormat:@"AudioQueueNewInput failed (NSOSStatusErrorDomain %d).", (int)status], [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
          return;
      }
 
@@ -268,7 +277,8 @@ index a6f2317..e129074 100644
 +        if (status != noErr) {
 +            AudioQueueDispose(_recordState.mQueue, true);
 +            _recordState.mQueue = NULL;
-+            reject(@"E_AUDIO_BUFFER", @"Could not prepare the iOS audio input buffers", [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
++            RCTLogError(@"[RNLiveAudioStream] AudioQueue buffer preparation failed: OSStatus=%d", (int)status);
++            reject(@"E_AUDIO_BUFFER", [NSString stringWithFormat:@"AudioQueue buffer preparation failed (NSOSStatusErrorDomain %d).", (int)status], [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
 +            return;
 +        }
      }
@@ -279,7 +289,8 @@ index a6f2317..e129074 100644
 +        _recordState.mIsRunning = false;
 +        AudioQueueDispose(_recordState.mQueue, true);
 +        _recordState.mQueue = NULL;
-+        reject(@"E_AUDIO_START", @"Could not start the iOS audio input queue", [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
++        RCTLogError(@"[RNLiveAudioStream] AudioQueueStart failed: OSStatus=%d", (int)status);
++        reject(@"E_AUDIO_START", [NSString stringWithFormat:@"AudioQueueStart failed (NSOSStatusErrorDomain %d).", (int)status], [NSError errorWithDomain:NSOSStatusErrorDomain code:status userInfo:nil]);
 +        return;
 +    }
 +    resolve(@YES);
@@ -306,7 +317,7 @@ index a6f2317..e129074 100644
  }
 
  void HandleInputBuffer(void *inUserData,
-@@ -97,7 +123,7 @@ void HandleInputBuffer(void *inUserData,
+@@ -97,7 +127,7 @@ void HandleInputBuffer(void *inUserData,
 
  - (void)dealloc {
      RCTLogInfo(@"[RNLiveAudioStream] dealloc");

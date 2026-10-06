@@ -104,6 +104,7 @@ export function agentName(kind: string): string {
 }
 
 export function agentReadinessLabel(option: AgentCatalogOption): string {
+    if (option.kind === 'shell') return 'Ready';
     if (option.availability !== 'installed') {
         if (option.kind === 'pi') return 'Installs on first start';
         return option.installHint ?? `Install ${agentName(option.kind)} on the computer`;
