@@ -737,8 +737,9 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                     style={[styles.surface, preview && { backgroundColor: stageColor, marginBottom: TOOLBAR + bottomInset }]}
                     accessibilityLabel={preview ? copy.stage : `${computerName} desktop`}
                     keyboardClearance={clearance}
-                    // ponytail: typed spread until the touch-profile desklink release is pinned; older builds keep desktop gestures.
-                    {...({ gestures: !preview ? 'desktop' : kind === 'browser' ? 'browser' : 'device' } as object)}
+                    // The top is paid by the container, and a preview's bottom by its toolbar margin.
+                    insets={{ left: docked ? 0 : insets.left, right: insets.right, bottom: preview ? 0 : insets.bottom }}
+                    gestures={!preview ? 'desktop' : kind === 'browser' ? 'browser' : 'device'}
                 />
 
                 {/* Reconnecting keeps the last frame, dimmed, and says so above it. */}
