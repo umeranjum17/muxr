@@ -136,8 +136,10 @@ export function launchQuestion(entry: PlanProviderAccounts, stored: string | und
     const roomier = bestMoveTarget(entry.accounts, account.id);
     if (roomier === undefined || roomier.roomLeftPercent === 0) {
         const name = providerName(entry.provider);
+        // Short enough for a modal title on the reference phone at large
+        // text; the provider is named in the chooser this comes from.
         return {
-            title: `All ${name} accounts are out of room`,
+            title: 'All accounts are out of room',
             message: emptyRoomMessage(entry.auto.reason, name),
             anyway: 'Start anyway',
         };
