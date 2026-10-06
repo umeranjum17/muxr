@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
-import { storage, useHerdrTree, useLocalSetting, useSessionsLoaded, useSocketStatus } from '@/catalog/store';
+import { storage, useHerdrRuntime, useHerdrTree, useLocalSetting, useSessionsLoaded, useSocketStatus } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { useSplitViewLayout } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
@@ -170,7 +170,10 @@ const styles = StyleSheet.create((theme) => ({
 }));
 
 // Header title component with connection status and the active saved pairing.
-const HeaderTitle = React.memo(({ large = false, homeRecovering = false }: { large?: boolean; homeRecovering?: boolean }) => {
+// linkDown is the socket link only: a dead agent runtime keeps the link up,
+// so the header agrees with the Connection screen while the recovery card
+// below carries the runtime news. Both read the same shared summary.
+const HeaderTitle = React.memo(({ large = false, linkDown = false }: { large?: boolean; linkDown?: boolean }) => {
     const { theme } = useUnistyles();
     const socketStatus = useSocketStatus();
     const auth = useAuth();
@@ -237,8 +240,8 @@ const HeaderTitle = React.memo(({ large = false, homeRecovering = false }: { lar
     }, [activeMachineId, auth, pairedGrants]);
 
     const connectionStatus = React.useMemo(
-        () => connectionStatusPresentation(socketStatus, theme, homeRecovering),
-        [homeRecovering, socketStatus, theme],
+        () => connectionStatusPresentation(socketStatus, theme, linkDown),
+        [linkDown, socketStatus, theme],
     );
 
     const title = homeHeaderTitle(
@@ -314,14 +317,13 @@ export const MainView = React.memo(() => {
     const [splitRetryFailed, setSplitRetryFailed] = React.useState(false);
     const [splitHostRequestFailed, setSplitHostRequestFailed] = React.useState(false);
     const [homeRecoveryFeedback, setHomeRecoveryFeedback] = React.useState('');
-    const [splitHerdrConnected, setSplitHerdrConnected] = React.useState<boolean | undefined>();
+    const splitHerdrRuntime = useHerdrRuntime();
     React.useEffect(() => {
         if (!useSplitView || !hasPairedGrant || socketStatus.status === 'error' || socketStatus.status === 'disconnected') return;
         let cancelled = false;
         const refresh = () => {
             void sync.refreshHerdTree().then((result) => {
                 if (!cancelled) {
-                    setSplitHerdrConnected(result.herdrConnected);
                     setSplitHostRequestFailed(storage.getState().socketStatus !== 'connected');
                     if (result.herdrConnected !== false) setSplitRetryFailed(false);
                 }
@@ -343,7 +345,7 @@ export const MainView = React.memo(() => {
     const splitHostOffline = useSplitView && hasPairedGrant
         && getCachedConnectionSettings().mode === 'hosted'
         && (socketStatus.status === 'error' || socketStatus.status === 'disconnected' || (splitHostRequestFailed && splitBusySince === null));
-    const splitRuntimeOffline = useSplitView && hasPairedGrant && socketStatus.status === 'connected' && splitHerdrConnected === false;
+    const splitRuntimeOffline = useSplitView && hasPairedGrant && socketStatus.status === 'connected' && splitHerdrRuntime === false;
     const splitBusy = useBusyConnecting(splitBusySince);
     const splitRecovering = splitHostOffline || splitRuntimeOffline || retryingHome || splitRetryFailed;
     React.useEffect(() => {
@@ -356,7 +358,6 @@ export const MainView = React.memo(() => {
         try {
             await sync.reconnect();
             const result = await sync.refreshHerdTree();
-            setSplitHerdrConnected(result.herdrConnected);
             if (result.herdrConnected === false || storage.getState().socketStatus !== 'connected') throw new Error('host unavailable');
             setSplitRetryFailed(false);
             setHomeRecoveryFeedback('Connection restored.');
@@ -417,6 +418,11 @@ export const MainView = React.memo(() => {
     const [searchActive, setSearchActive] = React.useState(false);
     const [homePrompt, setHomePrompt] = React.useState('');
     const [phoneHomeRecovering, setPhoneHomeRecovering] = React.useState(false);
+    const [phoneLinkDown, setPhoneLinkDown] = React.useState(false);
+    const handlePhoneRecoveryChange = React.useCallback((active: boolean, linkDown: boolean) => {
+        setPhoneHomeRecovering(active);
+        setPhoneLinkDown(linkDown);
+    }, []);
     const [headerBackdropVisible, setHeaderBackdropVisible] = React.useState(false);
     const headerBackdropVisibleRef = React.useRef(false);
     // Plugin surfaces live in the home body on every surface: cards first,
@@ -498,7 +504,7 @@ export const MainView = React.memo(() => {
                     <View style={styles.tabletDashboardHeader}>
                         <View style={styles.tabletDashboardIdentity}>
                             <HeaderLogo />
-                            <HeaderTitle large homeRecovering={splitRecovering} />
+                            <HeaderTitle large linkDown={splitHostOffline} />
                         </View>
                     </View>
                     <VersionNotice />
@@ -547,7 +553,7 @@ export const MainView = React.memo(() => {
             <Header
                 title={searchActive
                     ? <HeaderSearch value={searchQuery} onChangeText={setSearchQuery} />
-                    : <HeaderTitle homeRecovering={phoneHomeRecovering} />}
+                    : <HeaderTitle linkDown={phoneLinkDown} />}
                 headerRight={() => (
                     <HomeHeaderActions searchActive={searchActive} onSearchPress={handleSearchPress} />
                 )}
@@ -573,7 +579,7 @@ export const MainView = React.memo(() => {
                         bottomContentInset={bottomContentInset}
                         header={homeHeader}
                         onScroll={handleContentScroll}
-                        onRecoveryChange={setPhoneHomeRecovering}
+                        onRecoveryChange={handlePhoneRecoveryChange}
                         searchQuery={searchQuery}
                     />
                 </View>

@@ -109,7 +109,7 @@ export const HerdView = React.memo(({
     bottomContentInset?: number;
     header?: React.ReactNode;
     onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
-    onRecoveryChange?: (active: boolean) => void;
+    onRecoveryChange?: (active: boolean, linkDown: boolean) => void;
     searchQuery?: string;
     maxContentWidth?: number;
 }) => {
@@ -165,11 +165,14 @@ export const HerdView = React.memo(({
         if (socketStatus.status === 'connected' && error === null && !runtimeOffline) setRetryFailed(false);
     }, [error, runtimeOffline, socketStatus.status]);
     const needsRecovery = hostOffline || runtimeOffline || retrying || retryFailed;
+    // The header must hear link-down separately from recovery: a dead agent
+    // runtime keeps the link up, so the header stays truthful while the card
+    // below carries the runtime message. Both derive from the same store read.
     React.useEffect(() => {
-        onRecoveryChange?.(needsRecovery);
+        onRecoveryChange?.(needsRecovery, hostOffline);
         if (!needsRecovery) setRecoveryFeedback('');
-        return () => onRecoveryChange?.(false);
-    }, [needsRecovery, onRecoveryChange]);
+        return () => onRecoveryChange?.(false, false);
+    }, [hostOffline, needsRecovery, onRecoveryChange]);
     const retryConnection = async () => {
         if (retrying) return;
         setRetrying(true);
