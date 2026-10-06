@@ -7,15 +7,26 @@ import { execFile } from 'node:child_process';
 // string, so this helper sends one strictly sequential `input text` call per
 // character and compares the uiautomator readback against the typed string.
 //
-// Preconditions (the caller owns these; this helper focuses nothing itself):
-// - a text field is already focused and empty on the target device.
+// The target field is either named with `--field` (its accessibility
+// identity: the testID Android reports as resource-id, or the content-desc)
+// or, without `--field`, the field that already holds focus. A named field is
+// found in a fresh uiautomator dump: the keyboard is hidden first because it
+// covers the lower fields while the form re-scrolls, and the form is scrolled
+// until the node appears. The tap goes to the bounds that same dump reports,
+// never a remembered coordinate; a field that cannot be found fails with why.
+//
+// Before typing, the field is cleared like a person would (select-all, then
+// delete) and read back: residue left by an earlier attempt fails with the
+// residue quoted instead of being typed over.
+//
+// Preconditions:
 // - text stays within the input-safe charset below (letters, digits, space
 //   and `%s`-free symbols); `%` is rejected because `input text` reserves
 //   `%s` as a space.
 //
 // Usage:
 //   node checkFocusedSecretTyping.mjs --serial <serial> --text <secret>
-//     [--expect <expected>] [--adb <path>]
+//     [--field <testID or content-desc>] [--expect <expected>] [--adb <path>]
 // `--expect` compares the readback against a different string instead, which
 // is how a corrupted readback is proven to fail. Exit 0 on match, 1 otherwise.
 //
@@ -29,13 +40,18 @@ import { execFile } from 'node:child_process';
 const adbPath = valueOf('--adb') || process.env.ADB || 'adb';
 const serial = valueOf('--serial');
 const text = valueOf('--text');
+const field = valueOf('--field');
 // Multi-line mode compares against the accumulated text (separators removed);
 // without `\n` in the typed text the expectation is the raw value as before.
 const multiline = text?.includes('\n') ?? false;
 const accumulated = (value) => value.replace(/\r?\n/g, '');
 const expect = multiline ? accumulated(valueOf('--expect') ?? text) : valueOf('--expect') ?? text;
 if (!serial || text === undefined) {
-    process.stderr.write('Usage: checkFocusedSecretTyping.mjs --serial <serial> --text <secret> [--expect <expected>] [--adb <path>]\n');
+    process.stderr.write('Usage: checkFocusedSecretTyping.mjs --serial <serial> --text <secret> [--field <identity>] [--expect <expected>] [--adb <path>]\n');
+    process.exit(2);
+}
+if (process.argv.includes('--field') && (!field || field.startsWith('--'))) {
+    process.stderr.write('FAIL: --field needs a testID or content-desc\n');
     process.exit(2);
 }
 if (text.includes('%') || (valueOf('--expect') ?? '').includes('%')) {
@@ -84,12 +100,149 @@ function focusedTexts(xml) {
 }
 
 const dumpPath = '/sdcard/muxr_type_secret.xml';
-
-// Focus nothing: fail fast when no field holds focus instead of typing into the void.
-await shell('uiautomator', 'dump', dumpPath);
-if (focusedTexts(await shell('cat', dumpPath)).length === 0) {
-    process.stderr.write(`FAIL: no focused text field on ${serial}; focus a field first (this helper focuses nothing itself)\n`);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const fail = (message) => {
+    process.stderr.write(`FAIL: ${message}\n`);
     process.exit(1);
+};
+
+// A failed `uiautomator dump` still exits 0 and leaves the previous file in
+// place, so the old file goes first: a failed dump then fails the cat instead
+// of replaying a stale screen.
+async function dump() {
+    await shell('rm', '-f', dumpPath);
+    await shell('uiautomator', 'dump', dumpPath);
+    return shell('cat', dumpPath);
+}
+
+const nodeTags = (xml) => [...xml.matchAll(/<node\b[^>]*>/g)].map(([tag]) => tag);
+
+function attr(tag, name) {
+    const value = tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1];
+    return value === undefined ? undefined : unescapeXml(value);
+}
+
+// RN reports a testID as the bare resource-id; a native view reports `pkg:id/name`.
+const hasIdentity = (tag) => {
+    const id = attr(tag, 'resource-id') ?? '';
+    return id === field || id.endsWith(`:id/${field}`) || attr(tag, 'content-desc') === field;
+};
+
+const bounds = (tag) => (attr(tag, 'bounds')?.match(/\d+/g) ?? []).map(Number);
+
+function centre(tag) {
+    const [x1, y1, x2, y2] = bounds(tag);
+    return [Math.round((x1 + x2) / 2), Math.round((y1 + y2) / 2)];
+}
+
+async function keyboardShown() {
+    // Filtered on the device: the full dump overruns execFile's output buffer.
+    return /\bmInputShown=true\b/.test(await shell('dumpsys input_method | grep mInputShown || true'));
+}
+
+// Hide the keyboard (an IME consumes BACK while shown, so this never navigates),
+// then scroll the form down to its end and back up until the field is on
+// screen. uiautomator also lists nodes scrolled out of view or covered, with
+// bounds clipped to nothing (bottom above top), so a field only counts once
+// enough of it is visible to take a tap.
+// A clickable node drawn after the field (a sticky bar, a floating button)
+// that is not inside it covers the tap point, so that field is not tappable yet.
+const tappable = (tag, tags) => {
+    const [x1, y1, x2, y2] = bounds(tag);
+    if (x2 <= x1 || y2 - y1 < 40) return false;
+    const [x, y] = centre(tag);
+    return !tags.slice(tags.indexOf(tag) + 1).some((later) => {
+        const [lx1, ly1, lx2, ly2] = bounds(later);
+        const inside = lx1 >= x1 && ly1 >= y1 && lx2 <= x2 && ly2 <= y2;
+        return attr(later, 'clickable') === 'true' && !inside && x >= lx1 && x <= lx2 && y >= ly1 && y <= ly2;
+    });
+};
+
+async function findField() {
+    if (await keyboardShown()) {
+        await shell('input', 'keyevent', 'KEYCODE_BACK');
+        await sleep(700);
+    }
+    let direction = 1;
+    let previous;
+    let offscreen = false;
+    for (let swipes = 0; swipes <= 24; swipes++) {
+        const tags = nodeTags(await dump());
+        const matches = tags.filter(hasIdentity);
+        const tag = matches.find((match) => tappable(match, tags));
+        if (tag) return tag;
+        offscreen ||= matches.length > 0;
+        // The form has stopped moving once every node sits where it sat
+        // before the last swipe: that end is reached, so turn around.
+        const layout = tags.map((candidate) => attr(candidate, 'bounds')).join();
+        if (layout === previous) {
+            if (direction === -1) break;
+            direction = -1;
+        }
+        previous = layout;
+        // The form is the tallest scrollable node, not a tab strip beside it.
+        const height = (candidate) => bounds(candidate)[3] - bounds(candidate)[1];
+        const scroller = tags
+            .filter((candidate) => attr(candidate, 'scrollable') === 'true')
+            .sort((a, b) => height(b) - height(a))[0];
+        if (!scroller) {
+            fail(`field '${field}' not found on ${serial}: ${offscreen ? 'it is in the layout but not tappable' : 'no node has that resource-id or content-desc'} and the screen has no scrollable form to search; nothing was tapped`);
+        }
+        const [x, y] = centre(scroller);
+        const reach = Math.round(height(scroller) / 4);
+        await shell('input', 'swipe', `${x}`, `${y + direction * reach}`, `${x}`, `${y - direction * reach}`, '400');
+        await sleep(500);
+    }
+    fail(offscreen
+        ? `field '${field}' not found on ${serial}: it is in the layout but never scrolled into a tappable view; nothing was tapped`
+        : `field '${field}' not found on ${serial}: no node has that resource-id or content-desc anywhere in the scrolled form; nothing was tapped`);
+}
+
+if (field !== undefined) {
+    const [x, y] = centre(await findField());
+    await shell('input', 'tap', `${x}`, `${y}`);
+    let focusedOnField = false;
+    for (let attempt = 0; attempt < 10 && !focusedOnField; attempt++) {
+        await sleep(300);
+        focusedOnField = nodeTags(await dump()).some((tag) => hasIdentity(tag) && attr(tag, 'focused') === 'true');
+    }
+    if (!focusedOnField) fail(`field '${field}' on ${serial} did not take focus after a tap at its reported bounds (${x},${y})`);
+} else if (focusedTexts(await dump()).length === 0) {
+    fail(`no focused text field on ${serial}; name one with --field or focus a field first`);
+}
+
+// Clear the field the way a person would, then prove it is empty before a
+// single character goes in.
+await shell('input', 'keycombination', 'KEYCODE_CTRL_LEFT', 'KEYCODE_A');
+await shell('input', 'keyevent', 'KEYCODE_DEL');
+
+// The focused target field, read until `settled` accepts it (else the last read).
+async function readTarget(settled) {
+    let tag;
+    for (let attempt = 0; attempt < 10; attempt++) {
+        await sleep(300);
+        tag = nodeTags(await dump()).find((candidate) => (
+            attr(candidate, 'focused') === 'true' && attr(candidate, 'text') !== undefined && (field === undefined || hasIdentity(candidate))
+        ));
+        if (tag !== undefined && settled(tag)) break;
+    }
+    return tag;
+}
+const textOf = (tag) => (tag === undefined ? undefined : attr(tag, 'text'));
+
+const cleared = await readTarget((tag) => textOf(tag) === '' || textOf(tag) === attr(tag, 'hint'));
+if (cleared === undefined) fail(`no focused text field left on ${serial} after clearing; nothing was typed`);
+const left = textOf(cleared);
+if (left !== '' && left !== attr(cleared, 'hint')) {
+    // An empty field reports its placeholder as its text, and API 35's dump has
+    // no hint attribute to tell the two apart. One probe character settles it:
+    // only a field that was empty reads back as exactly that character.
+    await shell('input', 'text', 'x');
+    const probed = textOf(await readTarget((tag) => textOf(tag) !== left));
+    await shell('input', 'keyevent', 'KEYCODE_DEL');
+    if (probed !== 'x') fail(`field still holds residue after select-all and delete on ${serial}: ${JSON.stringify(left)}; nothing was typed`);
+    const restored = textOf(await readTarget((tag) => textOf(tag) === left));
+    if (restored !== left) fail(`the emptiness probe did not delete cleanly on ${serial}: read ${JSON.stringify(restored)}; nothing was typed`);
 }
 
 // Strictly sequential: one awaited adb call per character. Batching or

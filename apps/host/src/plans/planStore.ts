@@ -1,15 +1,15 @@
 /**
- * Plan Account store: which provider sign-ins muxr knows, and where they live.
+ * Host-owned default rows and read-only roster access for pane/account bookkeeping.
+ * BYOKit owns all managed-folder mutations and the terms record.
  *
  * A record holds only `{id, provider, name, folder}`: never a password, key
  * or token. The store never persists identity or signed-in state; their source
- * is the tool's own status command (see `planIdentity.ts`). muxr never opens a
+ * is the tool's own status command (BYOKit for managed accounts, `planIdentity.ts` for the default row). muxr never opens a
  * credential file to learn who an account is.
  */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 export type PlanProvider = 'claude' | 'codex';
 export const PLAN_PROVIDERS: PlanProvider[] = ['claude', 'codex'];
@@ -45,12 +45,6 @@ export function defaultPlanFolder(provider: PlanProvider, env: NodeJS.ProcessEnv
     const home = env.HOME?.trim() || homedir();
     if (provider === 'claude') return env.CLAUDE_CONFIG_DIR?.trim() || join(home, '.claude');
     return env.CODEX_HOME?.trim() || join(home, '.codex');
-}
-
-/** The launch env that runs an agent on this sign-in: one folder, nothing copied. */
-export function planLaunchEnv(record: PlanAccountRecord): Record<string, string> {
-    if (record.provider === 'claude') return { CLAUDE_CONFIG_DIR: record.folder };
-    return { CODEX_HOME: record.folder };
 }
 
 function storePath(env: NodeJS.ProcessEnv): string {
@@ -98,40 +92,4 @@ export function savePlanAccounts(env: NodeJS.ProcessEnv, accounts: PlanAccountRe
     const path = storePath(env);
     mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
     writeAtomically(path, JSON.stringify({ version: 1, accounts } satisfies StoreFile));
-}
-
-export function newPlanAccountId(): string {
-    return `pa_${randomBytes(9).toString('hex')}`;
-}
-
-function autoTermsPath(env: NodeJS.ProcessEnv): string {
-    return join(plansDir(env), 'auto-terms-v1.json');
-}
-
-export function autoTermsAcknowledged(env: NodeJS.ProcessEnv): boolean {
-    try {
-        const parsed: unknown = JSON.parse(readFileSync(autoTermsPath(env), 'utf8'));
-        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-            && (parsed as { acknowledged?: unknown }).acknowledged === true;
-    } catch {
-        return false;
-    }
-}
-
-export function acknowledgeAutoTerms(env: NodeJS.ProcessEnv): void {
-    const path = autoTermsPath(env);
-    mkdirSync(plansDir(env), { recursive: true, mode: 0o700 });
-    writeAtomically(path, JSON.stringify({ acknowledged: true }));
-}
-
-/** Folders muxr itself created live under its own plans dir; only those may ever be deleted. */
-export function isMuxrPlanFolder(folder: string, env: NodeJS.ProcessEnv): boolean {
-    const root = resolve(plansDir(env));
-    const candidate = resolve(folder);
-    return candidate.startsWith(`${root}/`);
-}
-
-/** Delete a muxr-created sign-in folder. Found folders are never passed here. */
-export function deletePlanFolder(folder: string): void {
-    rmSync(folder, { recursive: true, force: true });
 }

@@ -4,7 +4,7 @@
  * Herdr runs every CLI, so the real choices are: which agent(s), and where.
  * One kind -> a single session. Two to four kinds -> squad mode: one tab per
  * kind in the same workspace, so pi and codex work side by side on one repo.
- * "Join a running workspace" reuses whatever the desk already has open.
+ * Where offers the desk's open workspaces first, then recent folders.
  */
 
 import * as React from 'react';
@@ -24,11 +24,10 @@ import { router } from 'expo-router';
 import { sync } from '@/catalog/sync';
 import { type HerdrTreeWorkspace } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
-import { StatusDot } from '@/components/StatusDot';
 import { Switch } from '@/components/Switch';
 import { AgentGlyph } from '@/components/AgentGlyph';
-import { DirectoryPicker } from '@/spawn/ui';
-import { agentStatusColor } from '@/herd';
+import { DirectoryPicker, type DirectoryPlace } from '@/spawn/ui';
+import { wherePlaces } from '@/utils/directoryPicker';
 import {
     getCachedConnectionSettings,
 } from '@/connection';
@@ -48,14 +47,12 @@ import {
 } from '@/spawn';
 
 const MAX_SQUAD = 4;
-const MAX_RECENT_CHIPS = 6;
 type AgentOption = AgentCatalogOption;
-const MAX_WORKSPACE_ROWS = 6;
 
-function basename(path: string): string {
-    return path.split('/').filter(Boolean).pop() ?? path;
+// Shell needs no agent install, so it leads the host catalog like Home's dock.
+function withShell(options: readonly AgentOption[]): AgentOption[] {
+    return [{ kind: 'shell', availability: 'installed' }, ...options.filter((option) => option.kind !== 'shell')];
 }
-
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
         flex: 1,
@@ -164,30 +161,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 13,
         fontWeight: '600',
     },
-    workspaceRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        paddingHorizontal: 12,
-        paddingVertical: 11,
-        borderRadius: 10,
-        backgroundColor: theme.colors.surfaceHigh,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-    },
-    workspaceLabel: {
-        color: theme.colors.text,
-        fontSize: 14,
-        fontWeight: '600',
-        flexShrink: 1,
-    },
-    workspaceMeta: {
-        color: theme.colors.textSecondary,
-        fontSize: 12,
-    },
-    workspaceList: {
-        gap: 8,
-    },
     emptyHint: {
         color: theme.colors.textSecondary,
         fontSize: 13,
@@ -197,20 +170,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-        paddingHorizontal: 12,
-        paddingVertical: 12,
-        borderRadius: 12,
-        backgroundColor: theme.colors.surfaceHigh,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-    },
-    worktreeIcon: {
-        width: 34,
-        height: 34,
-        borderRadius: 10,
-        backgroundColor: 'rgba(52, 199, 89, 0.14)',
-        alignItems: 'center',
-        justifyContent: 'center',
+        paddingHorizontal: 2,
     },
     worktreeTexts: {
         flex: 1,
@@ -219,7 +179,6 @@ const stylesheet = StyleSheet.create((theme) => ({
     worktreeTitle: {
         color: theme.colors.text,
         fontSize: 14,
-        fontWeight: '600',
     },
     worktreeSubtitle: {
         color: theme.colors.textSecondary,
@@ -233,11 +192,16 @@ const stylesheet = StyleSheet.create((theme) => ({
         alignItems: 'center',
         justifyContent: 'center',
         height: 48,
+        paddingHorizontal: 16,
         borderRadius: 10,
         backgroundColor: theme.colors.button.primary.background,
     },
     startButtonDisabled: {
-        opacity: 0.4,
+        backgroundColor: theme.colors.surfaceHighest,
+    },
+    startButtonTextDisabled: {
+        color: theme.colors.textSecondary,
+        fontWeight: '600',
     },
     startButtonText: {
         color: theme.colors.button.primary.tint,
@@ -308,11 +272,12 @@ export default function NewAgentScreen() {
             .then((result) => {
                 if (!live) return;
                 const resolved = resolveAgentCatalog(result);
-                setCatalog(resolved.options);
+                const options = withShell(resolved.options);
+                setCatalog(options);
                 setAgentDetails(undefined);
                 setCatalogSource(resolved.authoritative ? 'host' : 'unknown');
-                const preferred = defaultAgentKind(resolved.options, useNewSessionDraft.getState().agentType);
-                const installed = new Set(resolved.options.filter((option) => option.availability === 'installed').map((option) => option.kind));
+                const preferred = defaultAgentKind(options, useNewSessionDraft.getState().agentType);
+                const installed = new Set(options.filter((option) => option.availability === 'installed').map((option) => option.kind));
                 setSelected((previous) => {
                     const retained = new Set([...previous].filter((kind) => installed.has(kind)));
                     return retained.size > 0 ? retained : new Set(preferred ? [preferred] : []);
@@ -347,6 +312,7 @@ export default function NewAgentScreen() {
         ? catalog
         : catalog.filter((option) => option.availability === 'installed');
     const directory = cwd.trim();
+    const ready = directory !== '' && kinds.length > 0;
 
     const start = React.useCallback(async () => {
         if (kinds.length === 0) {
@@ -378,7 +344,8 @@ export default function NewAgentScreen() {
     }, [directory, kinds, squad, worktree]);
 
     const styles = stylesheet;
-    const recent = (settings.recentSessionCwds ?? []).slice(0, MAX_RECENT_CHIPS);
+    // Open workspaces first, then recent folders; the picker shows the first few.
+    const places: DirectoryPlace[] = wherePlaces(workspaces.map(workspaceJoinPath), settings.recentSessionCwds ?? []);
 
     if (authorityLoading) {
         return (
@@ -520,16 +487,16 @@ export default function NewAgentScreen() {
                     </Text>
                 </View>
 
-                {/* --- Directory ---------------------------------------------- */}
+                {/* --- Where --------------------------------------------------- */}
                 <View onLayout={({ nativeEvent }) => { directoryY.current = nativeEvent.layout.y; }}>
                     <View style={styles.sectionLabelRow}>
-                        <Text style={styles.sectionLabel}>DIRECTORY</Text>
+                        <Text style={styles.sectionLabel}>WHERE</Text>
                     </View>
                     <View ref={directoryRef} onLayout={({ nativeEvent }) => { pickerY.current = nativeEvent.layout.y; }}>
                         <DirectoryPicker
                             value={cwd}
                             onChange={setCwd}
-                            recent={recent}
+                            places={places}
                             room={isTypingPath && scrollHeight > 0 ? scrollHeight - (Platform.OS === 'web' ? 0 : keyboardHeight) : undefined}
                             onFocus={() => {
                                 typingPath.current = true;
@@ -544,62 +511,12 @@ export default function NewAgentScreen() {
                     </View>
                 </View>
 
-                {/* --- Join a running workspace -------------------------------- */}
-                {workspaces.length > 0 && (
-                    <View>
-                        <View style={styles.sectionLabelRow}>
-                            <Text style={styles.sectionLabel}>JOIN A RUNNING WORKSPACE</Text>
-                        </View>
-                        <View style={styles.workspaceList}>
-                            {workspaces.slice(0, MAX_WORKSPACE_ROWS).map((workspace) => {
-                                const paneCount = workspace.tabs.reduce((total, tab) => total + tab.panes.length, 0);
-                                const label = workspace.label ?? workspace.workspaceId;
-                                const target = workspaceJoinPath(workspace);
-                                const pulsing =
-                                    workspace.agentStatus === 'working' || workspace.agentStatus === 'blocked';
-                                return (
-                                    <Pressable
-                                        key={workspace.workspaceId}
-                                        onPress={() => {
-                                            if (target !== undefined) setCwd(target);
-                                        }}
-                                        style={({ pressed }) => [
-                                            styles.workspaceRow,
-                                            pressed && { opacity: 0.8 },
-                                        ]}
-                                    >
-                                        <StatusDot
-                                            color={agentStatusColor(workspace.agentStatus, theme).color}
-                                            isPulsing={pulsing}
-                                            size={7}
-                                        />
-                                        <Text numberOfLines={1} style={styles.workspaceLabel}>
-                                            {basename(label)}
-                                        </Text>
-                                        <Text style={styles.workspaceMeta}>
-                                            {paneCount} {paneCount === 1 ? 'pane' : 'panes'}
-                                        </Text>
-                                        {target !== undefined ? (
-                                            <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
-                                        ) : (
-                                            <Ionicons name="eye-outline" size={16} color={theme.colors.textSecondary} />
-                                        )}
-                                    </Pressable>
-                                );
-                            })}
-                        </View>
-                    </View>
-                )}
-
-                {/* --- Worktree toggle ------------------------------------------ */}
-                <Pressable onPress={() => setWorktree((value) => !value)}>
+                {/* --- Worktree: a quiet secondary option ------------------------ */}
+                <Pressable onPress={() => setWorktree((value) => !value)} accessibilityRole="switch" accessibilityState={{ checked: worktree }}>
                     <View style={styles.worktreeRow}>
-                        <View style={styles.worktreeIcon}>
-                            <Ionicons name="git-branch" size={18} color={theme.colors.status.connected} />
-                        </View>
                         <View style={styles.worktreeTexts}>
-                            <Text style={styles.worktreeTitle}>Run in a fresh worktree</Text>
-                            <Text style={styles.worktreeSubtitle}>Isolated checkout for parallel work</Text>
+                            <Text style={styles.worktreeTitle}>Use a separate worktree</Text>
+                            <Text style={styles.worktreeSubtitle}>A fresh checkout on its own branch, so this folder stays untouched.</Text>
                         </View>
                         <Switch
                             value={worktree}
@@ -615,15 +532,16 @@ export default function NewAgentScreen() {
             <View style={{ padding: 16, paddingBottom: Math.max(16, insets.bottom) }}>
                 <Pressable
                     onPress={start}
+                    disabled={busy || !ready}
                     accessibilityRole="button"
-                    disabled={busy || directory === '' || kinds.length === 0}
-                    style={[styles.startButton, (busy || directory === '' || kinds.length === 0) && styles.startButtonDisabled]}
+                    accessibilityState={{ disabled: busy || !ready }}
+                    style={[styles.startButton, !ready && styles.startButtonDisabled]}
                 >
                     {busy ? (
                         <ActivityIndicator color={theme.colors.button.primary.tint} />
                     ) : (
-                        <Text style={styles.startButtonText}>
-                            {kinds.length === 1 ? `Start ${agentName(kinds[0])}` : startButtonLabel(kinds)}
+                        <Text numberOfLines={1} style={[styles.startButtonText, !ready && styles.startButtonTextDisabled]}>
+                            {startButtonLabel(kinds, directory)}
                         </Text>
                     )}
                 </Pressable>

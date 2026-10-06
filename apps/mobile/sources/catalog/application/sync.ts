@@ -277,6 +277,9 @@ class MuxrSync {
         client.onStateChange((state) => {
             recordSocketState(state, client.isLive());
             storage.getState().setSocketStatus(socketStatusFromClient(state));
+            // Every permanent error is reported after the state change that precedes it,
+            // so a fresh connecting stretch drops only a stale transient message.
+            if (state === 'connecting') storage.getState().setSocketError(null);
             // Events emitted while the socket was down are gone: nothing replays them.
             // Re-open from the host snapshot instead of leaving a stale transcript
             // that only a manual app reload could fix.

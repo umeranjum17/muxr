@@ -2,6 +2,7 @@
  * Fake Herdr control plane: NDJSON JSON-RPC on a unix socket, plus title/status
  * churn. The HERDR_BIN shim is a sibling module.
  */
+import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, resolve } from 'node:path';
@@ -275,8 +276,12 @@ export async function startFakeHerdr(options) {
             const workspace = addWorkspace(live, cwd, params.label ?? params.cwd);
             // Herdr reports a worktree only for a checkout: a folder outside the fake repo has none.
             if (cwd !== live.cwd && !cwd.startsWith(`${live.cwd}/`)) delete workspace.worktree;
+            // Like Herdr, a new workspace opens with a root tab holding one shell pane.
+            const tab = addTab(live, workspace.workspace_id, undefined);
+            const pane = addPane(live, tab.tab_id, workspace.workspace_id, cwd);
+            pane.env = params.env;
             if (params.focus === true) focusWorkspace(live, workspace.workspace_id);
-            return { workspace: workspaceView(live, workspace) };
+            return { workspace: workspaceView(live, workspace), tab: tabView(live, tab), root_pane: { pane_id: pane.pane_id } };
         },
         'workspace.close': (params) => {
             removeWorkspace(live, params.workspace_id);
@@ -314,6 +319,7 @@ export async function startFakeHerdr(options) {
             if (workspace === undefined) throw fail('workspace_not_found', 'workspace not found');
             const tab = addTab(live, workspace.workspace_id, params.label ?? params.cwd);
             const pane = addPane(live, tab.tab_id, workspace.workspace_id, params.cwd ?? workspace.label ?? live.cwd);
+            pane.env = params.env;
             if (params.focus === true) focusPane(live, pane.pane_id);
             return { tab: tabView(live, tab), root_pane: { pane_id: pane.pane_id } };
         },
@@ -373,6 +379,18 @@ export async function startFakeHerdr(options) {
             })}\n`);
             return { pane_id: params.pane_id, keys: params.keys ?? [] };
         },
+        // A plan-account sign-in types its command into a shell tab.
+        'pane.send_text': (params) => {
+            appendFileSync(inputJsonl, `${JSON.stringify({
+                at: new Date().toISOString(),
+                method: 'pane.send_text',
+                pane_id: params.pane_id,
+                text: params.text ?? '',
+            })}\n`);
+            const pane = live.panes.find((row) => row.pane_id === params.pane_id);
+            if (pane !== undefined) paneShell(pane).stdin.write(params.text ?? '');
+            return {};
+        },
         'pane.report_metadata': (params) => {
             const pane = live.panes.find((row) => row.pane_id === params.pane_id);
             if (pane !== undefined && params.tokens !== undefined) {
@@ -383,7 +401,8 @@ export async function startFakeHerdr(options) {
         'pane.split': (params) => {
             const target = live.panes.find((row) => row.pane_id === params.target_pane_id);
             if (target === undefined) throw fail('pane_not_found', 'pane not found');
-            const pane = addPane(live, target.tab_id, target.workspace_id, target.cwd);
+            const pane = addPane(live, target.tab_id, target.workspace_id, params.cwd ?? target.cwd);
+            pane.env = params.env;
             if (params.focus === true) focusPane(live, pane.pane_id);
             return { pane: { pane_id: pane.pane_id } };
         },
@@ -399,8 +418,8 @@ export async function startFakeHerdr(options) {
             })}\n`);
             const body = pane === undefined
                 ? ''
-                : `${pane.terminal_title_stripped ?? pane.label ?? pane.pane_id}\nready.`;
-            const lines = typeof params.lines === 'number' ? body.split('\n').slice(0, params.lines).join('\n') : body;
+                : `${pane.terminal_title_stripped ?? pane.label ?? pane.pane_id}\nready.${pane.output ? `\n${pane.output}` : ''}`;
+            const lines = typeof params.lines === 'number' ? body.split('\n').slice(-params.lines).join('\n') : body;
             return { read: { text: lines, truncated: false } };
         },
         'pane.layout': (params) => {
@@ -458,6 +477,12 @@ export async function startFakeHerdr(options) {
             const index = live.agents.findIndex((row) => row.pane_id === pane.pane_id);
             if (index === -1) live.agents.push(agent);
             else live.agents[index] = agent;
+            return { agent };
+        },
+        // A plan-account move reads the agent first, and refuses before any split.
+        'agent.get': (params) => {
+            const agent = live.agents.find((row) => row.pane_id === params.target);
+            if (agent === undefined) throw fail('agent_not_found', 'agent not found');
             return { agent };
         },
         'agent.wait': (params) => {
@@ -518,6 +543,7 @@ export async function startFakeHerdr(options) {
     async function close() {
         if (closed) return;
         closed = true;
+        for (const pane of live.panes) pane.shell?.kill('SIGKILL');
         await shutdown();
     }
 
@@ -701,6 +727,21 @@ function removePane(live, paneId) {
     live.panes = live.panes.filter((row) => row.pane_id !== paneId);
     live.agents = live.agents.filter((row) => row.pane_id !== paneId);
     if (pane !== undefined) relayoutTab(live, pane.tab_id);
+    pane?.shell?.kill('SIGKILL');
+}
+
+// A pane is a real shell, as in Herdr: text sent to it runs there, and its
+// output is what a read returns. It gets only the env its tab was opened with.
+function paneShell(pane) {
+    if (pane.shell !== undefined) return pane.shell;
+    pane.output = '';
+    pane.shell = spawn('/bin/sh', [], { cwd: pane.cwd, env: { PATH: '/usr/bin:/bin', ...pane.env }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const keep = (chunk) => { pane.output = `${pane.output}${chunk}`.slice(-16_384); };
+    pane.shell.stdout.on('data', keep);
+    pane.shell.stderr.on('data', keep);
+    pane.shell.stdin.on('error', () => {});
+    pane.shell.once('error', () => {});
+    return pane.shell;
 }
 
 function focusWorkspace(live, workspaceId) {
