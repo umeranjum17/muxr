@@ -33,7 +33,8 @@ Preconditions:
   booted. Never claim a simulator or device you did not create.
 - A private Herdr (its own binary path and `--session`) and a private muxr
   stack (`muxr up` from a task-owned install with its own `MUXR_HOME`), paired
-  to an Android viewer (emulator or test phone under its lock).
+  to a viewer: an Android emulator or test phone under its lock, or an iOS
+  simulator (below).
 
 - **Claim.** In a pane of the private Herdr:
   `MUXR_HOME=<private> node <install>/cli.mjs preview claim <udid>` prints
@@ -46,6 +47,12 @@ Preconditions:
   Latency: turn on `show_touches` and diff the touch dot frame against the
   first changed simulator frame; record an Android-emulator mirror the same
   way for the baseline.
+- **iOS viewer.** An iPad or iPhone simulator on the same Mac can be the
+  viewer: install a Release `iphonesimulator` build, pair it by opening the
+  `muxr://pair#…` link with `xcrun simctl openurl`, and record it with
+  `xcrun simctl io <viewer> recordVideo`. Tap with `axe tap`, swipe with
+  `axe swipe`; a horizontal swipe must move the streamed home screen, not
+  pop the agent screen.
 - **Shutdown.** Note the helper PIDs (`ps -o pid,ppid,command` children of
   the host), `kill -TERM <exact host pid>`, and show they are all gone.
 - **Failure path.** `preview claim not-a-udid` exits `1` with the usage line;
@@ -68,5 +75,15 @@ Preconditions:
   phone points here.
 - The stream is half the panel (`--scale 0.5`, 603x1311 on a 17 Pro); the full
   1206x2622 does not decode on the emulator.
+- One viewer per simulator: a second device shows "Can't show the simulator
+  from here" until the first closes its view, then "Try again" goes Live.
+- A portrait device on a portrait viewer opens filled (cropped to its top);
+  the actions menu's Fit to screen shows all of it.
+- Rotate a simulator viewer with `XCUIDevice.shared.orientation` from a tiny
+  XCUITest runner (no assistive access needed). After a rotation `axe`
+  touches no longer land where `axe describe-ui` says, so drive a rotated
+  viewer from the same runner, by coordinates relative to the live view
+  element, and take screenshots with `simctl io` (`axe screenshot` can
+  return a stale frame).
 - `scripts/release/pack.mjs` refuses on a stale web export but still rebuilds
   `dist-npm/host.js`; for a lab redeploy copying that one file is enough.
