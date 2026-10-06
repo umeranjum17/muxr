@@ -41,6 +41,6 @@ const mint = async () => {
     pairing = await stack.mintPairing();
     console.log(`pair link: muxr://pair#${pairing.code}`);
 };
-process.on('SIGUSR1', () => void mint());
+process.on('SIGUSR1', () => void mint().catch((error) => console.error(error)));
 console.log(`lab ready: relay 127.0.0.1:${stack.relayPort}, pid ${process.pid}`);
 await mint();
