@@ -718,7 +718,10 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             if (tab === undefined) return { removed: false };
             return cancelPlanSignIn(process.env, params.accountId);
         }),
-        'plans.agent': async (params) => planPaneAccount(process.env, await planPaneOf(params.sessionId)),
+        'plans.agent': async (params) => ({
+            ...planPaneAccount(process.env, await planPaneOf(params.sessionId)),
+            ...(source.canMovePlanAccount === undefined ? {} : { movable: await source.canMovePlanAccount(params.sessionId) }),
+        }),
         'voice.status': () => voiceStatus(),
         'voice.provider.list': () => voiceProviderList(),
         'voice.provider.set': (params) => voiceProviderSet(params.providerId),

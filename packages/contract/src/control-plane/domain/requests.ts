@@ -847,8 +847,11 @@ export interface RequestMap extends PeerRequestMap {
     'plans.status': { params: { accountId: string }; result: { account: PlanAccount; failure?: string } };
     /** Stop waiting for a sign-in: its tracked tab closes, and an account created for that tab is removed. */
     'plans.cancel': { params: { accountId: string }; result: { removed: boolean } };
-    /** The account a running agent was started or moved on; absent means the computer's own sign-in. */
-    'plans.agent': { params: { sessionId: string }; result: { accountId?: string } };
+    /**
+     * The account a running agent was started or moved on; absent means the computer's own sign-in.
+     * `movable` is false while the agent has no conversation to carry to another account yet.
+     */
+    'plans.agent': { params: { sessionId: string }; result: { accountId?: string; movable?: boolean } };
 
     // --- realtime voice -------------------------------------------------------
     // Product-owned. The provider adapters are internal host modules, so these

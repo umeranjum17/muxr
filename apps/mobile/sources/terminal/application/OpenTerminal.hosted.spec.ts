@@ -90,6 +90,11 @@ describe('terminal link cutover', () => {
         streams[1]!.end();
         await vi.waitFor(() => expect(streams).toHaveLength(3), { timeout: 4000 });
         await vi.waitFor(() => expect(painted).toEqual(['aGk=', 'aGk=', 'aGk=']));
+        // A plan-account move replaces the pane under the same route.
+        streams[2]!.line(JSON.stringify({ type: 'terminal.closed', reason: 'terminal attach ended: terminal term_1 not found' }));
+        await vi.waitFor(() => expect(streams).toHaveLength(4), { timeout: 4000 });
+        await vi.waitFor(() => expect(painted).toHaveLength(4));
+        expect(states.at(-1)).toBe('live');
         expect(socket).not.toHaveBeenCalled();
         channel.close();
         vi.unstubAllGlobals();
