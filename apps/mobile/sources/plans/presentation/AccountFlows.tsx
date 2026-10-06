@@ -330,7 +330,12 @@ export function NameAccountSheet() {
             if (trimmed !== account.name || !naming?.again) await renameAccount(account.id, trimmed, connection);
             if (!samePlanConnection(connection)) return;
             close();
-            showNotice(naming?.again ? `${trimmed} is signed in` : `Added ${trimmed}`, `${providerName(account.provider)} accounts: ${[...others.map((other) => other.name), trimmed].sort().join(', ')}`);
+            // The names the list below shows, read from the host's own list after
+            // the save: the name just typed can collide, and the host gives the
+            // other account its own name for it.
+            const saved = providerEntry(usePlansStore.getState().list, account.provider);
+            const names = (saved?.accounts.map((one) => one.name) ?? [trimmed]).sort();
+            showNotice(naming?.again ? `${trimmed} is signed in` : `Added ${trimmed}`, `${providerName(account.provider)} accounts: ${names.join(', ')}`);
         } catch (error) {
             if (!samePlanConnection(connection)) return;
             setSaving(false);
