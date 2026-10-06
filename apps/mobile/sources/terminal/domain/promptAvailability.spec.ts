@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-    DIALOG_GUARD_ACTION,
-    DIALOG_GUARD_MESSAGE,
-    DIALOG_GUARD_TITLE,
     pendingChoices,
     terminalComposerText,
-    terminalInputDisposition,
+    undoSmartPunctuation,
 } from './promptAvailability';
 
-describe('terminal prompt guard', () => {
+describe('terminal composer and pending choices', () => {
     it('sends a shell draft with its trailing space intact but trims agent prompts', () => {
         expect(terminalComposerText('echo iosqa\\ ', [], true)).toBe('echo iosqa\\ ');
         expect(terminalComposerText('echo iosqa\\ ', [], false)).toBe('echo iosqa\\');
@@ -22,17 +19,20 @@ describe('terminal prompt guard', () => {
         expect(terminalComposerText(typed, [], true)).toBe(typed);
     });
 
-    it('blocks unrelated input and exposes the one-line jump action', () => {
-        expect(terminalInputDisposition(
-            { agentStatus: 'blocked' },
-            undefined,
-            '/model',
-        )).toEqual({ kind: 'blocked' });
-        expect({ title: DIALOG_GUARD_TITLE, message: DIALOG_GUARD_MESSAGE, action: DIALOG_GUARD_ACTION }).toEqual({
-            title: 'Dialog waiting',
-            message: 'A dialog is waiting — answer it first, then send.',
-            action: 'Show me the message',
-        });
+    it('types a shell command exactly as keyed through iOS smart punctuation', () => {
+        // What iOS hands onChangeText as the command is keyed: each key lands
+        // as typed, then smart punctuation swaps it in a second edit.
+        let draft = 'echo ';
+        const type = (edit: (text: string) => string) => { draft = undoSmartPunctuation(draft, edit(draft)); };
+        type((text) => `${text}'`);
+        type((text) => text.replace(/'$/, '\u2018'));
+        type((text) => `${text}a'`);
+        type((text) => text.replace(/'$/, '\u2019'));
+        type((text) => `${text} --`);
+        type((text) => text.replace(/--$/, '\u2014'));
+        expect(draft).toBe("echo 'a' --");
+        // Text pasted in one go keeps its real typography.
+        expect(undoSmartPunctuation('mv ', 'mv \u2018Proposal\u2014final\u2019')).toBe('mv \u2018Proposal\u2014final\u2019');
     });
 
     it('finds the answers a waiting agent offers, and only at the live edge', () => {
@@ -99,11 +99,4 @@ describe('terminal prompt guard', () => {
         expect(pendingChoices(prose)).toEqual([]);
     });
 
-    it('passes a literal answer through the outstanding prompt guard', () => {
-        expect(terminalInputDisposition(
-            undefined,
-            { agentState: { requests: { prompt: {} } } },
-            'Y',
-        )).toEqual({ kind: 'answer', answer: 'y' });
-    });
 });

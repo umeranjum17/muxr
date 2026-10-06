@@ -1,50 +1,7 @@
 import type { AgentLifecycle, HerdrTreePane } from '@trymuxr/contract';
 
-export const DIALOG_GUARD_TITLE = 'Dialog waiting';
-export const DIALOG_GUARD_MESSAGE = 'A dialog is waiting — answer it first, then send.';
-export const DIALOG_GUARD_ACTION = 'Show me the message';
-
-type SessionPromptState = {
-    metadata?: { agentStatus?: string; lifecycleState?: string } | null;
-    agentState?: { requests?: Record<string, unknown> | null } | null;
-};
-
-export type TerminalInputDisposition =
-    | { kind: 'prompt' }
-    | { kind: 'answer'; answer: 'y' | 'n' }
-    | { kind: 'blocked' };
-
 export function terminalPaneStatus(pane: HerdrTreePane | undefined): AgentLifecycle {
     return pane?.promptable === true ? pane.agentStatus : 'unknown';
-}
-
-/** A waiting/blocked state means the pane already has a question to answer. */
-export function terminalHasOutstandingPrompt(
-    pane: { agentStatus?: string } | undefined,
-    session?: SessionPromptState,
-): boolean {
-    return pane?.agentStatus === 'waiting'
-        || pane?.agentStatus === 'blocked'
-        || session?.metadata?.agentStatus === 'waiting'
-        || session?.metadata?.agentStatus === 'blocked'
-        || session?.metadata?.lifecycleState === 'waiting'
-        || session?.metadata?.lifecycleState === 'blocked'
-        || Object.keys(session?.agentState?.requests ?? {}).length > 0;
-}
-
-/**
- * Only the protocol's literal y/n answer bypasses the composer guard. Every
- * other value stays blocked because the session does not carry a prompt kind.
- */
-export function terminalInputDisposition(
-    pane: { agentStatus?: string } | undefined,
-    session: SessionPromptState | undefined,
-    text: string,
-): TerminalInputDisposition {
-    if (!terminalHasOutstandingPrompt(pane, session)) return { kind: 'prompt' };
-    const answer = text.trim().toLowerCase();
-    if (answer === 'y' || answer === 'n') return { kind: 'answer', answer };
-    return { kind: 'blocked' };
 }
 
 export interface PendingChoice {
@@ -108,4 +65,30 @@ export function terminalPaneCanSend(pane: HerdrTreePane | undefined, hasContent:
 export function terminalComposerText(draft: string, attachedPaths: string[], isShell: boolean): string {
     const content = isShell && draft.trim() !== '' ? draft : draft.trim();
     return [content, ...attachedPaths].filter((part) => part !== '').join(' ');
+}
+
+const STRAIGHT: Record<string, string> = { '‘': '\'', '’': '\'', '“': '"', '”': '"' };
+
+/**
+ * Undoes the one edit iOS smart punctuation makes as a shell command is typed:
+ * the straight quote just typed swapped for a curly one, or `--` swapped for a
+ * dash (iOS inserts the key, then replaces it as a second edit).
+ * `autoCorrect={false}` is meant to turn both off, but the prebuilt React
+ * Native core drops that link. Pasted curly text replaces nothing straight, so
+ * it is kept.
+ */
+export function undoSmartPunctuation(previous: string, next: string): string {
+    let start = 0;
+    while (start < previous.length && start < next.length && previous[start] === next[start]) start++;
+    let end = 0;
+    while (end < previous.length - start && end < next.length - start
+        && previous[previous.length - 1 - end] === next[next.length - 1 - end]) end++;
+    const removed = previous.slice(start, previous.length - end);
+    const inserted = next.slice(start, next.length - end);
+    const quote = STRAIGHT[inserted];
+    const straight = quote !== undefined && (removed === '' || removed === quote) ? quote
+        : inserted === '—' && removed === '--' ? '--'
+            : (inserted === '—' || inserted === '–') && removed === '-' ? '-'
+                : undefined;
+    return straight === undefined ? next : next.slice(0, start) + straight + next.slice(next.length - end);
 }

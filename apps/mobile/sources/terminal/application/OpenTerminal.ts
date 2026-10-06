@@ -225,6 +225,16 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     };
     const applyClosedFrame = (frame: object): void => {
         const reason = typeof (frame as { reason?: unknown }).reason === 'string' ? (frame as { reason: string }).reason : undefined;
+        // A plan move replaces the pane under its route, so the old terminal
+        // id reads as gone: re-resolve the route like a lost stream (one that
+        // is really gone leaves through the tree). Any other close is a real
+        // failure (e.g. herdr stream exited / input failed) and surfaces at
+        // once like before, instead of retrying silently behind 'reconnecting'.
+        if (reason !== undefined && /not found|no longer available/i.test(reason)) {
+            if (linkWire !== undefined) retireLink(linkWire);
+            scheduleRetry();
+            return;
+        }
         // Automatic foreground/reconnect must not steal control back.
         // Only the user's visible retry action may reverse a takeover.
         closedByTakeover = reason === 'control moved to another device';
@@ -287,7 +297,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const reconnectNow = (explicitTakeover = false): void => {
         let retaking = false;
         if (closedByUser) {
-            if (!explicitTakeover || !closedByTakeover) return;
+            if (!explicitTakeover || !closedByHost) return;
             closedByUser = false;
             closedByHost = false;
             closedByTakeover = false;
