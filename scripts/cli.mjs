@@ -548,7 +548,7 @@ async function dispatch(command, args = []) {
         process.stderr.write('usage: muxr preview status [--json] | claim <simulator-udid> | release\n');
         return 1;
     }
-    if (command === 'pair') return pairDevice(args);
+    if (command === 'pair') return pairDevice(args, { select, enableBrowserHosting, applyMachineSetup });
     if (command === 'desktop') {
         if (args[0] === 'setup') return approveScreenSharing({ force: true });
         process.stderr.write('usage: muxr desktop setup\n');
