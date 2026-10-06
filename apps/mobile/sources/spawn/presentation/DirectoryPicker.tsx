@@ -1,8 +1,8 @@
 /**
- * Smart directory picker for the New-agent screen. The owner can still paste
- * a path blind (the input keeps working), but now gets a shell-completion-style
- * listing of the current browser location, repo glyphs, and an existence check
- * on the typed path. Listing data comes from the host's machine.listDir.
+ * The New-agent screen's one "where" control: the chosen folder as a real
+ * value, open workspaces and recent folders one tap away, and a
+ * shell-completion-style browser (type-ahead over machine.listDir) behind
+ * Browse or a focused field. A pasted path still works blind.
  */
 
 import * as React from 'react';
@@ -18,58 +18,88 @@ import { Ionicons } from '@expo/vector-icons';
 import { sync } from '@/catalog/sync';
 import type { RequestResult } from '@trymuxr/contract';
 import { Text } from '@/components/StyledText';
-import { basename, resolveListingTarget } from '@/utils/directoryPicker';
+import { basename, folderKey, resolveListingTarget } from '@/utils/directoryPicker';
 
 type Listing = RequestResult<'machine.listDir'>;
 
 const EXISTENCE_DEBOUNCE_MS = 250;
 const ROW_HEIGHT = 44;
 const MAX_VISIBLE_ROWS = 7;
+const MAX_PLACES = 5;
 
 const styles = StyleSheet.create((theme) => ({
+    card: {
+        backgroundColor: theme.colors.surfaceHigh,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: theme.colors.divider,
+        overflow: 'hidden',
+    },
     inputRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: theme.colors.surfaceHigh,
-        borderRadius: 10,
         paddingLeft: 12,
-        paddingRight: 10,
-        gap: 8,
+        paddingRight: 12,
+        gap: 10,
+        minHeight: ROW_HEIGHT,
     },
     input: {
         flex: 1,
         color: theme.colors.text,
+        fontSize: 15,
+        paddingVertical: 11,
+    },
+    done: {
+        color: theme.colors.textLink,
         fontSize: 14,
-        paddingVertical: 10,
+        fontWeight: '600',
     },
-    chips: {
+    hairline: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: theme.colors.divider,
+    },
+    rowHairline: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: theme.colors.divider,
+        marginLeft: 38,
+    },
+    row: {
         flexDirection: 'row',
-        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 10,
+        minHeight: ROW_HEIGHT,
+        paddingHorizontal: 12,
+    },
+    rowTexts: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'baseline',
         gap: 8,
-        marginTop: 10,
     },
-    chip: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 8,
-        backgroundColor: theme.colors.surface,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
+    rowName: {
+        color: theme.colors.text,
+        fontSize: 14,
+        flexShrink: 0,
+        maxWidth: '70%',
     },
-    chipText: {
+    rowMeta: {
+        flex: 1,
         color: theme.colors.textSecondary,
         fontSize: 12,
-        fontWeight: '500',
+    },
+    browseText: {
+        flex: 1,
+        color: theme.colors.textLink,
+        fontSize: 14,
     },
     crumbs: {
-        marginTop: 12,
-        marginBottom: 6,
+        paddingVertical: 8,
     },
     crumbsInner: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
-        paddingHorizontal: 2,
+        paddingHorizontal: 12,
     },
     crumbText: {
         color: theme.colors.textSecondary,
@@ -77,50 +107,25 @@ const styles = StyleSheet.create((theme) => ({
     },
     crumbCurrent: {
         color: theme.colors.text,
-        fontWeight: '700',
+        fontWeight: '600',
     },
     crumbSeparator: {
         color: theme.colors.textSecondary,
         fontSize: 13,
         opacity: 0.6,
     },
-    listWindow: {
-        maxHeight: ROW_HEIGHT * MAX_VISIBLE_ROWS,
-        backgroundColor: theme.colors.surfaceHigh,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        overflow: 'hidden',
-    },
-    row: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        height: ROW_HEIGHT,
-        paddingHorizontal: 12,
-    },
-    rowName: {
-        flex: 1,
-        color: theme.colors.text,
-        fontSize: 14,
-    },
-    hairline: {
-        height: StyleSheet.hairlineWidth,
-        backgroundColor: theme.colors.divider,
-        marginLeft: 36,
-    },
-    emptyHint: {
+    note: {
         color: theme.colors.textSecondary,
         fontSize: 13,
         paddingHorizontal: 12,
-        paddingVertical: 14,
+        paddingVertical: 13,
     },
     loading: {
-        paddingVertical: 22,
+        paddingVertical: 18,
         alignItems: 'center',
     },
-    errorText: {
-        color: theme.colors.deleteAction,
+    hint: {
+        color: theme.colors.textSecondary,
         fontSize: 12,
         marginTop: 8,
         paddingHorizontal: 2,
@@ -139,20 +144,33 @@ function breadcrumbs(path: string | undefined): { label: string; jump: string }[
     return crumbs;
 }
 
+function parentOf(path: string): string {
+    const trimmed = path.replace(/\/+$/, '');
+    const slash = trimmed.lastIndexOf('/');
+    return slash > 0 ? trimmed.slice(0, slash) : '/';
+}
+
+/** A one-tap folder: an open workspace ("Open") or a recent one. */
+export interface DirectoryPlace {
+    path: string;
+    note?: string;
+}
+
 interface DirectoryPickerProps {
     value: string;
     onChange: (path: string) => void;
-    recent: string[];
+    places: readonly DirectoryPlace[];
     room?: number;
     onFocus?: () => void;
     onBlur?: () => void;
 }
 
-export function DirectoryPicker({ value, onChange, recent, room, onFocus, onBlur }: DirectoryPickerProps) {
+export function DirectoryPicker({ value, onChange, places, room, onFocus, onBlur }: DirectoryPickerProps) {
     const { theme } = useUnistyles();
+    const [browsing, setBrowsing] = React.useState(false);
     const [listing, setListing] = React.useState<Listing | undefined>(undefined);
     const [loading, setLoading] = React.useState(false);
-    const [listError, setListError] = React.useState<string | undefined>(undefined);
+    const [listFailed, setListFailed] = React.useState(false);
     const [exists, setExists] = React.useState<boolean | undefined>(undefined);
     const fetchSeq = React.useRef(0);
     const crumbsRef = React.useRef<ScrollView>(null);
@@ -168,11 +186,16 @@ export function DirectoryPicker({ value, onChange, recent, room, onFocus, onBlur
         onChange(path);
         if (typing.current) inputRef.current?.focus();
     };
+    const finishBrowsing = () => {
+        setBrowsing(false);
+        inputRef.current?.blur();
+    };
 
     const target = resolveListingTarget(value);
 
-    // The listing follows the browser location; an error keeps the last good one.
+    // The listing follows the browser location; a failure keeps the last good one.
     React.useEffect(() => {
+        if (!browsing) return;
         const seq = ++fetchSeq.current;
         setLoading(true);
         sync
@@ -180,16 +203,15 @@ export function DirectoryPicker({ value, onChange, recent, room, onFocus, onBlur
             .then((result) => {
                 if (seq !== fetchSeq.current) return;
                 setListing(result);
-                setListError(undefined);
+                setListFailed(false);
             })
-            .catch((error) => {
-                if (seq !== fetchSeq.current) return;
-                setListError(error instanceof Error ? error.message : String(error));
+            .catch(() => {
+                if (seq === fetchSeq.current) setListFailed(true);
             })
             .finally(() => {
                 if (seq === fetchSeq.current) setLoading(false);
             });
-    }, [target.listPath]);
+    }, [browsing, target.listPath]);
 
     // Debounced existence check of the typed path: nothing while typing/flighted.
     React.useEffect(() => {
@@ -223,109 +245,151 @@ export function DirectoryPicker({ value, onChange, recent, room, onFocus, onBlur
     const rows = (listing?.entries ?? []).filter((entry) => entry.name.toLowerCase().startsWith(prefix));
     const crumbs = breadcrumbs(listing?.path);
     const listMaxHeight = room === undefined
-        ? undefined
+        ? ROW_HEIGHT * MAX_VISIBLE_ROWS
         : Math.min(ROW_HEIGHT * MAX_VISIBLE_ROWS, Math.max(ROW_HEIGHT * 2, room - listY - 8));
+    const shownPlaces = places.slice(0, MAX_PLACES);
+    // One mark for the one choice: the chosen row's, else the field's.
+    const chosenPlace = shownPlaces.some((place) => folderKey(place.path) === folderKey(value));
+
+    const listBody = loading && listing === undefined ? (
+        <View style={styles.loading}>
+            <ActivityIndicator color={theme.colors.textSecondary} />
+        </View>
+    ) : listFailed ? (
+        <Text style={styles.note}>Folders can’t be listed here. You can still type a path.</Text>
+    ) : rows.length === 0 ? (
+        <Text style={styles.note}>
+            {target.prefix === '' ? 'No folders inside.' : `No folders start with “${target.prefix}”.`}
+        </Text>
+    ) : (
+        <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled style={{ maxHeight: listMaxHeight }}>
+            {rows.map((entry, index) => (
+                <Pressable
+                    key={entry.name}
+                    onPressIn={holdFocus}
+                    onPress={() => browseTo(`${target.listPath}${entry.name}/`)}
+                    accessibilityRole="button"
+                    accessibilityLabel={entry.name}
+                >
+                    <View style={styles.row}>
+                        <Ionicons name="folder" size={16} color={theme.colors.textSecondary} />
+                        <Text numberOfLines={1} style={[styles.rowName, { flex: 1, maxWidth: undefined }]}>
+                            {entry.name}
+                        </Text>
+                        {entry.repo && <Ionicons name="git-branch" size={14} color={theme.colors.textSecondary} />}
+                    </View>
+                    {index < rows.length - 1 && <View style={styles.rowHairline} />}
+                </Pressable>
+            ))}
+        </ScrollView>
+    );
 
     return (
         <View>
-            <View style={styles.inputRow}>
-                <TextInput
-                    ref={inputRef}
-                    value={value}
-                    onChangeText={onChange}
-                    onFocus={onFocus}
-                    onBlur={onBlur}
-                    placeholder="~/project"
-                    placeholderTextColor={theme.colors.input.placeholder}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={styles.input}
-                />
-                {exists !== undefined && (
-                    <Ionicons
-                        name={exists ? 'checkmark-circle' : 'alert-circle'}
-                        size={18}
-                        color={exists ? theme.colors.success : theme.colors.deleteAction}
+            <View style={styles.card}>
+                <View style={styles.inputRow}>
+                    <Ionicons name="folder-outline" size={18} color={theme.colors.textSecondary} />
+                    <TextInput
+                        ref={inputRef}
+                        value={value}
+                        onChangeText={onChange}
+                        onFocus={() => {
+                            setBrowsing(true);
+                            onFocus?.();
+                        }}
+                        onBlur={onBlur}
+                        placeholder="Choose a folder"
+                        placeholderTextColor={theme.colors.input.placeholder}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        accessibilityLabel="Folder"
+                        style={styles.input}
                     />
-                )}
-            </View>
+                    {browsing ? (
+                        <Pressable onPress={finishBrowsing} hitSlop={10} accessibilityRole="button">
+                            <Text style={styles.done}>Done</Text>
+                        </Pressable>
+                    ) : exists === true && !chosenPlace ? (
+                        <Ionicons name="checkmark" size={18} color={theme.colors.success} />
+                    ) : null}
+                </View>
 
-            {recent.length > 0 && (
-                <View style={styles.chips}>
-                    {recent.map((recentPath) => (
-                        <Pressable key={recentPath} onPress={() => onChange(recentPath)}>
-                            <View style={styles.chip}>
-                                <Text style={styles.chipText}>{basename(recentPath)}</Text>
+                <View style={styles.hairline} />
+
+                {browsing ? (
+                    <View onLayout={({ nativeEvent }) => setListY(nativeEvent.layout.y)}>
+                        {crumbs.length > 0 && (
+                            <ScrollView
+                                ref={crumbsRef}
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                keyboardShouldPersistTaps="handled"
+                                style={styles.crumbs}
+                            >
+                                <View style={styles.crumbsInner}>
+                                    {crumbs.map((crumb, index) => (
+                                        <React.Fragment key={crumb.jump}>
+                                            {index > 0 && <Text style={styles.crumbSeparator}>›</Text>}
+                                            <Pressable
+                                                onPressIn={holdFocus}
+                                                onPress={() => browseTo(crumb.jump)}
+                                                disabled={index === crumbs.length - 1}
+                                                hitSlop={6}
+                                            >
+                                                <Text style={[styles.crumbText, index === crumbs.length - 1 && styles.crumbCurrent]}>
+                                                    {crumb.label}
+                                                </Text>
+                                            </Pressable>
+                                        </React.Fragment>
+                                    ))}
+                                </View>
+                            </ScrollView>
+                        )}
+                        {crumbs.length > 0 && <View style={styles.hairline} />}
+                        {listBody}
+                    </View>
+                ) : (
+                    <View>
+                        {shownPlaces.map((place) => {
+                            const chosen = folderKey(place.path) === folderKey(value);
+                            return (
+                                <Pressable
+                                    key={place.path}
+                                    onPress={() => onChange(place.path)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={basename(place.path)}
+                                    accessibilityState={{ selected: chosen }}
+                                >
+                                    <View style={styles.row}>
+                                        <Ionicons name="folder" size={16} color={theme.colors.textSecondary} />
+                                        <View style={styles.rowTexts}>
+                                            <Text numberOfLines={1} style={[styles.rowName, chosen && { fontWeight: '600' }]}>
+                                                {basename(place.path)}
+                                            </Text>
+                                            <Text numberOfLines={1} style={styles.rowMeta}>
+                                                {place.note ?? parentOf(place.path)}
+                                            </Text>
+                                        </View>
+                                        {chosen && <Ionicons name="checkmark" size={16} color={theme.colors.textLink} />}
+                                    </View>
+                                    <View style={styles.rowHairline} />
+                                </Pressable>
+                            );
+                        })}
+                        <Pressable onPress={() => setBrowsing(true)} accessibilityRole="button">
+                            <View style={styles.row}>
+                                <Ionicons name="search" size={16} color={theme.colors.textLink} />
+                                <Text style={styles.browseText}>Browse folders</Text>
+                                <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
                             </View>
                         </Pressable>
-                    ))}
-                </View>
-            )}
-
-            {listing !== undefined && (
-                <ScrollView
-                    ref={crumbsRef}
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.crumbs}
-                >
-                    <View style={styles.crumbsInner}>
-                        {crumbs.map((crumb, index) => (
-                            <React.Fragment key={crumb.jump}>
-                                {index > 0 && <Text style={styles.crumbSeparator}>›</Text>}
-                                <Pressable
-                                    onPressIn={holdFocus}
-                                    onPress={() => browseTo(crumb.jump)}
-                                    disabled={index === crumbs.length - 1}
-                                    hitSlop={6}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.crumbText,
-                                            index === crumbs.length - 1 && styles.crumbCurrent,
-                                        ]}
-                                    >
-                                        {crumb.label}
-                                    </Text>
-                                </Pressable>
-                            </React.Fragment>
-                        ))}
                     </View>
-                </ScrollView>
-            )}
-
-            <View onLayout={({ nativeEvent }) => setListY(nativeEvent.layout.y)} style={[styles.listWindow, listMaxHeight === undefined ? undefined : { maxHeight: listMaxHeight }]}>
-                {loading ? (
-                    <View style={styles.loading}>
-                        <ActivityIndicator color={theme.colors.textSecondary} />
-                    </View>
-                ) : rows.length === 0 ? (
-                    <Text style={styles.emptyHint}>No directories here.</Text>
-                ) : (
-                    <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                        {rows.map((entry, index) => (
-                            <Pressable
-                                key={entry.name}
-                                onPressIn={holdFocus}
-                                onPress={() => browseTo(`${target.listPath}${entry.name}/`)}
-                            >
-                                <View style={styles.row}>
-                                    <Ionicons name="folder" size={16} color={theme.colors.textSecondary} />
-                                    <Text numberOfLines={1} style={styles.rowName}>
-                                        {entry.name}
-                                    </Text>
-                                    {entry.repo && (
-                                        <Ionicons name="git-branch" size={14} color={theme.colors.success} />
-                                    )}
-                                </View>
-                                {index < rows.length - 1 && <View style={styles.hairline} />}
-                            </Pressable>
-                        ))}
-                    </ScrollView>
                 )}
             </View>
 
-            {listError !== undefined && <Text style={styles.errorText}>{listError}</Text>}
+            {!browsing && exists === false && (
+                <Text style={styles.hint}>This folder doesn’t exist yet. You’ll be asked before it’s created.</Text>
+            )}
         </View>
     );
 }

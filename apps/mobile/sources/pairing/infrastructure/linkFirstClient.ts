@@ -125,7 +125,9 @@ export class LinkFirstClient implements SessionClient {
             return;
         }
         this.link = new DeviceLink(grant, {
-            timeoutMs: 5_000,
+            // Covers socket open, Noise handshake and the host's `ready` together:
+            // a starved host needs far longer than a relay round trip.
+            timeoutMs: 20_000,
             ...(this.options.pingMs === undefined ? {} : { pingMs: this.options.pingMs }),
             ...(this.options.ssh === undefined ? {} : { resolve: async (url: string) => {
                 try { return await sshRelayUrl(url, stored.machineId, this.options.ssh!); }
@@ -460,7 +462,7 @@ export class LinkFirstClient implements SessionClient {
         const generation = this.healthGeneration;
         const route = describeRoute(stored.relayUrl) ?? 'relay';
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 3_000);
+        const timer = setTimeout(() => controller.abort(), 8_000);
         let message: string;
         let permanent = false;
         try {

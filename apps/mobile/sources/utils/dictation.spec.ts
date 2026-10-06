@@ -774,14 +774,39 @@ describe('on-device dictation flow', () => {
         expect(reported('settle-active-done')).toBe(true);
     });
 
-    it('releases ownership when the native recorder cannot start', async () => {
-        mocks.liveAudio.start.mockRejectedValue(new Error('No audio input device'));
+    it('explains unavailable microphone input, keeps safe error detail and retries only on request', async () => {
+        mocks.liveAudio.start.mockRejectedValueOnce(new Error('AudioQueueStart failed (NSOSStatusErrorDomain -66628). file:///private/test.wav token=fixture-secret'));
         const dictation = await renderDictation();
         await act(async () => { dictation.toggle(); });
         await vi.advanceTimersByTimeAsync(0);
 
-        expect(mocks.modalAlert).toHaveBeenCalledWith('Dictation failed', 'Could not start recording.');
+        const [title, message, buttons] = mocks.modalAlert.mock.calls[0]!;
+        expect(title).toBe('Dictation failed');
+        expect(message).toBe('Microphone not available. Check the microphone, then try again.\n\nDetails: AudioQueueStart failed (NSOSStatusErrorDomain -66628). [path hidden] token: [redacted]');
         expect(micOwners()).toEqual([]);
+        expect(api!.recording).toBe(false);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(mocks.liveAudio.start).toHaveBeenCalledOnce();
+
+        const retry = buttons.find((button: { text: string }) => button.text === 'Retry');
+        await act(async () => { retry.onPress(); });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.liveAudio.start).toHaveBeenCalledTimes(2);
+        expect(api!.recording).toBe(true);
+        expect(micOwners()).toEqual(['dictation']);
+        expect(appended).toEqual([]);
+    });
+
+    it('explains a failed audio session activation the same way', async () => {
+        mocks.liveAudio.start.mockRejectedValueOnce(new Error('AVAudioSession setActive failed (AVFAudioDomain 17001).'));
+        const dictation = await renderDictation();
+        await act(async () => { dictation.toggle(); });
+        await vi.advanceTimersByTimeAsync(0);
+
+        const [title, message, buttons] = mocks.modalAlert.mock.calls[0]!;
+        expect(title).toBe('Dictation failed');
+        expect(message).toBe('Microphone not available. Check the microphone, then try again.\n\nDetails: AVAudioSession setActive failed (AVFAudioDomain 17001).');
+        expect(buttons.find((button: { text: string }) => button.text === 'Retry')).toBeTruthy();
     });
 
     it('does not claim the mic when permission is denied and blocks Realtime while dictating', async () => {
@@ -827,8 +852,8 @@ describe('on-device dictation flow', () => {
         base = 'QA fixture 127 undo unsent';
         appended = [];
         const prior = mocks.transcribe.getMockImplementation()!;
-        const noise = '(wind howling) [wind]';
-        const mixed = 'the wind is cold (see notes) [wind]';
+        const noise = '(wind howling) [wind] [inaudible] ♪♪';
+        const mixed = 'the wind is cold (see notes) [wind] [Inaudible]';
         // One final reading per phase below: noise-only insert, noise-only
         // Undo, then a mixed reading whose real words and legitimate
         // parenthetical must survive the sanitise.

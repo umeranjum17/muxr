@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Platform } from 'react-native';
+import { sanitizeRequestErrorMessage } from '@trymuxr/contract/control-plane';
 import { useSharedValue } from 'react-native-reanimated';
 import { Modal } from '@/modal';
 import { requestMicrophonePermission, showMicrophonePermissionDeniedAlert } from '@/utils/microphonePermissions';
@@ -14,6 +15,20 @@ function replaceSpoken(draft: string, shown: string, spoken: string): string {
     const trimmed = draft.trimEnd();
     const stem = shown && trimmed.endsWith(shown) ? trimmed.slice(0, trimmed.length - shown.length) : draft;
     return spoken ? appendTranscript(stem, spoken) : stem.trimEnd();
+}
+
+// Show only the caught message, never native userInfo, stacks or arbitrary objects.
+function recordingErrorMessage(error: unknown): string {
+    let message = '';
+    if (error instanceof Error) message = error.message;
+    if (typeof error === 'string') message = error;
+    if (!message.trim()) return 'Could not start recording. No error detail was available.';
+    const withoutQuotedCredentials = message.replace(/["'](?:[A-Za-z][A-Za-z0-9]*_)*(?:api[_-]?key|access[_-]?token|token|secret|password)["']\s*[:=]\s*["']?[^"'{}\s,;]+["']?/gi, '[credential redacted]');
+    return sanitizeRequestErrorMessage(withoutQuotedCredentials)
+        .replace(/(?:file|https?):\/\/\S+/gi, '[path hidden]')
+        .replace(/(^|\s)\/(?!\/)(?:[^\s/]+\/)+[^\s]*/g, '$1[path hidden]')
+        .replace(/\b(?:pph?_[a-z0-9]+|(?:w\d+[A-Za-z]?):(?:p|t)\d+|(?:machine|device|session|pane|rel|peer)[-_][a-z0-9_-]{6,})\b/gi, '[internal reference]')
+        .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal reference]');
 }
 
 // Below this a recording is a mis-tap, not speech.
@@ -63,7 +78,7 @@ export function useDictation(getText: () => string, setText: (text: string) => v
         releaseDictation();
     }, []);
 
-    const start = React.useCallback(async () => {
+    const start = React.useCallback(async (): Promise<void> => {
         if (Platform.OS === 'web') {
             Modal.alert('Dictation unavailable', 'On-device dictation is available in the Android and iOS apps.');
             return;
@@ -117,8 +132,15 @@ export function useDictation(getText: () => string, setText: (text: string) => v
             setRecording(true);
         } catch (error) {
             releaseDictation();
-            console.error('Failed to start recording:', error);
-            Modal.alert('Dictation failed', 'Could not start recording.');
+            const message = recordingErrorMessage(error);
+            console.error('Failed to start recording:', message);
+            const microphoneUnavailable = message.startsWith('AudioQueueStart failed (NSOSStatusErrorDomain -66628)')
+                || message.startsWith('AVAudioSession setActive failed');
+            const explanation = microphoneUnavailable ? `Microphone not available. Check the microphone, then try again.\n\nDetails: ${message}` : message;
+            Modal.alert('Dictation failed', explanation, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Retry', onPress: () => { void start(); } },
+            ]);
         }
     }, [showSpoken]);
 

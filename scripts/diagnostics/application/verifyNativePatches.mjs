@@ -5,7 +5,16 @@ import { fileURLToPath } from 'node:url';
 import { IOS_FRAMEWORK, verifyIosLibraries, verifyIosPin } from './syncIosFramework.mjs';
 
 const root = new URL('../../..', import.meta.url);
-const read = (path) => readFileSync(new URL(path, root), 'utf8');
+// An unreadable file is a failed check, not a crash: without this a deleted
+// patches/ directory throws ENOENT at module top level instead of printing
+// the repair hint below.
+const read = (path) => {
+    try {
+        return readFileSync(new URL(path, root), 'utf8');
+    } catch {
+        return '';
+    }
+};
 
 const ghosttyPatch = read('patches/expo-libghostty+0.8.1.patch');
 const ghosttyView = read('node_modules/expo-libghostty/android/src/main/java/expo/modules/libghostty/ExpoLibghosttyView.kt');
@@ -53,7 +62,29 @@ try {
 const androidBuild = read('scripts/buildAndroidLocal.sh');
 const voiceOverlayService = read('apps/mobile/modules/voice-overlay/android/src/main/java/expo/modules/voiceoverlay/VoiceOverlayService.kt');
 const voiceOverlayModule = read('apps/mobile/modules/voice-overlay/android/src/main/java/expo/modules/voiceoverlay/VoiceOverlayModule.kt');
-const whisperModel = readFileSync(new URL('apps/mobile/sources/assets/models/ggml-base.en-q5_1.bin', root));
+const whisperModel = (() => {
+    try {
+        return readFileSync(new URL('apps/mobile/sources/assets/models/ggml-base.en-q5_1.bin', root));
+    } catch {
+        return Buffer.alloc(0);
+    }
+})();
+// The iOS manifest is installed state too: an unreadable one fails its check
+// below instead of throwing past the repair hint.
+const iosPinOk = (() => {
+    try {
+        return verifyIosPin().length === 0;
+    } catch {
+        return false;
+    }
+})();
+const iosLibrariesOk = process.platform !== 'darwin' || (() => {
+    try {
+        return verifyIosLibraries().length === 0;
+    } catch {
+        return false;
+    }
+})();
 const whisperPatch = read('patches/whisper.rn+0.7.2.patch');
 const whisperJsi = read('node_modules/whisper.rn/cpp/jsi/RNWhisperJSI.cpp');
 const nativeGuard = androidBuild.indexOf('node "$ROOT/scripts/diagnostics/application/verifyNativePatches.mjs"');
@@ -188,7 +219,7 @@ const checks = [
         // Source-level identity, checkable anywhere: a Linux checkout holds
         // whatever binary the dependency fetched before the patch applied.
         'iOS libghostty pin names the artifact the patched manifest fetches',
-        verifyIosPin().length === 0,
+        iosPinOk,
     ],
     [
         'iOS framework pin travels in the dependency patch, so it survives a fresh install',
@@ -199,7 +230,7 @@ const checks = [
         // evidence: this recomputes the library bytes a build actually links,
         // on the only platform that installs them.
         'iOS libghostty libraries match their pinned digests (Darwin)',
-        process.platform !== 'darwin' || verifyIosLibraries().length === 0,
+        iosLibrariesOk,
     ],
     [
         'screens mounting-override listener is process-lifetime and cannot dangle (upstream PR 4413)',
@@ -250,6 +281,9 @@ const failed = checks.filter(([, ok]) => !ok);
 if (failed.length > 0) {
     for (const [name] of failed) console.error(`✗ ${name}`);
     console.error('Required patches or Android build prerequisites are missing/stale; refusing to continue.');
+    // Most often an install whose lifecycle scripts never ran, so say the one
+    // command that repairs it instead of leaving a typecheck to guess.
+    console.error('`yarn install --frozen-lockfile` re-applies every patch in patches/.');
     process.exit(1);
 }
 for (const [name] of checks) console.log(`✓ ${name}`);

@@ -232,8 +232,13 @@ it('keeps an agent its tab and names the scan failure once its measured days age
     expect(aged.provider).toBe('kimi');
     expect(aged.todayTokens).toBe('\u2014');
     expect(aged.activity?.state).toBe('unavailable');
-    expect(aged.activity?.reason).toMatch(/reopen Usage in a minute/);
+    expect(aged.activity?.reason).toMatch(/refresh to try again/);
     expect(aged.noProviders).toBeUndefined();
+
+    // The failure line's promise holds: once the scan works, a refresh
+    // measures again instead of repeating the failure for minutes.
+    writeFileSync(scanOk, '');
+    expect((await collectUsage({ refresh: true }, env)).activity?.state).toBe('measured');
 }, 20_000);
 
 it('carries the daily backend\'s unitemized remainder as its own kind, never as input', async () => {

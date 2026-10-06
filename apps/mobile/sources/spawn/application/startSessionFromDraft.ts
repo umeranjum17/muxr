@@ -6,12 +6,24 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { startAgentFromDock } from './StartAgentFromDock';
-import { planConnection, samePlanConnection, waitForPlanDiscovery, acknowledgeAutoTerms, planAccountForLaunch, unseenAutoTerms } from '@/plans';
+import { planConnection, samePlanConnection, waitForPlanDiscovery, acknowledgeAutoTerms, planAccountForLaunch, planLaunchQuestion, unseenAutoTerms, type LaunchQuestion } from '@/plans';
+import { announceStartAccount } from '@/plans/ui';
 
 function pathForeignToHome(path: string, homeDir: string): boolean {
     if (path === '~' || (!path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path))) return false;
     const home = homeDir.replace(/[/\\]+$/, '');
     return path !== home && !path.startsWith(`${home}/`) && !path.startsWith(`${home}\\`);
+}
+
+/** One question before Start; resolves to the choice to launch on, or null to stop. */
+function askBeforeLaunch(question: LaunchQuestion, choice: string): Promise<string | null> {
+    return new Promise((resolve) => {
+        Modal.alert(question.title, question.message, [
+            { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(null) },
+            ...(question.instead === undefined ? [] : [{ text: question.instead.label, onPress: () => resolve(question.instead!.choice) }]),
+            ...(question.anyway === undefined ? [] : [{ text: question.anyway, onPress: () => resolve(choice) }]),
+        ]);
+    });
 }
 
 /** Adapter: Dock draft + confirmations around StartAgentFromDock. */
@@ -44,7 +56,17 @@ export async function startSessionFromDraft(options: {
         return null;
     }
     if (!samePlanConnection(connection)) return null;
-    const planAccount = planAccountForLaunch(draft.agentType);
+    let planAccount = planAccountForLaunch(draft.agentType);
+    // Never start on another account than the one picked, or on one with no
+    // room left, without saying so first.
+    let question = planAccount === undefined ? undefined : planLaunchQuestion(draft.agentType, planAccount);
+    while (question !== undefined && planAccount !== undefined) {
+        const answer = await askBeforeLaunch(question, planAccount);
+        if (answer === null || !samePlanConnection(connection)) return null;
+        if (answer === planAccount && question.anyway !== undefined) break;
+        planAccount = answer;
+        question = planLaunchQuestion(draft.agentType, planAccount, true);
+    }
     const termsNote = planAccount === 'auto' ? unseenAutoTerms() : undefined;
     if (termsNote !== undefined) {
         const approved = await Modal.confirm('Auto accounts', termsNote, { cancelText: 'Cancel', confirmText: 'Continue' });
@@ -76,6 +98,7 @@ export async function startSessionFromDraft(options: {
             }
             if (result.promptFailed) Modal.alert(t('common.error'), result.promptFailed);
             options.navigateToSession(result.agentRoute);
+            if (planAccount !== undefined) void announceStartAccount(result.agentRoute, draft.agentType, planAccount, connection);
             return result.agentRoute;
         }
         if (result.reason === 'needs-directory' && !createCwd) {

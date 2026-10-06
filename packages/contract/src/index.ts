@@ -329,4 +329,5 @@ export type {
     VoiceStatus,
     VoiceReport,
 } from './voice/index.js';
+export { accountNameFrom } from './plans/index.js';
 export type { PlanAccount, PlanProviderAccounts } from './plans/index.js';
