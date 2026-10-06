@@ -16,7 +16,8 @@ vi.mock('react-native-mmkv', () => ({
     },
 }));
 
-const { planConnection, planAccountForLaunch, refreshPlans, waitForPlanDiscovery, usePlansStore } = await import('./application/plansStore');
+const { planConnection, planAccountForLaunch, planLaunchQuestion, refreshPlans, waitForPlanDiscovery, usePlansStore } = await import('./application/plansStore');
+const { choiceLine, providerEntry } = await import('./domain/planAccounts');
 
 const claude = (overrides: Partial<Record<'work' | 'side', { signedIn: boolean }>> = {}): PlanProviderAccounts => ({
     provider: 'claude',
@@ -61,11 +62,49 @@ describe('which account a launch carries', () => {
         usePlansStore.getState().choose('claude', 'pa_side');
         expect(planAccountForLaunch('claude')).toBe('auto');
 
-        // Picked account signs out: back to Auto's pick, not a dead launch.
+        // Picked account signs out: back to Auto's pick, not a dead launch, but
+        // never in silence. The dock names the pick, and Start asks first.
         usePlansStore.getState().choose('claude', 'pa_work');
         request.mockResolvedValueOnce({ providers: [{ ...claude({ work: { signedIn: false } }), auto: { accountId: 'found-claude', reason: '' } }] });
         await refreshPlans();
         expect(planAccountForLaunch('claude')).toBe('auto');
+        const signedOut = providerEntry(usePlansStore.getState().list, 'claude')!;
+        expect(choiceLine(signedOut, 'pa_work')).toEqual({ value: 'Work is signed out', detail: 'Sign in, or use Personal' });
+        expect(planLaunchQuestion('claude', 'auto')).toMatchObject({ title: 'Work is signed out', instead: { label: 'Use Personal', choice: 'auto' } });
+        expect(planLaunchQuestion('claude', 'auto', true)).toBeUndefined();
+
+        // An account with no room left: Start offers the roomier one, or starts anyway.
+        const room = (work: number, personal: number, reason = "Right now that's Personal") => ({ providers: [{
+            ...claude(),
+            accounts: claude().accounts.map((account) => ({ ...account, roomLeftPercent: account.id === 'pa_work' ? work : account.id === 'found-claude' ? personal : undefined })),
+            auto: { accountId: 'found-claude', reason },
+        }] });
+        request.mockResolvedValueOnce(room(0, 40));
+        await refreshPlans();
+        expect(planAccountForLaunch('claude')).toBe('pa_work');
+        expect(planLaunchQuestion('claude', 'pa_work')).toMatchObject({
+            title: 'Work is out of room',
+            instead: { label: 'Use Personal', choice: 'found-claude' },
+            anyway: 'Start anyway',
+        });
+        expect(planLaunchQuestion('claude', 'found-claude', true)).toBeUndefined();
+        // Every account empty: Auto still has a pick, and Start still says so.
+        // The title states the fact; the body adds the clock and the cost, never the title again.
+        request.mockResolvedValueOnce(room(0, 0, 'All Claude accounts are out of room until 6:09 PM. Personal refills first.'));
+        await refreshPlans();
+        usePlansStore.getState().choose('claude', 'auto');
+        expect(planLaunchQuestion('claude', 'auto')).toEqual({
+            title: 'All Claude accounts are out of room',
+            message: "Personal refills first at 6:09 PM. An agent started now can't answer until then.",
+            anyway: 'Start anyway',
+        });
+        // No reset clock from the host: still no title restated, still the cost.
+        request.mockResolvedValueOnce(room(0, 0, 'All Claude accounts are out of room. Personal refills first.'));
+        await refreshPlans();
+        expect(planLaunchQuestion('claude', 'auto')?.message).toBe("Personal refills first. An agent started now can't answer until then.");
+        request.mockResolvedValueOnce(room(0, 0, ''));
+        await refreshPlans();
+        expect(planLaunchQuestion('claude', 'auto')?.message).toBe("A Claude account refills first. An agent started now can't answer until then.");
 
         // Auto off with nothing pickable chosen: the computer's own sign-in.
         usePlansStore.getState().setAutoOn(false);

@@ -51,6 +51,8 @@ export interface SessionStartOptions {
     planAccount?: string;
     /** Internal launch env for that account: merged into the new pane's env. Absent means today's launch. */
     planEnv?: Record<string, string>;
+    /** Published managed-account credential names to remove before the agent opens. */
+    planUnset?: string[];
     signIn?: string;
     worktree?: { branch?: string; base?: string };
     /** Squad mode: one workspace, one tab per kind (max 4). Ignores kind. */
@@ -99,6 +101,8 @@ export interface PlanMoveOptions {
     sessionId: string;
     provider: string;
     folder: string;
+    launchEnv: { set: Record<string, string>; unset: string[] };
+    resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[];
 }
 
 export interface SessionSaveAttachmentsOptions {
@@ -131,7 +135,7 @@ export interface SessionSource {
     /** Kinds whose canonical executable is launchable in the host PATH. */
     installedAgentKinds(kinds: readonly string[]): Promise<string[]>;
     /** Full herdr power without a shell: each argument stays one argument. Never rejects. */
-    herdrCli(args: string[], timeoutMs?: number): Promise<{
+    herdrCli(args: string[], timeoutMs?: number, env?: Record<string, string>): Promise<{
         stdout: string; stderr: string; exitCode: number | null; timedOut: boolean;
     }>;
     /** Open a kit terminal session on a pane; the kit owns the binary and env. */
@@ -221,6 +225,8 @@ export interface SessionSource {
     }>;
     stop(sessionId: string, options: SessionStopOptions): Promise<CloseResult>;
     movePlanAccount?(options: PlanMoveOptions): Promise<{ sessionId: string }>;
+    /** False while the agent has no conversation for `movePlanAccount` to carry yet. */
+    canMovePlanAccount?(sessionId: string): Promise<boolean>;
     abort(sessionId: string): Promise<void>;
     reload(sessionId: string): Promise<void>;
     prompt(options: SessionPromptOptions): Promise<void>;

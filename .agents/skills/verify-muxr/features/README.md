@@ -62,3 +62,6 @@ user-visible behavior, then exactly four H2 sections in this order:
   helper shutdown.
 - [See pinned spaces on the phone's Spaces list](./spaces-pinned.md) —
   native app on an emulator over a fake-Herdr stack: pin, themes, tablet width.
+- [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
+  Release simulator app over a fake-Herdr stack: the Added notice names
+  accounts as the list does, light and dark, before/after one build.

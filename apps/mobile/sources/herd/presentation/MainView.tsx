@@ -50,7 +50,7 @@ import { connectionStatusPresentation, homeHeaderTitle, pairedMachineTitle } fro
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
 import { HomeEmptyState } from './HomeEmptyState';
-import { HomeRecoveryCard, recoveryMode } from './HomeRecoveryCard';
+import { BusyConnectingCard, HomeRecoveryCard, recoveryMode, useBusyConnecting } from './HomeRecoveryCard';
 
 
 const styles = StyleSheet.create((theme) => ({
@@ -338,10 +338,13 @@ export const MainView = React.memo(() => {
         }).catch(() => undefined);
         return () => { cancelled = true; };
     }, [socketStatus.status]);
+    const splitBusySince = useSplitView && hasPairedGrant && getCachedConnectionSettings().mode === 'hosted'
+        && socketStatus.status === 'connecting' && socketStatus.error === null ? socketStatus.connectingSince : null;
     const splitHostOffline = useSplitView && hasPairedGrant
         && getCachedConnectionSettings().mode === 'hosted'
-        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected' || splitHostRequestFailed);
+        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected' || (splitHostRequestFailed && splitBusySince === null));
     const splitRuntimeOffline = useSplitView && hasPairedGrant && socketStatus.status === 'connected' && splitHerdrConnected === false;
+    const splitBusy = useBusyConnecting(splitBusySince);
     const splitRecovering = splitHostOffline || splitRuntimeOffline || retryingHome || splitRetryFailed;
     React.useEffect(() => {
         if (!splitRecovering) setHomeRecoveryFeedback('');
@@ -469,7 +472,7 @@ export const MainView = React.memo(() => {
     const permanentRecovery = !['host', 'runtime'].includes(recoveryMode(socketStatus.error, false));
     const homeHeader = <>
         <PluginSlot slot="home.cards" context={{}} />
-        {!permanentRecovery && <RightNowCard />}
+        {!permanentRecovery && <RightNowCard linkDown={socketStatus.status !== 'connected'} />}
         <DeclarativeHomeCards />
         <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
     </>;
@@ -508,13 +511,13 @@ export const MainView = React.memo(() => {
                             onRetry={() => void retrySplitConnection()}
                             onFeedback={setHomeRecoveryFeedback}
                         />
-                    ) : null}
+                    ) : splitBusy && splitBusySince !== null ? <BusyConnectingCard since={splitBusySince} /> : null}
                     {/* The same order as the phone: plans and machine first, then Live,
                         then what to start. */}
                     <PluginSlot slot="home.cards" context={{}} />
-                    {!permanentRecovery && <RightNowCard />}
+                    {!permanentRecovery && <RightNowCard linkDown={socketStatus.status !== 'connected'} />}
                     <DeclarativeHomeCards />
-                    {!splitRecovering
+                    {!splitRecovering && !splitBusy
                         ? <LiveTerminalsRow showZeroState={!splitEmpty} visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} /> : null}
                     {splitEmpty ? <HomeEmptyState />
                         : homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitRecovering && socketStatus.status === 'connected'

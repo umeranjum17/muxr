@@ -219,7 +219,8 @@ export function OptionSheet({
                         {body ? (
                             virtualizedBody
                                 ? <View style={{ height: Math.min(bodyCap, virtualizedBodyHeight ?? bodyCap) }}>{body}</View>
-                                : <ScrollView style={{ maxHeight: bodyCap }}>{body}</ScrollView>
+                                // A tap on the body's button acts even with the keyboard up, rather than only lowering it.
+                                : <ScrollView style={{ maxHeight: bodyCap }} keyboardShouldPersistTaps="handled">{body}</ScrollView>
                         ) : (
                         <View style={styles.body}>
                             {providers.length > 1 && (

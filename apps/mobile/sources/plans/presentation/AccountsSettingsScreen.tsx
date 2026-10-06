@@ -11,7 +11,7 @@ import { Modal } from '@/modal';
 import { providerEntry, providerName, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, usePlans, usePlansStore } from '../application/plansStore';
 import { planFailure, removeAccount, renameAccount } from '../application/plansApi';
-import { useAccountFlows } from './AccountFlows';
+import { useAccountFlows, useFlows } from './AccountFlows';
 import { Pill } from './accountParts';
 
 const PROVIDERS: { id: string; title: string }[] = [
@@ -27,6 +27,7 @@ export function AccountsSettingsScreen() {
     const connection = planConnection();
     const autoOn = usePlansStore((state) => state.autoOn);
     const setAutoOn = usePlansStore((state) => state.setAutoOn);
+    const landed = useFlows((state) => state.landed);
 
     const rename = async (account: PlanAccount) => {
         const name = await Modal.prompt('Rename account', account.email, {
@@ -58,11 +59,14 @@ export function AccountsSettingsScreen() {
         { text: 'Cancel', style: 'cancel' },
     ]);
 
-    const subtitle = (account: PlanAccount): string => {
-        if (!account.signedIn) return 'Signed out';
+    // At 270 dp the email keeps one ellipsized line; the usage gets its own line and wraps between whole
+    // words rather than cutting the plan name. A no-break space keeps each "·" with the word before it.
+    const subtitle = (account: PlanAccount): string | undefined => (account.signedIn ? account.email : 'Signed out');
+    const facts = (account: PlanAccount): string | undefined => {
+        if (!account.signedIn) return undefined;
         const room = account.roomLeftPercent === undefined ? undefined : `${account.roomLeftPercent}% left`;
-        return [account.email, account.plan, room, account.foundOnComputer ? 'found on this computer' : undefined]
-            .filter(Boolean).join(' · ');
+        return [room, account.plan, account.foundOnComputer ? 'found on this computer' : undefined]
+            .filter(Boolean).join('\u00a0· ') || undefined;
     };
 
     return (
@@ -83,9 +87,13 @@ export function AccountsSettingsScreen() {
                         {accounts.map((account) => (
                             <Item
                                 key={account.id}
+                                selected={account.id === landed}
+                                style={account.id === landed ? { backgroundColor: theme.colors.surfacePressed } : undefined}
                                 title={account.name}
                                 subtitle={subtitle(account)}
-                                subtitleLines={2}
+                                subtitleLines={1}
+                                meta={facts(account)}
+                                metaLines={0}
                                 icon={<Ionicons
                                     name={account.signedIn ? 'person-circle-outline' : 'alert-circle-outline'}
                                     size={28}
@@ -96,7 +104,7 @@ export function AccountsSettingsScreen() {
                                 showChevron={account.signedIn}
                                 onPress={() => (account.signedIn ? actions(account) : flows.signIn(account))}
                                 onLongPress={() => actions(account)}
-                                accessibilityLabel={`${account.name}, ${subtitle(account)}`}
+                                accessibilityLabel={[account.name, subtitle(account), facts(account)].filter(Boolean).join(', ')}
                             />
                         ))}
                         <Item

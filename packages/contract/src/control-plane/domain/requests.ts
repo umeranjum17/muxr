@@ -819,7 +819,7 @@ export interface RequestMap extends PeerRequestMap {
     /** Rename one known account. The name is the person's own words, never a number. */
     'plans.rename': { params: { accountId: string; name: string }; result: { account: PlanAccount } };
     /**
-     * Forget one known account. A muxr-created folder is deleted with it
+     * Forget one known account. A managed folder is deleted with it
      * (`deletedFolder: true`), which signs that account out on this computer;
      * a found account is only forgotten, its folder never touched.
      */
@@ -833,17 +833,25 @@ export interface RequestMap extends PeerRequestMap {
      */
     'plans.move': { params: { sessionId: string; accountId: string }; result: { sessionId: string } };
     /**
-     * Open the provider's own sign-in in a new tab: a fresh private folder for
-     * a new account, or the account's own folder to sign in again. The person
-     * signs in inside the real tool; the tab is the returned session.
+     * Open the provider's own sign-in in a new tab: a fresh managed folder for
+     * a new account, or the account's own folder to sign in again (a found
+     * computer sign-in adopts into a fresh managed folder instead, leaving the
+     * found folder untouched). The person signs in inside the real tool;
+     * the tab is the returned session.
      */
     'plans.add': { params: { provider: string; accountId?: string }; result: { accountId: string; sessionId: string } };
-    /** One account as its tool reports it now, polled while the person signs in. Once signed in, its sign-in tab closes. */
-    'plans.status': { params: { accountId: string }; result: { account: PlanAccount } };
+    /**
+     * One account as its tool reports it now, polled while the person signs in. Once signed in, its sign-in tab closes.
+     * `failure` says why a tracked sign-in ended without signing in (the login failed, or its tab was closed).
+     */
+    'plans.status': { params: { accountId: string }; result: { account: PlanAccount; failure?: string } };
     /** Stop waiting for a sign-in: its tracked tab closes, and an account created for that tab is removed. */
     'plans.cancel': { params: { accountId: string }; result: { removed: boolean } };
-    /** The account a running agent was started or moved on; absent means the computer's own sign-in. */
-    'plans.agent': { params: { sessionId: string }; result: { accountId?: string } };
+    /**
+     * The account a running agent was started or moved on; absent means the computer's own sign-in.
+     * `movable` is false while the agent has no conversation to carry to another account yet.
+     */
+    'plans.agent': { params: { sessionId: string }; result: { accountId?: string; movable?: boolean } };
 
     // --- realtime voice -------------------------------------------------------
     // Product-owned. The provider adapters are internal host modules, so these
