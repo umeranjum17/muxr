@@ -26,8 +26,10 @@ export function AgentEmptyBanner({ sessionId, agentKind, working }: {
         <View style={styles.strip} accessibilityLiveRegion="polite">
             <Ionicons name="alert-circle" size={20} color={theme.colors.box.warning.text} style={styles.icon} />
             <View style={parts.rowCopy}>
-                <Text style={styles.title} numberOfLines={1}>Out of room on {account.name}</Text>
-                <Text style={parts.facts} numberOfLines={1}>
+                {/* The reference phone at large text needs two lines for the
+                    name and the window; shorter screens still show one. */}
+                <Text style={styles.title} numberOfLines={2}>Out of room on {account.name}</Text>
+                <Text style={parts.facts} numberOfLines={2}>
                     {account.roomLabel ?? 'No room left'} · move to keep going
                 </Text>
             </View>
