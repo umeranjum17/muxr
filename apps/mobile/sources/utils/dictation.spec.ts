@@ -852,8 +852,8 @@ describe('on-device dictation flow', () => {
         base = 'QA fixture 127 undo unsent';
         appended = [];
         const prior = mocks.transcribe.getMockImplementation()!;
-        const noise = '(wind howling) [wind]';
-        const mixed = 'the wind is cold (see notes) [wind]';
+        const noise = '(wind howling) [wind] [inaudible] ♪♪';
+        const mixed = 'the wind is cold (see notes) [wind] [Inaudible]';
         // One final reading per phase below: noise-only insert, noise-only
         // Undo, then a mixed reading whose real words and legitimate
         // parenthetical must survive the sanitise.
