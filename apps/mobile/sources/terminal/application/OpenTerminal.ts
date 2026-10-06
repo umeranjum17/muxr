@@ -297,7 +297,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     const reconnectNow = (explicitTakeover = false): void => {
         let retaking = false;
         if (closedByUser) {
-            if (!explicitTakeover || !closedByTakeover) return;
+            if (!explicitTakeover || !closedByHost) return;
             closedByUser = false;
             closedByHost = false;
             closedByTakeover = false;
