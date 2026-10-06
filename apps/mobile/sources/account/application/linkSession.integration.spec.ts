@@ -32,6 +32,7 @@ const harness = vi.hoisted(() => {
         machineSnapshots: [] as string[],
         socketStatus: 'disconnected',
         socketError: null as string | null,
+        herdrRuntime: undefined as boolean | undefined,
         ready: false,
         machineReplaceFlags: [] as boolean[],
         sessionReplaceFlags,
@@ -185,6 +186,7 @@ vi.mock('../../catalog/application/storage', () => ({
             herdrWorkspaces: [],
             setSocketStatus: (status: string) => { harness.socketStatus = status; },
             setSocketError: (message: string | null) => { harness.socketError = message; },
+            setHerdrRuntime: (runtime: boolean | undefined) => { harness.herdrRuntime = runtime; },
             applyMachines: (machines: unknown[], replace = false) => {
                 harness.machineReplaceFlags.push(replace);
                 const id = (machines[0] as { id?: string } | undefined)?.id;

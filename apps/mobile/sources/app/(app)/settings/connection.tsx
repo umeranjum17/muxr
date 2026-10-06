@@ -8,7 +8,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { ItemList } from '@/components/ItemList';
 import { RoundButton } from '@/components/RoundButton';
 import { Typography } from '@/constants/Typography';
-import { useMachine, useSocketStatus } from '@/catalog/store';
+import { useHerdrRuntime, useMachine, useSocketStatus } from '@/catalog/store';
 import { sync, syncReconnect } from '@/catalog/sync';
 import {
     executeSshCommand,
@@ -34,6 +34,7 @@ import { t } from '@/text';
 import { Stack } from 'expo-router';
 import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
 import { retryRelayDiscovery, useRelayDiscoveryPhase } from '@/pairing';
+import { connectionStatusSubtitle } from '@/pairing/ui';
 import { Modal } from '@/modal';
 import { ConnectionSupport } from '@/settings';
 import { SshHostScan } from '@/settings/SshHostScan';
@@ -190,6 +191,9 @@ export default function ConnectionSettingsScreen() {
     const [grantRefresh, setGrantRefresh] = React.useState<'loading' | 'ready' | 'failed'>('loading');
     const [grant, setGrant] = React.useState<StoredHostedGrant | undefined>();
     const { status, error: socketError } = useSocketStatus();
+    // Same shared summary the Home header reads: the link state plus the
+    // herdr runtime liveness, so the two surfaces cannot disagree.
+    const herdrRuntime = useHerdrRuntime();
     const nearbyPhase = useRelayDiscoveryPhase();
     const [clock, setClock] = React.useState(Date.now());
     React.useEffect(() => {
@@ -557,12 +561,7 @@ export default function ConnectionSettingsScreen() {
         else if (hostRefresh === 'failed') pairedCountText = 'Could not refresh the count. Reconnect or run muxr devices list on the computer.';
         else if (pairedDeviceCount === undefined) pairedCountText = 'This host has not reported a count. Run muxr devices list on the computer.';
         else pairedCountText = `${pairedDeviceCount} paired at last check`;
-        let statusSubtitle = socketError ?? latestFailure ?? 'The app reconnects on its own when the machine is back';
-        if (status === 'connected') {
-            if (hostRefresh === 'loading') statusSubtitle = 'Relay connected; checking the computer…';
-            else if (hostRefresh === 'failed') statusSubtitle = 'Relay connected; the computer did not answer. Try Reconnect now or muxr doctor there.';
-            else statusSubtitle = 'Relay connected; the computer answered the last check.';
-        }
+        const statusSubtitle = connectionStatusSubtitle({ status, socketError, latestFailure, hostRefresh, herdrRuntime });
         let routeTitle = 'Route from relay address';
         if (knownRoute !== undefined) routeTitle = status === 'connected' && hostRefresh === 'ready' ? 'Current route' : 'Last reported route';
         let trust = 'No active device grant is available here. Pair again on the computer to restore access.';

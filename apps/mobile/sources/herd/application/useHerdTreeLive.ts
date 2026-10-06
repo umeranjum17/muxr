@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { useFocusEffect } from 'expo-router';
-import { storage, useHomeTree } from '@/catalog/store';
+import { storage, useHerdrRuntime, useHomeTree } from '@/catalog/store';
 import { sync } from '@/catalog/sync';
 import { listPairedGrants } from '@/pairing/e2ee';
 import { getCachedConnectionSettings } from '@/connection';
@@ -10,7 +10,10 @@ export function useHerdTreeLive() {
     const { workspaces, loaded, stale } = useHomeTree();
     const [attempted, setAttempted] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
-    const [herdrConnected, setHerdrConnected] = React.useState<boolean | undefined>(undefined);
+    // Runtime liveness lives in the catalog store (written by
+    // sync.refreshHerdTree) so Home, the header and the Connection screen
+    // all read the same value instead of each keeping a local copy.
+    const herdrConnected = useHerdrRuntime();
     const [hasPairedGrant, setHasPairedGrant] = React.useState<boolean | undefined>(undefined);
     const [machineName, setMachineName] = React.useState<string | undefined>(undefined);
     const activeMachineId = getCachedConnectionSettings().machineId;
@@ -29,7 +32,6 @@ export function useHerdTreeLive() {
     const refreshStatus = React.useCallback(async () => {
         try {
             const result = await sync.refreshHerdTree();
-            setHerdrConnected(result.herdrConnected);
             setError(null);
             return result.herdrConnected !== false && storage.getState().socketStatus === 'connected';
         } catch (cause) {

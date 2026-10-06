@@ -176,6 +176,8 @@ interface StorageState extends WatchSnapshot {
     setSessionError: (sessionId: string, message: string | null) => void;
     herdrWorkspaces: HerdrTreeWorkspace[];
     herdrTreeLoaded: boolean;
+    /** Latest herdr runtime liveness from `herdr.tree`: false is dead, undefined is unknown. Written only by sync.refreshHerdTree. */
+    herdrRuntime: boolean | undefined;
     /** Spaces pins: workspace ids shown first, a per-device view preference. */
     pinnedSpaceIds: string[];
     /** Per machine: Spaces Move up/down order and favourite agents, a per-device view preference. */
@@ -220,6 +222,7 @@ interface StorageState extends WatchSnapshot {
     discardVoiceReport: (identity: string) => void;
     applySessions: (sessions: (Omit<Session, 'presence'> & { presence?: 'online' | number })[], replace?: boolean) => void;
     applyHerdrTree: (workspaces: HerdrTreeWorkspace[]) => void;
+    setHerdrRuntime: (runtime: boolean | undefined) => void;
     toggleSpacePin: (workspaceId: string) => void;
     setActiveMachine: (machineId: string) => void;
     setSpaceOrder: (order: string[]) => void;
@@ -298,6 +301,7 @@ export const storage = create<StorageState>()((set, get) => ({
     }),
     herdrWorkspaces: [],
     herdrTreeLoaded: false,
+    herdrRuntime: undefined,
     pinnedSpaceIds: loadSpacePins(),
     spacesLayouts: loadSpacesLayouts(),
     activeMachineId: '',
@@ -432,6 +436,7 @@ export const storage = create<StorageState>()((set, get) => ({
         socketConnectingSince: socketStatus !== 'connecting' ? null : state.socketConnectingSince ?? Date.now(),
     })),
     setSocketError: (socketError) => set({ socketError }),
+    setHerdrRuntime: (herdrRuntime) => set({ herdrRuntime }),
     // Settings are device-local in muxr -- there is no settings sync request --
     // so writing the store was the whole change and every toggle reset on reload.
     applyLocalSettings: (patch) => set((state) => {
@@ -743,6 +748,10 @@ export function useIsDataReady(): boolean {
 
 export function useSessionsLoaded(): boolean {
     return storage(useShallow((state) => state.sessionsLoaded));
+}
+
+export function useHerdrRuntime(): boolean | undefined {
+    return storage((state) => state.herdrRuntime);
 }
 
 export function useSocketStatus() {

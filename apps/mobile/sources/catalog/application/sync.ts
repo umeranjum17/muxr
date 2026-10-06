@@ -537,9 +537,17 @@ class MuxrSync {
         if (!this.hasTransport()) {
             storage.getState().setSocketStatus('disconnected');
             storage.getState().applyHerdrTree([]);
+            storage.getState().setHerdrRuntime(undefined);
             return { workspaces: [], herdrConnected: undefined };
         }
-        const tree = await this.request('herdr.tree', {});
+        let tree;
+        try {
+            tree = await this.request('herdr.tree', {});
+        } catch (cause) {
+            // A failed read answers nothing about the runtime: back to unknown.
+            if (request === this.herdrTreeRequest) storage.getState().setHerdrRuntime(undefined);
+            throw cause;
+        }
         // Requests can cross when a done frame and a newer working frame arrive
         // close together. Only the latest canonical read may update the UI.
         if (request === this.herdrTreeRequest) {
@@ -562,8 +570,11 @@ class MuxrSync {
         }
         // The host adds `connected` (herdr runtime liveness) to this response.
         // A missing field means "unknown", not "healthy" — callers must only
-        // treat an explicit false as a dead runtime.
-        return { workspaces: tree.workspaces, herdrConnected: (tree as { connected?: boolean }).connected };
+        // treat an explicit false as a dead runtime. The store is the one
+        // source every surface reads; the return value stays for the caller.
+        const herdrConnected = (tree as { connected?: boolean }).connected;
+        if (request === this.herdrTreeRequest) storage.getState().setHerdrRuntime(herdrConnected);
+        return { workspaces: tree.workspaces, herdrConnected };
     }
 
     private async refreshCatalog(): Promise<void> {
@@ -705,6 +716,7 @@ class MuxrSync {
             storage.getState().applyMachines([], true);
             storage.getState().applySessions([], true);
             storage.getState().applyHerdrTree([]);
+            storage.getState().setHerdrRuntime(undefined);
             storage.getState().applyHomeSnapshot(null);
         }
         storage.getState().setActiveMachine(settings.machineId);
@@ -860,6 +872,8 @@ class MuxrSync {
             this.client = undefined;
             setActiveSessionClient(undefined);
             storage.getState().setSocketStatus(this.hasTransport() ? 'connecting' : 'disconnected');
+            this.herdrTreeRequest += 1;
+            storage.getState().setHerdrRuntime(undefined);
             const settings = this.getConnection();
             watchAgentLifecycle(
                 { authority: this.anonID, machineId: settings.machineId },
