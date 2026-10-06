@@ -69,7 +69,7 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
 import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
 import { TerminalFailure } from './TerminalFailure';
 import { DictateAction, DictationStrip, useComposerDictation } from '@/components/ComposerDictation';
@@ -211,6 +211,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const previewDocked = previewShown !== undefined && previewDocks(Platform.OS === 'web', windowWidth);
     // Whether a live view covers the conversation; a docked one sits beside it.
     const desktopVisible = computerVisible || (previewShown !== undefined && !previewDocked);
+    // iOS 26 pops the screen from a horizontal drag anywhere on it; while a live
+    // view covers the conversation, that drag belongs to the desktop or device.
+    const navigation = useNavigation();
+    React.useEffect(() => {
+        if (!desktopVisible) return;
+        navigation.setOptions({ gestureEnabled: false });
+        return () => navigation.setOptions({ gestureEnabled: true });
+    }, [desktopVisible, navigation]);
     const sessions = useSessions();
     const { workspaces, loaded: treeLoaded } = useHerdrTree();
     const storedPane = herdrPaneForSession(workspaces, props.id);

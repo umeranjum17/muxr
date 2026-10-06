@@ -5,7 +5,7 @@ complete themselves (sign-in, 2FA/OTP, CAPTCHA, SSO). There is no in-app Browser
 the agent's browser or emulator runs on its pane's own screen, and the phone shows a
 live chip in the session header while it is there. Tapping the chip (Watch)
 opens the live view; the first tap on the picture takes control, and Hand back
-returns it. On iPhone, use the web app; the native iOS client does not offer it.
+returns it. The native iOS client offers the same live view.
 
 A visible browser grants no extra authorization. Stop for the human at any
 password, 2FA/OTP, CAPTCHA, SSO, purchase, publish, destructive, account,

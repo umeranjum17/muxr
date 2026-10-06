@@ -418,26 +418,31 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
         setClipboardBusy(true);
         setNotice(null);
         try {
-            const remote = session.copyRemoteToLocal();
-            let written: Promise<boolean> | undefined;
+            let writeLocal = async (text: string) => {
+                if (epoch === clipboardEpoch.current) await Clipboard.setStringAsync(text);
+            };
+            let abandonWrite = () => {};
             if (Platform.OS === 'web') {
+                // Start the write in the tap's user gesture; the remote reply can arrive later.
+                const remote = new Promise<string>((resolve, reject) => {
+                    writeLocal = async (text) => {
+                        resolve(text);
+                        if (!await written) throw new Error(desktopCopy.clipboardBlocked);
+                    };
+                    abandonWrite = () => reject(new Error('no desktop clipboard'));
+                });
+                remote.catch(() => undefined);
+                let written: Promise<boolean>;
                 try {
-                    // Start the write in the tap's user gesture; the remote reply can arrive later.
                     const write = typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write
-                        ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': remote.then(({ text }) => new Blob([text], { type: 'text/plain' })) })])
-                        : remote.then(({ text }) => navigator.clipboard.writeText(text));
+                        ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': remote.then((text) => new Blob([text], { type: 'text/plain' })) })])
+                        : remote.then((text) => navigator.clipboard.writeText(text));
                     written = write.then(() => true, () => false);
                 } catch {
                     written = Promise.resolve(false);
                 }
             }
-            const { text, truncated } = await remote;
-            if (epoch !== clipboardEpoch.current) return;
-            if (written !== undefined) {
-                if (!await written) throw new Error(desktopCopy.clipboardBlocked);
-            } else {
-                await Clipboard.setStringAsync(text);
-            }
+            const { text, truncated } = await session.copyRemoteToLocal(writeLocal).finally(abandonWrite);
             if (epoch !== clipboardEpoch.current) return;
             if (truncated) say('Copied the start of the desktop clipboard; the rest was too large.');
             else if (text === '') say('The desktop clipboard was empty.');
@@ -690,7 +695,15 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                     <Text numberOfLines={1} style={[styles.titleText, styles.previewName, { color: theme.colors.text }]}>{copy.name}</Text>
                     {target?.title !== undefined && <Text numberOfLines={1} style={[styles.titleText, styles.previewTitle, { color: theme.colors.textSecondary }]}>{target.title}</Text>}
                 </View>
-                {previewStatusLine !== null && (
+                {/* Driving it, the agent holds off until it is handed back. The
+                    control sits in the bar, never over the picture's own status bar. */}
+                {controlling ? (
+                    <Animated.View entering={popIn}>
+                        <Pressable onPress={disarm} accessibilityRole="button" accessibilityLabel={previewCopy.handBack} accessibilityHint={previewCopy.controlTitle} hitSlop={8} style={({ pressed }) => [styles.handBack, { backgroundColor: theme.colors.button.primary.background }, pressed && styles.pressed]}>
+                            <Text style={[styles.handBackLabel, { color: theme.colors.button.primary.tint }]}>{previewCopy.handBack}</Text>
+                        </Pressable>
+                    </Animated.View>
+                ) : previewStatusLine !== null && (
                     <Animated.View key={previewStatusLine.label} entering={popIn} style={styles.statusLine}>
                         {previewStatusLine.spinner === true
                             ? <ActivityIndicator size={10} color={previewStatusLine.color} />
@@ -729,11 +742,13 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
             <View style={styles.body}>
                 <DesktopView
                     sessionId={session.nativeId}
-                    style={[styles.surface, preview && { backgroundColor: stageColor, marginBottom: TOOLBAR + bottomInset }]}
+                    // On its side with the keyboard up, the compact row sits above the picture, never over it.
+                    style={[styles.surface, preview && { backgroundColor: stageColor, marginBottom: TOOLBAR + bottomInset }, compactKeyboard && styles.belowCompactHeader]}
                     accessibilityLabel={preview ? copy.stage : `${computerName} desktop`}
                     keyboardClearance={clearance}
-                    // ponytail: typed spread until the touch-profile desklink release is pinned; older builds keep desktop gestures.
-                    {...({ gestures: !preview ? 'desktop' : kind === 'browser' ? 'browser' : 'device' } as object)}
+                    // The top is paid by the container, and a preview's bottom by its toolbar margin.
+                    insets={{ left: docked ? 0 : insets.left, right: insets.right, bottom: preview ? 0 : insets.bottom }}
+                    gestures={!preview ? 'desktop' : kind === 'browser' ? 'browser' : 'device'}
                 />
 
                 {/* Reconnecting keeps the last frame, dimmed, and says so above it. */}
@@ -742,19 +757,6 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                         <View style={[styles.pill, styles.topPill, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }]}>
                             <ActivityIndicator size="small" color={theme.colors.text} />
                             <Text accessibilityLiveRegion="polite" style={[styles.armLabel, { color: theme.colors.text }]}>{desktopCopy.reconnectingTitle}</Text>
-                        </View>
-                    </Animated.View>
-                )}
-
-                {/* Driving the agent's browser: the agent holds off until it is handed back. */}
-                {preview && live && armed && (
-                    <Animated.View entering={popIn} exiting={popOut} pointerEvents="box-none" style={styles.topLane}>
-                        <View style={[styles.pill, { backgroundColor: theme.colors.surfaceHighest, borderColor: theme.colors.glass.border }]}>
-                            <View style={[styles.statusDot, { backgroundColor: theme.colors.status.working }]} />
-                            <Text accessibilityLiveRegion="polite" style={[styles.armLabel, { color: theme.colors.text }]}>{previewCopy.controlTitle}</Text>
-                            <Pressable onPress={disarm} accessibilityRole="button" accessibilityLabel={previewCopy.handBack} hitSlop={8} style={({ pressed }) => [styles.handBack, { backgroundColor: theme.colors.button.primary.background }, pressed && styles.pressed]}>
-                                <Text style={[styles.handBackLabel, { color: theme.colors.button.primary.tint }]}>{previewCopy.handBack}</Text>
-                            </Pressable>
                         </View>
                     </Animated.View>
                 )}
@@ -818,6 +820,11 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                         <Pressable onPress={leave} accessibilityRole="button" accessibilityLabel="Back to the conversation" style={({ pressed }) => control(pressed)}>
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
+                        {preview && controlling && (
+                            <Pressable onPress={disarm} accessibilityRole="button" accessibilityLabel={previewCopy.handBack} accessibilityHint={previewCopy.controlTitle} hitSlop={8} style={({ pressed }) => [styles.handBack, { backgroundColor: theme.colors.button.primary.background, alignSelf: 'center' }, pressed && styles.pressed]}>
+                                <Text style={[styles.handBackLabel, { color: theme.colors.button.primary.tint }]}>{previewCopy.handBack}</Text>
+                            </Pressable>
+                        )}
                         <Pressable onPress={() => toggleMenu('more')} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} style={({ pressed }) => control(pressed, menu === 'more')}>
                             <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
                         </Pressable>
@@ -936,6 +943,7 @@ const styles = StyleSheet.create({
     body: { flex: 1, minHeight: 0 },
     surface: { flex: 1 },
     compactHeader: { position: 'absolute', top: 8, left: EDGE, right: EDGE, height: BUTTON, flexDirection: 'row', justifyContent: 'space-between', zIndex: 2 },
+    belowCompactHeader: { marginTop: 8 + BUTTON + 8 },
     overlay: {
         position: 'absolute',
         left: 0,
@@ -1002,7 +1010,6 @@ const styles = StyleSheet.create({
     dim: { backgroundColor: 'rgba(0, 0, 0, 0.55)' },
     pill: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 36, paddingLeft: 14, paddingRight: 6, borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, shadowColor: '#000', shadowOpacity: 0.45, shadowRadius: 18, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
     topPill: { position: 'absolute', top: 12, alignSelf: 'center', paddingRight: 14 },
-    topLane: { position: 'absolute', top: 12, left: 0, right: 0, alignItems: 'center' },
     handBack: { height: 26, borderRadius: 13, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', marginLeft: 4 },
     handBackLabel: { ...Typography.default('semiBold'), fontSize: 12 },
     toolbar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 12 },
