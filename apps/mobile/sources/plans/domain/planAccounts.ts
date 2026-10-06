@@ -42,6 +42,9 @@ const LOW_LEFT = 20;
 export const isLow = (account: PlanAccount): boolean =>
     account.roomLeftPercent !== undefined && account.roomLeftPercent <= LOW_LEFT;
 
+/** No room left: an agent here can't answer until the account refills. */
+export const isEmpty = (account: PlanAccount): boolean => account.roomLeftPercent === 0;
+
 /** The account behind a choice: Auto resolves to the host's pick. */
 export function chosenAccount(entry: PlanProviderAccounts, choice: string): PlanAccount | undefined {
     const id = choice === AUTO ? entry.auto.accountId : choice;
