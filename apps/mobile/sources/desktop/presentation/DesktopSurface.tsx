@@ -819,6 +819,11 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                         <Pressable onPress={leave} accessibilityRole="button" accessibilityLabel="Back to the conversation" style={({ pressed }) => control(pressed)}>
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
+                        {preview && controlling && (
+                            <Pressable onPress={disarm} accessibilityRole="button" accessibilityLabel={previewCopy.handBack} accessibilityHint={previewCopy.controlTitle} hitSlop={8} style={({ pressed }) => [styles.handBack, { backgroundColor: theme.colors.button.primary.background, alignSelf: 'center' }, pressed && styles.pressed]}>
+                                <Text style={[styles.handBackLabel, { color: theme.colors.button.primary.tint }]}>{previewCopy.handBack}</Text>
+                            </Pressable>
+                        )}
                         <Pressable onPress={() => toggleMenu('more')} accessibilityRole="button" accessibilityLabel="Desktop actions" accessibilityState={{ expanded: menu === 'more' }} style={({ pressed }) => control(pressed, menu === 'more')}>
                             <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
                         </Pressable>
