@@ -89,14 +89,22 @@ describe('which account a launch carries', () => {
         });
         expect(planLaunchQuestion('claude', 'found-claude', true)).toBeUndefined();
         // Every account empty: Auto still has a pick, and Start still says so.
+        // The title states the fact; the body adds the clock and the cost, never the title again.
         request.mockResolvedValueOnce(room(0, 0, 'All Claude accounts are out of room until 6:09 PM. Personal refills first.'));
         await refreshPlans();
         usePlansStore.getState().choose('claude', 'auto');
         expect(planLaunchQuestion('claude', 'auto')).toEqual({
             title: 'All Claude accounts are out of room',
-            message: "All Claude accounts are out of room until 6:09 PM. Personal refills first. An agent started now can't answer until then.",
+            message: "Personal refills first at 6:09 PM. An agent started now can't answer until then.",
             anyway: 'Start anyway',
         });
+        // No reset clock from the host: still no title restated, still the cost.
+        request.mockResolvedValueOnce(room(0, 0, 'All Claude accounts are out of room. Personal refills first.'));
+        await refreshPlans();
+        expect(planLaunchQuestion('claude', 'auto')?.message).toBe("Personal refills first. An agent started now can't answer until then.");
+        request.mockResolvedValueOnce(room(0, 0, ''));
+        await refreshPlans();
+        expect(planLaunchQuestion('claude', 'auto')?.message).toBe("A Claude account refills first. An agent started now can't answer until then.");
 
         // Auto off with nothing pickable chosen: the computer's own sign-in.
         usePlansStore.getState().setAutoOn(false);
