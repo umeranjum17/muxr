@@ -1119,10 +1119,10 @@
   resolved "https://registry.yarnpkg.com/@byokit/dictation/-/dictation-0.3.0.tgz#b2b2930bfb3280108c59b9f51d23366c5d17e64e"
   integrity sha512-XPLF6p9Z/7hm45LyCWJMEu7vbof8FjtMG0OsiVXGHVvsN5S6w6vnodOTdp2ZdktJVPsWtFiynGVcrsX691pOkg==
 
-"@byokit/herdr@0.5.0":
-  version "0.5.0"
-  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.5.0.tgz#52d89f1cf3c611d846f3fd77b44b791bc9735a45"
-  integrity sha512-RwlFec51qU79qt+Hr9n1Wi3yZkP5QlHVENBTcEtsUKMMa12EqLw3BFBl0Resc2xu/PgDXu6Yl1kNETNalLTyTg==
+"@byokit/herdr@0.7.0":
+  version "0.7.0"
+  resolved "https://registry.yarnpkg.com/@byokit/herdr/-/herdr-0.7.0.tgz#c49e18a97e7796b3c5124b1efc017e872afdccad"
+  integrity sha512-Ak/QDJXTX7RVJegKp+O0tUf1IRbFPhj4werLRG48wmDqbXiBgBGnrV4cZswwIl5yxrWOtRup6D90padoFYOVEA==
   dependencies:
     "@byokit/link" "0.7.0"
     "@byokit/reach" "0.6.0"

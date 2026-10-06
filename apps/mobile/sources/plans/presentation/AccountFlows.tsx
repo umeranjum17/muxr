@@ -57,7 +57,7 @@ export async function announceStartAccount(sessionId: string, agentKind: string,
     if (entry === undefined) return;
     let account: PlanAccount | undefined;
     try {
-        account = runningOn(entry, await agentAccount(sessionId, connection));
+        account = runningOn(entry, (await agentAccount(sessionId, connection)).accountId);
     } catch (error) {
         if (samePlanConnection(connection)) showNotice('Agent started', `Couldn't check which account it is on: ${planFailure(error)}`);
         return;

@@ -762,6 +762,12 @@ export async function createHerdrSessionSource(
         return parseHerdrAgentSession(agent?.agent_session);
     }
 
+    /** The conversation a plan move resumes; a muxr launch name is not one yet. */
+    function conversationToMove(agent: AgentRecord | undefined): HerdrAgentSessionRef | undefined {
+        const conversation = publishedAgentSession(agent);
+        return conversation === undefined || isMuxrLaunchSession(conversation) ? undefined : conversation;
+    }
+
     /** The route identity: Herdr's session, else the pending launch, else the pane of an agent Herdr detected. */
     function agentSession(agent: AgentRecord | undefined): HerdrAgentSessionRef | undefined {
         if (agent === undefined || stagedMovePanes.has(agent.pane_id)) return undefined;
@@ -3079,11 +3085,15 @@ export async function createHerdrSessionSource(
             }
         },
 
+        async canMovePlanAccount(sessionId: string): Promise<boolean> {
+            return conversationToMove((await resolvePane(sessionId)).agent) !== undefined;
+        },
+
         /** The kit owns the move transaction; muxr owns hidden staging, screens and session routes. */
         async movePlanAccount(moveOptions: PlanMoveOptions): Promise<{ sessionId: string }> {
             const record = await resolvePane(moveOptions.sessionId);
-            const conversation = publishedAgentSession(record.agent);
-            if (conversation === undefined || isMuxrLaunchSession(conversation)) {
+            const conversation = conversationToMove(record.agent);
+            if (conversation === undefined) {
                 throw Object.assign(new Error('The agent has no conversation to move yet. Wait for it to start, then try again.'), { code: 'plan-move-too-early' });
             }
             const kind = record.agent?.agent ?? moveOptions.provider;
