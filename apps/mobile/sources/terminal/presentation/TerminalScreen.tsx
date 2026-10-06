@@ -16,6 +16,7 @@ import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useDerivedVa
 import { ScopedTheme, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
+import { storeTempText } from '@/catalog';
 // The flag is its own entry: the package's barrel also carries the session
 // hook, and the ring slot is built on every terminal screen, so importing the
 // barrel here would put the client's session in the application's first paint.
@@ -37,13 +38,10 @@ import { AgentGlyph } from '@/components/AgentGlyph';
 import { AnimatedPopup } from '@/components/AnimatedOverlay';
 import { agentBesideName, agentLabels, agentStatusColor, agentWhoLine, HERD_STATUS_LABELS, herdrPaneForSession, herdrTabForSession, isShellLabels, rememberPaneSelection, renameInHerdr, renamePane, resolveTabPane, showTabActions, tabLabel, useNavigateToSession } from '@/herd';
 import {
-    DIALOG_GUARD_ACTION,
-    DIALOG_GUARD_MESSAGE,
-    DIALOG_GUARD_TITLE,
     terminalComposerText,
-    terminalInputDisposition,
     terminalPaneCanSend,
     terminalPaneStatus,
+    undoSmartPunctuation,
 } from '../domain/promptAvailability';
 import type { TerminalChannel } from '../application/OpenTerminal';
 import { useImagePicker } from '@/hooks/useImagePicker';
@@ -71,7 +69,7 @@ import { openExternalUrl } from '@/utils/openExternalUrl';
 import { resolvePluginText } from '@/plugins';
 import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
-import { useIsFocused } from '@react-navigation/native';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
 import { TerminalFailure } from './TerminalFailure';
 import { DictateAction, DictationStrip, useComposerDictation } from '@/components/ComposerDictation';
@@ -213,6 +211,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const previewDocked = previewShown !== undefined && previewDocks(Platform.OS === 'web', windowWidth);
     // Whether a live view covers the conversation; a docked one sits beside it.
     const desktopVisible = computerVisible || (previewShown !== undefined && !previewDocked);
+    // iOS 26 pops the screen from a horizontal drag anywhere on it; while a live
+    // view covers the conversation, that drag belongs to the desktop or device.
+    const navigation = useNavigation();
+    React.useEffect(() => {
+        if (!desktopVisible) return;
+        navigation.setOptions({ gestureEnabled: false });
+        return () => navigation.setOptions({ gestureEnabled: true });
+    }, [desktopVisible, navigation]);
     const sessions = useSessions();
     const { workspaces, loaded: treeLoaded } = useHerdrTree();
     const storedPane = herdrPaneForSession(workspaces, props.id);
@@ -282,6 +288,16 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         ringRef.current?.close();
         router.setParams({ desktop: '1' });
     }, [props.id]);
+    // Text is selected in the app's own native text view over Herdr's read of the
+    // screen, so selection needs nothing from the renderer.
+    const selectScreenText = React.useCallback(async () => {
+        try {
+            const { text } = await sync.request('pane.read', { sessionId: props.id, source: 'visible', ansi: false });
+            router.push(`/text-selection?textId=${storeTempText(text.replace(/\s+$/, ''))}`);
+        } catch {
+            Modal.alert('Could not read the screen', 'The terminal did not answer. Try again in a moment.');
+        }
+    }, [props.id]);
     // The presence chip (PreviewChip, P1.4) opens the live view, passing its measured rect as `from`.
     const openPreview = React.useCallback((from?: DesktopOrigin) => {
         requestDesktop(getCachedConnectionSettings().machineId ?? '', props.id, true, from);
@@ -327,6 +343,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const [attachedImages, setAttachedImages] = React.useState<ComposerAttachment[]>([]);
     const attachedPaths = attachedImages.flatMap((image) => image.path === undefined ? [] : [image.path]);
     const channelRef = React.useRef<TerminalChannel | undefined>(undefined);
+    const terminalInputReadyRef = React.useRef(false);
+    terminalInputReadyRef.current = canControl && isFocused && status === 'live';
     const [channel, setChannel] = React.useState<TerminalChannel>();
     const draftRef = React.useRef(draft);
     const composerRef = React.useRef<TextInput>(null);
@@ -423,20 +441,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         if (channel === undefined) return;
         channel.bottom();
     }, []);
-    const showDialogMessage = React.useCallback(() => {
-        if (channelRef.current === undefined) {
-            router.push(`/session/${encodeURIComponent(props.id)}/history`);
-            return;
-        }
-        jumpToBottom();
-    }, [jumpToBottom, props.id]);
-    const showDialogGuard = React.useCallback(() => {
-        Modal.alert(DIALOG_GUARD_TITLE, DIALOG_GUARD_MESSAGE, [
-            { text: DIALOG_GUARD_ACTION, onPress: showDialogMessage },
-            { text: 'Dismiss', style: 'cancel' },
-        ]);
-    }, [showDialogMessage]);
-
     // The selected swipe stops follow Live order; the default skips old shells.
     // The pager settles before the route changes, so the switch itself is a
     // parameter, never a second screen animating in over this one.
@@ -536,8 +540,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     );
     const [overviewOpen, setOverviewOpen] = React.useState(false);
     const currentPane = storedPane;
-    const sessionRef = React.useRef(session);
-    sessionRef.current = session;
     const currentPaneRef = React.useRef(currentPane);
     currentPaneRef.current = currentPane;
 
@@ -652,25 +654,14 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             showGestureHintRef.current('No agent in this pane');
             return;
         }
-        const disposition = terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, command);
-        if (disposition.kind === 'blocked') {
-            showDialogGuard();
-            return;
-        }
         markScrolledAway(props.id, false);
-        const request = disposition.kind === 'answer'
-            ? sync.request('session.answer', { sessionId: props.id, answer: disposition.answer })
-            : sync.sendMessage(props.id, command);
+        const request = sync.sendMessage(props.id, command);
         void request.catch((error: unknown) => Modal.alert('Command failed', error instanceof Error ? error.message : String(error)));
-    }, [markScrolledAway, props.id, showDialogGuard]);
+    }, [markScrolledAway, props.id]);
     const openAgentCommands = React.useCallback(() => {
         if (!canControl) return;
         ringRef.current?.close();
         setActionsOpen(false);
-        if (terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, '/model').kind === 'blocked') {
-            showDialogGuard();
-            return;
-        }
         const known = agentCommands(paneKind);
         const kindLabel = agentKindLabel(paneKind) ?? paneKind;
         const sendDangerous = async (entry: AgentCommand) => {
@@ -752,7 +743,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             quietLine: known.length > 0 ? undefined : t('commandPalette.noCatalogue', { kind: paneKind ?? t('commandPalette.thisAgent') }),
             commands: entries,
         } } as any);
-    }, [canControl, insertDraft, paneKind, pluginQuickReplies, quickActions, sendCommand, showDialogGuard]);
+    }, [canControl, insertDraft, paneKind, pluginQuickReplies, quickActions, sendCommand]);
     React.useEffect(() => {
         if (paneMissing) {
             recordAgentGate({
@@ -980,11 +971,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             typing.sendText(`${text}\r`);
             return;
         }
-        const disposition = terminalInputDisposition(currentPaneRef.current, sessionRef.current ?? undefined, text);
-        if (disposition.kind === 'blocked') {
-            showDialogGuard();
-            return;
-        }
         const previousDraft = draftRef.current;
         const previousImages = attachedImages;
         draftRef.current = '';
@@ -992,19 +978,32 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         clearDraft();
         setAttachedImages([]);
         markScrolledAway(props.id, false);
-        const request = disposition.kind === 'answer'
-            ? sync.request('session.answer', { sessionId: props.id, answer: disposition.answer })
-            : sync.sendMessage(props.id, text);
+        // Try the ordinary agent prompt first. A definite blocked refusal may
+        // use the same text + Enter path as typing into this terminal.
+        const terminal = terminalInputReadyRef.current ? channelRef.current : undefined;
+        const request = sync.sendMessage(props.id, text);
         void request.catch((error: unknown) => {
+            // Never retry an ambiguous delivery or send into a replacement pane.
+            if (typeof error === 'object' && error !== null && 'code' in error
+                && error.code === 'agent-blocked' && terminal !== undefined
+                && channelRef.current === terminal && terminalInputReadyRef.current) {
+                try {
+                    terminal.sendText(`${text}\r`);
+                    return;
+                } catch (cause) {
+                    error = cause;
+                }
+            }
             const restoredDraft = [previousDraft, draftRef.current].filter(Boolean).join('\n');
             draftRef.current = restoredDraft;
             setDraft(restoredDraft);
             setAttachedImages((current) => [...previousImages, ...current]);
             Modal.alert('Send failed', error instanceof Error ? error.message : String(error));
         });
-    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, markScrolledAway, selectedImages.length, props.id, showDialogGuard]);
+    }, [attachedImages, attachedPaths, attaching, canControl, clearDraft, dictationActive, markScrolledAway, selectedImages.length, props.id]);
 
-    const handleDraftChange = React.useCallback((text: string) => setDraft(text), []);
+    const handleDraftChange = React.useCallback((text: string) => setDraft((previous) =>
+        Platform.OS === 'ios' && currentPaneRef.current?.agentKind === undefined ? undoSmartPunctuation(previous, text) : text), []);
 
     // Files land on the host; their paths are appended only when sending.
     const attachPhotos = React.useCallback(async () => {
@@ -1389,13 +1388,17 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             style={({ pressed }) => ({ minWidth: 30, minHeight: 28, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.6 : 1 })}>
                             <Ionicons name="arrow-back" size={18} color={theme.colors.text} />
                         </Pressable>
-                        <Pressable onPress={() => { setActionsOpen(false); setOverviewOpen(true); }} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentWhoLine(labels)}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. Open panes` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
+                        <Pressable onPress={() => { setActionsOpen(false); setOverviewOpen(true); }} accessibilityRole="button" accessibilityLabel={identityKnown ? `${contextTitle}. ${agentWhoLine(labels)}${currentPane?.planAccount === undefined ? '' : `. On ${currentPane.planAccount}`}${headerLifecycleLabel === undefined ? '' : `. ${headerLifecycleLabel}`}. Open panes` : 'Pane loading'} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, minHeight: 30, paddingHorizontal: 3 }}>
                             {identityKnown && <AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
                             {identityKnown && <Text numberOfLines={1} style={{ flexShrink: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>{contextTitle}</Text>}
                             {/* Whose task it is, after the task: the same order as the
                                 Spaces row that opened this. A name is short, so the task
                                 gives way first. */}
                             {identityKnown && contextName !== undefined && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '40%', color: theme.colors.textSecondary, fontSize: 13 }}>{contextName}</Text>}
+                            {/* The plan account it runs on, only when there is a choice of
+                                account. In this row, not a new one: chrome that appears late
+                                would re-attach the terminal. */}
+                            {identityKnown && currentPane?.planAccount !== undefined && <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: '30%', color: theme.colors.textSecondary, fontSize: 11, fontWeight: '500', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.divider, overflow: 'hidden' }}>{currentPane.planAccount}</Text>}
                             {/* Status sentence, not a bare subtitle: the lifecycle verb
                                 reads differently whether the agent works, needs you, or
                                 is gone; the dot carries the same colour (scout §4.1).
@@ -1835,6 +1838,12 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
                                         <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Find in output</Text>
+                                    </Pressable>
+                                    <Pressable onPress={() => { setActionsOpen(false); void selectScreenText(); }} accessibilityRole="button" accessibilityLabel="Select text"
+                                        style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
+                                        <Ionicons name="text-outline" size={18} color={theme.colors.textSecondary} />
+                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Select text</Text>
+                                        <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     <TerminalMenuQuickActions slots={ringSlots.filter((slot) => slot.id !== 'computer')} terminalHeight={terminalBox?.height} hasTools={hasTools} onClose={() => setActionsOpen(false)} />
                                     {desktopAvailable && canControl && <Pressable onPress={openDesktop} accessibilityRole="button" accessibilityLabel="Computer"

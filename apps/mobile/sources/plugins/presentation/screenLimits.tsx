@@ -157,7 +157,7 @@ export function ScreenLimits({ node, data, asOf }: { node: PluginScreenLimitsNod
                         <Text style={{ color: headlineTone === 'secondary' ? theme.colors.text : toneColor(theme, headlineTone), fontSize: 30, lineHeight: 36, letterSpacing: -0.5, ...Typography.mono('semiBold') }}>
                             {t('plugins.limits.percentLeft', { percent: 100 - Math.round(tightest.used) })}
                         </Text>
-                        <Text numberOfLines={1} style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 2 }}>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 2 }}>
                             {[tightest.label, tightest.resetsIn === undefined ? undefined : t('plugins.rightNow.resetsIn', { time: tightest.resetsIn })].filter((part) => part !== undefined).join(' · ')}
                         </Text>
                     </>
@@ -170,7 +170,9 @@ export function ScreenLimits({ node, data, asOf }: { node: PluginScreenLimitsNod
                     return (
                         <View key={`${window.label}-${index}`} style={index === payload.windows.length - 1 ? undefined : { marginBottom: 12 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
-                                <Text numberOfLines={1} style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>
+                                {/* Wraps rather than truncates: at large text a cut "Sessi…" no
+                                    longer says which window the row is. */}
+                                <Text style={{ color: theme.colors.text, fontSize: 13, flex: 1 }}>
                                     {window.label}
                                     {window.window !== undefined && <Text style={{ color: theme.colors.textSecondary }}>{` · ${window.window}`}</Text>}
                                 </Text>

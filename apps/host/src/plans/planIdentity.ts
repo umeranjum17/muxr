@@ -1,5 +1,6 @@
 /**
- * Plan Account identity from the official tools' own status commands.
+ * Read-only default-login identity from the official tools' own status commands.
+ * Managed-folder identity belongs to @byokit/accounts/cli.
  *
  * Claude: `claude auth status` (JSON by default) with `CLAUDE_CONFIG_DIR`
  * pointed at the sign-in folder. Codex: app-server `account/read` with
@@ -27,6 +28,12 @@ export type PlanCommandRunner = (
     args: string[],
     env: NodeJS.ProcessEnv,
 ) => Promise<{ stdout: string } | undefined>;
+
+/** Injection applies only to the approved read-only default-login probes. */
+export interface DefaultLoginDeps {
+    run?: PlanCommandRunner;
+    codexRead?: (folder: string, env: NodeJS.ProcessEnv) => Promise<unknown>;
+}
 
 const RUN_TIMEOUT_MS = 15_000;
 

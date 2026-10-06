@@ -21,6 +21,13 @@ const hasHerdr = existsSync(herdrSocket);
 const labHelper = process.env.HERDR_LAB_HELPER?.trim();
 
 const checks = [
+    // First, because an install that skipped lifecycle scripts leaves
+    // node_modules unpatched, and the app then typechecks against the
+    // dependency patches/ amends: TS2339 on TerminalViewRef methods, props the
+    // app passes that the package does not declare, and implicit anys from
+    // those untyped props -- all in files nobody touched. Name that cause
+    // before the typecheck reports its symptoms.
+    ['deps: checked-in native patches are applied', 'node', ['scripts/diagnostics/application/verifyNativePatches.mjs']],
     ['typecheck: workspace (strict)', 'npx', ['tsc', '--build', '--force']],
     ['typecheck: mobile (expo/RN)', 'npx', ['tsc', '--noEmit', '--project', 'apps/mobile/tsconfig.json']],
     ['unit: crypto (pairing and grant proofs)', 'node', ['packages/crypto/dist/selfCheck.js']],
@@ -45,6 +52,7 @@ const checks = [
     // no add-on checkout.
     ['unit: perf gate (gesture metrics, warm-probe gates, node --test)', 'node', ['--test', 'perf/lib/gestureMetrics.test.mjs', 'perf/lib/surfaceProbe.test.mjs']],
     ['policy: mobile architecture', 'npx', ['vitest', 'run', 'apps/mobile/sources/architecture.spec.ts', '--config', 'apps/mobile/vitest.config.ts']],
+    ['policy: iOS project version matches app.config.js', 'node', ['scripts/diagnostics/application/checkIosVersion.mjs']],
     ['policy: store/direct mobile commerce builds', 'node', ['scripts/diagnostics/application/checkMobileCommerceBuilds.mjs']],
     ['e2e: phone/browser pairing and shared relay over link', 'npx', ['vitest', 'run', 'tests/cross-side/linkPairing.integration.test.ts', 'tests/cross-side/linkSharedRelay.integration.test.ts']],
     ['e2e: multi-provider usage aggregation', 'node', ['scripts/diagnostics/application/checkUsageStatus.mjs']],
@@ -84,6 +92,7 @@ const checks = [
  * full suite -- the fast lane is early feedback, not a release gate.
  */
 const FAST = new Set([
+    'deps: checked-in native patches are applied',
     'typecheck: workspace (strict)',
     'typecheck: mobile (expo/RN)',
     'unit: crypto (pairing and grant proofs)',
@@ -97,6 +106,7 @@ const FAST = new Set([
     'unit: perf gate (gesture metrics, warm-probe gates, node --test)',
     'policy: host/relay architecture',
     'policy: mobile architecture',
+    'policy: iOS project version matches app.config.js',
     'policy: package architecture (module boundaries, domain purity, no nested ternaries)',
     'policy: tooling architecture (feature boundaries, layers, no nested ternaries)',
     'policy: constraints floor (diff-scoped suppressions, stubs, skipped/deleted tests, weakened rules)',

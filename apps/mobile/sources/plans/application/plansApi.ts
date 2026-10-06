@@ -33,9 +33,10 @@ export function unseenAutoTerms(): string | undefined {
     return list?.autoTermsAcknowledged === false ? list.autoTermsNote : undefined;
 }
 
-/** The account being signed in, as its tool reports it now. */
-export function signInState(accountId: string, connection = planConnection()): Promise<PlanAccount> {
-    return requestPlan(connection, 'plans.status', { accountId }).then((answer) => answer.account);
+/** The account being signed in, as its tool reports it now, and why its
+ *  sign-in ended without signing in, once it has. */
+export function signInState(accountId: string, connection = planConnection()): Promise<{ account: PlanAccount; failure?: string }> {
+    return requestPlan(connection, 'plans.status', { accountId });
 }
 
 /** Cancel the tracked sign-in through `plans.cancel`, then refresh accounts. */
@@ -57,9 +58,9 @@ export async function removeAccount(accountId: string, connection = planConnecti
     assertPlanConnection(connection);
 }
 
-/** The account a running agent is on, when muxr put it on one. */
-export function agentAccount(sessionId: string, connection = planConnection()): Promise<string | undefined> {
-    return requestPlan(connection, 'plans.agent', { sessionId }).then((answer) => answer.accountId);
+/** The account a running agent is on, when muxr put it on one, and whether it has a conversation to move yet. */
+export function agentAccount(sessionId: string, connection = planConnection()): Promise<{ accountId?: string; movable?: boolean }> {
+    return requestPlan(connection, 'plans.agent', { sessionId });
 }
 
 export async function moveAgent(sessionId: string, accountId: string, connection = planConnection()): Promise<{ sessionId: string }> {

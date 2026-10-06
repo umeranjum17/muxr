@@ -72,7 +72,9 @@ native target discovery can enumerate both signable targets. It sets both target
 Debug and Release `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` from
 `apps/mobile/app.config.js` (`version`, resolved from `APP_VERSION` or the repository
 version, and `ios.buildNumber`). The extension's Info.plist binds its bundle versions
-to those build settings. Select existing or EAS-managed profiles for both targets
+to those build settings. A direct `xcodebuild` skips prebuild, so the checked-in project
+must carry the same values: `scripts/diagnostics/application/checkIosVersion.mjs` fails
+`yarn run check:fast` when it does not. Select existing or EAS-managed profiles for both targets
 through `eas credentials` in `apps/mobile`; do not create keys or certificates by hand.
 
 Fills the existing bridge rather than adding API. Each function below is implemented; the baseline
