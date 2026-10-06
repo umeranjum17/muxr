@@ -81,7 +81,7 @@ describe('the notice after naming an added account', () => {
         const list = usePlansStore.getState().list!;
         const account = list.providers[0].accounts.find((one: PlanAccount) => one.id === 'pa_work')!;
 
-        await act(async () => { useFlows.setState({ naming: { account, again: false } }); });
+        await act(async () => { useFlows.setState({ naming: { account } }); });
         let screen: any;
         await act(async () => { screen = TestRenderer.create(<NameAccountSheet />); });
         // The person names the new account exactly as the first one already answers to.

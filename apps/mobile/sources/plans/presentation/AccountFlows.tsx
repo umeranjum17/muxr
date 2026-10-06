@@ -24,7 +24,7 @@ interface Pending { accountId: string; sessionId: string; provider: string; agai
 interface FlowState {
     adding: string | null;
     pending: Pending | null;
-    naming: { account: PlanAccount; again: boolean } | null;
+    naming: { account: PlanAccount } | null;
     /** The account a sign-in just finished on: Accounts marks its row for a moment. */
     landed: string | null;
     /** It stays up until it is tapped or another notice replaces it: a timer
@@ -216,9 +216,17 @@ export function SignInBanner({ bottom }: { bottom: number }) {
             const state = await signInState(pending.accountId, connection).catch(() => null);
             if (!samePlanConnection(connection) || stopped || useFlows.getState().pending !== pending) return;
             if (state?.account.signedIn) {
-                // The host has closed the tab: step back off it, then name the account.
+                // The host has closed the tab: step back off it. A new account still needs a name;
+                // a re-sign-in keeps its name, so it toasts and returns instead.
                 leaveTab(route);
-                useFlows.setState({ pending: null, naming: { account: state.account, again: pending.again }, landed: state.account.id });
+                if (pending.again) {
+                    const listed = providerEntry(usePlansStore.getState().list, pending.provider)?.accounts.map((one) => one.name) ?? [];
+                    const names = [...new Set([...listed, state.account.name])].sort();
+                    showNotice(`${state.account.name} is signed in`, `${providerName(pending.provider)} accounts: ${names.join(', ')}`);
+                    useFlows.setState({ pending: null, landed: state.account.id });
+                } else {
+                    useFlows.setState({ pending: null, naming: { account: state.account }, landed: state.account.id });
+                }
                 void refreshPlans();
                 return;
             }
@@ -310,7 +318,7 @@ export function NameAccountSheet() {
     );
     React.useEffect(() => {
         setSaving(false);
-        setName(naming?.again ? naming.account.name : suggestions[0] ?? '');
+        setName(suggestions[0] ?? '');
         // Only when a new account arrives, never while typing.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [naming]);
@@ -329,7 +337,7 @@ export function NameAccountSheet() {
         setSaving(true);
         try {
             // A new account's name is only a suggestion until saved.
-            if (trimmed !== account.name || !naming?.again) await renameAccount(account.id, trimmed, connection);
+            if (trimmed !== account.name) await renameAccount(account.id, trimmed, connection);
             if (!samePlanConnection(connection)) return;
             close();
             // The names the list below shows, read from the host's own list after
@@ -337,7 +345,7 @@ export function NameAccountSheet() {
             // other account its own name for it.
             const saved = providerEntry(usePlansStore.getState().list, account.provider);
             const names = (saved?.accounts.map((one) => one.name) ?? [trimmed]).sort();
-            showNotice(naming?.again ? `${trimmed} is signed in` : `Added ${trimmed}`, `${providerName(account.provider)} accounts: ${names.join(', ')}`);
+            showNotice(`Added ${trimmed}`, `${providerName(account.provider)} accounts: ${names.join(', ')}`);
         } catch (error) {
             if (!samePlanConnection(connection)) return;
             setSaving(false);
@@ -354,7 +362,7 @@ export function NameAccountSheet() {
             onClose={close}
             body={
                 <View>
-                    <SheetTitle>{naming?.again ? 'Signed in again' : 'Name this account'}</SheetTitle>
+                    <SheetTitle>Name this account</SheetTitle>
                     <SheetLede>
                         Signed in as {account.email ? <Strong>{account.email}</Strong> : 'a new account'}
                         {account.plan ? ` · ${providerName(account.provider)} ${account.plan}` : ''}
