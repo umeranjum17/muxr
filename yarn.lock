@@ -1526,7 +1526,26 @@
   dependencies:
     node-forge "^1.3.3"
 
-"@expo/config-plugins@^55.0.11", "@expo/config-plugins@~55.0.0", "@expo/config-plugins@~55.0.11", "@expo/config-plugins@~55.0.7":
+"@expo/config-plugins@^57.0.9":
+  version "57.0.9"
+  resolved "https://registry.yarnpkg.com/@expo/config-plugins/-/config-plugins-57.0.9.tgz#3fa42fb565f3662e518f0accc1653a9ac25f73f3"
+  integrity sha512-hHgfL1avkCdEvDSw7IwlKwRYYNgcxzbNNMIk6W6lTkJpY0MajinAfeJUS0J+wPCsjUfGbVqOJM+XhPaO5ulUxg==
+  dependencies:
+    "@expo/config-types" "^57.0.2"
+    "@expo/json-file" "~11.0.1"
+    "@expo/plist" "^0.8.1"
+    "@expo/require-utils" "^57.0.5"
+    "@expo/sdk-runtime-versions" "^1.0.0"
+    chalk "^4.1.2"
+    debug "^4.3.5"
+    getenv "^2.0.0"
+    glob "^13.0.0"
+    semver "^7.5.4"
+    slugify "^1.6.6"
+    xcode "^3.0.1"
+    xml2js "0.6.0"
+
+"@expo/config-plugins@~55.0.0", "@expo/config-plugins@~55.0.11", "@expo/config-plugins@~55.0.7":
   version "55.0.11"
   resolved "https://registry.yarnpkg.com/@expo/config-plugins/-/config-plugins-55.0.11.tgz#762c129a645b429394a47873bc68a5e512deac99"
   integrity sha512-85ZSmIK8rMfvYbG/2IHtwnykVdb6LI0ZavduM3ZwUMThyyVegYjVsO5Zek2ec8xzPhCmYX0ar5onnFEcwUDUlw==
@@ -1549,6 +1568,11 @@
   version "55.0.6"
   resolved "https://registry.yarnpkg.com/@expo/config-types/-/config-types-55.0.6.tgz#82e33201542f00a2956a13a45f9824e2388a60a0"
   integrity sha512-S+GJKYoIjnWlert/9vXuTohaTsMbyOLSVxdIgPgoq3P4N1p4CWrfyZLnz6qRug8wYSO5fcYcS9mFleyEP8wRLg==
+
+"@expo/config-types@^57.0.2":
+  version "57.0.2"
+  resolved "https://registry.yarnpkg.com/@expo/config-types/-/config-types-57.0.2.tgz#127da99326399e014b63cf23d71220719f1336a1"
+  integrity sha512-ewW08OonrcRIsRKIlFvvcmmafE5zemb1ocu3HkNwtVPyRtj2w42pZCAkMIROYpcVBaPnc3mDT9UZDzwXWC3i6g==
 
 "@expo/config@~55.0.10", "@expo/config@~55.0.19":
   version "55.0.19"
@@ -1642,7 +1666,7 @@
     "@babel/code-frame" "^7.20.0"
     json5 "^2.2.3"
 
-"@expo/json-file@^11.0.1":
+"@expo/json-file@^11.0.1", "@expo/json-file@~11.0.1":
   version "11.0.1"
   resolved "https://registry.yarnpkg.com/@expo/json-file/-/json-file-11.0.1.tgz#dab8f6e5ff78e7c33a8e49a48722ce972306036c"
   integrity sha512-zxHWj4MKKMAL29ZQSY/Fssx4Thluk40JmuGNaeS078wy/NhlFhnVi+rHHunulE3xJAJ0CM73m8VK2+GkF9eRwQ==
@@ -1813,6 +1837,15 @@
     base64-js "^1.5.1"
     xmlbuilder "^15.1.1"
 
+"@expo/plist@^0.8.1":
+  version "0.8.1"
+  resolved "https://registry.yarnpkg.com/@expo/plist/-/plist-0.8.1.tgz#8f024f23d7b9cf45cfff4a6f8871d1c107a8833c"
+  integrity sha512-3gTReGIUm0oRaMClsAJYxBnVPCl6fVpsl8HS+DTVxDhW4GyVyxg9E/Znm3BvcHtUJ51RJJI14pC1wvrNilCRHw==
+  dependencies:
+    "@xmldom/xmldom" "^0.8.8"
+    base64-js "^1.5.1"
+    xmlbuilder "^15.1.1"
+
 "@expo/prebuild-config@^55.0.10":
   version "55.0.20"
   resolved "https://registry.yarnpkg.com/@expo/prebuild-config/-/prebuild-config-55.0.20.tgz#bd23fadc65bfb0dcbaa3348de949799c4dc23f27"
@@ -1833,6 +1866,15 @@
   version "55.0.6"
   resolved "https://registry.yarnpkg.com/@expo/require-utils/-/require-utils-55.0.6.tgz#37e21d7616809ee00eae24b52c6bb09ffbcc660d"
   integrity sha512-IqsRGPdGbF0lAIrg3XQ+GzcITYcsskvIRmFAjw2kBnr8RgSrRhFAJY1bKksukEUsuZy0knhTCVIIUce7hocqeA==
+  dependencies:
+    "@babel/code-frame" "^7.20.0"
+    "@babel/core" "^7.25.2"
+    "@babel/plugin-transform-modules-commonjs" "^7.24.8"
+
+"@expo/require-utils@^57.0.5":
+  version "57.0.5"
+  resolved "https://registry.yarnpkg.com/@expo/require-utils/-/require-utils-57.0.5.tgz#bde8d170b0b53fa1cd77aa73a305e5a16f4229a3"
+  integrity sha512-kTAXj9lDFEIPMsbAOGCGbjBbMF0oi7CqkYM79KOX0DDD9wSwXmlKL1z2h8OwsrBf7mbOo2DjlRvZu4BEjrIxGw==
   dependencies:
     "@babel/code-frame" "^7.20.0"
     "@babel/core" "^7.25.2"
@@ -2801,20 +2843,20 @@
     use-latest-callback "^0.2.4"
     use-sync-external-store "^1.5.0"
 
-"@react-navigation/drawer@7.9.6", "@react-navigation/drawer@^7.7.13":
-  version "7.9.6"
-  resolved "https://registry.yarnpkg.com/@react-navigation/drawer/-/drawer-7.9.6.tgz#5dddc6a86fc9b185969128463afff4fcd26a5ad7"
-  integrity sha512-eplV9RdxgCApcajudZMoNGmpUUZxcC8pBjaJAHqovCqi20pKComqqV8mikfrxNZZp2Lo0CN3TblthTmZqM5MJQ==
+"@react-navigation/drawer@7.14.3", "@react-navigation/drawer@^7.14.3":
+  version "7.14.3"
+  resolved "https://registry.yarnpkg.com/@react-navigation/drawer/-/drawer-7.14.3.tgz#75f7a4409886a57ac4e5ef682a6aca48406004c1"
+  integrity sha512-vV6bO1rPph1Kr8SusLnpZEMjbt+pFFRFocnG/68m/CQZuefidth86NheACLUeL0bwEQWtIzIHMMfRBFQNwKRMg==
   dependencies:
-    "@react-navigation/elements" "^2.9.12"
+    "@react-navigation/elements" "^2.9.44"
     color "^4.2.3"
-    react-native-drawer-layout "^4.2.2"
+    react-native-drawer-layout "^4.2.11"
     use-latest-callback "^0.2.4"
 
-"@react-navigation/elements@^2.9.12", "@react-navigation/elements@^2.9.36":
-  version "2.9.36"
-  resolved "https://registry.yarnpkg.com/@react-navigation/elements/-/elements-2.9.36.tgz#b060502ed97768f719b604dc9b652031babded1a"
-  integrity sha512-+10x9s5v2Q7FwAYdSmPMgILtxZyC5e4hWJQu8g5o3u4p8DUToTBmGvys/UvmEr+h9xmm0Go42qw9Ff2ape53kQ==
+"@react-navigation/elements@^2.9.12", "@react-navigation/elements@^2.9.36", "@react-navigation/elements@^2.9.44":
+  version "2.9.44"
+  resolved "https://registry.yarnpkg.com/@react-navigation/elements/-/elements-2.9.44.tgz#b9f093e304cd9463669baa9e98b2c7fa73fd0f4b"
+  integrity sha512-mtngxVeRtB20yPu7AZiNNej0hw5FaKuFtYi3rhsQI2dxQOVgnQh9hi98DxLKrnJDQSiHXa0AX1t/evpywx6UbQ==
   dependencies:
     color "^4.2.3"
     use-latest-callback "^0.2.4"
@@ -5751,14 +5793,14 @@ expo-server@^55.0.6:
   resolved "https://registry.yarnpkg.com/expo-server/-/expo-server-55.0.11.tgz#6850ea1aac47a735fd7908023fe9be8b75fc49d9"
   integrity sha512-AxRdHqcv0H1g4s923vu+5n1Nrhne23bjXbP+Vl7+Lwfpe7MG9PuU1IS95IJK6a+7BVV1mRN6QlZvs8Yv7EEXNQ==
 
-expo-sharing@~55.0.22:
-  version "55.0.22"
-  resolved "https://registry.yarnpkg.com/expo-sharing/-/expo-sharing-55.0.22.tgz#49d0e68f0406b1d8d771e91641ed488802e9f595"
-  integrity sha512-52s4FfjNMLJfKl4wxakRjbrfgya3w7XZ15tCc/7IVH2HX/q467mePBS1VqYWbuuKDjvDAL02Aj2LcFaUNwkoWQ==
+expo-sharing@~57.0.22:
+  version "57.0.22"
+  resolved "https://registry.yarnpkg.com/expo-sharing/-/expo-sharing-57.0.22.tgz#03e630b34986374023693356b7a85bec8dcfdd21"
+  integrity sha512-IWmiz0Dnjd7ifsZ2Gg5XODxb6DQoJ4/H6FofW9bTL9gDjfX2+va8SV1BYVkFvJ8vKQoKR4HgkMCKDCZlrrbKkg==
   dependencies:
-    "@expo/config-plugins" "^55.0.11"
-    "@expo/config-types" "^55.0.6"
-    "@expo/plist" "^0.5.4"
+    "@expo/config-plugins" "^57.0.9"
+    "@expo/config-types" "^57.0.2"
+    "@expo/plist" "^0.8.1"
 
 expo-splash-screen@55.0.12, expo-splash-screen@~55.0.0:
   version "55.0.12"
@@ -8429,10 +8471,10 @@ react-native-device-info@14.1.1, react-native-device-info@^14.1.1:
   resolved "https://registry.yarnpkg.com/react-native-device-info/-/react-native-device-info-14.1.1.tgz#f50c03902f87e4a99b1c51ed85163b795f02b3ea"
   integrity sha512-lXFpe6DJmzbQXNLWxlMHP2xuTU5gwrKAvI8dCAZuERhW9eOXSubOQIesk9lIBnsi9pI19GMrcpJEvs4ARPRYmw==
 
-react-native-drawer-layout@^4.2.2:
-  version "4.2.9"
-  resolved "https://registry.yarnpkg.com/react-native-drawer-layout/-/react-native-drawer-layout-4.2.9.tgz#848d36cdd5f4d92c95257ae8121ad998a567398b"
-  integrity sha512-ETOxvlhhb4LmuuG3RN7A3qwt9jr9AZ2it+1G2kNE4g2fTyxxay7QQkPm1HfKi/JzmMSWC5+YTepGSgZNpJIDGg==
+react-native-drawer-layout@^4.2.11:
+  version "4.2.11"
+  resolved "https://registry.yarnpkg.com/react-native-drawer-layout/-/react-native-drawer-layout-4.2.11.tgz#54eca13c2502040ca89a58296c388000dedbbd24"
+  integrity sha512-Aua+LAZJ6L3v7ESHsNtxN2sO+hFQKsSz3EDKOLIpWni6PdQEJGFT0Mc2UnEsvFdfV743aHfODTAaHxsJ2D0uFw==
   dependencies:
     color "^4.2.3"
     use-latest-callback "^0.2.4"
