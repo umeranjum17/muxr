@@ -52,6 +52,7 @@ const checks = [
     // no add-on checkout.
     ['unit: perf gate (gesture metrics, warm-probe gates, node --test)', 'node', ['--test', 'perf/lib/gestureMetrics.test.mjs', 'perf/lib/surfaceProbe.test.mjs']],
     ['policy: mobile architecture', 'npx', ['vitest', 'run', 'apps/mobile/sources/architecture.spec.ts', '--config', 'apps/mobile/vitest.config.ts']],
+    ['policy: iOS project version matches app.config.js', 'node', ['scripts/diagnostics/application/checkIosVersion.mjs']],
     ['policy: store/direct mobile commerce builds', 'node', ['scripts/diagnostics/application/checkMobileCommerceBuilds.mjs']],
     ['e2e: phone/browser pairing and shared relay over link', 'npx', ['vitest', 'run', 'tests/cross-side/linkPairing.integration.test.ts', 'tests/cross-side/linkSharedRelay.integration.test.ts']],
     ['e2e: multi-provider usage aggregation', 'node', ['scripts/diagnostics/application/checkUsageStatus.mjs']],
@@ -105,6 +106,7 @@ const FAST = new Set([
     'unit: perf gate (gesture metrics, warm-probe gates, node --test)',
     'policy: host/relay architecture',
     'policy: mobile architecture',
+    'policy: iOS project version matches app.config.js',
     'policy: package architecture (module boundaries, domain purity, no nested ternaries)',
     'policy: tooling architecture (feature boundaries, layers, no nested ternaries)',
     'policy: constraints floor (diff-scoped suppressions, stubs, skipped/deleted tests, weakened rules)',
