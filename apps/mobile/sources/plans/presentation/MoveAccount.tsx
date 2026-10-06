@@ -125,7 +125,7 @@ export function MoveSheet() {
             if (!samePlanConnection(moving.connection)) return;
             close();
             if (result.sessionId !== moving.sessionId) navigateToSession(router, result.sessionId);
-            showNotice(`Moved to ${target.name}`, `Same conversation${current ? ` · ${current.name} is free again` : ''}`, true);
+            showNotice(`Moved to ${target.name}`, `Same conversation${current ? ` · ${current.name} is free again` : ''}`);
         } catch (error) {
             if (!samePlanConnection(moving.connection)) return;
             setBusy(false);
