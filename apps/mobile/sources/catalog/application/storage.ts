@@ -206,6 +206,8 @@ interface StorageState extends WatchSnapshot {
     sessionsLoaded: boolean;
     socketStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
     socketError: string | null;
+    /** When the current unbroken `connecting` stretch began; null otherwise. */
+    socketConnectingSince: number | null;
     socketLastConnectedAt: number | null;
     socketLastDisconnectedAt: number | null;
     nativeUpdateStatus: { available: boolean; updateUrl?: string } | null;
@@ -321,6 +323,7 @@ export const storage = create<StorageState>()((set, get) => ({
     sessionsLoaded: false,
     socketStatus: 'disconnected',
     socketError: null,
+    socketConnectingSince: null,
     socketLastConnectedAt: null,
     socketLastDisconnectedAt: null,
     nativeUpdateStatus: null,
@@ -424,7 +427,10 @@ export const storage = create<StorageState>()((set, get) => ({
         const sessions = { ...state.sessions, [sessionId]: { ...existing, ...patch } };
         return { sessions, sessionListViewData: buildSessionListViewData(sessions, state.herdrWorkspaces) };
     }),
-    setSocketStatus: (socketStatus) => set({ socketStatus }),
+    setSocketStatus: (socketStatus) => set((state) => ({
+        socketStatus,
+        socketConnectingSince: socketStatus !== 'connecting' ? null : state.socketConnectingSince ?? Date.now(),
+    })),
     setSocketError: (socketError) => set({ socketError }),
     // Settings are device-local in muxr -- there is no settings sync request --
     // so writing the store was the whole change and every toggle reset on reload.
@@ -744,7 +750,7 @@ export function useSocketStatus() {
     // so useShallow never matched and the component re-rendered forever. The
     // timestamps were read by nobody, and a clock sampled during selection would
     // not record the transition anyway.
-    return storage(useShallow((state) => ({ status: state.socketStatus, error: state.socketError })));
+    return storage(useShallow((state) => ({ status: state.socketStatus, error: state.socketError, connectingSince: state.socketConnectingSince })));
 }
 
 export function useSideChatSessions(_parentSessionId: string | null): Session[] {
