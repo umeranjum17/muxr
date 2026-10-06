@@ -5,6 +5,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Expo modules track the Expo SDK major: a semver-major bump of any expo-*
+    # package without a matching SDK upgrade breaks native builds at launch
+    # (e.g. expo-sharing/expo-image-picker 57 on SDK 55). Only upgrade these
+    # together with an SDK upgrade.
+    ignore:
+      - dependency-name: "expo-*"
+        update-types: ["version-update:semver-major"]
     groups:
       byokit:
         patterns:
