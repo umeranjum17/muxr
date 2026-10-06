@@ -345,6 +345,9 @@ export const MainView = React.memo(() => {
     const splitHostOffline = useSplitView && hasPairedGrant
         && getCachedConnectionSettings().mode === 'hosted'
         && (socketStatus.status === 'error' || socketStatus.status === 'disconnected' || (splitHostRequestFailed && splitBusySince === null));
+    const splitLinkDown = useSplitView && hasPairedGrant
+        && getCachedConnectionSettings().mode === 'hosted'
+        && (socketStatus.status === 'error' || socketStatus.status === 'disconnected');
     const splitRuntimeOffline = useSplitView && hasPairedGrant && socketStatus.status === 'connected' && splitHerdrRuntime === false;
     const splitBusy = useBusyConnecting(splitBusySince);
     const splitRecovering = splitHostOffline || splitRuntimeOffline || retryingHome || splitRetryFailed;
@@ -504,7 +507,7 @@ export const MainView = React.memo(() => {
                     <View style={styles.tabletDashboardHeader}>
                         <View style={styles.tabletDashboardIdentity}>
                             <HeaderLogo />
-                            <HeaderTitle large linkDown={splitHostOffline} />
+                            <HeaderTitle large linkDown={splitLinkDown} />
                         </View>
                     </View>
                     <VersionNotice />
