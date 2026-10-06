@@ -418,26 +418,31 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
         setClipboardBusy(true);
         setNotice(null);
         try {
-            const remote = session.copyRemoteToLocal();
-            let written: Promise<boolean> | undefined;
+            let writeLocal = async (text: string) => {
+                if (epoch === clipboardEpoch.current) await Clipboard.setStringAsync(text);
+            };
+            let abandonWrite = () => {};
             if (Platform.OS === 'web') {
+                // Start the write in the tap's user gesture; the remote reply can arrive later.
+                const remote = new Promise<string>((resolve, reject) => {
+                    writeLocal = async (text) => {
+                        resolve(text);
+                        if (!await written) throw new Error(desktopCopy.clipboardBlocked);
+                    };
+                    abandonWrite = () => reject(new Error('no desktop clipboard'));
+                });
+                remote.catch(() => undefined);
+                let written: Promise<boolean>;
                 try {
-                    // Start the write in the tap's user gesture; the remote reply can arrive later.
                     const write = typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write
-                        ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': remote.then(({ text }) => new Blob([text], { type: 'text/plain' })) })])
-                        : remote.then(({ text }) => navigator.clipboard.writeText(text));
+                        ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': remote.then((text) => new Blob([text], { type: 'text/plain' })) })])
+                        : remote.then((text) => navigator.clipboard.writeText(text));
                     written = write.then(() => true, () => false);
                 } catch {
                     written = Promise.resolve(false);
                 }
             }
-            const { text, truncated } = await remote;
-            if (epoch !== clipboardEpoch.current) return;
-            if (written !== undefined) {
-                if (!await written) throw new Error(desktopCopy.clipboardBlocked);
-            } else {
-                await Clipboard.setStringAsync(text);
-            }
+            const { text, truncated } = await session.copyRemoteToLocal(writeLocal).finally(abandonWrite);
             if (epoch !== clipboardEpoch.current) return;
             if (truncated) say('Copied the start of the desktop clipboard; the rest was too large.');
             else if (text === '') say('The desktop clipboard was empty.');

@@ -31,7 +31,8 @@ const session = {
     showKeyboard: vi.fn(() => undefined),
     setOrientation: (mode: string) => { orientation.push(mode); },
     fitToView: () => undefined,
-    copyRemoteToLocal: vi.fn(async (): Promise<{ text: string; truncated: boolean }> => ({ text: '', truncated: false })),
+    // Like the package: the reply goes to the caller's writer before the copy resolves.
+    copyRemoteToLocal: vi.fn(async (writeLocal: (text: string) => Promise<void>) => { await writeLocal(''); return { text: '', truncated: false }; }),
     send: vi.fn((_message: unknown) => { expect(inputEnabled).toBe(true); }),
 };
 
@@ -148,7 +149,9 @@ it('captures only after a tap in this run, and takes control only after a delibe
     expect(has('Keyboard')).toBe(true);
     await press('Clipboard');
     let finishCopy!: (value: { text: string; truncated: boolean }) => void;
-    session.copyRemoteToLocal.mockImplementationOnce(() => new Promise<{ text: string; truncated: boolean }>((resolve) => { finishCopy = resolve; }));
+    session.copyRemoteToLocal.mockImplementationOnce((writeLocal) => new Promise<{ text: string; truncated: boolean }>((resolve, reject) => {
+        finishCopy = (value) => { writeLocal(value.text).then(() => resolve(value), reject); };
+    }));
     await press('Copy to Phone');
     await leave('background');
     await TestRenderer.act(async () => finishCopy({ text: 'secret', truncated: false }));
@@ -365,7 +368,7 @@ it('starts web clipboard copy in the tap and waits for the write before reportin
     }
     vi.stubGlobal('ClipboardItem', FakeClipboardItem);
     vi.stubGlobal('navigator', { clipboard: { write: webWrite } });
-    session.copyRemoteToLocal.mockImplementation(() => remote);
+    session.copyRemoteToLocal.mockImplementation(async (writeLocal) => { const value = await remote; await writeLocal(value.text); return value; });
     let view!: ReturnType<typeof TestRenderer.create>;
     const root = () => view.root as Rendered;
     try {
