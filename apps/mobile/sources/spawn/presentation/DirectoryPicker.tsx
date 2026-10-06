@@ -293,6 +293,9 @@ export function DirectoryPicker({ value, onChange, places, room, onFocus, onBlur
                         ref={inputRef}
                         value={value}
                         onChangeText={onChange}
+                        // The field opens prefilled with `~`: typing must replace it,
+                        // or an absolute path concatenates (`~/tmp/x`) and fails.
+                        selectTextOnFocus
                         onFocus={() => {
                             setBrowsing(true);
                             onFocus?.();
