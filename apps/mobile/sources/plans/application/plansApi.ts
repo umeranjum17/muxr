@@ -58,9 +58,9 @@ export async function removeAccount(accountId: string, connection = planConnecti
     assertPlanConnection(connection);
 }
 
-/** The account a running agent is on, when muxr put it on one. */
-export function agentAccount(sessionId: string, connection = planConnection()): Promise<string | undefined> {
-    return requestPlan(connection, 'plans.agent', { sessionId }).then((answer) => answer.accountId);
+/** The account a running agent is on, when muxr put it on one, and whether it has a conversation to move yet. */
+export function agentAccount(sessionId: string, connection = planConnection()): Promise<{ accountId?: string; movable?: boolean }> {
+    return requestPlan(connection, 'plans.agent', { sessionId });
 }
 
 export async function moveAgent(sessionId: string, accountId: string, connection = planConnection()): Promise<{ sessionId: string }> {

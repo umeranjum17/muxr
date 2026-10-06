@@ -225,6 +225,8 @@ export interface SessionSource {
     }>;
     stop(sessionId: string, options: SessionStopOptions): Promise<CloseResult>;
     movePlanAccount?(options: PlanMoveOptions): Promise<{ sessionId: string }>;
+    /** False while the agent has no conversation for `movePlanAccount` to carry yet. */
+    canMovePlanAccount?(sessionId: string): Promise<boolean>;
     abort(sessionId: string): Promise<void>;
     reload(sessionId: string): Promise<void>;
     prompt(options: SessionPromptOptions): Promise<void>;

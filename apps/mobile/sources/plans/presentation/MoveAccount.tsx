@@ -38,32 +38,37 @@ export function MoveAccountRow({ sessionId, agentKind, working, onOpen }: {
     usePlans();
     const connection = planConnection();
     const { entry } = useProviderChoice(agentKind ?? '');
-    const [recorded, setRecorded] = React.useState<{ connection: PlanConnection; sessionId: string; id?: string } | null>(null);
+    const [recorded, setRecorded] = React.useState<{ connection: PlanConnection; sessionId: string; id?: string; movable?: boolean } | null>(null);
     const known = entry !== undefined;
     React.useEffect(() => {
         if (!known) return;
         let live = true;
         setRecorded(null);
-        void agentAccount(sessionId, connection).then((id) => { if (live && samePlanConnection(connection)) setRecorded({ connection, sessionId, id }); }).catch((error) => {
+        void agentAccount(sessionId, connection).then(({ accountId, movable }) => { if (live && samePlanConnection(connection)) setRecorded({ connection, sessionId, id: accountId, movable }); }).catch((error) => {
             if (live && samePlanConnection(connection)) Modal.alert("Couldn't find the current account", planFailure(error));
         });
         return () => { live = false; };
     }, [known, sessionId, connection]);
     if (agentKind === undefined || entry === undefined) return null;
-    const current = recorded?.connection === connection && recorded.sessionId === sessionId ? runningOn(entry, recorded.id) : undefined;
+    const mine = recorded?.connection === connection && recorded.sessionId === sessionId ? recorded : undefined;
+    const current = mine === undefined ? undefined : runningOn(entry, mine.id);
+    // Nothing to carry over before the first reply, so the move would only fail.
+    const early = mine?.movable === false;
+    const disabled = current === undefined || early;
     return (
         <Pressable
-            disabled={current === undefined}
-            accessibilityState={{ disabled: current === undefined }}
-            onPress={() => { if (current === undefined) return; onOpen(); useMoving.setState({ moving: { connection, sessionId, agentKind, working, currentId: current?.id } }); }}
+            disabled={disabled}
+            accessibilityState={{ disabled }}
+            onPress={() => { if (disabled) return; onOpen(); useMoving.setState({ moving: { connection, sessionId, agentKind, working, currentId: current?.id } }); }}
             accessibilityRole="button"
-            accessibilityLabel={`Move to another account${current ? `, on ${current.name}` : ''}${current?.roomLeftPercent !== undefined ? `, ${current.roomLeftPercent}% left` : ''}`}
-            style={({ pressed }) => [styles.menuRow, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh }]}
+            accessibilityLabel={early ? 'Move to another account, available after the first reply'
+                : `Move to another account${current ? `, on ${current.name}` : ''}${current?.roomLeftPercent !== undefined ? `, ${current.roomLeftPercent}% left` : ''}`}
+            style={({ pressed }) => [styles.menuRow, { backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh, opacity: early ? 0.6 : 1 }]}
         >
             <Ionicons name="swap-horizontal-outline" size={18} color={theme.colors.textSecondary} />
             <View style={parts.rowCopy}>
                 <Text style={styles.menuText}>Move to another account</Text>
-                {current !== undefined && (
+                {early ? <Text style={styles.menuSub} numberOfLines={1}>Available after the first reply</Text> : current !== undefined && (
                     <Text style={styles.menuSub} numberOfLines={1}>
                         On {current.name}
                         {current.roomLeftPercent !== undefined && (
@@ -107,6 +112,10 @@ export function MoveSheet() {
         return <OptionSheet visible={false} title="" options={[]} onSelect={() => {}} onClose={close} body={<View />} />;
     }
     const target = accounts.find((account) => account.id === (picked ?? best?.id) && account.signedIn && account.id !== current?.id);
+    // With no signed-in account to move to, signing one in is the way forward.
+    const signInTo = target !== undefined ? undefined
+        : accounts.find((account) => account.id === picked && !account.signedIn)
+            ?? accounts.find((account) => !account.signedIn && account.id !== current?.id);
     const agentName = AGENT_NAMES[moving.agentKind] ?? moving.agentKind;
 
     const move = async () => {
@@ -162,12 +171,16 @@ export function MoveSheet() {
                             {target.name} reads this conversation once from the start. After that it costs the same as usual.
                         </Note>
                     )}
-                    <PrimaryButton
-                        icon="swap-horizontal-outline"
-                        label={target === undefined ? 'Pick an account' : busy ? `Moving to ${target.name}…` : `Move to ${target.name}`}
-                        busy={busy || target === undefined}
-                        onPress={() => void move()}
-                    />
+                    {signInTo !== undefined ? (
+                        <PrimaryButton icon="log-in-outline" label={`Sign in to ${signInTo.name}`} onPress={() => { close(); flows.signIn(signInTo); }} />
+                    ) : (
+                        <PrimaryButton
+                            icon="swap-horizontal-outline"
+                            label={target === undefined ? 'Pick an account' : busy ? `Moving to ${target.name}…` : `Move to ${target.name}`}
+                            busy={busy || target === undefined}
+                            onPress={() => void move()}
+                        />
+                    )}
                 </View>
             }
         />

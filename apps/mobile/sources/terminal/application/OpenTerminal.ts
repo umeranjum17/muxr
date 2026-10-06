@@ -225,9 +225,17 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
     };
     const applyClosedFrame = (frame: object): void => {
         const reason = typeof (frame as { reason?: unknown }).reason === 'string' ? (frame as { reason: string }).reason : undefined;
+        // Any other close is the pane's terminal going away under its route: a
+        // plan move replaces the pane and keeps the route. Re-resolve the route
+        // like a lost stream; one that is really gone leaves through the tree.
+        if (reason !== 'control moved to another device') {
+            if (linkWire !== undefined) retireLink(linkWire);
+            scheduleRetry();
+            return;
+        }
         // Automatic foreground/reconnect must not steal control back.
         // Only the user's visible retry action may reverse a takeover.
-        closedByTakeover = reason === 'control moved to another device';
+        closedByTakeover = true;
         cancelBottom();
         closedByHost = true;
         lastCloseReason = reason;
@@ -235,7 +243,7 @@ export async function openTerminal(command: OpenTerminalCommand): Promise<Termin
         finalizeCounts();
         recordTerminalChannel('disconnected', {
             ok: false,
-            code: closedByTakeover ? 'takeover' : 'disconnected',
+            code: 'takeover',
         });
         unwatchHost();
         for (const listener of closeListeners) listener(reason);
