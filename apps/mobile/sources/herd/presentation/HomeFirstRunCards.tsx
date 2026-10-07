@@ -49,7 +49,7 @@ export function FirstAgentCard() {
                 Pick an agent on your computer and put it to work. It appears here, live, the moment it starts.
             </Text>
             <View style={styles.actions}>
-                <ActionButton title="Start your first agent" icon="add-circle-outline" onPress={start} />
+                <ActionButton title="Start an agent" icon="add-circle-outline" onPress={start} />
                 <Pressable accessibilityRole="button" accessibilityLabel="Dismiss first agent card" onPress={() => setDismissed(true)} style={styles.dismissTarget}>
                     <Text style={styles.dismiss}>Not now</Text>
                 </Pressable>
