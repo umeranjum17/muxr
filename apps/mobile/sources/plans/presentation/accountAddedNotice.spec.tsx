@@ -50,7 +50,7 @@ vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), prompt: vi.fn(), confirm: v
 vi.mock('@/herd', () => ({ navigateToSession: vi.fn() }));
 
 const { useFlows } = await import('./AccountFlows');
-const { NameAccountSheet } = await import('./AccountFlows');
+const { NameAccountSheet, SignInBanner } = await import('./AccountFlows');
 const { usePlansStore, refreshPlans } = await import('../application/plansStore');
 
 const named = (personal: string, work: string): PlanProviderAccounts => ({
@@ -81,7 +81,7 @@ describe('the notice after naming an added account', () => {
         const list = usePlansStore.getState().list!;
         const account = list.providers[0].accounts.find((one: PlanAccount) => one.id === 'pa_work')!;
 
-        await act(async () => { useFlows.setState({ naming: { account, again: false } }); });
+        await act(async () => { useFlows.setState({ naming: { account } }); });
         let screen: any;
         await act(async () => { screen = TestRenderer.create(<NameAccountSheet />); });
         // The person names the new account exactly as the first one already answers to.
@@ -94,5 +94,29 @@ describe('the notice after naming an added account', () => {
         const listed = usePlansStore.getState().list!.providers[0].accounts.map((one: PlanAccount) => one.name).sort();
         expect(shown).toEqual(listed);
         expect(shown).toEqual(['Umer', 'Umer 2']);
+    });
+
+    it('a re-sign-in of a named account ends on the notice, never the name sheet', async () => {
+        request.mockImplementation(async (type: string) => {
+            if (type === 'plans.status') {
+                return { account: { id: 'pa_work', provider: 'claude', name: 'Umer Work', email: 'umer.work@example.com', signedIn: true } };
+            }
+            return { providers: [named('Umer', 'Umer Work')] };
+        });
+        await refreshPlans();
+        await act(async () => {
+            useFlows.setState({ notice: null, naming: null, pending: { accountId: 'pa_work', sessionId: 'shell:w1:p3', provider: 'claude', again: true, name: 'Umer Work' } });
+        });
+        let screen: any;
+        await act(async () => { screen = TestRenderer.create(<SignInBanner bottom={0} />); });
+        // The banner polls the host until the tool reports the account signed in.
+        await act(async () => { await new Promise((done) => setTimeout(done, 2_500)); });
+
+        const flows = useFlows.getState();
+        expect(flows.naming).toBeNull();
+        expect(flows.pending).toBeNull();
+        expect(flows.landed).toBe('pa_work');
+        expect(flows.notice).toEqual({ title: 'Umer Work is signed in', detail: 'Claude accounts: Umer, Umer Work' });
+        screen.unmount();
     });
 });
