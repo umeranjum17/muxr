@@ -42,6 +42,9 @@ const LOW_LEFT = 20;
 export const isLow = (account: PlanAccount): boolean =>
     account.roomLeftPercent !== undefined && account.roomLeftPercent <= LOW_LEFT;
 
+/** No room left: an agent here can't answer until the account refills. */
+export const isEmpty = (account: PlanAccount): boolean => account.roomLeftPercent === 0;
+
 /** The account behind a choice: Auto resolves to the host's pick. */
 export function chosenAccount(entry: PlanProviderAccounts, choice: string): PlanAccount | undefined {
     const id = choice === AUTO ? entry.auto.accountId : choice;
@@ -72,11 +75,19 @@ export function signedOutPick(entry: PlanProviderAccounts | undefined, stored: s
 
 /** The dock's line. A signed-out pick is named, never swapped for another account in silence. */
 export function choiceLine(entry: PlanProviderAccounts, stored: string | undefined, autoOn = true): { value: string; detail?: string } {
+    if (!entry.accounts.some((account) => account.signedIn)) {
+        const pick = signedOutPick(entry, stored);
+        // No signed-in account exists, so there is no other account to offer:
+        // the row says so instead of reading a plain Auto.
+        return pick === undefined
+            ? { value: 'No signed-in account', detail: 'Sign in to start' }
+            : { value: `${pick.name} is signed out`, detail: 'Sign in to use it' };
+    }
     const choice = effectiveChoice(entry, stored, autoOn);
     const pick = signedOutPick(entry, stored);
     if (pick !== undefined) {
         const instead = chosenAccount(entry, choice);
-        return { value: `${pick.name} is signed out`, detail: instead === undefined ? 'Sign in to use it' : `Sign in, or use ${instead.name}` };
+        return { value: `${pick.name} is signed out`, detail: instead === undefined || !instead.signedIn ? 'Sign in to use it' : `Sign in, or use ${instead.name}` };
     }
     const account = chosenAccount(entry, choice);
     let value = account?.name ?? 'Auto';
@@ -118,6 +129,15 @@ function emptyRoomMessage(reason: string, providerLabel: string): string {
 }
 
 export function launchQuestion(entry: PlanProviderAccounts, stored: string | undefined, choice: string): LaunchQuestion | undefined {
+    if (!entry.accounts.some((account) => account.signedIn)) {
+        // Nothing to start on: neither Auto nor a pick resolves to a signed-in
+        // account, so Start says so instead of launching one that cannot answer.
+        const name = providerName(entry.provider);
+        return {
+            title: `No signed-in ${name} account`,
+            message: `Sign in to a ${name} account from the Account row first.`,
+        };
+    }
     const pick = signedOutPick(entry, stored);
     const account = chosenAccount(entry, choice);
     if (pick !== undefined) {
@@ -133,8 +153,10 @@ export function launchQuestion(entry: PlanProviderAccounts, stored: string | und
     const roomier = bestMoveTarget(entry.accounts, account.id);
     if (roomier === undefined || roomier.roomLeftPercent === 0) {
         const name = providerName(entry.provider);
+        // Short enough for a modal title on the reference phone at large
+        // text; the provider is named in the chooser this comes from.
         return {
-            title: `All ${name} accounts are out of room`,
+            title: 'All accounts are out of room',
             message: emptyRoomMessage(entry.auto.reason, name),
             anyway: 'Start anyway',
         };

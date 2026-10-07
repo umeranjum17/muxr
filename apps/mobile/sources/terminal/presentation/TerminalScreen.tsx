@@ -79,7 +79,7 @@ import { TerminalLinkMenu, terminalLinkCardFits, type LinkAction } from './Termi
 import { isTerminalPath, openTerminalLink, safeTerminalLinkUrl } from '../domain/safeTerminalLink';
 import { locateTerminalPath, trimmedTapPath } from '../application/locateTerminalPath';
 import { humanError } from '@/utils/errors';
-import { MoveAccountRow } from '@/plans/ui';
+import { AgentEmptyBanner, MoveAccountRow } from '@/plans/ui';
 import { CommandPalette } from '@/components/CommandPalette';
 import type { Command } from '@/components/CommandPalette/types';
 import { CUSTOM_CATEGORY } from '@/components/CommandPalette/types';
@@ -1472,6 +1472,8 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                             </Text>
                         </View>
                     )}
+                    {/* The account this agent runs on emptied: Move sits beside the warning, not three taps deep. */}
+                    {canControl && <AgentEmptyBanner sessionId={props.id} agentKind={paneKind} working={paneLifecycle === 'working'} />}
 
                     <View
                         aria-hidden={desktopVisible}

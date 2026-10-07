@@ -3,7 +3,7 @@ import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import { isLow, type PlanAccount } from '../domain/planAccounts';
+import { isEmpty, isLow, type PlanAccount } from '../domain/planAccounts';
 
 /** "Max · 72% left this week", the figure in mono and warm once low. */
 export function AccountFacts({ account, lead }: { account: PlanAccount; lead?: string }) {
@@ -71,6 +71,8 @@ export function AccountRow({
     // The reference phone's 270 pt: every line kept to one so the sheet fits.
     const narrow = useWindowDimensions().width < 330;
     const out = !account.signedIn;
+    // An empty account stays pickable (Start warns first), but reads as spent.
+    const empty = account.signedIn && isEmpty(account);
     const aside = badge ?? (hideEmail || out ? undefined : account.email);
     // A row that can't be picked is not a button: its Sign in pill is the only action.
     const still = out || inert === true;
@@ -83,7 +85,7 @@ export function AccountRow({
                 style={styles.rowIcon}
             />
             <View style={styles.rowCopy}>
-                <Text style={[styles.rowTitle, out && styles.dim]} numberOfLines={1}>
+                <Text style={[styles.rowTitle, (out || empty) && styles.dim]} numberOfLines={1}>
                     {account.name}
                     {aside !== undefined && <Text style={styles.rowEmail}> · {aside}</Text>}
                 </Text>

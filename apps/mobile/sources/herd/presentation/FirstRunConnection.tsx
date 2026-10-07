@@ -90,7 +90,7 @@ export function FirstRunConnection() {
     return (
         <View style={styles.section}>
             <RouteTile
-                title={browser ? 'Paste the pairing link' : 'Scan the QR on your computer'}
+                title={browser ? 'Paste the browser link' : 'Scan the QR on your computer'}
                 badge="Recommended"
                 preview={browser ? 'Run one command on your computer, then paste the browser pairing link.' : 'Point this phone at the QR shown by muxr on your computer.'}
                 onPress={() => {

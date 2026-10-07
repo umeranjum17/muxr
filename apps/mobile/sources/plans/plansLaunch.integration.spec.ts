@@ -94,7 +94,7 @@ describe('which account a launch carries', () => {
         await refreshPlans();
         usePlansStore.getState().choose('claude', 'auto');
         expect(planLaunchQuestion('claude', 'auto')).toEqual({
-            title: 'All Claude accounts are out of room',
+            title: 'All accounts are out of room',
             message: "Personal refills first at 6:09 PM. An agent started now can't answer until then.",
             anyway: 'Start anyway',
         });
@@ -150,5 +150,39 @@ describe('which account a launch carries', () => {
         request.mockRejectedValueOnce(Object.assign(new Error('host-contract-mismatch'), { code: 'host-contract-mismatch' }));
         await refreshPlans();
         expect(planAccountForLaunch('claude')).toBeUndefined();
+    });
+});
+
+describe('starting with no signed-in account', () => {
+    it('names the state on the dock and stops Start before a silent launch', async () => {
+        connection.machineId = 'computer-d';
+        planConnection();
+        const allOut = {
+            provider: 'claude',
+            label: 'Claude',
+            accounts: [
+                { id: 'found-claude', provider: 'claude', name: 'Personal', foundOnComputer: true, signedIn: false },
+                { id: 'pa_work', provider: 'claude', name: 'Work', signedIn: false },
+            ],
+            auto: { reason: 'No signed-in Claude account.' },
+        };
+        request.mockResolvedValueOnce({ providers: [allOut] });
+        await refreshPlans();
+        const entry = providerEntry(usePlansStore.getState().list, 'claude')!;
+        // The launch still carries Auto; the question below is what stops it.
+        expect(planAccountForLaunch('claude')).toBe('auto');
+        // A saved pick is named, with no other account to offer...
+        expect(choiceLine(entry, 'pa_work')).toEqual({ value: 'Work is signed out', detail: 'Sign in to use it' });
+        // ...and Auto itself says no account is signed in, instead of reading plain Auto.
+        expect(choiceLine(entry, 'auto')).toEqual({ value: 'No signed-in account', detail: 'Sign in to start' });
+        // Start asks first however the choice reads, with no way to launch on nothing.
+        const question = {
+            title: 'No signed-in Claude account',
+            message: 'Sign in to a Claude account from the Account row first.',
+        };
+        expect(planLaunchQuestion('claude', 'auto')).toEqual(question);
+        expect(planLaunchQuestion('claude', 'auto', true)).toEqual(question);
+        connection.machineId = 'computer-a';
+        planConnection();
     });
 });

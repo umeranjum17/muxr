@@ -98,6 +98,8 @@ function childEnv(home, muxrHome, extra, base = process.env) {
     for (const key of ['MUXR_RELAY_URL', 'MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH', 'MUXR_MACHINE_ID', 'MUXR_MACHINE_NAME', 'MUXR_DATA_DIR', 'MUXR_MODE']) {
         if (!(key in (extra ?? {}))) delete env[key];
     }
+    // A lab shell's HERDR_SESSION would make the host demand that named session from the fake.
+    if (!('HERDR_SESSION' in (extra ?? {}))) delete env.HERDR_SESSION;
     return {
         ...env,
         HOME: home,

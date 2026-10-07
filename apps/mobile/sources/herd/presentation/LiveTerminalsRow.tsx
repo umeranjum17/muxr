@@ -84,6 +84,17 @@ const stylesheet = StyleSheet.create((theme) => ({
     statusText: { fontSize: 11, lineHeight: 14, fontVariant: ['tabular-nums'] },
 }));
 
+/** What a Live card badge needs: badge components come from the owning
+ *  screen (a feature can't import plans without a new import cycle), so the
+ *  shape is declared here and matched structurally there. */
+export interface LiveCardBadgeInfo {
+    sessionId: string;
+    agentKind: string;
+    working: boolean;
+    /** Call before acting: the card mistakes the badge tap for its own. */
+    notePress: () => void;
+}
+
 interface CardProps {
     card: LiveTerminalOrderCard;
     events: readonly LifecycleEvent[];
@@ -94,13 +105,14 @@ interface CardProps {
     disconnected: boolean;
     unseenDone: boolean;
     canRename: boolean;
+    Badge?: React.ComponentType<LiveCardBadgeInfo>;
 }
 
 function terminalIsLive(card: LiveTerminalOrderCard): boolean {
     return card.agentStatus === 'working' || card.agentStatus === 'starting' || card.agentStatus === 'blocked';
 }
 
-const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone, canRename }: CardProps) => {
+const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused, disconnected, unseenDone, canRename, Badge }: CardProps) => {
     const { theme } = useUnistyles();
     const navigateToSession = useNavigateToSession();
     const labels = agentLabels(card);
@@ -109,13 +121,16 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
     const shell = isShellLabels(labels);
     const state = liveCardState(labels, card.agentStatus, card.id, events, now);
     const planAccount = storage((state) => herdrPaneForSession(state.herdrWorkspaces, card.id)?.planAccount);
+    // A badge tap lands on this pressable too: it opens the agent under the
+    // badge's own sheet unless the badge marks its tap first.
+    const lastBadgePress = React.useRef(0);
     const rename = () => {
         const pane = herdrPaneForSession(storage.getState().herdrWorkspaces, card.id);
         if (pane !== undefined) showPaneActions(pane);
     };
     return (
         <Pressable
-            onPress={() => navigateToSession(card.id)}
+            onPress={() => { if (Date.now() - lastBadgePress.current < 750) return; navigateToSession(card.id); }}
             onLongPress={canRename ? rename : undefined}
             accessibilityRole="button"
             accessibilityLabel={state.accessibilityLabel}
@@ -141,6 +156,14 @@ const LiveTerminalCard = React.memo(({ card, events, now, width, height, paused,
                         </Text>
                     </View>
                 </View>
+                {Badge !== undefined && labels.agentKind !== undefined && (
+                    <Badge
+                        sessionId={card.id}
+                        agentKind={labels.agentKind}
+                        working={card.agentStatus === 'working'}
+                        notePress={() => { lastBadgePress.current = Date.now(); }}
+                    />
+                )}
             </View>
         </Pressable>
     );
@@ -150,10 +173,13 @@ export const LiveTerminalsRow = React.memo(({
     showZeroState = true,
     visibilityTop,
     visibilityBottomInset = 0,
+    cardBadge,
 }: {
     showZeroState?: boolean;
     visibilityTop?: number;
     visibilityBottomInset?: number;
+    /** A per-card line under the agent's name (the empty-room badge on Home). */
+    cardBadge?: React.ComponentType<LiveCardBadgeInfo>;
 }) => {
     useUnistyles();
     const navigateToSession = useNavigateToSession();
@@ -348,6 +374,7 @@ export const LiveTerminalsRow = React.memo(({
             disconnected={socketStatus !== 'connected' || stale}
             unseenDone={readySessionIds.has(card.id)}
             canRename={authority === 'control' && !authorityLoading && !stale}
+            Badge={cardBadge}
         />
     );
 
