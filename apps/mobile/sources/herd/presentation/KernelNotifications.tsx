@@ -14,7 +14,7 @@ import {
     stopHerdKeepalive,
     updateVoiceNotification,
 } from '@/../modules/voice-overlay';
-import { requestNotificationPermission } from '@/utils/microphonePermissions';
+import { notificationPermissionStatus } from '@/utils/microphonePermissions';
 import { completionNotificationState, completionTransition, herdNotificationState, nativeLifecycleNotificationState, sortHerd, type HerdNotificationState } from '../domain/herd';
 import { applyRealtimeMuted, boundRealtimeSession, realtimeGeneration, retryVadStandby, stopRealtimeSession, useRealtimeMuted, useRealtimeSessionState } from '@/conversation/session';
 import { Modal } from '@/modal';
@@ -159,7 +159,9 @@ export function KernelNotifications() {
         // here so the next working transition actually starts it again.
         if (!herdActive) keepalive.current = false;
         let live = true;
-        void requestNotificationPermission(false).then(() => {
+        // The kernel never prompts for notifications itself: the Home primer
+        // owns the one ask, so this only reads the current status.
+        void notificationPermissionStatus().then(() => {
             if (!live) return;
             if (AppState.currentState !== 'active' && keepalive.current) {
                 sendNative(null, true);
