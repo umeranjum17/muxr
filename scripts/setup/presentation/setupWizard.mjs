@@ -162,12 +162,12 @@ const herdr = () => process.env.HERDR_BIN?.trim() || 'herdr';
 
 // Plain-words name for a connection mode, used anywhere the topology is stated.
 const RELAY_KIND = {
-    tailscale: 'Tailscale (private)',
-    'tailscale-direct': 'Tailscale (direct IP)',
-    private: 'your private network',
-    cloudflare: 'a temporary Cloudflare tunnel',
-    lan: 'your LAN (same wifi only)',
-    external: 'your own server',
+    tailscale: 'Away from home (Tailscale)',
+    'tailscale-direct': 'Away from home — phone only (Tailscale)',
+    private: 'Away from home (private network)',
+    cloudflare: 'Away from home (temporary link)',
+    lan: 'Only on this Wi-Fi (stops working away from home)',
+    external: 'Away from home (your own server)',
 };
 const relayKind = (mode) => RELAY_KIND[mode] ?? mode;
 
@@ -179,46 +179,46 @@ function choices(found, tailscalePlanned = false, serveRoot = { status: 'inconcl
     const serveOccupied = serveRoot.status === 'occupied';
     const serveDisabled = serveRoot.status === 'disabled';
     const tailscaleAvailable = found.tailscale.connected || tailscalePlanned;
-    let tailscaleSentence = 'Your phone reaches this computer from anywhere; both need the free Tailscale app, signed in to the same account.';
-    if (serveOccupied) tailscaleSentence = 'Tailscale Serve is used by something else here; choose Tailscale direct to leave it unchanged.';
-    else if (serveDisabled) tailscaleSentence = `Tailscale Serve is unavailable (${serveRoot.reason}); choose Tailscale direct instead.`;
+    let tailscaleSentence = 'Your phone reaches this computer from anywhere. Both need the free Tailscale app, signed in to the same account.';
+    if (serveOccupied) tailscaleSentence = 'Tailscale Serve is used by something else here; choose the phone-only option below to leave it unchanged.';
+    else if (serveDisabled) tailscaleSentence = `Tailscale Serve is unavailable (${serveRoot.reason}); choose the phone-only option below instead.`;
     else if (tailscalePlanned) tailscaleSentence = 'Sign-in happens next; your phone also needs the Tailscale app, signed in to the same account.';
-    else if (!tailscaleAvailable) tailscaleSentence = `Install and sign in to Tailscale on this computer and your phone, then rerun setup: ${TAILSCALE_INSTALL_URL}.`;
+    else if (!tailscaleAvailable) tailscaleSentence = `Install the free Tailscale app on this computer and your phone and sign in on both, so your phone reaches this computer from anywhere, then rerun setup: ${TAILSCALE_INSTALL_URL}.`;
     return [
         {
-            value: 'lan', title: 'Same Wi-Fi',
+            value: 'lan', title: 'Works only on this Wi-Fi',
             description: found.lan
-                ? 'Easiest: works while your phone is on the same Wi-Fi as this computer, with nothing else to install.'
+                ? 'Your phone must stay on this same Wi-Fi, and stops working when you leave home. Nothing to install.'
                 : 'No Wi-Fi address found; connect this computer to your Wi-Fi, then rerun setup.',
             disabled: !found.lan,
         },
         {
-            value: 'tailscale', title: 'Tailscale — works anywhere',
+            value: 'tailscale', title: 'Use muxr away from home (Tailscale)',
             description: tailscaleSentence,
             disabled: !tailscaleAvailable || serveOccupied || serveDisabled,
         },
         {
-            value: 'tailscale-direct', title: 'Tailscale — direct (phone app only)',
+            value: 'tailscale-direct', title: 'Use muxr away from home — phone only (Tailscale)',
             description: tailscaleAvailable
-                ? 'Needs the Tailscale app on both with the same account; pick this if Serve is already used here.'
-                : `Install and sign in to Tailscale on both devices, then rerun setup; this route needs no Serve: ${TAILSCALE_INSTALL_URL}.`,
+                ? 'Needs the Tailscale app on both, signed in to the same account. Phone app only, no browser; pick this if the option above is unavailable here.'
+                : `Install the free Tailscale app on both and sign in to the same account, so your phone reaches this computer from anywhere, then rerun setup: ${TAILSCALE_INSTALL_URL}.`,
             disabled: !tailscaleAvailable,
         },
         {
-            value: 'private', title: 'Private network you already use (NetBird, WireGuard, ZeroTier)',
+            value: 'private', title: 'Use muxr away from home (private network)',
             description: found.private
-                ? `Pick this if your phone also uses the ${found.private.provider} network connected to this computer.`
-                : 'Connect a private network on this computer and phone, then rerun setup.',
+                ? `Your phone must also join the ${found.private.provider} network connected to this computer.`
+                : 'Join a private network on this computer and your phone, then rerun setup.',
             disabled: !found.private,
         },
         {
-            value: 'cloudflare', title: 'Temporary public link (Cloudflare)',
+            value: 'cloudflare', title: 'Use muxr away from home (temporary link)',
             description: found.cloudflared.ok
-                ? 'Works anywhere without a VPN, but the link changes when it restarts.'
-                : `Works anywhere without a VPN; install or repair cloudflared, then rerun setup (${found.cloudflared.detail}).`,
+                ? 'No app to install, but the link changes when this computer restarts.'
+                : `Works anywhere with no app to install; install or repair cloudflared, then rerun setup (${found.cloudflared.detail}).`,
             disabled: !found.cloudflared.ok,
         },
-        { value: 'external', title: 'Your own server', description: "For people who already run a secure (wss://) server; you'll paste its address next." },
+        { value: 'external', title: 'Use muxr away from home (your own server)', description: "For people who already run a secure (wss://) server; you'll paste its address next." },
     ];
 }
 
@@ -226,29 +226,29 @@ export function recommendedConnection(found, current, tailscalePlanned, serveRoo
     if (found.tailscale.connected) {
         const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
         return direct
-            ? { mode: 'tailscale-direct', title: 'Tailscale — direct (phone app only)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
-            : { mode: 'tailscale', title: 'Tailscale — works anywhere', description: 'both devices need the Tailscale app, signed in to the same account' };
+            ? { mode: 'tailscale-direct', title: 'Use muxr away from home — phone only (Tailscale)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
+            : { mode: 'tailscale', title: 'Use muxr away from home (Tailscale)', description: 'both devices need the Tailscale app, signed in to the same account' };
     }
     if (current?.relayHealthy && current?.publicHealthy
         && choices(found, tailscalePlanned, serveRoot).some((choice) => choice.value === current.connectionMode && !choice.disabled)) {
         return { mode: current.connectionMode, title: connectionLabel(current.connectionMode, current.relayUrl, current.relayPort), description: 'already configured and reachable' };
     }
-    if (!found.tailscale.connected) {
-        if (found.private) return {
-            mode: 'private',
-            title: `${found.private.provider} on ${found.private.interface}`,
-            description: 'use the private network already connected to this computer',
-        };
-        if (found.lan) return { mode: 'lan', title: 'Same Wi-Fi', description: 'works now while the phone and computer use this trusted network' };
-    }
+    if (found.private) return {
+        mode: 'private',
+        title: `Use muxr away from home (${found.private.provider})`,
+        description: 'use the private network already connected to this computer',
+    };
     if (tailscalePlanned) {
         const direct = serveRoot.status === 'occupied' || serveRoot.status === 'disabled';
         return direct
-            ? { mode: 'tailscale-direct', title: 'Tailscale — direct (phone app only)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
-            : { mode: 'tailscale', title: 'Tailscale — works anywhere', description: 'both devices need the Tailscale app, signed in to the same account' };
+            ? { mode: 'tailscale-direct', title: 'Use muxr away from home — phone only (Tailscale)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
+            : { mode: 'tailscale', title: 'Use muxr away from home (Tailscale)', description: 'both devices need the Tailscale app, signed in to the same account' };
     }
-    if (found.cloudflared.ok) return { mode: 'cloudflare', title: 'Temporary Cloudflare tunnel', description: 'create a temporary public HTTPS route during Apply' };
-    return { mode: 'external', title: 'Your own server', description: 'use an existing secure (wss://) server you manage' };
+    if (found.cloudflared.ok) return { mode: 'cloudflare', title: 'Use muxr away from home (temporary link)', description: 'create a temporary public HTTPS route during Apply' };
+    // Same Wi-Fi is never the default while a remote-reachable route exists:
+    // it stops working when the phone leaves home.
+    if (found.lan) return { mode: 'lan', title: 'Works only on this Wi-Fi', description: 'home network only — stops working when the phone leaves this Wi-Fi' };
+    return { mode: 'external', title: 'Use muxr away from home (your own server)', description: 'use an existing secure (wss://) server you manage' };
 }
 
 const aborted = (value) => value === undefined || value === BACK;
@@ -283,7 +283,7 @@ async function serveRootFor(found, port) {
     return inspectTailscaleServeRoot(port, found.tailscale.dnsName, undefined, 8_000);
 }
 
-async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args }) {
+async function chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, totalSteps = 7 }) {
     const requestedPort = value(args, '--port');
     let envPort;
     try {
@@ -304,12 +304,13 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             recommended: choice.value === proposal.mode && !choice.disabled,
         }));
         const preferred = connectionChoices.findIndex((choice) => choice.recommended);
-        note('Another VPN on your phone? Use Same Wi-Fi with its allow-local-network option, or pause that VPN to use Tailscale.');
+        note('Another VPN on your phone? Choose Works only on this Wi-Fi with that VPN\'s allow-local-network option, or pause that VPN to use muxr away from home.');
         mode = await select('How will your phone reach this computer?', connectionChoices, preferred);
 
     }
     if (aborted(mode)) return undefined;
     if (mode === 'lan') {
+        note('WARNING: this route works only while the phone stays on this home network — it will NOT work away from home. To use muxr away from home, rerun `muxr setup` and choose an away-from-home route.');
         note('Nearby discovery can help a previously paired native app find this relay again on the same LAN. A new device still needs the one-time QR or pairing string.');
     }
     if (!['tailscale', 'tailscale-direct', 'private', 'lan', 'external', 'cloudflare'].includes(mode)) {
@@ -354,7 +355,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         }
     }
 
-    setupStep(3, 7, 'Choose app access');
+    setupStep(3, totalSteps, 'Choose app access');
     let web = false;
     if (modeAllowsBrowserHosting(mode)) {
         web = await select('Host the browser client too?', [
@@ -363,7 +364,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         ], current?.webEnabled ? 1 : 0);
         if (aborted(web)) return undefined;
     } else {
-        status('Browser client', 'requires Tailscale Serve, External WSS, or Cloudflare; native app only', 'off');
+        status('Browser client', 'needs a route that works away from home; phone app only on this Wi-Fi', 'off');
     }
     const desiredUrl = advertisedUrlForMode({ mode, found, current, port, endpoint, web, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
@@ -372,7 +373,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             value: 'none',
             title: 'Keep paired devices',
             description: connectionChanged
-                ? 'a native app on the same LAN may verify a discovered address; other devices need fresh pairing'
+                ? 'a phone on this Wi-Fi may verify a discovered address; other devices need fresh pairing'
                 : 'no new QR; existing devices keep working',
         }] : []),
         { value: 'phone', title: 'Phone', description: 'pair the native app first' },
@@ -382,7 +383,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),
     ];
-    setupStep(4, 7, 'Choose what to pair');
+    setupStep(4, totalSteps, 'Choose what to pair');
     note([
         'The chosen app or browser claims a short-lived, single-use code shown after setup.',
         'This computer seals its key grant to that device only.',
@@ -417,7 +418,7 @@ async function recoverTailscaleServe({ plan, found }) {
     ]);
     if (action !== 'direct') return undefined;
     const next = continueWithDirectTailscale(plan);
-    if (plan.web) status('Browser client', 'needs Tailscale Serve or HTTPS; continuing with the native app only', 'warn');
+    if (plan.web) status('Browser client', 'needs an away-from-home route with browser access; continuing with the phone app only', 'warn');
     status('Connection', connectionLabel(next.mode, next.endpoint, next.port), 'ok');
     return next;
 }
@@ -491,8 +492,14 @@ export async function applyMachineSetup(args = []) {
     }
 
     return withFullscreen(async () => {
-    setupStep(1, 7, 'Check this computer');
     const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => probeMachine());
+    // A first run with no coding-agent providers installed has nothing to
+    // sync, so the status-updates question is hidden instead of asked and
+    // answered to no effect. A failed availability check keeps the question:
+    // sync may still succeed when the check itself is what broke.
+    const asksIntegrations = !found.agents.checked || found.agents.available.length > 0;
+    const totalSteps = asksIntegrations ? 7 : 6;
+    setupStep(1, totalSteps, 'Check this computer');
     renderInspection(found);
     // A disconnected Tailscale installation is proposed as one reviewed route;
     // connecting it remains behind Apply instead of becoming a preflight prompt.
@@ -500,26 +507,29 @@ export async function applyMachineSetup(args = []) {
     const cancelSetup = () => cancelled();
     const current = await selfhostPublicSummary();
 
-    setupStep(2, 7, 'Connect your phone');
-    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args });
+    setupStep(2, totalSteps, 'Connect your phone');
+    let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, totalSteps });
     if (plan === undefined) return cancelSetup();
     if (plan === 1) return 1;
     const desiredUrl = advertisedUrlForMode({ ...plan, found, current, tailscalePlanned });
     const connectionChanged = current === undefined || desiredUrl === undefined || current.relayUrl !== desiredUrl;
     let existingConnections = 'none; pair a device after setup';
-    if (current !== undefined && connectionChanged) existingConnections = 'same-LAN native devices may verify the new address; others need fresh pairing';
+    if (current !== undefined && connectionChanged) existingConnections = 'phones on this Wi-Fi may verify the new address; others need fresh pairing';
     else if (current !== undefined) existingConnections = 'keep working; restart only if a reviewed runtime setting changed';
 
-    setupStep(5, 7, 'Agent status updates');
-    const syncIntegrations = await select(found.agents.checked
-        ? 'Keep agent status up to date?'
-        : 'Agent status updates could not be checked. Try setting them up anyway?', [
-        { value: true, title: 'Set up agent status updates', description: 'Keep your phone up to date when coding agents start, work, or finish.' },
-        { value: false, title: 'Leave agent status updates unchanged', description: 'Keep the current status-update settings on this computer.' },
-    ]);
-    if (aborted(syncIntegrations)) return cancelSetup();
+    let syncIntegrations = false;
+    if (asksIntegrations) {
+        setupStep(5, totalSteps, 'Agent status updates');
+        syncIntegrations = await select(found.agents.checked
+            ? 'Keep agent status up to date?'
+            : 'Agent status updates could not be checked. Try setting them up anyway?', [
+            { value: true, title: 'Set up agent status updates', description: 'Keep your phone up to date when coding agents start, work, or finish.' },
+            { value: false, title: 'Leave agent status updates unchanged', description: 'Keep the current status-update settings on this computer.' },
+        ]);
+        if (aborted(syncIntegrations)) return cancelSetup();
+    }
 
-    setupStep(6, 7, 'Review setup');
+    setupStep(asksIntegrations ? 6 : 5, totalSteps, 'Review setup');
     note([
         `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
@@ -527,6 +537,9 @@ export async function applyMachineSetup(args = []) {
         `Browser client: ${plan.web ? 'host the web app; browser keys stay WebCrypto-wrapped on this device' : 'off'}`,
         `Pairing: ${pairingChoiceLabel(plan.pairing)}${browserGrantNote(plan.pairing, { planned: true })}`,
         `Ingress: ${ingressPlan(plan.mode, tailscalePlanned)}`,
+        ...(plan.mode === 'lan'
+            ? ['WARNING: the Wi-Fi-only route stops working when the phone leaves home. Choose an away-from-home route instead to use muxr anywhere.']
+            : []),
         'Services: register or restart the relay and host with systemd/launchd',
         `Existing connections: ${existingConnections}`,
         'No change is made until you choose Apply setup.',
@@ -537,7 +550,7 @@ export async function applyMachineSetup(args = []) {
     ], 1);
     if (apply !== true) return cancelSetup();
 
-    setupStep(7, 7, 'Install, start, and pair');
+    setupStep(totalSteps, totalSteps, 'Install, start, and pair');
     if ((plan.mode === 'tailscale' || plan.mode === 'tailscale-direct') && tailscalePlanned && !(await applyTailscaleConnect(found))) {
         process.stderr.write('Tailscale did not connect; fix the reported issue, then rerun setup\n');
         return 1;
@@ -579,6 +592,9 @@ export async function applyMachineSetup(args = []) {
         `Herdr: ${found.herdr.running ? 'running' : 'started during setup'}`,
         `Agent status updates: ${syncIntegrations ? 'selected providers synced' : 'unchanged'}`,
         `Pairing: ${pairingReceiptLabel(pairing, browserPairFailed)}${browserGrantNote(pairing, { failed: browserPairFailed })}`,
+        ...(mode === 'lan'
+            ? ['WARNING: this host works only on this Wi-Fi — phones outside this home network cannot reach it. Switch anytime with `muxr setup` (choose a route that works away from home), then `muxr pair` again.']
+            : []),
         `Configuration: ${selfhostPath()} (owner-only; use \`muxr setup\` to change the route)`,
     ]);
     outro(browserPairFailed

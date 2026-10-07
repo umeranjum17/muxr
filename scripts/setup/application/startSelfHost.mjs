@@ -142,6 +142,7 @@ export async function startSelfHost(args = []) {
         pendingIngress = undefined;
         print(`  ✓ self-host relay on :${port} (${advertise.note})`);
         print(`  ✓ advertise ${advertise.url}`);
+        if (advertise.warning !== undefined) print(`  ${advertise.warning}`);
         if (web) print(`  ✓ web client ${advertise.url.replace(/^ws/, 'http')}`);
         if (relayOnly) {
             if (managedRelay) {

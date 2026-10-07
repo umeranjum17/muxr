@@ -11,6 +11,9 @@ import { browserHostingReady, ensureSelfhostRelay, relayDiscovery } from '../inf
 export async function mintDeviceGrant(state, kind = 'native', authority = 'control', personal = false) {
     const record = await linkPair(state, { intent: pairingIntent({ kind, authority, personal }) });
     print(`  ✓ paired and verified ${record.name || 'device'}`);
+    if (typeof state?.relayUrl === 'string' && /^ws:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(state.relayUrl)) {
+        print('  WARNING: this host uses the Wi-Fi-only route — the phone works only on this home network and will NOT work away from home. For access from anywhere, run `muxr setup`, choose a route that works away from home (Tailscale), then `muxr pair` again.');
+    }
     return 0;
 }
 
@@ -50,15 +53,15 @@ async function offerBrowserRouteSwitch(state, deps = {}) {
         return browserHostingReady();
     }
     if (!interactive || typeof deps.applyMachineSetup !== 'function') {
-        error('browsers need a secure link. Switch this computer to Tailscale with `muxr setup`, or keep Same Wi-Fi for the phone app only.');
+        error('browsers cannot use this Wi-Fi-only route. Run `muxr setup` and choose a route that works away from home (Tailscale), then `muxr pair --browser` again. The Wi-Fi-only route pairs the phone app only on this home network and will NOT work away from home.');
         return false;
     }
-    const choice = await deps.select('Browsers need a secure link.', [
-        { value: 'switch', title: 'Switch this computer to Tailscale — works anywhere', description: 'review the route, apply it, then pair the browser', recommended: true },
-        { value: 'keep', title: 'Keep Same Wi-Fi (phone app only)', description: 'browsers stay unavailable on this route' },
+    const choice = await deps.select('This Wi-Fi-only route cannot host browsers.', [
+        { value: 'switch', title: 'Use muxr away from home (Tailscale)', description: 'review the route, apply it, then pair the browser', recommended: true },
+        { value: 'keep', title: 'Keep the Wi-Fi-only route', description: 'phone app works only on this Wi-Fi and stops working away from home; browsers stay unavailable' },
     ]);
     if (choice !== 'switch') {
-        print('Keeping Same Wi-Fi. The phone app keeps working; browsers stay unavailable on this route.');
+        print('Keeping the Wi-Fi-only route. The phone app keeps working on this home network only — it will NOT work away from home. Browsers stay unavailable; run `muxr setup` and choose a route that works away from home for access from anywhere.');
         return 'kept';
     }
     if (await deps.applyMachineSetup([]) !== 0) return false;

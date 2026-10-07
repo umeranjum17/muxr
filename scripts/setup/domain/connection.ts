@@ -173,7 +173,7 @@ export function connectionLabel(mode: string, endpoint: string | undefined, port
     if (mode === 'tailscale') return `Tailscale Serve on local port ${port}`;
     if (mode === 'tailscale-direct') return `Direct Tailscale on port ${port}`;
     if (mode === 'private') return `Private network on port ${port}`;
-    if (mode === 'lan') return `Trusted LAN on port ${port}`;
+    if (mode === 'lan') return `Wi-Fi-only route on port ${port} (stops working away from home)`;
     if (mode === 'cloudflare') return `Cloudflare quick tunnel to local port ${port}`;
     return `External ${endpoint ?? ''}`;
 }
