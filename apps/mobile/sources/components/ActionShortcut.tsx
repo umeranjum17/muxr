@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import type { PluginItemMetadata } from '@/plugins/domain/itemListModel';
-import { toneColor } from '@/plugins/domain/pluginTone';
+import { toneColor } from '@/usage/domain/usageTone';
 
 /** Names the terminal's own commands use for their glyphs; rows show the label. */
 export type PanelGlyphName = 'keyboard' | 'minus' | 'plus' | 'reset' | 'close' | 'branch' | 'folder' | 'tools';

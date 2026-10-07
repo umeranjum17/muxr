@@ -17,7 +17,7 @@ import { asPluginCollection, type PluginCollectionGroup, type PluginCollectionIt
 import { dispatchPluginAction, validatePluginAction } from '../../application/pluginActions';
 import { pluginSnapshot } from '../../application/pluginStore';
 import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from '../../application/pluginDataInvalidation';
-import { toneColor } from '../../domain/pluginTone';
+import { toneColor } from '@/usage';
 import { resolvePluginText } from '../../domain/pluginText';
 import { t } from '@/text';
 

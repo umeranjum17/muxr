@@ -25,7 +25,7 @@ import { useMonoCharWidth } from '@/components/code/monoMetrics';
 import { pagePalette } from '@/components/code/syntaxPalette';
 import { ui, withAlpha } from '@/components/ui';
 import { PathBreadcrumb } from '@/components/PathBreadcrumb';
-import { fileIcon } from '@/plugins/domain/fileIcon';
+import { fileIcon } from './fileIcon';
 
 export const PLUGIN_CODE_MAX_LINES = 600;
 export const PLUGIN_CODE_MAX_CHARS = 64 * 1024;

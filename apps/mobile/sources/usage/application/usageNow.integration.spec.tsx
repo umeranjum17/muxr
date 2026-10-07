@@ -101,16 +101,11 @@ vi.mock('@/components/ui', () => ({
 }));
 vi.mock('@/components/AgentGlyph', () => ({ AgentGlyph: 'AgentGlyph' }));
 vi.mock('@/constants/Typography', () => ({ Typography: { mono: () => ({}), default: () => ({}) } }));
-vi.mock('@/plugins', () => ({ toneColor: (_theme: unknown, tone?: string) => `tone:${tone}` }));
-vi.mock('@/plugins/ui', () => ({
-    ScreenChart: 'ScreenChart',
-    ScreenLimits: 'ScreenLimits',
-    VERDICT_KEYS: { limited: 'plugins.limits.limited' },
-    verdictTone: () => undefined,
-}));
+vi.mock('../presentation/ScreenCharts', () => ({ ScreenChart: 'ScreenChart' }));
 // Keys stand in for words; a share keeps its figure, as every real string does,
 // and a sentence keeps what it was given to say.
 vi.mock('@/text', () => ({
+    getCurrentLanguageTag: () => 'en',
     t: (key: string, params?: Record<string, unknown>) => (params === undefined ? key
         : params.percent !== undefined ? `${params.percent}% ${key}`
             : `${key}(${Object.values(params).join(' | ')})`),
@@ -118,6 +113,7 @@ vi.mock('@/text', () => ({
 
 const { useUsageNow } = await import('./useUsageNow');
 const { RightNowCard } = await import('../presentation/RightNowCard');
+const { ScreenLimits } = await import('../presentation/ScreenLimits');
 const { UsageScreen } = await import('../presentation/UsageScreen');
 
 const VITALS = { memoryUsed: 8, memoryTotal: 16, load1: 1.2, uptimeSeconds: 90_000 };
@@ -881,11 +877,11 @@ describe('the usage screen read path', () => {
         // The failure is named on the inline line, never as header prose.
         expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
         // The age is the card's own stamp now, not a floating line.
-        expect(screen.root.findAllByType('ScreenLimits')[0].props.asOf).toContain('plugins.limits.asOf(');
+        expect(screen.root.findAllByType(ScreenLimits)[0].props.asOf).toContain('plugins.limits.asOf(');
         expect(screenText(screen)).not.toContain('No measured activity');
         // The limits the card did collect stay on screen, and the failure
         // offers the way back it always does.
-        expect(screen.root.findAllByType('ScreenLimits').length).toBeGreaterThan(0);
+        expect(screen.root.findAllByType(ScreenLimits).length).toBeGreaterThan(0);
         expect(screen.root.findAll((node: any) => node.props?.accessibilityLabel === 'plugins.rightNow.refreshFailed. plugins.rightNow.refreshNow').length).toBeGreaterThan(0);
         expect(screen.root.findAllByType('Notice').some((node: any) => node.props.text.includes('rate limited') && node.props.text.includes('Retry available now'))).toBe(true);
         TestRenderer.act(() => { screen.unmount(); });
@@ -923,10 +919,10 @@ describe('the usage screen read path', () => {
         const claude = renderScreen();
         press(claude, 'Claude');
         await tick();
-        expect(claude.root.findAllByType('ScreenLimits')[0].props.asOf).toContain('plugins.limits.asOf(');
+        expect(claude.root.findAllByType(ScreenLimits)[0].props.asOf).toContain('plugins.limits.asOf(');
         // Retained figures are dimmed and stamped on their own card, never a
         // bare age word floating under them.
-        expect(claude.root.findAllByType('ScreenLimits')[0].parent.props.style.opacity).toBe(0.55);
+        expect(claude.root.findAllByType(ScreenLimits)[0].parent.props.style.opacity).toBe(0.55);
         expect(screenText(claude)).not.toContain('time.justNow');
     });
 
@@ -1026,7 +1022,7 @@ describe('the usage screen read path', () => {
         expect(figures()).toEqual([
             ['36%', '#fff'], ['7d', '#999'],
             ['60%', '#fff'], ['5h×2', '#999'], ['89%', '#fff'], ['7d', '#999'],
-            ['93%', '#fff'], ['5h', '#999'], ['0%', 'tone:danger'], ['7d', '#999'], ['8%', 'tone:warning'], ['Month…', '#999'],
+            ['93%', '#fff'], ['5h', '#999'], ['0%', '#f55'], ['7d', '#999'], ['8%', '#fa0'], ['Month…', '#999'],
         ]);
         // Read aloud in the same order, naming every limit, and a coloured
         // figure says why and when it comes back, which its colour cannot.
@@ -1141,7 +1137,6 @@ describe('the usage screen read path', () => {
     });
 
     it('shows the same remaining share and time-left tick on the Usage limit meter', async () => {
-        const { ScreenLimits } = await import('@/plugins/presentation/screenLimits');
         let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
@@ -1165,7 +1160,7 @@ describe('the usage screen read path', () => {
         const screen = renderScreen();
         await tick();
         expect(request).toHaveBeenCalledTimes(1);
-        expect(screen.root.findAllByType('ScreenLimits').length).toBeGreaterThan(0);
+        expect(screen.root.findAllByType(ScreenLimits).length).toBeGreaterThan(0);
         expect(screenText(screen)).toContain('plugins.rightNow.collecting');
     });
 
@@ -1240,7 +1235,7 @@ describe('the usage screen read path', () => {
         // looking exactly like a refresh that worked.
         expect(screenText(screen)).toContain('OpenCode');
         expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
-        expect(screen.root.findAllByType('ScreenLimits')[0].props.asOf).toContain('plugins.limits.asOf(');
+        expect(screen.root.findAllByType(ScreenLimits)[0].props.asOf).toContain('plugins.limits.asOf(');
         expect(refreshControls(screen)[0].props.accessibilityLabel).toContain('plugins.rightNow.refreshFailed');
     });
 
@@ -1299,7 +1294,7 @@ describe('the usage screen read path', () => {
         await tick();
         expect(request).toHaveBeenCalledTimes(1);
         expect(request).toHaveBeenCalledWith('usage.report', { refresh: false }, expect.any(Number));
-        expect(screen.root.findAllByType('ScreenLimits')[0].props.data.limits.windows[0].used).toBe(20);
+        expect(screen.root.findAllByType(ScreenLimits)[0].props.data.limits.windows[0].used).toBe(20);
         expect(screenText(screen)).toContain('99');
 
         let releaseOlder: (value: UsageReport) => void = () => undefined;
@@ -1320,7 +1315,7 @@ describe('the usage screen read path', () => {
         await tick();
         expect(request).toHaveBeenCalledTimes(3);
         expect(request.mock.calls.slice(1).every((call) => call[1].refresh === false)).toBe(true);
-        expect(screen.root.findAllByType('ScreenLimits')[0].props.data.limits.windows[0].used).toBe(10);
+        expect(screen.root.findAllByType(ScreenLimits)[0].props.data.limits.windows[0].used).toBe(10);
         expect(screenText(screen)).toContain('111');
         expect(screenText(screen)).not.toContain('88');
     });
@@ -1399,7 +1394,7 @@ describe('the usage screen read path', () => {
         noteAsked('', claimed - 1_000);
         rememberShown('', { status: 'figures', at: claimed, figures: withReport(undefined, held) });
         const screen = renderScreen();
-        const windows = () => screen.root.findAllByType('ScreenLimits')[0].props.data.limits.windows.length;
+        const windows = () => screen.root.findAllByType(ScreenLimits)[0].props.data.limits.windows.length;
         expect(windows()).toBe(2);
 
         // The card's own read lands for the same tab: it names one window, and
@@ -1415,7 +1410,7 @@ describe('the usage screen read path', () => {
             { limits: { verdict: 'unknown', windows: [], message: 'Plan limits unavailable' } },
         ) }); });
         expect(windows()).toBe(0);
-        expect(screen.root.findAllByType('ScreenLimits')[0].props.data.limits.message).toBe('Plan limits unavailable');
+        expect(screen.root.findAllByType(ScreenLimits)[0].props.data.limits.message).toBe('Plan limits unavailable');
         const emptied = shownUsage('');
         expect(emptied?.status === 'figures' ? emptied.figures.cardWindow : undefined).toBeUndefined();
     });
@@ -1624,7 +1619,6 @@ describe('the usage screen read path', () => {
         // its reset (warm, the moment named), and one that runs out soon
         // (strong). The projection is the phone's, from the published used,
         // elapsed and reset -- no new field, no new palette.
-        const { ScreenLimits } = await import('@/plugins/presentation/screenLimits');
         let renderer: any;
         TestRenderer.act(() => {
             renderer = TestRenderer.create(<ScreenLimits node={{ type: 'limits', path: 'limits' }} data={{
@@ -1755,7 +1749,7 @@ describe('the usage screen read path', () => {
         await tick();
         expect(screen.root.findAllByType('Notice')[0].props.text).toContain('plugins.rightNow.refreshFailed');
 
-        const card = () => screen.root.findAllByType('ScreenLimits')[0];
+        const card = () => screen.root.findAllByType(ScreenLimits)[0];
         expect(card().props.data.limits.verdict).toBe('unknown');
         expect(card().props.asOf).toContain('plugins.limits.asOf(');
         expect(card().parent.props.style.opacity).toBe(0.55);

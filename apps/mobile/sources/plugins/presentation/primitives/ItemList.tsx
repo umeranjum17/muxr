@@ -15,10 +15,10 @@ import { PLUGIN_CALL_CLIENT_TIMEOUT_MS } from '@trymuxr/contract';
 import type { PrimitiveProps } from '../../domain/primitiveTypes'
 import { asPluginItemList, type PluginItemListAction, type PluginItemListItem, type PluginItemListModel } from '../../domain/itemListModel';
 import { dispatchPluginAction, validatePluginAction } from '../../application/pluginActions';
-import { recordFileNavigation } from '../../application/fileNavigationList';
+import { recordFileNavigation } from '@/session';
 import { pluginSnapshot } from '../../application/pluginStore';
 import { clearPluginCache, registerPluginDataCacheInvalidator, subscribePluginDataInvalidation } from '../../application/pluginDataInvalidation';
-import { toneColor } from '../../domain/pluginTone';
+import { toneColor } from '@/usage';
 import { cardStyle, Meter, SectionLabel, ui, withAlpha } from '@/components/ui';
 import { resolvePluginText } from '../../domain/pluginText';
 import { t } from '@/text';

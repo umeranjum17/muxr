@@ -18,7 +18,7 @@ import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import type { Theme } from '@/theme';
 import type { PluginScreenTone } from '@trymuxr/contract';
-import { toneColor } from '@/plugins/domain/pluginTone';
+import { toneColor } from '@/usage/domain/usageTone';
 
 export const ui = {
     radius: { card: 12, control: 10, meter: 2 },

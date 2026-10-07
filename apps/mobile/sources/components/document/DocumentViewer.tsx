@@ -32,7 +32,7 @@ import { PanelHeader } from '@/components/document/PanelHeader';
 import { surfaceModel } from '@/components/document/surfaceModel';
 import { useMonoCharWidth } from '@/components/code/monoMetrics';
 import { syntaxLanguage } from '@/components/code/syntaxHighlighting';
-import { toneColor } from '@/plugins/domain/pluginTone';
+import { toneColor } from '@/usage/domain/usageTone';
 import { FONT_STEPS } from '@/terminal/domain/fontSteps';
 import { type PluginScreenTone } from '@trymuxr/contract';
 import { hapticsLight } from '@/components/haptics';

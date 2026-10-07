@@ -1,5 +1,5 @@
 import type { UsageActivity, UsageActivityDay, UsageLimitsWindow, UsageTokenCounts } from '@trymuxr/contract';
-import { runOutMs } from '@/plugins/limits';
+import { runOutMs } from './limitsModel';
 
 /** Tokens in the compact voice every usage figure speaks: 881M, 2.9B, 4.2K. */
 export function compactTokens(value: number): string {

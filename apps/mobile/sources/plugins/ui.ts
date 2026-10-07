@@ -2,9 +2,9 @@
 export * from './presentation/DeclarativePluginSlot';
 export * from './presentation/DeclarativeScreen';
 export * from './presentation/PluginSlot';
-export * from './presentation/pluginScreenLayout';
+export { ScreenWidthProvider, useScreenContentWidth } from '@/usage';
 export * from './presentation/primitiveRegistry';
-export * from './presentation/screenCharts';
-export * from './presentation/screenLimits';
+export { ScreenChart } from '@/usage';
+export { ScreenLimits, presentedVerdict, runOut, VERDICT_KEYS, verdictTone } from '@/usage';
 export * from './presentation/screenTree';
 export * from './presentation/usePluginCall';

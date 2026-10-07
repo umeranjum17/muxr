@@ -8,7 +8,7 @@ import type { PluginScreenRowAction, PluginScreenTreeNode, PluginText } from '@t
 import { bindText, resolvePath } from '../domain/screenModel';
 import { resolvePluginText } from '../domain/pluginText';
 import { asScreenTree, type RuntimeTreeItem } from '../domain/screenTreeModel';
-import { fileIcon, folderIcon, type FileIcon } from '../domain/fileIcon';
+import { fileIcon, folderIcon, type FileIcon } from '@/components/code/fileIcon';
 import { t } from '@/text';
 import { Typography } from '@/constants/Typography';
 import { cardStyle, ui, withAlpha } from '@/components/ui';
