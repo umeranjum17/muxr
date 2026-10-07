@@ -452,14 +452,19 @@ export async function inspectSetup() {
             || ((selfhost.connectionMode !== 'cloudflare' || cloudflaredAlive(selfhost.ingress))
                 && await advertisedRelayHealthy(selfhost));
         let connectionDetail;
+        let connectionLevel = ingressReady ? 'ok' : 'fail';
         if (ingressReady) {
             connectionDetail = `${selfhost.connectionMode ?? 'self-host'} · ${publicRelayUrl(selfhost.relayUrl) ?? `local port ${selfhost.relayPort}`}`;
+            if (selfhost.connectionMode === 'lan') {
+                connectionDetail += ' · works only on this Wi-Fi — will NOT work away from home; run `muxr setup` and choose a route that works away from home';
+                connectionLevel = 'warn';
+            }
         } else if (selfhost.connectionMode === 'cloudflare') {
             connectionDetail = 'Cloudflare tunnel is not running; run `muxr` to restore it and pair the new endpoint';
         } else {
             connectionDetail = `advertised relay ${publicRelayUrl(selfhost.relayUrl) ?? `on local port ${selfhost.relayPort}`} is not reachable — restart with \`muxr daemon restart\` or reconfigure with \`muxr\``;
         }
-        add(ingressReady ? 'ok' : 'fail', 'connection', connectionDetail);
+        add(connectionLevel, 'connection', connectionDetail);
         const hostRunning = daemonIsRunning();
         const hostAuthenticated = selfhost.relayLocation !== 'remote' || await remoteHostOnline(selfhost);
         const serviceName = managedMode === 'relay' ? 'relay service' : 'host service';
@@ -503,7 +508,7 @@ export async function inspectSetup() {
     if (repairs.length > 0 && process.stdin.isTTY && process.stdout.isTTY) {
         print('\nRepairs available:');
         for (const check of repairs) print(`  • ${check.repair.label}`);
-        if (await askVisible(`Run ${repairs.length === 1 ? 'this repair' : `these ${repairs.length} repairs`} now? [y/N] `)) {
+        if (await askVisible(`Run ${repairs.length === 1 ? 'this repair' : `these ${repairs.length} repairs`} now? [y/N] `, { piped: true })) {
             for (const check of repairs) {
                 print(`  → ${check.repair.label}`);
                 try {
