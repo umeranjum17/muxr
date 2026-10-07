@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { pairingIntent, pairingIntentFromHostedFlags } from '../domain/dist/index.js';
+import { parseConnection, pairingIntent, pairingIntentFromHostedFlags } from '../domain/dist/index.js';
 import { error, print } from '../infrastructure/runtime.mjs';
 import { daemonDefinition, runDaemon } from '../infrastructure/daemon.mjs';
 import { approveScreenSharing } from './approveScreenSharing.mjs';
@@ -14,7 +14,62 @@ export async function mintDeviceGrant(state, kind = 'native', authority = 'contr
     return 0;
 }
 
-export async function pairDevice(args = []) {
+/**
+ * Direct `muxr pair --browser` on a route that cannot host browsers offers the
+ * one switch instead of dead-ending: enable the web client when the current
+ * secure connection allows it, otherwise switch the route through setup and
+ * continue pairing when the new route allows it. The interactive pieces arrive
+ * by injection so application never imports presentation (and so the
+ * setupWizard cycle stays one-directional); without them this degrades to the
+ * exact next command. Returns true when browser hosting is ready and pairing
+ * may continue, 'kept' when the user explicitly keeps the current route (exit
+ * 0, pairing skipped), and false when pairing must stop with an error.
+ */
+async function offerBrowserRouteSwitch(state, deps = {}) {
+    const connection = parseConnection(state);
+    if (!connection.ok) {
+        error('browser hosting is off. Run `muxr setup` to review the connection, then `muxr pair --browser` again.');
+        return false;
+    }
+    if (state?.relayLocation === 'remote') {
+        error(connection.value.rejectionForBrowserHosting() ?? 'browser hosting must be enabled by the shared-relay owner.');
+        return false;
+    }
+    const interactive = process.stdin.isTTY && process.stdout.isTTY && typeof deps.select === 'function';
+    if (connection.value.canEnableBrowserHosting()) {
+        if (!interactive || typeof deps.enableBrowserHosting !== 'function') {
+            error('browser hosting is off. Run `muxr`, choose Pair or manage devices, then Pair a control browser to enable it.');
+            return false;
+        }
+        const choice = await deps.select('Browser access is off on this secure connection.', [
+            { value: 'enable', title: 'Enable and pair browser', description: 'keep current settings; enable the web client, restart once, then create the link', recommended: true },
+            { value: 'back', title: 'Keep it off', description: 'leave this computer unchanged' },
+        ]);
+        if (choice !== 'enable') return false;
+        if (await deps.enableBrowserHosting() !== 0) return false;
+        return browserHostingReady();
+    }
+    if (!interactive || typeof deps.applyMachineSetup !== 'function') {
+        error('browsers need a secure link. Switch this computer to Tailscale with `muxr setup`, or keep Same Wi-Fi for the phone app only.');
+        return false;
+    }
+    const choice = await deps.select('Browsers need a secure link.', [
+        { value: 'switch', title: 'Switch this computer to Tailscale — works anywhere', description: 'review the route, apply it, then pair the browser', recommended: true },
+        { value: 'keep', title: 'Keep Same Wi-Fi (phone app only)', description: 'browsers stay unavailable on this route' },
+    ]);
+    if (choice !== 'switch') {
+        print('Keeping Same Wi-Fi. The phone app keeps working; browsers stay unavailable on this route.');
+        return 'kept';
+    }
+    if (await deps.applyMachineSetup([]) !== 0) return false;
+    if (!browserHostingReady()) {
+        error('browser access is still off after setup. Run `muxr setup` to review the route, then `muxr pair --browser` again.');
+        return false;
+    }
+    return true;
+}
+
+export async function pairDevice(args = [], deps = {}) {
     try {
         const state = readSelfhostState();
         if (state?.machine?.crypto === undefined || typeof selfhostCredential(state) !== 'string') {
@@ -35,7 +90,11 @@ export async function pairDevice(args = []) {
             }
         }
         const pair = pairingIntentFromHostedFlags(args);
-        if (pair.requiresWebHosting && !browserHostingReady()) throw new Error('browser hosting is off. Run `muxr`, choose Pair or manage devices, then Pair a control browser — muxr can enable browser access on your current secure connection.');
+        if (pair.requiresWebHosting && !browserHostingReady()) {
+            const ready = await offerBrowserRouteSwitch(state, deps);
+            if (ready === 'kept') return 0;
+            if (!ready) return 1;
+        }
         let healthy = await selfhostRelayHealthy(state);
         if (!healthy) {
             const definition = daemonDefinition('selfhost');

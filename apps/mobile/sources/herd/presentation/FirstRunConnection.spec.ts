@@ -131,9 +131,9 @@ describe('guided first-connection chooser', () => {
         platformOs = 'web';
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
-        expect(texts(renderer.root)).toContain('Paste the pairing link');
+        expect(texts(renderer.root)).toContain('Paste the browser link');
         expect(texts(renderer.root)).toContain('Run one command on your computer, then paste the browser pairing link.');
-        press(renderer.root, 'Paste the pairing link. Recommended. Steps: Run one command on your computer, then paste the browser pairing link.');
+        press(renderer.root, 'Paste the browser link. Recommended. Steps: Run one command on your computer, then paste the browser pairing link.');
         await TestRenderer.act(async () => {});
         expect(Modal.prompt).toHaveBeenCalledWith('Enter pairing string', expect.stringContaining('muxr pair --browser'), expect.any(Object));
         expect(scanQr).not.toHaveBeenCalled();
