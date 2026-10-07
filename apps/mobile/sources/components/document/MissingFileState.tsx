@@ -40,7 +40,7 @@ export function MissingFileState(props: {
     return (
         <ScrollView
             style={{ flex: 1 }}
-            contentContainerStyle={[styles.centered, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}
+            contentContainerStyle={[styles.centered, { paddingBottom: Math.max(insets.bottom, 16) + 76 }]}
             accessibilityRole="text"
             accessibilityLabel={`${t('files.missingFileTitle')}, ${props.path}`}
         >
