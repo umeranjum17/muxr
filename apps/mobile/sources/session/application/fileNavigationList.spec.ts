@@ -8,11 +8,11 @@ vi.mock('@/catalog/sync', () => ({
     registerPluginInvalidationHandler: () => {},
 }));
 import { patchFiles, uniqueDiffLabels } from '@/components/diff/patchFiles';
-import { nearestContentMount } from '@/plugins/domain/screenModel';
 import {
     currentFileNavigation,
     gitDirectoryProbeCommand,
     gitDirectorySearchPaths,
+    nearestContentMount,
     openFileViewer,
     recordFileNavigation,
 } from './fileNavigationList';

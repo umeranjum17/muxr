@@ -3,8 +3,11 @@ import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useUnistyles } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
-import type { PluginItemMetadata } from '@/plugins/domain/itemListModel';
+import type { PluginScreenTone } from '@trymuxr/contract';
 import { toneColor } from '@/usage/domain/usageTone';
+
+/** Trailing values the row's action carries; labels stay in accessibility text. */
+type ActionMetadata = { label?: string; value: string; tone?: PluginScreenTone };
 
 /** Names the terminal's own commands use for their glyphs; rows show the label. */
 export type PanelGlyphName = 'keyboard' | 'minus' | 'plus' | 'reset' | 'close' | 'branch' | 'folder' | 'tools';
@@ -12,10 +15,9 @@ export type PanelGlyphName = 'keyboard' | 'minus' | 'plus' | 'reset' | 'close' |
 /**
  * One full-width labelled quick-action row: the label leads and never moves,
  * with the action's data confined to the trailing column so row width never
- * depends on the values. Rows carry no glyph: the panel's items come from
- * several plugins with several icon registers, and a list of plain words
- * reads as one thing where four mismatched drawings do not. It paints from
- * the theme of the surface it sits on -- over the terminal, the dark one.
+ * depends on the values. Rows carry no glyph: a list of plain words reads as
+ * one thing where mismatched drawings do not. It paints from the theme of
+ * the surface it sits on -- over the terminal, the dark one.
  */
 export function ActionShortcut({ label, accessibilityLabel = label, badge, metadata, disabled = false, onPress }: {
     label: string;
@@ -24,7 +26,7 @@ export function ActionShortcut({ label, accessibilityLabel = label, badge, metad
     icon?: React.ComponentProps<typeof Ionicons>['name'] | string;
     /** Plain count; under the metadata values when both exist. */
     badge?: string | number;
-    metadata?: readonly PluginItemMetadata[];
+    metadata?: readonly ActionMetadata[];
     disabled?: boolean;
     onPress: () => void;
 }) {

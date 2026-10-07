@@ -3,7 +3,7 @@ import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import { DICTATION_UNDO_MS, useDictation } from '@/utils/dictation';
 import { wakeAndReport } from '@/watch/wakeAndReport';
-import { usePluginEvents } from '@/plugins/events';
+import { useAgentStopReports } from '@/watch/agentStopReports';
 import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
 
 const mocks = vi.hoisted(() => ({
@@ -47,13 +47,12 @@ const mocks = vi.hoisted(() => ({
     voiceReports: () => mocks.syncRequest.mock.calls.filter((call) => call[0] === 'voice.report'),
     voicePending: [] as Array<Record<string, unknown> & { identity: string; attempts: number; readyAt: number }>,
     voiceDelivered: [] as string[],
+    admit: undefined as undefined | ((identity: string) => string | undefined),
     lifecycleEvents: [] as Array<Record<string, unknown> & { eventId: string }>,
     prebaselineLifecycleEvents: [] as Array<Record<string, unknown> & { eventId: string }>,
     lifecycleCatalogInitialized: true,
     lifecycleCatalogAvailable: true,
     storageListeners: new Set<(state: Record<string, unknown>, previous: Record<string, unknown>) => void>(),
-    pluginSnapshot: [] as Array<Record<string, unknown>>,
-    capability: vi.fn(),
 }));
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' }, AppState: { addEventListener: vi.fn() } }));
@@ -73,8 +72,6 @@ vi.mock('@/catalog/application/persistence', () => ({ loadLocalSettings: () => (
 vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.syncRequest } }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: '' }) }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
-vi.mock('../plugins/application/pluginStore', () => ({ pluginSnapshot: () => mocks.pluginSnapshot }));
-vi.mock('../plugins/application/capabilityRegistry', () => ({ capabilityFor: () => mocks.capability }));
 vi.mock('@/watch/store', () => ({
     sanitizePersistedVoiceReport: (report: Record<string, unknown>) => report,
 }));
@@ -103,6 +100,7 @@ vi.mock('@/catalog/store', () => ({
         lifecycleCatalogInitialized: mocks.lifecycleCatalogInitialized,
         lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable,
         admitVoiceReport: (report: Record<string, unknown> & { identity: string; attempts: number; readyAt: number }) => {
+            const forced = mocks.admit?.(report.identity); if (forced !== undefined) return forced;
             if (mocks.voiceDelivered.includes(report.identity)) return 'delivered';
             if (mocks.voicePending.some((entry) => entry.identity === report.identity)) return 'pending';
             mocks.voicePending = [...mocks.voicePending, report];
@@ -150,7 +148,7 @@ function Harness() {
 }
 
 function PluginHarness() {
-    usePluginEvents();
+    useAgentStopReports();
     return null;
 }
 
@@ -202,9 +200,7 @@ beforeEach(() => {
     mocks.prebaselineLifecycleEvents = [];
     mocks.lifecycleCatalogInitialized = true;
     mocks.lifecycleCatalogAvailable = true;
-    mocks.pluginSnapshot = [];
     mutedNow = false;
-    mocks.capability.mockReset();
     vi.clearAllMocks();
 });
 
@@ -639,101 +635,59 @@ describe('on-device dictation flow', () => {
         stopRealtimeSession();
         expect(realtimeWatchTarget()).toBeNull();
 
-        const working = {
-            eventId: 'observer-working', sessionId: 'session-a', state: 'working',
-            agentName: 'Elle', taskTitle: 'Retry queued report',
-        };
-        const otherWorking = { ...working, eventId: 'observer-other-working', sessionId: 'session-b' };
-        mocks.lifecycleEvents = [otherWorking, working];
-        mocks.pluginSnapshot = [{
-            summary: { pluginId: 'voice', manifestHash: 'hash' },
-            manifest: { contributions: [{
-                slot: 'events', id: 'report', from: 'working', to: ['done'],
-                action: { type: 'capability', name: 'speech.wake' },
-            }] },
-        }];
-        let fullAttempts = 0;
-        let deferredAttempts = 0;
-        let finishOld!: () => void;
-        let finishNew!: () => void;
-        mocks.capability.mockImplementation((input: { eventId: string }) => {
-            if (input.eventId === 'observer-done') {
-                fullAttempts += 1;
-                return fullAttempts === 1
-                    ? Promise.reject(Object.assign(new Error('queue full'), { retryable: true }))
-                    : Promise.resolve();
-            }
-            if (input.eventId === 'observer-invalid') {
-                return Promise.reject(Object.assign(new Error('invalid credential'), { retryable: false }));
-            }
-            if (input.eventId === 'observer-deferred') {
-                deferredAttempts += 1;
-                return new Promise<void>((resolve) => {
-                    if (deferredAttempts === 1) finishOld = resolve;
-                    else finishNew = resolve;
-                });
-            }
-            return Promise.resolve();
-        });
-        const notifyObserver = () => {
-            const observerState = {
-                lifecycleEvents: mocks.lifecycleEvents,
-                prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents,
-                sessions: mocks.sessions,
-                lifecycleCatalogInitialized: mocks.lifecycleCatalogInitialized,
-                lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable,
-                voicePendingReports: mocks.voicePending,
-                voiceReportScopeGeneration: 1,
-            };
-            for (const listener of mocks.storageListeners) listener(observerState, observerState);
+        // The agent-stop reporter retries a full report queue even after the event leaves the bounded catalog,
+        // tries an invalid report once, and after a catalog reset re-reports a stop still in flight exactly once.
+        mocks.startRealtimeSession.mockReturnValue({ stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() });
+        startRealtimeSession('session-a');
+        let movedPrevious: Record<string, unknown> = {};
+        const notifyMoved = () => {
+            const movedState = { lifecycleEvents: mocks.lifecycleEvents, prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents, sessions: mocks.sessions,
+                lifecycleCatalogInitialized: true, lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable, voicePendingReports: mocks.voicePending, voiceReportScopeGeneration: 1 };
+            for (const listener of mocks.storageListeners) listener(movedState, movedPrevious);
+            movedPrevious = movedState;
         };
         act(() => { renderer = TestRenderer.create(React.createElement(PluginHarness)); });
-        mocks.lifecycleEvents = [{ ...working, eventId: 'observer-done', state: 'done' }, otherWorking, working];
-        notifyObserver();
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(fullAttempts).toBe(1);
-
-        // The rejected transition remains retryable after falling out of the
-        // bounded lifecycle catalog; a permanent invalid event is tried once.
-        const newer = Array.from({ length: 50 }, (_, index) => ({
-            ...working, eventId: `observer-newer-${index}`, sessionId: `newer-${index}`,
-        }));
-        mocks.lifecycleEvents = [{ ...otherWorking, eventId: 'observer-invalid', state: 'done', taskTitle: 'password=secret' }, ...newer];
-        notifyObserver();
-        await vi.advanceTimersByTimeAsync(1_500);
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(mocks.capability.mock.calls.filter(([input]) => input.eventId === 'observer-done')).toHaveLength(2);
-        expect(mocks.capability.mock.calls.filter(([input]) => input.eventId === 'observer-invalid')).toHaveLength(1);
-        expect(mocks.capability).toHaveBeenCalledWith(expect.objectContaining({
-            eventId: 'observer-done', from: 'working', status: 'done',
-        }));
-
-        // A callback from the old scope cannot acknowledge or clear the same
-        // canonical action after the observer establishes a new epoch.
-        mocks.lifecycleEvents = [];
+        const movedWorking = { eventId: 'moved-working', sessionId: 'session-a', state: 'working', agentName: 'Wren', taskTitle: 'Prove the move' };
+        mocks.lifecycleEvents = [movedWorking];
+        notifyMoved();
+        const admits: string[] = [];
+        const attempts = (id: string) => admits.filter((seen) => seen === id).length;
+        mocks.admit = (id) => {
+            admits.push(id);
+            if (id === 'stop-invalid') return 'invalid';
+            if (id === 'stop-deferred') return 'admitted';
+            return attempts(id) === 1 ? 'full' : 'delivered';
+        };
+        const bWorking = { ...movedWorking, eventId: 'b-working', sessionId: 'session-b' };
+        mocks.lifecycleEvents = [{ ...bWorking, eventId: 'stop-invalid', state: 'failed' }, { ...bWorking, eventId: 'b-again' }, { ...bWorking, eventId: 'stop-full', state: 'done' }, bWorking, movedWorking];
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(admits).toEqual(['stop-full', 'stop-invalid']);
+        mocks.lifecycleEvents = [...Array.from({ length: 50 }, (_, index) => ({ ...movedWorking, eventId: `newer-${index}`, sessionId: `newer-${index}` })), movedWorking];
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(attempts('stop-full')).toBe(2);
+        expect(attempts('stop-invalid')).toBe(1);
+        expect(mocks.voicePending).toEqual([]);
+        const deferred = { ...movedWorking, eventId: 'stop-deferred', state: 'done' };
+        mocks.lifecycleEvents = [deferred, movedWorking];
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(attempts('stop-deferred')).toBe(1);
         mocks.lifecycleCatalogAvailable = false;
-        notifyObserver();
-        mocks.lifecycleEvents = [working];
+        notifyMoved();
+        mocks.prebaselineLifecycleEvents = [deferred];
         mocks.lifecycleCatalogAvailable = true;
-        notifyObserver();
-        mocks.lifecycleEvents = [{ ...working, eventId: 'observer-deferred', state: 'done' }, working];
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(deferredAttempts).toBe(1);
-        mocks.lifecycleEvents = [];
-        mocks.lifecycleCatalogAvailable = false;
-        notifyObserver();
-        mocks.lifecycleEvents = [{ ...working, eventId: 'observer-deferred', state: 'done' }, working];
-        mocks.prebaselineLifecycleEvents = [mocks.lifecycleEvents[0]!];
-        notifyObserver();
-        mocks.lifecycleCatalogAvailable = true;
-        notifyObserver();
-        expect(deferredAttempts).toBe(2);
-        finishOld();
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(deferredAttempts).toBe(2);
-        finishNew();
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(deferredAttempts).toBe(2);
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(attempts('stop-deferred')).toBe(2);
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(attempts('stop-deferred')).toBe(2);
+        expect(admits).toEqual(['stop-full', 'stop-invalid', 'stop-full', 'stop-deferred', 'stop-deferred']);
+        mocks.admit = undefined;
+        stopRealtimeSession();
+        act(() => { renderer?.unmount(); });
+        renderer = null;
     });
 
     it('speaks an agent-stop report only while realtime watching is active', async () => {
@@ -775,6 +729,11 @@ describe('on-device dictation flow', () => {
         // Reported when the event lands, not on the next 1.5 s interval tick.
         await vi.advanceTimersByTimeAsync(0);
         expect(reported('settle-active-done')).toBe(true);
+        // done→idle after the report is not a second stop.
+        mocks.lifecycleEvents = [{ ...working, eventId: 'settle-active-idle', state: 'idle' }, settled('settle-active-done'), activeWorking];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(reported('settle-active-idle')).toBe(false);
     });
 
     it('explains unavailable microphone input, keeps safe error detail and retries only on request', async () => {
