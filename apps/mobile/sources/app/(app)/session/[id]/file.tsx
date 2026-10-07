@@ -5,7 +5,8 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { resolveSessionFilePath } from '@/terminal';
 import { DocumentViewer, type DocumentModel } from '@/components/document/DocumentViewer';
-import { currentFileNavigation, openFileViewer } from '@/plugins/application/fileNavigationList';
+import { currentFileNavigation, isMissingFileError, openFileViewer, parentDirectory } from '@/plugins/application/fileNavigationList';
+import { MissingFileState } from '@/components/document/MissingFileState';
 import { loadSessionDocument } from '@/plugins/application/loadSessionDocument';
 
 interface FileContent {
@@ -91,6 +92,7 @@ export default React.memo(function FileScreen() {
     const [diffContent, setDiffContent] = React.useState<string | null>(() => cached?.diff ?? null);
     const [isLoading, setIsLoading] = React.useState(!cached);
     const [error, setError] = React.useState<string | null>(null);
+    const [missingFile, setMissingFile] = React.useState(false);
     const [alertable, setAlertable] = React.useState(true);
     const neighborLoads = React.useRef(new Map<string, { cancelled: boolean }>());
 
@@ -116,6 +118,7 @@ export default React.memo(function FileScreen() {
         // Clear the previous file's state before anything else, so a stale
         // error or a stale body can never be shown against a new target.
         setError(null);
+        setMissingFile(false);
         setAlertable(true);
         setFileContent(cached ? { content: cached.content ?? '', isBinary: cached.isBinary, ...(cached.deleted === true ? { deleted: true } : {}) } : null);
         setDiffContent(cached?.diff ?? null);
@@ -151,6 +154,14 @@ export default React.memo(function FileScreen() {
                 return;
             }
             if (result.status === 'error') {
+                // Gone is a destination, not a fault: the designed state
+                // below, with a way forward, instead of a raw errno alert.
+                if (isMissingFileError(result.message)) {
+                    setMissingFile(true);
+                    setAlertable(false);
+                    setIsLoading(false);
+                    return;
+                }
                 setError(result.message);
                 setAlertable(true);
                 setIsLoading(false);
@@ -203,6 +214,22 @@ export default React.memo(function FileScreen() {
     React.useEffect(() => {
         if (error !== null && alertable) Modal.alert(t('common.error'), error);
     }, [error, alertable]);
+
+    if (missingFile) {
+        return (
+            <MissingFileState
+                path={filePath}
+                onOpenFolder={() => {
+                    if (sessionId === undefined) return;
+                    router.replace({
+                        pathname: '/session/[id]/files',
+                        params: { id: sessionId, root: parentDirectory(filePath) ?? '/' },
+                    } as never);
+                }}
+                onBack={() => router.back()}
+            />
+        );
+    }
 
     const lineSuffix = requestedLine !== null && requestedLine > 0
         ? `:${requestedLine}${requestedColumn !== null && requestedColumn > 0 ? `:${requestedColumn}` : ''}`

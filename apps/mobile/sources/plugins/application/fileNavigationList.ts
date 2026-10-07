@@ -123,6 +123,13 @@ export function parentDirectory(path: string): string | null {
     return slash === 0 ? '/' : path.slice(0, slash);
 }
 
+/** Host read errors that mean the file is simply gone, not that something
+ *  broke: `files.read` refuses with 'file unavailable' and session reads
+ *  surface the errno. Anything else stays a real error with its alert. */
+export function isMissingFileError(message: string): boolean {
+    return /file unavailable|ENOENT|no such file/i.test(message);
+}
+
 /** File directory first, then ancestors, then session cwd only if it is not already an ancestor. */
 export function gitDirectorySearchPaths(filePath: string, sessionPath: string | null): string[] {
     let dir = parentDirectory(filePath);

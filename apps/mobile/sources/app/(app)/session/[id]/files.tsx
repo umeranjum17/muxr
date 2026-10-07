@@ -1,10 +1,12 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useUnistyles, StyleSheet } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 
 import { CodeCore, PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/CodeCore';
+import { MissingFileState } from '@/components/document/MissingFileState';
+import { isMissingFileError } from '@/plugins/application/fileNavigationList';
 import { filesList, filesRead, filesRepos } from '@/catalog/ops';
 import { useHerdrTree, useSession } from '@/catalog/store';
 import { herdrPaneForSession } from '@/herd';
@@ -25,6 +27,7 @@ export default function FilesScreen() {
     const { id: sessionId, paneId: routedPaneId, root: routedRoot, folder: routedFolder, file: routedFile } =
         useLocalSearchParams<{ id: string; paneId?: string; root?: string; folder?: string; file?: string }>();
     const { theme } = useUnistyles();
+    const router = useRouter();
     const originalSession = useSession(sessionId);
     const { workspaces } = useHerdrTree();
     const originalPane = herdrPaneForSession(workspaces, sessionId);
@@ -51,6 +54,7 @@ export default function FilesScreen() {
     const [path, setPath] = React.useState(routedFolder ?? '');
     const [listing, setListing] = React.useState<Listing | undefined>(undefined);
     const [preview, setPreview] = React.useState<Preview | undefined>(undefined);
+    const [missingPath, setMissingPath] = React.useState<string | undefined>(undefined);
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState<string | undefined>(undefined);
 
@@ -78,25 +82,53 @@ export default function FilesScreen() {
         if (waitingForAgent || root === undefined) { setListing(undefined); return; }
         let cancelled = false;
         setLoading(true);
-        filesList(resolvedSessionId, { root, ...(path === '' ? {} : { path }) })
-            .then((result) => {
-                if (cancelled) return;
-                setListing(result);
-                setError(undefined);
-            })
-            .catch((cause: unknown) => {
-                if (cancelled) return;
-                setError(cause instanceof Error ? cause.message : String(cause));
-            })
-            .finally(() => {
-                if (!cancelled) setLoading(false);
-            });
+        // A gone folder lands on the nearest ancestor that still lists:
+        // path segments first, then (for a user-named folder) the root
+        // itself, never past '/'. Until the repos arrive a root is treated
+        // as a repo root, so an unknown root is never walked past.
+        const isRepo = repos === undefined || repos.repos.some((repo) => repo.root === root);
+        const attempts: Array<{ root: string; path: string }> = [{ root, path }];
+        for (;;) {
+            const last = attempts[attempts.length - 1]!;
+            if (last.path !== '') {
+                attempts.push({ root: last.root, path: last.path.split('/').slice(0, -1).join('/') });
+                continue;
+            }
+            if (isRepo || last.root === '/') break;
+            const slash = last.root.lastIndexOf('/');
+            attempts.push({ root: slash <= 0 ? '/' : last.root.slice(0, slash), path: '' });
+        }
+        void (async () => {
+            for (const attempt of attempts) {
+                try {
+                    const result = await filesList(resolvedSessionId, { root: attempt.root, ...(attempt.path === '' ? {} : { path: attempt.path }) });
+                    if (cancelled) return;
+                    if (attempt.root !== root) setRoot(attempt.root);
+                    if (attempt.path !== path) setPath(attempt.path);
+                    setListing(result);
+                    setError(undefined);
+                    setMissingPath(undefined);
+                    return;
+                } catch (cause: unknown) {
+                    if (cancelled) return;
+                    const message = cause instanceof Error ? cause.message : String(cause);
+                    if (!isMissingFileError(message)) {
+                        setError(message);
+                        return;
+                    }
+                }
+            }
+            if (!cancelled) setError(attempts.length > 0 ? `Could not list ${root}` : 'Could not list files');
+        })().finally(() => {
+            if (!cancelled) setLoading(false);
+        });
         return () => { cancelled = true; };
-    }, [waitingForAgent, resolvedSessionId, root, path]);
+    }, [waitingForAgent, resolvedSessionId, repos, root, path]);
 
     const openPreview = React.useCallback((nodePath: string) => {
         if (waitingForAgent || root === undefined) return;
         setLoading(true);
+        setMissingPath(undefined);
         // The tree speaks repo-relative paths; the preview endpoint resolves
         // them inside the root, symlinks included.
         filesRead(resolvedSessionId, { root, path: nodePath })
@@ -105,7 +137,18 @@ export default function FilesScreen() {
                 setError(undefined);
             })
             .catch((cause: unknown) => {
-                setError(cause instanceof Error ? cause.message : String(cause));
+                const message = cause instanceof Error ? cause.message : String(cause);
+                // Gone is a destination, not a fault: the designed state
+                // below, with a way forward, instead of a raw error line.
+                // The tree path is kept as-is; the full path is composed
+                // at render time against the current root.
+                if (isMissingFileError(message)) {
+                    setPreview(undefined);
+                    setError(undefined);
+                    setMissingPath(nodePath);
+                    return;
+                }
+                setError(message);
             })
             .finally(() => setLoading(false));
     }, [waitingForAgent, resolvedSessionId, root]);
@@ -138,11 +181,28 @@ export default function FilesScreen() {
         <>
             <Stack.Screen options={{ title }} />
             <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-                {loading && repos === undefined && listing === undefined && preview === undefined
+                {loading && repos === undefined && listing === undefined && preview === undefined && missingPath === undefined
                     ? <ActivityIndicator color={theme.colors.textSecondary} />
                     : error !== undefined
                         ? <Text style={{ color: theme.colors.textDestructive, fontSize: 14 }}>{error}</Text>
-                        : preview !== undefined
+                        : missingPath !== undefined
+                            ? <MissingFileState
+                                path={missingPath.startsWith('/') ? missingPath : `${root ?? ''}/${missingPath}`}
+                                onOpenFolder={() => {
+                                    const parent = missingPath.includes('/')
+                                        ? missingPath.split('/').slice(0, -1).join('/')
+                                        : '';
+                                    setMissingPath(undefined);
+                                    setPreview(undefined);
+                                    setPath(parent);
+                                }}
+                                onBack={() => {
+                                    setMissingPath(undefined);
+                                    setPreview(undefined);
+                                    if (routedFile !== undefined && routedFileOpened.current) router.back();
+                                }}
+                            />
+                            : preview !== undefined
                             ? <>
                                 <CodeCore code={preview.body} header fileName={preview.path} maxLines={PLUGIN_CODE_MAX_LINES} maxChars={PLUGIN_CODE_MAX_CHARS} />
                                 {preview.note !== '' && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 8 }}>{preview.note}</Text>}

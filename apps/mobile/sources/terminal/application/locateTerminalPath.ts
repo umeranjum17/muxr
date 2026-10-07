@@ -68,10 +68,12 @@ export async function locateTerminalPath(
     };
     if (input.observe) {
         const home = cwd?.match(/^(\/(?:Users|home)\/[^/]+)/)?.[1];
+        let longest: string | undefined;
         for (const hostPath of hostPaths) {
             const absolutePath = hostPath.startsWith('~/') && home
                 ? `${home}/${hostPath.slice(2)}`
                 : hostPath;
+            longest ??= absolutePath;
             const repo = repoOf(absolutePath);
             if (repo !== undefined) {
                 let isFile = true;
@@ -112,7 +114,10 @@ export async function locateTerminalPath(
                 // Unverifiable here; the next candidate may still name it.
             }
         }
-        return null;
+        // Nothing verified, but the tap named a file: like control mode,
+        // the longest comes back as a file so Files shows its designed
+        // missing state. Null is only for taps with no path at all.
+        return longest === undefined ? null : target('file', longest);
     }
     let longest: string | undefined;
     for (const hostPath of hostPaths) {
