@@ -192,8 +192,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     startButton: {
         alignItems: 'center',
         justifyContent: 'center',
-        height: 48,
+        minHeight: 48,
         paddingHorizontal: 16,
+        paddingVertical: 12,
         borderRadius: 10,
         backgroundColor: theme.colors.button.primary.background,
     },
@@ -208,6 +209,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.button.primary.tint,
         fontSize: 16,
         fontWeight: '700',
+        textAlign: 'center',
     },
 }));
 
@@ -540,7 +542,7 @@ export default function NewAgentScreen() {
                     {busy ? (
                         <ActivityIndicator color={theme.colors.button.primary.tint} />
                     ) : (
-                        <Text numberOfLines={1} style={[styles.startButtonText, !ready && styles.startButtonTextDisabled]}>
+                        <Text style={[styles.startButtonText, !ready && styles.startButtonTextDisabled]}>
                             {startButtonLabel(kinds, directory)}
                         </Text>
                     )}
