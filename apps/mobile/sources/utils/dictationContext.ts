@@ -41,11 +41,17 @@ export const BASE_DICTATION_NAMES = [
     'npm',
 ];
 
+function isPaneId(word: string): boolean {
+    // Pane ids read `pp_<hex>`; strip the prefix and the bare-hex rule
+    // already used for other id shapes drops the rest.
+    return /^[0-9a-f-]{8,}$/i.test(word.replace(/^pp_/i, ''));
+}
+
 function pushWord(out: string[], seen: Set<string>, word: string): void {
     const key = word.toLowerCase();
     if (word.length < 3 || seen.has(key)) return;
     // Ids, counts and paths steer nothing; a bare version or uuid only burns budget.
-    if (/^\d+$/.test(word) || /^[0-9a-f-]{8,}$/i.test(word)) return;
+    if (/^\d+$/.test(word) || isPaneId(word)) return;
     if (out.length >= DICTATION_BIAS_BUDGET.maxKeywords) return;
     seen.add(key);
     out.push(word);
@@ -56,6 +62,14 @@ function addName(out: string[], seen: Set<string>, value: string | null | undefi
     const trimmed = value?.trim();
     if (!trimmed || trimmed.startsWith('/') || trimmed.startsWith('~')) return;
     if (trimmed.length <= DICTATION_BIAS_BUDGET.maxKeywordChars) {
+        // Counts ride out of short titles; the words around them stay whole.
+        // A title with nothing left after that names no one, so it is dropped.
+        if (/\s/.test(trimmed)) {
+            const kept = trimmed.split(/\s+/).filter((word) => !/\d/.test(word) && !isPaneId(word));
+            if (kept.length === 0) return;
+            pushWord(out, seen, kept.join(' '));
+            return;
+        }
         pushWord(out, seen, trimmed);
         return;
     }
