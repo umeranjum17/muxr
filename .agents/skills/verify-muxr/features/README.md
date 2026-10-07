@@ -49,6 +49,8 @@ user-visible behavior, then exactly four H2 sections in this order:
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the
   same timeline.
+- [Scan a pairing QR from the terminal](./pairing-qr.md) —
+  `muxr pair` at normal/narrow widths and inside an isolated Herdr terminal.
 - [Check the self-host](./selfhost-health.md) — relay `/health`, version
   identity, and the owner-only hosts listing.
 - [Name the current workspace and pane](./agent-naming.md) — `muxr name`
