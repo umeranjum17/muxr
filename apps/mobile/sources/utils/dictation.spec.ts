@@ -729,6 +729,11 @@ describe('on-device dictation flow', () => {
         // Reported when the event lands, not on the next 1.5 s interval tick.
         await vi.advanceTimersByTimeAsync(0);
         expect(reported('settle-active-done')).toBe(true);
+        // done→idle after the report is not a second stop.
+        mocks.lifecycleEvents = [{ ...working, eventId: 'settle-active-idle', state: 'idle' }, settled('settle-active-done'), activeWorking];
+        notifyObserver();
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(reported('settle-active-idle')).toBe(false);
     });
 
     it('explains unavailable microphone input, keeps safe error detail and retries only on request', async () => {
