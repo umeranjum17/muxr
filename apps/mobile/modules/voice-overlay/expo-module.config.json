@@ -1,7 +1,8 @@
 {
   "platforms": ["apple", "android"],
   "apple": {
-    "modules": ["VoiceOverlayModule"]
+    "modules": ["VoiceOverlayModule"],
+    "appDelegateSubscribers": ["VoiceShortcutAppDelegateSubscriber"]
   },
   "android": {
     "modules": ["expo.modules.voiceoverlay.VoiceOverlayModule"]

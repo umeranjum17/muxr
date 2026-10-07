@@ -19,6 +19,14 @@ export default function TextSelectionScreen() {
     const insets = useSafeAreaInsets();
     const [fullText, setFullText] = React.useState<string>('');
     const [loading, setLoading] = React.useState(true);
+    const inputRef = React.useRef<TextInput>(null);
+    // The viewer stays editable on iOS so the system offers the full menu
+    // (Select, Select All, Copy) and Cmd+A: a non-editable field drops
+    // Select All. Every edit that reaches it is handed straight back, and no
+    // keyboard opens, so it never becomes an editor.
+    const revertViewerEdits = React.useCallback((next: string) => {
+        if (next !== fullText) inputRef.current?.setNativeProps({ text: fullText });
+    }, [fullText]);
 
     // Copy functionality
     const handleCopyAll = React.useCallback(async () => {
@@ -104,14 +112,19 @@ export default function TextSelectionScreen() {
                     <Text selectable style={[styles.textInput, { color: theme.colors.text }]}>{fullText}</Text>
                 ) : (
                     <TextInput
-                        style={[styles.textInput, { 
+                        ref={inputRef}
+                        style={[styles.textInput, {
                             color: theme.colors.text,
                             backgroundColor: 'transparent'
                         }]}
                         value={fullText}
                         multiline={true}
-                        editable={false}
+                        editable={Platform.OS === 'ios'}
                         selectTextOnFocus={false}
+                        showSoftInputOnFocus={false}
+                        autoCorrect={false}
+                        spellCheck={false}
+                        onChangeText={revertViewerEdits}
                         scrollEnabled={false}
                     />
                 )}

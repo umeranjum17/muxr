@@ -21,7 +21,6 @@ import { resolveForgetPushAction } from '@/utils/pushForget';
 import { loadAppConfig } from '@/catalog';
 import { versionsMismatch } from '@/utils/versionStatus';
 import { getAppVersion } from '@/utils/appVersion';
-import { DeclarativeSettingsItems } from '@/plugins/ui';
 import { usePlanAccountsAvailable } from '@/plans';
 import {
     collaborationSummary,
@@ -51,14 +50,12 @@ export const SettingsView = React.memo(function SettingsView({
     const appVersion = getAppVersion();
     const openConnection = React.useCallback(() => router.push('/settings/connection' as never), [router]);
     const openVoice = React.useCallback(() => router.push('/settings/voice' as never), [router]);
-    const openPlugins = React.useCallback(() => router.push('/settings/plugins' as never), [router]);
     const openAppearance = React.useCallback(() => router.push('/settings/appearance' as never), [router]);
     const openPreferences = React.useCallback(() => router.push('/settings/features' as never), [router]);
     const openNotifications = React.useCallback(() => router.push('/settings/notifications' as never), [router]);
     const openGestures = React.useCallback(() => router.push('/settings/gestures' as never), [router]);
     useRealtimeAppControl('Connection', openConnection, '/settings');
     useRealtimeAppControl('Voice & dictation', openVoice, '/settings');
-    useRealtimeAppControl('Plugins', openPlugins, '/settings');
     useRealtimeAppControl('Appearance', openAppearance, '/settings');
     useRealtimeAppControl('Preferences', openPreferences, '/settings');
     useRealtimeAppControl('Notifications', openNotifications, '/settings');
@@ -366,18 +363,11 @@ export const SettingsView = React.memo(function SettingsView({
                     onPress={() => router.push('/settings/accounts' as never)}
                 />}
                 <Item
-                    title="Plugins"
-                    subtitle="Extensions installed through Herdr on the computer"
-                    icon={<Ionicons name="extension-puzzle-outline" size={29} color="#5856D6" />}
-                    onPress={openPlugins}
-                />
-                <Item
                     title="Plugin guide"
                     subtitle="Install, approve and configure extensions"
                     icon={<Ionicons name="book-outline" size={29} color="#5856D6" />}
                     onPress={() => openExternalUrl('https://github.com/umeranjum17/muxr/blob/main/docs/PLUGINS.md')}
                 />
-                <DeclarativeSettingsItems />
             </ItemGroup>
 
             <ItemGroup title="Display and alerts">

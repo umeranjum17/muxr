@@ -1,28 +1,12 @@
 // Expo config plugin: Android launcher shortcuts.
 //
-// Product shortcuts are declared here; runtime-installed plugins add their own
-// `shortcuts` contributions through ShortcutManagerCompat. Static shortcuts are
-// baked at build time by Android's design.
+// Product shortcuts are declared here. Static shortcuts are baked at build
+// time by Android's design.
 const { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, unlinkSync } = require('fs');
 const { join } = require('path');
 const { withAndroidManifest, withDangerousMod, withInfoPlist, AndroidConfig } = require('expo/config-plugins');
 
-const PLUGINS_DIR = join(__dirname, '..', '..', '..', 'plugins');
 const BAKED_JS = join(__dirname, '..', 'sources', 'plugins', 'bundledShortcuts.json');
-
-function textVariants(value) {
-    if (typeof value === 'string') return { default: value, translations: {} };
-    return { default: value.default, translations: value.translations ?? {} };
-}
-
-function translated(value, locale) {
-    const variants = textVariants(value);
-    if (locale === undefined) return variants.default;
-    const exact = Object.entries(variants.translations).find(([tag]) => tag.toLowerCase() === locale.toLowerCase())?.[1];
-    if (exact !== undefined) return exact;
-    const base = locale.split('-')[0].toLowerCase();
-    return Object.entries(variants.translations).find(([tag]) => tag.toLowerCase() === base)?.[1] ?? variants.default;
-}
 
 function dedupe(values) {
     const seen = new Set();
@@ -50,41 +34,7 @@ const PRODUCT_SHORTCUTS = [{
 }];
 
 function bundledShortcuts() {
-    return [...PRODUCT_SHORTCUTS, ...pluginShortcuts()];
-}
-
-function pluginShortcuts() {
-    if (!existsSync(PLUGINS_DIR)) return [];
-    return readdirSync(PLUGINS_DIR, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .flatMap((entry) => {
-            const manifestPath = join(PLUGINS_DIR, entry.name, 'muxr-ui.json');
-            if (!existsSync(manifestPath)) return [];
-            let manifest;
-            try { manifest = JSON.parse(readFileSync(manifestPath, 'utf8')); } catch { return []; }
-            const pluginId = manifest.pluginId;
-            return (manifest.contributions ?? [])
-                .filter((contribution) => contribution.slot === 'shortcuts')
-                .map((contribution) => {
-                    const locales = [...new Set([contribution.label, contribution.longLabel, ...(contribution.synonyms ?? [])]
-                        .filter(Boolean).flatMap((value) => Object.keys(textVariants(value).translations)))].sort();
-                    const at = (locale) => {
-                        const label = translated(contribution.label, locale);
-                        return {
-                            label,
-                            longLabel: translated(contribution.longLabel ?? contribution.label, locale),
-                            synonyms: dedupe([label, ...(contribution.synonyms ?? []).map((value) => translated(value, locale))]),
-                        };
-                    };
-                    return {
-                        shortcutId: `${pluginId}.${contribution.id}`,
-                        resourceName: `${pluginId}.${contribution.id}`.replace(/[^a-z0-9]+/gi, '_').toLowerCase(),
-                        ...at(undefined),
-                        localized: Object.fromEntries(locales.map((locale) => [locale, at(locale)])),
-                        action: contribution.action,
-                    };
-                });
-        });
+    return [...PRODUCT_SHORTCUTS];
 }
 
 function escapeXml(value) {

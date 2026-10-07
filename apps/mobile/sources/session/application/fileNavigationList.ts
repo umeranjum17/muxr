@@ -135,6 +135,24 @@ export function openFileViewer(input: {
     return `/session/${encodeURIComponent(input.sessionId)}/file?${params}`;
 }
 
+/** Longest `contentContributionId` prefix at a dot boundary; exact id wins. */
+export function nearestContentMount<T extends { contentContributionId: string }>(
+    mounts: readonly T[],
+    contentId: string,
+): T | undefined {
+    let best: T | undefined;
+    let bestLen = -1;
+    for (const mount of mounts) {
+        const id = mount.contentContributionId;
+        if (id === contentId) return mount;
+        if (contentId.startsWith(`${id}.`) && id.length > bestLen) {
+            best = mount;
+            bestLen = id.length;
+        }
+    }
+    return best;
+}
+
 export function parentDirectory(path: string): string | null {
     if (path === '/' || path === '') return null;
     const slash = path.lastIndexOf('/');
