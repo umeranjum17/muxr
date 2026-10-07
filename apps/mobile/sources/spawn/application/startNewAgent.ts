@@ -14,8 +14,8 @@ import { startAgent } from './StartAgent';
 
 export type CatalogSource = 'loading' | 'host' | 'unknown' | 'fallback';
 
-export function catalogSourceLabel(source: CatalogSource): string {
-    if (source === 'host') return 'FROM HERDR';
+export function catalogSourceLabel(source: CatalogSource): string | undefined {
+    if (source === 'host') return undefined;
     if (source === 'loading') return 'CHECKING HOST';
     if (source === 'unknown') return 'HOST AVAILABILITY UNKNOWN';
     return 'OFFLINE FALLBACK';

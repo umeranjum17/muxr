@@ -2,6 +2,25 @@ export type SpawnRejection =
     | { kind: 'no-agent'; message: string }
     | { kind: 'no-directory'; message: string };
 
+const AGENT_DISPLAY_NAMES: Record<string, string> = {
+    shell: 'Shell (no agent)',
+    pi: 'Pi',
+    claude: 'Claude Code',
+    codex: 'Codex',
+    omp: 'OMP',
+    opencode: 'OpenCode',
+    droid: 'Factory Droid',
+    qodercli: 'Qoder CLI',
+};
+
+/** Display name shown for an agent kind, e.g. 'Claude Code' for 'claude'. */
+export function agentDisplayName(kind: string): string {
+    return (
+        AGENT_DISPLAY_NAMES[kind] ??
+        kind.replace(/(^|[-_])(\w)/g, (_, prefix, letter) => `${prefix ? ' ' : ''}${(letter as string).toUpperCase()}`)
+    );
+}
+
 /** One Agent or a squad the person is about to start. */
 export class SpawnRequest {
     constructor(
@@ -27,7 +46,7 @@ export class SpawnRequest {
         if (this.kinds.length === 0) return 'Choose an agent to start';
         if (this.directory === '') return 'Choose a folder to start';
         const where = this.directory.split('/').filter(Boolean).pop() ?? this.directory;
-        const what = this.kinds.length > 1 ? `${this.kinds.length} agents` : this.kinds[0];
+        const what = this.kinds.length > 1 ? `${this.kinds.length} agents` : agentDisplayName(this.kinds[0]);
         return `Start ${what} in ${where}`;
     }
 
