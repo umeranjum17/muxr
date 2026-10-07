@@ -154,9 +154,9 @@ interaction — into the stable `$EVIDENCE` folder above. Applied to this skill:
   is not a complete proof. Name the transcript and state files in the PR.
 - Skipped — no themed surfaces: the relay, host, and CLI this skill drives
   render no dark/light UI, so there is nothing to capture per theme.
-- Skipped — no form factors: this skill drives headless services and a text
-  CLI; phone and desktop widths change no surface it verifies. The phone app
-  is a separate surface with its own verification.
+- Phone app form factors are a separate surface with their own verification.
+  Terminal dimensions do affect pairing QR admission: `features/pairing-qr.md`
+  captures normal/narrow grids and an isolated Herdr terminal before/after.
 - Skipped — no motion: CLI output is text with no transitions or gestures,
   so there is no interaction to motion-record; the command transcript
   (`NN-command.log` with stdout, stderr, and exit code) is the equivalent
