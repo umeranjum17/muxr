@@ -30,8 +30,8 @@ const removedShims = ['sync', 'state', 'realtime', 'voice', 'auth', 'client'] as
 // removed here, and any new pair fails the check.
 const allowedFeatureCycles = [
     'account<->catalog', 'account<->pairing', 'catalog<->herd', 'catalog<->pairing',
-    'catalog<->watch', 'connection<->pairing', 'conversation<->plugins',
-    'conversation<->watch', 'herd<->plugins', 'herd<->spawn', 'herd<->terminal',
+    'catalog<->watch', 'connection<->pairing',
+    'conversation<->watch', 'herd<->spawn', 'herd<->terminal',
 ];
 
 // Cross-feature internal imports were repointed to public barrels during the

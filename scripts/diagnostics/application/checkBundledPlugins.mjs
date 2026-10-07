@@ -61,13 +61,15 @@ collectShell(join(root, 'apps/host/src'));
 // file setup migrates out of, and the host keeps a retraction list. Those lines
 // are a retention record, so the scan ignores them.
 const RETENTION_LINE = /RETIRED_PLUGIN_IDS|LEGACY_BUNDLED_PLUGIN_IDS|LEGACY_PLUGIN_IDS/;
-// The installed-plugin catalog is the one product surface that identifies
-// bundled plugins for grouping and configuration. Keep this exception local.
-const catalogScreens = new Set([
-    join(root, 'apps/mobile/sources/app/(app)/settings/plugins.tsx'),
+// Two product surfaces legitimately name a retired id: the launcher
+// shortcut route resolves baked shortcut aliases (including the
+// pre-canonicalization voice id), and nothing else reads them. Keep this
+// exception local.
+const aliasScreens = new Set([
+    join(root, 'apps/mobile/sources/app/(app)/shortcut/[id].tsx'),
 ]);
 for (const path of shellFiles) {
-    if (catalogScreens.has(path)) continue;
+    if (aliasScreens.has(path)) continue;
     const source = readFileSync(path, 'utf8')
         .split('\n')
         .filter((line) => !RETENTION_LINE.test(line))
