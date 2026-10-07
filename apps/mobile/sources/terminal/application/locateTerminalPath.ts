@@ -1,5 +1,6 @@
 import { filesList, filesRead, filesRepos, sessionReadFile } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
+import { isMissingFileError } from '@/utils/errors';
 import { terminalPathCandidates } from '../domain/safeTerminalLink';
 
 /** A tapped path as the host knows it. `repo` is set when the path sits in a
@@ -68,10 +69,12 @@ export async function locateTerminalPath(
     };
     if (input.observe) {
         const home = cwd?.match(/^(\/(?:Users|home)\/[^/]+)/)?.[1];
+        let longest: string | undefined;
         for (const hostPath of hostPaths) {
             const absolutePath = hostPath.startsWith('~/') && home
                 ? `${home}/${hostPath.slice(2)}`
                 : hostPath;
+            longest ??= absolutePath;
             const repo = repoOf(absolutePath);
             if (repo !== undefined) {
                 let isFile = true;
@@ -79,7 +82,9 @@ export async function locateTerminalPath(
                     await filesRead(input.sessionId, { root: repo.root, path: repo.relative });
                 } catch (error) {
                     const message = error instanceof Error ? error.message : String(error);
-                    if (message !== 'file unavailable' && message !== 'outside repository') throw error;
+                    // Gone (a missing file or a missing folder root) is not
+                    // a file; anything else is a real failure to surface.
+                    if (!isMissingFileError(message) && message !== 'outside repository') throw error;
                     isFile = false;
                 }
                 if (isFile) {
@@ -112,7 +117,9 @@ export async function locateTerminalPath(
                 // Unverifiable here; the next candidate may still name it.
             }
         }
-        return null;
+        // Nothing verified: like control mode, the longest comes back
+        // as a file so Files shows its missing state.
+        return longest === undefined ? null : target('file', longest);
     }
     let longest: string | undefined;
     for (const hostPath of hostPaths) {

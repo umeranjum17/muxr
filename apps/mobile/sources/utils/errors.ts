@@ -32,3 +32,8 @@ export function humanError(cause: unknown): HumanError {
     }
     return { title: 'Something went wrong', message: "That didn't work. Try again in a moment.", details: raw || undefined };
 }
+
+/** Host read errors that mean the file is simply gone. */
+export function isMissingFileError(message: string): boolean {
+    return /file unavailable|unknown repository|ENOENT|no such file/i.test(message);
+}

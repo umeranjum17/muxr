@@ -62,4 +62,23 @@ describe('locateTerminalPath in observe mode', () => {
         expect(mocks.request).not.toHaveBeenCalled();
         expect(mocks.sessionReadFile).not.toHaveBeenCalled();
     });
+
+    it('returns a missing repository file as a file so Files shows its missing state', async () => {
+        // The read refuses and no folder claims the name.
+        mocks.filesRead.mockRejectedValue(new Error('file unavailable'));
+        mocks.filesList.mockResolvedValue({ tree: [] });
+
+        const target = await locateTerminalPath('/home/umer/project/src/gone.ts', {
+            sessionId: 'session-1',
+            cwd: '/home/umer/project',
+            observe: true,
+        });
+
+        expect(target).toEqual({
+            kind: 'file',
+            path: '/home/umer/project/src/gone.ts',
+            repo: { root: '/home/umer/project', relative: 'src/gone.ts' },
+        });
+        expect(mocks.sessionReadFile).not.toHaveBeenCalled();
+    });
 });
