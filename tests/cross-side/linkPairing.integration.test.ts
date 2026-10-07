@@ -16,6 +16,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, tmpdir } from 'node:os';
+import { get } from 'node:http';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
@@ -146,16 +147,25 @@ interface ComputerPairingOptions {
 }
 
 /** Starts a computer pairing and resolves once its QR is on screen. */
-async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>): Promise<{
+async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>, localPage = false): Promise<{
     pairing: Promise<unknown>;
     offer: string;
+    pageUrl?: string;
     abort: () => Promise<void>;
 }> {
     let out = '';
     const controller = new AbortController();
     options = { ...options, signal: controller.signal };
     const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => { out += String(chunk); return true; });
-    const pairing = runComputerPairing(readSelfhostState(), options).finally(() => spy.mockRestore());
+    const tty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    if (localPage) Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: true });
+    const pairing = runComputerPairing(readSelfhostState(), options).finally(() => {
+        spy.mockRestore();
+        if (localPage) {
+            if (tty) Object.defineProperty(process.stdout, 'isTTY', tty);
+            else Reflect.deleteProperty(process.stdout, 'isTTY');
+        }
+    });
     // The machine runs one pairing at a time and frees its slot only when the
     // pairing's socket closes. A test whose offer never appears must cancel
     // its pairing, or it wedges that slot against every later pairing in the
@@ -167,7 +177,8 @@ async function showPairingQr(options: Omit<ComputerPairingOptions, 'signal'>): P
     };
     const offer = await until(() => /(?:https?:\/\/[^\s]+\/pair#)?byokit-link:1:[A-Za-z0-9_-]+/.exec(out)?.[0], 'pairing offer on screen', 30_000)
         .catch(async (error: unknown) => { await stop(); throw error; });
-    return { pairing, offer, abort: stop };
+    const pageUrl = localPage ? /http:\/\/127\.0\.0\.1:\d+\/[a-f0-9]+/.exec(out)?.[0] : undefined;
+    return { pairing, offer, pageUrl, abort: stop };
 }
 
 function machineGrant(stored: StoredHostedGrant): DeviceGrant {
@@ -241,16 +252,33 @@ describe('native pairing over the byokit link', () => {
             credential: 'old-relay-credential', deviceId: 'old-device' }));
         let computerWords = '';
         let computerSawName = '';
-        const { pairing, offer } = await showPairingQr({
+        const { pairing, offer, pageUrl, abort } = await showPairingQr({
             approve: async (req) => {
                 computerWords = req.words;
                 computerSawName = req.name;
                 return true;
             },
-        });
+        }, true);
         expect(offer).toMatch(/^byokit-link:1:/);
         let phoneWords = '';
-        const stored = await runPhonePairing(offer, { onWords: (words) => { phoneWords = words; } });
+        let stored: StoredHostedGrant;
+        try {
+            expect(pageUrl).toBeDefined();
+            expect((await fetch(pageUrl!)).headers.get('cache-control')).toBe('no-store');
+            const rebindingStatus = await new Promise<number | undefined>((resolve, reject) => {
+                get(pageUrl!, { headers: { host: 'attacker.invalid' }, timeout: 5_000 }, (response) => {
+                    response.resume();
+                    resolve(response.statusCode);
+                }).on('error', reject);
+            });
+            expect(rebindingStatus).toBe(403);
+            expect((await fetch(new URL('/unknown', pageUrl!))).status).toBe(404);
+            const displayed = await fetch(`${pageUrl}/offer`).then((response) => response.json());
+            expect(displayed.text).toBe(offer);
+            expect(displayed.svg).toContain('aria-label="Pairing QR"');
+            // The phone claims exactly what the local QR page displays.
+            stored = await runPhonePairing(displayed.text, { onWords: (words) => { phoneWords = words; } });
+        } catch (error) { await abort(); throw error; }
         expect(computerSawName).toBe('Android phone');
         expect(computerWords).not.toBe('');
         expect(phoneWords).toBe(computerWords);
@@ -263,6 +291,7 @@ describe('native pairing over the byokit link', () => {
         expect(stored.credential).toBe(''); // link-only: no relay credential until the cutover
         expect(stored.machineId).toBe(state.machine.id);
         expect(await pairing).toMatchObject({ deviceId: record!.deviceId, devicePublicKey: record!.devicePublicKey });
+        await expect(fetch(pageUrl!)).rejects.toThrow();
 
         // The machine link serves the freshly paired phone.
         const statuses: LinkStatus[] = [];
