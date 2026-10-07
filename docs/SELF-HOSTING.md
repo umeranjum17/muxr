@@ -45,38 +45,41 @@ automation uses `muxr shared-relay`, `muxr machines enroll|list|revoke`, and
 ## Reaching the relay from your phone
 
 Interactive `muxr setup` shows all six routes together, each with an explanatory
-sentence and exactly one **Recommended** tag: Same Wi-Fi, Tailscale — works
-anywhere (Serve), Tailscale — direct (phone app only), an existing private
-network, a temporary public link (Cloudflare), and your own server. Unavailable
-routes explain what to install or connect before retrying.
+sentence and exactly one **Recommended** tag: Works only on this Wi-Fi, three
+away-from-home routes (Tailscale, your private network, a temporary link), and
+your own server. Unavailable routes explain what to install or connect before
+retrying.
 
-Connected Tailscale is recommended first, using direct Tailscale when Serve is
-proven disabled or occupied. Without connected Tailscale, the healthy current
-route is recommended if it is still selectable; setup then prefers a detected
-private network, then ready Same Wi-Fi, then an installed Tailscale route that
-can connect during **Apply setup**, then an available Cloudflare tunnel. If
-none of those is available, **Your own server** is recommended; you must supply
+The connected Tailscale route is recommended first, using phone-only Tailscale
+when Serve is proven disabled or occupied. Without connected Tailscale, the
+healthy current route is recommended if it is still selectable; setup then
+prefers a detected private network, then an installed Tailscale route that
+connects during **Apply setup**, then an available Cloudflare tunnel, then
+Works only on this Wi-Fi — the Wi-Fi-only route is never the default while an
+away-from-home route exists, and every screen that shows it warns that it stops
+working when the phone leaves home. If
+none of those is available, **your own server** is recommended; you must supply
 an existing secure `wss://` endpoint. If another VPN is active on your phone,
-the picker advises Same Wi-Fi with that VPN's allow-local-network option, or
-pausing the VPN to use Tailscale.
+the picker advises Works only on this Wi-Fi with that VPN's allow-local-network
+option, or pausing the VPN to use muxr away from home.
 Automation uses:
 
 | Flag | What happens |
 |---|---|
 | `--advertise <url>` | Explicit relay URL wins. Use your own domain/reverse proxy. |
 | `--tunnel` | Spawns `cloudflared` for a public `trycloudflare.com` URL. The URL is ephemeral; use a named tunnel for permanence. |
-| *(choose Tailscale Serve)* | Uses private HTTPS through `tailscale serve`; the relay stays on loopback. |
+| *(choose Use muxr away from home (Tailscale))* | Uses private HTTPS through `tailscale serve`; the relay stays on loopback. |
 | `--tailscale-direct` | Uses the tailnet IP directly. |
 | *(detected private network)* | Uses the address on an existing NetBird, WireGuard, ZeroTier, or similar interface. The phone must join that same private network. |
-| *(choose Same Wi-Fi)* | Local network address. Phone must be on the same trusted network. |
+| *(choose Works only on this Wi-Fi)* | Home network only: the phone stops working when it leaves this Wi-Fi. Never the default while an away-from-home route exists. |
 | *(choose Direct SSH in the native app)* | Pair through the host's loopback relay over SSH; see [Direct SSH](#direct-ssh). |
 
-For either Tailscale route, connect the phone to the same tailnet before pairing.
+For either Tailscale route, install the free Tailscale app on your phone and sign in to the same account before pairing.
 Nearby mDNS discovery is only a locator for an already-paired native app; it
 never grants a new device access. A new phone still needs a one-time link offer, and the PWA cannot scan local
 mDNS advertisements.
 
-Before applying Serve, the wizard checks that it is available and not already owned. A timeout or invalid JSON response is inconclusive and does not disqualify Serve from the recommendation policy above; the bounded Apply decides whether it works. Proven disabled or occupied Serve is unavailable in the picker; muxr preserves the existing state and offers direct Tailscale.
+Before applying Serve, the wizard checks that it is available and not already owned. A timeout or invalid JSON response is inconclusive and does not disqualify Serve from the recommendation policy above; the bounded Apply decides whether it works. Proven disabled or occupied Serve is unavailable in the picker; muxr preserves the existing state and offers phone-only Tailscale.
 
 ### Direct SSH
 
@@ -96,7 +99,7 @@ for the routing contract. The desktop can use this route too; see [remote deskto
 
 Connection & updates also exports and installs the login key. The private key's public half — pasted on that screen or saved on this device — can be copied, shared, or saved as a `.pub` file for any algorithm, including Ed25519. For RSA and ECDSA keys, **Install public key** shows its exact shell command first and runs it only after you confirm: it appends the key to `~/.ssh/authorized_keys` on the paired computer's confirmed SSH account, preserves existing entries and permissions, skips a key that is already present, and records a guarded undo that refuses to roll back if `authorized_keys` changed after the install. Ed25519 stays export-only in the key-install flow. Installation is available on native Android and iOS; the browser keeps pairing and relay access and says so instead.
 
-The first successful SSH connection pins the SSH server's `SHA256:` host-key fingerprint on this device. A changed fingerprint blocks the new connection and tells you to review the machine rather than silently trusting a replacement; an already-live tunnel is not closed by this check. The SSH user must be allowed to log in and the muxr relay must be listening on the configured loopback port. PWA does not show this control because browsers cannot open native SSH connections; use Tailscale, a private network, Same Wi-Fi, or your own stable WSS endpoint there.
+The first successful SSH connection pins the SSH server's `SHA256:` host-key fingerprint on this device. A changed fingerprint blocks the new connection and tells you to review the machine rather than silently trusting a replacement; an already-live tunnel is not closed by this check. The SSH user must be allowed to log in and the muxr relay must be listening on the configured loopback port. PWA does not show this control because browsers cannot open native SSH connections; use an away-from-home route, or the Wi-Fi-only route while both are home.
 
 SSH forwards the loopback relay for pairing and control; it does not authorize a device, replace a grant, or remove E2EE. The desktop picture and controls use WebRTC, not that relay: directly when the phone can reach the computer, or over TCP through a second forward on the same SSH connection when it cannot, so a phone that can reach only SSH (port 22) still views and controls the desktop. Tailscale needs less per-device credential setup and reconnects without a separate SSH session; see the [route picker](#reaching-the-relay-from-your-phone) for its recommendation policy.
 

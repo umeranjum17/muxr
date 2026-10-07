@@ -79,10 +79,10 @@ export function parseConnection(state: unknown): Result<Connection> {
                 return 'Browser hosting must be enabled by the shared-relay owner, then this computer must reconnect with a fresh enrollment.';
             }
             if (mode === 'cloudflare') {
-                return 'The current quick Cloudflare URL is temporary. Change setup to Tailscale Serve or your own stable WSS endpoint before enabling browser access.';
+                return 'The current quick Cloudflare URL is temporary. Run `muxr setup` and choose a route that works away from home before enabling browser access.';
             }
             if (!secure) {
-                return 'Browser access needs a secure HTTPS connection. Change this setup to Tailscale Serve or your own WSS endpoint first.';
+                return 'Browser access needs a secure connection. Run `muxr setup` and choose a route that works away from home first.';
             }
             return undefined;
         },
@@ -173,7 +173,7 @@ export function connectionLabel(mode: string, endpoint: string | undefined, port
     if (mode === 'tailscale') return `Tailscale Serve on local port ${port}`;
     if (mode === 'tailscale-direct') return `Direct Tailscale on port ${port}`;
     if (mode === 'private') return `Private network on port ${port}`;
-    if (mode === 'lan') return `Trusted LAN on port ${port}`;
+    if (mode === 'lan') return `Wi-Fi-only route on port ${port} (stops working away from home)`;
     if (mode === 'cloudflare') return `Cloudflare quick tunnel to local port ${port}`;
     return `External ${endpoint ?? ''}`;
 }

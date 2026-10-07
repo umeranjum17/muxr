@@ -181,13 +181,24 @@ export function removeManaged(path, entry, manifest, { dryRun, force }) {
     return true;
 }
 
-export async function askVisible(question) {
-    if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise((resolve) => rl.question(question, (answer) => {
-        rl.close();
-        resolve(/^y(?:es)?$/i.test(answer.trim()));
-    }));
+export async function askVisible(question, { piped = false } = {}) {
+    if (process.stdin.isTTY && process.stdout.isTTY) {
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        return new Promise((resolve) => rl.question(question, (answer) => {
+            rl.close();
+            resolve(/^y(?:es)?$/i.test(answer.trim()));
+        }));
+    }
+    if (!piped) return false;
+    if (process.stdin.isTTY) return false;
+    print(question);
+    return new Promise((resolve) => {
+        const rl = createInterface({ input: process.stdin });
+        let settled = false;
+        const done = (value) => { if (!settled) { settled = true; rl.close(); resolve(value); } };
+        rl.once('line', (answer) => done(/^y(?:es)?$/i.test(answer.trim())));
+        rl.once('close', () => done(false));
+    });
 }
 
 export function xml(text) {
