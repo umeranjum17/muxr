@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => ({
     voiceReports: () => mocks.syncRequest.mock.calls.filter((call) => call[0] === 'voice.report'),
     voicePending: [] as Array<Record<string, unknown> & { identity: string; attempts: number; readyAt: number }>,
     voiceDelivered: [] as string[],
+    admit: undefined as undefined | ((identity: string) => string | undefined),
     lifecycleEvents: [] as Array<Record<string, unknown> & { eventId: string }>,
     prebaselineLifecycleEvents: [] as Array<Record<string, unknown> & { eventId: string }>,
     lifecycleCatalogInitialized: true,
@@ -99,6 +100,7 @@ vi.mock('@/catalog/store', () => ({
         lifecycleCatalogInitialized: mocks.lifecycleCatalogInitialized,
         lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable,
         admitVoiceReport: (report: Record<string, unknown> & { identity: string; attempts: number; readyAt: number }) => {
+            const forced = mocks.admit?.(report.identity); if (forced !== undefined) return forced;
             if (mocks.voiceDelivered.includes(report.identity)) return 'delivered';
             if (mocks.voicePending.some((entry) => entry.identity === report.identity)) return 'pending';
             mocks.voicePending = [...mocks.voicePending, report];
@@ -633,60 +635,57 @@ describe('on-device dictation flow', () => {
         stopRealtimeSession();
         expect(realtimeWatchTarget()).toBeNull();
 
-        // A watched working→done files its voice report; a failed delivery stays queued until spoken.
-        const moved = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
-        mocks.startRealtimeSession.mockReturnValue(moved);
+        // The agent-stop reporter retries a full report queue even after the event leaves the bounded catalog,
+        // tries an invalid report once, and after a catalog reset re-reports a stop still in flight exactly once.
+        mocks.startRealtimeSession.mockReturnValue({ stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() });
         startRealtimeSession('session-a');
         let movedPrevious: Record<string, unknown> = {};
         const notifyMoved = () => {
-            const movedState = {
-                lifecycleEvents: mocks.lifecycleEvents,
-                prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents,
-                sessions: mocks.sessions,
-                lifecycleCatalogInitialized: mocks.lifecycleCatalogInitialized,
-                lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable,
-                voicePendingReports: mocks.voicePending,
-                voiceReportScopeGeneration: 1,
-            };
+            const movedState = { lifecycleEvents: mocks.lifecycleEvents, prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents, sessions: mocks.sessions,
+                lifecycleCatalogInitialized: true, lifecycleCatalogAvailable: mocks.lifecycleCatalogAvailable, voicePendingReports: mocks.voicePending, voiceReportScopeGeneration: 1 };
             for (const listener of mocks.storageListeners) listener(movedState, movedPrevious);
             movedPrevious = movedState;
         };
         act(() => { renderer = TestRenderer.create(React.createElement(PluginHarness)); });
         const movedWorking = { eventId: 'moved-working', sessionId: 'session-a', state: 'working', agentName: 'Wren', taskTitle: 'Prove the move' };
-        const movedDone = { ...movedWorking, eventId: 'moved-done', state: 'done' };
         mocks.lifecycleEvents = [movedWorking];
         notifyMoved();
-        await vi.advanceTimersByTimeAsync(1_500);
-        let voiceCalls = 0;
-        const baseImpl = mocks.syncRequest.getMockImplementation()!;
-        mocks.syncRequest.mockImplementation(async (method: string, input: never) => {
-            if (method === 'voice.report' && voiceCalls++ === 0) throw new Error('link down');
-            return baseImpl(method, input);
-        });
-        const reportsBefore = mocks.voiceReports().length;
-        mocks.lifecycleEvents = [movedDone, movedWorking];
+        const admits: string[] = [];
+        const attempts = (id: string) => admits.filter((seen) => seen === id).length;
+        mocks.admit = (id) => {
+            admits.push(id);
+            if (id === 'stop-invalid') return 'invalid';
+            if (id === 'stop-deferred') return 'admitted';
+            return attempts(id) === 1 ? 'full' : 'delivered';
+        };
+        const bWorking = { ...movedWorking, eventId: 'b-working', sessionId: 'session-b' };
+        mocks.lifecycleEvents = [{ ...bWorking, eventId: 'stop-invalid', state: 'failed' }, { ...bWorking, eventId: 'b-again' }, { ...bWorking, eventId: 'stop-full', state: 'done' }, bWorking, movedWorking];
         notifyMoved();
         await vi.advanceTimersByTimeAsync(0);
-        expect(mocks.voicePending.some((entry) => entry.identity === 'moved-done')).toBe(true);
-        expect(moved.speak).not.toHaveBeenCalled();
-        // The failed delivery stays queued and the hook retries it.
-        const movedProvider = mocks.startRealtimeSession.mock.calls.at(-1)![0] as {
-            onStatus: (status: 'connected' | 'thinking' | 'speaking' | 'disconnected', detail?: string) => void;
-        };
-        movedProvider.onStatus('connected');
-        await vi.advanceTimersByTimeAsync(30_000);
-        expect(mocks.voicePending.some((entry) => entry.identity === 'moved-done')).toBe(true);
-        expect(mocks.voiceReports().length).toBeGreaterThan(reportsBefore);
-        // Once the retry lands, the queued report speaks and drains.
-        movedProvider.onStatus('thinking');
-        movedProvider.onStatus('connected');
+        expect(admits).toEqual(['stop-full', 'stop-invalid']);
+        mocks.lifecycleEvents = [...Array.from({ length: 50 }, (_, index) => ({ ...movedWorking, eventId: `newer-${index}`, sessionId: `newer-${index}` })), movedWorking];
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(attempts('stop-full')).toBe(2);
+        expect(attempts('stop-invalid')).toBe(1);
+        expect(mocks.voicePending).toEqual([]);
+        const deferred = { ...movedWorking, eventId: 'stop-deferred', state: 'done' };
+        mocks.lifecycleEvents = [deferred, movedWorking];
+        notifyMoved();
         await vi.advanceTimersByTimeAsync(0);
-        expect(moved.speak).toHaveBeenLastCalledWith('Wren: done');
-        expect(mocks.voiceDelivered).toContain('moved-done');
-        expect(mocks.voicePending.some((entry) => entry.identity === 'moved-done')).toBe(false);
-        expect(micOwners()).toEqual(['realtime']);
+        expect(attempts('stop-deferred')).toBe(1);
+        mocks.lifecycleCatalogAvailable = false;
+        notifyMoved();
+        mocks.prebaselineLifecycleEvents = [deferred];
+        mocks.lifecycleCatalogAvailable = true;
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(attempts('stop-deferred')).toBe(2);
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(attempts('stop-deferred')).toBe(2);
+        expect(admits).toEqual(['stop-full', 'stop-invalid', 'stop-full', 'stop-deferred', 'stop-deferred']);
+        mocks.admit = undefined;
         stopRealtimeSession();
-        expect(micOwners()).toEqual([]);
         act(() => { renderer?.unmount(); });
         renderer = null;
     });
