@@ -19,7 +19,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
-import { homedir } from 'node:os';
+import { devHerdrSocket } from '../application/devHerdrSocket.mjs';
 import { sourcePlugins as startSourcePlugins } from '../application/sourcePlugins.mjs';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
@@ -48,7 +48,8 @@ Ports are pre-checked: an occupied port fails the command instead of
 killing whatever owns it. Ctrl-C stops everything this command started.
 For isolated worktrees, set MUXR_DEV_METRO_PORT, MUXR_DEV_RELAY_PORT, and
 MUXR_DEV_HOST_HTTP_PORT to unused ports, plus HERDR_SOCKET_PATH to that lab
-session's socket. Never point a test stack at the default Herdr socket.
+session's socket. Startup refuses an unset or default socket unless you
+explicitly set MUXR_DEV_ALLOW_DEFAULT_HERDR=1 on your own machine.
 Native changes still need \`yarn dev:android\` (explicit APK rebuild).
 `);
     process.exit(0);
@@ -57,6 +58,14 @@ if (args.length > 0) {
     process.stderr.write('Unknown arguments. Use yarn dev --help.\n');
     process.exit(1);
 }
+let upstreamPath;
+try {
+    upstreamPath = devHerdrSocket();
+} catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exit(1);
+}
+
 function selectedPort(name, fallback) {
     const value = process.env[name];
     if (value === undefined) return fallback;
@@ -314,7 +323,7 @@ for (const [label, script] of [['setup-push', 'setup-push'], ['setup-canvaskit',
 // Capture upstream from the original environment, never from the adapter override.
 sourcePluginsStarting = startSourcePlugins({
     root,
-    upstreamPath: devEnvBase.HERDR_SOCKET_PATH?.trim() || join(homedir(), '.config', 'herdr', 'herdr.sock'),
+    upstreamPath,
     onError: (error) => { process.stderr.write(`dev | source plugin adapter failed: ${error.message}\n`); finish(1); },
 });
 try {

@@ -18,8 +18,13 @@ You need Node ≥ 22, the Yarn version declared by `packageManager` in
 [herdr](https://herdr.dev) running (`herdr server`). Without herdr, the fake
 host (`yarn host`) drives a scripted agent so mobile work needs no real agents.
 
-Dev loop: `yarn up` (relay + host), then the app dev server with
-`cd apps/mobile && yarn start`. `yarn doctor` diagnoses a stack that will not come up.
+Dev loop: `HERDR_SOCKET_PATH=/path/to/lab/herdr.sock yarn dev` starts the
+isolated relay + host and app dev server. An unset socket, or a path resolving
+to the default Herdr socket, is refused before builds or services start.
+On your own machine, `MUXR_DEV_ALLOW_DEFAULT_HERDR=1 yarn dev` explicitly
+allows the default session. The suite uses the same guard for live Herdr
+checks and skips them without an admitted socket; non-live checks still run.
+`yarn doctor` diagnoses a stack that will not come up.
 The unsupported local relay fixture lives in
 [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md); local Android builds live in
 [docs/NATIVE-BUILD.md](docs/NATIVE-BUILD.md).
