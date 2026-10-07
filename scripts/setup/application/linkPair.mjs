@@ -326,12 +326,12 @@ function showOffer(offer, intent) {
         ? `This one-time link grants ${intent.authority === 'observe' ? 'view-only' : 'control'} browser access for ${intent.grantDurationLabel()}. Keep it private.`
         : 'This one-time QR grants a phone control of agent sessions on this computer. Keep it private.');
     print(`Pairing code expires at ${new Date(offer.expires).toLocaleString()}.`);
-    if (process.stdout.isTTY) printTerminalQr(offer.text);
     print(offer.text);
     print(intent.kind === 'browser'
         ? 'Open it in the browser, then compare the two words on this screen before approving.'
         : 'Scan it with the muxr app, then compare the two words on this screen with the phone before approving.');
     print('Waiting for the device to finish pairing…');
+    if (process.stdout.isTTY) printTerminalQr(offer.text);
 }
 
 async function showApproval(req) {

@@ -43,12 +43,12 @@ export async function enrollMachine() {
             ...(typeof created.body.web_url === 'string' ? { web: created.body.web_url } : {}) })).toString('base64url');
         const link = `muxr://enroll?payload=${payload}`;
         print('');
-        if (process.stdout.isTTY) await printTerminalQr(link);
         print('Machine enrollment string (single-use, expires in five minutes):');
         print(link);
         const path = join(stateDir(), 'enrollment-link.txt');
         writeFileSync(path, `${link}\n`, { mode: 0o600 });
         print(`  saved exact enrollment string to ${path}`);
+        if (process.stdout.isTTY) await printTerminalQr(link);
         return 0;
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));

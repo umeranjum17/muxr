@@ -306,6 +306,7 @@ export default function NewAgentScreen() {
     }, []);
 
     const kinds = [...selected];
+    const sourceLabel = catalogSourceLabel(catalogSource);
     const squad = kinds.length > 1;
     const unavailableCount = catalog.filter((option) => option.availability !== 'installed').length;
     const visibleCatalog = showUnavailableAgents
@@ -394,9 +395,11 @@ export default function NewAgentScreen() {
                     <View style={styles.sectionLabelRow}>
                         <Text style={styles.sectionLabel}>AGENT</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Text style={styles.squadBadgeText}>
-                                {catalogSourceLabel(catalogSource)}
-                            </Text>
+                            {sourceLabel !== undefined && (
+                                <Text style={styles.squadBadgeText}>
+                                    {sourceLabel}
+                                </Text>
+                            )}
                             {squad && (
                                 <View style={styles.squadBadge}>
                                     <Ionicons name="grid" size={11} color={theme.colors.accent} />
@@ -439,14 +442,10 @@ export default function NewAgentScreen() {
                                     ]}
                                 >
                                     <AgentGlyph name={option.kind} size={40} selected={isSelected} dim={!available} />
-                                    {/* The first word, then the rest, each one line shrunk to fit: a name never breaks inside a word. */}
-                                    <View style={{ alignSelf: 'stretch', alignItems: 'center' }}>
-                                        {agentName(option.kind).replace(' ', '\n').split('\n').map((line, index) => (
-                                            <Text key={index} style={styles.agentName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
-                                                {line}
-                                            </Text>
-                                        ))}
-                                    </View>
+                                    {/* One size for every name; wraps to two lines at word boundaries, never shrunk per name. */}
+                                    <Text style={styles.agentName} numberOfLines={2}>
+                                        {agentName(option.kind)}
+                                    </Text>
                                     {availability !== undefined && (
                                         <Text style={styles.agentAvailability}>
                                             {available ? availability : 'Not installed'}
