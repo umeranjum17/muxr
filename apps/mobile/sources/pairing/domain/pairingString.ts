@@ -8,18 +8,66 @@ const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e
  * tell a pairing QR from a wifi code or a poster. It lives beside the parser
  * because the two have to agree: a shape this rejects never reaches pairing at
  * all, which the user sees as a scan that silently does nothing.
+ *
+ * Pre-link shapes stay recognizable so the classifier can name a genuinely
+ * old relay code: anything carrying the current link tag but failing the
+ * offer shape is a cut-off current code, never old.
  */
 const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#|^byokit-link:1:/i;
 const LINK_OFFER = /^byokit-link:1:[A-Za-z0-9_-]+$/;
 
-export const STALE_PAIRING_CODE = 'This pairing code is from an older muxr and will not work. On the computer, run the Update muxr action, then run `muxr pair` for a new code. If there is no Update muxr action, update muxr on the computer first — pairing needs the new version.';
+export const LEGACY_PAIRING_CODE = 'This code came from muxr 0.2.0 or older. On the computer run `npm i -g @trymuxr/cli@latest`, then `muxr pair`.';
+
+export const CUTOFF_PAIRING_CODE = 'This string is cut off. Copy all of it, or scan the QR.';
+
+export const NOT_A_PAIRING_STRING = "That isn't a muxr pairing string.";
+
+export const EXPIRED_PAIRING_CODE = 'That pairing code has run out. Show a new one on your computer.';
+
+/** What `muxr pair` printed before the link offers: the only input that is genuinely an old version. */
+const WS_LEGACY_CODE = /^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=/i;
+
+/** True only when the input decodes as an offer whose time has passed; undecodable input never counts as expired. */
+export function linkOfferExpired(value: string): boolean {
+    try {
+        return parseOffer(value.replace(/\s+/g, ''), 0).expires < Date.now();
+    } catch {
+        return false;
+    }
+}
+
+export type PairingInputDecision
+    = { ok: true; offer: string }
+    | { ok: false; message: string; expired: boolean };
+
+/**
+ * One taxonomy for every pairing entry: the stripped offer when the input can
+ * pair, otherwise the true reason in plain words. A wrapped or retyped
+ * current code pairs once its whitespace is stripped; only the legacy relay
+ * shape names an old version.
+ */
+export function decidePairingInput(value: string): PairingInputDecision {
+    const compact = value.replace(/\s+/g, '');
+    if (looksLikeLinkOffer(compact)) {
+        if (linkOfferExpired(compact)) return { ok: false, message: EXPIRED_PAIRING_CODE, expired: true };
+        try {
+            parseOffer(compact);
+        } catch {
+            return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
+        }
+        return { ok: true, offer: compact };
+    }
+    if (WS_LEGACY_CODE.test(compact)) return { ok: false, message: LEGACY_PAIRING_CODE, expired: false };
+    if (/byokit-link:/i.test(value)) return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
+    return { ok: false, message: NOT_A_PAIRING_STRING, expired: false };
+}
 
 /** A pairing this code can no longer finish: the next step is a new code from the computer, not a retry. */
 export class PairingNeedsNewCode extends Error {}
 
-/** Unwrap only the registered app schemes or an HTTPS /pair link; byokit validates the offer itself. */
+/** Unwrap only the registered app schemes or an HTTPS /pair link; byokit validates the offer itself. Inner whitespace (terminal wrapping, retype gaps) is stripped: it can never be part of an offer. */
 export function linkOfferFromUrl(value: string): string | undefined {
-    const input = value.trim();
+    const input = value.replace(/\s+/g, '');
     if (LINK_OFFER.test(input)) return input;
     try {
         const url = new URL(input);

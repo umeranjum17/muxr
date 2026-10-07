@@ -17,7 +17,7 @@ import { clearPairingSecrets, deletePendingPair, readPendingPair, writePendingPa
 import { getCachedConnectionSettings, loadConnectionSettingsAsync, saveConnectionSettings } from '@/connection';
 import { restoreConnection } from './restoreConnection';
 
-export { hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, looksLikeLinkOffer, PairingNeedsNewCode, prepareHostedPairingInput, STALE_PAIRING_CODE } from '../domain/pairingString';
+export { CUTOFF_PAIRING_CODE, decidePairingInput, EXPIRED_PAIRING_CODE, hostedPairingAuthority, hostedPairingDisplayName, hostedPairingDuration, LEGACY_PAIRING_CODE, linkOfferExpired, looksLikeLinkOffer, NOT_A_PAIRING_STRING, PairingNeedsNewCode, type PairingInputDecision, prepareHostedPairingInput } from '../domain/pairingString';
 
 export interface StoredHostedGrant extends DeviceGrant {
     deviceKey: KeyPair;

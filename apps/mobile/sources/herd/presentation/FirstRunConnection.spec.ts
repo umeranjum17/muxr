@@ -70,6 +70,17 @@ vi.mock('@/utils/openExternalUrl', () => ({ openExternalUrl: vi.fn() }));
 
 import { FirstRunConnection } from './FirstRunConnection';
 import { Modal } from '@/modal';
+import { offerText } from '@byokit/link';
+
+function freshOffer(): string {
+    return offerText({ v: 1, host: Buffer.alloc(32, 1).toString('base64url'), ticket: Buffer.alloc(16, 2).toString('base64url'),
+        urls: ['wss://relay.example.test/link/v1/host'], expires: Date.now() + 120_000, name: 'Desk' });
+}
+
+function expiredOffer(): string {
+    return offerText({ v: 1, host: Buffer.alloc(32, 1).toString('base64url'), ticket: Buffer.alloc(16, 2).toString('base64url'),
+        urls: ['wss://relay.example.test/link/v1/host'], expires: Date.now() - 1000, name: 'Desk' });
+}
 
 function texts(root: any): string[] {
     return root.findAllByType('Text').map((node: any) => {
@@ -111,12 +122,35 @@ describe('guided first-connection chooser', () => {
         await TestRenderer.act(async () => { scanOnScanned!({ data: 'wss://relay?pair=abc' }); });
         expect(dismissScanner).toHaveBeenCalledTimes(1);
         expect(routerPush).not.toHaveBeenCalled();
-        expect(pairingAlert).toHaveBeenCalledWith('Pairing code expired', expect.stringContaining('run the Update muxr action, then run `muxr pair`'));
-        expect(pairingAlert).toHaveBeenCalledWith('Pairing code expired', expect.stringContaining('update muxr on the computer first'));
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('muxr 0.2.0 or older'));
+        expect(pairingAlert).toHaveBeenCalledTimes(1);
         pairingAlert.mockClear();
+        // A cut-off current code names the cut, never the version.
         press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
         await TestRenderer.act(async () => {});
-        const offer = 'byokit-link:1:offer';
+        await TestRenderer.act(async () => { scanOnScanned!({ data: 'byokit-link:1:not-valid!!' }); });
+        expect(routerPush).not.toHaveBeenCalled();
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('cut off'));
+        pairingAlert.mockClear();
+        // An expired current code names expiry, not the version.
+        press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        await TestRenderer.act(async () => {});
+        await TestRenderer.act(async () => { scanOnScanned!({ data: expiredOffer() }); });
+        expect(routerPush).not.toHaveBeenCalled();
+        expect(pairingAlert).toHaveBeenCalledWith('Pairing code expired', expect.stringContaining('has run out'));
+        pairingAlert.mockClear();
+        // A wrapped valid offer still pairs: inner whitespace is stripped.
+        press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        await TestRenderer.act(async () => {});
+        const whole = freshOffer();
+        await TestRenderer.act(async () => { scanOnScanned!({ data: `  ${whole.slice(0, 60)}\n${whole.slice(60)}  ` }); });
+        expect(pairingAlert).not.toHaveBeenCalled();
+        expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: whole } });
+        pairingAlert.mockClear();
+        routerPush.mockClear();
+        press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        await TestRenderer.act(async () => {});
+        const offer = freshOffer();
         await TestRenderer.act(async () => { scanOnScanned!({ data: offer }); });
         expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer } });
         expect(pairingAlert).not.toHaveBeenCalled();
