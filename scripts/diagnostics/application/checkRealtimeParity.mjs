@@ -60,7 +60,7 @@ if (typeof sessionSocket !== 'string') finish(1, 'FAIL: lab session published no
 
 // --- real relay + real host, admitted through byokit ------------------------
 const env = { ...process.env };
-for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH', 'HERDR_SESSION']) delete env[key];
+for (const key of ['MUXR_RELAY_TOKEN', 'MUXR_RELAY_AUTH']) delete env[key];
 Object.assign(env, {
     MUXR_MODE: 'selfhost',
     MUXR_RELAY_PORT: '0',
@@ -69,6 +69,7 @@ Object.assign(env, {
     MUXR_RELAY_DATA_DIR: join(dataDir, 'relay'),
     MUXR_HOME: join(dataDir, 'home'),
     MUXR_NO_SERVICE_COMMANDS: '1',
+    HERDR_SESSION: labSession,
     HERDR_SOCKET_PATH: sessionSocket,
     HERDR_BIN: shim,
     HERDR_BIN_PATH: shim,

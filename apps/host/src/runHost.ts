@@ -5,7 +5,7 @@ import { createConnection } from 'node:net';
 import { homedir, hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
+import { assertFakeSourceCoversContract, createFakeSessionSource, createHerdrSessionSource, labHerdrSocket, AgentRouteStore, TerminalManager, createAgentWatchStores, type VoiceStreamTransport } from './agent/index.js';
 import { PaneScreens } from './desktop/index.js';
 import { startHost } from './host.js';
 import { LinkPeerAuthority, PeerBroker, PeerRuntime, retireMachinePeers } from './peer/index.js';
@@ -437,7 +437,10 @@ async function main(): Promise<void> {
     const paneScreens = new PaneScreens({
         onDiagnostic: (line) => process.stderr.write(`pane screen: ${line}\n`),
     });
-    const herdrSocketPath = env('HERDR_SOCKET_PATH');
+    // A lab host (HERDR_SESSION) refuses to start unless it reaches that named session.
+    const herdrSocketPath = useFake ? undefined : await labHerdrSocket(process.env.HERDR_BIN ?? 'herdr', env('HERDR_SOCKET_PATH'));
+    // What lab pairing checks: no Herdr at all (fake), the lab session, or the live default.
+    const herdrSession = useFake ? undefined : env('HERDR_SESSION') ?? 'default';
     let source;
     if (useFake) {
         assertFakeSourceCoversContract();
@@ -613,7 +616,7 @@ async function main(): Promise<void> {
                         }
                         linkEndpoint.start();
                         const { startHostPairingServer } = await import('../../../scripts/setup/application/linkPair.mjs');
-                        pairingServer = await startHostPairingServer(linkEndpoint, join(dataDir, 'pair.sock'), selfhostAuth?.relayUrl ?? relayUrl);
+                        pairingServer = await startHostPairingServer(linkEndpoint, join(dataDir, 'pair.sock'), selfhostAuth?.relayUrl ?? relayUrl, herdrSession);
                         host.onBroadcast((frame) => linkEndpoint?.broadcast(frame));
                         if (linkOnline) host.refreshLinkEnrolment();
                     }
