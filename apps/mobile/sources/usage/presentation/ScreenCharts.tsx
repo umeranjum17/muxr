@@ -6,14 +6,13 @@ import Animated, { Easing, useAnimatedStyle, useDerivedValue, useReducedMotion, 
 import { useUnistyles } from 'react-native-unistyles';
 import type { PluginScreenChartNode, PluginScreenTone } from '@trymuxr/contract';
 import type { Theme } from '@/theme';
-import { toneColor } from '../domain/pluginTone';
-import { bindText, resolvePath } from '../domain/screenModel';
-import { resolvePluginText } from '../domain/pluginText';
+import { toneColor } from '../domain/usageTone';
+import { bindText, resolvePath, resolvePluginText } from '../domain/dataBinding';
 import { asChartSeries, type PluginChartItem } from '../domain/chartModel';
 import { t } from '@/text';
 import { Typography } from '@/constants/Typography';
 import { cardStyle, Meter, SectionLabel, withAlpha } from '@/components/ui';
-import { useScreenContentWidth } from './pluginScreenLayout';
+import { useScreenContentWidth } from './screenWidth';
 
 /** Reserved above every column so one labelled bar cannot shrink its own plot. */
 const LABEL_ROW = 15;

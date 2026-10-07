@@ -7,7 +7,7 @@ import type { UsageActivity, UsageActivityDay, UsageLimitsWindow, UsageTokenCoun
 import { AgentGlyph } from '@/components/AgentGlyph';
 import { cardStyle, Meter, Notice, SectionLabel, withAlpha } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
-import { toneColor } from '@/plugins';
+import { toneColor } from '../domain/usageTone';
 import { activityInsights, compactMoney, compactTokens, dayTotal, rangeSummary, todayVersusUsual, type Insight } from '../domain/activityModel';
 
 type Span = 7 | 30;

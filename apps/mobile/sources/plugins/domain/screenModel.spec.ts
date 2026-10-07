@@ -9,8 +9,8 @@ import { asPluginCollection } from './collectionModel';
 import { asPluginTree } from './treeModel';
 import { asScreenTabs, bindText, bindTone, buttonInput, contentMountTitle, initialFieldValues, loadScreenData, runScreenButton, shouldReloadAfterAction, WriteKeyStore } from './screenModel';
 import { asScreenTree } from './screenTreeModel';
-import { asChartSeries } from './chartModel';
-import { asLimitsPayload } from './limitsModel';
+import { asChartSeries } from '@/usage/domain/chartModel';
+import { asLimitsPayload } from '@/usage/domain/limitsModel';
 import { vitalsFacts } from '@/usage/domain/usageModel';
 import { highlightCodeLines, syntaxLanguage } from '@/components/code/syntaxHighlighting';
 
