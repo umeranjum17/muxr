@@ -61,6 +61,7 @@ const checks = [
     ['e2e: realtime voice product lifecycle (selection, key store)', 'node', ['scripts/diagnostics/application/checkVoicePlugin.mjs']],
     ['e2e: second host retires the first', 'node', ['scripts/diagnostics/application/checkHostTakeover.mjs']],
     ['e2e: machine key rotation retires the old host key', 'node', ['scripts/diagnostics/application/checkKeyRotation.mjs']],
+    ['e2e: a lab host never serves the default Herdr session', 'node', ['scripts/diagnostics/application/checkLabHerdrGuard.mjs']],
     ['e2e: wire + RPC (all event types)', 'node', ['scripts/diagnostics/application/runSkeletonCheck.mjs']],
     ['e2e: herdr backend loop (live server)', 'node', ['scripts/diagnostics/application/checkHerdrE2E.mjs'], 'herdr', 180000],
     // The voice attachment check owns its own lab session, so it only runs
