@@ -103,11 +103,15 @@ export default function FilesScreen() {
                 try {
                     const result = await filesList(resolvedSessionId, { root: attempt.root, ...(attempt.path === '' ? {} : { path: attempt.path }) });
                     if (cancelled) return;
+                    // A walk-up landing is a new location: it drops a missing
+                    // preview from the old one. An ordinary load leaves it
+                    // alone, so a slow listing can never clobber a missing
+                    // file its own preview just reported.
                     if (attempt.root !== root) setRoot(attempt.root);
                     if (attempt.path !== path) setPath(attempt.path);
+                    if (attempt.root !== root || attempt.path !== path) setMissingPath(undefined);
                     setListing(result);
                     setError(undefined);
-                    setMissingPath(undefined);
                     return;
                 } catch (cause: unknown) {
                     if (cancelled) return;
