@@ -44,7 +44,7 @@ export function MissingFileState(props: {
             accessibilityRole="text"
             accessibilityLabel={`${t('files.missingFileTitle')}, ${props.path}`}
         >
-            <Ionicons name="document-text-outline" size={34} color={theme.colors.textSecondary} />
+            <Ionicons name="document-text-outline" size={30} color={theme.colors.textSecondary} />
             <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '600', textAlign: 'center', ...Typography.default('semiBold') }}>
                 {t('files.missingFileTitle')}
             </Text>
@@ -99,10 +99,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         padding: 28,
-        gap: 10,
+        gap: 6,
     },
     actions: {
-        marginTop: 6,
+        marginTop: 2,
         gap: 8,
         alignItems: 'stretch',
     },
@@ -112,8 +112,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: 8,
         paddingHorizontal: 14,
-        paddingVertical: 9,
+        paddingVertical: 8,
         borderRadius: 8,
-        minHeight: 40,
+        minHeight: 36,
     },
 });
