@@ -1785,7 +1785,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                 key={previewShown === undefined ? props.id : `${props.id}:preview`}
                                 sessionId={props.id}
                                 onExit={closeDesktop}
-                                title={contextTitle}
+                                // A shell pane names no conversation: the Computer view is titled
+                                // 'Computer', never the pane's generic shell label or the
+                                // computer's name.
+                                title={shell ? 'Computer' : contextTitle}
                                 leading={<AgentGlyph name={shell ? 'shell' : labels.agentKind ?? labels.agentName} size={14} />}
                                 {...(previewShown === undefined ? {} : {
                                     target: { sessionId: props.id, kind: previewShown.kind, title: livePreview?.title ?? previewShown.title, closed: livePreview === undefined, viewOnly: !canControl },
