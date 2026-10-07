@@ -439,14 +439,10 @@ export default function NewAgentScreen() {
                                     ]}
                                 >
                                     <AgentGlyph name={option.kind} size={40} selected={isSelected} dim={!available} />
-                                    {/* The first word, then the rest, each one line shrunk to fit: a name never breaks inside a word. */}
-                                    <View style={{ alignSelf: 'stretch', alignItems: 'center' }}>
-                                        {agentName(option.kind).replace(' ', '\n').split('\n').map((line, index) => (
-                                            <Text key={index} style={styles.agentName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
-                                                {line}
-                                            </Text>
-                                        ))}
-                                    </View>
+                                    {/* One size for every name; wraps to two lines at word boundaries, never shrunk per name. */}
+                                    <Text style={styles.agentName} numberOfLines={2}>
+                                        {agentName(option.kind)}
+                                    </Text>
                                     {availability !== undefined && (
                                         <Text style={styles.agentAvailability}>
                                             {available ? availability : 'Not installed'}
