@@ -93,16 +93,12 @@ export function requestNotificationPermission(userInitiated = true): Promise<boo
 /** Read the platform notification permission without ever prompting. */
 export async function notificationPermissionStatus(): Promise<{ granted: boolean; canAskAgain: boolean }> {
     if (Platform.OS === 'web' || (Platform.OS === 'android' && Platform.Version < 33)) return { granted: true, canAskAgain: false };
-    if (Platform.OS === 'ios') {
-        const current = await Notifications.getPermissionsAsync();
-        return { granted: current.granted, canAskAgain: current.canAskAgain ?? false };
-    }
-    const permission = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
-    if (await PermissionsAndroid.check(permission)) return { granted: true, canAskAgain: false };
-    // Before the first ask the rationale answer is always false, so a prompt
-    // that never ran must not read as permanently denied.
-    if (!initialNotificationPromptAttempted) return { granted: false, canAskAgain: true };
-    return { granted: false, canAskAgain: await PermissionsAndroid.shouldShowRequestPermissionRationale(permission) };
+    const current = await Notifications.getPermissionsAsync();
+    if (current.granted) return { granted: true, canAskAgain: false };
+    // Before the first ask Android reports no second chance, so a prompt that
+    // never ran must not read as permanently denied.
+    if (Platform.OS === 'android' && !initialNotificationPromptAttempted) return { granted: false, canAskAgain: true };
+    return { granted: false, canAskAgain: current.canAskAgain };
 }
 
 /**
