@@ -40,9 +40,10 @@ Preconditions:
 - **Add.** `xcrun simctl ui <udid> appearance light|dark`, relaunch, open
   Accounts, tap `Add a Claude account`, `Open Claude sign-in`. The stand-in
   signs in as `umer.work@example.com` at once and the name sheet opens
-  with a suggested name (observed prefilled `Umer` on 5fb08b9 builds, a
-  separately tracked defect; it may differ). Clear the `Account name` field
-  and enter `Umer` so the name collides with the found account. Start
+  prefilled with a name nobody already holds (`Umer Work` in this lab).
+  Clear the `Account name` field
+  and enter `Umer` so the name collides with the found account: the hint must
+  preview the resolved names (`Umer and Umer 2`), as the list will show them. Start
   `xcrun simctl io <udid> recordVideo`, tap `Save`,
   and screenshot at leisure: the notice stays up until it is tapped (no timer).
   On builds before PR #680 it dismissed after 3.2 s, so capture within a second

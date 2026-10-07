@@ -11,7 +11,7 @@ import { Typography } from '@/constants/Typography';
 import { useHerdrTree } from '@/catalog/store';
 import { navigateToSession } from '@/herd';
 import { Modal } from '@/modal';
-import { AUTO, nameSuggestions, providerEntry, providerForAgent, providerName, runningOn, type PlanAccount } from '../domain/planAccounts';
+import { AUTO, nameSuggestions, providerEntry, providerForAgent, providerName, resolvedAccountNames, runningOn, type PlanAccount } from '../domain/planAccounts';
 import { planConnection, samePlanConnection, refreshPlans, usePlansStore, type PlanConnection } from '../application/plansStore';
 import { agentAccount, cancelSignIn, planFailure, renameAccount, signInState, startSignIn } from '../application/plansApi';
 import { GhostButton, Note, Pill, PrimaryButton, SheetLede, SheetTitle, Strong, styles as parts } from './accountParts';
@@ -305,6 +305,7 @@ export function NameAccountSheet() {
     const connection = planConnection();
     const list = usePlansStore((state) => state.list);
     const [name, setName] = React.useState('');
+    const [edited, setEdited] = React.useState(false);
     const [saving, setSaving] = React.useState(false);
     const account = naming?.account;
     // Every other account of this provider holds a name, signed in or not.
@@ -318,10 +319,16 @@ export function NameAccountSheet() {
     );
     React.useEffect(() => {
         setSaving(false);
+        setEdited(false);
         setName(suggestions[0] ?? '');
         // Only when a new account arrives, never while typing.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [naming]);
+    React.useEffect(() => {
+        // The chips come from the refreshed list, which lands after the
+        // prefill above: follow them until the person picks a name.
+        if (!edited) setName(suggestions[0] ?? '');
+    }, [suggestions, edited]);
     // The row stays marked while it is being named, then a moment longer.
     const landed = useFlows((state) => state.landed);
     React.useEffect(() => {
@@ -330,8 +337,9 @@ export function NameAccountSheet() {
         return () => clearTimeout(timer);
     }, [landed, naming]);
     const close = () => useFlows.setState({ naming: null });
-    if (account === undefined) return <OptionSheet visible={false} title="" options={[]} onSelect={() => {}} onClose={close} body={<View />} />;
     const trimmed = name.trim();
+    const everyone = React.useMemo(() => resolvedAccountNames(others, trimmed), [others, trimmed]);
+    if (account === undefined) return <OptionSheet visible={false} title="" options={[]} onSelect={() => {}} onClose={close} body={<View />} />;
     const save = async () => {
         if (trimmed === '' || saving || useFlows.getState().naming !== naming || !samePlanConnection(connection)) return;
         setSaving(true);
@@ -352,7 +360,6 @@ export function NameAccountSheet() {
             Modal.alert("Couldn't save the name", planFailure(error));
         }
     };
-    const everyone = [...others.map((other) => other.name), trimmed || 'this one'].sort();
     return (
         <OptionSheet
             visible
@@ -369,7 +376,7 @@ export function NameAccountSheet() {
                     </SheetLede>
                     <TextInput
                         value={name}
-                        onChangeText={setName}
+                        onChangeText={(text) => { setEdited(true); setName(text); }}
                         onSubmitEditing={() => void save()}
                         autoFocus
                         maxLength={40}
@@ -382,7 +389,7 @@ export function NameAccountSheet() {
                     />
                     <View style={styles.chips}>
                         {suggestions.map((suggestion) => (
-                            <Pressable key={suggestion} onPress={() => setName(suggestion)} accessibilityRole="button" accessibilityLabel={`Name it ${suggestion}`}>
+                            <Pressable key={suggestion} onPress={() => { setEdited(true); setName(suggestion); }} accessibilityRole="button" accessibilityLabel={`Name it ${suggestion}`}>
                                 {({ pressed }) => <View style={pressed && parts.pillPressed}><Pill label={suggestion} /></View>}
                             </Pressable>
                         ))}

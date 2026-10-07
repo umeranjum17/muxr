@@ -66,6 +66,13 @@ const named = (personal: string, work: string): PlanProviderAccounts => ({
 const byLabel = (screen: any, label: string) =>
     screen.root.findAll((node: any) => node.props?.accessibilityLabel === label && typeof node.props.onPress === 'function')[0];
 
+const textOf = (children: unknown): string => {
+    if (typeof children === 'string') return children;
+    if (Array.isArray(children)) return children.map(textOf).join('');
+    if (children !== null && typeof children === 'object') return textOf((children as { props?: { children?: unknown } }).props?.children);
+    return '';
+};
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('the notice after naming an added account', () => {
@@ -94,6 +101,38 @@ describe('the notice after naming an added account', () => {
         const listed = usePlansStore.getState().list!.providers[0].accounts.map((one: PlanAccount) => one.name).sort();
         expect(shown).toEqual(listed);
         expect(shown).toEqual(['Umer', 'Umer 2']);
+    });
+
+    it('prefills a free name from the refreshed list and previews the resolved names', async () => {
+        const added: PlanAccount = { id: 'pa_work', provider: 'claude', name: '', email: 'umer.work@example.com', signedIn: true };
+        // Before the host's refreshed list lands the sheet only knows the new
+        // account, so the stale prefill is the taken name "Umer".
+        request.mockImplementation(async () => ({ providers: [] }));
+        await refreshPlans();
+        await act(async () => { useFlows.setState({ notice: null, pending: null, naming: { account: added } }); });
+        let screen: any;
+        await act(async () => { screen = TestRenderer.create(<NameAccountSheet />); });
+        expect(screen.root.findByType('TextInput').props.value).toBe('Umer');
+
+        // The refreshed list holds the found account's "Umer": the sheet
+        // re-picks to the free "Umer Work" before anyone types.
+        request.mockImplementation(async () => ({ providers: [named('Umer', 'Umer Work')] }));
+        await act(async () => { await refreshPlans(); });
+        expect(screen.root.findByType('TextInput').props.value).toBe('Umer Work');
+        const chips = screen.root
+            .findAll((node: any) => typeof node.props?.accessibilityLabel === 'string' && node.props.accessibilityLabel.startsWith('Name it '))
+            .map((node: any) => node.props.accessibilityLabel);
+        expect(chips).toEqual(['Name it Umer Work', 'Name it Work', 'Name it Personal']);
+
+        // Typing the held name previews the resolved pair, as the list will show it.
+        await act(async () => { screen.root.findByType('TextInput').props.onChangeText('Umer'); });
+        const hint = screen.root.findAll((node: any) => node.type === 'Text').map((node: any) => textOf(node.props.children)).join(' ');
+        expect(hint).toContain('Umer 2');
+        // A further refresh keeps what was typed.
+        await act(async () => { await refreshPlans(); });
+        expect(screen.root.findByType('TextInput').props.value).toBe('Umer');
+        screen.unmount();
+        await act(async () => { useFlows.setState({ naming: null }); });
     });
 
     it('a re-sign-in of a named account ends on the notice, never the name sheet', async () => {
