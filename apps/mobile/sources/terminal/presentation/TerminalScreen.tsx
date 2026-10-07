@@ -889,7 +889,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         return [
             ...(safe === null ? [] : [{ id: 'open', label: 'Open', icon: 'open-outline' as const, run: () => { void openExternalUrl(safe); } }]),
             ...(path ? [{ id: 'open', label: 'Open', icon: 'folder-open-outline' as const, run: () => openTerminalPath(url) }] : []),
-            { id: 'copy', label: 'Copy', icon: 'copy-outline' as const, run: () => { void Clipboard.setStringAsync(url).then(() => showGestureHintRef.current(safe === null ? 'Copied' : 'Link copied')); } },
+            // A failed write must say so: the hint below only fires after the
+            // clipboard actually holds the link, so a first tap never reports
+            // a copy it did not make.
+            { id: 'copy', label: 'Copy', icon: 'copy-outline' as const, run: () => {
+                void Clipboard.setStringAsync(url).then((ok) => {
+                    if (ok === false) Modal.alert('Copy failed', 'The system clipboard did not take the link.');
+                    else showGestureHintRef.current(safe === null ? 'Copied' : 'Link copied');
+                }).catch((error: unknown) => Modal.alert('Copy failed', humanError(error).message));
+            } },
             // Watching a pane has no prompt on screen, so inserting into one
             // would land the link in a draft nobody can see.
             ...(canControl ? [{ id: 'insert', label: 'Insert into the prompt', icon: 'return-down-forward-outline' as const, note: INSERT_ONLY_LABEL, run: () => insertDraftRef.current(url) }] : []),
@@ -1768,7 +1776,10 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                         onRecentLink={(url, action) => {
                             setControlGrid((current) => ({ ...current, open: false }));
                             if (action === 'open') openTerminalLink(url, openExternalUrl);
-                            else void Clipboard.setStringAsync(url).then(() => showGestureHintRef.current('Link copied'));
+                            else void Clipboard.setStringAsync(url).then((ok) => {
+                                if (ok === false) Modal.alert('Copy failed', 'The system clipboard did not take the link.');
+                                else showGestureHintRef.current('Link copied');
+                            }).catch((error: unknown) => Modal.alert('Copy failed', humanError(error).message));
                         }}
                         viewCommands={viewControls.commands}
                         keyboardDisabled={terminalKeyboardDisabled === true}
