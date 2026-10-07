@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -8,14 +9,16 @@ import { Typography } from '@/constants/Typography';
 import { Modal } from '@/modal';
 import { t } from '@/text';
 
-/**
- * The one designed missing-file state both entries share.
- */
+/** The one designed missing-file state both entries share. */
 export function MissingFileState(props: {
     path: string;
     onOpenFolder: () => void;
     onBack: () => void;
-}) {    const { theme } = useUnistyles();
+}) {
+    const { theme } = useUnistyles();
+    // The gesture bar floats over content: the bottom inset keeps every
+    // button above it, and the scroller takes a path longer than the screen.
+    const insets = useSafeAreaInsets();
     const [copied, setCopied] = React.useState(false);
     const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     React.useEffect(() => () => {
@@ -36,7 +39,12 @@ export function MissingFileState(props: {
     }, [props.path]);
 
     return (
-        <View style={styles.centered} accessibilityRole="text" accessibilityLabel={`${t('files.missingFileTitle')}, ${props.path}`}>
+        <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={[styles.centered, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}
+            accessibilityRole="text"
+            accessibilityLabel={`${t('files.missingFileTitle')}, ${props.path}`}
+        >
             <Ionicons name="document-text-outline" size={34} color={theme.colors.textSecondary} />
             <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '600', textAlign: 'center', ...Typography.default('semiBold') }}>
                 {t('files.missingFileTitle')}
@@ -82,13 +90,16 @@ export function MissingFileState(props: {
                     </Text>
                 </Pressable>
             </View>
-        </View>
+        </ScrollView>
     );
 }
 
 const styles = StyleSheet.create({
-    centered: {
+    scroll: {
         flex: 1,
+    },
+    centered: {
+        flexGrow: 1,
         alignItems: 'center',
         justifyContent: 'center',
         padding: 28,
