@@ -180,29 +180,29 @@ export default function FilesScreen() {
     return (
         <>
             <Stack.Screen options={{ title }} />
-            <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-                {loading && repos === undefined && listing === undefined && preview === undefined && missingPath === undefined
+            {missingPath !== undefined
+                ? <MissingFileState
+                    path={missingPath.startsWith('/') ? missingPath : `${root ?? ''}/${missingPath}`}
+                    onOpenFolder={() => {
+                        const parent = missingPath.includes('/')
+                            ? missingPath.split('/').slice(0, -1).join('/')
+                            : '';
+                        setMissingPath(undefined);
+                        setPreview(undefined);
+                        setPath(parent);
+                    }}
+                    onBack={() => {
+                        setMissingPath(undefined);
+                        setPreview(undefined);
+                        if (routedFile !== undefined && routedFileOpened.current) router.back();
+                    }}
+                />
+                : <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+                {loading && repos === undefined && listing === undefined && preview === undefined
                     ? <ActivityIndicator color={theme.colors.textSecondary} />
                     : error !== undefined
                         ? <Text style={{ color: theme.colors.textDestructive, fontSize: 14 }}>{error}</Text>
-                        : missingPath !== undefined
-                            ? <MissingFileState
-                                path={missingPath.startsWith('/') ? missingPath : `${root ?? ''}/${missingPath}`}
-                                onOpenFolder={() => {
-                                    const parent = missingPath.includes('/')
-                                        ? missingPath.split('/').slice(0, -1).join('/')
-                                        : '';
-                                    setMissingPath(undefined);
-                                    setPreview(undefined);
-                                    setPath(parent);
-                                }}
-                                onBack={() => {
-                                    setMissingPath(undefined);
-                                    setPreview(undefined);
-                                    if (routedFile !== undefined && routedFileOpened.current) router.back();
-                                }}
-                            />
-                            : preview !== undefined
+                        : preview !== undefined
                             ? <>
                                 <CodeCore code={preview.body} header fileName={preview.path} maxLines={PLUGIN_CODE_MAX_LINES} maxChars={PLUGIN_CODE_MAX_CHARS} />
                                 {preview.note !== '' && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 8 }}>{preview.note}</Text>}
