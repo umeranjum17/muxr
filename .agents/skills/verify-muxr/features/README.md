@@ -45,6 +45,10 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 ## Features
 
+- [Read a plain Computer failure](./computer-failure.md) —
+  real native release app against a guarded Linux lab without ScreenCast:
+  plain cause and next step, Try again, themes and 270dp/font 1.3.
+
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the

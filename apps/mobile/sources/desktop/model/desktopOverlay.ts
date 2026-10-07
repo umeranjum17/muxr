@@ -32,7 +32,7 @@ const ENDED: Record<string, { detail: string; canRetry: boolean }> = {
  *
  * The engine's message is for logs, not for display, so an unmapped failure
  * code reads as plain generic copy rather than the raw engine text; the raw
- * text stays in the host log. The same words feed the overlay and the spoken
+ * text is never rendered. The same words feed the overlay and the error
  * notice, so the two cannot drift apart.
  */
 export function describeDesktopFailureDetail(failure: { code: string; message: string } | null): string {
