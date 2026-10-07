@@ -5,6 +5,7 @@ import * as React from 'react';
 import { StyleSheet } from 'react-native-unistyles';
 import { Typography } from '@/constants/Typography';
 import { MainView, FirstRunConnection } from '@/herd/ui';
+import { LiveCardEmptyBadge } from '@/plans/ui';
 import { Wordmark } from '@/components/Wordmark';
 import { Modal } from '@/modal';
 import { resumePendingHostedPairing } from '@/pairing/e2ee';
@@ -12,7 +13,7 @@ import { getCachedConnectionSettings, saveConnectionSettings } from '@/connectio
 
 export default function Home() {
     const auth = useAuth();
-    if (auth.isAuthenticated) return <MainView />;
+    if (auth.isAuthenticated) return <MainView liveCardBadge={LiveCardEmptyBadge} />;
     return <NotAuthenticated />;
 }
 

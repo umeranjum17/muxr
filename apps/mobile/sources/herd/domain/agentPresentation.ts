@@ -103,15 +103,20 @@ const UNNAMED_AGENT = 'Unnamed agent';
  *
  * An agent leads with what it is working on (`agentTask`: its pane label, its
  * own window title, Herdr title metadata, or the host's task-workspace
- * fallback already folded into `taskTitle`), else its Herdr name. Who runs it
- * goes on the line under that. A shell has no agent name and leads with its
- * pane label, else its window title (`user@host:path`).
+ * fallback already folded into `taskTitle`), else its Herdr name, else its
+ * kind's label (a started agent has a published kind long before any name).
+ * Who runs it goes on the line under that. A shell has no agent name and
+ * leads with its pane label, else its window title (`user@host:path`).
  */
 export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'label' | 'terminalTitle' | 'cwd'>>): AgentLabels {
     const named = pane?.agentName?.trim();
     const kind = pane?.agentKind?.trim();
     const hasAgent = named !== undefined && named !== '' || kind !== undefined && kind !== '';
-    const agentName = named || (hasAgent ? UNNAMED_AGENT : 'Shell');
+    // Herdr publishes the kind long before it ever publishes a name: a started
+    // agent arrives as `agentKind` with no `agentName` (the host withholds its
+    // internal launch id), so the kind's own label stands in for the name.
+    // Never the terminal title: at startup it only holds a spinner or folder.
+    const agentName = named || (kind === undefined || kind === '' ? 'Shell' : agentKindLabel(kind) ?? UNNAMED_AGENT);
     const task = hasAgent ? agentTask({
         label: pane?.label,
         terminalTitle: pane?.terminalTitle,
@@ -123,7 +128,7 @@ export function agentLabels(pane?: AgentInfo & Partial<Pick<HerdrTreePane, 'labe
     const shellTitle = pane?.label?.trim() || pane?.terminalTitle?.trim() || pane?.taskTitle?.trim()
         || pane?.cwd?.replace(/\/+$/, '').split('/').pop() || 'Shell';
     return {
-        title: hasAgent ? task ?? (named || pane?.terminalTitle?.trim() || agentName) : shellTitle,
+        title: hasAgent ? task ?? (named || agentName) : shellTitle,
         ...(task === undefined ? {} : { task }),
         agentName,
         ...(pane?.agentKind === undefined ? {} : { agentKind: pane.agentKind }),

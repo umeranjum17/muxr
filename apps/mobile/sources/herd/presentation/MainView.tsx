@@ -22,7 +22,7 @@ import { PluginSlot, DeclarativeHomeCards, DeclarativePhoneNavRow } from '@/plug
 import { pluginHref } from '@/plugins';
 import { HomeDock, MOBILE_HOME_DOCK_CONTENT_INSET } from '@/spawn/ui';
 import { HerdView } from './HerdView';
-import { LiveTerminalsRow } from './LiveTerminalsRow';
+import { LiveTerminalsRow, type LiveCardBadgeInfo } from './LiveTerminalsRow';
 import { RightNowCard } from '@/usage';
 import { SessionItem } from './SessionsList';
 import { Header } from '@/components/navigation/Header';
@@ -305,7 +305,10 @@ const HeaderSearch = React.memo(({
 
 let lastTerminalLaunchClaimed = false;
 
-export const MainView = React.memo(() => {
+export const MainView = React.memo(({ liveCardBadge }: {
+    /** A per-card line under the agent's name; Home passes the empty-room badge. */
+    liveCardBadge?: React.ComponentType<LiveCardBadgeInfo>;
+}) => {
     useUnistyles();
     const compactHeader = useWindowDimensions().width < 330;
     const useSplitView = useSplitViewLayout();
@@ -527,7 +530,7 @@ export const MainView = React.memo(() => {
                     {!permanentRecovery && <RightNowCard linkDown={socketStatus.status !== 'connected'} />}
                     <DeclarativeHomeCards />
                     {!splitRecovering && !splitBusy
-                        ? <LiveTerminalsRow showZeroState={!splitEmpty} visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} /> : null}
+                        ? <LiveTerminalsRow showZeroState={!splitEmpty} visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} cardBadge={liveCardBadge} /> : null}
                     {splitEmpty ? <HomeEmptyState />
                         : homeTreeLoaded && !homeWorkspaces.some(hasAgent) && !splitRecovering && socketStatus.status === 'connected'
                             ? <HomeDiscoveryRows /> : null}
@@ -584,6 +587,7 @@ export const MainView = React.memo(() => {
                         onScroll={handleContentScroll}
                         onRecoveryChange={handlePhoneRecoveryChange}
                         searchQuery={searchQuery}
+                        liveCardBadge={liveCardBadge}
                     />
                 </View>
                 {Platform.OS !== 'web' && phoneHeader}
