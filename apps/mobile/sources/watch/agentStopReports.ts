@@ -16,19 +16,10 @@ const STOP_TRIGGER = {
     to: ['idle', 'done', 'blocked', 'failed'],
 };
 
-/**
- * Report a watched agent's outcome when it stops. This is the kernel side of
- * "when this happens, do that": it watches state the app already syncs and
- * speaks the outcome over realtime voice. It knows no feature names.
- */
+/** Speak a watched agent's outcome over realtime voice when it stops, from state the app already syncs. */
 export function useAgentStopReports(): void {
     React.useEffect(() => {
-        type RetryTransition = {
-            event: LifecycleEvent;
-            from: string;
-            acknowledged: boolean;
-            inFlight: boolean;
-        };
+        type RetryTransition = { event: LifecycleEvent; from: string; acknowledged: boolean; inFlight: boolean };
         const seen = new Set<string>();
         const states = new Map<string, string>();
         const prebaselineIds = new Set<string>();

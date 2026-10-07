@@ -630,9 +630,7 @@ describe('on-device dictation flow', () => {
         stopRealtimeSession();
         expect(realtimeWatchTarget()).toBeNull();
 
-        // The product agent-stop trigger moved with the hook: a watched
-        // working→done transition still files its voice report, and a failed
-        // delivery stays queued until realtime speaks it.
+        // A watched working→done files its voice report; a failed delivery stays queued until spoken.
         const moved = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
         mocks.startRealtimeSession.mockReturnValue(moved);
         startRealtimeSession('session-a');

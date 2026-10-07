@@ -3,9 +3,7 @@ import { ActivityIndicator, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { startRealtimeCapability } from '@/conversation';
 
-/** Launcher deep-link target for the one baked product shortcut: realtime voice.
- *  Ids match the baked alias map case-insensitively, the way the shortcut
- *  runner resolved them (canonical id, pre-canonicalization id, synonyms). */
+/** The one baked product shortcut (realtime voice): its id, legacy id and synonyms, any case. */
 const VOICE_IDS = new Set(['voice.jarvis', 'muxr.voice.jarvis', 'jarvis', 'voice agent', 'talk', 'live voice']);
 
 /**
