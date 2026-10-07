@@ -9,8 +9,7 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 
 /**
- * The one designed missing-file state both entry points share: a tapped
- * terminal path to no file, and a Files preview of a deleted file.
+ * The one designed missing-file state both entries share.
  */
 export function MissingFileState(props: {
     path: string;

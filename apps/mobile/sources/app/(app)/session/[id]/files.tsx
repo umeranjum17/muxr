@@ -82,10 +82,9 @@ export default function FilesScreen() {
         if (waitingForAgent || root === undefined) { setListing(undefined); return; }
         let cancelled = false;
         setLoading(true);
-        // A gone folder lands on the nearest ancestor that still lists:
-        // path segments first, then (for a user-named folder) the root
-        // itself, never past '/'. Until the repos arrive a root is treated
-        // as a repo root, so an unknown root is never walked past.
+        // A gone folder lands on the nearest ancestor that still lists.
+        // Path segments first, then the root itself, never past '/'. An
+        // unknown root counts as a repo root until the repos arrive.
         const isRepo = repos === undefined || repos.repos.some((repo) => repo.root === root);
         const attempts: Array<{ root: string; path: string }> = [{ root, path }];
         for (;;) {

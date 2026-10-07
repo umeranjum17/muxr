@@ -156,7 +156,7 @@ export default React.memo(function FileScreen() {
             }
             if (result.status === 'error') {
                 // Gone is a destination, not a fault: the designed state
-                // below, with a way forward, instead of a raw errno alert.
+                // below instead of a raw errno alert.
                 if (isMissingFileError(result.message)) {
                     setMissingFile(true);
                     setAlertable(false);
