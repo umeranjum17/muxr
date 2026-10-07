@@ -6,7 +6,7 @@ import { CameraView } from 'expo-camera';
 import { useAuth } from '@/account/ui';
 import { Modal } from '@/modal';
 import { linkPairMachineName, pairOverLink } from './linkPairing';
-import { hostedPairingDuration, linkOfferRole, looksLikeLinkOffer, looksLikePairingLink, STALE_PAIRING_CODE } from '../domain/pairingString';
+import { decidePairingInput, hostedPairingDuration, linkOfferRole, looksLikePairingLink } from '../domain/pairingString';
 import { useCheckScannerPermissions } from './useCheckCameraPermissions';
 import { pairMachine } from './PairMachine';
 import { deliverScannedPairingLink } from './deliverScannedPairing';
@@ -17,11 +17,12 @@ import { deliverScannedPairingLink } from './deliverScannedPairing';
 export function useHostedPairing() {
     const router = useRouter();
     return React.useCallback(async (url: string) => {
-        if (looksLikeLinkOffer(url)) {
-            router.push({ pathname: '/pair', params: { offer: url.trim() } });
+        const decided = decidePairingInput(url);
+        if (!decided.ok) {
+            Modal.alert(decided.expired ? 'Pairing code expired' : 'Pairing code not usable', decided.message);
             return;
         }
-        Modal.alert('Pairing code expired', STALE_PAIRING_CODE);
+        router.push({ pathname: '/pair', params: { offer: decided.offer } });
     }, [router]);
 }
 
