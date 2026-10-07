@@ -138,7 +138,7 @@ export async function resolveAdvertise(args, port, tailscale) {
         // Serve setup and its ownership rules live in byokit reach (decision 0004):
         // never Funnel, refuse a foreign root, reuse only the recorded mapping.
         const served = await serve(port, reachTailscaleOptions(), readSelfhostState()?.ingress);
-        if (served === undefined) throw new Error('Tailscale stopped answering; sign in or choose direct Tailscale or LAN');
+        if (served === undefined) throw new Error('Tailscale stopped answering; sign in, choose direct Tailscale, or rerun with the Wi-Fi-only route (works only on this Wi-Fi)');
         return {
             url: served.url,
             note: 'Tailscale Serve (private tailnet HTTPS)',
@@ -148,13 +148,13 @@ export async function resolveAdvertise(args, port, tailscale) {
     }
     if (args.includes('--tailscale-direct')) {
         const status = await tailscaleStatus(reachTailscaleOptions());
-        if (status === undefined) throw new Error('Tailscale is not installed; choose LAN or another advertise mode');
+        if (status === undefined) throw new Error('Tailscale is not installed; install the free Tailscale app and sign in to use muxr away from home, or choose the Wi-Fi-only route (works only on this Wi-Fi)');
         const ip = status.ips.find((value) => /^100\./.test(value));
         if (ip === undefined) throw new Error('Tailscale reported no tailnet address; sign in to Tailscale, then rerun `muxr setup`');
         return { url: `ws://${ip}:${port}`, note: 'direct Tailscale address' };
     }
     const lan = lanAddress();
-    if (lan !== undefined) return { url: `ws://${lan}:${port}`, note: 'LAN only — phone must be on this network; pair only on a network you trust' };
+    if (lan !== undefined) return { url: `ws://${lan}:${port}`, note: 'Wi-Fi-only route — the phone stops working when it leaves this home network', warning: 'WARNING: this host works only on this Wi-Fi — phones outside this home network cannot reach it. To use muxr away from home, install the free Tailscale app on this computer and your phone, sign in on both, then rerun `muxr setup` and `muxr pair` again.' };
     throw new Error('no advertise address; use --advertise <url>');
 }
 

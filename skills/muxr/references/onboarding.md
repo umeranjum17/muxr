@@ -33,9 +33,11 @@ Node itself.
 ## First run
 
 Run `muxr` with no arguments for the interactive setup and maintenance menu.
-The onboarding inspects the computer without changing it. Choose a route from
-the [guided route picker](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone),
-browser access, what to pair, and **Agent status updates**.
+The onboarding inspects the computer without changing it. Choose how your phone
+reaches this computer — an away-from-home route is recommended whenever one is
+available — then browser access, what to pair, and **Agent status updates**.
+See the [guided route picker](https://github.com/umeranjum17/muxr/blob/main/docs/SELF-HOSTING.md#reaching-the-relay-from-your-phone)
+for what each choice needs.
 Nothing changes before a final **Apply setup** confirmation. Setup
 then starts the selected relay and host, runs the pairing flow (scan the
 one-use QR from the phone app), and verifies the connection and managed
@@ -59,10 +61,10 @@ Automation equivalents are flags on `muxr self-host`:
 |---|---|
 | `--advertise <url>` | Explicit relay URL wins. Use your own domain/reverse proxy. |
 | `--tunnel` | Spawns `cloudflared` for a public `trycloudflare.com` URL. Ephemeral; use a named tunnel for permanence. |
-| Tailscale Serve | Private HTTPS through `tailscale serve`; the relay stays on loopback. |
-| `--tailscale-direct` | Uses the tailnet IP directly when Serve is proven disabled or occupied. |
+| Use muxr away from home (Tailscale) | Private HTTPS through `tailscale serve`; the relay stays on loopback. Install the free Tailscale app on both and sign in to the same account. |
+| `--tailscale-direct` (phone only) | Uses the Tailscale address directly when Serve is proven disabled or occupied. Phone app only, no browser. |
 | Detected private network | Existing NetBird, WireGuard, ZeroTier, or similar address. Phone must join the same private network. |
-| Same Wi-Fi | Local network address. Phone must be on the same trusted network. |
+| Works only on this Wi-Fi | Home network only — the phone stops working when it leaves this Wi-Fi. Never the default while a remote-reachable route exists. For access from anywhere, use Tailscale. |
 
 muxr never enables Tailscale Funnel.
 Restrict a Serve endpoint with a tailnet grant/ACL even though pairing and E2EE

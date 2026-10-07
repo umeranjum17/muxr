@@ -9,7 +9,7 @@ import { ItemGroup } from '@/components/ItemGroup';
 import { Modal } from '@/modal';
 import { useSession } from '@/catalog/store';
 import { changesBrowse, changesWorktrees } from '@/catalog/ops';
-import { openFileViewer, recordFileNavigation } from '@/plugins/application/fileNavigationList';
+import { openFileViewer, recordFileNavigation } from '@/session';
 
 type ChangesBrowse = Awaited<ReturnType<typeof changesBrowse>>;
 type ChangesScope = NonNullable<Parameters<typeof changesBrowse>[1]>['scope'];

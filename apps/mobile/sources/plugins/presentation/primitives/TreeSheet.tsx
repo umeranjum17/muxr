@@ -15,7 +15,7 @@ import { asPluginTree, type PluginTreeNode } from '../../domain/treeModel';
 import { dispatchPluginAction, validatePluginAction } from '../../application/pluginActions';
 import { pluginSnapshot } from '../../application/pluginStore';
 import { subscribePluginDataInvalidation } from '../../application/pluginDataInvalidation';
-import { toneColor } from '../../domain/pluginTone';
+import { toneColor } from '@/usage';
 import { resolvePluginText } from '../../domain/pluginText';
 import { t } from '@/text';
 

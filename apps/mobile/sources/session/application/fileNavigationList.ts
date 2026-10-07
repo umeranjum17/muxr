@@ -1,6 +1,24 @@
-import type { PluginItemListItem } from '../domain/itemListModel';
-import { registerPluginDataCacheInvalidator } from './pluginDataInvalidation';
+import type { PluginAction, PluginScreenTone } from '@trymuxr/contract';
+import { registerPluginInvalidationHandler } from '@/catalog/sync';
 import { shellQuote } from '@/utils/shellQuote';
+
+export interface FileNavigationMetadataItem {
+    label?: string;
+    value: string;
+    tone?: PluginScreenTone;
+}
+
+/** The item shape file navigation reads: a title, optional metadata chips,
+ *  and a navigate action. Plugin list items satisfy it structurally. */
+export interface FileNavigationSourceItem {
+    id?: string;
+    title: string;
+    subtitle?: string;
+    group?: string;
+    icon?: string;
+    metadata: FileNavigationMetadataItem[];
+    action?: PluginAction;
+}
 
 export interface FileNavigationEntry {
     path: string;
@@ -8,7 +26,7 @@ export interface FileNavigationEntry {
     subtitle?: string;
     group?: string;
     icon?: string;
-    metadata: PluginItemListItem['metadata'];
+    metadata: FileNavigationMetadataItem[];
 }
 
 const MAX_ENTRIES = 50;
@@ -24,7 +42,8 @@ interface NavigationCollection {
 const collections = new Map<string, NavigationCollection>();
 const sourceIndex = new Map<string, string>();
 
-registerPluginDataCacheInvalidator((pluginIds) => {
+registerPluginInvalidationHandler((frame) => {
+    const pluginIds = frame.pluginIds.length === 0 ? undefined : frame.pluginIds;
     if (pluginIds === undefined) {
         collections.clear();
         sourceIndex.clear();
@@ -60,7 +79,7 @@ function mintKey(): string {
 export function recordFileNavigation(input: {
     sessionId: string;
     sourceKey: string;
-    items: PluginItemListItem[];
+    items: FileNavigationSourceItem[];
     selectedPath: string;
 }): string | undefined {
     const next: FileNavigationEntry[] = [];

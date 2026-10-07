@@ -6,7 +6,7 @@ import { pluginHref } from '../domain/pluginHref';
 import { sharedPluginWriteKeys } from '../domain/screenModel';
 import { pluginSnapshot } from './pluginStore';
 import { resolvePluginText } from '../domain/pluginText';
-import { openFileViewer } from './fileNavigationList';
+import { openFileViewer } from '@/session';
 
 export function sourceLabel(source: PluginSource): string {
     if (source.kind === 'github') return `GitHub · ${source.owner ?? 'unknown'}/${source.repo ?? 'unknown'}`;

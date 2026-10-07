@@ -276,7 +276,7 @@ describe('on-device dictation flow', () => {
             'session-a': {
                 id: 'session-a', activeAt: 1, updatedAt: 1,
                 metadata: {
-                    summary: { text: 'Repair Crewhouse login' },
+                    summary: { text: 'Repair Crewhouse login with OpenClaw' },
                     path: '/home/umer/pockit',
                     workspaceLabel: 'pockit',
                     worktree: { repo: 'pockit', branch: 'main', path: '/home/umer/pockit' },
@@ -289,11 +289,11 @@ describe('on-device dictation flow', () => {
             workspaceId: 'w', label: 'pockit', focused: true, agentStatus: 'working',
             worktree: { repo: 'pockit' },
             tabs: [{
-                tabId: 't', label: 'Crewhouse', focused: true, agentStatus: 'working',
+                tabId: 't', label: 'Claude Code', focused: true, agentStatus: 'working',
                 panes: [{
-                    paneId: 'p', tabId: 't', label: 'Repair Crewhouse login with OpenClaw',
+                    paneId: 'p', tabId: 't', label: 'Fix 127 failures in 42 files',
                     focused: true, agentStatus: 'working', sessionId: 'session-a',
-                    agentName: 'zulu-2', promptable: true,
+                    agentName: 'pp_9f2c41ab77', taskTitle: 'Help Pi debug', promptable: true,
                 }],
             }],
         }];
@@ -305,9 +305,12 @@ describe('on-device dictation flow', () => {
         await act(async () => { api!.toggle(); });
         await vi.advanceTimersByTimeAsync(0);
         const biased = (mocks.transcribe.mock.calls.at(-1)![1] as { prompt: string }).prompt;
-        for (const name of ['muxr', 'Herdr', 'Crewhouse', 'OpenClaw', 'ChatGPT', 'zulu-2', 'pockit']) {
+        for (const name of ['muxr', 'Herdr', 'Crewhouse', 'OpenClaw', 'ChatGPT', 'Claude Code', 'Pi', 'pockit', 'Fix failures in files', 'Help Pi debug']) {
             expect(biased).toContain(name);
         }
+        // Pane ids and task counts steer nothing, so neither reaches the prompt.
+        expect(biased).not.toContain('pp_9f2c41ab77');
+        expect(biased).not.toMatch(/127|42/);
         expect(biased.length).toBeLessThanOrEqual(1400);
         expect(appended.at(-1)).toMatch(/^ask ChatGPT about/);
         base = 'hello';

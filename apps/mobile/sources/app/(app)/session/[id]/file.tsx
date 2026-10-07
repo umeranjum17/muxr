@@ -5,10 +5,9 @@ import { Modal } from '@/modal';
 import { t } from '@/text';
 import { resolveSessionFilePath } from '@/terminal';
 import { DocumentViewer, type DocumentModel } from '@/components/document/DocumentViewer';
-import { currentFileNavigation, openFileViewer, parentDirectory } from '@/plugins/application/fileNavigationList';
+import { currentFileNavigation, loadSessionDocument, openFileViewer, parentDirectory } from '@/session';
 import { isMissingFileError } from '@/utils/errors';
 import { MissingFileState } from '@/components/document/MissingFileState';
-import { loadSessionDocument } from '@/plugins/application/loadSessionDocument';
 
 interface FileContent {
     content: string;

@@ -2,7 +2,7 @@ import type { PluginScreenTone } from '@trymuxr/contract';
 import type { Theme } from '@/theme';
 
 /**
- * One tone-to-colour mapping for every plugin surface. Four private copies had
+ * One tone-to-colour mapping for every usage surface. Four private copies had
  * drifted far enough that `warning` was amber on a declarative screen and blue
  * in the sheet rendering the same plugin's data.
  */
