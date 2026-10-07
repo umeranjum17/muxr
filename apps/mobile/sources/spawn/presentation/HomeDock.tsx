@@ -27,7 +27,6 @@ import { FOCUS_BACK_SIZE, FOCUS_BACK_TOP, focusDockMaxHeight } from './focusDock
 import { t } from '@/text';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
-import { PluginSlot } from '@/plugins/ui';
 import { RealtimeTalkButton } from '@/conversation/ui';
 import { useAllMachines, useSessions, useSocketStatus } from '@/catalog/store';
 import { isMachineOnline } from '@/pairing';
@@ -889,7 +888,6 @@ export const HomeDock = React.memo(({
             <View style={styles.composerContent}>
                 {dictationActive ? <DictationStrip dictation={dictation} control={dictationControl} /> : <>
                 <RealtimeTalkButton accessibilityLabel="Start or open realtime conversation" />
-                <PluginSlot slot="home.composer.leading" context={{}} />
                 {activateOnPress ? (
                     <Pressable onPress={activateOnPress} style={styles.inputEntry}>
                         <Text
@@ -916,7 +914,6 @@ export const HomeDock = React.memo(({
                     />
                 )}
                 {Platform.OS !== 'web' && <DictateAction dictation={dictation} control={dictateControl} iconSize={22} />}
-                <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                 {/* A draft can remain after the focused composer closes. */}
                 {(hasPrompt || isSubmitting) && <BubblePressable
                     onPress={onSend}
@@ -1018,7 +1015,6 @@ export const HomeDock = React.memo(({
                             </View>
                         </View>
                         {Platform.OS !== 'web' && <DictateAction dictation={dictation} control={dictateControl} iconSize={22} />}
-                        <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                         <BubblePressable
                             onPress={submitFromFocusMode}
                             disabled={!canSubmit}

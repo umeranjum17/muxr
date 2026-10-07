@@ -3,7 +3,7 @@ import React from 'react';
 import TestRenderer from 'react-test-renderer';
 import { DICTATION_UNDO_MS, useDictation } from '@/utils/dictation';
 import { wakeAndReport } from '@/watch/wakeAndReport';
-import { usePluginEvents } from '@/plugins/events';
+import { useAgentStopReports } from '@/watch/agentStopReports';
 import { cancelRealtimeReportWait, configureVadStandby, micOwners, realtimeGeneration, realtimeWatchTarget, registerRealtimeNotificationStart, releaseDictation, resolveRealtimeTarget, retryVadStandby, startRealtimeSession, stopRealtimeSession, useRealtimeMuted } from '@/conversation/session';
 
 const mocks = vi.hoisted(() => ({
@@ -52,8 +52,6 @@ const mocks = vi.hoisted(() => ({
     lifecycleCatalogInitialized: true,
     lifecycleCatalogAvailable: true,
     storageListeners: new Set<(state: Record<string, unknown>, previous: Record<string, unknown>) => void>(),
-    pluginSnapshot: [] as Array<Record<string, unknown>>,
-    capability: vi.fn(),
 }));
 
 vi.mock('react-native', () => ({ Platform: { OS: 'android' }, AppState: { addEventListener: vi.fn() } }));
@@ -73,8 +71,6 @@ vi.mock('@/catalog/application/persistence', () => ({ loadLocalSettings: () => (
 vi.mock('@/catalog/sync', () => ({ sync: { request: mocks.syncRequest } }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: '' }) }));
 vi.mock('@/modal', () => ({ Modal: { alert: mocks.modalAlert } }));
-vi.mock('../plugins/application/pluginStore', () => ({ pluginSnapshot: () => mocks.pluginSnapshot }));
-vi.mock('../plugins/application/capabilityRegistry', () => ({ capabilityFor: () => mocks.capability }));
 vi.mock('@/watch/store', () => ({
     sanitizePersistedVoiceReport: (report: Record<string, unknown>) => report,
 }));
@@ -150,7 +146,7 @@ function Harness() {
 }
 
 function PluginHarness() {
-    usePluginEvents();
+    useAgentStopReports();
     return null;
 }
 
@@ -202,9 +198,7 @@ beforeEach(() => {
     mocks.prebaselineLifecycleEvents = [];
     mocks.lifecycleCatalogInitialized = true;
     mocks.lifecycleCatalogAvailable = true;
-    mocks.pluginSnapshot = [];
     mutedNow = false;
-    mocks.capability.mockReset();
     vi.clearAllMocks();
 });
 
@@ -636,44 +630,15 @@ describe('on-device dictation flow', () => {
         stopRealtimeSession();
         expect(realtimeWatchTarget()).toBeNull();
 
-        const working = {
-            eventId: 'observer-working', sessionId: 'session-a', state: 'working',
-            agentName: 'Elle', taskTitle: 'Retry queued report',
-        };
-        const otherWorking = { ...working, eventId: 'observer-other-working', sessionId: 'session-b' };
-        mocks.lifecycleEvents = [otherWorking, working];
-        mocks.pluginSnapshot = [{
-            summary: { pluginId: 'voice', manifestHash: 'hash' },
-            manifest: { contributions: [{
-                slot: 'events', id: 'report', from: 'working', to: ['done'],
-                action: { type: 'capability', name: 'speech.wake' },
-            }] },
-        }];
-        let fullAttempts = 0;
-        let deferredAttempts = 0;
-        let finishOld!: () => void;
-        let finishNew!: () => void;
-        mocks.capability.mockImplementation((input: { eventId: string }) => {
-            if (input.eventId === 'observer-done') {
-                fullAttempts += 1;
-                return fullAttempts === 1
-                    ? Promise.reject(Object.assign(new Error('queue full'), { retryable: true }))
-                    : Promise.resolve();
-            }
-            if (input.eventId === 'observer-invalid') {
-                return Promise.reject(Object.assign(new Error('invalid credential'), { retryable: false }));
-            }
-            if (input.eventId === 'observer-deferred') {
-                deferredAttempts += 1;
-                return new Promise<void>((resolve) => {
-                    if (deferredAttempts === 1) finishOld = resolve;
-                    else finishNew = resolve;
-                });
-            }
-            return Promise.resolve();
-        });
-        const notifyObserver = () => {
-            const observerState = {
+        // The product agent-stop trigger moved with the hook: a watched
+        // working→done transition still files its voice report, and a failed
+        // delivery stays queued until realtime speaks it.
+        const moved = { stop: vi.fn(), setMuted: vi.fn(), speak: vi.fn() };
+        mocks.startRealtimeSession.mockReturnValue(moved);
+        startRealtimeSession('session-a');
+        let movedPrevious: Record<string, unknown> = {};
+        const notifyMoved = () => {
+            const movedState = {
                 lifecycleEvents: mocks.lifecycleEvents,
                 prebaselineLifecycleEvents: mocks.prebaselineLifecycleEvents,
                 sessions: mocks.sessions,
@@ -682,55 +647,47 @@ describe('on-device dictation flow', () => {
                 voicePendingReports: mocks.voicePending,
                 voiceReportScopeGeneration: 1,
             };
-            for (const listener of mocks.storageListeners) listener(observerState, observerState);
+            for (const listener of mocks.storageListeners) listener(movedState, movedPrevious);
+            movedPrevious = movedState;
         };
         act(() => { renderer = TestRenderer.create(React.createElement(PluginHarness)); });
-        mocks.lifecycleEvents = [{ ...working, eventId: 'observer-done', state: 'done' }, otherWorking, working];
-        notifyObserver();
+        const movedWorking = { eventId: 'moved-working', sessionId: 'session-a', state: 'working', agentName: 'Wren', taskTitle: 'Prove the move' };
+        const movedDone = { ...movedWorking, eventId: 'moved-done', state: 'done' };
+        mocks.lifecycleEvents = [movedWorking];
+        notifyMoved();
         await vi.advanceTimersByTimeAsync(1_500);
-        expect(fullAttempts).toBe(1);
-
-        // The rejected transition remains retryable after falling out of the
-        // bounded lifecycle catalog; a permanent invalid event is tried once.
-        const newer = Array.from({ length: 50 }, (_, index) => ({
-            ...working, eventId: `observer-newer-${index}`, sessionId: `newer-${index}`,
-        }));
-        mocks.lifecycleEvents = [{ ...otherWorking, eventId: 'observer-invalid', state: 'done', taskTitle: 'password=secret' }, ...newer];
-        notifyObserver();
-        await vi.advanceTimersByTimeAsync(1_500);
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(mocks.capability.mock.calls.filter(([input]) => input.eventId === 'observer-done')).toHaveLength(2);
-        expect(mocks.capability.mock.calls.filter(([input]) => input.eventId === 'observer-invalid')).toHaveLength(1);
-        expect(mocks.capability).toHaveBeenCalledWith(expect.objectContaining({
-            eventId: 'observer-done', from: 'working', status: 'done',
-        }));
-
-        // A callback from the old scope cannot acknowledge or clear the same
-        // canonical action after the observer establishes a new epoch.
-        mocks.lifecycleEvents = [];
-        mocks.lifecycleCatalogAvailable = false;
-        notifyObserver();
-        mocks.lifecycleEvents = [working];
-        mocks.lifecycleCatalogAvailable = true;
-        notifyObserver();
-        mocks.lifecycleEvents = [{ ...working, eventId: 'observer-deferred', state: 'done' }, working];
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(deferredAttempts).toBe(1);
-        mocks.lifecycleEvents = [];
-        mocks.lifecycleCatalogAvailable = false;
-        notifyObserver();
-        mocks.lifecycleEvents = [{ ...working, eventId: 'observer-deferred', state: 'done' }, working];
-        mocks.prebaselineLifecycleEvents = [mocks.lifecycleEvents[0]!];
-        notifyObserver();
-        mocks.lifecycleCatalogAvailable = true;
-        notifyObserver();
-        expect(deferredAttempts).toBe(2);
-        finishOld();
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(deferredAttempts).toBe(2);
-        finishNew();
-        await vi.advanceTimersByTimeAsync(1_500);
-        expect(deferredAttempts).toBe(2);
+        let voiceCalls = 0;
+        const baseImpl = mocks.syncRequest.getMockImplementation()!;
+        mocks.syncRequest.mockImplementation(async (method: string, input: never) => {
+            if (method === 'voice.report' && voiceCalls++ === 0) throw new Error('link down');
+            return baseImpl(method, input);
+        });
+        const reportsBefore = mocks.voiceReports().length;
+        mocks.lifecycleEvents = [movedDone, movedWorking];
+        notifyMoved();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mocks.voicePending.some((entry) => entry.identity === 'moved-done')).toBe(true);
+        expect(moved.speak).not.toHaveBeenCalled();
+        // The failed delivery stays queued and the hook retries it.
+        const movedProvider = mocks.startRealtimeSession.mock.calls.at(-1)![0] as {
+            onStatus: (status: 'connected' | 'thinking' | 'speaking' | 'disconnected', detail?: string) => void;
+        };
+        movedProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(mocks.voicePending.some((entry) => entry.identity === 'moved-done')).toBe(true);
+        expect(mocks.voiceReports().length).toBeGreaterThan(reportsBefore);
+        // Once the retry lands, the queued report speaks and drains.
+        movedProvider.onStatus('thinking');
+        movedProvider.onStatus('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(moved.speak).toHaveBeenLastCalledWith('Wren: done');
+        expect(mocks.voiceDelivered).toContain('moved-done');
+        expect(mocks.voicePending.some((entry) => entry.identity === 'moved-done')).toBe(false);
+        expect(micOwners()).toEqual(['realtime']);
+        stopRealtimeSession();
+        expect(micOwners()).toEqual([]);
+        act(() => { renderer?.unmount(); });
+        renderer = null;
     });
 
     it('speaks an agent-stop report only while realtime watching is active', async () => {

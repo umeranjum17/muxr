@@ -1,7 +1,10 @@
 import * as React from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { runShortcut } from '@/plugins';
+import { startRealtimeCapability } from '@/conversation';
+
+/** Launcher deep-link target for the one baked product shortcut: realtime voice. */
+const VOICE_IDS = new Set(['voice.jarvis', 'muxr.voice.jarvis']);
 
 /**
  * Launcher deep-link target. Home is restored first so the shortcut's action
@@ -13,7 +16,7 @@ export default function ShortcutRoute() {
     React.useEffect(() => {
         if (typeof id !== 'string' || id === '') return;
         router.replace('/');
-        void runShortcut(id).catch(() => undefined);
+        if (VOICE_IDS.has(id.trim().toLowerCase())) void startRealtimeCapability({}).catch(() => undefined);
     }, [id, router]);
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator /></View>;
 }

@@ -35,7 +35,7 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 | Read a listed Agent | `catalog/application/readAgentSession.ts` | Agent | Catalog store lookups by Agent Route |
 | Stop or abort an Agent | `catalog/application/stopAgent.ts` | Agent | `catalog/application/ops.ts` (`sessionStop`, `sessionAbort`) |
 | Watch Agent lifecycle on this machine | `watch/watchAgentLifecycle.ts` | Agent Watch | `catalog/application/sync.ts` bootstrap |
-| Report an Agent outcome | `watch/reportAgentOutcome.ts` | Voice Report | `watch/wakeAndReport.ts`, product agent-stop trigger in `plugins/application/usePluginEvents.ts` |
+| Report an Agent outcome | `watch/reportAgentOutcome.ts` | Voice Report | `watch/wakeAndReport.ts`, product agent-stop trigger in `watch/agentStopReports.ts` |
 | Bind this device to a machine | `pairing/application/PairMachine.ts` | Pairing String, Hosted Grant, PairedMachine | `usePairing.ts`, `app/(app)/pair.tsx` |
 | Restore a paired connection | `pairing/application/restoreConnection.ts` | Hosted Grant, Connection | `linkPairing.ts` (`restoreHostedConnection`) |
 | Forget a pairing on this device | `pairing/application/forgetMachine.ts` | Hosted Grant | `SettingsView.tsx` |
