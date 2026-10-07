@@ -808,9 +808,10 @@ export const HomeDock = React.memo(({
         value: string;
         detail?: string;
         icon: React.ComponentProps<typeof Ionicons>['name'];
-        /** The account row stacks its guidance under its value: on the
-         *  narrowest phone "Work is signed out · Sign in, or use Umer"
-         *  never fits one line, and the guidance is the point. */
+        /** The account row stacks its guidance under its value and lets
+         *  both lines wrap: on the narrowest phone, and at large text
+         *  sizes, "Work is signed out · Sign in, or use Umer" never fits
+         *  one line, and the guidance is the point. */
         stacked?: boolean;
     };
 
@@ -850,8 +851,8 @@ export const HomeDock = React.memo(({
                 </View>
                 {row.stacked === true && row.detail !== undefined ? (
                     <View style={styles.focusConfigStack}>
-                        <Text style={styles.focusConfigValue} numberOfLines={1}>{row.value}</Text>
-                        <Text style={styles.focusConfigDetail} numberOfLines={1}>{row.detail}</Text>
+                        <Text style={styles.focusConfigValue}>{row.value}</Text>
+                        <Text style={styles.focusConfigDetail}>{row.detail}</Text>
                     </View>
                 ) : (
                     <Text style={styles.focusConfigValue} numberOfLines={1}>
