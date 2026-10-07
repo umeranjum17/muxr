@@ -7,6 +7,7 @@
 import type { Session } from '@/catalog';
 import { AGENT_TYPES, type NewSessionAgentType, type NewSessionSessionType, type AgentCatalogOption } from '@/catalog';
 import { formatPathRelativeToHome } from '@/herd';
+import { agentDisplayName } from '../domain/SpawnRequest';
 import { WorktreeSelection } from '../domain/WorktreeSelection';
 import { listWorktrees } from './worktree';
 
@@ -18,20 +19,9 @@ export interface DockOption {
     disabled?: boolean;
 }
 
-const AGENT_NAMES: Partial<Record<NewSessionAgentType, string>> = {
-    shell: 'Shell (no agent)',
-    pi: 'Pi',
-    claude: 'Claude Code',
-    codex: 'Codex',
-    omp: 'OMP',
-    opencode: 'OpenCode',
-    droid: 'Factory Droid',
-    qodercli: 'Qoder CLI',
-};
-
 export const DOCK_AGENTS: DockOption[] = AGENT_TYPES.map((key) => ({
     key,
-    name: AGENT_NAMES[key] ?? key.replace(/(^|[-_])(\w)/g, (_, prefix, letter) => `${prefix ? ' ' : ''}${letter.toUpperCase()}`),
+    name: agentDisplayName(key),
     ...(key === 'shell' ? {} : { agentKind: key }),
 }));
 
@@ -100,7 +90,7 @@ export function applyWorktreeSelection(key: string): { sessionType: NewSessionSe
 }
 
 export function agentName(kind: string): string {
-    return DOCK_AGENTS.find((agent) => agent.key === kind)?.name ?? kind.replace(/(^|[-_])(\w)/g, (_, prefix, letter) => `${prefix ? ' ' : ''}${letter.toUpperCase()}`);
+    return agentDisplayName(kind);
 }
 
 export function agentReadinessLabel(option: AgentCatalogOption): string {

@@ -306,6 +306,7 @@ export default function NewAgentScreen() {
     }, []);
 
     const kinds = [...selected];
+    const sourceLabel = catalogSourceLabel(catalogSource);
     const squad = kinds.length > 1;
     const unavailableCount = catalog.filter((option) => option.availability !== 'installed').length;
     const visibleCatalog = showUnavailableAgents
@@ -394,9 +395,11 @@ export default function NewAgentScreen() {
                     <View style={styles.sectionLabelRow}>
                         <Text style={styles.sectionLabel}>AGENT</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Text style={styles.squadBadgeText}>
-                                {catalogSourceLabel(catalogSource)}
-                            </Text>
+                            {sourceLabel !== undefined && (
+                                <Text style={styles.squadBadgeText}>
+                                    {sourceLabel}
+                                </Text>
+                            )}
                             {squad && (
                                 <View style={styles.squadBadge}>
                                     <Ionicons name="grid" size={11} color={theme.colors.accent} />
