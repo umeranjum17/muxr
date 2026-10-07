@@ -245,7 +245,7 @@ export function recommendedConnection(found, current, tailscalePlanned, serveRoo
             : { mode: 'tailscale', title: 'Use muxr away from home (Tailscale)', description: 'both devices need the Tailscale app, signed in to the same account' };
     }
     if (found.cloudflared.ok) return { mode: 'cloudflare', title: 'Use muxr away from home (temporary link)', description: 'create a temporary public HTTPS route during Apply' };
-    // Same Wi-Fi is never the default while a remote-reachable route exists:
+    // The Wi-Fi-only route is never the default while a remote-reachable route exists:
     // it stops working when the phone leaves home.
     if (found.lan) return { mode: 'lan', title: 'Works only on this Wi-Fi', description: 'home network only — stops working when the phone leaves this Wi-Fi' };
     return { mode: 'external', title: 'Use muxr away from home (your own server)', description: 'use an existing secure (wss://) server you manage' };
