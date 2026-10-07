@@ -9,7 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
-import { linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode, STALE_PAIRING_CODE } from '@/pairing/e2ee';
+import { decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode } from '@/pairing/e2ee';
 import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScanner, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
@@ -89,15 +89,16 @@ export default function PairScreen() {
     const openedFromSettings = routeParams.source === 'settings';
     const sshRoute = !browser && routeParams.route === 'ssh' && sshTunnelAvailable();
     const reviewPairing = React.useCallback((raw: string) => {
-        if (looksLikeLinkOffer(raw.trim())) {
-            const offer = raw.trim();
-            setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
-            void linkPairMachineName(offer).then((name) => {
-                if (name !== undefined) setState((current) => current?.url === offer ? { ...current, machineName: name } : current);
-            }).catch(() => undefined);
+        const decided = decidePairingInput(raw);
+        if (!decided.ok) {
+            setState({ phase: 'error', message: decided.message });
             return;
         }
-        setState({ phase: 'error', message: STALE_PAIRING_CODE });
+        const offer = decided.offer;
+        setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
+        void linkPairMachineName(offer).then((name) => {
+            if (name !== undefined) setState((current) => current?.url === offer ? { ...current, machineName: name } : current);
+        }).catch(() => undefined);
     }, []);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
     const switching = getCachedConnectionSettings().machineId !== '';
@@ -108,11 +109,7 @@ export default function PairScreen() {
         let cancelled = false;
         const receive = (raw: string | null) => {
             if (cancelled || !raw) return false;
-            if (!looksLikeLinkOffer(raw.trim())) {
-                if (!raw.includes('byokit-link:') && !raw.includes('pair=')) return false;
-                setState({ phase: 'error', message: STALE_PAIRING_CODE });
-                return true;
-            }
+            if (!raw.includes('byokit-link:') && !raw.includes('pair=')) return false;
             reviewPairing(raw);
             return true;
         };
@@ -133,26 +130,25 @@ export default function PairScreen() {
 
     const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
         // Link offers pair over the running machine; Direct SSH uses its own route.
-        if (looksLikeLinkOffer(url.trim())) {
-            const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput);
-            if (tunnel !== undefined && !tunnel.ok) throw new Error(tunnel.message);
-            const paired = await pairLinkOffer(url.trim(), auth, {
-                tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,
-                confirm: async () => true,
-                onProgress: setProgress,
-            });
-            if (!paired) {
-                if (tunnel !== undefined) await stopSshTunnel();
-                return;
-            }
-            if (sshInput !== undefined && tunnel?.ok) {
-                const applied = await applySshAfterPairing(sshInput, { hostKey: tunnel.hostKey });
-                if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
-            }
-            router.replace('/');
+        const decided = decidePairingInput(url);
+        if (!decided.ok) throw new PairingNeedsNewCode(decided.message);
+        const offer = decided.offer;
+        const tunnel = sshInput === undefined ? undefined : await establishSshTunnel(sshInput);
+        if (tunnel !== undefined && !tunnel.ok) throw new Error(tunnel.message);
+        const paired = await pairLinkOffer(offer, auth, {
+            tunnelPort: tunnel?.ok ? tunnel.localPort : undefined,
+            confirm: async () => true,
+            onProgress: setProgress,
+        });
+        if (!paired) {
+            if (tunnel !== undefined) await stopSshTunnel();
             return;
         }
-        throw new PairingNeedsNewCode(STALE_PAIRING_CODE);
+        if (sshInput !== undefined && tunnel?.ok) {
+            const applied = await applySshAfterPairing(sshInput, { hostKey: tunnel.hostKey });
+            if (!applied.ok) Modal.alert('Paired — SSH route not applied', applied.message);
+        }
+        router.replace('/');
     }, [auth, router]);
 
     const sshInput = React.useCallback((): { ok: true; input?: SshFieldInput } | { ok: false; error: string } => {
@@ -321,15 +317,6 @@ export default function PairScreen() {
                                 <ActionButton title="Scan pairing QR" icon="qr-code-outline" onPress={() => void scanPairQr()} />
                                 <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
                             </>
-                        )}
-                        {state?.phase === 'error' && state.url === undefined && !sshRoute && (
-                            <View style={styles.explainer}>
-                                <Text style={styles.explainerText}>The pairing string is single-use and expires after a few minutes.</Text>
-                                <Text style={styles.explainerText}>Run `muxr pair` again for a fresh string, then retry.</Text>
-                                {!browser && sshTunnelAvailable() && (
-                                    <ActionButton variant="secondary" title="Connect over SSH instead" icon="terminal-outline" onPress={() => router.push('/pair?route=ssh')} />
-                                )}
-                            </View>
                         )}
                         <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : sshRoute ? 'Pairing string from `muxr pair`' : 'Enter pairing string manually'}</Text>
                         <TextInput
@@ -545,21 +532,6 @@ const styles = StyleSheet.create((theme) => ({
         paddingHorizontal: 24,
         paddingTop: 10,
         gap: 8,
-    },
-    explainer: {
-        alignSelf: 'stretch',
-        gap: 8,
-        borderWidth: 1,
-        borderColor: theme.colors.divider,
-        borderRadius: 14,
-        backgroundColor: theme.colors.surfaceHigh,
-        padding: 14,
-    },
-    explainerText: {
-        ...Typography.default(),
-        fontSize: 13,
-        lineHeight: 18,
-        color: theme.colors.textSecondary,
     },
     commandRow: {
         flexDirection: 'row',

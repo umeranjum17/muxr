@@ -191,3 +191,21 @@ export function nameSuggestions(account: PlanAccount, taken: readonly string[]):
         .filter((name): name is string => name !== undefined && !held.has(name.trim().toLowerCase()))
         .slice(0, 3);
 }
+
+/** The names the Accounts list will show once a new account takes `typed`:
+ *  the typed name wins, and any other account answering to it falls back to a
+ *  suggestion from its own email — the host's rule for derived names. */
+export function resolvedAccountNames(others: readonly PlanAccount[], typed: string): string[] {
+    const clean = typed.trim();
+    if (clean === '') return [...others.map((other) => other.name), 'this one'].sort();
+    const wanted = clean.toLowerCase();
+    const taken = new Set(others.map((other) => other.name.trim().toLowerCase()).filter((name) => name !== '' && name !== wanted));
+    taken.add(wanted);
+    const resolved = others.map((other) => {
+        if (other.name.trim().toLowerCase() !== wanted) return other.name;
+        const free = accountNameFrom(other.email, other.provider, [...taken]);
+        taken.add(free.trim().toLowerCase());
+        return free;
+    });
+    return [...resolved, clean].sort();
+}
