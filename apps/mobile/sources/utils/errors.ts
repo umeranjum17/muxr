@@ -32,3 +32,11 @@ export function humanError(cause: unknown): HumanError {
     }
     return { title: 'Something went wrong', message: "That didn't work. Try again in a moment.", details: raw || undefined };
 }
+
+/** Host read errors that mean the file is simply gone, not that something
+ *  broke: `files.read` refuses a missing file with 'file unavailable' and a
+ *  missing folder root with 'unknown repository'; session reads surface
+ *  the errno. Anything else stays a real error with its alert. */
+export function isMissingFileError(message: string): boolean {
+    return /file unavailable|unknown repository|ENOENT|no such file/i.test(message);
+}

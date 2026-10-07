@@ -1,5 +1,6 @@
 import { filesList, filesRead, filesRepos, sessionReadFile } from '@/catalog/ops';
 import { sync } from '@/catalog/sync';
+import { isMissingFileError } from '@/utils/errors';
 import { terminalPathCandidates } from '../domain/safeTerminalLink';
 
 /** A tapped path as the host knows it. `repo` is set when the path sits in a
@@ -81,7 +82,9 @@ export async function locateTerminalPath(
                     await filesRead(input.sessionId, { root: repo.root, path: repo.relative });
                 } catch (error) {
                     const message = error instanceof Error ? error.message : String(error);
-                    if (message !== 'file unavailable' && message !== 'outside repository') throw error;
+                    // Gone (a missing file or a missing folder root) is not
+                    // a file; anything else is a real failure to surface.
+                    if (!isMissingFileError(message) && message !== 'outside repository') throw error;
                     isFile = false;
                 }
                 if (isFile) {

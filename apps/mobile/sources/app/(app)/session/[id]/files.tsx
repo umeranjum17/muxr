@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { CodeCore, PLUGIN_CODE_MAX_CHARS, PLUGIN_CODE_MAX_LINES } from '@/components/code/CodeCore';
 import { MissingFileState } from '@/components/document/MissingFileState';
-import { isMissingFileError } from '@/plugins/application/fileNavigationList';
+import { isMissingFileError } from '@/utils/errors';
 import { filesList, filesRead, filesRepos } from '@/catalog/ops';
 import { useHerdrTree, useSession } from '@/catalog/store';
 import { herdrPaneForSession } from '@/herd';
