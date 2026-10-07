@@ -27,6 +27,20 @@ const ENDED: Record<string, { detail: string; canRetry: boolean }> = {
     'the encoder rejected a frame': { detail: desktopCopy.endedUnencodable, canRetry: false },
 };
 
+/**
+ * What a person reads for a desktop that failed to open, in product words.
+ *
+ * The engine's message is for logs, not for display, so an unmapped failure
+ * code reads as plain generic copy rather than the raw engine text; the raw
+ * text stays in the host log. The same words feed the overlay and the spoken
+ * notice, so the two cannot drift apart.
+ */
+export function describeDesktopFailureDetail(failure: { code: string; message: string } | null): string {
+    if (failure?.code === 'consent') return desktopCopy.consentBody;
+    if (failure?.code === 'no-screen') return desktopCopy.noScreenBody;
+    return desktopCopy.failedBody;
+}
+
 function endedCopy(snapshot: SessionSnapshot): { detail: string; canRetry: boolean } {
     const known = snapshot.failure === null ? undefined : ENDED[snapshot.failure.message];
     return known ?? { detail: desktopCopy.endedBody, canRetry: true };
@@ -52,7 +66,7 @@ export function describeDesktopOverlay(snapshot: SessionSnapshot, openedBefore =
     if (snapshot.status === 'failed') {
         return {
             title: desktopCopy.failedTitle,
-            detail: snapshot.failure?.message ?? desktopCopy.failedBody,
+            detail: describeDesktopFailureDetail(snapshot.failure),
             spinner: false,
             canRetry: true,
         };
