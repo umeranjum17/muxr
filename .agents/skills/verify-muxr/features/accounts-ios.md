@@ -11,6 +11,7 @@ gives the other account when the new one takes a name already in use
 
 - `accounts-add` Add a Claude account › Open Claude sign-in › name sheet › Save.
 - `accounts-added-notice` the notice's names equal the list's names.
+- `accounts-signin-states` in-progress banner, cancel, refusal, re-sign-in without the name step.
 - `accounts-remove` row › Remove › Remove resets to one account.
 
 ## How to get to it (user POV)
@@ -48,6 +49,13 @@ Preconditions:
   there. Stop the recording with SIGINT after the list capture. `axe describe-ui`
   reads both surfaces as text: the notice is one button labelled
   `Added Umer. Claude accounts: …`, each row `<name>, <email>, …`.
+- **Sign-in states.** The lab prints its `lab home`. While `signin-hold` exists
+  there the stand-in's sign-in stays open, so the tab shows the `Signing in …`
+  banner with `Cancel`; removing it finishes the sign-in, and with `signin-fail`
+  also present it ends refused (`Sign-in didn't finish` with `Try again` and
+  `Close`). To sign an added account out for a re-sign-in, delete the
+  `lab-account.json` in its account folder; its row then offers sign-in again,
+  and finishing it returns to Accounts with `<name> is signed in`, no name sheet.
 - **Reset** with the `umer.work@example.com` row › `Remove` › `Remove`, so the
   next theme or build starts from one account again.
 - A before/after pair needs only one native build: the fix under test is JS,

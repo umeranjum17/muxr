@@ -12,6 +12,11 @@ if [ "$1" = auth ] && [ "$2" = status ]; then
   echo '{"loggedIn":false,"authMethod":"none"}'; exit 1
 fi
 if [ "$1" = auth ] && [ "$2" = login ]; then
+  # While the lab's signin-hold file exists the sign-in stays open (the banner's
+  # in-progress state); a signin-fail file ends it as a provider refusal.
+  echo "Opening Claude sign-in in your browser..."
+  while [ -f "$LAB_HOME/signin-hold" ]; do sleep 1; done
+  [ -f "$LAB_HOME/signin-fail" ] && { echo "Login failed: Claude refused this sign-in."; exit 1; }
   mkdir -p "$dir"
   printf '{"loggedIn":true,"authMethod":"claude.ai","email":"umer.work@example.com","subscriptionType":"max"}\\n' > "$dir/lab-account.json"
   exit 0
@@ -23,11 +28,12 @@ const stack = await startFakeStack({
     setupHome(home) {
         const bin = join(home, 'lab-bin');
         mkdirSync(bin, { recursive: true });
-        writeFileSync(join(bin, 'claude'), CLAUDE);
+        writeFileSync(join(bin, 'claude'), CLAUDE.replaceAll('$LAB_HOME', home));
         chmodSync(join(bin, 'claude'), 0o755);
         // The computer's own sign-in: the "found" Umer the new account sits next to.
         mkdirSync(join(home, '.claude'), { recursive: true });
         writeFileSync(join(home, '.claude/lab-account.json'), '{"loggedIn":true,"authMethod":"claude.ai","email":"umer@example.com","subscriptionType":"max"}\n');
+        console.log(`lab home: ${home} (touch signin-hold / signin-fail there)`);
         return { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin` };
     },
 });
