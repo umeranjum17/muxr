@@ -9,8 +9,10 @@
  * through the kit's env/path options; the socket path needs no env because
  * `bin` is spawned with it directly.
  */
+import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
-import { delimiter } from 'node:path';
+import { delimiter, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { HerdrKit } from '@byokit/herdr';
 
 export interface HerdrEvent {
@@ -21,6 +23,28 @@ export interface HerdrEvent {
 /** The only shape the session source needs from a socket caller. */
 export interface HerdrCaller {
     call<T>(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<T>;
+}
+
+/**
+ * HERDR_SESSION marks a lab host: it serves that named session or refuses to
+ * start. Herdr picks a session by socket, never by this env, so a host given
+ * only the name used to fall back to the live default socket. The socket comes
+ * from Herdr's own session list, and a HERDR_SOCKET_PATH naming any other
+ * session (every Herdr pane exports the default one) is refused, not trusted.
+ */
+export async function labHerdrSocket(bin: string, socketPath: string | undefined): Promise<string | undefined> {
+    const session = process.env.HERDR_SESSION?.trim();
+    if (!session) return socketPath;
+    const { stdout } = await promisify(execFile)(bin, ['session', 'list', '--json'], { timeout: 10_000 });
+    const sessions = (JSON.parse(stdout) as { sessions?: Array<{ name: string; default: boolean; running: boolean; socket_path: string }> }).sessions ?? [];
+    const named = sessions.find((entry) => entry.name === session);
+    if (named?.default === true) throw new Error(`HERDR_SESSION=${session} is the live default Herdr session; a lab host needs its own named session (herdr --session <lab>).`);
+    if (named?.running !== true) throw new Error(`HERDR_SESSION=${session} is not a running Herdr session; start it with \`herdr --session ${session}\` or unset HERDR_SESSION.`);
+    if (socketPath !== undefined && resolve(socketPath) !== resolve(named.socket_path)) {
+        const owner = sessions.find((entry) => resolve(entry.socket_path) === resolve(socketPath))?.name;
+        throw new Error(`HERDR_SOCKET_PATH=${socketPath} is ${owner === undefined ? 'not a Herdr session socket' : `Herdr session "${owner}"`}, not lab session "${session}"; unset HERDR_SOCKET_PATH or set it to ${named.socket_path}.`);
+    }
+    return named.socket_path;
 }
 
 // The host and herdr boot together; a short backoff absorbs the startup race.

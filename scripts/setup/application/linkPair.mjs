@@ -85,7 +85,9 @@ export async function linkPair(state, { approve, signal, intent = pairingIntent(
 
 // The running machine owns its relay registration. A local, owner-only socket
 // lets the CLI display its offer and answer consent without a second host key.
-export async function startHostPairingServer(endpoint, socketPath, relayUrl) {
+// `herdrSession` is the Herdr session the host serves (undefined: no Herdr, a
+// fake host); lab tooling asks with `lab: true` and never pairs the live default.
+export async function startHostPairingServer(endpoint, socketPath, relayUrl, herdrSession) {
     if (existsSync(socketPath)) {
         const info = lstatSync(socketPath);
         if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid()) throw new Error('unsafe pairing socket path');
@@ -102,6 +104,7 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl) {
         let approve;
         let burned = false;
         let configure;
+        let lab = false;
         const configured = new Promise((resolve) => { configure = resolve; });
         let input = '';
         socket.on('data', (chunk) => {
@@ -117,6 +120,7 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl) {
                         if (raw?.kind !== 'native' && raw?.kind !== 'browser') throw new Error('invalid pairing kind');
                         const intent = pairingIntent(raw);
                         if (raw.authority !== intent.authority || raw.personal !== intent.personal) throw new Error('invalid pairing intent');
+                        lab = answer.lab === true;
                         configure(intent);
                         configure = undefined;
                     } else if (typeof answer.yes === 'boolean') {
@@ -149,6 +153,7 @@ export async function startHostPairingServer(endpoint, socketPath, relayUrl) {
             try {
                 const intent = await Promise.race([configured, aborted(controller.signal)]);
                 if (intent === undefined) return;
+                if (lab && herdrSession === 'default') throw new Error('refusing lab pairing: this host serves the live default Herdr session; restart it with HERDR_SESSION set to the lab session');
                 session.kind = intent.kind;
                 session.handle = (req, grant) => servePairing(state, req, grant, claims, done, intent,
                     (grantId, deviceId) => endpoint.admitPairedDevice(grantId, deviceId));
@@ -200,7 +205,9 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0) throw new Error('unsafe pairing socket');
     if (signal?.aborted) throw new Error('pairing cancelled');
     const socket = createConnection(socketPath);
-    socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind: intent.kind, authority: intent.authority, personal: intent.personal } })}\n`));
+    socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind: intent.kind, authority: intent.authority, personal: intent.personal },
+        // A lab shell (HERDR_SESSION set) must never pair a host serving the live session.
+        ...(process.env.HERDR_SESSION?.trim() ? { lab: true } : {}) })}\n`));
     let input = '';
     const cancel = () => socket.write('{"cancel":true}\n');
     signal?.addEventListener('abort', cancel, { once: true });
