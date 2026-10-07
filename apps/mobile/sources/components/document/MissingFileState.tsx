@@ -16,8 +16,7 @@ export function MissingFileState(props: {
     path: string;
     onOpenFolder: () => void;
     onBack: () => void;
-}) {
-    const { theme } = useUnistyles();
+}) {    const { theme } = useUnistyles();
     const [copied, setCopied] = React.useState(false);
     const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
     React.useEffect(() => () => {
