@@ -38,7 +38,7 @@ export async function linkLabClient(socketPath, onEvent) {
     let machine;
     try {
         await connected;
-        socket.write(`${JSON.stringify({ intent: { kind: 'native', authority: 'control', personal: false } })}\n`);
+        socket.write(`${JSON.stringify({ intent: { kind: 'native', authority: 'control', personal: false }, lab: true })}\n`);
         await until(() => { if (error) throw new Error(error); return offer; }, 'link offer');
         const grant = await pairWithOffer(offer, { name: 'Lab device', onWords: () => undefined, WebSocket });
         pairing = new DeviceLink(grant, { WebSocket });
