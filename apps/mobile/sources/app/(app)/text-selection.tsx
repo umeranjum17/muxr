@@ -122,6 +122,8 @@ export default function TextSelectionScreen() {
                         editable={Platform.OS === 'ios'}
                         selectTextOnFocus={false}
                         showSoftInputOnFocus={false}
+                        autoCorrect={false}
+                        spellCheck={false}
                         onChangeText={revertViewerEdits}
                         scrollEnabled={false}
                     />
