@@ -303,9 +303,13 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             title: `${choice.title}${choice.value === current?.connectionMode ? ' · current' : ''}`,
             recommended: choice.value === proposal.mode && !choice.disabled,
         }));
-        const preferred = connectionChoices.findIndex((choice) => choice.recommended);
-        note('Another VPN on your phone? Use Same Wi-Fi with its allow-local-network option, or pause that VPN to use Tailscale.');
-        mode = await select('How will your phone reach this computer?', connectionChoices, preferred);
+        const recommended = connectionChoices.find((choice) => choice.recommended);
+        const otherWays = { value: 'other', title: 'Other ways', description: 'choose another network or your own server' };
+        mode = await select('How will your phone reach this computer?', recommended ? [recommended, otherWays] : connectionChoices);
+        if (mode === 'other') {
+            note('Another VPN on your phone? Use Same Wi-Fi with its allow-local-network option, or pause that VPN to use Tailscale.');
+            mode = await select('Other ways', connectionChoices.filter((choice) => choice !== recommended));
+        }
 
     }
     if (aborted(mode)) return undefined;
@@ -354,7 +358,7 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         }
     }
 
-    setupStep(3, 7, 'Choose app access');
+    setupStep(3, 6, 'Choose apps and pairing');
     let web = false;
     if (modeAllowsBrowserHosting(mode)) {
         web = await select('Host the browser client too?', [
@@ -382,7 +386,6 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             { value: 'both', title: 'Phone, then control browser', description: 'complete both pairing steps' },
         ] : []),
     ];
-    setupStep(4, 7, 'Choose what to pair');
     note([
         'The chosen app or browser claims a short-lived, single-use code shown after setup.',
         'This computer seals its key grant to that device only.',
@@ -491,7 +494,7 @@ export async function applyMachineSetup(args = []) {
     }
 
     return withFullscreen(async () => {
-    setupStep(1, 7, 'Check this computer');
+    setupStep(1, 6, 'Check this computer');
     const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => probeMachine());
     renderInspection(found);
     // A disconnected Tailscale installation is proposed as one reviewed route;
@@ -500,7 +503,7 @@ export async function applyMachineSetup(args = []) {
     const cancelSetup = () => cancelled();
     const current = await selfhostPublicSummary();
 
-    setupStep(2, 7, 'Connect your phone');
+    setupStep(2, 6, 'Connect your phone');
     let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args });
     if (plan === undefined) return cancelSetup();
     if (plan === 1) return 1;
@@ -510,7 +513,7 @@ export async function applyMachineSetup(args = []) {
     if (current !== undefined && connectionChanged) existingConnections = 'same-LAN native devices may verify the new address; others need fresh pairing';
     else if (current !== undefined) existingConnections = 'keep working; restart only if a reviewed runtime setting changed';
 
-    setupStep(5, 7, 'Agent status updates');
+    setupStep(4, 6, 'Agent status updates');
     const syncIntegrations = await select(found.agents.checked
         ? 'Keep agent status up to date?'
         : 'Agent status updates could not be checked. Try setting them up anyway?', [
@@ -519,7 +522,7 @@ export async function applyMachineSetup(args = []) {
     ]);
     if (aborted(syncIntegrations)) return cancelSetup();
 
-    setupStep(6, 7, 'Review setup');
+    setupStep(5, 6, 'Review setup');
     note([
         `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
         `Herdr: ${found.herdr.installed ? 'adopt existing installation and ensure its server is running' : 'download, install, and start during setup'}`,
@@ -537,7 +540,7 @@ export async function applyMachineSetup(args = []) {
     ], 1);
     if (apply !== true) return cancelSetup();
 
-    setupStep(7, 7, 'Install, start, and pair');
+    setupStep(6, 6, 'Install, start, and pair');
     if ((plan.mode === 'tailscale' || plan.mode === 'tailscale-direct') && tailscalePlanned && !(await applyTailscaleConnect(found))) {
         process.stderr.write('Tailscale did not connect; fix the reported issue, then rerun setup\n');
         return 1;

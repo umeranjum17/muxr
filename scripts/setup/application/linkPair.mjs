@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { hostId } from '@byokit/link';
 import { linkUrl } from '@byokit/relay/device';
 import { askVisible, base64, print, printTerminalQr } from '../infrastructure/runtime.mjs';
+import { startPairingPage } from '../infrastructure/pairingPage.mjs';
 import { pairingIntent } from '../domain/dist/index.js';
 import { readSelfhostState, selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
@@ -204,6 +205,8 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     const info = lstatSync(socketPath);
     if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0) throw new Error('unsafe pairing socket');
     if (signal?.aborted) throw new Error('pairing cancelled');
+    const page = process.stdout.isTTY && intent.kind === 'native' ? await startPairingPage() : undefined;
+    if (signal?.aborted) { await page?.close(); throw new Error('pairing cancelled'); }
     const socket = createConnection(socketPath);
     socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind: intent.kind, authority: intent.authority, personal: intent.personal },
         // A lab shell (HERDR_SESSION set) must never pair a host serving the live session.
@@ -223,7 +226,10 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
                 for (const line of lines) {
                     try {
                         const event = JSON.parse(line);
-                        if (event.offer) showOffer(event.offer, intent);
+                        if (event.offer) {
+                            page?.update(event.offer);
+                            showOffer(event.offer, intent, page?.url);
+                        }
                         else if (event.approval) void Promise.resolve(approve(event.approval)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), reject);
                         else if (event.error) reject(new Error(event.error));
                         else if (event.result) resolve(event.result);
@@ -231,7 +237,11 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
                 }
             });
         });
-    } finally { signal?.removeEventListener('abort', cancel); socket.destroy(); }
+    } finally {
+        signal?.removeEventListener('abort', cancel);
+        socket.destroy();
+        await page?.close();
+    }
 }
 
 function pairingOfferOptions(intent, state) {
@@ -320,18 +330,34 @@ async function servePairing(state, req, device, claims, done, intent, admit) {
     };
 }
 
-function showOffer(offer, intent) {
-    print('');
-    print(intent.kind === 'browser'
-        ? `This one-time link grants ${intent.authority === 'observe' ? 'view-only' : 'control'} browser access for ${intent.grantDurationLabel()}. Keep it private.`
-        : 'This one-time QR grants a phone control of agent sessions on this computer. Keep it private.');
-    print(`Pairing code expires at ${new Date(offer.expires).toLocaleString()}.`);
-    print(offer.text);
-    print(intent.kind === 'browser'
-        ? 'Open it in the browser, then compare the two words on this screen before approving.'
-        : 'Scan it with the muxr app, then compare the two words on this screen with the phone before approving.');
-    print('Waiting for the device to finish pairing…');
-    if (process.stdout.isTTY) printTerminalQr(offer.text);
+function showOffer(offer, intent, pageUrl) {
+    const lines = [
+        intent.kind === 'browser'
+            ? `Pair a ${intent.authority === 'observe' ? 'view-only' : 'control'} browser for ${intent.grantDurationLabel()}. Keep the code private.`
+            : 'Pair your phone. Keep the code private.',
+        ...(pageUrl ? ['Open this page on this computer for a scannable QR:', pageUrl] : []),
+        'Compare the two words, then approve on this computer.',
+        `Expires at ${new Date(offer.expires).toLocaleTimeString()}; refreshes automatically.`,
+        '',
+        intent.kind === 'browser'
+            ? 'Open the browser pairing link below (one token):'
+            : 'Other ways: copy the pairing string below (one token):',
+        // Never insert hard line breaks into the offer. Terminal soft wraps
+        // remain one logical line when selected/copied or captured with -J.
+        offer.text,
+        'Waiting for the device to finish pairing…',
+    ];
+    const redraw = process.stdout.isTTY && process.env.TERM !== 'dumb' && process.env.MUXR_NO_TUI !== '1' && process.env.NO_COLOR === undefined;
+    // ED2 moves the old grid into tmux scrollback. Overwrite from Home and
+    // erase only the remainder instead, so expired offers leave no history.
+    if (redraw) process.stdout.write('\x1b[H');
+    lines.forEach((line) => print(`${line}${redraw ? '\x1b[K' : ''}`));
+    if (process.stdout.isTTY) {
+        const columns = process.stdout.columns ?? 80;
+        const reservedRows = lines.reduce((total, line) => total + Math.max(1, Math.ceil(line.length / columns)), 0);
+        printTerminalQr(offer.text, { reservedRows });
+    }
+    if (redraw) process.stdout.write('\x1b[J');
 }
 
 async function showApproval(req) {

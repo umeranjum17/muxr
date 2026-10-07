@@ -37,7 +37,7 @@ export const INTEGRATION_COMMANDS = {
 
 export const print = (text = '') => process.stdout.write(`${text}\n`);
 export const error = (text) => process.stderr.write(`${text}\n`);
-export async function printTerminalQr(value) {
+export async function printTerminalQr(value, { reservedRows = 0 } = {}) {
     if (!process.stdout.isTTY || process.env.TERM === 'dumb' || process.env.NO_COLOR !== undefined || process.env.MUXR_NO_TUI === '1') {
         print('QR omitted in append-only/plain output; use the exact pairing string above.');
         return;
@@ -51,9 +51,9 @@ export async function printTerminalQr(value) {
     const lines = qr.split('\n');
     const width = lines.length * 2 - 1;
     const tooWide = process.stdout.columns !== undefined && width > process.stdout.columns;
-    // Callers print the pairing string and instructions first. Only the cursor
-    // row after the QR's final newline needs room alongside its quiet zone.
-    const tooTall = process.stdout.rows !== undefined && lines.length + 1 > process.stdout.rows;
+    // Pairing keeps its local-page link visible alongside the code. Other
+    // callers may allow earlier instructions to scroll away.
+    const tooTall = process.stdout.rows !== undefined && lines.length + reservedRows + 1 > process.stdout.rows;
     if (tooWide || tooTall) {
         print(`QR omitted because this terminal is ${process.stdout.columns ?? 'too few'} columns × ${process.stdout.rows ?? 'too few'} rows; use the exact pairing string above.`);
         return;

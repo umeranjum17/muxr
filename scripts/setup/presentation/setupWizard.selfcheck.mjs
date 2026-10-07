@@ -131,12 +131,14 @@ async function checkWizard() {
         tailscaleConnected = true;
         const connected = await run(['', '1', '1', '1', '1']);
         recommended(connected, 'Tailscale — works anywhere');
-        for (const title of ['Tailscale — works anywhere', 'Tailscale — direct (phone app only)', 'Private network you already use', 'Same Wi-Fi', 'Cloudflare', 'Your own server']) {
-            assert.ok(connected.includes(title), `Missing route: ${title}`);
-        }
-        assert.ok(connected.indexOf('Same Wi-Fi') < connected.indexOf('Temporary public link (Cloudflare)'));
+        assert.ok(connected.includes('Other ways'));
+        assert.doesNotMatch(connected, /Private network you already use|Temporary public link/);
+        const alternatives = await run(['2', '1', '1', '1', '1']);
+        assert.match(alternatives, /Same Wi-Fi/);
+        assert.match(alternatives, /Private network you already use/);
+        assert.deepEqual(calls, [], 'Other ways cancellation mutated setup');
         assert.deepEqual([...connected.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '3', '4', '5', '6'].map((step) => [step, '7']));
+            ['1', '2', '3', '4', '5'].map((step) => [step, '6']));
         assert.match(connected, /Connection: Tailscale/);
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
         for (const blocked of ['occupied', 'disabled']) {
@@ -165,7 +167,7 @@ async function checkWizard() {
         const completed = await run(['', 'wss://relay.example', '2', '4', '1', '2']);
         recommended(completed, 'Your own server');
         assert.deepEqual([...completed.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '3', '4', '5', '6', '7'].map((step) => [step, '7']));
+            ['1', '2', '3', '4', '5', '6'].map((step) => [step, '6']));
         assert.match(completed, /Setup complete/);
         assert.match(completed, /Pairing: phone and control browser paired/);
         assert.deepEqual(calls.map(([name]) => name), ['prerequisites', 'start', 'screen', 'pair', 'inspect']);
