@@ -272,7 +272,7 @@ export default function FilesScreen() {
                                     ))}
                                     {(repos?.repos.length ?? 0) === 0 && <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>No git repositories open</Text>}
                                 </>}
-            </ScrollView>
+                </ScrollView>}
         </>
     );
 }
