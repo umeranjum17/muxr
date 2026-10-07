@@ -110,11 +110,13 @@ function nextBroaderScope(attemptedScope: string, confirmedScope: CloseScope | u
 
 function confirmation(scope: string, located: Located): CloseResult {
     if (scope === 'tab') {
+        // Herdr tab labels are often a bare number; name it so the sentence reads.
+        const tab = /^\d+$/.test(located.tabLabel) ? `Tab ${located.tabLabel}` : located.tabLabel;
         return {
             status: 'confirmationRequired',
             scope,
             label: located.tabLabel,
-            message: `Closing ${located.tabLabel} will close this tab.`,
+            message: `Closing ${tab} will close this tab.`,
         };
     }
     if (scope === 'workspace') {
