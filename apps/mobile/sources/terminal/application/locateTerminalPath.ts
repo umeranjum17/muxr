@@ -117,9 +117,8 @@ export async function locateTerminalPath(
                 // Unverifiable here; the next candidate may still name it.
             }
         }
-        // Nothing verified, but the tap named a file: like control mode,
-        // the longest comes back as a file so Files shows its designed
-        // missing state. Null is only for taps with no path at all.
+        // Nothing verified: like control mode, the longest comes back
+        // as a file so Files shows its missing state.
         return longest === undefined ? null : target('file', longest);
     }
     let longest: string | undefined;

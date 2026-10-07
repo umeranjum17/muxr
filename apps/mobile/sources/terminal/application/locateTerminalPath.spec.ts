@@ -64,8 +64,7 @@ describe('locateTerminalPath in observe mode', () => {
     });
 
     it('returns a missing repository file as a file so Files shows its missing state', async () => {
-        // The read refuses and no folder claims the name: the tap still
-        // named a file, so Files (not an alert) says it is gone.
+        // The read refuses and no folder claims the name.
         mocks.filesRead.mockRejectedValue(new Error('file unavailable'));
         mocks.filesList.mockResolvedValue({ tree: [] });
 

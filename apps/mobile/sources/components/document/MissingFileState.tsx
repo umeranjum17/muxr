@@ -16,8 +16,7 @@ export function MissingFileState(props: {
     onBack: () => void;
 }) {
     const { theme } = useUnistyles();
-    // The gesture bar floats over content: the bottom inset keeps every
-    // button above it, and the scroller takes a path longer than the screen.
+    // Above the gesture bar, and scrolling when the path is long.
     const insets = useSafeAreaInsets();
     const [copied, setCopied] = React.useState(false);
     const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -40,7 +39,7 @@ export function MissingFileState(props: {
 
     return (
         <ScrollView
-            style={styles.scroll}
+            style={{ flex: 1 }}
             contentContainerStyle={[styles.centered, { paddingBottom: Math.max(insets.bottom, 16) + 12 }]}
             accessibilityRole="text"
             accessibilityLabel={`${t('files.missingFileTitle')}, ${props.path}`}
@@ -95,9 +94,6 @@ export function MissingFileState(props: {
 }
 
 const styles = StyleSheet.create({
-    scroll: {
-        flex: 1,
-    },
     centered: {
         flexGrow: 1,
         alignItems: 'center',
