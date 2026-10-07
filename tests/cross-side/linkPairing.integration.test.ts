@@ -17,6 +17,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 import {
     DeviceLink,
@@ -476,6 +477,42 @@ describe('native pairing over the byokit link', () => {
             await abort();
         }
     }, 90_000);
+
+    it('keeps pairing open after Enter at the real terminal prompt, then pairs on y', async () => {
+        const driver = join(home, 'terminal-pair.mjs');
+        const pairModule = pathToFileURL(join(hostRoot, 'scripts/setup/application/linkPair.mjs')).href;
+        writeFileSync(driver, `import { pairOnRunningHost } from ${JSON.stringify(pairModule)};\nawait pairOnRunningHost(${JSON.stringify(join(home, 'host', 'pair.sock'))});\nconsole.log('Pairing complete');\n`);
+        // A real PTY exercises the default producer prompt, not an injected
+        // approve callback. BSD script takes command argv; Linux takes -c.
+        const args = process.platform === 'darwin'
+            ? ['-q', '/dev/null', process.execPath, driver]
+            : ['-qec', `${process.execPath} ${driver}`, '/dev/null'];
+        const child = spawn('script', args, { cwd: hostRoot, env: { ...process.env, MUXR_HOME: home, HERDR_SESSION: '' }, stdio: ['pipe', 'pipe', 'pipe'] });
+        children.add(child);
+        child.once('exit', () => children.delete(child));
+        let terminal = '';
+        child.stdout.on('data', (chunk) => { terminal += String(chunk); });
+        child.stderr.on('data', (chunk) => { terminal += String(chunk); });
+        const promptCount = () => (terminal.match(/Approve this device\?/g) ?? []).length;
+        let phonePairing: Promise<StoredHostedGrant> | undefined;
+        try {
+            const offer = await until(() => /byokit-link:1:[A-Za-z0-9_-]+/.exec(terminal)?.[0], 'terminal offer');
+            phonePairing = runPhonePairing(offer);
+            // Observe rejection immediately even if prompt admission fails.
+            void phonePairing.catch(() => undefined);
+            await until(() => promptCount() === 1 ? true : undefined, 'approval prompt');
+            child.stdin.write('\n');
+            await until(() => promptCount() === 2 ? true : undefined, 'Enter re-asks');
+            expect(terminal).not.toContain('Pairing complete');
+            child.stdin.write('y\n');
+            const stored = await phonePairing;
+            expect(readSelfhostState().machine.crypto.devices.some((device) => device.deviceId === stored.deviceId)).toBe(true);
+            await until(() => terminal.includes('Pairing complete') ? true : undefined, 'computer completes pairing');
+        } finally {
+            await stop(child);
+            await phonePairing?.catch(() => undefined);
+        }
+    }, 60_000);
 
     it('names a pairing-link drop after the confirmation words', async () => {
         const { pairing, offer, abort } = await showPairingQr({ approve: async () => {
