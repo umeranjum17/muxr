@@ -32,6 +32,7 @@ import { realtimeMachineSwitchGuard, stopRealtimeSession } from '@/conversation/
 import { useRealtimeAppControl } from '@/conversation';
 import { FONT_STEPS, clampFontIndex } from '@/terminal';
 import { browserNotificationSummary, phoneNotificationSummary } from './notificationSummary';
+import { HerdrInfoSheet } from './HerdrInfoSheet';
 
 export const SettingsView = React.memo(function SettingsView({
     topContentInset = 0,
@@ -339,6 +340,12 @@ export const SettingsView = React.memo(function SettingsView({
                     detail={collaborationSummary(collaborationIntent)}
                     icon={<Ionicons name="git-network-outline" size={29} color="#5856D6" />}
                     onPress={() => router.push('/settings/collaboration' as any)}
+                />
+                <Item
+                    title="Herdr"
+                    subtitle="Runs your sessions on the computer — see the command"
+                    icon={<Ionicons name="terminal-outline" size={29} color="#34C759" />}
+                    onPress={() => { Modal.show({ component: HerdrInfoSheet, align: 'bottom' }); }}
                 />
             </ItemGroup>
             <ItemGroup title="App and plugins">
