@@ -54,7 +54,8 @@ describe('visible herd tree flow', () => {
             .toEqual({ primary: 'Review monitoring stability', who: 'pi · Maria', kind: 'pi' });
         expect(agentKindLabel('opencode')).toBe('OpenCode');
         expect(agentKindLabel('pi')).toBe('Pi');
-        expect(agentLabels(pane('p-unnamed', 'opencode'))).toMatchObject({ title: 'Unnamed agent', agentName: 'Unnamed agent' });
+        expect(agentLabels(pane('p-unnamed', 'opencode'))).toMatchObject({ title: 'OpenCode', agentName: 'OpenCode' });
+        expect(agentLabels(pane('p-starting', 'claude'))).toMatchObject({ title: 'Claude', agentName: 'Claude' });
         expect(agentLabels(shell)).toMatchObject({ title: 'tmp', agentName: 'Shell' });
         const titledShell = agentLabels(pane('p-titled-shell', undefined, { taskTitle: 'vim ~/.bashrc' }));
         expect(titledShell).toMatchObject({ title: 'vim ~/.bashrc', agentName: 'Shell' });
