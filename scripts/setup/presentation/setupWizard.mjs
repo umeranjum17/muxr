@@ -229,7 +229,7 @@ export function recommendedConnection(found, current, tailscalePlanned, serveRoo
             ? { mode: 'tailscale-direct', title: 'Use muxr away from home — phone only (Tailscale)', description: 'Serve is unavailable or used by something else; the Tailscale app on both devices still works' }
             : { mode: 'tailscale', title: 'Use muxr away from home (Tailscale)', description: 'both devices need the Tailscale app, signed in to the same account' };
     }
-    if (current?.relayHealthy && current?.publicHealthy
+    if (current?.relayHealthy && current?.publicHealthy && current?.connectionMode !== 'lan'
         && choices(found, tailscalePlanned, serveRoot).some((choice) => choice.value === current.connectionMode && !choice.disabled)) {
         return { mode: current.connectionMode, title: connectionLabel(current.connectionMode, current.relayUrl, current.relayPort), description: 'already configured and reachable' };
     }

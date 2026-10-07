@@ -181,7 +181,7 @@ export function removeManaged(path, entry, manifest, { dryRun, force }) {
     return true;
 }
 
-export async function askVisible(question) {
+export async function askVisible(question, { piped = false } = {}) {
     if (process.stdin.isTTY && process.stdout.isTTY) {
         const rl = createInterface({ input: process.stdin, output: process.stdout });
         return new Promise((resolve) => rl.question(question, (answer) => {
@@ -189,9 +189,7 @@ export async function askVisible(question) {
             resolve(/^y(?:es)?$/i.test(answer.trim()));
         }));
     }
-    // Piped stdin (an agent driving the CLI): answer from one piped line, so a
-    // driver that compared the words through another channel can still approve.
-    // Anything but an explicit y — including EOF — declines; never auto-approve.
+    if (!piped) return false;
     if (process.stdin.isTTY) return false;
     print(question);
     return new Promise((resolve) => {

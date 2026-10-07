@@ -11,7 +11,7 @@ import { browserHostingReady, ensureSelfhostRelay, relayDiscovery } from '../inf
 export async function mintDeviceGrant(state, kind = 'native', authority = 'control', personal = false) {
     const record = await linkPair(state, { intent: pairingIntent({ kind, authority, personal }) });
     print(`  ✓ paired and verified ${record.name || 'device'}`);
-    if (typeof state?.relayUrl === 'string' && /^ws:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(state.relayUrl)) {
+    if (typeof state?.relayUrl === 'string' && /^wss?:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(state.relayUrl)) {
         print('  WARNING: this host uses the Wi-Fi-only route — the phone works only on this home network and will NOT work away from home. For access from anywhere, run `muxr setup`, choose a route that works away from home (Tailscale), then `muxr pair` again.');
     }
     return 0;

@@ -508,7 +508,7 @@ export async function inspectSetup() {
     if (repairs.length > 0 && process.stdin.isTTY && process.stdout.isTTY) {
         print('\nRepairs available:');
         for (const check of repairs) print(`  • ${check.repair.label}`);
-        if (await askVisible(`Run ${repairs.length === 1 ? 'this repair' : `these ${repairs.length} repairs`} now? [y/N] `)) {
+        if (await askVisible(`Run ${repairs.length === 1 ? 'this repair' : `these ${repairs.length} repairs`} now? [y/N] `, { piped: true })) {
             for (const check of repairs) {
                 print(`  → ${check.repair.label}`);
                 try {

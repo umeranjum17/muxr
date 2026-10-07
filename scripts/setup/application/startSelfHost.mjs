@@ -63,7 +63,7 @@ export async function startSelfHost(args = []) {
         }
         if (web && process.stdout.isTTY && !args.includes('--yes')) {
             print('Web access supports 8-hour control or view-only browser grants. Secret material is WebCrypto-wrapped in IndexedDB; close shared browsers and revoke them from `muxr devices`.');
-            const approved = await askVisible('Continue with browser access? [y/N] ');
+            const approved = await askVisible('Continue with browser access? [y/N] ', { piped: true });
             if (!approved) return 0;
         }
         if (dryRun) {
