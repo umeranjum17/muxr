@@ -24,11 +24,12 @@ import { setupEmptyState } from '@/commercialization';
 import { RoundButton } from '@/components/RoundButton';
 import { ActionButton } from '@/components/ActionButton';
 import { withAlpha } from '@/components/ui';
-import { useSocketStatus } from '@/catalog/store';
+import { useLocalSettingMutable, useSocketStatus } from '@/catalog/store';
 import { syncReconnect } from '@/catalog/sync';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
 import { HomeEmptyState } from './HomeEmptyState';
+import { FirstAgentCard, HomeBatteryCard } from './HomeFirstRunCards';
 import { BusyConnectingCard, HomeRecoveryCard, recoveryMode, useBusyConnecting } from './HomeRecoveryCard';
 import { LiveTerminalsRow, type LiveCardBadgeInfo } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
@@ -193,6 +194,15 @@ export const HerdView = React.memo(({
             setRetrying(false);
         }
     };
+    const [firstAgentDismissed, setFirstAgentDismissed] = useLocalSettingMutable('firstAgentCardDismissed');
+    // The first agent retires the one-time card for good, however it started.
+    React.useEffect(() => {
+        if (!noAgents && !firstAgentDismissed) setFirstAgentDismissed(true);
+    }, [firstAgentDismissed, noAgents, setFirstAgentDismissed]);
+    // The one-time first-run card replaces the generic empty state and the
+    // discovery rows while it shows: a user with no agents yet sees one
+    // invitation, not two.
+    const showFirstAgent = noAgents && !firstAgentDismissed && canStart && !needsRecovery && busySince === null && searchQuery.trim() === '';
     const mode = recoveryMode(socketStatus.error, runtimeOffline && !hostOffline);
     const recoveryCard = needsRecovery ? (
         <HomeRecoveryCard
@@ -259,6 +269,7 @@ export const HerdView = React.memo(({
                 <HomeNotices runtimeOffline={herdrConnected === false && !needsRecovery} machineName={machineName} />
                 {header}
                 {recoveryCard}
+                {showFirstAgent && <FirstAgentCard />}
                 {!needsRecovery && !busy && searchQuery.trim() === '' && <LiveTerminalsRow
                     showZeroState={false}
                     visibilityTop={topContentInset}
@@ -287,6 +298,12 @@ export const HerdView = React.memo(({
                             </View>
                         </View>
                     </>
+                ) : showFirstAgent ? (
+                // First run with no agents yet: the one-time card is the whole
+                // invitation, plus the quiet way to connect another computer.
+                <View style={styles.empty}>
+                    <ActionButton title="Connect another computer" variant="quiet" icon="desktop-outline" onPress={() => router.push('/settings/connection' as never)} />
+                </View>
                 ) : (
                 // Nothing runs on the computer yet: one quiet invitation in the
                 // free space, instead of an empty Live row, a list and a label.
@@ -330,7 +347,8 @@ export const HerdView = React.memo(({
                         visibilityBottomInset={bottomContentInset}
                         cardBadge={liveCardBadge}
                     />}
-                    {noAgents && !needsRecovery && !busy && searchQuery.trim() === '' ? <HomeDiscoveryRows /> : null}
+                    {noAgents && !needsRecovery && !busy && searchQuery.trim() === '' ? (showFirstAgent ? <FirstAgentCard /> : <HomeDiscoveryRows />) : null}
+                    {!needsRecovery && searchQuery.trim() === '' && <HomeBatteryCard />}
                 </>}
                 topContentInset={topContentInset}
                 bottomContentInset={safeArea.bottom + bottomContentInset}
