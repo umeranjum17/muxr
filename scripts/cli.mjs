@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
-import { existsSync, realpathSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, realpathSync, readdirSync, readFileSync, writeSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, relative } from 'node:path';
 import { homedir, release as kernelRelease } from 'node:os';
@@ -59,6 +59,18 @@ import { previewStatus } from './preview/client.mjs';
 import { previewClaim, previewRelease } from './preview/claim.mjs';
 import { share } from './terminal/share.mjs';
 import { artifacts } from './terminal/artifacts.mjs';
+
+// Fatal failures are a CLI boundary, not permission to resume damaged execution.
+function stopCli(cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    const message = process.env.MUXR_DEBUG === '1' && cause instanceof Error
+        ? cause.stack ?? reason
+        : `muxr stopped: ${reason.replace(/\s+/g, ' ').trim()}. Run \`muxr\` again, or see \`muxr doctor\`.`;
+    writeSync(2, `${message}\n`);
+    process.exit(1);
+}
+process.on('uncaughtException', stopCli);
+process.on('unhandledRejection', stopCli);
 
 const HELP = `muxr — every coding agent on your phone
 
