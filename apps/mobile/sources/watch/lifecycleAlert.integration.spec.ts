@@ -79,6 +79,9 @@ vi.mock('@/conversation/session', () => ({
 vi.mock('@/utils/nativePushNotifications', () => ({ registerNativePushNotifications: async () => undefined }));
 vi.mock('@/utils/microphonePermissions', () => ({
     requestNotificationPermission: () => harness.permissionPending ? new Promise<boolean>(() => undefined) : Promise.resolve(true),
+    notificationPermissionStatus: () => harness.permissionPending
+        ? new Promise<{ granted: boolean; canAskAgain: boolean }>(() => undefined)
+        : Promise.resolve({ granted: true, canAskAgain: false }),
 }));
 vi.mock('@/../modules/voice-overlay', () => ({
     updateVoiceNotification: (herd: { mode: string; name: string; eventKey: string }, _voice: string, _name: string, _muted: boolean, agents: Array<{ id: string; name: string; status: string; focused: boolean }>) => {

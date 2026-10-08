@@ -29,7 +29,7 @@ import { syncReconnect } from '@/catalog/sync';
 import { hasAgent } from '../domain/herdTree';
 import { HomeDiscoveryRows } from './HomeDiscoveryRows';
 import { HomeEmptyState } from './HomeEmptyState';
-import { FirstAgentCard, HomeBatteryCard } from './HomeFirstRunCards';
+import { FirstAgentCard, HomeBatteryCard, HomeNotificationPrimerCard } from './HomeFirstRunCards';
 import { BusyConnectingCard, HomeRecoveryCard, recoveryMode, useBusyConnecting } from './HomeRecoveryCard';
 import { LiveTerminalsRow, type LiveCardBadgeInfo } from './LiveTerminalsRow';
 import { SpacesTree } from './SpacesTree';
@@ -270,6 +270,7 @@ export const HerdView = React.memo(({
                 {header}
                 {recoveryCard}
                 {showFirstAgent && <FirstAgentCard />}
+                {!needsRecovery && busySince === null && searchQuery.trim() === '' && <HomeNotificationPrimerCard />}
                 {!needsRecovery && !busy && searchQuery.trim() === '' && <LiveTerminalsRow
                     showZeroState={false}
                     visibilityTop={topContentInset}
@@ -302,7 +303,7 @@ export const HerdView = React.memo(({
                 // First run with no agents yet: the one-time card is the whole
                 // invitation, plus the quiet way to connect another computer.
                 <View style={styles.empty}>
-                    <ActionButton title="Connect another computer" variant="quiet" icon="desktop-outline" onPress={() => router.push('/settings/connection' as never)} />
+                    <ActionButton title="Connect another computer" variant="quiet" wrap icon="desktop-outline" onPress={() => router.push('/settings/connection' as never)} />
                 </View>
                 ) : (
                 // Nothing runs on the computer yet: one quiet invitation in the
@@ -319,7 +320,7 @@ export const HerdView = React.memo(({
                         {canStart
                             ? <ActionButton title="Start an agent" icon="add-circle-outline" onPress={() => router.push('/new-agent' as never)} />
                             : null}
-                        <ActionButton title="Connect another computer" variant="quiet" icon="desktop-outline" onPress={() => router.push('/settings/connection' as never)} />
+                        <ActionButton title="Connect another computer" variant="quiet" wrap icon="desktop-outline" onPress={() => router.push('/settings/connection' as never)} />
                     </View>
                 </View>
             )}
@@ -349,6 +350,7 @@ export const HerdView = React.memo(({
                     />}
                     {noAgents && !needsRecovery && !busy && searchQuery.trim() === '' ? (showFirstAgent ? <FirstAgentCard /> : <HomeDiscoveryRows />) : null}
                     {!needsRecovery && searchQuery.trim() === '' && <HomeBatteryCard />}
+                    {!needsRecovery && searchQuery.trim() === '' && <HomeNotificationPrimerCard />}
                 </>}
                 topContentInset={topContentInset}
                 bottomContentInset={safeArea.bottom + bottomContentInset}
