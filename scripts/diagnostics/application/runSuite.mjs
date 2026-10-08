@@ -63,6 +63,7 @@ const checks = [
     ['e2e: multi-provider usage aggregation', 'node', ['scripts/diagnostics/application/checkUsageStatus.mjs']],
     ['e2e: tailscale ingress ownership', 'node', ['scripts/diagnostics/application/checkTailscaleIngress.mjs']],
     ['unit: selfhost state survives garbage JSON', 'node', ['scripts/diagnostics/application/checkSelfhostState.mjs']],
+    ['e2e: realtime voice product lifecycle (selection, key store)', 'node', ['scripts/diagnostics/application/checkVoicePlugin.mjs']],
     ['e2e: second host retires the first', 'node', ['scripts/diagnostics/application/checkHostTakeover.mjs']],
     ['e2e: machine key rotation retires the old host key', 'node', ['scripts/diagnostics/application/checkKeyRotation.mjs']],
     ['e2e: a lab host never serves the default Herdr session', 'node', ['scripts/diagnostics/application/checkLabHerdrGuard.mjs']],
