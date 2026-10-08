@@ -30,7 +30,7 @@ import {
 } from '@/connection';
 import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
-import { saveHomeSnapshot } from './persistence';
+import { saveHomeSnapshot, hasLegacySpacePins, migrateSpacePins } from './persistence';
 import { spawnerOf, workspaceNames } from '@/herd/tree';
 import {
     applyStatusToSession,
@@ -235,6 +235,7 @@ class MuxrSync {
     private readonly pendingSessionInfo = new Map<string, SessionInfo>();
     private sessionFlushTimer: ReturnType<typeof setTimeout> | undefined;
     private client: SessionClient | undefined;
+    private clientMachineId: string | undefined;
     private readonly artifactWire = createArtifactWire((type, params, timeoutMs) => this.request(type, params, timeoutMs));
     private lifecycleWork: Promise<void> = Promise.resolve();
     private reconnectWork: Promise<void> | undefined;
@@ -297,6 +298,7 @@ class MuxrSync {
             }
         });
         client.onEvent((sessionId, event) => this.handleSessionEvent(sessionId, event));
+        this.clientMachineId = settings.machineId;
         client.connect();
         this.client = client;
         setActiveSessionClient(client);
@@ -534,19 +536,28 @@ class MuxrSync {
 
     async refreshHerdTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; herdrConnected: boolean | undefined }> {
         const request = ++this.herdrTreeRequest;
+        const legacyPins = hasLegacySpacePins();
         if (!this.hasTransport()) {
             storage.getState().setSocketStatus('disconnected');
             storage.getState().applyHerdrTree([]);
             storage.getState().setHerdrRuntime(undefined);
             return { workspaces: [], herdrConnected: undefined };
         }
+        const client = this.ensureClient();
+        const machineId = this.clientMachineId!;
+        if (machineId !== this.getConnection().machineId) throw new Error('Computer changed while loading spaces');
         let tree;
         try {
             tree = await this.request('herdr.tree', {});
         } catch (cause) {
             // A failed read answers nothing about the runtime: back to unknown.
-            if (request === this.herdrTreeRequest) storage.getState().setHerdrRuntime(undefined);
+            if (request === this.herdrTreeRequest && client === this.client && machineId === this.getConnection().machineId) {
+                storage.getState().setHerdrRuntime(undefined);
+            }
             throw cause;
+        }
+        if (client !== this.client || machineId !== this.getConnection().machineId) {
+            throw new Error('Computer changed while loading spaces');
         }
         // Requests can cross when a done frame and a newer working frame arrive
         // close together. Only the latest canonical read may update the UI.
@@ -561,6 +572,10 @@ class MuxrSync {
                         }
                     }
                 }
+            }
+            if (legacyPins && (tree as { connected?: boolean }).connected !== false) {
+                migrateSpacePins(machineId, tree.workspaces);
+                storage.getState().setActiveMachine(machineId);
             }
             this.confirmedHomeTree = { request, workspaces: tree.workspaces };
             storage.getState().applyHerdrTree(tree.workspaces);

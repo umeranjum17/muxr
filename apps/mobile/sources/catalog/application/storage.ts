@@ -178,7 +178,7 @@ interface StorageState extends WatchSnapshot {
     herdrTreeLoaded: boolean;
     /** Latest herdr runtime liveness from `herdr.tree`: false is dead, undefined is unknown. Written only by sync.refreshHerdTree. */
     herdrRuntime: boolean | undefined;
-    /** Spaces pins: workspace ids shown first, a per-device view preference. */
+    /** The active machine's workspace ids shown first, a per-device view preference. */
     pinnedSpaceIds: string[];
     /** Per machine: Spaces Move up/down order and favourite agents, a per-device view preference. */
     spacesLayouts: Record<string, SpacesLayout>;
@@ -302,7 +302,7 @@ export const storage = create<StorageState>()((set, get) => ({
     herdrWorkspaces: [],
     herdrTreeLoaded: false,
     herdrRuntime: undefined,
-    pinnedSpaceIds: loadSpacePins(),
+    pinnedSpaceIds: [],
     spacesLayouts: loadSpacesLayouts(),
     activeMachineId: '',
     homeSnapshot: null,
@@ -372,10 +372,10 @@ export const storage = create<StorageState>()((set, get) => ({
         const pinnedSpaceIds = state.pinnedSpaceIds.includes(workspaceId)
             ? state.pinnedSpaceIds.filter((id) => id !== workspaceId)
             : [...state.pinnedSpaceIds, workspaceId];
-        saveSpacePins(pinnedSpaceIds);
+        saveSpacePins(state.activeMachineId, pinnedSpaceIds, workspaceId);
         return { pinnedSpaceIds };
     }),
-    setActiveMachine: (activeMachineId) => set({ activeMachineId }),
+    setActiveMachine: (activeMachineId) => set({ activeMachineId, pinnedSpaceIds: loadSpacePins(activeMachineId) }),
     setSpaceOrder: (order) => set((state) => {
         const spacesLayouts = { ...state.spacesLayouts, [state.activeMachineId]: { ...spacesLayoutOf(state), order } };
         saveSpacesLayouts(spacesLayouts);
