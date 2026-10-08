@@ -31,6 +31,7 @@ describe('a scanned pairing QR reaches pairing', () => {
             for (const url of [offer, ...['muxr', 'muxr-dev', 'muxr-preview'].map((scheme) => `${scheme}://pair#${offer}`), `https://relay.example.test/pair#${offer}`]) {
                 expect(looksLikeLinkOffer(url)).toBe(true);
                 expect(redirectSystemPath({ path: url, initial: true })).toBe(`/pair?offer=${encodeURIComponent(offer)}`);
+                expect(decidePairingInput(url)).toMatchObject({ ok: true, offer });
             }
             expect(redirectSystemPath({ path: 'muxr-dev://pair#byokit-link:1:bad?', initial: true })).toBe('muxr-dev://pair#byokit-link:1:bad?');
         } finally { host.close(); }
@@ -116,6 +117,9 @@ describe('a scanned pairing QR reaches pairing', () => {
             for (const url of [`muxr-dev://pair#${compact}`, `https://relay.example.test/pair#${compact}`]) {
                 expect(looksLikeLinkOffer(url)).toBe(true);
                 expect(redirectSystemPath({ path: url, initial: true })).toBe(`/pair?offer=${encodeURIComponent(compact)}`);
+                // Whatever the delivery, pairing must receive the inner offer,
+                // never the wrapper URL (a warm-start URL event pastes raw).
+                expect(decidePairingInput(url)).toMatchObject({ ok: true, offer: compact });
             }
             const { linkOfferName } = await import('@/pairing/infrastructure/linkPairClient');
             expect(linkOfferName(compact)).toBe('Desk');

@@ -74,15 +74,18 @@ export type PairingInputDecision
 export function decidePairingInput(value: string): PairingInputDecision {
     const compact = value.replace(/\s+/g, '');
     if (looksLikeLinkOffer(compact)) {
-        if (linkOfferExpired(compact)) return { ok: false, message: EXPIRED_PAIRING_CODE, expired: true };
+        // A deep link or pasted link wraps the offer in a URL; the pairing
+        // itself needs the inner offer, never the wrapper.
+        const offer = linkOfferFromUrl(compact) ?? compact;
+        if (linkOfferExpired(offer)) return { ok: false, message: EXPIRED_PAIRING_CODE, expired: true };
         try {
-            parseOffer(compact);
+            parseOffer(offer);
         } catch {
             // Not v1: a compact offer validates through the kit's reader, and
             // anything else carrying the link tag is cut off.
-            if (!validCompactOffer(compact)) return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
+            if (!validCompactOffer(offer)) return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
         }
-        return { ok: true, offer: compact };
+        return { ok: true, offer };
     }
     if (WS_LEGACY_CODE.test(compact)) return { ok: false, message: LEGACY_PAIRING_CODE, expired: false };
     if (/byokit-link:/i.test(value)) return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
