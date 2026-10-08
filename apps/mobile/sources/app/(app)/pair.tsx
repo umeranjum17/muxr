@@ -23,7 +23,7 @@ type PairState =
     | { phase: 'error'; message: string; url?: string; machineName?: string };
 
 const SSH_PAIRING_STEPS = [
-    'On the computer, run `muxr pair` — it prints a one-time link offer.',
+    'On the computer, run muxr pair — it prints a one-time link offer.',
     'Fill in the SSH details; muxr opens the tunnel to that machine.',
     'Paste the offer below — pairing runs through the tunnel.',
 ] as const;
@@ -318,14 +318,14 @@ export default function PairScreen() {
                                 <Text style={styles.routeHint}>Recommended · ~1 min · for the computer in front of you.</Text>
                             </>
                         )}
-                        <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : sshRoute ? 'Pairing string from `muxr pair`' : 'Enter pairing string manually'}</Text>
+                        <Text style={styles.inputLabel}>{browser ? 'Paste browser pairing string' : openedFromSettings ? 'Or paste the pairing string' : sshRoute ? 'Pairing string from muxr pair' : 'Paste the pairing string'}</Text>
                         <TextInput
                             accessibilityLabel="Pairing string"
                             testID={sshRoute ? "ssh-pairing-offer" : undefined}
                             autoCapitalize="none"
                             autoCorrect={false}
                             keyboardType="url"
-                            placeholder={browser ? 'https://your-relay/pair#byokit-link:1:…' : 'byokit-link:1:…'}
+                            placeholder={browser ? 'https://your-relay/pair#…' : 'Paste the pairing string'}
                             placeholderTextColor={styles.inputPlaceholder.color}
                             returnKeyType="go"
                             style={styles.input}
@@ -334,7 +334,7 @@ export default function PairScreen() {
                             onSubmitEditing={connectManual}
                         />
                         <Text style={styles.routeHint}>{browser
-                            ? 'Shown by `muxr pair --browser` on that computer.'
+                            ? 'Shown by muxr pair --browser on that computer.'
                             : sshRoute
                                 ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
                                 : 'For a computer you are not standing at — copy the string from its terminal.'}</Text>

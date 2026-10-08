@@ -35,7 +35,7 @@ export function pairLinkConsent(scanned: string, machineName: string): string {
     const device = pairingDeviceKind();
     const role = linkOfferRole(scanned);
     if (role === undefined) {
-        return `This ${pairingDeviceNoun()} will receive the access shown on the pairing screen. Only continue if you just ran ${device === 'browser' ? '`muxr pair --browser`' : '`muxr pair`'} on that computer.`;
+        return `This ${pairingDeviceNoun()} will receive the access shown on the pairing screen. Only continue if you just ran ${device === 'browser' ? 'muxr pair --browser' : 'muxr'} on that computer.`;
     }
     let detail = pairLinkDetail(device, role);
     if (device === 'browser') detail = `Machine keys stay end-to-end encrypted in this browser for ${hostedPairingDuration(scanned)}. ${detail}`;
@@ -107,12 +107,12 @@ function pairedView(machineName: string, device: 'phone' | 'browser'): PairingPr
 function pairLinkDetail(device: 'phone' | 'browser', role: 'control' | 'view'): string {
     if (role === 'view') {
         return device === 'browser'
-            ? 'Only continue if you just ran `muxr pair --browser-view` on that computer.'
-            : 'Only continue if you just ran `muxr pair` on that computer.';
+            ? 'Only continue if you just ran muxr pair --browser-view on that computer.'
+            : 'Only continue if you just ran muxr on that computer.';
     }
     return device === 'browser'
-        ? 'It receives the access shown on the pairing screen. Only continue if you just ran `muxr pair --browser` on that computer.'
-        : 'It can also read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr. Only continue if you just ran `muxr pair` on that computer.';
+        ? 'It receives the access shown on the pairing screen. Only continue if you just ran muxr pair --browser on that computer.'
+        : 'It can also read and type into every agent terminal on that computer, answer approvals, and start or stop agents as the user who launched muxr. Only continue if you just ran muxr on that computer.';
 }
 
 /*
