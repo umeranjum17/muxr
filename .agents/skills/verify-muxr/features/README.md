@@ -77,3 +77,6 @@ user-visible behavior, then exactly four H2 sections in this order:
   Settings `Herdr` row and sheet with the `herdr agent list` command, Copy
   feedback, and the real-Herdr lab log proving the command lists the host's
   sessions.
+- [Select a terminal's text on iOS](./terminal-select-text-ios.md) —
+  Select Text viewer: Select All, one-tap Copy and a read-only edit menu on
+  iPhone and iPad simulators.

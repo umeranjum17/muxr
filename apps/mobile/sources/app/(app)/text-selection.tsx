@@ -23,7 +23,8 @@ export default function TextSelectionScreen() {
     // The viewer stays editable on iOS so the system offers the full menu
     // (Select, Select All, Copy) and Cmd+A: a non-editable field drops
     // Select All. Every edit that reaches it is handed straight back, and no
-    // keyboard opens, so it never becomes an editor.
+    // keyboard opens, so it never becomes an editor. Having no keyboard also
+    // drops Cut, Paste and AutoFill from its menu (ios/muxr/AppDelegate.swift).
     const revertViewerEdits = React.useCallback((next: string) => {
         if (next !== fullText) inputRef.current?.setNativeProps({ text: fullText });
     }, [fullText]);
