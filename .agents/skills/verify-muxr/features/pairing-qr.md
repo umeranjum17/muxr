@@ -7,6 +7,7 @@
 - Native pairing offers use the running host's private pairing socket and existing BYOKit link.
 - A QR needs its matrix width and half-block row count plus one cursor row, not spare rows for instructions already printed above it.
 - Narrow or short terminals print an omission reason and the complete pairing string.
+- At the approval prompt, Enter re-asks without rejecting the device; `y` approves and `n` declines.
 
 ## How to get to it (user POV)
 
@@ -24,6 +25,30 @@ Preconditions: follow `../SKILL.md` Launch and Doctor. Use only a task-owned tmu
 4. Repeat inside a pane of the guarded Herdr lab. Drive every Herdr command through that lab's helper, including `pane run`, `pane read --source visible --ansi`, and cancellation. Record the pane's actual terminal grid; do not assume its initial dimensions.
 5. Save before/after PNGs for all three terminals. An ANSI-to-PNG rendering of the captured real grid is acceptable when desktop screenshots are unsafe; disclose that it is a rendering, retain the source ANSI and dimensions, and preserve foreground/background SGR colors (including Herdr's indexed colors). Inspect every PNG. Decode successful QR captures with `zbarimg --quiet --raw <png>` and compare the decoded text with the offer in the full transcript.
 6. Check the exact width boundary and one row below the required height with the same public CLI. At insufficient width or height, the fallback must retain the complete string, never a wrapped QR.
+
+## Approval prompt
+
+For a terminal-only approval change, run:
+
+```sh
+npx vitest run tests/cross-side/linkPairing.integration.test.ts -t 'keeps pairing open after Enter'
+```
+
+This starts a private real relay and fake-session host (no Herdr access), then
+runs `pairOnRunningHost` with its default approval prompt in a real PTY.
+The real phone pairing modules claim the offer and finish the enrollment.
+Enter must print the question a second time without completing pairing;
+`y` must then finish on both sides and leave the device enrolled.
+To disprove the check, remove `reaskOnEmpty` from `showApproval`: it must fail
+waiting for the second question. Restore the candidate before continuing.
+
+For manual proof, use `muxr pair` on the private stack, claim its offer, and
+capture the terminal before and after Enter, then `y` (or `n` to cancel).
+Retain the real PTY transcript and before/after prompt views outside scratch.
+ANSI-to-PNG prompt renderings are acceptable with the source retained and the
+rendering disclosed; inspect both images. The PTY flow checks the shared
+pairing producer, not CLI setup or desktop screen-sharing after pairing.
+No emulator turn is needed when only the terminal prompt changes.
 
 ## Gotchas
 

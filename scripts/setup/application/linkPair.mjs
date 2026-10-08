@@ -344,5 +344,5 @@ async function showApproval(req) {
         print('No interactive terminal here, so this device was NOT approved. To pair, the person must approve on this computer after comparing the words: run `muxr pair` in a terminal there and approve when the words match.');
         return false;
     }
-    return askVisible('Only approve if the words match. Approve this device? (y/N) ');
+    return askVisible('Only approve if the words match. Approve this device? (y/n) ', { reaskOnEmpty: true });
 }
