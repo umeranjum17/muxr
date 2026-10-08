@@ -103,7 +103,7 @@ export function linkOfferFromUrl(value: string): string | undefined {
         const web = url.protocol === 'https:' && url.hostname !== '' && url.pathname === '/pair';
         if ((!app && !web) || url.username || url.password || url.search) return undefined;
         const offer = url.hash.slice(1);
-        return LINK_OFFER.test(offer) ? offer : undefined;
+        return LINK_OFFER.test(offer) || validCompactOffer(offer) ? offer : undefined;
     } catch { return undefined; }
 }
 

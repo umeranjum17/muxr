@@ -112,6 +112,11 @@ describe('a scanned pairing QR reaches pairing', () => {
             expect(looksLikeLinkOffer(compact)).toBe(true);
             expect(decidePairingInput(compact)).toMatchObject({ ok: true, offer: compact });
             expect(decidePairingInput(`${compact.slice(0, 20)} `)).toMatchObject({ ok: false });
+            // The same offer arriving as a deep link unwraps to the same text.
+            for (const url of [`muxr-dev://pair#${compact}`, `https://relay.example.test/pair#${compact}`]) {
+                expect(looksLikeLinkOffer(url)).toBe(true);
+                expect(redirectSystemPath({ path: url, initial: true })).toBe(`/pair?offer=${encodeURIComponent(compact)}`);
+            }
             const { linkOfferName } = await import('@/pairing/infrastructure/linkPairClient');
             expect(linkOfferName(compact)).toBe('Desk');
         } finally { host.close(); }

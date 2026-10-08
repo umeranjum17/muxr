@@ -109,7 +109,9 @@ export default function PairScreen() {
         let cancelled = false;
         const receive = (raw: string | null) => {
             if (cancelled || !raw) return false;
-            if (!raw.includes('byokit-link:') && !raw.includes('pair=')) return false;
+            // Both offer shapes ride here: the full `byokit-link:1:` offer in
+            // any letter case and the uppercase compact offer.
+            if (!raw.toLowerCase().includes('byokit-link:') && !raw.includes('pair=')) return false;
             reviewPairing(raw);
             return true;
         };
