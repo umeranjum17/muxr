@@ -372,7 +372,7 @@ export const storage = create<StorageState>()((set, get) => ({
         const pinnedSpaceIds = state.pinnedSpaceIds.includes(workspaceId)
             ? state.pinnedSpaceIds.filter((id) => id !== workspaceId)
             : [...state.pinnedSpaceIds, workspaceId];
-        saveSpacePins(state.activeMachineId, pinnedSpaceIds);
+        saveSpacePins(state.activeMachineId, pinnedSpaceIds, workspaceId);
         return { pinnedSpaceIds };
     }),
     setActiveMachine: (activeMachineId) => set({ activeMachineId, pinnedSpaceIds: loadSpacePins(activeMachineId) }),

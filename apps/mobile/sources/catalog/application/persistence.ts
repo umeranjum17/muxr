@@ -143,35 +143,45 @@ export function loadSpacePins(machineId: string): string[] {
     return spacePinsByMachine()[machineId] ?? [];
 }
 
-export function saveSpacePins(machineId: string, pins: string[]) {
+export function saveSpacePins(machineId: string, pins: string[], workspaceId: string) {
     if (!machineId) throw new Error('Pair a computer before pinning a space');
+    const legacy = legacySpacePins();
     mmkv.set(SPACES_PINS_KEY, JSON.stringify({ ...spacePinsByMachine(), [machineId]: pins }));
+    if (legacy === undefined) return;
+    const remaining = legacy.filter((id) => id !== workspaceId);
+    if (remaining.length === 0) mmkv.delete(OLD_SPACES_PINS_KEY);
+    else mmkv.set(OLD_SPACES_PINS_KEY, JSON.stringify(remaining));
 }
 
-export function hasLegacySpacePins(): boolean {
-    return mmkv.getString(OLD_SPACES_PINS_KEY) !== undefined;
-}
-
-/** All paired trees must answer before migration; failed reads leave v1 intact. */
-export function migrateSpacePins(trees: Record<string, readonly HerdrTreeWorkspace[]>, activeMachineId: string): void {
+function legacySpacePins(): string[] | undefined {
     const raw = mmkv.getString(OLD_SPACES_PINS_KEY);
     if (raw === undefined) return;
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.some((id) => typeof id !== 'string')) {
         throw new Error('Invalid saved legacy space pins');
     }
-    const machines = Object.keys(trees);
-    const fallback = machines.includes(activeMachineId) ? activeMachineId : machines[0];
-    if (fallback === undefined) return;
-    const pins = spacePinsByMachine();
-    for (const workspaceId of parsed as string[]) {
-        const owners = machines.filter((machineId) => trees[machineId]!.some((ws) => ws.workspaceId === workspaceId));
-        // Ambiguous (or currently absent): the active computer wins, else first paired.
-        const machineId = owners.length === 1 ? owners[0]! : fallback;
-        pins[machineId] = [...new Set([...(pins[machineId] ?? []), workspaceId])];
+    if (parsed.length === 0) {
+        mmkv.delete(OLD_SPACES_PINS_KEY);
+        return;
     }
+    return parsed as string[];
+}
+
+export function hasLegacySpacePins(): boolean {
+    return legacySpacePins() !== undefined;
+}
+
+export function migrateSpacePins(machineId: string, workspaces: readonly HerdrTreeWorkspace[]): void {
+    const legacy = legacySpacePins();
+    if (legacy === undefined || !machineId) return;
+    const matched = legacy.filter((id) => workspaces.some((ws) => ws.workspaceId === id));
+    if (matched.length === 0) return;
+    const pins = spacePinsByMachine();
+    pins[machineId] = [...new Set([...(pins[machineId] ?? []), ...matched])];
     mmkv.set(SPACES_PINS_KEY, JSON.stringify(pins));
-    mmkv.delete(OLD_SPACES_PINS_KEY);
+    const remaining = legacy.filter((id) => !matched.includes(id));
+    if (remaining.length === 0) mmkv.delete(OLD_SPACES_PINS_KEY);
+    else mmkv.set(OLD_SPACES_PINS_KEY, JSON.stringify(remaining));
 }
 
 const SPACES_LAYOUT_KEY = 'spaces-layout-v1';

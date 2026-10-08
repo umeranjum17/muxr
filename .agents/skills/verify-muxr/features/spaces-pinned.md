@@ -54,12 +54,14 @@ Preconditions:
   On the candidate, A's legacy pin stays; B is unpinned. Pin B, return to A,
   unpin A, return to B: only B remains pinned. Force-stop/relaunch and repeat
   the reads. Capture each action and machine-labelled result, plus the motion.
-  Migration reads every paired computer's current tree. A unique workspace id
-  goes to its owner; ambiguous or absent ids go to the computer active at the
-  migration start (or first paired if it is unavailable). Offline tree reads
-  preserve the old key and report the cause; reconnect retries. The existing
-  `sessionSync.integration.spec.ts` Spaces journey also proves unique and
-  absent-id retention and idempotence.
+  Legacy pins have no machine identity. Migration assigns a pin only when it
+  appears in a tree served by that computer; it never guesses from the active
+  computer or probes other computers. Unmatched ids remain in the legacy store
+  until a later confirmed tree matches them. Switched-connection results are
+  rejected. Explicit pin edits supersede legacy state, and migration completes
+  before publishing a tree. Empty legacy arrays are cleared locally without a
+  probe or alert. The existing `sessionSync.integration.spec.ts` Spaces journey
+  proves delayed matching, stale-result rejection, edit preservation and scope.
 - Stop the lab with Ctrl-C (it stops only what it started), then tear down both
   named sessions with the helper. Remove the task-owned emulator and scratch.
 
@@ -69,8 +71,8 @@ Preconditions:
   old theme until it is relaunched, and each launch re-asks for notifications.
 - Pins are a phone-local, machine-scoped preference: a reinstall or `pm clear`
   drops them. For migration proof, never clear data between baseline and upgrade.
-- `spaces-pins-v1` is removed only after `spaces-pins-v2` was written; a failed
-  migration must leave the original value intact.
+- `spaces-pins-v1` is removed only when empty. Matched pins are written to
+  `spaces-pins-v2` before removing them from v1; unmatched pins remain in v1.
 - A header reading `offline` mid-run means the `adb reverse` tunnel to the
   relay port went away (an adb server restart drops it); re-add it with
   `adb reverse tcp:<port> tcp:<port>` for the relay port `lab ready` printed.

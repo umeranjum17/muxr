@@ -28,7 +28,7 @@ import {
     loadConnectionSettingsAsync,
     sshTunnelAvailable,
 } from '@/connection';
-import { getCachedHostedGrant, loadHostedGrant, listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
+import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
 import { saveHomeSnapshot, hasLegacySpacePins, migrateSpacePins } from './persistence';
 import { spawnerOf, workspaceNames } from '@/herd/tree';
@@ -235,6 +235,7 @@ class MuxrSync {
     private readonly pendingSessionInfo = new Map<string, SessionInfo>();
     private sessionFlushTimer: ReturnType<typeof setTimeout> | undefined;
     private client: SessionClient | undefined;
+    private clientMachineId: string | undefined;
     private readonly artifactWire = createArtifactWire((type, params, timeoutMs) => this.request(type, params, timeoutMs));
     private lifecycleWork: Promise<void> = Promise.resolve();
     private reconnectWork: Promise<void> | undefined;
@@ -284,7 +285,6 @@ class MuxrSync {
             // Re-open from the host snapshot instead of leaving a stale transcript
             // that only a manual app reload could fix.
             if (state === 'open') {
-                this.spacePinsMigrationAttempted = false;
                 storage.getState().setSocketError(null);
                 // Machine frames are edge-triggered; reconnect/mount paths also
                 // reconcile caches so a lost wakeup cannot leave stale UI.
@@ -298,6 +298,7 @@ class MuxrSync {
             }
         });
         client.onEvent((sessionId, event) => this.handleSessionEvent(sessionId, event));
+        this.clientMachineId = settings.machineId;
         client.connect();
         this.client = client;
         setActiveSessionClient(client);
@@ -533,57 +534,30 @@ class MuxrSync {
         saveHomeSnapshot(this.getConnection().machineId, workspaces, sessions, workspaceNames(workspaces), parents);
     }
 
-    private spacePinsMigration?: Promise<void>;
-    private spacePinsMigrationAttempted = false;
-
-    private async migrateLegacySpacePins(workspaces: HerdrTreeWorkspace[]): Promise<void> {
-        if (!hasLegacySpacePins()) return;
-        if (this.spacePinsMigration !== undefined) return this.spacePinsMigration;
-        if (this.spacePinsMigrationAttempted) return;
-        this.spacePinsMigrationAttempted = true;
-        const activeMachineId = this.getConnection().machineId;
-        this.spacePinsMigration = (async () => {
-            const trees: Record<string, HerdrTreeWorkspace[]> = { [activeMachineId]: workspaces };
-            for (const grant of await listPairedGrants()) {
-                if (grant.machineId === activeMachineId) continue;
-                let permanentError: string | undefined;
-                const client = new LinkFirstClient({ hostedGrant: grant, requestTimeoutMs: 12_000,
-                    onPermanentError: (message) => { permanentError = message; } });
-                try {
-                    await waitUntilClientOpen(client, 12_000);
-                    const tree = await client.request('herdr.tree', {});
-                    if ((tree as { connected?: boolean }).connected === false) throw new Error('A paired computer could not load its spaces');
-                    trees[grant.machineId] = tree.workspaces;
-                } catch (cause) {
-                    const reason = permanentError ?? (cause instanceof Error ? cause.message : String(cause));
-                    throw new Error(`${grant.machineName || 'Paired computer'}: ${reason}`);
-                } finally {
-                    client.close();
-                }
-            }
-            migrateSpacePins(trees, activeMachineId);
-            storage.getState().setActiveMachine(storage.getState().activeMachineId);
-        })().catch((cause: unknown) => {
-            Modal.alert('Could not restore space pins', cause instanceof Error ? cause.message : String(cause));
-        }).finally(() => { this.spacePinsMigration = undefined; });
-        return this.spacePinsMigration;
-    }
-
     async refreshHerdTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; herdrConnected: boolean | undefined }> {
         const request = ++this.herdrTreeRequest;
+        const legacyPins = hasLegacySpacePins();
         if (!this.hasTransport()) {
             storage.getState().setSocketStatus('disconnected');
             storage.getState().applyHerdrTree([]);
             storage.getState().setHerdrRuntime(undefined);
             return { workspaces: [], herdrConnected: undefined };
         }
+        const client = this.ensureClient();
+        const machineId = this.clientMachineId!;
+        if (machineId !== this.getConnection().machineId) throw new Error('Computer changed while loading spaces');
         let tree;
         try {
             tree = await this.request('herdr.tree', {});
         } catch (cause) {
             // A failed read answers nothing about the runtime: back to unknown.
-            if (request === this.herdrTreeRequest) storage.getState().setHerdrRuntime(undefined);
+            if (request === this.herdrTreeRequest && client === this.client && machineId === this.getConnection().machineId) {
+                storage.getState().setHerdrRuntime(undefined);
+            }
             throw cause;
+        }
+        if (client !== this.client || machineId !== this.getConnection().machineId) {
+            throw new Error('Computer changed while loading spaces');
         }
         // Requests can cross when a done frame and a newer working frame arrive
         // close together. Only the latest canonical read may update the UI.
@@ -599,11 +573,12 @@ class MuxrSync {
                     }
                 }
             }
+            if (legacyPins && (tree as { connected?: boolean }).connected !== false) {
+                migrateSpacePins(machineId, tree.workspaces);
+                storage.getState().setActiveMachine(machineId);
+            }
             this.confirmedHomeTree = { request, workspaces: tree.workspaces };
             storage.getState().applyHerdrTree(tree.workspaces);
-            if ((tree as { connected?: boolean }).connected !== false) {
-                void this.migrateLegacySpacePins(tree.workspaces);
-            }
             if (storage.getState().sessionsLoaded && this.hasTransport()) {
                 this.saveConfirmedHome(tree.workspaces, Object.values(storage.getState().sessions));
             }

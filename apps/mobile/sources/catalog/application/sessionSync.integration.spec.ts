@@ -19,6 +19,7 @@ const request = vi.fn();
 const refreshSessions = vi.fn();
 const hostSync = vi.hoisted(() => ({
     publicLink: false,
+    machineId: 'machine',
     grant: undefined as import('@/pairing/e2ee').StoredHostedGrant | undefined,
     activityHook: undefined as typeof import('@/herd/application/useActivityAcknowledgements').useActivityAcknowledgements | undefined,
     replace: vi.fn(),
@@ -42,7 +43,7 @@ const voiceMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/connection', () => ({
-    getCachedConnectionSettings: () => ({ machineId: 'machine' }),
+    getCachedConnectionSettings: () => ({ machineId: hostSync.machineId }),
     DEFAULT_CONNECTION: {},
 }));
 vi.mock('./sync', () => ({ sync: { request, refreshSessions } }));
@@ -53,11 +54,11 @@ vi.mock('@/pairing/client', async () => {
         return {
             state: 'open', isLive: () => true, onStateChange: () => undefined,
             onEvent: (listener: typeof hostSync.event) => { hostSync.event = listener; },
-            connect: () => undefined, request: hostSync.request,
+            connect: () => undefined, close: () => undefined, request: hostSync.request,
         };
     } };
 });
-vi.mock('@/pairing/e2ee', () => ({ getCachedHostedGrant: () => hostSync.grant ?? { machineId: 'machine' } }));
+vi.mock('@/pairing/e2ee', () => ({ getCachedHostedGrant: () => hostSync.grant ?? { machineId: hostSync.machineId } }));
 vi.mock('@/connection/sshTunnel', () => ({ sshRelayUrl: vi.fn(), stopSshTunnel: vi.fn(), SshConnectionError: class extends Error {} }));
 vi.mock('@react-navigation/native', () => ({ useIsFocused: () => true }));
 vi.mock('expo-router', () => ({ router: { replace: hostSync.replace } }));
@@ -137,6 +138,7 @@ describe('session sync flow', () => {
         vi.useRealTimers();
         vi.restoreAllMocks();
         hostSync.publicLink = false;
+        hostSync.machineId = 'machine';
         hostSync.grant = undefined;
         hostSync.replace.mockReset();
         refreshSessions.mockReset();
@@ -1271,7 +1273,7 @@ describe('session sync flow', () => {
         expect(currentRelease()?.appVersion).toBe('0.1.26');
     });
 
-    it('keeps migrated and new space pins on their own paired computer across switches and remounts', () => {
+    it('keeps migrated and new space pins on their own paired computer across switches and remounts', async () => {
         mmkvValues.clear();
         const space = (workspaceId: string, label: string): HerdrTreeWorkspace =>
             ({ workspaceId, label, focused: false, agentStatus: 'idle', tabs: [] });
@@ -1292,20 +1294,67 @@ describe('session sync flow', () => {
         expect(loadSpacePins('desk-a')).toEqual([]);
         expect(loadSpacePins('desk-b')).toEqual(['w1']);
 
-        // Upgrade: ambiguous ids go to the active computer, unique ids to their owner,
-        // and absent spaces wait on the active computer instead of being discarded.
+        const { sync: realSync } = await vi.importActual<typeof import('./sync')>('./sync');
+        realSync.invalidateCatalog();
+        storage.setState({ sessionsLoaded: false });
+        mmkvValues.clear();
         mmkvValues.set('spaces-pins-v1', JSON.stringify(['w1', 'w2', 'closed']));
-        migrateSpacePins({}, '');
-        expect(mmkvValues.get('spaces-pins-v1')).toBe(JSON.stringify(['w1', 'w2', 'closed']));
-        migrateSpacePins(trees, 'desk-a');
+        hostSync.machineId = 'desk-a';
+        storage.getState().setActiveMachine('desk-a');
+        let releaseTree!: (tree: { workspaces: HerdrTreeWorkspace[]; connected: boolean }) => void;
+        hostSync.request.mockImplementationOnce(() => new Promise((resolve) => { releaseTree = resolve; }));
+        const stale = realSync.refreshHerdTree();
+        hostSync.machineId = 'desk-b';
+        releaseTree({ workspaces: trees['desk-a'], connected: true });
+        await expect(stale).rejects.toThrow('Computer changed');
+        expect(loadSpacePins('desk-a')).toEqual([]);
+        expect(loadSpacePins('desk-b')).toEqual([]);
+        expect(JSON.parse(mmkvValues.get('spaces-pins-v1')!)).toEqual(['w1', 'w2', 'closed']);
+        await expect(realSync.refreshHerdTree()).rejects.toThrow('Computer changed');
+
+        realSync.invalidateCatalog();
+        hostSync.machineId = 'desk-a';
+        hostSync.request.mockImplementation(async () => ({ workspaces: trees['desk-a'], connected: true }));
+        await realSync.refreshHerdTree();
+        expect(storage.getState().pinnedSpaceIds).toEqual(['w1']);
+        expect(loadSpacePins('desk-b')).toEqual([]);
+        expect(JSON.parse(mmkvValues.get('spaces-pins-v1')!)).toEqual(['w2', 'closed']);
+        storage.getState().toggleSpacePin('w1');
+        await realSync.refreshHerdTree();
+        expect(storage.getState().pinnedSpaceIds).toEqual([]);
+
+        realSync.invalidateCatalog();
+        hostSync.machineId = 'desk-b';
+        storage.getState().setActiveMachine('desk-b');
+        hostSync.request.mockImplementation(async () => ({ workspaces: trees['desk-b'], connected: true }));
+        await realSync.refreshHerdTree();
+        expect(storage.getState().pinnedSpaceIds).toEqual(['w2']);
+        expect(JSON.parse(mmkvValues.get('spaces-pins-v1')!)).toEqual(['closed']);
+        storage.getState().toggleSpacePin('closed');
+        storage.getState().toggleSpacePin('closed');
+        migrateSpacePins('desk-b', [...trees['desk-b'], space('closed', 'returned')]);
+        expect(loadSpacePins('desk-b')).toEqual(['w2']);
+        expect(mmkvValues.has('spaces-pins-v1')).toBe(false);
+
+        mmkvValues.set('spaces-pins-v1', JSON.stringify(['return-later']));
+        migrateSpacePins('desk-a', []);
+        expect(JSON.parse(mmkvValues.get('spaces-pins-v1')!)).toEqual(['return-later']);
+        migrateSpacePins('desk-a', [space('return-later', 'returned')]);
+        expect(loadSpacePins('desk-a')).toEqual(['return-later']);
         expect(mmkvValues.has('spaces-pins-v1')).toBe(false);
         storage.getState().setActiveMachine('desk-a');
-        expect(storage.getState().pinnedSpaceIds).toEqual(['w1', 'closed']);
+        expect(storage.getState().pinnedSpaceIds).toEqual(['return-later']);
         storage.getState().setActiveMachine('desk-b');
-        expect(storage.getState().pinnedSpaceIds).toEqual(['w1', 'w2']);
-        expect(loadSpacePins('desk-a')).toEqual(['w1', 'closed']);
-        migrateSpacePins(trees, 'desk-b');
-        expect(loadSpacePins('desk-a')).toEqual(['w1', 'closed']);
+        expect(storage.getState().pinnedSpaceIds).toEqual(['w2']);
+
+        mmkvValues.set('spaces-pins-v1', '[]');
+        hostSync.machineId = '';
+        hostSync.request.mockClear();
+        await realSync.refreshHerdTree();
+        expect(hostSync.request).not.toHaveBeenCalled();
+        expect(mmkvValues.has('spaces-pins-v1')).toBe(false);
+        realSync.invalidateCatalog();
+        hostSync.machineId = 'machine';
     });
 
     it('moves top-level spaces within their pin group and keeps favourite agents per machine', () => {
