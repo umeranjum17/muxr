@@ -16,6 +16,11 @@ swipes and the Home key drive it through one long-lived idb HID session.
   SpringBoard.
 - `ios-shutdown` SIGTERM to the host takes `sim-video`, `idb_companion` and
   `desklink-host` down with it (no PPID-1 leftovers).
+- `ios-crash` killing the `sim-video` helper by its exact PID mid-stream
+  restarts it against the same engine session and the view goes Live again
+  (before/after captures plus the host log's `restarting` line).
+- `ios-teardown` closing the last viewer takes `sim-video`, `idb_companion`
+  and the mirror's `desklink-host` down with it (no helper PIDs remain).
 
 ## How to get to it (user POV)
 
@@ -63,6 +68,17 @@ Preconditions:
   pop the agent screen.
 - **Shutdown.** Note the helper PIDs (`ps -o pid,ppid,command` children of
   the host), `kill -TERM <exact host pid>`, and show they are all gone.
+- **Crash.** With the preview Live, note the exact `sim-video` PID that is a
+  child of the host and `kill -KILL` only that PID. The host log must show
+  `sim-video exited (…) — restarting (1/3)` and then `sim-video streaming
+  again` under a new PID; the viewer returns to Live on its own (allow ~90 s
+  on a loaded Mac). Capture the viewer plus `simctl io <udid> screenshot`
+  before and after.
+- **Teardown.** Close the preview on the viewer (Back, never kill the app —
+  killing it wedges the engine until the host restarts) and show no
+  `sim-video`, `idb_companion` or mirror `desklink-host` child of the host
+  remains. Never stop processes by name or pattern; use only exact PIDs this
+  run started.
 - **Failure path.** `preview claim not-a-udid` exits `1` with the usage line;
   outside a pane it names the missing `HERDR_PANE_ID`.
 
@@ -95,3 +111,15 @@ Preconditions:
   return a stale frame).
 - `scripts/release/pack.mjs` refuses on a stale web export but still rebuilds
   `dist-npm/host.js`; for a lab redeploy copying that one file is enough.
+- A lab host under a disposable HOME must still reach CoreSimulator's device
+  set: symlink the real `~/Library/Developer` into the disposable home, or
+  `sim-video` finds no simulator.
+- Keep `MUXR_DATA_DIR` under `MUXR_HOME` (the installed shape), so the state
+  root is `MUXR_HOME` and `preview claim` writes where the watcher reads.
+- The host's Herdr kit speaks one pinned protocol: run the matching `herdr`
+  binary for the lab server (0.9.1 for this branch), private to the lab, and
+  put it first on the lab PATH.
+- `simctl io screenshot` can return a stale frame; the accessibility tree and
+  the host log are the primary proof, captures supporting.
+- Close the preview with Back, never by killing the viewer app: killing it
+  wedges the engine until the host restarts.
