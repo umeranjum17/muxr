@@ -261,8 +261,13 @@ export const HerdView = React.memo(({
             // Plugin surfaces live in the header. Someone with no agents is usually
             // a new user, who most needs to see that their plugins landed.
             <ScrollView
-                style={{ flex: 1 }}
-                contentContainerStyle={{ flexGrow: 1, paddingTop: topContentInset, paddingBottom: bottomContentInset + safeArea.bottom }}
+                // The composer dock normally reserves the bottom of Home; with
+                // it hidden the system gesture pill is the bottom edge instead.
+                // Measured 41 px total clearance here against a pill at 2320:
+                // lift the viewport so resting content clears it, and keep
+                // enough trailing padding that scrolling clears it too.
+                style={{ flex: 1, marginBottom: 56 }}
+                contentContainerStyle={{ flexGrow: 1, paddingTop: topContentInset, paddingBottom: Math.max(bottomContentInset + safeArea.bottom, 96) }}
                 onScroll={onScroll}
                 scrollEventThrottle={16}
             >
