@@ -303,7 +303,7 @@ export const HerdView = React.memo(({
                 // First run with no agents yet: the one-time card is the whole
                 // invitation, plus the quiet way to connect another computer.
                 <View style={styles.empty}>
-                    <ActionButton title="Connect another computer" variant="quiet" icon="desktop-outline" onPress={() => router.push('/settings/connection' as never)} />
+                    <ActionButton title="Connect another computer" variant="quiet" wrap icon="desktop-outline" onPress={() => router.push('/settings/connection' as never)} />
                 </View>
                 ) : (
                 // Nothing runs on the computer yet: one quiet invitation in the
@@ -320,7 +320,7 @@ export const HerdView = React.memo(({
                         {canStart
                             ? <ActionButton title="Start an agent" icon="add-circle-outline" onPress={() => router.push('/new-agent' as never)} />
                             : null}
-                        <ActionButton title="Connect another computer" variant="quiet" icon="desktop-outline" onPress={() => router.push('/settings/connection' as never)} />
+                        <ActionButton title="Connect another computer" variant="quiet" wrap icon="desktop-outline" onPress={() => router.push('/settings/connection' as never)} />
                     </View>
                 </View>
             )}

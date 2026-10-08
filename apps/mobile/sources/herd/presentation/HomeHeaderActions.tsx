@@ -126,7 +126,7 @@ export const HomeHeaderStatus = React.memo(({ text, color, isPulsing, large = fa
 }) => (
     <View style={styles.status}>
         <StatusDot color={color} isPulsing={isPulsing} size={6} style={{ marginRight: 4 }} />
-        <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.statusText, large && styles.tabletStatusText, { color }]}>{text}</Text>
+        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[styles.statusText, large && styles.tabletStatusText, { color }]}>{text}</Text>
     </View>
 ));
 
