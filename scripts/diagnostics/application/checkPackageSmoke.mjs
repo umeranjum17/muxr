@@ -1216,7 +1216,7 @@ else if(a[0]==='view') {
     run(cli, ['self-host', '--port', String(browserPort), '--advertise', 'wss://browser.example.test', '--connection-mode', 'external', '--web', '--yes', '--no-pair'], { cwd: installDir, env: browserEnv });
     const browserPair = run(cli, ['pair', '--browser'], { cwd: installDir, env: browserEnv, allowFailure: true });
     assert.notEqual(browserPair.status, 0, 'pairing succeeded without a running machine');
-    assert.match(browserPair.stderr, /Start muxr on this computer first, then run `muxr pair` again\./);
+    assert.match(browserPair.stderr, /Start muxr on this computer with `muxr daemon start`, then run `muxr pair` again\./);
     assert.doesNotMatch(browserPair.stdout, /byokit-link:1:|muxr:\/\/pair/, 'offline pairing printed a code');
     stopRelayFor(join(browserHome, '.muxr', 'relay'));
 

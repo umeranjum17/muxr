@@ -193,7 +193,7 @@ await until(() => (host!.output().includes('link relay: online') ? true : undefi
         // No host will reopen this socket; assert the same error at once.
         process.env.MUXR_PAIR_SOCKET_WAIT_MS = '0';
         try {
-            await expect(linkPair(readSelfhostState())).rejects.toThrow('Start muxr on this computer first, then run `muxr pair` again.');
+            await expect(linkPair(readSelfhostState())).rejects.toThrow('Start muxr on this computer with `muxr daemon start`, then run `muxr pair` again.');
         } finally {
             delete process.env.MUXR_PAIR_SOCKET_WAIT_MS;
         }

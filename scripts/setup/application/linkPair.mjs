@@ -87,7 +87,7 @@ export async function linkPair(state, { approve, signal, intent = pairingIntent(
         if (Date.now() >= deadline) break;
         await Promise.race([sleep(Math.min(500, Math.max(deadline - Date.now(), 0))), aborted(signal)]);
     }
-    throw new Error('Start muxr on this computer first, then run `muxr pair` again.');
+    throw new Error('Start muxr on this computer with `muxr daemon start`, then run `muxr pair` again.');
 }
 
 // The running machine owns its relay registration. A local, owner-only socket

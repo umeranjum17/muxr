@@ -602,7 +602,7 @@ export async function applyMachineSetup(args = []) {
         if (failedServe !== 'occupied' && failedServe !== 'disabled') return result;
     }
     const { mode, endpoint, port, pairing } = plan;
-    await approveScreenSharing();
+    await approveScreenSharing({ pairingDone: pairing !== 'none' });
     const browserPairFailed = pairing === 'both' && (await pairDevice(['--browser'])) !== 0;
     const doctor = await inspectSetup();
     if (doctor !== 0) return doctor;

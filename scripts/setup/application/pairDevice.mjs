@@ -109,7 +109,7 @@ export async function pairDevice(args = [], deps = {}) {
         const paired = await mintDeviceGrant(state, pair.kind, pair.authority, pair.personal);
         // The person pairing is at this computer, which is the only place the
         // desktop's screen-sharing prompt can be answered.
-        if (paired === 0) await approveScreenSharing();
+        if (paired === 0) await approveScreenSharing({ pairingDone: true });
         return paired;
     } catch (cause) {
         error(cause instanceof Error ? cause.message : String(cause));
