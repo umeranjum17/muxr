@@ -262,7 +262,7 @@ export function startHost(options: HostOptions): Host {
     });
 
     return {
-        canView: (frame) => frame.type === 'client.hello' || viewOnlyRequestAllowed(frame as ClientRequest, source),
+        canView: (frame) => frame.type === 'client.hello' || viewOnlyRequestAllowed(frame as ClientRequest),
         answer: async (frame, authenticatedSenderId, connectionId) => {
             const response = await answerFrame(frame, authenticatedSenderId, connectionId);
             if (frame.type === 'machine.hello' && response?.type === 'result' && response.ok) {

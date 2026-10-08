@@ -45,6 +45,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 ## Features
 
+- [Connect an older phone without optional UI plugins](./retired-ui-compatibility.md) —
+  all five legacy replies over a real paired host, then released Android Home/session acceptance.
+
 - [Read a plain Computer failure](./computer-failure.md) —
   real native release app against a guarded Linux lab without ScreenCast:
   plain cause and next step, Try again, themes and 270dp/font 1.3.

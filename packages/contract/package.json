@@ -28,9 +28,9 @@
             "types": "./dist/peer/index.d.ts",
             "default": "./dist/peer/index.js"
         },
-        "./plugins": {
-            "types": "./dist/plugins/index.d.ts",
-            "default": "./dist/plugins/index.js"
+        "./display": {
+            "types": "./dist/display/index.d.ts",
+            "default": "./dist/display/index.js"
         },
         "./realtime": {
             "types": "./dist/realtime/index.d.ts",

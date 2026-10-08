@@ -9,12 +9,11 @@
 
 import { randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, statSync } from 'node:fs';
 import { mkdir, open, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
 import type {
     AgentLifecycle,
     ApplicationLauncher,
@@ -61,8 +60,6 @@ import {
     shouldAdoptPublishedLaunch,
     type HerdrAgentSessionRef,
 } from './agentRouteStore.js';
-import { pluginInvalidationFrame, PluginCatalog, PluginRefreshGate, WriteReplayFence, Semaphore, rpcInputDigest, rpcReplayKey, runPluginProcess, type HerdrPlugin, type PluginBackendCallTarget } from './pluginCatalog.js';
-import { PluginApprovals } from './pluginApprovals.js';
 import { VoiceStreamManager } from './voiceStreamManager.js';
 import {
     RealtimeCodingCoordinator,
@@ -77,8 +74,6 @@ import type { PaneScreen, PaneScreens } from '../../desktop/index.js';
 /** Diagnostics and env identity for the product-owned realtime voice runtime. */
 const VOICE_STREAM_ID = 'voice';
 import type { PeerBroker } from '../../peer/index.js';
-import { MAX_RPC_CONCURRENCY, MAX_RPC_INPUT_BYTES, MAX_RPC_PER_DEVICE, MAX_RPC_PER_PLUGIN, type PluginContextRequest } from '@trymuxr/contract';
-import { buildPluginPublicContext, type PublicContextSource } from '../application/pluginPublicContext.js';
 import {
     collectKinds,
     collectPaneIds,
@@ -97,7 +92,6 @@ const PROMPT_READY_TIMEOUT_MS = 30_000;
 const QUESTION_WAIT_MS = 3_000;
 const PROMPT_SNAPSHOT_MAX_AGE_MS = 500;
 const PROMPT_REBIND_TIMEOUT_MS = 10_000;
-const PLUGIN_CALL_QUEUE_TIMEOUT_MS = 8_000;
 
 const SCREEN_BROWSER = 'Browser: this pane has its own screen that the user can watch live in muxr and take over. Check `muxr preview status` before acting in the browser; pause while it says human.';
 const DESKTOP_BROWSER = "Browser: on a machine with a desktop session, open pages in that desktop's browser so the user can watch and take over through muxr Computer.";
@@ -134,76 +128,6 @@ function paneEnvironment(screen: PaneScreen | undefined): Record<string, string>
     };
 }
 
-/** How long to watch a started Herdr action before reporting it as merely started. */
-const HERDR_ACTION_REPORT_MS = 5_000;
-
-type HerdrCommandLog = { log_id: string; status: 'running' | 'succeeded' | 'failed'; stdout?: string; stderr?: string; error?: string };
-type HerdrActionLogClient = HerdrCaller;
-const HERDR_ACTION_FAILED = 'plugin action failed';
-const HERDR_ACTION_STATUS_UNAVAILABLE = 'plugin action status unavailable';
-
-function writeHerdrActionDiagnostic(pluginId: string, cause: unknown): void {
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    process.stderr.write(`herdr action ${pluginId}: ${detail.slice(0, 1_000)}\n`);
-}
-
-function commandLogs(value: unknown): HerdrCommandLog[] | undefined {
-    if (value === null || typeof value !== 'object') return undefined;
-    const logs = (value as { logs?: unknown }).logs;
-    if (!Array.isArray(logs) || !logs.every((log) => log !== null && typeof log === 'object'
-        && typeof log.log_id === 'string' && ['running', 'succeeded', 'failed'].includes(String(log.status)))) return undefined;
-    return logs as HerdrCommandLog[];
-}
-
-/** Never forward Herdr output: it can contain pane ids, paths, or terminal content. */
-export function herdrActionFailure(_pluginId: string, log: HerdrCommandLog): string | undefined {
-    return log.status === 'failed' ? HERDR_ACTION_FAILED : undefined;
-}
-
-/** Poll one real Herdr action log without treating missing or changed shapes as success. */
-export async function reportHerdrActionFailure(
-    client: HerdrActionLogClient,
-    pluginId: string,
-    logId: string | undefined,
-    reportMs = HERDR_ACTION_REPORT_MS,
-): Promise<void> {
-    if (typeof logId !== 'string' || logId === '') throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
-    const deadline = Date.now() + reportMs;
-    let sawRunning = false;
-    // Always poll at least once: with a tiny budget the deadline can pass before
-    // the first check, which would report "unavailable" without ever asking Herdr
-    // and makes the outcome depend on scheduler timing instead of the log state.
-    let wait = 25;
-    do {
-        await sleep(wait);
-        wait = Math.min(wait * 2, 250);
-        let response: unknown;
-        try {
-            response = await client.call('plugin.log.list', { plugin_id: pluginId, limit: 50 });
-        } catch (cause) {
-            writeHerdrActionDiagnostic(pluginId, cause);
-            throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
-        }
-        const logs = commandLogs(response);
-        if (logs === undefined) {
-            writeHerdrActionDiagnostic(pluginId, 'plugin.log.list returned an invalid response');
-            throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
-        }
-        const log = logs.find((entry) => entry.log_id === logId);
-        if (log === undefined) continue;
-        if (log.status === 'running') { sawRunning = true; continue; }
-        const failure = herdrActionFailure(pluginId, log);
-        if (failure !== undefined) {
-            writeHerdrActionDiagnostic(pluginId, log.error ?? log.stderr ?? log.stdout ?? 'failed without detail');
-            throw new Error(failure);
-        }
-        return;
-    } while (Date.now() < deadline);
-    if (!sawRunning) throw new Error(HERDR_ACTION_STATUS_UNAVAILABLE);
-}
-const MAX_PLUGIN_INVOCATIONS_PER_SCOPE = 64;
-const MAX_PLUGIN_INVOCATIONS_TOTAL = 1_024;
-
 /** Outlasts kit startAgent plus confirmLaunch's two readiness gates. */
 const ACTIVE_LAUNCH_MS = 200_000;
 
@@ -211,50 +135,6 @@ function publicAgentKind(kind: string | undefined): string | undefined {
     return kind === undefined || kind === 'shell' ? undefined : kind;
 }
 
-const moduleRoot = dirname(fileURLToPath(import.meta.url));
-function bundledPluginsDirectory(start: string): string | undefined {
-    let dir = start;
-    for (let depth = 0; depth < 8; depth += 1) {
-        if (existsSync(join(dir, 'apps', 'host')) || existsSync(join(dir, 'host.js'))) {
-            const candidate = join(dir, 'plugins');
-            return existsSync(candidate) ? realpathSync(candidate) : undefined;
-        }
-        const parent = dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
-    }
-    return undefined;
-}
-const BROWSER_RPC_PLUGINS_ROOT = bundledPluginsDirectory(moduleRoot);
-/**
- * The bundled plugins this host ships, by id. What a host projects to the
- * phone (muxr-ui.json) and the RPC scripts it runs for a bundled plugin
- * come from its own package, never from whichever package last ran
- * `muxr setup`: Herdr's registration is global to the machine, so a host
- * built from a branch would otherwise serve an installed release's labels
- * and scripts. Herdr stays the authority on whether the plugin is
- * registered and enabled; only the root moves.
- */
-function packagedBundledRoots(): Map<string, string> {
-    const roots = new Map<string, string>();
-    if (BROWSER_RPC_PLUGINS_ROOT === undefined) return roots;
-    let entries: import('node:fs').Dirent[];
-    try {
-        entries = readdirSync(BROWSER_RPC_PLUGINS_ROOT, { withFileTypes: true });
-    } catch {
-        return roots;
-    }
-    for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        try {
-            const root = realpathSync(join(BROWSER_RPC_PLUGINS_ROOT, entry.name));
-            const manifest = JSON.parse(readFileSync(join(root, 'muxr-ui.json'), 'utf8')) as { pluginId?: unknown };
-            if (typeof manifest.pluginId === 'string' && !roots.has(manifest.pluginId)) roots.set(manifest.pluginId, root);
-        } catch { /* not a bundled muxr plugin */ }
-    }
-    return roots;
-}
-const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
 /**
  * Bundled plugins that became product code. Their Herdr registrations survive
  * (global to the machine), but they are not optional add-ons, so the host never
@@ -274,10 +154,22 @@ const PACKAGED_BUNDLED_ROOTS = packagedBundledRoots();
  * Keep in step with LEGACY_BUNDLED_PLUGIN_IDS in scripts/setup/infrastructure/herdr.mjs.
  */
 const RETIRED_PLUGIN_IDS: ReadonlySet<string> = new Set(['muxr.terminal-keys', 'muxr.panes', 'muxr.control', 'muxr.dictation', 'muxr.status', 'muxr.voice', 'muxr.voice-gemini', 'muxr.voice-openai', 'muxr.voice-codex', 'muxr.browser', 'muxr.code', 'muxr.attachments']);
-function fromPackagedRoot(plugin: HerdrPlugin): HerdrPlugin {
-    const root = PACKAGED_BUNDLED_ROOTS.get(plugin.plugin_id);
-    return root === undefined ? plugin : { ...plugin, plugin_root: root };
-}
+type HerdrPlugin = {
+    plugin_id: string;
+    name: string;
+    version: string;
+    description?: string | null;
+    plugin_root: string;
+    enabled: boolean;
+    build?: unknown[];
+    startup?: unknown[];
+    actions?: ({ id: string; command?: string[] } & Record<string, unknown>)[];
+    events?: unknown[];
+    panes?: unknown[];
+    link_handlers?: unknown[];
+    source?: { kind?: string | null; owner?: string | null; repo?: string | null; subdir?: string | null; resolved_commit?: string | null } | null;
+    warnings?: (string | null)[];
+};
 
 const COMMAND_ALIASES: Record<string, string[]> = {
     qodercli: ['qodercli', 'qoder'],
@@ -317,12 +209,6 @@ function executableOnPath(command: string): boolean {
         }
     }
     return false;
-}
-
-function decrement(map: Map<string, number>, key: string): void {
-    const next = (map.get(key) ?? 1) - 1;
-    if (next <= 0) map.delete(key);
-    else map.set(key, next);
 }
 
 /**
@@ -666,10 +552,6 @@ export async function createHerdrSessionSource(
     const screens = options.screens;
     const routes = options.routes ?? new AgentRouteStore(options.dataDir);
     await routes.load();
-    const catalog = new PluginCatalog();
-    const pluginApprovals = new PluginApprovals(options.dataDir);
-    await pluginApprovals.load();
-    const pluginInvocations = new Map<string, Promise<void>>();
     let codingCoordinator: RealtimeCodingCoordinator | undefined;
     let voiceStreams: VoiceStreamManager | undefined;
     /** Realtime voice is product code, so its own fence replaces plugin approval. */
@@ -696,12 +578,6 @@ export async function createHerdrSessionSource(
             codingCoordinator,
         });
     }
-    /** Write-mode RPC replay fence: successful outcomes retained five minutes; rejections dropped; pending writes never evicted. */
-    const writeReplayFence = new WriteReplayFence();
-    /** Global cap plus admission caps so one plugin or device cannot fill its queue. */
-    const pluginCallConcurrency = new Semaphore(MAX_RPC_CONCURRENCY);
-    const activePluginCalls = new Map<string, number>();
-    const activeDeviceCalls = new Map<string, number>();
 
     const listeners = new Set<(sessionId: string, event: SessionEventBody) => void>();
     const machineListeners = new Set<(frame: PluginsInvalidatedFrame) => void>();
@@ -750,11 +626,8 @@ export async function createHerdrSessionSource(
     /** The pane revision each blocked event's question was read at: an answer types only into that one. */
     const askedRevisions = new Map<string, { eventId: string; revision: number }>();
     const notifiedBlocked = new Map<string, string>();
-    let pluginPollTimer: NodeJS.Timeout | undefined;
     /** dispose/close run once: the host shutdown path and a lab script may both close. */
     let disposed = false;
-    let pluginDigests: Map<string, string> | undefined;
-    let pluginEnabled = new Map<string, boolean>();
 
     const knownShells = new Set<string>();
 
@@ -2338,250 +2211,6 @@ export async function createHerdrSessionSource(
         await client.call('pane.focus', { pane_id: record.paneId });
     }
 
-    const pluginRefreshGate = new PluginRefreshGate(async () => {
-            const result = await client.call<{ plugins?: HerdrPlugin[] }>('plugin.list');
-            const plugins = (result.plugins ?? []).map(fromPackagedRoot).filter((plugin) => !RETIRED_PLUGIN_IDS.has(plugin.plugin_id));
-            const nextDigests = await catalog.refresh(plugins);
-            const nextEnabled = new Map(plugins.map((plugin) => [plugin.plugin_id, plugin.enabled]));
-            const previousDigests = pluginDigests;
-            const previousEnabled = pluginEnabled;
-            pluginDigests = nextDigests;
-            pluginEnabled = nextEnabled;
-            if (previousDigests === undefined) return; // first snapshot establishes the baseline
-            const frame = pluginInvalidationFrame(
-                { digests: previousDigests, enabled: previousEnabled },
-                { digests: nextDigests, enabled: nextEnabled },
-            );
-            if (frame === undefined) return;
-            for (const listener of machineListeners) listener(frame);
-        });
-
-    /** Polls coalesce; freshness-critical callers get one trailing authoritative read. */
-    function reconcilePlugins(forceFresh = false): Promise<void> {
-        return forceFresh ? pluginRefreshGate.forceFresh() : pluginRefreshGate.poll();
-    }
-
-    async function refreshPlugins(): Promise<void> {
-        await reconcilePlugins(true);
-    }
-
-    void reconcilePlugins().catch(() => undefined);
-    pluginPollTimer = setInterval(() => {
-        if (machineListeners.size > 0) void reconcilePlugins().catch(() => undefined);
-    }, 2_000);
-    pluginPollTimer.unref();
-
-    function pluginPublicContext(requests: readonly PluginContextRequest[] | undefined, preferredSessionId?: string): string | undefined {
-        if (requests === undefined || requests.length === 0) return undefined;
-        const source: PublicContextSource = {
-            sessions: currentSessions().map((session) => {
-                const info = infoFor(session);
-                const workspace = info.workspaceId === undefined ? undefined : workspacesById.get(info.workspaceId);
-                const tab = info.tabId === undefined ? undefined : tabsById.get(info.tabId);
-                const cwd = info.cwd;
-                const base = cwd.replace(/\/+$/, '').split('/').pop();
-                return {
-                    sessionId: session.sessionId,
-                    label: session.pane.label ?? tab?.label ?? base,
-                    ...(info.agentName === undefined ? {} : { agentName: info.agentName }),
-                    ...(info.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
-                    cwd,
-                    workspaceLabel: workspace?.label,
-                    tabLabel: tab?.label,
-                    ...(info.agentKind === undefined ? {} : { agentKind: info.agentKind }),
-                    ...(info.displayAgent === undefined ? {} : { displayAgent: info.displayAgent }),
-                    agentStatus: info.agentStatus,
-                    promptable: info.promptable,
-                    activeAt: modifiedBySession.get(session.sessionId),
-                };
-            }),
-            attention: options.attention?.catalog().entries ?? [],
-            workspaces: [...workspacesById.values()].map((workspace) => {
-                const panes = [...panesById.values()].filter((pane) => pane.workspace_id === workspace.workspace_id);
-                const tabIds = [...new Set(panes.map((pane) => pane.tab_id).filter((tabId): tabId is string => tabId !== undefined))];
-                const tabs = tabIds.map((tabId) => {
-                    const tabPanes = panes.filter((pane) => pane.tab_id === tabId);
-                    return {
-                        label: tabsById.get(tabId)?.label,
-                        focused: tabPanes.some((pane) => pane.focused === true),
-                        agentStatus: rollupLifecycle(tabPanes.map((pane) => lifecycleForPane(pane.pane_id))),
-                        sessions: tabPanes.map((pane) => {
-                            const session = currentSessionByPane(pane.pane_id);
-                            const info = session === undefined ? undefined : infoFor(session);
-                            return {
-                                ...(session === undefined ? {} : { sessionId: session.sessionId }),
-                                label: pane.label ?? undefined,
-                                ...(info?.agentName === undefined ? {} : { agentName: info.agentName }),
-                                ...(info?.taskTitle === undefined ? {} : { taskTitle: info.taskTitle }),
-                                ...(info?.agentKind === undefined ? {} : { agentKind: info.agentKind }),
-                                ...(info?.displayAgent === undefined ? {} : { displayAgent: info.displayAgent }),
-                                agentStatus: lifecycleForPane(pane.pane_id),
-                                promptable: info?.promptable === true,
-                            };
-                        }),
-                    };
-                });
-                return {
-                    label: workspace.label,
-                    focused: workspace.focused === true,
-                    agentStatus: rollupLifecycle(tabs.map((tab) => tab.agentStatus)),
-                    tabs,
-                };
-            }),
-        };
-        return JSON.stringify(buildPluginPublicContext(requests, source, preferredSessionId));
-    }
-
-    /** Prepare host-owned context, then run the exported bounded process path. */
-    function runPluginCall(
-        pluginId: string,
-        target: { pluginRoot: string; entry: string; method: string; context?: PluginContextRequest[] },
-        serializedInput: string,
-        signal: AbortSignal,
-        preferredSessionId?: string,
-        trustedHerdrSocketPath?: string,
-    ): Promise<unknown> {
-        const stateDir = join(process.env.MUXR_HOME?.trim() || join(homedir(), '.muxr'), 'plugin-state', pluginId);
-        try { mkdirSync(stateDir, { recursive: true, mode: 0o700 }); } catch { /* a plugin that needs it will fail loudly */ }
-        const publicContext = pluginPublicContext(target.context, preferredSessionId);
-        return runPluginProcess({
-            pluginId,
-            method: target.method,
-            script: join(target.pluginRoot, target.entry),
-            serializedInput,
-            stateDir,
-            ...(publicContext === undefined ? {} : { publicContext }),
-            ...(trustedHerdrSocketPath === undefined ? {} : { trustedHerdrSocketPath }),
-            signal,
-        });
-    }
-
-    function publicPluginCallTarget(
-        pluginId: string,
-        manifestHash: string,
-        contributionId: string,
-    ): PluginBackendCallTarget {
-        return {
-            pluginId,
-            manifestHash,
-            contributionId,
-            ...catalog.callTarget(pluginId, manifestHash, contributionId),
-        };
-    }
-
-    function serializePluginCallInput(input: unknown): string {
-        const serialized = JSON.stringify(input);
-        if (serialized === undefined || Buffer.byteLength(serialized, 'utf8') > MAX_RPC_INPUT_BYTES) {
-            throw new Error('plugin call input is too large');
-        }
-        return serialized;
-    }
-
-    async function guardedPluginCall(options: {
-        deviceId: string;
-        idempotencyKey?: string;
-        target: PluginBackendCallTarget;
-        targetAtExecution: () => PluginBackendCallTarget;
-        input: unknown;
-        inputAtExecution?: () => Promise<unknown>;
-        preferredSessionId?: string;
-        trustedHerdrSocketPath?: string;
-        requireApproval: boolean;
-    }): Promise<unknown> {
-        const { deviceId, target } = options;
-        if (options.requireApproval && !pluginApprovals.has(deviceId, target.pluginId)) {
-            throw new Error('plugin is not approved for this device');
-        }
-        serializePluginCallInput(options.input);
-        const inputDigest = rpcInputDigest(options.input);
-        const run = async () => {
-            const pluginActive = activePluginCalls.get(target.pluginId) ?? 0;
-            const deviceActive = activeDeviceCalls.get(deviceId) ?? 0;
-            if (pluginActive >= MAX_RPC_PER_PLUGIN || deviceActive >= MAX_RPC_PER_DEVICE) {
-                throw new Error(`plugin ${target.pluginId} is busy, retry`);
-            }
-            activePluginCalls.set(target.pluginId, pluginActive + 1);
-            activeDeviceCalls.set(deviceId, deviceActive + 1);
-            try {
-                return await pluginCallConcurrency.run(async () => {
-                    const execute = async (signal: AbortSignal): Promise<unknown> => {
-                        const input = options.inputAtExecution === undefined
-                            ? options.input
-                            : await options.inputAtExecution();
-                        const serializedInput = serializePluginCallInput(input);
-                        const currentTarget = options.targetAtExecution();
-                        return runPluginCall(
-                            target.pluginId,
-                            currentTarget,
-                            serializedInput,
-                            signal,
-                            options.preferredSessionId,
-                            options.trustedHerdrSocketPath,
-                        );
-                    };
-                    if (options.requireApproval) {
-                        return pluginApprovals.whileApproved(deviceId, target.pluginId, execute);
-                    }
-                    // Kernel capabilities are not user-disableable plugin UI,
-                    // but still enter the same bounded process path.
-                    return execute(new AbortController().signal);
-                }, PLUGIN_CALL_QUEUE_TIMEOUT_MS);
-            } finally {
-                decrement(activePluginCalls, target.pluginId);
-                decrement(activeDeviceCalls, deviceId);
-            }
-        };
-        if (target.mode !== 'write') return run();
-        const idempotencyKey = options.idempotencyKey;
-        if (typeof idempotencyKey !== 'string' || idempotencyKey.length === 0 || idempotencyKey.length > 64) {
-            throw new Error('write plugin call requires an idempotency key');
-        }
-        const key = rpcReplayKey(
-            deviceId,
-            target.pluginId,
-            target.manifestHash,
-            target.contributionId,
-            idempotencyKey,
-        );
-        return writeReplayFence.run(`${deviceId}\0${target.pluginId}`, key, inputDigest, run);
-    }
-
-    async function invokeHerdrAction({ sessionId, pluginId, actionId }: { sessionId: string; pluginId: string; actionId: string }): Promise<void> {
-        if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(pluginId) || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(actionId)) {
-            throw new Error('plugin invoke rejected invalid identifier');
-        }
-        const plugins = await client.call<{ plugins?: { plugin_id: string; enabled: boolean; actions?: { id: string }[] }[] }>('plugin.list', { plugin_id: pluginId });
-        const installed = (plugins.plugins ?? []).find((plugin) => plugin.plugin_id === pluginId && plugin.enabled);
-        if (!installed?.actions?.some((action) => action.id === actionId)) throw new Error(`plugin action unavailable: ${pluginId}.${actionId}`);
-        const record = await resolvePane(sessionId);
-        const workspaceId = record.agent?.workspace_id ?? record.pane.workspace_id;
-        const tabId = record.agent?.tab_id ?? record.pane.tab_id;
-        if (workspaceId === undefined || tabId === undefined) throw agentUnavailable();
-        let started: unknown;
-        try {
-            started = await client.call('plugin.action.invoke', {
-                plugin_id: pluginId,
-                action_id: actionId,
-                context: {
-                    workspace_id: workspaceId,
-                    tab_id: tabId,
-                    focused_pane_id: record.paneId,
-                    focused_pane_cwd: infoFor(record).cwd,
-                    invocation_source: 'muxr',
-                },
-            });
-        } catch (cause) {
-            writeHerdrActionDiagnostic(pluginId, cause);
-            throw new Error('plugin action could not be started');
-        }
-        const logId = started !== null && typeof started === 'object'
-            && 'log' in started && started.log !== null && typeof started.log === 'object'
-            && 'log_id' in started.log && typeof started.log.log_id === 'string'
-            ? started.log.log_id
-            : undefined;
-        await reportHerdrActionFailure(client, pluginId, logId);
-    }
-
     /** Enabled plugins' global actions, fresh from the registry, display-sorted. */
     async function applicationCatalog(): Promise<ApplicationAction[]> {
         const result = await client.call<{ plugins?: HerdrPlugin[] }>('plugin.list');
@@ -2720,75 +2349,6 @@ export async function createHerdrSessionSource(
             emitAllStates();
         },
 
-        async refreshPlugins(): Promise<void> {
-            await reconcilePlugins(true);
-        },
-
-        async pluginList(deviceId) {
-            await refreshPlugins();
-            return catalog.list((pluginId) => pluginApprovals.has(deviceId, pluginId));
-        },
-
-        async pluginManifest({ pluginId, manifestHash }) {
-            await refreshPlugins();
-            return catalog.manifest(pluginId, manifestHash);
-        },
-
-        async pluginApprove({ deviceId, pluginId, manifestHash, approved }) {
-            await refreshPlugins();
-            if (approved) catalog.manifest(pluginId, manifestHash);
-            await pluginApprovals.set(deviceId, pluginId, approved);
-        },
-
-        async pluginInvoke({ deviceId, pluginId, manifestHash, contributionId, sessionId, idempotencyKey }) {
-            await refreshPlugins();
-            if (!pluginApprovals.has(deviceId, pluginId)) throw new Error('plugin is not approved for this device');
-            const scope = `${deviceId}\0${pluginId}`;
-            const key = `${scope}\0${manifestHash}\0${contributionId}\0${sessionId}\0${idempotencyKey}`;
-            const existing = pluginInvocations.get(key);
-            if (existing !== undefined) return existing;
-            const scopeSize = [...pluginInvocations.keys()].filter((candidate) => candidate.startsWith(`${scope}\0`)).length;
-            if (scopeSize >= MAX_PLUGIN_INVOCATIONS_PER_SCOPE || pluginInvocations.size >= MAX_PLUGIN_INVOCATIONS_TOTAL) {
-                throw new Error(`plugin ${pluginId} is busy, retry`);
-            }
-            const pluginActionId = catalog.action(pluginId, manifestHash, contributionId);
-            const pluginActive = activePluginCalls.get(pluginId) ?? 0;
-            const deviceActive = activeDeviceCalls.get(deviceId) ?? 0;
-            if (pluginActive >= MAX_RPC_PER_PLUGIN || deviceActive >= MAX_RPC_PER_DEVICE) throw new Error(`plugin ${pluginId} is busy, retry`);
-            activePluginCalls.set(pluginId, pluginActive + 1);
-            activeDeviceCalls.set(deviceId, deviceActive + 1);
-            const invocation = pluginCallConcurrency.run(
-                () => pluginApprovals.whileApproved(deviceId, pluginId, async () => {
-                    if (catalog.action(pluginId, manifestHash, contributionId) !== pluginActionId) throw new Error('plugin action changed before invocation');
-                    await invokeHerdrAction({ sessionId, pluginId, actionId: pluginActionId });
-                }),
-                PLUGIN_CALL_QUEUE_TIMEOUT_MS,
-            ).finally(() => {
-                decrement(activePluginCalls, pluginId);
-                decrement(activeDeviceCalls, deviceId);
-            });
-            pluginInvocations.set(key, invocation);
-            void invocation.then(
-                () => {
-                    const timer = setTimeout(() => {
-                        if (pluginInvocations.get(key) === invocation) pluginInvocations.delete(key);
-                    }, 5 * 60_000);
-                    timer.unref();
-                },
-                () => { if (pluginInvocations.get(key) === invocation) pluginInvocations.delete(key); },
-            );
-            return invocation;
-        },
-
-        pluginRpcMode({ pluginId, manifestHash, contributionId }: { pluginId: string; manifestHash: string; contributionId: string }): 'read' | 'write' | undefined {
-            // Browser access is package-owned and fail-closed: third-party code
-            // cannot make itself browser-callable by self-declaring read mode.
-            try {
-                const call = catalog.callTarget(pluginId, manifestHash, contributionId);
-                return BROWSER_RPC_PLUGINS_ROOT !== undefined && dirname(call.pluginRoot) === BROWSER_RPC_PLUGINS_ROOT && call.modeDeclared && call.mode === 'read' ? 'read' : undefined;
-            } catch { return undefined; }
-        },
-
         /**
          * Realtime voice resolves its own adapter runtime and coordinator
          * capability without a catalog entry or plugin approval:
@@ -2827,47 +2387,6 @@ export async function createHerdrSessionSource(
             }
             return null;
         },
-
-        async pluginCall({ deviceId, pluginId, manifestHash, contributionId, input, idempotencyKey }): Promise<unknown> {
-            // Force one authoritative catalog read before entering the bounded
-            // process queue. The active hash is checked again at dequeue.
-            await refreshPlugins();
-            if (!pluginApprovals.has(deviceId, pluginId)) throw new Error('plugin is not approved for this device');
-            const target = publicPluginCallTarget(pluginId, manifestHash, contributionId);
-            let payload: unknown = input ?? null;
-            let requestedSessionId: string | undefined;
-            if (payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
-                const { paneId: _paneId, cwd: _cwd, ...trustedPayload } = payload as Record<string, unknown>;
-                payload = trustedPayload;
-                if (typeof trustedPayload.sessionId === 'string') {
-                    requestedSessionId = trustedPayload.sessionId;
-                    const record = await resolvePane(trustedPayload.sessionId);
-                    payload = { ...trustedPayload, paneId: record.paneId, cwd: cwdForSession(trustedPayload.sessionId) ?? '' };
-                }
-            }
-            const inputAtExecution = requestedSessionId === undefined
-                ? undefined
-                : async (): Promise<unknown> => {
-                    const record = await resolvePane(requestedSessionId);
-                    return {
-                        ...(payload as Record<string, unknown>),
-                        paneId: record.paneId,
-                        cwd: cwdForSession(requestedSessionId) ?? '',
-                    };
-                };
-            return guardedPluginCall({
-                deviceId,
-                target,
-                targetAtExecution: () => publicPluginCallTarget(pluginId, manifestHash, contributionId),
-                input: payload,
-                ...(inputAtExecution === undefined ? {} : { inputAtExecution }),
-                ...(requestedSessionId === undefined ? {} : { preferredSessionId: requestedSessionId }),
-                ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-                requireApproval: true,
-            });
-        },
-
-
 
         async list(listOptions?: SessionListOptions): Promise<SessionInfo[]> {
             // A one-shot snapshot failure keeps the cached tree visible without
@@ -3697,7 +3216,6 @@ export async function createHerdrSessionSource(
                 }
             };
             if (resnapshotTimer !== undefined) clearTimeout(resnapshotTimer);
-            if (pluginPollTimer !== undefined) clearInterval(pluginPollTimer);
             // agentWatch arms one guard timer per session, up to an hour out:
             // without this a script that only watched never exits.
             for (const guard of watches.values()) clearTimeout(guard);

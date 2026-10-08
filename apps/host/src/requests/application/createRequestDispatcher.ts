@@ -6,7 +6,6 @@ import type {
     PeerClientRequest,
     PeerRequestType,
     PlanProviderAccounts,
-    PluginManifestV1,
     PreviewPresence,
     RequestMap,
     RequestResponse,
@@ -27,7 +26,6 @@ import {
     openAgent,
     promptAgent,
     readAgentSession,
-    runPluginAction,
     startAgent,
     stopAgent,
     watchAgentLifecycle,
@@ -107,13 +105,10 @@ export interface RequestDispatcherOptions {
 type RequestContext = { deviceId: string; requestId: string; connectionId?: string };
 type Handler<T extends RequestType> = (params: RequestMap[T]['params'], context: RequestContext) => Promise<RequestResult<T>>;
 type NonPeerRequestType = Exclude<RequestType, PeerRequestType>;
-type PluginExecutionRequest = Extract<ClientRequest, {
-    type: 'plugin.approve' | 'plugin.invoke' | 'plugin.call';
-}>;
-
 const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'session.list', 'session.open', 'session.status',
     'herdr.tree', 'herdr.agentKinds', 'herdr.layout', 'pane.read', 'plugin.list', 'plugin.manifest',
+    'plugin.approve', 'plugin.invoke', 'plugin.call',
     'applications.list',
     'artifact.list', 'artifact.fetch', 'artifact.read', 'unread.catalog',
     // The pre-rename spellings are the same read-only calls.
@@ -132,9 +127,8 @@ const VIEW_ONLY_REQUESTS: ReadonlySet<RequestType> = new Set([
     'desktop.capabilities',
 ]);
 
-export function viewOnlyRequestAllowed(request: ClientRequest, source: SessionSource): boolean {
-    return VIEW_ONLY_REQUESTS.has(request.type)
-        || (request.type === 'plugin.call' && source.pluginRpcMode?.(request.params) === 'read');
+export function viewOnlyRequestAllowed(request: ClientRequest): boolean {
+    return VIEW_ONLY_REQUESTS.has(request.type);
 }
 
 function desktopOrThrow(options: RequestDispatcherOptions): DesktopSessions {
@@ -171,17 +165,6 @@ async function firstDeviceTarget<T>(
 
 function deviceTargetFor(options: RequestDispatcherOptions, desktopId: string): DevicePreviewTargets | undefined {
     return options.deviceTargets?.find((targets) => targets.owns(desktopId));
-}
-
-function isPluginExecutionRequest(request: ClientRequest): request is PluginExecutionRequest {
-    switch (request.type) {
-        case 'plugin.approve':
-        case 'plugin.invoke':
-        case 'plugin.call':
-            return true;
-        default:
-            return false;
-    }
 }
 
 function ok(requestId: string, data: unknown): RequestResponse {
@@ -365,13 +348,12 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'applications.list': async () => source.applicationsList(),
         'applications.launch': async (params) => source.applicationsLaunch(params),
         'herdr.agentKinds': async (params) => agentCatalog.read(params.refresh),
-        'plugin.list': () => { throw new Error('authenticated device context required'); },
-        'plugin.manifest': async (params) => useCaseData(
-            await runPluginAction(source, { action: 'manifest', ...params }),
-        ) as PluginManifestV1,
-        'plugin.approve': () => { throw new Error('authenticated device context required'); },
-        'plugin.invoke': () => { throw new Error('authenticated device context required'); },
-        'plugin.call': () => { throw new Error('authenticated device context required'); },
+        // Retired native UI runtime: keep replies safe for released apps.
+        'plugin.list': async () => [],
+        'plugin.manifest': async (params) => ({ schemaVersion: 1, pluginId: params.pluginId, contributions: [] }),
+        'plugin.approve': async () => { throw new Error('plugins are no longer supported'); },
+        'plugin.invoke': async () => { throw new Error('plugins are no longer supported'); },
+        'plugin.call': async () => { throw new Error('plugins are no longer supported'); },
         'host.update': (params, context) => repairHost(params, context.deviceId),
         'desktop.capabilities': async (params) => {
             if (params.target !== undefined) {
@@ -493,7 +475,6 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
         'herdr.cli': async (params) => {
             const result = await source.herdrCli(params.args, params.timeoutMs);
             await source.refreshHerdr();
-            await source.refreshPlugins?.();
             return result;
         },
         'herdr.layout': async (params) => ({ layout: await source.herdrLayout(params.tabId) }),
@@ -749,33 +730,13 @@ export function createRequestDispatcher(options: RequestDispatcherOptions): {
             options.getDeviceContext?.(deviceId)?.kind,
             options.canMutateDevice?.(deviceId) !== false,
         );
-        if (isViewOnlyDevice && !viewOnlyRequestAllowed(request, source)) {
+        if (isViewOnlyDevice && !viewOnlyRequestAllowed(request)) {
             return fail(request.requestId, 'this device grant is view-only; pair a control browser or use the native app');
         }
         if (isViewOnlyDevice && request.type === 'session.open') {
             try {
                 const result = await openAgent(source, { ...request.params, acknowledgeAttention: false });
                 return fromUseCase(request.requestId, result);
-            } catch (error) {
-                return fromCaught(request.requestId, error);
-            }
-        }
-        if (request.type === 'plugin.list') {
-            try {
-                return fromUseCase(request.requestId, await runPluginAction(source, { action: 'list', deviceId }));
-            } catch (error) {
-                return fromCaught(request.requestId, error);
-            }
-        }
-        if (isPluginExecutionRequest(request)) {
-            try {
-                if (request.type === 'plugin.approve') {
-                    return fromUseCase(request.requestId, await runPluginAction(source, { action: 'approve', deviceId, ...request.params }));
-                }
-                if (request.type === 'plugin.invoke') {
-                    return fromUseCase(request.requestId, await runPluginAction(source, { action: 'invoke', deviceId, ...request.params }));
-                }
-                return fromUseCase(request.requestId, await runPluginAction(source, { action: 'call', deviceId, ...request.params }));
             } catch (error) {
                 return fromCaught(request.requestId, error);
             }

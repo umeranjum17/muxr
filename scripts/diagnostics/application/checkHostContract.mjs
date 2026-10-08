@@ -22,7 +22,7 @@ import { execFileSync } from 'node:child_process';
 const RELEASE_JSON = 'release.json';
 const CONTRACT_PATH = 'packages/contract/src/control-plane/domain/requests.ts';
 const DISPATCHER_PATH = 'apps/host/dist/requests/createRequestDispatcher.js';
-// Generic plugin control must exist on both the candidate and built host.
+// Retired request names remain recognised by released clients and hosts.
 const REQUIRED_TYPES = ['plugin.list', 'plugin.manifest', 'plugin.approve', 'plugin.invoke', 'plugin.call'];
 const FULL_SHA = /^[0-9a-f]{40}$/;
 const SHA256_HEX = /^[0-9a-f]{64}$/;
@@ -57,6 +57,44 @@ function extractKeys(text, from, to) {
         }
     }
     return keys;
+}
+
+// Run the real paired-device journey against an owned Herdr host and relay.
+if (process.argv[2] === '--lab') {
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { nextRequestId } = await import('@trymuxr/contract');
+    const { linkHerdrLab } = await import('./linkHerdrLab.mjs');
+    const { requestLab } = await import('./linkLabClient.mjs');
+    const root = mkdtempSync(join(tmpdir(), 'contract-'));
+    let lab;
+    try {
+        lab = await linkHerdrLab(root, 'retired-ui');
+        const params = { pluginId: 'local.retired', manifestHash: 'old', contributionId: 'run',
+            sessionId: 'old', idempotencyKey: 'old', approved: true };
+        for (const type of REQUIRED_TYPES) {
+            const frame = await lab.link.request(type, { type, requestId: nextRequestId('compat'),
+                params: type === 'plugin.list' ? {} : params });
+            if (frame?.type !== 'result') throw new Error(`invalid ${type} response`);
+            if (type === 'plugin.list') {
+                if (!frame.ok || JSON.stringify(frame.data) !== '[]') throw new Error('catalog is not empty');
+            } else if (type === 'plugin.manifest') {
+                if (!frame.ok || JSON.stringify(frame.data) !== JSON.stringify({ schemaVersion: 1,
+                    pluginId: params.pluginId, contributions: [] })) throw new Error('manifest is not empty');
+            } else if (frame.ok || frame.error !== 'plugins are no longer supported') {
+                throw new Error(`unexpected ${type} answer`);
+            }
+            process.stdout.write(`${type}: ${JSON.stringify(frame)}\n`);
+        }
+        const hello = await requestLab(lab.link, 'machine.hello');
+        const sessions = await requestLab(lab.link, 'session.list');
+        if (!Array.isArray(sessions) || hello.machineId !== lab.machine.id) throw new Error('host is not live');
+        process.stdout.write('PASS: retired UI requests are harmless; paired host remains live\n');
+    } finally {
+        await lab?.stop();
+        rmSync(root, { recursive: true, force: true });
+    }
+    process.exit(0);
 }
 
 const [candidate, releaseDirArg] = process.argv.slice(2);

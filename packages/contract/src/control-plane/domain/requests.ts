@@ -12,11 +12,6 @@
 
 export const RPC_CLIENT_TIMEOUT_MS = 40_000;
 
-// A client must still be listening when the host deadline and hard-kill grace expire.
-if (RPC_CLIENT_TIMEOUT_MS <= PLUGIN_CALL_DEADLINE_MS + PLUGIN_CALL_KILL_GRACE_MS) {
-    throw new Error('plugin call client timeout must exceed the host deadline and kill grace');
-}
-
 /**
  * A saved tab layout. Mirrors herdr's split tree, minus the live pane ids that
  * would be meaningless on restore, plus the agent kind to relaunch per pane.
@@ -38,8 +33,6 @@ import type {
     SessionStartResult,
     UnreadCatalog,
 } from '../../herd/index.js';
-import type { PluginManifestV1, PluginSource, PluginSummary } from '../../plugins/index.js';
-import { PLUGIN_CALL_DEADLINE_MS, PLUGIN_CALL_KILL_GRACE_MS } from '../../plugins/index.js';
 import type { UsageNow, UsageReport } from '../../usage/index.js';
 import type {
     VoiceProviderCatalog,
@@ -400,27 +393,27 @@ export interface RequestMap extends PeerRequestMap {
             }>;
         };
     };
-    /** Immutable native UI plugin catalog. Safe to enumerate from read-only clients. */
+    /** @deprecated Retired UI runtime. Released clients receive an empty catalog. */
     'plugin.list': {
         params: Record<string, never>;
-        result: PluginSummary[];
+        result: [];
     };
-    /** Return the exact immutable v1 manifest snapshot addressed by its hash. */
+    /** @deprecated An empty v1 snapshot also makes stale manifest reads harmless. */
     'plugin.manifest': {
         params: { pluginId: string; manifestHash: string };
-        result: PluginManifestV1;
+        result: { schemaVersion: 1; pluginId: string; contributions: [] };
     };
-    /** Persist or revoke this authenticated device's approval for one exact snapshot. */
+    /** @deprecated Always rejects: plugins are no longer supported. */
     'plugin.approve': {
         params: { pluginId: string; manifestHash: string; approved: boolean };
         result: null;
     };
-    /** Invoke an approved plugin contribution with explicit pane context. */
+    /** @deprecated Always rejects: plugins are no longer supported. */
     'plugin.invoke': {
         params: { pluginId: string; manifestHash: string; contributionId: string; sessionId: string; idempotencyKey: string };
         result: null;
     };
-    /** Call an approved, manifest-declared plugin RPC entrypoint. Write RPCs require an idempotency key. */
+    /** @deprecated Always rejects: plugins are no longer supported. */
     'plugin.call': {
         params: { pluginId: string; manifestHash: string; contributionId: string; input?: unknown; idempotencyKey?: string };
         result: unknown;
