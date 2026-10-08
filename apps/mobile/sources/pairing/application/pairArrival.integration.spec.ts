@@ -143,7 +143,11 @@ async function modules() {
 it('keeps the active pairing through screen recreation and relaunch, but asks before switching', async () => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     let mod = await modules();
-    let screen!: import('react-test-renderer').ReactTestRenderer;
+    type ScreenNode = { type: unknown; props: Record<string, unknown> };
+    let screen!: ReturnType<typeof mod.renderer.create>;
+    const root = () => screen.root as {
+        findAll(predicate: (node: ScreenNode) => boolean): ScreenNode[];
+    };
     const mount = async () => {
         await mod.renderer.act(async () => { screen = mod.renderer.create(mod.React.createElement(mod.PairScreen)); });
     };
@@ -151,10 +155,10 @@ it('keeps the active pairing through screen recreation and relaunch, but asks be
         await mod.renderer.act(async () => { screen.unmount(); });
         harness.router.replace.mockClear();
     };
-    const pairButtons = () => screen.root.findAll((node) => node.type === 'Pressable' && node.props.accessibilityLabel === 'Pair');
+    const pairButtons = () => root().findAll((node) => node.type === 'Pressable' && node.props.accessibilityLabel === 'Pair');
     const pressPair = async () => {
         expect(pairButtons()).toHaveLength(1);
-        await mod.renderer.act(async () => { pairButtons()[0]!.props.onPress(); });
+        await mod.renderer.act(async () => { (pairButtons()[0]!.props.onPress as () => void)(); });
     };
     const deliver = async (url: string) => {
         expect(harness.receive).toBeDefined();
@@ -203,7 +207,7 @@ it('keeps the active pairing through screen recreation and relaunch, but asks be
     await mount();
     expect(harness.router.replace).not.toHaveBeenCalled();
     expect(pairButtons()).toHaveLength(0);
-    expect(screen.root.findAll((node) => node.type === 'TextInput' && node.props.accessibilityLabel === 'Pairing string')).toHaveLength(1);
+    expect(root().findAll((node) => node.type === 'TextInput' && node.props.accessibilityLabel === 'Pairing string')).toHaveLength(1);
     await deliver(machineOffer(8));
     expect(pairButtons()).toHaveLength(1);
     expect(harness.router.replace).not.toHaveBeenCalled();
@@ -232,7 +236,7 @@ it('keeps the active pairing through screen recreation and relaunch, but asks be
     expect(harness.router.replace).not.toHaveBeenCalled();
     harness.declined = true;
     await pressPair();
-    expect(screen.root.findAll((node) => node.type === 'Text' && node.props.accessibilityRole === 'alert')
+    expect(root().findAll((node) => node.type === 'Text' && node.props.accessibilityRole === 'alert')
         .map((node) => node.props.children)).toContain('The computer declined this pairing.');
     expect(harness.router.replace).not.toHaveBeenCalled();
     expect(await mod.TokenStorage.getCredentials()).toEqual(credentials);
