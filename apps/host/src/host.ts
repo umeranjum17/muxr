@@ -213,10 +213,10 @@ export function startHost(options: HostOptions): Host {
     }
 
     function deliverSessionEvent(sessionId: string, body: SessionEventBody): void {
-        // Herdr's own session frames know nothing of presence; without it the
-        // phone reads an agent's next state change as the browser closing.
+        // Herdr's own session frames know nothing of presence; stamp the same
+        // device-or-screen preview as lists, including cumulative replay.
         const carried = body.type === 'session.created' || body.type === 'session.updated'
-            ? { ...body, session: withPreview([body.session], previewForPane)[0] ?? body.session }
+            ? { ...body, session: withPreview([body.session], combinedPreviewFor)[0] ?? body.session }
             : body;
         const event: SessionEvent = { ...carried, seq: nextSeq(sessionId) };
         broadcast({ type: 'session.event', sessionId, event });

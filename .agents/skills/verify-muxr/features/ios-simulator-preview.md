@@ -10,7 +10,7 @@ swipes and the Home key drive it through one long-lived idb HID session.
 - `ios-claim` `muxr preview claim <udid>` / `muxr preview release` in a pane;
   a malformed UDID or a missing `HERDR_PANE_ID` fails with exit `1`.
 - `ios-chip` the claiming pane (and only it) offers the simulator preview while
-  the simulator is booted.
+  the simulator is booted, including after agent lifecycle updates and reconnect replay.
 - `ios-stream` the preview goes Live and follows the simulator screen.
 - `ios-input` one tap opens an app, one swipe scrolls it, Home returns to
   SpringBoard.
@@ -39,9 +39,17 @@ Preconditions:
 - **Claim.** In a pane of the private Herdr:
   `MUXR_HOME=<private> node <install>/cli.mjs preview claim <udid>` prints
   `claimed: …`; `$MUXR_HOME/preview/simulators/<pane-id>` holds the UDID.
-- **Chip and stream.** Open that pane on the viewer, tap the simulator chip,
+- **Chip, lifecycle and stream.** Open that pane on the native viewer and capture
+  the chip. Through the guarded lab helper, drive the claiming agent from idle
+  to working, blocked and idle; a lab harness can self-report with
+  `pane report-agent <pane> --source <lab-source> --agent codex --state <state>
+  --seq <increasing-number>`. Capture the chip before and after, and record the
+  transition. Reconnect the viewer and check the chip remains. An adjacent
+  unclaimed agent must have no simulator chip. Tap the claiming pane's chip,
   wait for Live; screenshot the viewer next to `xcrun simctl io <udid>
-  screenshot` and compare.
+  screenshot` and compare the streamed device, not just its toolbar. Repeat
+  lifecycle stamping with an owned Android emulator when available: both
+  device kinds pass through the same host event-stamping path.
 - **Input.** Record the viewer (`adb shell screenrecord`) while tapping an app
   icon and swiping its list; the recording shows the app open and scroll.
   Latency: turn on `show_touches` and diff the touch dot frame against the
