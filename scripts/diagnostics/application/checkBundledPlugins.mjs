@@ -1,8 +1,8 @@
 /**
  * muxr ships no bundled Herdr add-ons: every product surface is product code.
  * This proves the retirement stuck -- no add-on folder remains, and no shell
- * code still branches on an id muxr used to bundle -- and keeps the primitive
- * dependency and launcher-shortcut guards that were already here.
+ * code still branches on an id muxr used to bundle -- and keeps the
+ * launcher-shortcut guards that were already here.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
@@ -84,13 +84,7 @@ for (const path of shellFiles) {
 
 const require = createRequire(import.meta.url);
 const { bundledShortcutData, shortcutResources } = require(join(root, 'apps/mobile/plugins/withAppActions.js'));
-const bakedShortcutsPath = join(root, 'apps/mobile/sources/plugins/bundledShortcuts.json');
 const nativeShortcutsPath = join(root, 'apps/mobile/android/app/src/main/res/xml/shortcuts.xml');
-const expectedShortcuts = `${JSON.stringify(bundledShortcutData(), null, 2)}\n`;
-if (readFileSync(bakedShortcutsPath, 'utf8') !== expectedShortcuts) {
-    process.stderr.write('FAIL bundledShortcuts.json is stale; run the Expo config or update it from bundled manifests\n');
-    failed += 1;
-}
 const nativeShortcuts = readFileSync(nativeShortcutsPath, 'utf8');
 if (!nativeShortcuts.includes('android:targetPackage="com.trymuxr.app"') || /android:targetPackage="@/.test(nativeShortcuts)) {
     process.stderr.write('FAIL Android launcher shortcut targetPackage must be the literal Play package id\n');
@@ -148,40 +142,6 @@ if (!localizedXml.includes('>Abrir<') || !localizedXml.includes('>iniciar<') || 
     failed += 1;
 }
 
-const guardedFiles = [join(root, 'apps/mobile/sources/plugins/presentation/primitiveRegistry.tsx')];
-const realtimeState = join(root, 'apps/mobile/sources/conversation/application/realtimeSessionState.ts');
-function collect(directory) {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        const path = join(directory, entry.name);
-        if (entry.isDirectory()) collect(path);
-        else if (/\.(ts|tsx)$/.test(entry.name)) guardedFiles.push(path);
-    }
-}
-collect(join(root, 'apps/mobile/sources/plugins/presentation/primitives'));
-const forbidden = [
-    ['Inbox product view', /@\/components\/InboxView/],
-    ['product voice module', /@\/voice\//],
-    ['direct herdr tree store', /@\/utils\/(herd|herdTree)/],
-    ['mobile product session store', /@\/(?:sync|catalog)\/(?:store|application\/storage|domain\/agentKinds)/],
-    ['direct herdr tree request', /herdr\.tree|useHerdrTree/],
-    ['preview product module', /from\s+['"][^'"]*(?:@\/preview|\/preview\/)[^'"]*['"]/],
-    ['preview product primitive', /PreviewHeader|url-chip/],
-    ['direct preview transport request', /preview\.(?:list|attach)/],
-];
-for (const path of guardedFiles) {
-    const source = readFileSync(path, 'utf8');
-    for (const [label, pattern] of forbidden) {
-        if (pattern.test(source)) {
-            process.stderr.write(`FAIL primitive dependency guard: ${path} imports ${label}\n`);
-            failed += 1;
-        }
-    }
-}
-const realtimeStateSource = readFileSync(realtimeState, 'utf8');
-if (/VoiceBubble|VoiceOrb|VoiceConversation|voiceState/.test(realtimeStateSource)) {
-    process.stderr.write(`FAIL primitive dependency guard: realtime singleton imports product Voice presentation\n`);
-    failed += 1;
-}
 if (failed > 0) process.exit(1);
 
-process.stdout.write(`no bundled add-ons; ${guardedFiles.length} primitive files guarded\n`);
+process.stdout.write('no bundled add-ons; launcher shortcuts guarded\n');

@@ -6,8 +6,6 @@ const { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, unlinkS
 const { join } = require('path');
 const { withAndroidManifest, withDangerousMod, withInfoPlist, AndroidConfig } = require('expo/config-plugins');
 
-const BAKED_JS = join(__dirname, '..', 'sources', 'plugins', 'bundledShortcuts.json');
-
 function dedupe(values) {
     const seen = new Set();
     return values.flatMap((value) => {
@@ -61,10 +59,6 @@ function writeStable(path, next) {
     writeFileSync(path, next);
 }
 
-function writeBakedJs(shortcuts) {
-    writeStable(BAKED_JS, `${JSON.stringify(bundledShortcutData(shortcuts), null, 2)}\n`);
-}
-
 function androidLocaleQualifier(locale) {
     const parts = locale.split('-');
     if (parts.length === 1) return parts[0].toLowerCase();
@@ -86,10 +80,6 @@ function shortcutResources(shortcuts, locale) {
 }
 
 module.exports = function withAppActions(config) {
-    // Keep the alias map next to the XML so a manifest edit updates both. The
-    // live enabled catalog remains authoritative when a cold shortcut runs.
-    writeBakedJs(bundledShortcuts());
-
     config = withDangerousMod(config, ['android', (c) => {
         const shortcuts = bundledShortcuts();
         const res = join(c.modRequest.platformProjectRoot, 'app', 'src', 'main', 'res');

@@ -136,9 +136,20 @@ for (const [f, entries] of addedByFile) {
     if (EMPTY_CATCH.test(entries.map((e) => e.text).join('\n'))) flag('unfinished-work', f, entries[0].line);
 }
 
+// The subject source file a test covers: screenModel.ts for
+// screenModel.spec.ts. Only the .spec/.test dotted form maps; other test
+// name shapes leave the path unchanged and never count as subject-gone.
+const subjectOf = (f) => f.replace(/\.(spec|test)\./, '.');
+
 for (const f of deleted) {
     if (!isTest(f)) continue;
-    if (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained) flag('test-deleted', f, 1);
+    // A test deleted alongside the source file it covers is not lost
+    // coverage: no live code remains for it to protect. The deletion still
+    // needs a reason in a commit message, and a security-looking test whose
+    // subject still exists still flags.
+    const subject = subjectOf(f);
+    const subjectGone = subject !== f && deleted.includes(subject);
+    if ((isSecurityTest(f, removedTextsOf(f)) && !subjectGone) || !testChangeExplained) flag('test-deleted', f, 1);
 }
 
 const ASSERTION = /\b(expect|assert|should)\b|(?:^|[^\w$])check\s*\(|(?:^|[^\w$])fail\s*\(|\bthrow\s+new\s+Error\b/;
