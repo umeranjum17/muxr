@@ -422,7 +422,16 @@ describe('native pairing over the byokit link', () => {
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     }, 90_000);
 
-
+    it('exits 2 asking for the person when a non-TTY caller runs muxr pair', async () => {
+        // launch() gives the child no TTY, the way an AI agent or script does.
+        const startedAt = Date.now();
+        const child = launch([cliMain, 'pair']);
+        const code = await new Promise<number | null>((resolve) => child.once('exit', (c) => resolve(c)));
+        const elapsedMs = Date.now() - startedAt;
+        expect(elapsedMs).toBeLessThan(1_000);
+        expect(code).toBe(2);
+        expect(child.output().trim()).toBe('Pairing needs you at this computer\'s terminal: run `muxr pair` yourself');
+    });
 
     it('completes a pairing for a phone that died between approval and the machine details', async () => {
         const { pairing, offer } = await showPairingQr({ approve: async () => true });
