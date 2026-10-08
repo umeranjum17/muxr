@@ -30,12 +30,6 @@ apps/mobile/sources/
     ui.ts                       screens
     e2ee.ts                     Hosted Grant adapters
     secrets.ts                  native/web secret stores
-  plugins/
-    domain/                     screen/collection/tree models (untrusted host UI)
-    application/                catalog, actions, events
-    presentation/               declarative screens and slots
-    index.ts                    domain + use cases
-    ui.ts                       screens
   terminal/
     domain/                     TerminalLink, file links, status bar
     application/                open terminal, recent output

@@ -82,6 +82,29 @@ function protocolMismatchMessage(reason: 'host-too-old' | 'host-too-new', hostVe
         : `Update needed: Your computer runs ${computer}, which is newer than this app supports. Update the app, then reconnect.`;
 }
 
+/** Actionable offline copy per route, built muxr-side. The kit's
+ *  `describeRoute` labels name the transport ("Local or private network")
+ *  but never form a sentence, so they must not be interpolated into one. */
+export function hostUnreachableMessage(route: string | undefined, computer: string): string {
+    if (route === 'Tailscale')
+        return `Can't reach ${computer}. Is it awake and is Tailscale connected on this phone and the computer?`;
+    if (route === 'Private network')
+        return `Can't reach ${computer}. Is it awake and on the same private network as this phone?`;
+    if (route === 'Cloudflare tunnel')
+        return `Can't reach ${computer}. Is it awake and is its Cloudflare tunnel running?`;
+    if (route === 'Hosted VPS / custom relay')
+        return `Can't reach ${computer}. Is it awake and online?`;
+    if (route === 'Local or private network')
+        return `Can't reach ${computer}. Is it awake and on the same Wi-Fi as this phone?`;
+    return `Can't reach ${computer}. Is it awake and online?`;
+}
+
+/** The relay answers but the computer is not attached to it: wake the
+ *  computer rather than re-checking this phone's connection. */
+export function relayWithoutHostMessage(computer: string): string {
+    return `Can't reach ${computer}: its muxr relay is online, but the computer is not connected. Wake the computer and make sure muxr is running there; if this device was removed, pair again.`;
+}
+
 /** One byokit link, including its terminal, desktop, voice and push streams. */
 export class LinkFirstClient implements SessionClient {
     private link: DeviceLink | undefined;
@@ -460,7 +483,9 @@ export class LinkFirstClient implements SessionClient {
         if (stored === undefined || this.closed) return;
         this.lastHealthCheck = Date.now();
         const generation = this.healthGeneration;
-        const route = describeRoute(stored.relayUrl) ?? 'relay';
+        const route = describeRoute(stored.relayUrl);
+        // The grant's pairing name, never the internal machine id.
+        const computer = stored.machineName ?? 'your computer';
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 8_000);
         let message: string;
@@ -473,30 +498,30 @@ export class LinkFirstClient implements SessionClient {
             const response = await fetch(relay.toString(), { signal: controller.signal });
             const health = await response.json() as { ok?: unknown; muxrVersion?: unknown; linkProtocol?: unknown };
             if (!response.ok || health.ok !== true) throw new Error('not a muxr relay');
-            const computer = typeof health.muxrVersion === 'string' ? health.muxrVersion : undefined;
-            message = `${route} reached the muxr relay, but the computer did not accept this pairing. Check muxr on the computer; if this device was removed, pair again.`;
+            const hostVersion = typeof health.muxrVersion === 'string' ? health.muxrVersion : undefined;
+            message = relayWithoutHostMessage(computer);
             if (health.linkProtocol !== 1) {
                 message = 'Update needed: This computer runs an older muxr connection protocol. Update muxr on the computer, then pair again.';
                 permanent = true;
-            } else if (refused && computer && /^\d+\.\d+\.\d+/.test(computer)) {
+            } else if (refused && hostVersion && /^\d+\.\d+\.\d+/.test(hostVersion)) {
                 // Differing versions only explain a refusal. A relay that answers while
                 // the link is merely offline is a host coming back, and machine.hello
                 // re-checks its protocol on the next handshake.
                 const { getAppVersion } = await import('@/utils/appVersion');
                 const app = getAppVersion();
-                if (/^\d+\.\d+\.\d+/.test(app) && computer.split(/[-+]/)[0] !== app.split(/[-+]/)[0]) {
+                if (/^\d+\.\d+\.\d+/.test(app) && hostVersion.split(/[-+]/)[0] !== app.split(/[-+]/)[0]) {
                     const comparison = (version: string) => version.split(/[.+-]/).slice(0, 3).map(Number);
-                    const hostParts = comparison(computer);
+                    const hostParts = comparison(hostVersion);
                     const appParts = comparison(app);
                     const newer = hostParts.findIndex((part, index) => part !== appParts[index]);
                     message = newer >= 0 && hostParts[newer]! > appParts[newer]!
-                        ? `Update needed: Your computer runs muxr ${computer}; this app (${app}) needs an update. Update the app, then pair again.`
-                        : `Update needed: Your computer runs muxr ${computer}; this app runs ${app}. Update muxr on the computer, then pair again.`;
+                        ? `Update needed: Your computer runs muxr ${hostVersion}; this app (${app}) needs an update. Update the app, then pair again.`
+                        : `Update needed: Your computer runs muxr ${hostVersion}; this app runs ${app}. Update muxr on the computer, then pair again.`;
                     permanent = true;
                 }
             }
         } catch {
-            message = `${route} could not reach the computer’s muxr relay. Check that the computer and ${route} connection are online, then retry.`;
+            message = hostUnreachableMessage(route, computer);
         } finally {
             clearTimeout(timer);
         }

@@ -477,8 +477,11 @@ export const MainView = React.memo(({ liveCardBadge }: {
     }, []);
 
     const permanentRecovery = !['host', 'runtime'].includes(recoveryMode(socketStatus.error, false));
+    // While the link is down the strip can only show stale host figures, so it
+    // stays off until the computer answers; the recovery card below already
+    // speaks. (RightNowCard itself is untouched.)
     const homeHeader = <>
-        {!permanentRecovery && <RightNowCard linkDown={socketStatus.status !== 'connected'} />}
+        {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} />}
     </>;
 
     // In split view, the sidebar is the only navigator. The landing pane is
@@ -518,7 +521,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
                     ) : splitBusy && splitBusySince !== null ? <BusyConnectingCard since={splitBusySince} /> : null}
                     {/* The same order as the phone: plans and machine first, then Live,
                         then what to start. */}
-                    {!permanentRecovery && <RightNowCard linkDown={socketStatus.status !== 'connected'} />}
+                    {!permanentRecovery && socketStatus.status === 'connected' && <RightNowCard linkDown={false} />}
                     {!splitRecovering && !splitBusy
                         ? <LiveTerminalsRow showZeroState={!splitEmpty} visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} cardBadge={liveCardBadge} /> : null}
                     {splitEmpty ? <HomeEmptyState />
