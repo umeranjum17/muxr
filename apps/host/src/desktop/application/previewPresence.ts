@@ -14,10 +14,9 @@ import { PreviewLeaseTracker } from './previewLease.js';
  * unknown or unscreened target is refused with `permission-denied`, never
  * fallen back to the whole desktop.
  *
- * The per-pane screens come from P1.2 (`PaneScreens` satisfies
- * `PreviewScreens` structurally, so it plugs straight in). When screens are
- * absent — the pinned engine has no keeper yet — no presence is published and
- * every target open is refused, which is the honest answer.
+ * Production no longer allocates private Browser screens. With no screen
+ * provider, no screen presence is published and every such target is refused.
+ * Device mirrors have their own discovery and target owners.
  */
 
 /** One top-level window the keeper sees on a pane's screen.
@@ -33,9 +32,9 @@ export interface PreviewScreenWindow {
 }
 
 /**
- * The per-pane screens P1.2 owns. Structural on purpose: this package builds
- * and tests against fakes before that branch lands, and `PaneScreens` already
- * has this shape (`screenFor`, `onWindows`).
+ * A screen provider for target routing. Absent in production after retiring
+ * generic private Browser screens; retained while screen target admission is
+ * removed separately.
  */
 export interface PreviewScreens {
     screenFor(paneId: string): { display: string; env: Record<string, string> } | undefined;

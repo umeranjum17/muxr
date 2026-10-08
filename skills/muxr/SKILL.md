@@ -49,8 +49,8 @@ a second browser or sending a filesystem path as the user experience:
 
 - On a machine with a desktop session, open web pages in that desktop's browser;
   the user watches and takes over through the phone's Computer action. A
-  muxr-launched pane's own browser, emulator, or claimed simulator appears as a live chip instead. Load
-  `muxr skill agent-browser-preview` for preview and 2FA handoff rules.
+  pane's Android emulator or claimed iOS Simulator remains a separate device preview.
+  Load `muxr skill agent-browser-preview` for Computer and device handoff rules.
 - Share a finished file with `muxr share <path>`. It resolves the current pane
   from `$HERDR_PANE_ID` and adds the file to that session's durable history.
 
@@ -66,7 +66,7 @@ work.
 | Install, pair a phone or browser, self-host, update, uninstall, diagnose | `muxr skill onboarding` · [source](references/onboarding.md) |
 | Create panes/tabs/workspaces/worktrees, run and read agents, socket API | `muxr skill herdr` · [source](references/herdr.md) |
 | Connect computers; list, read, watch, or prompt a remote agent; voice | `muxr skill collaboration` · [source](references/collaboration.md) |
-| Watch an agent's browser, emulator, or iOS Simulator live; hand a login, 2FA, or CAPTCHA to the phone | `muxr skill agent-browser-preview` · [source](references/agent-browser-preview.md) |
+| Watch desktop pages through Computer, watch a device preview, or hand a login, 2FA, or CAPTCHA to the phone | `muxr skill agent-browser-preview` · [source](references/agent-browser-preview.md) |
 | Publish an HTML page with images, or a new version of it | `muxr skill artifact-pages` · [source](references/artifact-pages.md) |
 | Name the current Herdr workspace/pane | `muxr name --workspace LABEL --pane TITLE --provider PROVIDER --model MODEL` |
 | Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |

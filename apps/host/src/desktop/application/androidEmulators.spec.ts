@@ -8,11 +8,11 @@ import { AndroidEmulatorWatcher, DevicePreviewTargets, DevicePresenceTracker, ad
 import { PreviewLeaseTracker, type PreviewLeaseSnapshot } from './previewLease.js';
 
 /**
- * The headless-emulator road, pane to pixels to control bytes.
+ * The device-mirror road, pane to pixels to control bytes.
  *
- * A fixture /proc holds a `-no-window` emulator whose environ is wiped (as
- * the real one's is) under a pane shell, a headed emulator that must stay
- * invisible, and a port-less one found through its console socket. A stub adb
+ * A fixture /proc holds a windowed emulator whose environ is wiped (as
+ * the real one's is) under a pane shell, an offline windowed emulator,
+ * and a headless port-less one found through its console socket. A stub adb
  * asserts the exact shapes the host calls it with, a stub engine speaks the
  * local protocol, and a fake device serves scrcpy bytes over real loopback
  * sockets. What this catches is the part that would silently show the wrong
@@ -148,8 +148,8 @@ async function waitFor(label: string, ready: () => boolean | Promise<boolean>, t
     }
 }
 
-describe('a headless emulator in an agent pane', () => {
-    it('announces the AVD, mirrors it through the encoded source, and drives it', async () => {
+describe('an emulator in an agent pane', () => {
+    it('announces the windowed AVD, mirrors it through the encoded source, and drives it', async () => {
         const root = mkdtempSync(join(tmpdir(), 'muxr-android-'));
         const backendPort = await new Promise<number>((resolve) => {
             const probe = createServer();
@@ -182,11 +182,11 @@ describe('a headless emulator in an agent pane', () => {
             });
             procPid(proc, '4200', {
                 comm: 'qemu-system-x86_64\n',
-                cmdline: 'qemu-system-x86_64\x00-no-window\x00-port\x005572\x00',
+                cmdline: 'qemu-system-x86_64\x00-port\x005572\x00',
                 environ: '',
                 stat: '4200 (qemu-system-x86_64) S 4190 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n',
             });
-            // Headed: the keeper's business, invisible here.
+            // A second windowed device is discovered but offline in adb.
             procPid(proc, '4300', {
                 comm: 'qemu-system-x86_64\n',
                 cmdline: 'qemu-system-x86_64\x00-window\x00-port\x005580\x00',

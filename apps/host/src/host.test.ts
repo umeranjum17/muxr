@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { startHost } from './host.js';
 import type { SessionSource } from './agent/index.js';
-import type { PaneScreens } from './desktop/index.js';
+import type { PreviewScreens } from './desktop/index.js';
 
 describe('host machine event flow', () => {
     it('fans product events out through the link endpoint and unsubscribes on close', async () => {
@@ -43,7 +43,7 @@ describe('host machine event flow', () => {
                 onWindows: (listener: typeof windows) => { windows = listener; return vi.fn(); },
                 screenFor: () => undefined,
                 stop: vi.fn(),
-            } as unknown as PaneScreens;
+            } as unknown as PreviewScreens & { stop(): void };
             const host = startHost({ relayUrl: 'ws://relay.test', machineId: 'machine-1', source, paneScreens,
                 domain: { unread: { noteActivity: vi.fn() } } as never });
             const frames: unknown[] = [];

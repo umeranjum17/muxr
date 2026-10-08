@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, relative } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createHerdrSessionSource } from './herdrSessionSource.js';
 import { planPaneAccount, rememberPlanPane } from '../../plans/planSignIn.js';
 import { savePlanAccounts } from '../../plans/planStore.js';
@@ -221,6 +221,8 @@ describe('a plan-account move', () => {
         const dir = mkdtempSync(join(process.cwd(), '.muxr-move-'));
         const cwd = join(dir, 'repo');
         const herdr = fakeHerdr(dir, cwd);
+        vi.stubEnv('DISPLAY', ':42');
+        vi.stubEnv('WAYLAND_DISPLAY', 'wayland-lab');
         const source = await createHerdrSessionSource({
             socketPath: herdr.socketPath,
             dataDir: join(dir, 'data'),
@@ -264,6 +266,11 @@ describe('a plan-account move', () => {
 
             const moved = await moveOn(source, dir)({ sessionId, provider: 'claude', folder: '/new/claude' });
             expect(moved.sessionId).toBe(sessionId);
+            const paneEnv = herdr.panes.find((pane) => pane.pane_id === 'p3')?.env as Record<string, string> | undefined;
+            expect(paneEnv).toMatchObject({ DISPLAY: ':42', WAYLAND_DISPLAY: 'wayland-lab' });
+            expect(paneEnv?.MUXR_AGENT_CAPABILITIES).toContain("that desktop's browser");
+            expect(paneEnv?.MUXR_AGENT_CAPABILITIES).not.toContain('own screen');
+            expect(paneEnv).not.toHaveProperty('AGENT_BROWSER_ARGS');
             expect(herdr.agents).toHaveLength(1);
             expect(herdr.agents[0]).toMatchObject({ pane_id: 'p3', agent_session: original?.agent_session });
             const started = herdr.calls.findIndex((call) => call.method === 'agent.start' && call.detail === 'p3');
@@ -290,6 +297,7 @@ describe('a plan-account move', () => {
             expect(herdr.panes.map((pane) => pane.pane_id)).toEqual(['p5']);
             expect((await source.open({ sessionId })).info.paneId).toBe('p5');
         } finally {
+            vi.unstubAllEnvs();
             await source.dispose();
             herdr.close();
             rmSync(dir, { recursive: true, force: true });

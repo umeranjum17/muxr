@@ -33,22 +33,21 @@ import {
 } from './scrcpy.js';
 
 /**
- * Headless emulators via scrcpy (D2.2).
+ * Android emulators via scrcpy, with or without a desktop window.
  *
- * A `-no-window` emulator has no pixels on any screen, so the keeper can never
- * see it. Instead this watches `/proc` for one attributed to an agent pane,
+ * This watches `/proc` for an emulator attributed to an agent pane,
  * starts the vendored scrcpy-server on it, and carries its H.264 through the
  * engine's encoded source — the same WebRTC path as every other preview, with
  * the phone's touch and device keys translated back into scrcpy control
- * messages. Screens stay the honest signal for everything with a window; this
- * is only ever the headless-emulator road.
+ * messages. A windowed emulator uses the same device mirror, not a private
+ * Browser screen.
  */
 
 // ---------------------------------------------------------------------------
 // Discovery
 // ---------------------------------------------------------------------------
 
-/** A headless emulator, and the pane whose ancestry owns it. */
+/** An emulator, and the pane whose ancestry owns it. */
 export interface DiscoveredEmulator {
     pid: number;
     paneId: string;
@@ -141,10 +140,7 @@ function consolePort(pid: string, procRoot: string): number | undefined {
     return undefined;
 }
 
-/**
- * Every `-no-window` emulator on this machine, attributed to its pane.
- * Headed emulators are the keeper's business and never appear here.
- */
+/** Every emulator on this machine, attributed to its pane. */
 export function scanAndroidEmulators(procRoot = '/proc'): DiscoveredEmulator[] {
     let pids: string[];
     try {
@@ -157,7 +153,6 @@ export function scanAndroidEmulators(procRoot = '/proc'): DiscoveredEmulator[] {
         if (!/^\d+$/.test(pid)) continue;
         if (!QEMU_COMM.test(readFile(join(procRoot, pid, 'comm'))?.trim() ?? '')) continue;
         const argv = (readFile(join(procRoot, pid, 'cmdline')) ?? '').split('\0').join(' ');
-        if (!/-no-window/.test(argv)) continue;
         const paneId = owningPane(pid, procRoot);
         if (paneId === undefined) continue;
         const portFlag = /-port (\d+)/.exec(argv)?.[1];
@@ -271,7 +266,7 @@ export function resolveScrcpyServer(start = dirname(fileURLToPath(import.meta.ur
 // Presence
 // ---------------------------------------------------------------------------
 
-/** Announce a headless emulator only once it stays put; withdraw it with grace. */
+/** Announce an emulator only once it stays put; withdraw it with grace. */
 const ANDROID_ANNOUNCE_AFTER_MS = 1500;
 const ANDROID_WITHDRAW_AFTER_MS = 3000;
 
@@ -1415,7 +1410,7 @@ export interface AndroidWatcherOptions {
 const WATCH_SCAN_MS = 2000;
 
 /**
- * Owns discovery and presence for headless emulators. The host stamps session
+ * Owns discovery and presence for emulators. The host stamps session
  * lists from `previewFor` and pushes on `onChange`; targets open through
  * `targets`, which shares the watcher's serial map.
  */

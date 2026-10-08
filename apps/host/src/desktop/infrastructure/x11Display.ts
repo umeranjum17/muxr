@@ -5,7 +5,7 @@
  *
  * Two owners use these: the host's own screen for a machine that has none
  * (`virtualDisplay.ts`) and the private screen of one agent pane
- * (`paneScreens.ts`).
+ * (retired private pane screens used the same helpers).
  */
 import { accessSync, constants, existsSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';

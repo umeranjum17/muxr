@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { type ClientFrame, type ClientRequest, type HostFrame, type SessionEvent, type SessionEventBody } from '@trymuxr/contract';
 import { deviceTableCanMutate, type HostedMachineKeys } from './machine/index.js';
 import { createRequestDispatcher, viewOnlyRequestAllowed } from './requests/index.js';
-import { AndroidEmulatorWatcher, DesktopSessions, IosSimulatorWatcher, PreviewDesktops, PreviewLeaseTracker, PreviewPresenceTracker, filePreviewLeaseSink, PREVIEW_LEASE_FILENAME, withPreview, type PaneScreens } from './desktop/index.js';
+import { AndroidEmulatorWatcher, DesktopSessions, IosSimulatorWatcher, PreviewDesktops, PreviewLeaseTracker, PreviewPresenceTracker, filePreviewLeaseSink, PREVIEW_LEASE_FILENAME, withPreview, type PreviewScreens } from './desktop/index.js';
 import { listAgents, type AgentWatchStores, type SessionSource, type TerminalManager } from './agent/index.js';
 import type { PeerRuntime } from './peer/index.js';
 import type { DiagnosticClientKind, HostDiagnosticsJournal } from './diagnostics/index.js';
@@ -49,7 +49,7 @@ export interface HostOptions {
      * before this host is (it needs them to allocate a pane's screen), so it is
      * handed to both and the host owns the teardown.
      */
-    paneScreens?: PaneScreens;
+    paneScreens?: PreviewScreens & { stop(): void };
 }
 
 export interface Host {

@@ -10,7 +10,6 @@ export {
     type PreviewLeaseSnapshot,
     type PreviewLeaseTrackerOptions,
 } from './application/previewLease.js';
-export { PaneScreens, type PaneScreen, type ScreenWindow } from './infrastructure/paneScreens.js';
 export {
     PreviewDesktops,
     PreviewPresenceTracker,
