@@ -18,11 +18,10 @@ export interface ScreenChartNode {
 
 export interface ScreenLimitsNode {
     type: 'limits';
-    /** Runtime path to a bounded limits payload (see the host plugin contract). */
+    /** Runtime path to a bounded Usage limits payload. */
     path: string;
     /** Section label; the plan name renders beside it from the payload. */
     title?: DisplayText;
     /** Shown as one quiet line when the payload has no windows and no message. */
     emptyText?: DisplayText;
 }
-
