@@ -154,13 +154,17 @@ for (const f of deleted) {
 
 const ASSERTION = /\b(expect|assert|should)\b|(?:^|[^\w$])check\s*\(|(?:^|[^\w$])fail\s*\(|\bthrow\s+new\s+Error\b/;
 const assertionsIn = (lines, f, h) => lines.filter((l) => l.file === f && l.hunk === h && ASSERTION.test(l.text)).length;
+// A removed assertion judges security by its own line, not the whole file:
+// a file that merely mentions credentials elsewhere must not make every
+// assertion in it undeletable.
+const isSecurityAssertion = (f, text) => SECURITY.test(f) || SECURITY.test(text);
 for (const { file: f, line: n, text, hunk: h } of removed) {
     if (isDoc(f) || !isTest(f) || deleted.includes(f)) continue;
     if (!ASSERTION.test(text)) continue;
     // An assertion rewritten in place keeps the floor, security tests included:
     // the same hunk of the same file adds at least as many assertion lines.
     if (assertionsIn(added, f, h) >= assertionsIn(removed, f, h)) continue;
-    if (isSecurityTest(f, removedTextsOf(f)) || !testChangeExplained) flag('assertion-removed', f, n);
+    if (isSecurityAssertion(f, text) || !testChangeExplained) flag('assertion-removed', f, n);
 }
 
 // 1b/2c. A rule in CONSTRAINTS.md weakened or removed. A rule is a floor
