@@ -100,7 +100,7 @@ export function HomeNotificationPrimerCard() {
             <Text style={styles.body}>
                 {denied
                     ? 'Notifications are turned off for muxr. Turn them on in system settings to hear when an agent asks you something or runs into trouble.'
-                    : 'Muxr can tell you when an agent asks you a question or runs into a problem, even when you are not looking at the app.'}
+                    : 'muxr can tell you when an agent asks you a question or runs into a problem, even when you are not looking at the app.'}
             </Text>
             <View style={styles.actions}>
                 {denied ? (
