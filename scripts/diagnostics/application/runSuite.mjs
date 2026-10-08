@@ -9,15 +9,21 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { scratchBase, testScratchOwner } from './testScratchOwner.mjs';
-// The herdr check drives a live herdr server through the real host. Without one
-// it burns its timeout and reports a misleading failure, so detect and skip.
-const herdrSocket = process.env.HERDR_SOCKET_PATH?.trim()
-    || join(process.env.HOME?.trim() || homedir(), '.config', 'herdr', 'herdr.sock');
-const hasHerdr = existsSync(herdrSocket);
+import { devHerdrSocket } from '../../development/application/devHerdrSocket.mjs';
+// Live checks require an explicitly selected lab socket (or deliberate opt-in).
+// Non-live checks still run on machines without Herdr, including CI.
+let herdrSocket;
+let herdrRefusal;
+try {
+    herdrSocket = devHerdrSocket();
+} catch (error) {
+    herdrRefusal = error.message;
+}
+const hasHerdr = herdrSocket !== undefined && existsSync(herdrSocket);
 const labHelper = process.env.HERDR_LAB_HELPER?.trim();
 
 const checks = [
@@ -41,6 +47,7 @@ const checks = [
     ['unit: layout snapshot round-trip', 'node', ['apps/host/dist/agent/infrastructure/layoutSelfCheck.js']],
     ['unit: setup domain (pairing/connection/crypto)', 'node', ['scripts/setup/domain/dist/selfCheck.js']],
     ['unit: service commands stay in their MUXR_HOME scope', 'node', ['scripts/setup/serviceScope.selfcheck.mjs']],
+    ['security: development Herdr socket selection', 'node', ['scripts/diagnostics/application/checkDevHerdrSocket.mjs']],
     ['unit: setup wizard onboarding', 'node', ['--experimental-test-module-mocks', 'scripts/setup/presentation/setupWizard.selfcheck.mjs']],
     ['policy: host/relay architecture', 'npx', ['vitest', 'run', 'apps/host/src/architecture.test.ts', 'apps/relay/src/architecture.test.ts']],
     // The load-test flows carry their own generous per-test budgets; the step
@@ -103,6 +110,7 @@ const FAST = new Set([
     'unit: layout snapshot round-trip',
     'unit: setup domain (pairing/connection/crypto)',
     'unit: service commands stay in their MUXR_HOME scope',
+    'security: development Herdr socket selection',
     'unit: all vitest flows',
     'unit: perf gate (gesture metrics, warm-probe gates, node --test)',
     'policy: host/relay architecture',
@@ -188,8 +196,8 @@ function run(name, cmd, args, timeoutMs = 150000) {
 process.stdout.write(`\n=== MUXR SUITE${fastOnly ? ' (fast lane)' : ''} ===\n\n`);
 if (!fastOnly && !hasHerdr) {
     process.stdout.write(
-        `No herdr socket at ${herdrSocket}.\n`
-        + `Skipping the live-herdr check. Run \`herdr server\` to enable it.\n\n`,
+        `${herdrRefusal ?? `No herdr socket at ${herdrSocket}.`}\n`
+        + 'Skipping the live-herdr checks; point HERDR_SOCKET_PATH at a running lab session to enable them.\n\n',
     );
 }
 let skipped = 0;
