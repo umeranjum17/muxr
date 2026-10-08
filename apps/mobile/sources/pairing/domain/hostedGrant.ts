@@ -68,13 +68,11 @@ export function connectionShouldAdoptGrant(
 }
 
 /**
- * The arriving offer names the machine and link a stored grant already
- * holds: the same box key (compared as host ids, so encodings cannot drift)
- * and a link URL carrying the grant's relay, or the grant's proven link URL
- * itself. Expiry is ignored on purpose: a consumed offer stays recognizable
- * after its minutes run out, and only a same-machine/same-link arrival
- * restores — anything else still needs consent. Anything unparseable never
- * matches, so a code the phone cannot read still asks for a fresh one.
+ * Match the pinned box key by host id and require an exact offer URL match
+ * with the grant's proven link URL, or its canonical machine link when absent
+ * (the same conversion as infrastructure/linkGrant.ts). Sharing a relay alone
+ * is not enough. Expiry is ignored so a consumed offer remains recognizable;
+ * unparseable offers never match. pairArrival.ts owns when this skips consent.
  */
 export function offerMatchesGrant(
     offer: string,

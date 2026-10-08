@@ -88,11 +88,8 @@ export default function PairScreen() {
     const ConnectBar = Platform.OS === 'ios' ? KeyboardStickyView : View;
     const openedFromSettings = routeParams.source === 'settings';
     const sshRoute = !browser && routeParams.route === 'ssh' && sshTunnelAvailable();
-    // The OS redelivers the pairing intent on activity recreation and on
-    // relaunch paths that restore the launching intent; anything the person
-    // typed, pasted, or scanned is theirs. A redelivery naming the pairing
-    // this device already holds restores it before consent; anything else
-    // follows the usual confirm/error form.
+    // pairArrival.ts owns intent restoration; typed, pasted and scanned input
+    // stays on the normal consent/error path.
     const reviewPairing = React.useCallback((raw: string, source: PairArrivalSource = 'user') => {
         void resolvePairArrival(raw, { authenticated: auth.isAuthenticated, source }).then((target) => {
             if (target === 'home') {
@@ -128,6 +125,7 @@ export default function PairScreen() {
             receive(routePairUrl);
             return undefined;
         }
+        // Settings is deliberate manual entry, not a replay of the launching intent.
         if (!openedFromSettings) {
             void Linking.getInitialURL().then((url) => {
                 if (cancelled) return;

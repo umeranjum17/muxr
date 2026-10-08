@@ -9,12 +9,12 @@ export type PairArrivalTarget = 'home' | 'confirm' | 'form';
 /**
  * The OS redelivers the pairing intent on activity recreation (density
  * change) and on relaunch paths that restore the launching intent, so one
- * offer can arrive twice. An arrival carrying the identity of a pairing this
- * device already holds (same machine, same link) restores it with no claim,
- * expired or not. Any other machine or link reaches consent as before, and
- * anything the person entered themselves — or anything unreadable — keeps
- * the manual form with the true reason. Storage failures fall back to that
- * same form rather than stranding.
+ * offer can arrive twice. An authenticated intent matching the active grant
+ * selected by pickGrantForConnection returns Home without another claim,
+ * expired or not. Saved but inactive grants do not bypass consent.
+ * All other arrivals, including user input and storage failures, follow
+ * normal input validation: valid offers reach consent; invalid ones show
+ * their reason in the manual form.
  */
 export async function resolvePairArrival(raw: string, args: {
     authenticated: boolean;
@@ -29,7 +29,7 @@ export async function resolvePairArrival(raw: string, args: {
                 return 'home';
             }
         } catch {
-            // Fall through to the arrival form below.
+            // Use normal input validation if stored identity cannot be read.
         }
     }
     return decidePairingInput(raw).ok ? 'confirm' : 'form';
