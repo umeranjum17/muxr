@@ -1,4 +1,4 @@
-import { Platform, Linking, PermissionsAndroid } from 'react-native';
+import { Platform, Linking } from 'react-native';
 import { Modal } from '@/modal';
 import { AudioModule, setAudioModeAsync } from 'expo-audio';
 import * as Notifications from 'expo-notifications';
@@ -16,7 +16,6 @@ export interface MicrophonePermissionResult {
  */
 let pendingMicrophonePermission: Promise<MicrophonePermissionResult> | null = null;
 let pendingNotificationPermission: Promise<boolean> | null = null;
-let initialNotificationPromptAttempted = false;
 
 export function requestMicrophonePermission(): Promise<MicrophonePermissionResult> {
   if (pendingMicrophonePermission !== null) return pendingMicrophonePermission;
@@ -73,17 +72,12 @@ export function requestNotificationPermission(userInitiated = true): Promise<boo
   if (pendingNotificationPermission !== null) return pendingNotificationPermission;
   pendingNotificationPermission = (async () => {
     if (pendingMicrophonePermission !== null) await pendingMicrophonePermission;
-    if (Platform.OS === 'ios') {
-      const current = await Notifications.getPermissionsAsync();
-      if (current.granted) return true;
-      if (!userInitiated || !current.canAskAgain) return false;
-      return (await Notifications.requestPermissionsAsync()).granted;
-    }
-    const permission = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
-    if (await PermissionsAndroid.check(permission)) return true;
-    if (!userInitiated && initialNotificationPromptAttempted) return false;
-    initialNotificationPromptAttempted = true;
-    return await PermissionsAndroid.request(permission) === PermissionsAndroid.RESULTS.GRANTED;
+    // Both platforms ask through expo, so Android remembers the ask and a
+    // permanent denial reads as one instead of a turn-on that shows nothing.
+    const current = await Notifications.getPermissionsAsync();
+    if (current.granted) return true;
+    if (!userInitiated || !current.canAskAgain) return false;
+    return (await Notifications.requestPermissionsAsync()).granted;
   })().finally(() => {
     pendingNotificationPermission = null;
   });
@@ -93,12 +87,8 @@ export function requestNotificationPermission(userInitiated = true): Promise<boo
 /** Read the platform notification permission without ever prompting. */
 export async function notificationPermissionStatus(): Promise<{ granted: boolean; canAskAgain: boolean }> {
     if (Platform.OS === 'web' || (Platform.OS === 'android' && Platform.Version < 33)) return { granted: true, canAskAgain: false };
-    const current = await Notifications.getPermissionsAsync();
-    if (current.granted) return { granted: true, canAskAgain: false };
-    // Before the first ask Android reports no second chance, so a prompt that
-    // never ran must not read as permanently denied.
-    if (Platform.OS === 'android' && !initialNotificationPromptAttempted) return { granted: false, canAskAgain: true };
-    return { granted: false, canAskAgain: current.canAskAgain };
+    const { granted, canAskAgain } = await Notifications.getPermissionsAsync();
+    return { granted, canAskAgain };
 }
 
 /**
