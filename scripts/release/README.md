@@ -13,4 +13,4 @@ scripts/release/
 
 `prepareChangelog` selects the one authored entry for a release's app version and renders the offline HTML report and Markdown release body deterministically; `presentation/changelog.mjs` exposes `validate`, `generate` and `check`. Ownership of the notes and the evidence rules live in `docs/RELEASING.md`.
 
-Pack copies compiled setup/plugin/release/diagnostics trees (JavaScript only), rewrites the plugin contract import for the packed layout, bundles the voice stream entry so its workspace imports resolve inside the package, and stamps the optional packaged control URL.
+Pack copies compiled setup/release/diagnostics trees (JavaScript only), bundles the voice stream entry so its workspace imports resolve inside the package, and stamps the optional packaged control URL.

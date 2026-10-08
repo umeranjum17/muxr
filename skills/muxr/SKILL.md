@@ -69,9 +69,7 @@ work.
 | Watch an agent's browser, emulator, or iOS Simulator live; hand a login, 2FA, or CAPTCHA to the phone | `muxr skill agent-browser-preview` · [source](references/agent-browser-preview.md) |
 | Publish an HTML page with images, or a new version of it | `muxr skill artifact-pages` · [source](references/artifact-pages.md) |
 | Name the current Herdr workspace/pane | `muxr name --workspace LABEL --pane TITLE --provider PROVIDER --model MODEL` |
-| Build, install, debug, or override a plugin | `muxr skill plugins` · [source](references/plugins.md) |
 | Troubleshoot, recover, or report a bug | run interactive `muxr doctor` for checked safe repairs, then `muxr diagnostics` locally or `muxr report` for a draft; show the complete draft and ask before any external action |
-| Full plugin manifest contract | run `muxr plugin docs` and read the printed PLUGINS.md |
 
 ## Self-naming
 
