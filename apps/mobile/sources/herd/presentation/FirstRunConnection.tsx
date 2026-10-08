@@ -77,11 +77,11 @@ export function FirstRunConnection() {
 
     const promptForPairingString = React.useCallback(async () => {
         const pasted = await Modal.prompt(
-            'Enter pairing string',
+            'Paste the pairing string',
             browser
-                ? 'Paste the link shown by `muxr pair --browser` for eight hours of control, `muxr pair --browser-personal` for 30 days on a browser only you use, or `muxr pair --browser-view` for view-only access.'
-                : 'Paste the pairing string shown by `muxr pair` on the computer.',
-            { placeholder: browser ? 'https://your-relay/pair#byokit-link:1:…' : 'byokit-link:1:…' },
+                ? 'Paste the link shown by muxr pair --browser for eight hours of control, muxr pair --browser-personal for 30 days on a browser only you use, or muxr pair --browser-view for view-only access.'
+                : 'Paste the pairing string shown by muxr on the computer.',
+            { placeholder: browser ? 'https://your-relay/pair#…' : 'Paste it here' },
         );
         if (!pasted?.trim()) return;
         await processPairLink(pasted.trim());
@@ -89,18 +89,9 @@ export function FirstRunConnection() {
 
     return (
         <View style={styles.section}>
-            <RouteTile
-                title={browser ? 'Paste the browser link' : 'Scan the QR on your computer'}
-                badge="Recommended"
-                preview={browser ? 'Run one command on your computer, then paste the browser pairing link.' : 'Point this phone at the QR shown by muxr on your computer.'}
-                onPress={() => {
-                    if (browser) { void promptForPairingString(); return; }
-                    void scanPairQr();
-                }}
-            />
             {browser ? <FirstRunSetupCard variant="command" /> : (
                 <View style={styles.otherWaysBody}>
-                    <Text style={styles.routeHint}>On your computer, paste:</Text>
+                    <Text style={styles.routeHint}>Step 1 · On your computer, run:</Text>
                     <Text style={styles.installCommand} selectable>{INSTALL_COMMAND}</Text>
                     <View style={styles.commandActions}>
                         <ActionButton variant="quiet" title={copied ? 'Copied' : 'Copy'} action={async () => {
@@ -119,6 +110,15 @@ export function FirstRunConnection() {
                     </View>
                 </View>
             )}
+            <RouteTile
+                title={browser ? 'Step 2 · Paste the browser link' : 'Step 2 · Scan the QR it shows'}
+                badge="Recommended"
+                preview={browser ? 'Run one command on your computer, then paste the browser pairing link.' : 'Point this phone at the QR shown by muxr on your computer.'}
+                onPress={() => {
+                    if (browser) { void promptForPairingString(); return; }
+                    void scanPairQr();
+                }}
+            />
             {!browser && <>
                 <Pressable accessibilityRole="button" accessibilityState={{ expanded: setupDetailsOpen }}
                     style={styles.setupDetailsToggle} onPress={() => setSetupDetailsOpen((open) => !open)}>
@@ -128,9 +128,9 @@ export function FirstRunConnection() {
             </>}
             <Text style={styles.otherWaysText}>Other ways to connect</Text>
             <View style={styles.otherWaysBody}>
-                <ActionButton variant="secondary" title="Type the pairing code" icon="keypad-outline"
+                <ActionButton variant="secondary" title="Paste the pairing string" icon="keypad-outline" wrap
                     action={browser ? promptForPairingString : async () => { router.push('/pair'); }} />
-                <Text style={styles.routeHint}>Use this if the computer is not in front of you.</Text>
+                <Text style={styles.routeHint}>Use this if you can't point this phone at that screen.</Text>
                 {sshAvailable && <>
                     <ActionButton variant="secondary" title="Connect over SSH" icon="terminal-outline" onPress={() => router.push('/pair?route=ssh')} />
                     <Text style={styles.routeHint}>Use this if you already SSH into that computer; no QR needed.</Text>

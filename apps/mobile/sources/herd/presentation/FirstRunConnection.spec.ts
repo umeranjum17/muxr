@@ -114,9 +114,17 @@ describe('guided first-connection chooser', () => {
         const visible = texts(renderer.root);
         expect(visible).toContain('Recommended');
         expect(visible).toContain('npm install -g --ignore-scripts @trymuxr/cli@latest && muxr');
-        expect(visible).toContain('Type the pairing code');
+        expect(visible).toContain('Paste the pairing string');
         expect(visible).toContain('Connect over SSH');
-        press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        // Step 1 (run the command) renders before step 2 (scan the QR it shows).
+        expect(visible.indexOf('Step 1 · On your computer, run:')).toBeGreaterThanOrEqual(0);
+        expect(visible.indexOf('Step 2 · Scan the QR it shows')).toBeGreaterThan(visible.indexOf('Step 1 · On your computer, run:'));
+        // No raw backticks or kit jargon in user-visible copy.
+        for (const text of visible) {
+            expect(text).not.toContain('`');
+            expect(text).not.toContain('byokit-link');
+        }
+        press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
         await TestRenderer.act(async () => {});
         expect(scanQr).toHaveBeenCalledTimes(1);
         await TestRenderer.act(async () => { scanOnScanned!({ data: 'wss://relay?pair=abc' }); });
@@ -126,21 +134,21 @@ describe('guided first-connection chooser', () => {
         expect(pairingAlert).toHaveBeenCalledTimes(1);
         pairingAlert.mockClear();
         // A cut-off current code names the cut, never the version.
-        press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
         await TestRenderer.act(async () => {});
         await TestRenderer.act(async () => { scanOnScanned!({ data: 'byokit-link:1:not-valid!!' }); });
         expect(routerPush).not.toHaveBeenCalled();
         expect(pairingAlert).toHaveBeenCalledWith('Pairing code not usable', expect.stringContaining('cut off'));
         pairingAlert.mockClear();
         // An expired current code names expiry, not the version.
-        press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
         await TestRenderer.act(async () => {});
         await TestRenderer.act(async () => { scanOnScanned!({ data: expiredOffer() }); });
         expect(routerPush).not.toHaveBeenCalled();
         expect(pairingAlert).toHaveBeenCalledWith('Pairing code expired', expect.stringContaining('has run out'));
         pairingAlert.mockClear();
         // A wrapped valid offer still pairs: inner whitespace is stripped.
-        press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
         await TestRenderer.act(async () => {});
         const whole = freshOffer();
         await TestRenderer.act(async () => { scanOnScanned!({ data: `  ${whole.slice(0, 60)}\n${whole.slice(60)}  ` }); });
@@ -148,13 +156,13 @@ describe('guided first-connection chooser', () => {
         expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer: whole } });
         pairingAlert.mockClear();
         routerPush.mockClear();
-        press(renderer.root, 'Scan the QR on your computer. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
+        press(renderer.root, 'Step 2 · Scan the QR it shows. Recommended. Steps: Point this phone at the QR shown by muxr on your computer.');
         await TestRenderer.act(async () => {});
         const offer = freshOffer();
         await TestRenderer.act(async () => { scanOnScanned!({ data: offer }); });
         expect(routerPush).toHaveBeenCalledWith({ pathname: '/pair', params: { offer } });
         expect(pairingAlert).not.toHaveBeenCalled();
-        press(renderer.root, 'Type the pairing code');
+        press(renderer.root, 'Paste the pairing string');
         expect(routerPush).toHaveBeenCalledWith('/pair');
         press(renderer.root, 'Connect over SSH');
         expect(routerPush).toHaveBeenCalledWith('/pair?route=ssh');
@@ -165,11 +173,11 @@ describe('guided first-connection chooser', () => {
         platformOs = 'web';
         let renderer: any;
         TestRenderer.act(() => { renderer = TestRenderer.create(React.createElement(FirstRunConnection)); });
-        expect(texts(renderer.root)).toContain('Paste the browser link');
+        expect(texts(renderer.root)).toContain('Step 2 · Paste the browser link');
         expect(texts(renderer.root)).toContain('Run one command on your computer, then paste the browser pairing link.');
-        press(renderer.root, 'Paste the browser link. Recommended. Steps: Run one command on your computer, then paste the browser pairing link.');
+        press(renderer.root, 'Step 2 · Paste the browser link. Recommended. Steps: Run one command on your computer, then paste the browser pairing link.');
         await TestRenderer.act(async () => {});
-        expect(Modal.prompt).toHaveBeenCalledWith('Enter pairing string', expect.stringContaining('muxr pair --browser'), expect.any(Object));
+        expect(Modal.prompt).toHaveBeenCalledWith('Paste the pairing string', expect.stringContaining('muxr pair --browser'), expect.any(Object));
         expect(scanQr).not.toHaveBeenCalled();
         TestRenderer.act(() => { renderer.unmount(); });
     });
