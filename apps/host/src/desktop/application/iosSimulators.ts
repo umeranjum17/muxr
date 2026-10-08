@@ -608,30 +608,38 @@ export class IosMirrors implements DeviceMirrors {
         ], { stdio: ['pipe', 'pipe', 'pipe'] });
         video.stderr?.on('data', (chunk: Buffer) => this.options.onDiagnostic?.(`sim-video: ${chunk.toString().trim().slice(0, 200)}`));
         video.stdin?.on('error', () => undefined);
+        const splitter = mirror.splitter;
         let spawnError: unknown;
         video.once('error', (error) => {
             spawnError = error;
+            splitter.stop();
         });
         this.helpers.register(udid, video);
-        video.once('exit', (code, signal) => this.onVideoExit(mirror, udid, video, code, signal));
+        video.once('exit', (code, signal) => {
+            splitter.stop();
+            this.onVideoExit(mirror, udid, video, code, signal);
+        });
         let headerBytes = Buffer.alloc(0);
         let size: { width: number; height: number } | undefined;
         video.stdout?.on('data', (chunk: Buffer) => {
+            if (mirror.closed || this.helpers.isClosed(udid) || mirror.splitter !== splitter || !childAlive(video) || video.killed || spawnError !== undefined) return;
             if (size === undefined) {
                 if (headerBytes.length < 1024 * 1024) headerBytes = Buffer.concat([headerBytes, chunk]);
                 size = spsSize(headerBytes);
             }
-            mirror.splitter.push(chunk);
+            splitter.push(chunk);
         });
         const deadline = Date.now() + VIDEO_START_TIMEOUT_MS;
         while (size === undefined && childAlive(video) && spawnError === undefined && Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, 50));
         }
         if (this.helpers.isClosed(udid) || !childAlive(video)) {
+            splitter.stop();
             video.kill('SIGKILL');
             throw new EngineRefused('desktop-unavailable', 'the simulator video service did not start');
         }
         if (spawnError !== undefined || size === undefined) {
+            splitter.stop();
             video.kill('SIGKILL');
             throw new EngineRefused('desktop-unavailable', 'the simulator video service did not start');
         }
