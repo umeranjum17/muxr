@@ -210,9 +210,10 @@ Beyond the session basics, the host exposes herdr's topology to the app:
 - `SessionInfo` carries `workspaceId`/`tabId`/`workspaceLabel`, `terminalTitle`
   (OSC title breadcrumb), worktree provenance, and `preview` when the agent is
   showing a watchable browser or emulator on its pane's own screen, or a
-  simulator the pane claimed;
-  `session.updated` events push changes, presence included, so cards and rows
-  refresh live.
+  simulator the pane claimed. The host stamps `session.created` and
+  `session.updated` events, including cumulative reconnect replay, with the same
+  device-or-screen preview as session lists; a device preview takes precedence
+  over the pane's screen, so lifecycle updates do not clear its chip.
 
 ## Shared Artifacts and changes
 
