@@ -70,7 +70,10 @@ export function HomeRecoveryCard({
                         ? 'Check that this device can reach the computer and that muxr is running.'
                         : 'The computer is reachable, but its agent runtime is not answering. Restart muxr there.')}
             </Text>
-            {!rePair && !reason && <View style={styles.commandRow}>
+            {/* The restart command stays visible beside the Retry feedback that
+                refers to it: hiding it whenever a reason exists left "run the
+                command" pointing at nothing. */}
+            {!rePair && <View style={styles.commandRow}>
                 <Text selectable style={styles.command}>{HOST_RESTART_COMMAND}</Text>
                 <Pressable
                     accessibilityRole="button"

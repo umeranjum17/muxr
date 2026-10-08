@@ -325,13 +325,15 @@ describe('link session sync flow', () => {
         // landing on the Update-needed card.
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.2.1', linkProtocol: 1 }) });
         (await dial()).fire('offline');
-        await vi.waitFor(() => expect(harness.socketError).toContain('reached the muxr relay'));
+        await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach your computer"));
+        expect(harness.socketError).toContain('is not connected');
         expect(harness.socketError).not.toContain('Update needed');
         expect(harness.socketStatus).not.toBe('error');
 
         health.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, muxrVersion: '0.1.9', linkProtocol: 1 }) });
         (await dial()).fire('offline');
-        await vi.waitFor(() => expect(harness.socketError).toContain('reached the muxr relay'));
+        await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach your computer"));
+        expect(harness.socketError).toContain('is not connected');
         expect(harness.socketError).not.toContain('Update needed');
 
         // The same skew on a refused pairing genuinely explains the refusal.
@@ -350,8 +352,22 @@ describe('link session sync flow', () => {
 
         health.mockRejectedValueOnce(new Error('network unreachable'));
         (await dial()).fire('offline');
-        await vi.waitFor(() => expect(harness.socketError).toContain('Private network could not reach'));
+        await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach your computer"));
+        expect(harness.socketError).toContain('same private network');
         expect(harness.socketError).not.toContain('Pair again:');
+
+        // A named computer on LAN asks about Wi-Fi; on Tailscale about Tailscale.
+        harness.grant = { machineId: 'machine-a', machineName: 'Umer', relayUrl: 'ws://192.168.1.20:8792', source: 'selfhost' } as never;
+        health.mockRejectedValueOnce(new Error('network unreachable'));
+        (await dial()).fire('offline');
+        await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach Umer"));
+        expect(harness.socketError).toContain('same Wi-Fi');
+
+        harness.grant = { machineId: 'machine-a', machineName: 'Umer', relayUrl: 'wss://machine.tailnet.ts.net', source: 'selfhost' } as never;
+        health.mockRejectedValueOnce(new Error('network unreachable'));
+        (await dial()).fire('offline');
+        await vi.waitFor(() => expect(harness.socketError).toContain("Can't reach Umer"));
+        expect(harness.socketError).toContain('Tailscale');
 
         (await dial()).fire('removed');
         await vi.waitFor(() => expect(harness.socketError).toContain('Access removed:'));
