@@ -211,7 +211,7 @@ The GitHub releases page ([latest stable release](https://github.com/umeranjum17
 
 muxr connects to sessions [Herdr](https://github.com/herdrdev/herdr) already runs. Your CLIs, subscriptions, configuration, skills, and MCP servers stay as they are. muxr never edits agent instruction files; load the compact `muxr --skill`, then request one focused topic with `muxr skill <topic>` only when needed.
 
-Phone agent pickers show the agents installed on the connected computer, marked **Signed in**, **Needs sign-in**, or **Sign-in not checked**. Sign-in checks currently cover Claude Code and Codex; an unchecked sign-in is not confirmation that an agent is ready. Open **More agents** for install hints; uninstalled Pi has the hint **Installs on first start**. The home dock also offers **Shell (no agent)**.
+Phone agent pickers show the agents installed on the connected computer, marked **Signed in**, **Needs sign-in**, or **Sign-in not checked**. Sign-in checks currently cover Claude Code and Codex; an unchecked sign-in is not confirmation that an agent is ready. Open **More agents** for install instructions; Claude Code and Codex come first. The home dock also offers **Shell (no agent)**.
 
 The initial choice is your saved agent if it is installed and signed in, otherwise the first installed, signed-in agent. Pi is never the default. Home preserves an explicitly chosen Shell, including when you reopen the dock. If no agent qualifies, the home dock selects Shell and the new-agent screen waits for you to pick. You can explicitly choose any installed agent, including one whose sign-in needs attention or has not been checked, and select up to four on the new-agent screen to start a squad.
 

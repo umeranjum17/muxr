@@ -411,7 +411,7 @@ export default function NewAgentScreen() {
                             )}
                         </View>
                     </View>
-                    {catalogSource === 'host' && !catalog.some((option) => option.availability === 'installed') && (
+                    {catalogSource === 'host' && !catalog.some((option) => option.kind !== 'shell' && option.availability === 'installed') && (
                         <Text style={styles.emptyHint}>No coding agent found on this computer. Open More agents for install instructions.</Text>
                     )}
                     <View style={styles.grid}>

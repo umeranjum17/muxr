@@ -6,6 +6,22 @@ import { claudeIdentity, codexIdentity, defaultPlanFolder } from '../../plans/in
 type Catalog = RequestResult<'herdr.agentKinds'>;
 const CACHE_MS = 30_000;
 
+/** Install commands verified against upstream docs. Kinds without one keep
+ * the generic hint. Pi previously claimed "Installs on first start", but a
+ * missing pi binary fails session start like any other agent, so it now
+ * reads like every other missing agent. */
+const INSTALL_COMMANDS: Record<string, string> = {
+    claude: 'npm i -g @anthropic-ai/claude-code',
+    codex: 'npm i -g @openai/codex',
+    gemini: 'npm i -g @google/gemini-cli',
+    copilot: 'npm i -g @github/copilot',
+};
+
+/** Claude Code and Codex lead every picker. The phone keeps this order
+ * inside its installed-first sort, so they come first whether or not
+ * anything is installed. */
+const LEADING_KINDS = ['claude', 'codex'];
+
 /** One host-owned cache shared by every picker and connected device.
  * Default-folder identity checks contribute only sign-in state: email and
  * plan details must never enter this catalog. Unsupported or unavailable
@@ -48,15 +64,17 @@ export class AgentCatalog {
 
     private async collect(): Promise<Catalog> {
         const kinds = await this.source.agentKinds();
-        const installed = await this.source.installedAgentKinds(kinds);
+        const ordered = [...kinds].sort((left, right) => leadingRank(left) - leadingRank(right));
+        const installed = await this.source.installedAgentKinds(ordered);
         const env = { ...this.env, PATH: agentToolPath(this.env).join(delimiter) };
         const readiness: NonNullable<Catalog['readiness']> = {};
-        await Promise.all(kinds.map(async (kind) => {
+        await Promise.all(ordered.map(async (kind) => {
             const state: NonNullable<Catalog['readiness']>[string] = { signedIn: 'unknown' };
             readiness[kind] = state;
             if (!installed.includes(kind)) {
-                state.installHint = kind === 'pi'
-                    ? 'Installs on first start'
+                const command = INSTALL_COMMANDS[kind];
+                state.installHint = command !== undefined
+                    ? `Run \`${command}\` on this computer, then check again.`
                     : `Install ${kind} on this computer, then check again.`;
                 return;
             }
@@ -67,6 +85,11 @@ export class AgentCatalog {
             state.signedIn = result.signedIn ? 'yes' : 'no';
             if (!result.signedIn) state.signInHint = `On your computer run \`${kind}\`, sign in, then check again.`;
         }));
-        return { kinds, installed, readiness };
+        return { kinds: ordered, installed, readiness };
     }
+}
+
+function leadingRank(kind: string): number {
+    const rank = LEADING_KINDS.indexOf(kind);
+    return rank === -1 ? LEADING_KINDS.length : rank;
 }

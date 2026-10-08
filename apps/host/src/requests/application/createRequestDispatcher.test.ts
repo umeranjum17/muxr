@@ -258,7 +258,7 @@ readline.createInterface({input: process.stdin}).on('line', line => {
         chmodSync(codex, 0o755);
         const kit = new HerdrKit({ mode: 'adopt', bin: 'herdr', socketPath: join(home, 'unused.sock') });
         const source = {
-            async agentKinds() { return ['pi', 'claude', 'codex', 'grok']; },
+            async agentKinds() { return ['pi', 'claude', 'codex', 'grok', 'gemini']; },
             async installedAgentKinds(kinds: string[]) { return kit.installedAgentKinds(kinds, { path: agentToolPath(env) }); },
         } as unknown as SessionSource;
         const { dispatch, refreshAgentCatalog } = createRequestDispatcher({
@@ -273,12 +273,13 @@ readline.createInterface({input: process.stdin}).on('line', line => {
             const request = { type: 'herdr.agentKinds', requestId: 'catalog', params: {} } as const;
             const result = await dispatch(request, 'device-1');
             expect(result).toMatchObject({ ok: true, data: {
-                kinds: ['pi', 'claude', 'codex', 'grok'], installed: ['claude', 'codex'],
+                kinds: ['claude', 'codex', 'pi', 'grok', 'gemini'], installed: ['claude', 'codex'],
                 readiness: {
                     claude: { signedIn: 'yes' },
                     codex: { signedIn: 'no', signInHint: 'On your computer run `codex`, sign in, then check again.' },
-                    pi: { signedIn: 'unknown', installHint: 'Installs on first start' },
+                    pi: { signedIn: 'unknown', installHint: 'Install pi on this computer, then check again.' },
                     grok: { signedIn: 'unknown' },
+                    gemini: { signedIn: 'unknown', installHint: 'Run `npm i -g @google/gemini-cli` on this computer, then check again.' },
                 },
             } });
             expect(JSON.stringify(result)).not.toMatch(/umer@example|email|plan|token/);
