@@ -9,7 +9,7 @@
         "@byokit/accounts": "0.18.0",
         "@byokit/seal": "0.2.0",
         "@byokit/herdr": "0.7.0",
-        "@byokit/link": "0.7.0",
+        "@byokit/link": "0.7.1",
         "@byokit/realtime": "0.2.1",
         "@byokit/relay": "0.5.0",
         "@byokit/usage": "0.6.1",
