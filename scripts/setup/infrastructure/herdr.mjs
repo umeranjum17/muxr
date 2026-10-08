@@ -37,7 +37,6 @@ import {
     xml,
 } from './runtime.mjs';
 import { panePackFolder, voiceFolder } from './paths.mjs';
-import { parseBundledPlugin } from '../../plugin/index.mjs';
 
 /**
  * Herdr plugins muxr itself used to bundle and install. muxr no longer ships
@@ -69,9 +68,9 @@ export function productPanePack() {
     const manifest = readFileSync(join(root, 'herdr-plugin.toml'), 'utf8');
     const id = manifest.match(/^id\s*=\s*"([^"]+)"/m)?.[1];
     const version = manifest.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
-    const parsed = parseBundledPlugin(id, 'control');
-    if (!parsed.ok || version === undefined) throw new Error('resources/control/herdr-plugin.toml is missing id or version');
-    return { id: parsed.value.id, root, version };
+    const parsed = typeof id === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(id) ? { id } : undefined;
+    if (parsed === undefined || version === undefined) throw new Error('resources/control/herdr-plugin.toml is missing id or version');
+    return { id: parsed.id, root, version };
 }
 
 export function herdrBin() {

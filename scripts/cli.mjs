@@ -40,17 +40,6 @@ import {
     status,
     uninstallMuxr,
 } from './setup/index.mjs';
-import {
-    callPluginAction,
-    createPlugin,
-    installPlugin,
-    linkPlugin,
-    listPlugins,
-    removePlugin,
-    reportPluginCheck,
-    showPluginDocs,
-    updatePlugin,
-} from './plugin/index.mjs';
 import { dumpDiagnostics, readDiagnostics } from './diagnostics/index.mjs';
 import { runMuxrConfig } from './setup/presentation/configInit.mjs';
 import { updateCli } from './release/index.mjs';
@@ -109,9 +98,6 @@ Agent instructions
   muxr share <path>               save a file to this pane's Shared Artifacts timeline [--title T versions an .html page in place]
   muxr artifacts [status|prune]   show what Shared Artifacts retention removed, or clear old history
 
-Build plugins
-  muxr plugin docs|create|check|dev|call|list|install|update|remove
-
 Use “muxr help <command>” for command options.
 `;
 
@@ -122,20 +108,10 @@ const COMMAND_HELP = {
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
     devices: `muxr devices list\nmuxr devices revoke <number|name>\nmuxr devices rotate-keys --unpair-all [--data-dir <dir>]   replace the machine signing, box and data keys; every device pairs again\n`,
     integrations: `muxr integrations sync [--all] [--dry-run]\nmuxr integrations uninstall [--dry-run]\n\nSync Herdr lifecycle integrations only. Agent skills and prompt files are never changed.\n`,
-    plugin: `muxr plugin docs\nmuxr plugin create <name>\nmuxr plugin check|dev <path> [--web]\nmuxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\nmuxr plugin list\nmuxr plugin install|update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\nmuxr plugin remove <plugin-id> [--yes]\n`,
-    'plugin docs': `muxr plugin docs\n\nPrint absolute paths to the installed authoring guide and agent skill.\n`,
     name: `muxr name [--workspace LABEL] [--pane TITLE] [--provider PROVIDER] [--model MODEL]\n\nName the current Herdr workspace and pane through the Herdr CLI; no muxr host is needed.\nThe pane identity comes from HERDR_PANE_ID; names and metadata are passed verbatim within bounds.\n`,
     preview: `muxr preview status [--json]\nmuxr preview claim <simulator-udid>\nmuxr preview release\n\nstatus asks whether the phone is driving this pane's browser, emulator or simulator right now.\nPrints human while a person holds control (pause browser input), none otherwise.\nclaim offers a booted iOS simulator (macOS host) as this pane's preview; release withdraws it.\nThe pane identity comes from HERDR_PANE_ID; a pane can only read its own lease or claim for itself.\n`,
     share: `muxr share <path> [--title <title>] [--pane <pane-id>]\n\nSave a file to the given pane's durable Shared Artifacts timeline.\nUses HERDR_PANE_ID when --pane is omitted. Name collisions get a numeric suffix.\nAn .html page is stored with its local images inlined; sharing the same --title\nagain adds a new version of that page (muxr skill artifact-pages).\n`,
     artifacts: `muxr artifacts [status]\nmuxr artifacts prune [--dry-run] [--yes]\n\nThe host sweeps Shared Artifacts daily and never touches files that predate retention.\nstatus prints the policy and the last sweep's removals. prune applies the same policy\nto the history that was already there: it deletes files, so it shows the plan first\nand --yes skips the question.\n`,
-    'plugin create': `muxr plugin create <name>\n\nCreate a minimal three-file settings-screen plugin with a collision-resistant local id.\n`,
-    'plugin check': `muxr plugin check <path>\n\nValidate Herdr identity, muxr manifest, slots, primitives, actions, RPCs, and streams without linking.\n`,
-    'plugin dev': `muxr plugin dev <path> [--web]\n\nValidate and link a local plugin enabled. --web also starts the source-checkout web client.\n`,
-    'plugin call': `muxr plugin call <path> <contribution-id> [--input '<json>'] [--context '<json>']\n\nRun one declared RPC through the same bounded author contract used by the host.\n`,
-    'plugin list': `muxr plugin list\n\nList registered plugins, source, version, root, and enabled state.\n`,
-    'plugin install': `muxr plugin install <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nMaterialize, validate, confirm, and enable a plugin.\n`,
-    'plugin update': `muxr plugin update <local-path|owner/repo[/subdir][@ref]|npm:<name>@<exact-version>> [--yes]\n\nReplace plugin files transactionally while preserving its enabled state.\n`,
-    'plugin remove': `muxr plugin remove <plugin-id> [--yes]\n\nDisable, unlink, and remove muxr-managed plugin files.\n`,
     pair: `muxr pair [--browser|--browser-view|--browser-personal]\n\nCreate a two-minute native QR/string, an eight-hour control-browser link (--browser), an eight-hour view-only browser link (--browser-view), or a 30-day control link for a browser only you use (--browser-personal).\n`,
     desktop: `muxr desktop setup\n\nOn a Wayland desktop, show the screen-sharing prompt here and save the approval, so the phone opens this computer without anyone at the screen. \`muxr setup\` and \`muxr pair\` do this once; run it again if the phone starts asking.\n`,
     doctor: `muxr doctor\n\nCheck Node, Herdr, integrations, managed files, and the self-host relay without printing secrets.\n`,
@@ -145,7 +121,7 @@ const COMMAND_HELP = {
     restart: `muxr restart\n\nRestart the supervised relay and host (same as muxr daemon restart).\n`,
     uninstall: `muxr uninstall [--yes|--resume]\n\nRemove all muxr-owned services, ingress, identity, pairings, grants, relay/plugin state, provider keys, logs, caches, and managed integrations. Herdr, its sessions, repositories, worktrees, exports, signing keys, and unrecognized files stay. The globally installed CLI can be removed last (on a Herdr plugin install, the Herdr plugin is offered for removal instead).\n`,
     update: `muxr update [--check|--yes]\n\nCheck npm for a newer @trymuxr/cli release (on a Herdr plugin install, reinstall the plugin checkout at the new release tag instead). --to VERSION selects an exact published version; changing channels or downgrading remains explicit. Interactive terminals ask before installing; --yes updates without prompting.\n`,
-    skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|agent-browser-preview|plugins>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
+    skill: `muxr --skill\nmuxr skill\nmuxr skill <onboarding|herdr|collaboration|agent-browser-preview>\nmuxr skill all\n\nPrint the compact canonical skill by default. Load one focused reference on demand; muxr skill all prints the archival self-contained bundle. Herdr guidance comes from the installed binary when available. No files or state are changed.\n`,
     peers: `muxr peers list [--machine <name>]\nmuxr peers read --machine <name> [--agent <name>] [--lines <n>]\nmuxr peers status --machine <name> [--agent <name>]\nmuxr peers watch --machine <name> [--agent <name>] [--timeout-ms <n>]\nmuxr peers prompt --machine <name> [--agent <name>] --text <prompt>\n\nUse established computer collaboration with Machine Names and Agent Names only. Output is JSON. Raw shell, takeover, and destructive actions are never granted.\n`,
     connect: `muxr connect --enrollment <muxr://enroll?...> [--no-pair|--pair-browser|--pair-browser-view|--pair-both]\nmuxr connect --resume\n`,
     machines: `muxr machines enroll\nmuxr machines list\nmuxr machines revoke <number|name>\n`,
@@ -225,7 +201,6 @@ const SKILL_TOPICS = {
     herdr: 'herdr.md',
     collaboration: 'collaboration.md',
     'agent-browser-preview': 'agent-browser-preview.md',
-    plugins: 'plugins.md',
     'artifact-pages': 'artifact-pages.md',
 };
 
@@ -416,54 +391,13 @@ async function applyUpdate(args = []) {
     });
 }
 
-function pluginFlag(args, name) {
-    const index = args.indexOf(name);
-    if (index !== -1) {
-        if (index === args.length - 1) throw new Error(`${name} requires a JSON value`);
-        return args[index + 1];
-    }
-    const inline = args.find((arg) => arg.startsWith(`${name}=`));
-    return inline?.slice(name.length + 1);
-}
-
-async function dispatchPlugin(command, args = []) {
-    if (command === 'docs') {
-        if (args.length !== 0) throw new Error('muxr plugin docs takes no arguments');
-        return showPluginDocs();
-    }
-    if (command === 'call') {
-        const positional = [];
-        for (let index = 0; index < args.length; index += 1) {
-            if (args[index] === '--input' || args[index] === '--context') { index += 1; continue; }
-            if (args[index].startsWith('--input=') || args[index].startsWith('--context=')) continue;
-            positional.push(args[index]);
-        }
-        const [path, contributionId] = positional;
-        if (!path || !contributionId) throw new Error('muxr plugin call requires a path and a contribution id');
-        return callPluginAction(path, contributionId, pluginFlag(args, '--input'), pluginFlag(args, '--context'));
-    }
-    if (command === 'list') return listPlugins(args);
-    if (command === 'install') return installPlugin(args);
-    if (command === 'update') return updatePlugin(args);
-    if (command === 'remove') return removePlugin(args);
-    const web = args.includes('--web');
-    const path = args.find((arg) => arg !== '--web');
-    if (!path) throw new Error(`muxr plugin ${command} requires a path or name`);
-    if (web && command !== 'dev') throw new Error('--web is only valid with muxr plugin dev');
-    if (command === 'create') return createPlugin(path);
-    if (command === 'check') return reportPluginCheck(path);
-    if (command === 'dev') return linkPlugin(path, { web });
-    throw new Error(`unknown plugin command: ${command}`);
-}
-
 async function dispatch(command, args = []) {
     if (command === 'help' || command === '--help' || command === '-h') {
         printHelp(args.length > 1 ? `${args[0]} ${args[1]}` : args[0]);
         return 0;
     }
     if (args.includes('--help') || args.includes('-h')) {
-        const pluginSubcommand = command === 'plugin' && args[0] && !args[0].startsWith('-') ? args[0] : undefined;
-        printHelp(pluginSubcommand ? `plugin ${pluginSubcommand}` : command);
+        printHelp(command);
         return 0;
     }
     if (command === '--skill' || command === 'skill') {
@@ -533,15 +467,6 @@ async function dispatch(command, args = []) {
     if (command === 'restart') return runDaemon(['restart']);
     if (command === 'uninstall') return runUninstall(args);
     if (command === 'integrations') return runIntegrations(args);
-    if (command === 'plugin') {
-        const [pluginCommand = 'list', ...pluginArgs] = args;
-        try {
-            return await dispatchPlugin(pluginCommand, pluginArgs);
-        } catch (error) {
-            process.stderr.write(`muxr plugin: ${error instanceof Error ? error.message : String(error)}\n`);
-            return 1;
-        }
-    }
     if (command === 'share') {
         try { share(args); return process.exitCode ?? 0; }
         catch (error) { process.stderr.write(`muxr share: ${error instanceof Error ? error.message : String(error)}\n`); return 1; }
