@@ -1,4 +1,4 @@
-# Browser handoff through Computer
+# Agent browser preview
 
 When a muxr-launched agent opens a page the person should watch or must complete
 (sign-in, 2FA/OTP, CAPTCHA, SSO), open it in the normal desktop browser. The
