@@ -52,10 +52,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { readFileBytes } from '@/utils/readFileBytes';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { agentSwipeNeighbours, herdPanes, holdLiveTerminalOrder, selectLiveTerminalCards, sharedLiveTerminalCards } from '@/herd';
-import { useSessionPlugins } from '@/plugins';
-import { PluginSlot, DeclarativeSessionActions, useDeclarativeSessionActions, DeclarativeTerminalKeySlot } from '@/plugins/ui';
-import { useSlotContributions } from '@/plugins';
-import type { SessionMenu } from '@/plugins';
+/** Menu rows the pane opens; labels name themselves, hints say what they do. */
+type SessionMenuItem = { label: string; hint?: string; destructive?: boolean; onPress: () => void };
+type SessionMenu = { title: string; note?: string; items: SessionMenuItem[] };
 import { CONTROL_EDGE, CONTROL_SIZE, FloatingTerminalControls, TerminalMenuQuickActions, floatingControlFits, type ClusterKey, type RingHandle, type RingSlot } from './FloatingTerminalControls';
 import { assembleRing } from './ringSlots';
 import { TerminalKeyRow } from './TerminalKeyRow';
@@ -66,8 +65,6 @@ import { quickActionCommand } from '../application/quickActionCommands';
 import { appendToDraft, clearDraftInsertion, consumeDraftInsertion } from '../application/draftInsertion';
 import { recentTerminalLinks } from '../application/recentOutput';
 import { openExternalUrl } from '@/utils/openExternalUrl';
-import { resolvePluginText } from '@/plugins';
-import { randomUUID } from 'expo-crypto';
 import { useDeviceAuthority } from '@/pairing';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { ActiveAgentWakeLock } from './ActiveAgentWakeLock';
@@ -90,7 +87,6 @@ import { PREVIEW_DOCK, previewDocks, requestDesktop, type DesktopOrigin } from '
 import { PreviewChip, PreviewTooltip, previewIcon, usePreviewGate } from '@/desktop/preview';
 import { FindOutputSheet } from './FindOutputSheet';
 import { PendingChoices } from './PendingChoices';
-import { useTerminalQuickReplies } from '@/plugins/ui';
 
 /** What a reply row's primary tap really does, for replies that never send. */
 const INSERT_ONLY_LABEL = 'Inserts into the prompt, never sends.';
@@ -223,9 +219,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const { workspaces, loaded: treeLoaded } = useHerdrTree();
     const storedPane = herdrPaneForSession(workspaces, props.id);
     const gitStatus = useSessionGitStatus(props.id);
-    const pluginButtons = useSessionPlugins();
-    const declaredActions = useDeclarativeSessionActions(session?.metadata?.path);
-    const pluginQuickReplies = useTerminalQuickReplies();
     const [changesCount, setChangesCount] = React.useState<number | null>(null);
     const [artifactsCount, setArtifactsCount] = React.useState<number | null>(null);
     useFocusEffect(React.useCallback(() => {
@@ -239,7 +232,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
         return () => { cancelled = true; unsubscribe(); };
     }, [props.id]));
     const [terminalKeyboardDisabled, setTerminalKeyboardDisabled] = useLocalSettingMutable('terminalKeyboardDisabled');
-    const [pluginActionBusy, setExtensionActionBusy] = React.useState<string>();
     const [swipeNow, setSwipeNow] = React.useState(Date.now);
     React.useEffect(() => {
         const timer = setInterval(() => setSwipeNow(Date.now()), 30_000);
@@ -588,26 +580,15 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
     const tabStripRef = React.useRef<ScrollView>(null);
     const activeChipX = React.useRef(0);
     // The header title and the n/N counter both open the pane overview (the
-    // tab's real split); the workspace tree, and any plugin overlay beside
-    // it, opens one tap further, from that sheet's Spaces.
+    // tab's real split); the workspace tree opens one tap further, from that
+    // sheet's Spaces.
     const [treeOpen, setTreeOpen] = React.useState(false);
     // A sheet or editor owns the screen; no floating control remains beneath it.
     React.useEffect(() => {
         if (actionsOpen || overviewOpen || treeOpen || findOpen || controlGrid.open || menu !== null) ringRef.current?.close();
     }, [actionsOpen, overviewOpen, treeOpen, findOpen, controlGrid.open, menu]);
     const openControls = React.useCallback((category: ControlGridCategory) => { ringRef.current?.close(); setActionsOpen(false); setControlGrid({ open: true, category }); }, []);
-    // Held steady so the memoised key row is not rebuilt by a new child element
-    // on every keystroke in the composer above it.
-    const keySlot = React.useMemo(() => <DeclarativeTerminalKeySlot channel={channel} />, [channel]);
     const editKeys = React.useCallback(() => openControls('keys'), [openControls]);
-    // The composer slot is one icon, and an unlabelled icon dropped into a list
-    // of labelled rows reads as something broken rather than something offered.
-    // The contribution already names itself for assistive tech; the row shows
-    // that same name.
-    const composerContributions = useSlotContributions('session.composer.trailing');
-    const composerSlotLabel = composerContributions.length === 1 && composerContributions[0]?.type === 'native' && composerContributions[0].accessibilityLabel !== undefined
-        ? resolvePluginText(composerContributions[0].accessibilityLabel)
-        : undefined;
     // A tab tap goes straight to a pane; a tab with nothing to open yet asks
     // the tree again instead of guessing.
     const openTab = React.useCallback((tab: HerdrTreeTab) => {
@@ -710,16 +691,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             // Replies live in the slash catalogue, at the top, so the canned
             // prompts have one home with the commands (report §8).
             ...quickActions.filter((action) => action.kind === 'reply').map((action) => toQuickAction(action, t('commandPalette.commonReplies'))),
-            // A host-contributed reply still only lands in the draft, as it
-            // always has, so its row must not announce that it sends.
-            ...pluginQuickReplies.map((reply, index): Command => ({
-                id: `reply:plugin:${index}:${reply.label}`,
-                title: reply.label,
-                category: t('commandPalette.commonReplies'),
-                action: () => insertDraft(reply.text),
-                actionLabel: INSERT_ONLY_LABEL,
-                secondaryAction: () => insertDraft(reply.text),
-            })),
             // The person's own commands sit with the agent's, above them: they
             // are the ones they chose to keep.
             ...quickActions.filter((action) => action.kind === 'command').map((action) => toQuickAction(action, t('commandPalette.yourCommands'))),
@@ -743,7 +714,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
             quietLine: known.length > 0 ? undefined : t('commandPalette.noCatalogue', { kind: paneKind ?? t('commandPalette.thisAgent') }),
             commands: entries,
         } } as any);
-    }, [canControl, insertDraft, paneKind, pluginQuickReplies, quickActions, sendCommand]);
+    }, [canControl, insertDraft, paneKind, quickActions, sendCommand]);
     React.useEffect(() => {
         if (paneMissing) {
             recordAgentGate({
@@ -1690,7 +1661,7 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     {canControl && <View aria-hidden={desktopVisible}>
                         {/* The key strip stands down while dictation owns the footer
                             with the keyboard up; the composer capsule stays. */}
-                        {showKeyRow && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction}>{keySlot}</TerminalKeyRow>}
+                        {showKeyRow && <TerminalKeyRow channel={channel} onEdit={editKeys} onAction={onKeyAction} />}
 
                     <ComposerAttachments
                         images={[...attachedImages, ...selectedImages.filter((image) => !attachedImages.some((attached) => attached.id === image.id))]}
@@ -1816,10 +1787,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                     />}
                     <PaneOverviewSheet visible={overviewOpen} sessionId={props.id} onClose={() => setOverviewOpen(false)} onOpenSpaces={() => setTreeOpen(true)} />
                     <WorkspaceTreeSheet visible={treeOpen} sessionId={props.id} onClose={() => setTreeOpen(false)} />
-                    <PluginSlot
-                        slot="session.overlay"
-                        context={{ sessionId: props.id, visible: treeOpen, onClose: () => setTreeOpen(false), openMenu: setMenu, showHint: showGestureHint }}
-                    />
 
                     {/* Secondary actions belong to the header; view controls stay with the terminal. */}
                     {actionsOpen && (
@@ -1927,7 +1894,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
                                     {canControl && <MoveAccountRow sessionId={props.id} agentKind={paneKind} working={paneLifecycle === 'working'} onOpen={() => setActionsOpen(false)} />}
-                                    {canControl && <DeclarativeSessionActions actions={declaredActions} sessionId={props.id} onNavigate={() => setActionsOpen(false)} />}
                                     {canControl && (
                                         <View>
                                             {currentPane !== undefined && <Pressable onPress={renameThisPane} accessibilityRole="button" accessibilityLabel={shell ? 'Rename pane' : 'Rename agent'}
@@ -1978,20 +1944,13 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Recent links</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>}
-                                    {/* Realtime voice is product code, so its row is always
-                                        offered; the slot row below stays for third-party
-                                        contributions to the same place. */}
+                                    {/* Realtime voice is product code, so its row is always offered. */}
                                     {canControl && <View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
                                         {/* Its control sits at the end; the label still
                                             starts on the column every other row's does. */}
                                         <View style={{ width: 18 }} />
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Talk to this session</Text>
                                         <RealtimeTalkButton sessionId={props.id} accessibilityLabel="Talk to this session" />
-                                    </View>}
-                                    {canControl && composerContributions.length > 0 && <View style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, paddingRight: 8, paddingVertical: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: theme.colors.surfaceHigh }}>
-                                        <View style={{ width: 18 }} />
-                                        <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{composerSlotLabel ?? 'Session tools'}</Text>
-                                        <PluginSlot slot="session.composer.trailing" context={{ sessionId: props.id, getText: () => draftRef.current, setText: setDraft }} />
                                     </View>}
                                     {/* Keys, snippets, recent links, type size and the
                                         keyboard are five categories of ONE editor, and five
@@ -2006,27 +1965,6 @@ export const TerminalScreen = React.memo((props: { id: string; desktop?: boolean
                                         <Text style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>Terminal controls</Text>
                                         <Ionicons name="chevron-forward" size={14} color={theme.colors.textSecondary} />
                                     </Pressable>
-                                    {canControl && pluginButtons.length > 0 && <Text style={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>Pane controls</Text>}
-                                    {canControl && pluginButtons.map((button) => {
-                                        const key = `${button.pluginId}:${button.id}`;
-                                        return <Pressable key={key} onPress={() => {
-                                            if (pluginActionBusy !== undefined) return;
-                                            setActionsOpen(false);
-                                            setExtensionActionBusy(key);
-                                            void sync.request('plugin.invoke', {
-                                                pluginId: button.pluginId,
-                                                manifestHash: button.manifestHash,
-                                                contributionId: button.id,
-                                                sessionId: props.id,
-                                                idempotencyKey: randomUUID(),
-                                            }).catch((error) => Modal.alert(`${button.name} failed`, error instanceof Error ? error.message : String(error)))
-                                                .finally(() => setExtensionActionBusy(undefined));
-                                        }} disabled={pluginActionBusy !== undefined} accessibilityRole="button" accessibilityLabel={resolvePluginText(button.label)} accessibilityState={{ busy: pluginActionBusy === key, disabled: pluginActionBusy !== undefined }}
-                                            style={({ pressed }) => ({ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.divider, backgroundColor: pressed ? theme.colors.surfacePressed : theme.colors.surfaceHigh })}>
-                                            {pluginActionBusy === key ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name="extension-puzzle-outline" size={18} color={theme.colors.textSecondary} />}
-                                            <Text numberOfLines={1} style={{ flex: 1, color: theme.colors.text, fontSize: 15 }}>{resolvePluginText(button.label)}</Text>
-                                        </Pressable>;
-                                    })}
                                 </ScrollView>
                                 {/* Closing the pane is the one row here that destroys
                                     something, so it never scrolls away and never sits in

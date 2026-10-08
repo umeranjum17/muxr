@@ -48,6 +48,8 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Read a plain Computer failure](./computer-failure.md) —
   real native release app against a guarded Linux lab without ScreenCast:
   plain cause and next step, Try again, themes and 270dp/font 1.3.
+- [Select a safe development Herdr session](./dev-herdr-guard.md) —
+  direct socket guard proof without launching a stack; no baseline needed.
 
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
@@ -71,3 +73,7 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
+- [See what runs your sessions from Settings](./settings-herdr-info.md) —
+  Settings `Herdr` row and sheet with the `herdr agent list` command, Copy
+  feedback, and the real-Herdr lab log proving the command lists the host's
+  sessions.

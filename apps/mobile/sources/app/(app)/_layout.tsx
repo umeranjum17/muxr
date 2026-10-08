@@ -79,14 +79,6 @@ export default function RootLayout() {
                 }}
             />
             <Stack.Screen
-                name="plugin/index"
-                options={{
-                    headerShown: false,
-                    headerTitle: '',
-                    headerBackTitle: t('common.home')
-                }}
-            />
-            <Stack.Screen
                 name="settings/index"
                 options={{
                     headerShown: true,
@@ -168,12 +160,6 @@ export default function RootLayout() {
                 name="settings/gestures"
                 options={{
                     headerTitle: 'Gestures',
-                }}
-            />
-            <Stack.Screen
-                name="settings/plugins"
-                options={{
-                    headerTitle: t('plugins.settingsTitle'),
                 }}
             />
             <Stack.Screen

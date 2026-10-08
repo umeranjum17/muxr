@@ -15,7 +15,6 @@ import Animated, {
 import { RealtimeConversation } from './RealtimeConversation';
 import { RealtimeSessionVisual } from './RealtimeSessionVisual';
 import { useUnistyles } from 'react-native-unistyles';
-import { mountPrimitive } from '@/plugins';
 import { t } from '@/text';
 import {
     closeRealtimeConversation,
@@ -37,7 +36,6 @@ export const RealtimeSessionOverlay = React.memo(function RealtimeSessionOverlay
     const { theme } = useUnistyles();
     const { state, detail } = useRealtimeSessionState();
     const safeArea = useSafeAreaInsets();
-    React.useEffect(() => mountPrimitive('realtime-session-overlay'), []);
     React.useEffect(() => () => stopRealtimeSession(), []);
     const muted = useRealtimeMuted();
     const watching = useRealtimeWatching();
