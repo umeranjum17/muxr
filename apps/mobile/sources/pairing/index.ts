@@ -24,10 +24,13 @@ export {
     type VerifiedGrantDecision,
 } from './domain/hostedGrant';
 export {
+    decidePairArrival,
     hostedPairingAuthority,
     hostedPairingDisplayName,
     parsePairingString,
     prepareHostedPairingInput,
+    type PairArrivalSource,
+    type PairArrivalTarget,
     type PairingString,
     type PairingStringParse,
 } from './domain/pairingString';

@@ -65,6 +65,31 @@ export function decidePairingInput(value: string): PairingInputDecision {
 /** A pairing this code can no longer finish: the next step is a new code from the computer, not a retry. */
 export class PairingNeedsNewCode extends Error {}
 
+/** Where a pairing offer came from: the OS redelivering a link intent, or the person typing, pasting, or scanning it. */
+export type PairArrivalSource = 'intent' | 'user';
+
+/** Where an arriving offer takes the app: its consent screen, the manual form, or back to the existing pairing. */
+export type PairArrivalTarget = 'confirm' | 'form' | 'home';
+
+/**
+ * The OS redelivers the pairing intent on activity recreation (density
+ * change) and on relaunch paths that restore the launching intent, so one
+ * offer can arrive twice. When this device is already paired, a dead offer
+ * from such a redelivery must carry the existing pairing forward instead of
+ * stranding on the pair screen asking for a fresh code. A usable offer still
+ * reaches consent (the switching flow), and anything the person entered
+ * themselves keeps the manual form with the true reason.
+ */
+export function decidePairArrival(args: {
+    decided: PairingInputDecision;
+    authenticated: boolean;
+    source: PairArrivalSource;
+}): PairArrivalTarget {
+    if (args.decided.ok) return 'confirm';
+    if (args.authenticated && args.source === 'intent') return 'home';
+    return 'form';
+}
+
 /** Unwrap only the registered app schemes or an HTTPS /pair link; byokit validates the offer itself. Inner whitespace (terminal wrapping, retype gaps) is stripped: it can never be part of an offer. */
 export function linkOfferFromUrl(value: string): string | undefined {
     const input = value.replace(/\s+/g, '');

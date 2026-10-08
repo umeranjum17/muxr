@@ -1,5 +1,6 @@
 import { offerText } from '@byokit/link';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { decidePairArrival, decidePairingInput, type PairArrivalSource } from '../domain/pairingString';
 import { pairLinkOffer } from './usePairing';
 
 const harness = vi.hoisted(() => ({
@@ -109,4 +110,36 @@ it('pairs with one screen consent and inline progress without an alert over Home
     ]);
     expect(login).toHaveBeenCalledWith('credential', 'key');
     expect(harness.alerts).toHaveLength(0);
+});
+
+describe('stale pair-intent arrival', () => {
+    function arrival(raw: string, authenticated: boolean, source: PairArrivalSource) {
+        return decidePairArrival({ decided: decidePairingInput(raw), authenticated, source });
+    }
+
+    function spentOffer(): string {
+        return linkOffer({ expires: Date.now() - 60_000 });
+    }
+
+    it('carries a paired device home when the OS redelivers a spent offer', () => {
+        expect(arrival(spentOffer(), true, 'intent')).toBe('home');
+    });
+
+    it('carries a paired device home when the OS redelivers a malformed offer', () => {
+        expect(arrival('byokit-link:1:not-an-offer', true, 'intent')).toBe('home');
+    });
+
+    it('still asks an unpaired device for a fresh code after the same redelivery', () => {
+        expect(arrival(spentOffer(), false, 'intent')).toBe('form');
+    });
+
+    it('keeps the error form for a code the person entered themselves', () => {
+        expect(arrival(spentOffer(), true, 'user')).toBe('form');
+        expect(arrival(spentOffer(), false, 'user')).toBe('form');
+    });
+
+    it('still reaches consent for a usable offer, paired or not', () => {
+        expect(arrival(linkOffer({ role: 'control', name: 'Desk' }), true, 'intent')).toBe('confirm');
+        expect(arrival(linkOffer({ role: 'control', name: 'Desk' }), false, 'user')).toBe('confirm');
+    });
 });
