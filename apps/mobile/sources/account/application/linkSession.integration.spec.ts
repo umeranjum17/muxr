@@ -64,7 +64,7 @@ vi.mock('react-native', () => ({ AppState: { currentState: 'active' }, Platform:
 vi.mock('@/modal', () => ({ Modal: {} }));
 vi.mock('@/herd', () => ({ getSessionName: () => 'session' }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
-vi.mock('../../catalog/application/persistence', () => ({ saveHomeSnapshot: vi.fn() }));
+vi.mock('../../catalog/application/persistence', () => ({ saveHomeSnapshot: vi.fn(), hasLegacySpacePins: () => false }));
 vi.mock('@/connection', () => ({
     DEFAULT_CONNECTION: { ...harness.connection },
     getCachedConnectionSettings: () => harness.connection,

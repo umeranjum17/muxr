@@ -9,6 +9,8 @@ every other space follows under `Spaces`.
 - `spaces-pin` long-press a space card -> `Pin to top` moves it under `Pinned`.
 - `spaces-pinned-card` a pinned card shows chevron, state dot, name and agent
   count, and no pin glyph after the name.
+- `spaces-pin-scope` two paired computers may both have `w1`; their pins never mix.
+- `spaces-pin-upgrade` old phone-local pins survive the machine-scoped migration.
 
 ## How to get to it (user POV)
 
@@ -35,13 +37,40 @@ Preconditions:
   and at tablet width (`adb shell wm size 1600x2560 && adb shell wm density 320`;
   undo with `wm size reset && wm density reset`). `adb shell screenrecord`
   records the pin itself.
-- Stop the lab with Ctrl-C (it stops only what it started).
+- **Two-computer scope and upgrade.** Provision two non-default Herdr sessions
+  with the guarded lab helper and its EXIT teardown. Through that helper create
+  `api-server` on A and `backend` on B as their first workspace (both `w1`).
+  Use a helper-backed `HERDR_BIN` wrapper for each session; never the default.
+  Write a JSON array of live-stack configs (`sourceRoot`, private `authHome`,
+  `socketPath`, `clientSocketPath`, helper-backed `binPath`, `machineName`),
+  naming the computers `Umer desk` and `Umer laptop`. Start the same recipe with
+  `SPACES_LAB_HOSTS=<config-file> SERIAL=<serial> node --input-type=module < .agents/skills/verify-muxr/features/spacesLab.mjs`.
+  For live labs, put the recipe in a shell pane with stdin attached (the `node
+  --input-type=module < ...` form uses stdin for source); run
+  `node --input-type=module -e "$(< .agents/skills/verify-muxr/features/spacesLab.mjs)"` instead.
+  Enter `2` to pair B, then use the header's machine picker to return to A.
+  On a baseline native APK, pin A's `api-server`: B's `backend` incorrectly
+  appears pinned. Leave A active and upgrade in place with the same signer.
+  On the candidate, A's legacy pin stays; B is unpinned. Pin B, return to A,
+  unpin A, return to B: only B remains pinned. Force-stop/relaunch and repeat
+  the reads. Capture each action and machine-labelled result, plus the motion.
+  Migration reads every paired computer's current tree. A unique workspace id
+  goes to its owner; ambiguous or absent ids go to the computer active at the
+  migration start (or first paired if it is unavailable). Offline tree reads
+  preserve the old key and report the cause; reconnect retries. The existing
+  `sessionSync.integration.spec.ts` Spaces journey also proves unique and
+  absent-id retention and idempotence.
+- Stop the lab with Ctrl-C (it stops only what it started), then tear down both
+  named sessions with the helper. Remove the task-owned emulator and scratch.
 
 ## Gotchas
 
 - The app reads the system theme at launch; a live `uimode` change shows the
   old theme until it is relaunched, and each launch re-asks for notifications.
-- Pins are a phone-local preference: a reinstall or `pm clear` drops them.
+- Pins are a phone-local, machine-scoped preference: a reinstall or `pm clear`
+  drops them. For migration proof, never clear data between baseline and upgrade.
+- `spaces-pins-v1` is removed only after `spaces-pins-v2` was written; a failed
+  migration must leave the original value intact.
 - A header reading `offline` mid-run means the `adb reverse` tunnel to the
   relay port went away (an adb server restart drops it); re-add it with
   `adb reverse tcp:<port> tcp:<port>` for the relay port `lab ready` printed.

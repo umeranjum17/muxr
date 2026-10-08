@@ -13,7 +13,7 @@ import { herdPanes } from '../../herd/domain/herd';
 import { agentLabels } from '../../herd/domain/agentPresentation';
 import { terminalPaneCanSend, terminalPaneStatus } from '../../terminal/domain/promptAvailability';
 import { unseenActivityRows } from '../../herd/domain/recentActivity';
-import { loadLocalSettings, loadSpacePins, loadSpacesLayouts } from './persistence';
+import { loadLocalSettings, loadSpacePins, loadSpacesLayouts, migrateSpacePins } from './persistence';
 
 const request = vi.fn();
 const refreshSessions = vi.fn();
@@ -1271,20 +1271,41 @@ describe('session sync flow', () => {
         expect(currentRelease()?.appVersion).toBe('0.1.26');
     });
 
-    it('keeps a space pin across a remount and a machine tree switch', () => {
+    it('keeps migrated and new space pins on their own paired computer across switches and remounts', () => {
         mmkvValues.clear();
+        const space = (workspaceId: string, label: string): HerdrTreeWorkspace =>
+            ({ workspaceId, label, focused: false, agentStatus: 'idle', tabs: [] });
+        const trees = {
+            'desk-a': [space('w1', 'api-server')],
+            'desk-b': [space('w1', 'backend'), space('w2', 'infra')],
+        };
+        storage.getState().setActiveMachine('desk-a');
+        storage.getState().applyHerdrTree(trees['desk-a']);
+        storage.getState().toggleSpacePin('w1');
+        storage.getState().setActiveMachine('desk-b');
+        storage.getState().applyHerdrTree(trees['desk-b']);
         expect(storage.getState().pinnedSpaceIds).toEqual([]);
+        storage.getState().toggleSpacePin('w1');
+        storage.getState().setActiveMachine('desk-a');
+        expect(storage.getState().pinnedSpaceIds).toEqual(['w1']);
+        storage.getState().toggleSpacePin('w1');
+        expect(loadSpacePins('desk-a')).toEqual([]);
+        expect(loadSpacePins('desk-b')).toEqual(['w1']);
 
-        storage.getState().toggleSpacePin('w-pin');
-        expect(storage.getState().pinnedSpaceIds).toEqual(['w-pin']);
-        // A remount loads what the last write left on disk.
-        expect(loadSpacePins()).toEqual(['w-pin']);
-
-        storage.getState().applyHerdrTree([
-            { workspaceId: 'w-other', label: 'other', focused: false, agentStatus: 'idle', tabs: [] },
-        ]);
-        expect(storage.getState().pinnedSpaceIds).toEqual(['w-pin']);
-        expect(loadSpacePins()).toEqual(['w-pin']);
+        // Upgrade: ambiguous ids go to the active computer, unique ids to their owner,
+        // and absent spaces wait on the active computer instead of being discarded.
+        mmkvValues.set('spaces-pins-v1', JSON.stringify(['w1', 'w2', 'closed']));
+        migrateSpacePins({}, '');
+        expect(mmkvValues.get('spaces-pins-v1')).toBe(JSON.stringify(['w1', 'w2', 'closed']));
+        migrateSpacePins(trees, 'desk-a');
+        expect(mmkvValues.has('spaces-pins-v1')).toBe(false);
+        storage.getState().setActiveMachine('desk-a');
+        expect(storage.getState().pinnedSpaceIds).toEqual(['w1', 'closed']);
+        storage.getState().setActiveMachine('desk-b');
+        expect(storage.getState().pinnedSpaceIds).toEqual(['w1', 'w2']);
+        expect(loadSpacePins('desk-a')).toEqual(['w1', 'closed']);
+        migrateSpacePins(trees, 'desk-b');
+        expect(loadSpacePins('desk-a')).toEqual(['w1', 'closed']);
     });
 
     it('moves top-level spaces within their pin group and keeps favourite agents per machine', () => {
@@ -1341,6 +1362,6 @@ describe('session sync flow', () => {
         });
         storage.getState().toggleFavouriteAgent('route-c-pane');
         expect(loadSpacesLayouts().mac!.favourites).not.toContain('route-c-pane');
-        expect(loadSpacePins()).toEqual(['a']);
+        expect(loadSpacePins('mac')).toEqual(['a']);
     });
 });

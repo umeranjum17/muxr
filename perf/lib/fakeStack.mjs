@@ -120,7 +120,7 @@ export async function startFakeStack(options = {}) {
 }
 
 /** Explicit live boundary: real auth HOME is never a cleanup or socket-write root. */
-export async function startLiveStack({ sourceRoot, authHome, socketPath, clientSocketPath, binPath }) {
+export async function startLiveStack({ sourceRoot, authHome, socketPath, clientSocketPath, binPath, machineName }) {
     const live = Object.fromEntries(Object.entries({ authHome, socketPath, clientSocketPath, binPath }).map(([key, path]) => {
         if (typeof path !== 'string' || !path.startsWith('/')) throw new Error(`Live stack requires absolute ${key}`);
         return [key, realpathSync(path)];
@@ -132,7 +132,7 @@ export async function startLiveStack({ sourceRoot, authHome, socketPath, clientS
     if (!statSync(live.binPath).isFile()) throw new Error('Live Herdr CLI must be a file');
     // Do not inherit relay identity, provider credentials, CODEX_HOME or fixture env.
     live.env = Object.fromEntries(['PATH', 'LANG', 'LC_ALL'].filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
-    return startStack({ sourceRoot }, live);
+    return startStack({ sourceRoot, setupHome: () => machineName === undefined ? {} : { MUXR_MACHINE_NAME: machineName } }, live);
 }
 
 async function startStack(options, live) {

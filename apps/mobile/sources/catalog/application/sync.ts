@@ -28,9 +28,9 @@ import {
     loadConnectionSettingsAsync,
     sshTunnelAvailable,
 } from '@/connection';
-import { getCachedHostedGrant, loadHostedGrant, type StoredHostedGrant } from '@/pairing/e2ee';
+import { getCachedHostedGrant, loadHostedGrant, listPairedGrants, type StoredHostedGrant } from '@/pairing/e2ee';
 import { storage } from './storage';
-import { saveHomeSnapshot } from './persistence';
+import { saveHomeSnapshot, hasLegacySpacePins, migrateSpacePins } from './persistence';
 import { spawnerOf, workspaceNames } from '@/herd/tree';
 import {
     applyStatusToSession,
@@ -284,6 +284,7 @@ class MuxrSync {
             // Re-open from the host snapshot instead of leaving a stale transcript
             // that only a manual app reload could fix.
             if (state === 'open') {
+                this.spacePinsMigrationAttempted = false;
                 storage.getState().setSocketError(null);
                 // Machine frames are edge-triggered; reconnect/mount paths also
                 // reconcile caches so a lost wakeup cannot leave stale UI.
@@ -532,6 +533,42 @@ class MuxrSync {
         saveHomeSnapshot(this.getConnection().machineId, workspaces, sessions, workspaceNames(workspaces), parents);
     }
 
+    private spacePinsMigration?: Promise<void>;
+    private spacePinsMigrationAttempted = false;
+
+    private async migrateLegacySpacePins(workspaces: HerdrTreeWorkspace[]): Promise<void> {
+        if (!hasLegacySpacePins()) return;
+        if (this.spacePinsMigration !== undefined) return this.spacePinsMigration;
+        if (this.spacePinsMigrationAttempted) return;
+        this.spacePinsMigrationAttempted = true;
+        const activeMachineId = this.getConnection().machineId;
+        this.spacePinsMigration = (async () => {
+            const trees: Record<string, HerdrTreeWorkspace[]> = { [activeMachineId]: workspaces };
+            for (const grant of await listPairedGrants()) {
+                if (grant.machineId === activeMachineId) continue;
+                let permanentError: string | undefined;
+                const client = new LinkFirstClient({ hostedGrant: grant, requestTimeoutMs: 12_000,
+                    onPermanentError: (message) => { permanentError = message; } });
+                try {
+                    await waitUntilClientOpen(client, 12_000);
+                    const tree = await client.request('herdr.tree', {});
+                    if ((tree as { connected?: boolean }).connected === false) throw new Error('A paired computer could not load its spaces');
+                    trees[grant.machineId] = tree.workspaces;
+                } catch (cause) {
+                    const reason = permanentError ?? (cause instanceof Error ? cause.message : String(cause));
+                    throw new Error(`${grant.machineName || 'Paired computer'}: ${reason}`);
+                } finally {
+                    client.close();
+                }
+            }
+            migrateSpacePins(trees, activeMachineId);
+            storage.getState().setActiveMachine(storage.getState().activeMachineId);
+        })().catch((cause: unknown) => {
+            Modal.alert('Could not restore space pins', cause instanceof Error ? cause.message : String(cause));
+        }).finally(() => { this.spacePinsMigration = undefined; });
+        return this.spacePinsMigration;
+    }
+
     async refreshHerdTree(): Promise<{ workspaces: HerdrTreeWorkspace[]; herdrConnected: boolean | undefined }> {
         const request = ++this.herdrTreeRequest;
         if (!this.hasTransport()) {
@@ -564,6 +601,9 @@ class MuxrSync {
             }
             this.confirmedHomeTree = { request, workspaces: tree.workspaces };
             storage.getState().applyHerdrTree(tree.workspaces);
+            if ((tree as { connected?: boolean }).connected !== false) {
+                void this.migrateLegacySpacePins(tree.workspaces);
+            }
             if (storage.getState().sessionsLoaded && this.hasTransport()) {
                 this.saveConfirmedHome(tree.workspaces, Object.values(storage.getState().sessions));
             }
