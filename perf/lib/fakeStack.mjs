@@ -363,7 +363,7 @@ async function startStack(options, live) {
             stop,
         };
     } catch (cause) {
-        if (!live) stop();
+        stop();
         throw cause;
     }
 }
