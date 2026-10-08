@@ -1,8 +1,9 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { useUnistyles } from 'react-native-unistyles';
-import type { PluginScreenLimitsNode, PluginScreenTone } from '@trymuxr/contract';
+import type { ScreenTone } from '@trymuxr/contract';
+import type { ScreenLimitsNode } from '../domain/screenModel';
 import { asLimitsPayload, runOutMs, type PluginLimitsPayload, type PluginLimitsWindow } from '../domain/limitsModel';
-import { resolvePath, bindText, resolvePluginText } from '../domain/dataBinding';
+import { resolvePath, bindText, resolveDisplayText } from '../domain/dataBinding';
 import { toneColor } from '../domain/usageTone';
 import { cardStyle, SectionLabel, Meter } from '@/components/ui';
 import { Typography } from '@/constants/Typography';
@@ -11,7 +12,7 @@ import { t } from '@/text';
 
 /** One verdict vocabulary for every limit surface; the Right now card reads
  *  the same five words and the same five colours. */
-export const verdictTone = (verdict: PluginLimitsPayload['verdict']): PluginScreenTone =>
+export const verdictTone = (verdict: PluginLimitsPayload['verdict']): ScreenTone =>
     verdict === 'go' ? 'positive'
         : verdict === 'unknown' ? 'secondary'
             : verdict === 'watch' || verdict === 'ahead' ? 'warning'
@@ -100,15 +101,15 @@ function limitsSummary(payload: PluginLimitsPayload): string {
  * never learns a provider's name. `asOf` pins retained figures to the moment
  * they were true, on the card they describe.
  */
-export function ScreenLimits({ node, data, asOf }: { node: PluginScreenLimitsNode; data: unknown; asOf?: string }) {
+export function ScreenLimits({ node, data, asOf }: { node: ScreenLimitsNode; data: unknown; asOf?: string }) {
     const { theme } = useUnistyles();
     const payload = asLimitsPayload(resolvePath(data, node.path));
-    const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
+    const title = node.title === undefined ? undefined : bindText(resolveDisplayText(node.title), data);
     // Nothing to answer with: the section label plus the host's quiet line,
     // following the chart empty-state precedent (no card).
     if (payload.verdict === 'unknown' && payload.windows.length === 0) {
         const message = payload.message ?? '';
-        const empty = node.emptyText === undefined ? '' : bindText(resolvePluginText(node.emptyText), data);
+        const empty = node.emptyText === undefined ? '' : bindText(resolveDisplayText(node.emptyText), data);
         const line = message !== '' ? message : empty;
         // An absent provider is represented by the screen's empty node; do not
         // leave a lone "Right now" heading behind when there is no limit copy.
@@ -126,7 +127,7 @@ export function ScreenLimits({ node, data, asOf }: { node: PluginScreenLimitsNod
     const presented = presentedVerdict(payload);
     const verdictWord = presented === 'unknown' ? undefined : t(VERDICT_KEYS[presented]);
     const tone = verdictTone(presented);
-    const headlineTone: PluginScreenTone = presented === 'go' ? 'secondary' : tone;
+    const headlineTone: ScreenTone = presented === 'go' ? 'secondary' : tone;
     return (
         <View style={{ marginBottom: 14 }}>
             {/* The section's own label row, like every other section: the card
@@ -165,7 +166,7 @@ export function ScreenLimits({ node, data, asOf }: { node: PluginScreenLimitsNod
                 {payload.windows.map((window, index) => {
                     const run = runOut(window);
                     const note = run?.note ?? (window.pace == null ? undefined : t(PACE_KEYS[window.pace]));
-                    const tone: PluginScreenTone | undefined = run?.tone ?? (window.pace == null || window.pace === 'on pace' ? undefined : verdictTone(window.pace));
+                    const tone: ScreenTone | undefined = run?.tone ?? (window.pace == null || window.pace === 'on pace' ? undefined : verdictTone(window.pace));
                     return (
                         <View key={`${window.label}-${index}`} style={index === payload.windows.length - 1 ? undefined : { marginBottom: 12 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>

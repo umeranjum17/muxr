@@ -4,10 +4,11 @@ import { PolarChart, Pie } from 'victory-native';
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 import Animated, { Easing, useAnimatedStyle, useDerivedValue, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 import { useUnistyles } from 'react-native-unistyles';
-import type { PluginScreenChartNode, PluginScreenTone } from '@trymuxr/contract';
+import type { ScreenTone } from '@trymuxr/contract';
+import type { ScreenChartNode } from '../domain/screenModel';
 import type { Theme } from '@/theme';
 import { toneColor } from '../domain/usageTone';
-import { bindText, resolvePath, resolvePluginText } from '../domain/dataBinding';
+import { bindText, resolvePath, resolveDisplayText } from '../domain/dataBinding';
 import { asChartSeries, type PluginChartItem } from '../domain/chartModel';
 import { t } from '@/text';
 import { Typography } from '@/constants/Typography';
@@ -18,7 +19,7 @@ import { useScreenContentWidth } from './screenWidth';
 const LABEL_ROW = 15;
 
 /** Chart fills: untoned series get the accent, never a per-index rainbow. */
-function chartFill(theme: Theme, tone: PluginScreenTone | undefined): string {
+function chartFill(theme: Theme, tone: ScreenTone | undefined): string {
     return tone === undefined ? theme.colors.accent : toneColor(theme, tone);
 }
 
@@ -36,7 +37,7 @@ function chartValue(item: PluginChartItem): string {
     return item.valueLabel ?? String(item.value);
 }
 
-function chartSummary(title: string | undefined, series: PluginChartItem[], variant: PluginScreenChartNode['variant'], total: number): string {
+function chartSummary(title: string | undefined, series: PluginChartItem[], variant: ScreenChartNode['variant'], total: number): string {
     const parts = series.map((item) => {
         const value = variant === 'ring'
             ? `${Math.round(item.value / total * 100)} percent`
@@ -118,7 +119,7 @@ function MeterRow({ item, ratio, emphasis, delay, hero }: { item: PluginChartIte
  * no information: an arc and a bar encode the same scalar, and a donut's legend
  * has to reprint every value anyway.
  */
-export function ScreenChart({ node, data, nested }: { node: PluginScreenChartNode; data: unknown; nested: boolean }) {
+export function ScreenChart({ node, data, nested }: { node: ScreenChartNode; data: unknown; nested: boolean }) {
     const { theme } = useUnistyles();
     const reduceMotion = useReducedMotion();
     // The plugin declares what the number means; this decides what it can look
@@ -129,8 +130,8 @@ export function ScreenChart({ node, data, nested }: { node: PluginScreenChartNod
     // narrow column on a wide screen.
     const wide = useScreenContentWidth() >= 680;
     const series = asChartSeries(resolvePath(data, node.path));
-    const title = node.title === undefined ? undefined : bindText(resolvePluginText(node.title), data);
-    const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolvePluginText(node.emptyText), data);
+    const title = node.title === undefined ? undefined : bindText(resolveDisplayText(node.title), data);
+    const empty = node.emptyText === undefined ? t('plugins.nothingToShow') : bindText(resolveDisplayText(node.emptyText), data);
     // Empty says so in one quiet line. A full card drawn around "nothing yet"
     // spends the same space as real data. Inside a section the owning title
     // already carries the context, so an empty chart leaves no trace at all.

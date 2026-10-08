@@ -173,6 +173,9 @@ export {
 export type { LandWorktreeResult, WorktreeLandingDecision } from './worktree/index.js';
 export { interpretWorktreeLanding, landNeedsConsent, landSucceeded } from './worktree/index.js';
 
+export { RPC_CLIENT_TIMEOUT_MS } from './control-plane/index.js';
+export * from './display/index.js';
+
 export type {
     PluginContribution,
     PluginManifestV1,
@@ -233,7 +236,6 @@ export {
     MAX_RPC_PER_DEVICE,
     PLUGIN_CALL_DEADLINE_MS,
     PLUGIN_CALL_KILL_GRACE_MS,
-    PLUGIN_CALL_CLIENT_TIMEOUT_MS,
     MAX_RPC_DISPLAY_BYTES,
     MAX_RPC_DISPLAY_DEPTH,
     MAX_RPC_INPUT_BYTES,

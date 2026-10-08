@@ -10,6 +10,13 @@
  * Requests are for things a client asks for; events are for things that happen.
  */
 
+export const RPC_CLIENT_TIMEOUT_MS = 40_000;
+
+// A client must still be listening when the host deadline and hard-kill grace expire.
+if (RPC_CLIENT_TIMEOUT_MS <= PLUGIN_CALL_DEADLINE_MS + PLUGIN_CALL_KILL_GRACE_MS) {
+    throw new Error('plugin call client timeout must exceed the host deadline and kill grace');
+}
+
 /**
  * A saved tab layout. Mirrors herdr's split tree, minus the live pane ids that
  * would be meaningless on restore, plus the agent kind to relaunch per pane.
@@ -32,6 +39,7 @@ import type {
     UnreadCatalog,
 } from '../../herd/index.js';
 import type { PluginManifestV1, PluginSource, PluginSummary } from '../../plugins/index.js';
+import { PLUGIN_CALL_DEADLINE_MS, PLUGIN_CALL_KILL_GRACE_MS } from '../../plugins/index.js';
 import type { UsageNow, UsageReport } from '../../usage/index.js';
 import type {
     VoiceProviderCatalog,

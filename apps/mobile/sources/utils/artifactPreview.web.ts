@@ -1,9 +1,8 @@
-import type { PluginAction } from '@trymuxr/contract';
 import { decodeBase64, encodeBase64 } from '@/encryption/base64';
 import { getCachedConnectionSettings } from '@/connection';
 import { sync } from '@/catalog/sync';
 
-export type ArtifactAction = Extract<PluginAction, { type: 'attachment' }> & { at?: number };
+export type ArtifactAction = { type: 'attachment'; id: string; name: string; mimeType?: string; size: number; at?: number };
 export type ArtifactPreviewSource = { uri: string; dispose?: () => void };
 
 const CHUNK_BYTES = 512 * 1024;

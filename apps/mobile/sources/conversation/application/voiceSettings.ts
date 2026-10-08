@@ -1,4 +1,4 @@
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type RequestParams, type RequestResult } from '@trymuxr/contract';
+import { RPC_CLIENT_TIMEOUT_MS, type RequestParams, type RequestResult } from '@trymuxr/contract';
 import { sync } from '@/catalog/sync';
 
 /**
@@ -12,7 +12,7 @@ async function call<T extends 'voice.status' | 'voice.provider.list' | 'voice.pr
     type: T,
     params: RequestParams<T>,
 ): Promise<RequestResult<T>> {
-    return sync.request<T>(type, params, PLUGIN_CALL_CLIENT_TIMEOUT_MS);
+    return sync.request<T>(type, params, RPC_CLIENT_TIMEOUT_MS);
 }
 
 export function voiceStatus() {

@@ -6,7 +6,8 @@ import { Header } from '@/components/navigation/Header';
 import { HeaderBackButton } from '@/components/navigation/HeaderBackButton';
 import { Ionicons } from '@expo/vector-icons';
 import type { UsageLimitsWindow, UsageReport } from '@trymuxr/contract';
-import { PLUGIN_CALL_CLIENT_TIMEOUT_MS, type PluginScreenChartNode, type PluginScreenLimitsNode } from '@trymuxr/contract';
+import { RPC_CLIENT_TIMEOUT_MS } from '@trymuxr/contract';
+import type { ScreenChartNode, ScreenLimitsNode } from '../domain/screenModel';
 import { sync } from '@/catalog/sync';
 import { hapticsSelection } from '@/components/haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,10 +23,10 @@ import { forcedReadWait } from '../application/forcedRead';
 import { FRESH_MS, capturedBefore, clearReportFailure, collectionDue, knownProviders, lastForcedRead, lastKnownPlan, noteAsked, noteForcedRead, noteReportFailure, noteTabListAsked, releaseAsked, rememberShown, reportFailure, shownUsage, subscribeUsage, tabListAskOwed, usageWrites, withReport, type UsageDisplay, type UsageFigures } from '../application/freshnessWindow';
 
 /** The same primitives the declarative system renders, fed typed host data. */
-const LIMITS_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
-const LAST_KNOWN_NODE: PluginScreenLimitsNode = { type: 'limits', path: 'limits' };
-const MODEL_CHART_NODE: PluginScreenChartNode = { type: 'chart', variant: 'bar', path: 'modelSeries', emptyText: 'No measured activity today' };
-const WEEK_CHART_NODE: PluginScreenChartNode = { type: 'chart', variant: 'column', path: 'weekSeries', emptyText: 'No measured activity this week' };
+const LIMITS_NODE: ScreenLimitsNode = { type: 'limits', path: 'limits', title: 'Right now' };
+const LAST_KNOWN_NODE: ScreenLimitsNode = { type: 'limits', path: 'limits' };
+const MODEL_CHART_NODE: ScreenChartNode = { type: 'chart', variant: 'bar', path: 'modelSeries', emptyText: 'No measured activity today' };
+const WEEK_CHART_NODE: ScreenChartNode = { type: 'chart', variant: 'column', path: 'weekSeries', emptyText: 'No measured activity this week' };
 
 /** What a tab shows before anything has been asked for it. A mount asks, so
  *  this is a wait, not an absence. */
@@ -101,7 +102,7 @@ export function UsageScreen() {
         // behind an answer, not a reason to take that answer away.
         const before = shownUsage(target);
         if (before === undefined || before.status === 'waiting') rememberShown(target, { status: 'waiting', askedAt: claimedAtMs, ...measured(before ?? {}) });
-        return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), refresh: force }, PLUGIN_CALL_CLIENT_TIMEOUT_MS)
+        return sync.request('usage.report', { ...(target === '' ? {} : { provider: target }), refresh: force }, RPC_CLIENT_TIMEOUT_MS)
             .then((value) => {
                 if (request !== version.current) { abandon(); return; }
                 claim.current = undefined;

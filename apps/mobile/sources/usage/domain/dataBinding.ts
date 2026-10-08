@@ -1,9 +1,9 @@
-import { MAX_RPC_DISPLAY_BYTES, capUtf8Bytes, sanitizeDisplayText } from '@trymuxr/contract';
-import { resolvePluginText as resolveForLanguage, type PluginText } from '@trymuxr/contract';
+import { MAX_DISPLAY_BYTES, capUtf8Bytes, sanitizeDisplayText } from '@trymuxr/contract';
+import { resolveDisplayText as resolveForLanguage, type DisplayText } from '@trymuxr/contract';
 import { getCurrentLanguageTag } from '@/text';
 
 /** Resolve manifest copy with the phone's current language preference. */
-export function resolvePluginText(value: PluginText): string {
+export function resolveDisplayText(value: DisplayText): string {
     return resolveForLanguage(value, getCurrentLanguageTag());
 }
 
@@ -31,7 +31,7 @@ export function resolvePath(data: unknown, path: string, item?: unknown): unknow
 
 export function bindText(template: string, data: unknown, item?: unknown): string {
     if (!template.includes('{{')) {
-        return capUtf8Bytes(sanitizeDisplayText(template), MAX_RPC_DISPLAY_BYTES);
+        return capUtf8Bytes(sanitizeDisplayText(template), MAX_DISPLAY_BYTES);
     }
     const bound = template.replace(BINDING, (_match, path: string) => {
         const value = resolvePath(data, path, item);
@@ -39,5 +39,5 @@ export function bindText(template: string, data: unknown, item?: unknown): strin
     });
     // Defensive: bound values come from the host already capped/sanitized, but
     // a template with several bindings can still exceed one display budget.
-    return capUtf8Bytes(sanitizeDisplayText(bound), MAX_RPC_DISPLAY_BYTES);
+    return capUtf8Bytes(sanitizeDisplayText(bound), MAX_DISPLAY_BYTES);
 }
