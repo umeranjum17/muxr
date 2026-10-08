@@ -11,9 +11,6 @@ import { Typography } from '@/constants/Typography';
 import { ShortcutHintBadge, useShortcutHints } from '@/components/ShortcutHints';
 import { useDeviceAuthority } from '@/pairing';
 import { useHerdTreeLive } from '../application/useHerdTreeLive';
-import { DeclarativeNavigationItems } from '@/plugins/ui';
-import { pluginSnapshot, useSlotContributions } from '@/plugins';
-import { pluginHref } from '@/plugins';
 
 const stylesheet = StyleSheet.create((theme) => ({
     container: {
@@ -72,21 +69,6 @@ const stylesheet = StyleSheet.create((theme) => ({
         fontSize: 12,
         ...Typography.default(),
     },
-    toolsSection: {
-        paddingHorizontal: 10,
-        paddingTop: 14,
-        paddingBottom: 10,
-    },
-    toolsTitle: {
-        paddingHorizontal: 6,
-        paddingBottom: 4,
-        fontSize: 12,
-        fontWeight: '600',
-        color: theme.colors.groupped.sectionTitle,
-        letterSpacing: 0.2,
-        textTransform: 'uppercase',
-        ...Typography.default('semiBold'),
-    },
     settingsRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -129,11 +111,6 @@ export const SidebarView = React.memo(() => {
         ? pathname.split('/')[2]
         : undefined;
     const newSessionDisabled = authorityLoading || authority !== 'control';
-    // The hook below only refreshes on catalog changes; the count reads the
-    // snapshot so this render tracks third-party navigation contributions.
-    useSlotContributions('navigation.primary');
-    const navToolCount = pluginSnapshot().reduce((count, { manifest }) => count
-        + manifest.contributions.filter((contribution) => 'type' in contribution && contribution.type === 'navigation-item').length, 0);
     const emptyText = herdrConnected === false ? 'Reconnecting…' : undefined;
 
     const handleNewSession = React.useCallback(() => {
@@ -180,15 +157,6 @@ export const SidebarView = React.memo(() => {
                     </Text>
                 ) : undefined}
             />
-            {navToolCount > 0 && (
-                <View style={styles.toolsSection}>
-                    <Text style={styles.toolsTitle}>Tools</Text>
-                    <DeclarativeNavigationItems
-                        compact
-                        onSelect={(_key, pluginId, contentId) => router.push(pluginHref(pluginId, contentId))}
-                    />
-                </View>
-            )}
 
             {/* Settings at bottom */}
             <Pressable

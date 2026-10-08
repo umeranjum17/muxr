@@ -104,7 +104,7 @@ Use “muxr help <command>” for command options.
 `;
 
 const COMMAND_HELP = {
-    setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\n\nInteractive setup checks this computer and shows Tailscale Serve, direct Tailscale, private networks, same Wi-Fi, a temporary Cloudflare tunnel, and your own WSS server. It installs Herdr when missing, reviews services and integrations before applying changes, then displays a short-lived pairing QR or string. It never installs agent skills or edits prompt files.\n`,
+    setup: `muxr setup [--inspect] [--dry-run] [--no-install-herdr] [--port <n>]\n\nInteractive setup checks this computer and shows routes that work away from home (Tailscale, private networks, a temporary link, your own server) plus the Wi-Fi-only option (stops working away from home). It installs Herdr when missing, reviews services and integrations before applying changes, then displays a short-lived pairing QR or string. It never installs agent skills or edits prompt files.\n`,
     'self-host': `muxr self-host [--advertise <ws-url>] [--tunnel] [--tailscale-direct]\n               [--port <n>] [--relay-only|--host-only] [--web] [--yes]\n`,
     config: `muxr config init [--dry-run] [--yes]\nmuxr config check\n\ninit walks through machine name, mode, relay URL, and host port, shows the JSON it will write to $MUXR_HOME/config.json, and asks before overwriting. Without a terminal it prints what it would do and exits. check validates a hand-edited file and reports the path and offending key. Absent or partial files fall back per key; malformed files refuse to start. Precedence per setting: explicit flag beats environment beats config file beats default.\n`,
     daemon: `muxr daemon install|uninstall|start|stop|restart|status|logs\n\n\`install\` writes or updates the background-service definition without starting it. Normal \`muxr setup\` installs, starts, and verifies the service for you.\n`,
@@ -258,19 +258,19 @@ function readMenuState() {
 // Plain-words relay kind for the state block, so running `muxr` teaches the
 // model: a host here, and which kind of relay the phone talks through.
 const RELAY_KIND = {
-    tailscale: 'Tailscale (private)',
-    'tailscale-direct': 'Tailscale (direct IP)',
-    private: 'private network',
-    cloudflare: 'Cloudflare tunnel (temporary public URL)',
-    lan: 'LAN (same wifi)',
-    external: 'your own server',
+    tailscale: 'Away from home (Tailscale)',
+    'tailscale-direct': 'Away from home — phone only (Tailscale)',
+    private: 'Away from home (private network)',
+    cloudflare: 'Away from home (temporary link)',
+    lan: 'Only on this Wi-Fi (stops working away from home)',
+    external: 'Away from home (your own server)',
 };
 
 async function printState() {
     heading(`muxr ${versionString()}`);
     const state = readMenuState();
     if (state === undefined) {
-        status('this computer', 'is not set up yet — choose Set up this computer', 'warn');
+        status('this computer', 'is not set up yet — run `muxr setup` to install, connect, and pair', 'warn');
         process.stdout.write('\n');
         return undefined;
     }
@@ -289,6 +289,9 @@ async function printState() {
     } else {
         const health = relayHealthy ? 'running' : 'not responding';
         status('relay', `${relaySummary} · ${health}`, relayHealthy ? 'ok' : 'warn');
+    }
+    if (local && state.connectionMode === 'lan') {
+        status('reach', 'works only on this Wi-Fi — will NOT work away from home; run `muxr setup` and choose a route that works away from home', 'warn');
     }
     if (state.relayRole === 'shared') {
         status('host', 'none — this machine is a shared relay server', 'off');
@@ -608,7 +611,7 @@ async function devicesMenu() {
                 const enable = await select(
                     targeted
                         ? 'Enable browser access on the current secure connection? muxr keeps the relay URL, port, phone pairings, integrations, and plugins; it enables the web client and restarts once.'
-                        : 'Browser access needs a secure HTTPS connection. Change setup to Tailscale Serve or your own WSS endpoint, then pair the browser.',
+                        : 'This route cannot host browsers. Run `muxr setup` and choose a route that works away from home, then pair the browser.',
                     targeted ? [
                         { value: 'enable', title: 'Enable and pair browser', description: 'keep current settings; enable web, restart once, verify, then create the link' },
                         { value: 'back', title: 'Back', description: 'leave this computer unchanged' },

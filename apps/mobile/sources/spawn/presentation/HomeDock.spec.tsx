@@ -60,7 +60,6 @@ vi.mock('@/constants/Typography', () => ({ Typography: { default: () => ({}) } }
 vi.mock('@/components/layout', () => ({ layout: { maxWidth: 600 } }));
 vi.mock('@/text', () => ({ t: (key: string) => key }));
 vi.mock('@/connection', () => ({ getCachedConnectionSettings: () => ({ machineId: null }) }));
-vi.mock('@/plugins/ui', () => ({ PluginSlot: () => null }));
 vi.mock('@/conversation/ui', () => ({ RealtimeTalkButton: () => null }));
 vi.mock('@/plans', () => ({ useAccountLine: () => null }));
 vi.mock('@/plans/ui', () => ({ AccountSheet: () => null }));

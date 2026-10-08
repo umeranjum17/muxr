@@ -28,6 +28,7 @@ async function checkWizard() {
     Object.defineProperty(process.stdout, 'isTTY', { value: true });
     let lan;
     let currentSummary;
+    let agentStatus = 'pi: not installed';
     let tailscaleInstalled = true;
     let tailscaleConnected = false;
     let serveStatus = 'free';
@@ -70,7 +71,7 @@ async function checkWizard() {
                 assert.ok(['wizard-fixture-herdr', 'cloudflared'].includes(name), `Unexpected command: ${name}`);
                 if (name === 'cloudflared') return { status: null, error: { code: 'ENOENT' } };
                 assert.ok(['--version', 'integration status'].includes(args.join(' ')));
-                return { status: 0, stdout: args[0] === '--version' ? 'herdr fixture' : 'pi: not installed', stderr: '' };
+                return { status: 0, stdout: args[0] === '--version' ? 'herdr fixture' : agentStatus, stderr: '' };
             },
         } });
         mock.module('node:readline', { defaultExport: { ...readline }, namedExports: {
@@ -129,20 +130,23 @@ async function checkWizard() {
             relayUrl: 'ws://192.168.1.8:18792', relayPort: 18792,
         };
         tailscaleConnected = true;
-        const connected = await run(['', '1', '1', '1', '1']);
-        recommended(connected, 'Tailscale — works anywhere');
-        for (const title of ['Tailscale — works anywhere', 'Tailscale — direct (phone app only)', 'Private network you already use', 'Same Wi-Fi', 'Cloudflare', 'Your own server']) {
+        const connected = await run(['', '1', '1', '1']);
+        recommended(connected, 'Use muxr away from home (Tailscale)');
+        for (const title of ['Use muxr away from home (Tailscale)', 'Use muxr away from home — phone only (Tailscale)', 'Use muxr away from home (private network)', 'Works only on this Wi-Fi', 'Use muxr away from home (temporary link)', 'Use muxr away from home (your own server)']) {
             assert.ok(connected.includes(title), `Missing route: ${title}`);
         }
-        assert.ok(connected.indexOf('Same Wi-Fi') < connected.indexOf('Temporary public link (Cloudflare)'));
+        assert.ok(connected.indexOf('Works only on this Wi-Fi') < connected.indexOf('Use muxr away from home (temporary link)'));
+        // No providers installed: the status-updates question is hidden,
+        // so a first run is five steps of six, not six of seven.
         assert.deepEqual([...connected.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '3', '4', '5', '6'].map((step) => [step, '7']));
+            ['1', '2', '3', '4', '5'].map((step) => [step, '6']));
+        assert.doesNotMatch(connected, /Keep agent status up to date/);
         assert.match(connected, /Connection: Tailscale/);
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
         for (const blocked of ['occupied', 'disabled']) {
             serveStatus = blocked;
-            const direct = await run(['', '1', '1', '1']);
-            recommended(direct, 'Tailscale — direct (phone app only)');
+            const direct = await run(['', '1', '1']);
+            recommended(direct, 'Use muxr away from home — phone only (Tailscale)');
             assert.match(direct, /Connection: Direct Tailscale on port 18792/);
             assert.deepEqual(calls, [], 'Blocked Serve mutated setup');
         }
@@ -150,22 +154,24 @@ async function checkWizard() {
         serveStatus = 'free';
         currentSummary = undefined;
 
-        // Accept the picker default, then cancel at review: signed-out
-        // Tailscale must lose to ready Wi-Fi, but win when Wi-Fi is absent.
+        // Accept the picker default, then cancel at review: an installed
+        // Tailscale that connects during Apply beats ready Wi-Fi, so the
+        // Wi-Fi-only route is the default only when nothing remote-reachable
+        // exists.
         lan = '192.168.1.8';
-        recommended(await run(['', '1', '1']), 'Same Wi-Fi');
+        recommended(await run(['', '1', '1']), 'Use muxr away from home (Tailscale)');
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
         lan = undefined;
-        recommended(await run(['', '1', '1', '1']), 'Tailscale — works anywhere');
+        recommended(await run(['', '1', '1']), 'Use muxr away from home (Tailscale)');
         assert.deepEqual(calls, [], 'Planned Tailscale connected before Apply');
 
         // With no local route, accept the recommended external server and
         // complete Apply, phone + browser pairing, and the final receipt.
         tailscaleInstalled = false;
-        const completed = await run(['', 'wss://relay.example', '2', '4', '1', '2']);
-        recommended(completed, 'Your own server');
+        const completed = await run(['', 'wss://relay.example', '2', '4', '2']);
+        recommended(completed, 'Use muxr away from home (your own server)');
         assert.deepEqual([...completed.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '3', '4', '5', '6', '7'].map((step) => [step, '7']));
+            ['1', '2', '3', '4', '5', '6'].map((step) => [step, '6']));
         assert.match(completed, /Setup complete/);
         assert.match(completed, /Pairing: phone and control browser paired/);
         assert.deepEqual(calls.map(([name]) => name), ['prerequisites', 'start', 'screen', 'pair', 'inspect']);
@@ -174,6 +180,18 @@ async function checkWizard() {
             '--port', '18792', '--connection-mode', 'external', '--reconfigure',
             '--advertise', 'wss://relay.example', '--web', '--yes',
         ]);
+        // The hidden status-updates question counts as declined.
+        assert.deepEqual(calls.find(([name]) => name === 'prerequisites')[1], ['--no-integrations']);
+
+        // A provider installed means the question stays: seven steps, and
+        // the run answers it before cancelling at review.
+        agentStatus = 'pi: current';
+        const providers = await run(['', 'wss://relay2.example', '2', '4', '1', '1']);
+        assert.match(providers, /Keep agent status up to date\?/);
+        assert.deepEqual([...providers.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
+            ['1', '2', '3', '4', '5', '6'].map((step) => [step, '7']));
+        assert.deepEqual(calls, [], 'Cancellation mutated setup');
+        agentStatus = 'pi: not installed';
 
         const inspection = await run([], ['--inspect']);
         assert.match(inspection, /Agent status updates not configured yet — setup can keep agent status up to date/);
@@ -184,5 +202,5 @@ async function checkWizard() {
         mock.restoreAll();
         rmSync(scratch, { recursive: true, force: true });
     }
-    process.stdout.write('setup wizard: connected/blocked/signed-out routes, external fallback, cancellation, completed steps, and empty agent status passed\n');
+    process.stdout.write('setup wizard: connected/blocked/signed-out routes, external fallback, cancellation, completed steps, hidden status question, and empty agent status passed\n');
 }

@@ -114,7 +114,7 @@ const stylesheet = StyleSheet.create((theme) => ({
     agentCard: {
         flexGrow: 1,
         flexBasis: '30%',
-        height: 136,
+        minHeight: 136,
         alignItems: 'center',
         gap: 8,
         paddingVertical: 14,
@@ -135,6 +135,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.textSecondary,
         fontSize: 10,
         fontWeight: '600',
+        textAlign: 'center',
     },
     agentDetails: {
         color: theme.colors.textSecondary,
@@ -191,8 +192,9 @@ const stylesheet = StyleSheet.create((theme) => ({
     startButton: {
         alignItems: 'center',
         justifyContent: 'center',
-        height: 48,
+        minHeight: 48,
         paddingHorizontal: 16,
+        paddingVertical: 12,
         borderRadius: 10,
         backgroundColor: theme.colors.button.primary.background,
     },
@@ -207,6 +209,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         color: theme.colors.button.primary.tint,
         fontSize: 16,
         fontWeight: '700',
+        textAlign: 'center',
     },
 }));
 
@@ -442,8 +445,8 @@ export default function NewAgentScreen() {
                                     ]}
                                 >
                                     <AgentGlyph name={option.kind} size={40} selected={isSelected} dim={!available} />
-                                    {/* One size for every name; wraps to two lines at word boundaries, never shrunk per name. */}
-                                    <Text style={styles.agentName} numberOfLines={2}>
+                                    {/* One size for every name; wraps at word boundaries, never shrunk per name. */}
+                                    <Text style={styles.agentName}>
                                         {agentName(option.kind)}
                                     </Text>
                                     {availability !== undefined && (
@@ -539,7 +542,7 @@ export default function NewAgentScreen() {
                     {busy ? (
                         <ActivityIndicator color={theme.colors.button.primary.tint} />
                     ) : (
-                        <Text numberOfLines={1} style={[styles.startButtonText, !ready && styles.startButtonTextDisabled]}>
+                        <Text style={[styles.startButtonText, !ready && styles.startButtonTextDisabled]}>
                             {startButtonLabel(kinds, directory)}
                         </Text>
                     )}

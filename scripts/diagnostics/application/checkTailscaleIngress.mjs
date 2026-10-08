@@ -63,7 +63,10 @@ try {
     const found = { tailscale: { connected: false }, private: routes.private, lan: routes.lan, cloudflared: { ok: false } };
     assert.equal(recommendedConnection(found, undefined, false, { status: 'inconclusive' }).mode, 'private');
     assert.equal(recommendedConnection(found, undefined, true, { status: 'inconclusive' }).mode, 'private');
-    assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
+    // An away-from-home route always beats the Wi-Fi-only route: it stops
+    // working when the phone leaves home, so it is only the default when
+    // nothing remote-reachable exists.
+    assert.equal(recommendedConnection({ ...found, private: undefined, cloudflared: { ok: true } }, undefined, false, { status: 'inconclusive' }).mode, 'cloudflare');
     assert.equal(recommendedConnection({ ...found, private: undefined }, undefined, false, { status: 'inconclusive' }).mode, 'lan');
     const privateArgs = selfhostArgsFromSetupPlan({ mode: 'private', port: 8792, web: false, pairing: 'phone', found });
     assert.deepEqual(privateArgs.slice(-2), ['--advertise', 'ws://100.90.0.4:8792']);

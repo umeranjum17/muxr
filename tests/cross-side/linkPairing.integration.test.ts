@@ -227,9 +227,9 @@ describe('native pairing over the byokit link', () => {
             phone.platform = 'android';
         }
         // A code from an older muxr names the update instead of dead-ending.
-        const stale = runPhonePairing('muxr://pair#payload=older');
+        const stale = runPhonePairing('wss://relay.example.test?pair=ABCDE-FGHIJ');
         await expect(stale).rejects.toBeInstanceOf(PairingNeedsNewCode);
-        await expect(stale).rejects.toThrow('run the Update muxr action');
+        await expect(stale).rejects.toThrow('muxr 0.2.0 or older');
         expect(phone.secure.has(PENDING_LINK_KEY)).toBe(false);
     });
 

@@ -27,7 +27,6 @@ import { FOCUS_BACK_SIZE, FOCUS_BACK_TOP, focusDockMaxHeight } from './focusDock
 import { t } from '@/text';
 import { getCachedConnectionSettings } from '@/connection';
 import { useNewSessionDraft } from '../application/useNewSessionDraft';
-import { PluginSlot } from '@/plugins/ui';
 import { RealtimeTalkButton } from '@/conversation/ui';
 import { useAllMachines, useSessions, useSocketStatus } from '@/catalog/store';
 import { isMachineOnline } from '@/pairing';
@@ -808,9 +807,10 @@ export const HomeDock = React.memo(({
         value: string;
         detail?: string;
         icon: React.ComponentProps<typeof Ionicons>['name'];
-        /** The account row stacks its guidance under its value: on the
-         *  narrowest phone "Work is signed out · Sign in, or use Umer"
-         *  never fits one line, and the guidance is the point. */
+        /** The account row stacks its guidance under its value and lets
+         *  both lines wrap: on the narrowest phone, and at large text
+         *  sizes, "Work is signed out · Sign in, or use Umer" never fits
+         *  one line, and the guidance is the point. */
         stacked?: boolean;
     };
 
@@ -850,8 +850,8 @@ export const HomeDock = React.memo(({
                 </View>
                 {row.stacked === true && row.detail !== undefined ? (
                     <View style={styles.focusConfigStack}>
-                        <Text style={styles.focusConfigValue} numberOfLines={1}>{row.value}</Text>
-                        <Text style={styles.focusConfigDetail} numberOfLines={1}>{row.detail}</Text>
+                        <Text style={styles.focusConfigValue}>{row.value}</Text>
+                        <Text style={styles.focusConfigDetail}>{row.detail}</Text>
                     </View>
                 ) : (
                     <Text style={styles.focusConfigValue} numberOfLines={1}>
@@ -889,7 +889,6 @@ export const HomeDock = React.memo(({
             <View style={styles.composerContent}>
                 {dictationActive ? <DictationStrip dictation={dictation} control={dictationControl} /> : <>
                 <RealtimeTalkButton accessibilityLabel="Start or open realtime conversation" />
-                <PluginSlot slot="home.composer.leading" context={{}} />
                 {activateOnPress ? (
                     <Pressable onPress={activateOnPress} style={styles.inputEntry}>
                         <Text
@@ -916,7 +915,6 @@ export const HomeDock = React.memo(({
                     />
                 )}
                 {Platform.OS !== 'web' && <DictateAction dictation={dictation} control={dictateControl} iconSize={22} />}
-                <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                 {/* A draft can remain after the focused composer closes. */}
                 {(hasPrompt || isSubmitting) && <BubblePressable
                     onPress={onSend}
@@ -1018,7 +1016,6 @@ export const HomeDock = React.memo(({
                             </View>
                         </View>
                         {Platform.OS !== 'web' && <DictateAction dictation={dictation} control={dictateControl} iconSize={22} />}
-                        <PluginSlot slot="home.composer.trailing" context={composerDraft} />
                         <BubblePressable
                             onPress={submitFromFocusMode}
                             disabled={!canSubmit}
