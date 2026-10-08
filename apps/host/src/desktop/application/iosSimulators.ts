@@ -495,6 +495,8 @@ interface LiveSimulator {
     lastX: number;
     lastY: number;
     videoFailures: number;
+    hidFailures: number;
+    hidBornAt: number;
     closed: boolean;
 }
 
@@ -612,7 +614,6 @@ export class IosMirrors implements DeviceMirrors {
         });
         this.helpers.register(udid, video);
         video.once('exit', (code, signal) => this.onVideoExit(mirror, udid, video, code, signal));
-        mirror.videoBornAt = Date.now();
         let headerBytes = Buffer.alloc(0);
         let size: { width: number; height: number } | undefined;
         video.stdout?.on('data', (chunk: Buffer) => {
@@ -635,6 +636,7 @@ export class IosMirrors implements DeviceMirrors {
             throw new EngineRefused('desktop-unavailable', 'the simulator video service did not start');
         }
         mirror.video = video;
+        mirror.videoBornAt = Date.now();
         return size;
     }
 
@@ -658,7 +660,7 @@ export class IosMirrors implements DeviceMirrors {
             video: undefined,
             videoBornAt: 0,
             hid: undefined,
-            splitter: new AnnexBAccessUnits((keyframe, unit) => this.feedUnitFor(mirror, udid, keyframe, unit)),
+            splitter: new AnnexBAccessUnits((keyframe, unit) => this.feedUnitFor(mirror, keyframe, unit)),
             opening: [],
             draining: true,
             workDir,
@@ -667,6 +669,8 @@ export class IosMirrors implements DeviceMirrors {
             lastX: 0,
             lastY: 0,
             videoFailures: 0,
+            hidFailures: 0,
+            hidBornAt: 0,
             closed: false,
         };
         this.helpers.settle(udid);
@@ -692,7 +696,8 @@ export class IosMirrors implements DeviceMirrors {
                 fail('the preview closed during open');
             }
             mirror.hid = hid;
-            hid.process.once('exit', (code, signal) => this.onHidExit(mirror, udid, code, signal));
+            mirror.hidBornAt = Date.now();
+            hid.process.once('exit', (code, signal) => this.onHidExit(mirror, udid, hid.process, code, signal));
         } catch (error) {
             fail(error instanceof Error ? error.message : 'the simulator input service did not start');
         }
@@ -710,7 +715,7 @@ export class IosMirrors implements DeviceMirrors {
         } catch (error) {
             fail(error instanceof Error ? error.message : 'the live view did not start');
         }
-        if (this.helpers.isClosed(udid) || mirror.closed) {
+        if (this.helpers.isClosed(udid) || mirror.closed || mirror.video === undefined || !childAlive(mirror.video) || mirror.hid?.alive !== true) {
             await engine.close().catch(() => undefined);
             await engine.stop().catch(() => undefined);
             fail('the preview closed during open');
@@ -731,19 +736,18 @@ export class IosMirrors implements DeviceMirrors {
             }
             this.applyInput(mirror, event.input);
         });
-        // The burst goes first, awaited and bounded; live units may overtake its tail.
+        const burst = mirror.opening.splice(0).map((unit) => engine.feed(unit.keyframe, unit.unit).catch(() => undefined));
         mirror.draining = false;
-        for (const unit of mirror.opening.splice(0)) {
-            if (mirror.closed) break;
-            await engine.feed(unit.keyframe, unit.unit).catch(() => undefined);
-        }
+        await Promise.all(burst);
+        if (mirror.closed) throw new EngineRefused('desktop-unavailable', 'the preview closed during open');
         return { session: live, width: size!.width, height: size!.height };
     }
 
-    private feedUnitFor(mirror: LiveSimulator, udid: string, keyframe: boolean, unit: Buffer): void {
+    private feedUnitFor(mirror: LiveSimulator, keyframe: boolean, unit: Buffer): void {
         if (mirror.closed) return;
         if (mirror.engine === undefined || mirror.session === undefined || mirror.draining) {
-            if (mirror.opening.length < 90 || keyframe) mirror.opening.push({ keyframe, unit });
+            if (keyframe) mirror.opening = [];
+            if (mirror.opening.length < 90) mirror.opening.push({ keyframe, unit });
             return;
         }
         if (mirror.inflight >= MAX_INFLIGHT_FEEDS) return;
@@ -756,8 +760,7 @@ export class IosMirrors implements DeviceMirrors {
     private onVideoExit(mirror: LiveSimulator, udid: string, child: ChildProcess | undefined, code: number | null, signal: NodeJS.Signals | null): void {
         if (this.mirrors.get(udid) !== mirror || mirror.closed) return;
         if (child !== undefined && mirror.video !== child) return;
-        // Attempts stamp bornAt, so failing restarts never buy a reset.
-        if (Date.now() - mirror.videoBornAt > HELPER_HEALTHY_MS) mirror.videoFailures = 0;
+        if (child !== undefined && Date.now() - mirror.videoBornAt > HELPER_HEALTHY_MS) mirror.videoFailures = 0;
         mirror.videoFailures += 1;
         if (mirror.videoFailures > MAX_HELPER_RESTARTS) {
             this.options.onDiagnostic?.(`sim-video keeps failing — closing the preview`);
@@ -774,7 +777,7 @@ export class IosMirrors implements DeviceMirrors {
     private async reviveVideo(mirror: LiveSimulator, udid: string): Promise<void> {
         if (this.mirrors.get(udid) !== mirror || mirror.closed) return;
         mirror.splitter.stop();
-        mirror.splitter = new AnnexBAccessUnits((keyframe, unit) => this.feedUnitFor(mirror, udid, keyframe, unit));
+        mirror.splitter = new AnnexBAccessUnits((keyframe, unit) => this.feedUnitFor(mirror, keyframe, unit));
         const dir = await idbDistribution().catch(() => undefined);
         if (dir === undefined || this.mirrors.get(udid) !== mirror || mirror.closed) return;
         try {
@@ -788,10 +791,44 @@ export class IosMirrors implements DeviceMirrors {
         if (mirror.video !== undefined && childAlive(mirror.video)) mirror.video.stdin?.write('{"method":"force_keyframe"}\n');
     }
 
-    private onHidExit(mirror: LiveSimulator, udid: string, code: number | null, signal: NodeJS.Signals | null): void {
-        if (this.mirrors.get(udid) !== mirror || mirror.closed || mirror.hid?.alive === true) return;
-        this.options.onDiagnostic?.(`idb companion exited (code ${code ?? '?'}, signal ${signal ?? '?'}) — closing the preview`);
-        void this.close(udid).catch(() => undefined);
+    private onHidExit(mirror: LiveSimulator, udid: string, child: ChildProcess | undefined, code: number | null, signal: NodeJS.Signals | null): void {
+        if (this.mirrors.get(udid) !== mirror || mirror.closed) return;
+        if (child !== undefined && mirror.hid?.process !== child) return;
+        if (child !== undefined && Date.now() - mirror.hidBornAt > HELPER_HEALTHY_MS) mirror.hidFailures = 0;
+        mirror.hidFailures += 1;
+        if (mirror.hidFailures > MAX_HELPER_RESTARTS) {
+            this.options.onDiagnostic?.('idb companion keeps failing — closing the preview');
+            void this.close(udid).catch(() => undefined);
+            return;
+        }
+        const reason = child === undefined
+            ? 'idb companion restart failed'
+            : `idb companion exited (code ${code ?? '?'}, signal ${signal ?? '?'})`;
+        this.options.onDiagnostic?.(`${reason} — restarting (${mirror.hidFailures}/${MAX_HELPER_RESTARTS})`);
+        void this.reviveHid(mirror, udid).catch(() => undefined);
+    }
+
+    private async reviveHid(mirror: LiveSimulator, udid: string): Promise<void> {
+        mirror.hid?.close();
+        mirror.fingerDown = false;
+        const dir = await idbDistribution().catch(() => undefined);
+        if (this.mirrors.get(udid) !== mirror || mirror.closed) return;
+        try {
+            if (dir === undefined) throw new EngineRefused('desktop-unavailable', 'the idb companion is not installed');
+            rmSync(join(mirror.workDir, 'hid.sock'), { force: true });
+            const hid = await CompanionHid.start(dir, udid, mirror.workDir, this.options.onDiagnostic, (child) => this.helpers.register(udid, child));
+            if (this.mirrors.get(udid) !== mirror || mirror.closed || !hid.alive) {
+                hid.close();
+                if (!mirror.closed) this.onHidExit(mirror, udid, undefined, null, null);
+                return;
+            }
+            mirror.hid = hid;
+            mirror.hidBornAt = Date.now();
+            hid.process.once('exit', (code, signal) => this.onHidExit(mirror, udid, hid.process, code, signal));
+            this.options.onDiagnostic?.('idb companion accepting input again');
+        } catch {
+            this.onHidExit(mirror, udid, undefined, null, null);
+        }
     }
 
     /** Engine pixels → simulator points. */
@@ -842,13 +879,14 @@ export class IosMirrors implements DeviceMirrors {
 
     async close(udid: string): Promise<void> {
         const inflight = this.opening.get(udid);
-        if (inflight !== undefined) await inflight.catch(() => undefined);
         const mirror = this.mirrors.get(udid);
         if (mirror !== undefined) {
             this.mirrors.delete(udid);
             mirror.closed = true;
         }
-        await this.helpers.close(udid, (pid, phase) => this.options.onDiagnostic?.(`close: helper ${pid ?? '?'} did not exit (${phase})`));
+        const helpersClosed = this.helpers.close(udid, (pid, phase) => this.options.onDiagnostic?.(`close: helper ${pid ?? '?'} did not exit (${phase})`));
+        if (inflight !== undefined) await inflight.catch(() => undefined);
+        await helpersClosed;
         if (mirror === undefined) return;
         mirror.splitter.stop();
         mirror.hid?.close();
