@@ -69,7 +69,11 @@ function engineCommand(resolved) {
  * phone opens this computer without anyone at the screen. `force` asks again
  * even when a grant is saved, for one the desktop stopped honouring.
  */
-export async function approveScreenSharing({ force = false } = {}) {
+export async function approveScreenSharing({ force = false, pairingDone = false } = {}) {
+    if (!process.env.WAYLAND_DISPLAY?.trim() && !process.env.DISPLAY?.trim()) {
+        print('Screen-sharing approval skipped: no display on this computer.');
+        return 0;
+    }
     if (!asksBeforeSharing()) {
         if (force) print('This computer shares its screen without asking, so there is nothing to approve.');
         return 0;
@@ -113,6 +117,11 @@ export async function approveScreenSharing({ force = false } = {}) {
     }
     if (token === undefined && shared) {
         print('  Approved, but this desktop did not let muxr remember it, so it will ask on each open.');
+        return force ? 1 : 0;
+    }
+    if (failure !== undefined && failure?.code !== 'consent-timeout') {
+        const reason = (failure instanceof Error ? failure.message : String(failure)).replace(/\s+/g, ' ').trim();
+        print(`Screen sharing could not start: ${reason}.${pairingDone ? ' Pairing is done.' : ' Run \`muxr desktop setup\` to try again.'}`);
         return force ? 1 : 0;
     }
     if (token === undefined) {

@@ -159,39 +159,56 @@ async function checkWizard() {
         // Wi-Fi-only route is the default only when nothing remote-reachable
         // exists.
         lan = '192.168.1.8';
-        recommended(await run(['', '1', '1']), 'Use muxr away from home (Tailscale)');
+        const firstCancel = await run(['', '1']);
+        recommended(firstCancel, 'Use muxr away from home (Tailscale)');
+        // First run skips the browser-client, pairing, and status-updates
+        // questions: check, route, review — three steps of four.
+        assert.deepEqual([...firstCancel.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
+            ['1', '2', '3'].map((step) => [step, '4']));
+        assert.match(firstCancel, /Your phone will reach this computer over/);
+        assert.doesNotMatch(firstCancel, /Host the browser client too/);
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
         lan = undefined;
-        recommended(await run(['', '1', '1']), 'Use muxr away from home (Tailscale)');
+        const plannedCancel = await run(['', '1']);
+        recommended(plannedCancel, 'Use muxr away from home (Tailscale)');
+        assert.deepEqual([...plannedCancel.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
+            ['1', '2', '3'].map((step) => [step, '4']));
         assert.deepEqual(calls, [], 'Planned Tailscale connected before Apply');
 
         // With no local route, accept the recommended external server and
-        // complete Apply, phone + browser pairing, and the final receipt.
+        // complete Apply with the first-run defaults (phone pairing), then
+        // the plain final receipt.
         tailscaleInstalled = false;
-        const completed = await run(['', 'wss://relay.example', '2', '4', '2']);
+        const completed = await run(['', 'wss://relay.example', '2']);
         recommended(completed, 'Use muxr away from home (your own server)');
         assert.deepEqual([...completed.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
-            ['1', '2', '3', '4', '5', '6'].map((step) => [step, '6']));
+            ['1', '2', '3', '4'].map((step) => [step, '4']));
         assert.match(completed, /Setup complete/);
-        assert.match(completed, /Pairing: phone and control browser paired/);
-        assert.deepEqual(calls.map(([name]) => name), ['prerequisites', 'start', 'screen', 'pair', 'inspect']);
-        assert.deepEqual(calls.find(([name]) => name === 'pair')[1], ['--browser']);
+        assert.match(completed, /Your phone reaches this computer over/);
+        assert.match(completed, /Open muxr on your phone and tap Start/);
+        assert.deepEqual(calls.map(([name]) => name), ['prerequisites', 'start', 'screen', 'inspect']);
         assert.deepEqual(calls.find(([name]) => name === 'start')[1], [
             '--port', '18792', '--connection-mode', 'external', '--reconfigure',
-            '--advertise', 'wss://relay.example', '--web', '--yes',
+            '--advertise', 'wss://relay.example',
         ]);
         // The hidden status-updates question counts as declined.
         assert.deepEqual(calls.find(([name]) => name === 'prerequisites')[1], ['--no-integrations']);
 
-        // A provider installed means the question stays: seven steps, and
-        // the run answers it before cancelling at review.
+        // A provider installed means the question stays on a repeat run:
+        // seven steps, and the run answers it before cancelling at review.
+        // (First runs always skip it and keep the phone default.)
         agentStatus = 'pi: current';
-        const providers = await run(['', 'wss://relay2.example', '2', '4', '1', '1']);
+        currentSummary = {
+            relayHealthy: true, publicHealthy: true, connectionMode: 'lan',
+            relayUrl: 'ws://192.168.1.8:18792', relayPort: 18792,
+        };
+        const providers = await run(['', 'wss://relay2.example', '2', '2', '1', '1']);
         assert.match(providers, /Keep agent status up to date\?/);
         assert.deepEqual([...providers.matchAll(/Setup step (\d+) of (\d+)/g)].map((match) => match.slice(1)),
             ['1', '2', '3', '4', '5', '6'].map((step) => [step, '7']));
         assert.deepEqual(calls, [], 'Cancellation mutated setup');
         agentStatus = 'pi: not installed';
+        currentSummary = undefined;
 
         const inspection = await run([], ['--inspect']);
         assert.match(inspection, /Agent status updates not configured yet — setup can keep agent status up to date/);
