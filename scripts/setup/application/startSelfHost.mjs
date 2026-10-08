@@ -163,7 +163,10 @@ export async function startSelfHost(args = []) {
         }
         print('  … registering and starting the background host service');
         if (env('MUXR_NO_SERVICE_COMMANDS') !== '1' && (!sameConfiguration || !hostWasRunning)) await stopOwnedSelfhostRelay();
-        await startMuxrDaemon('selfhost', args, !sameConfiguration || !hostWasRunning);
+        // Lab and integration runs own the relay and host processes directly and
+        // stub every service command, so there is no background service to
+        // register here — continue to pairing against the lab stack instead.
+        if (env('MUXR_NO_SERVICE_COMMANDS') !== '1') await startMuxrDaemon('selfhost', args, !sameConfiguration || !hostWasRunning);
         if (noPair) {
             print('Ready — existing paired devices will reconnect automatically.');
             return 0;

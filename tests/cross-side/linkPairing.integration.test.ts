@@ -539,4 +539,28 @@ describe('native pairing over the byokit link', () => {
             await pairing.catch(() => undefined);
         }
     }, 90_000);
+
+    it('exits 2 asking for the person when a non-TTY caller runs the setup pairing step', async () => {
+        // `muxr setup` (scripted) converges on startSelfHost -> mintDeviceGrant
+        // -> linkPair, the same pairing step `muxr pair` uses. Service
+        // registration is skipped under MUXR_NO_SERVICE_COMMANDS (the lab owns
+        // the relay and host directly), so the setup path reaches the shared
+        // non-TTY guard. launch() gives the child no TTY, the way an AI agent
+        // or script runs it. Companion to the `muxr pair` non-TTY test.
+        // Depends on the shared guard: red until it lands.
+        const before = readFileSync(join(home, 'selfhost.json'), 'utf8');
+        const startedAt = Date.now();
+        const child = launch([cliMain, 'self-host', '--port', String(port), '--advertise', `ws://127.0.0.1:${port}`]);
+        const code = await new Promise<number | null>((resolve) => child.once('exit', (c) => resolve(c)));
+        const elapsedMs = Date.now() - startedAt;
+        try {
+            expect(elapsedMs).toBeLessThan(1_000);
+            expect(code).toBe(2);
+            const lines = child.output().trim().split('\n');
+            expect(lines[lines.length - 1]).toBe('Pairing needs you at this computer\'s terminal: run `muxr pair` yourself');
+            expect(child.output()).not.toContain('byokit-link:');
+        } finally {
+            writeFileSync(join(home, 'selfhost.json'), before);
+        }
+    }, 30_000);
 });
