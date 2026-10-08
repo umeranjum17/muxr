@@ -1,6 +1,8 @@
 import { tailscaleState } from '@byokit/reach';
 import { spawnSync } from 'node:child_process';
-import { networkInterfaces, userInfo } from 'node:os';
+import { accessSync, constants } from 'node:fs';
+import { homedir, networkInterfaces, userInfo } from 'node:os';
+import { delimiter, join } from 'node:path';
 import { intro, heading, status, note, outro, prompt, select, withSpinner, withFullscreen, setupStep, completeFullscreen, BACK } from './ui.mjs';
 import { herdrServerIsReady, runLocalPrerequisites } from '../infrastructure/herdr.mjs';
 import { inspectSetup } from '../application/inspectSetup.mjs';
@@ -91,6 +93,48 @@ function integrationSummary(result) {
     return { current, available, checked: result.ok, error: result.ok ? undefined : lines[0] || 'herdr integration status failed' };
 }
 
+/** Coding-agent CLIs by kind, with command aliases. A PATH scan, never an
+ * execution: running an agent binary could trigger its first-run setup.
+ * Keep in step with COMMAND_ALIASES in
+ * apps/host/src/agent/infrastructure/herdrSessionSource.ts and
+ * FALLBACK_AGENT_KINDS in apps/mobile/sources/catalog/domain/agentKinds.ts. */
+const CODING_AGENT_KINDS = [
+    'pi', 'claude', 'codex', 'gemini', 'cursor', 'devin', 'agy', 'cline', 'omp',
+    'mastracode', 'opencode', 'copilot', 'kimi', 'kiro', 'droid', 'amp', 'grok',
+    'hermes', 'kilo', 'qodercli', 'maki',
+];
+const CODING_AGENT_ALIASES = {
+    qodercli: ['qodercli', 'qoder'],
+    mastracode: ['mastracode', 'mastra'],
+    agy: ['agy', 'antigravity'],
+    kilo: ['kilo', 'kilocode'],
+    cursor: ['cursor-agent'],
+    kiro: ['kiro-cli'],
+    copilot: ['copilot', 'github-copilot'],
+};
+
+function codingAgentToolPath(env = process.env) {
+    const home = env.HOME || homedir();
+    return [
+        ...(env.PATH ?? '').split(delimiter),
+        join(home, '.local', 'bin'),
+        join(home, '.npm-global', 'bin'),
+        '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin',
+    ].filter(Boolean);
+}
+
+function isExecutable(path) {
+    try { accessSync(path, constants.X_OK); return true; }
+    catch { return false; }
+}
+
+function probeCodingAgents(env = process.env) {
+    const directories = codingAgentToolPath(env);
+    return CODING_AGENT_KINDS.filter((kind) =>
+        (CODING_AGENT_ALIASES[kind] ?? [kind]).some((command) =>
+            directories.some((directory) => isExecutable(join(directory, command)))));
+}
+
 const TAILSCALE_INSTALL_URL = 'https://tailscale.com/download';
 const TAILSCALE_UP_HINT = process.platform === 'darwin' ? 'open Tailscale and sign in' : 'sudo tailscale up --operator=$USER';
 const CLOUDFLARED_INSTALL_URL = 'https://github.com/cloudflare/cloudflared/releases';
@@ -128,6 +172,7 @@ export async function probeMachine() {
     return {
         herdr: { installed: !herdrVersion.missing, working: herdrVersion.ok, version: herdrVersion.output.split('\n')[0], running: herdrVersion.ok && herdrServerIsReady(binary) },
         agents,
+        codingAgents: probeCodingAgents(),
         tailscale,
         cloudflared: probeCloudflared(),
         private: routes.private,
@@ -151,6 +196,13 @@ function renderInspection(found) {
         : `installed but unavailable — ${found.herdr.version || 'run muxr doctor'}`;
     status('Herdr', herdrDetail, found.herdr.working ? 'ok' : 'warn');
     status('Herdr server', found.herdr.running ? 'running' : 'will be started', found.herdr.running ? 'ok' : 'warn');
+    if (found.codingAgents.length > 0) {
+        const shown = found.codingAgents.slice(0, 5).join(', ');
+        const extra = found.codingAgents.length > 5 ? '…' : '';
+        status('Coding agents', `${found.codingAgents.length} found — ${shown}${extra}`, 'ok');
+    } else {
+        status('Coding agents', 'No coding agent found. Install one, e.g. `npm i -g @anthropic-ai/claude-code`, then sign in', 'warn');
+    }
     status('Agent status updates', agentIntegrationDetail(found), found.agents.checked && found.agents.current.length ? 'ok' : 'warn');
     status('Tailscale', found.tailscale.connected ? `connected — ${found.tailscale.ip}` : found.tailscale.detail, found.tailscale.connected ? 'ok' : 'off');
     if (found.private) status('Private network', `${found.private.provider} on ${found.private.interface} — ${found.private.address}`, 'ok');

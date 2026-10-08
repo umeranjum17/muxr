@@ -85,7 +85,7 @@ export default function PairScreen() {
     const routeParams = useLocalSearchParams();
     const browser = Platform.OS === 'web';
     const PairScrollView = browser ? ScrollView : KeyboardAwareScrollView;
-    const SshConnectBar = Platform.OS === 'ios' ? KeyboardStickyView : View;
+    const ConnectBar = Platform.OS === 'ios' ? KeyboardStickyView : View;
     const openedFromSettings = routeParams.source === 'settings';
     const sshRoute = !browser && routeParams.route === 'ssh' && sshTunnelAvailable();
     const reviewPairing = React.useCallback((raw: string) => {
@@ -217,7 +217,7 @@ export default function PairScreen() {
     const manualForm = state === undefined || state.phase === 'error' && state.url === undefined;
     return (
         <View style={styles.screenWrap}>
-        <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingBottom: insets.bottom + 24 }]}
+        <PairScrollView style={styles.scroll} contentContainerStyle={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
             keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" {...(browser ? {} : { bottomOffset: 120 })}>
             <View style={styles.hero}>
                 <View style={styles.iconBadge}>
@@ -338,7 +338,6 @@ export default function PairScreen() {
                             : sshRoute
                                 ? `The string proves the machine consented; the SSH details decide how this ${pairingDeviceNoun()} reaches it.`
                                 : "If you can't point this phone at that screen — copy the string from its terminal."}</Text>
-                        {!sshRoute && <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />}
                         <ActionButton title="Back" variant="quiet" onPress={cancel} />
                     </>
                 )}
@@ -347,10 +346,17 @@ export default function PairScreen() {
         {sshRoute && manualForm && (
             // Anchored below the scroll: Android resizes the window and
             // iOS's bar follows the keyboard without shrinking the aware scroll.
-            <SshConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
+            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
                 {sshError !== undefined && <Text accessibilityRole="alert" style={styles.errorText}>{sshError}</Text>}
                 <ActionButton testID="ssh-connect" title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
-            </SshConnectBar>
+            </ConnectBar>
+        )}
+        {!sshRoute && manualForm && !browser && (
+            // Same anchored bar as the SSH route: the manual Connect must stay
+            // above the keyboard on short viewports.
+            <ConnectBar style={[styles.ctaBar, { paddingBottom: insets.bottom + 8 }]}>
+                <ActionButton title="Connect" icon="link-outline" disabled={!pairingValue.trim()} onPress={connectManual} />
+            </ConnectBar>
         )}
         </View>
     );
