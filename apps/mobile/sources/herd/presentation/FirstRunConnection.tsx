@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Platform, Pressable, Share, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StyleSheet, useUnistyles } from 'react-native-unistyles';
@@ -92,7 +92,9 @@ export function FirstRunConnection() {
             {browser ? <FirstRunSetupCard variant="command" /> : (
                 <View style={styles.otherWaysBody}>
                     <Text style={styles.routeHint}>Step 1 · On your computer, run:</Text>
-                    <Text style={styles.installCommand} selectable>{INSTALL_COMMAND}</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <Text style={styles.installCommand} numberOfLines={1} selectable>{INSTALL_COMMAND}</Text>
+                    </ScrollView>
                     <View style={styles.commandActions}>
                         <ActionButton variant="quiet" title={copied ? 'Copied' : 'Copy'} action={async () => {
                             try {
