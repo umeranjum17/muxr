@@ -128,16 +128,18 @@ export default function PairScreen() {
             receive(routePairUrl);
             return undefined;
         }
-        void Linking.getInitialURL().then((url) => {
-            if (cancelled) return;
-            receive(url);
-        }).catch((cause) => {
-            if (!cancelled) setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
-        });
+        if (!openedFromSettings) {
+            void Linking.getInitialURL().then((url) => {
+                if (cancelled) return;
+                receive(url);
+            }).catch((cause) => {
+                if (!cancelled) setState({ phase: 'error', message: cause instanceof Error ? cause.message : String(cause) });
+            });
+        }
         // Warm start: the app was already open when the link arrived.
         const subscription = Linking.addEventListener('url', (event) => receive(event.url));
         return () => { cancelled = true; subscription.remove(); };
-    }, [routePairUrl, browser, sshRoute, reviewPairing]);
+    }, [routePairUrl, browser, sshRoute, openedFromSettings, reviewPairing]);
 
     const pair = React.useCallback(async (url: string, sshInput?: SshFieldInput) => {
         // Link offers pair over the running machine; Direct SSH uses its own route.

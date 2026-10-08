@@ -9,7 +9,7 @@ const harness = vi.hoisted(() => ({
     declined: false,
     authenticated: false,
     initialUrl: null as string | null,
-    params: {} as { offer?: string },
+    params: {} as { offer?: string; source?: string },
     receive: undefined as ((event: { url: string }) => void) | undefined,
     router: { replace: vi.fn(), back: vi.fn() },
 }));
@@ -61,32 +61,11 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
         removeItem: async (key: string) => { harness.asyncValues.delete(key); },
     },
 }));
-vi.mock('@/account/ui', async () => {
-    const React = await import('react');
-    const { TokenStorage } = await import('@/account/infrastructure/tokenStorage');
-    return { useAuth: () => {
-        const [isAuthenticated, setAuthenticated] = React.useState(harness.authenticated);
-        return { isAuthenticated, login: async (token: string, secret: string) => {
-            await TokenStorage.setCredentials({ token, secret });
-            harness.authenticated = true;
-            setAuthenticated(true);
-        } };
-    } };
-});
 vi.mock('@/conversation/session', () => ({
     realtimeMachineSwitchGuard: () => ({ allowed: true }),
     stopRealtimeSession: () => undefined,
 }));
-vi.mock('@/connection', async () => ({
-    ...await import('@/connection/connectionSettings'),
-    forgetSshCredential: async () => undefined,
-    sshTunnelAvailable: () => false,
-}));
 vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), confirm: async () => true } }));
-vi.mock('@/pairing', async () => ({
-    ...await import('./usePairing'),
-    ...await import('./pairArrival'),
-}));
 vi.mock('../infrastructure/linkPairClient', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../infrastructure/linkPairClient')>();
     return {
@@ -130,6 +109,27 @@ function machineOffer(seed: number, overrides: { expires?: number; url?: string 
 }
 
 async function modules() {
+    vi.doMock('@/account/ui', async () => {
+        const React = await import('react');
+        const { TokenStorage } = await import('@/account/infrastructure/tokenStorage');
+        return { useAuth: () => {
+            const [isAuthenticated, setAuthenticated] = React.useState(harness.authenticated);
+            return { isAuthenticated, login: async (token: string, secret: string) => {
+                await TokenStorage.setCredentials({ token, secret });
+                harness.authenticated = true;
+                setAuthenticated(true);
+            } };
+        } };
+    });
+    vi.doMock('@/connection', async () => ({
+        ...await import('@/connection/connectionSettings'),
+        forgetSshCredential: async () => undefined,
+        sshTunnelAvailable: () => false,
+    }));
+    vi.doMock('@/pairing', async () => ({
+        ...await import('./usePairing'),
+        ...await import('./pairArrival'),
+    }));
     const React = await import('react');
     const { default: renderer } = await import('react-test-renderer');
     const { default: PairScreen } = await import('@/app/(app)/pair');
@@ -197,6 +197,20 @@ it('keeps the active pairing through screen recreation and relaunch, but asks be
     await deliver(machineOffer(7, { expires: Date.now() - 60_000 }));
     await expectHome(credentials, active.machineId);
     await unmount();
+
+    harness.initialUrl = offer;
+    harness.params = { source: 'settings' };
+    await mount();
+    expect(harness.router.replace).not.toHaveBeenCalled();
+    expect(pairButtons()).toHaveLength(0);
+    expect(screen.root.findAll((node) => node.type === 'TextInput' && node.props.accessibilityLabel === 'Pairing string')).toHaveLength(1);
+    await deliver(machineOffer(8));
+    expect(pairButtons()).toHaveLength(1);
+    expect(harness.router.replace).not.toHaveBeenCalled();
+    expect(await mod.TokenStorage.getCredentials()).toEqual(credentials);
+    expect(harness.claims).toBe(1);
+    await unmount();
+    harness.params = {};
 
     await mod.storeGrant({ ...active, linkUrl: undefined });
     harness.initialUrl = offer;
