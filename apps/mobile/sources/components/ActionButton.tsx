@@ -20,7 +20,7 @@ export const ActionButton = React.memo((props: {
     icon?: keyof typeof Ionicons.glyphMap;
     disabled?: boolean;
     accessibilityLabel?: string;
-    /** Let a long title wrap to a second line at large text instead of cutting it. */
+    /** Let a long title wrap onto more lines at large text instead of cutting it. */
     wrap?: boolean;
 }) => {
     const styles = stylesheet;
@@ -83,7 +83,7 @@ export const ActionButton = React.memo((props: {
                             variant === 'quiet' && styles.quietText,
                             props.wrap && styles.wrapText,
                         ]}
-                        numberOfLines={props.wrap ? 2 : 1}
+                        numberOfLines={props.wrap ? undefined : 1}
                     >
                         {props.title}
                     </Text>
@@ -102,7 +102,7 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 24,
         alignSelf: 'stretch',
     },
-    wrap: { height: undefined, minHeight: 52, paddingVertical: 8 },
+    wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 12 },
     wrapContent: { maxWidth: '100%' },
     wrapText: { flexShrink: 1, textAlign: 'center' },
     primary: {
