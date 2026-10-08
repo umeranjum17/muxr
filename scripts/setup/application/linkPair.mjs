@@ -71,6 +71,13 @@ export async function linkPair(state, { approve, signal, intent = pairingIntent(
     const deadline = Date.now() + pairSocketWaitMs();
     for (;;) {
         try {
+            // A non-TTY caller (a script, an AI agent) can never compare the
+            // two words or approve; declining would loop, re-minting codes
+            // forever. Only the person at this terminal can pair.
+            if (approve === undefined && existsSync(socketPath) && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+                print('Pairing needs you at this computer\'s terminal: run `muxr pair` yourself');
+                process.exit(2);
+            }
             const running = await pairOnRunningHost(socketPath, approve ?? showApproval, signal, intent);
             if (running !== undefined) return running;
         } catch (error) {
@@ -340,9 +347,5 @@ async function showApproval(req) {
     print('');
     print(`  Compare these words on the phone:  ${req.words}`);
     print('');
-    if (!process.stdin.isTTY || !process.stdout.isTTY) {
-        print('No interactive terminal here, so this device was NOT approved. To pair, the person must approve on this computer after comparing the words: run `muxr pair` in a terminal there and approve when the words match.');
-        return false;
-    }
     return askVisible('Only approve if the words match. Approve this device? (y/n) ', { reaskOnEmpty: true });
 }
