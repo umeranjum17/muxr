@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 // Run with --experimental-test-module-mocks. Only machine I/O is replaced;
 // prompts and wizard decisions run through the real presentation modules.
@@ -29,6 +29,7 @@ async function checkWizard() {
     let lan;
     let currentSummary;
     let agentStatus = 'pi: not installed';
+    let presentAgentBins = [];
     let tailscaleInstalled = true;
     let tailscaleConnected = false;
     let serveStatus = 'free';
@@ -85,6 +86,16 @@ async function checkWizard() {
                 },
                 close() {},
             }),
+        } });
+        // The coding-agent probe scans PATH with accessSync; nothing else in
+        // the exercised setup path uses it, so it alone is simulated here.
+        const fs = await import('node:fs');
+        mock.module('node:fs', { defaultExport: { ...fs }, namedExports: {
+            ...fs,
+            accessSync: (path) => {
+                if (typeof path === 'string' && presentAgentBins.includes(basename(path))) return undefined;
+                throw Object.assign(new Error(`ENOENT: no such file or directory, access '${path}'`), { code: 'ENOENT' });
+            },
         } });
         boundary('../infrastructure/herdr.mjs', {
             herdrServerIsReady: () => true,
@@ -214,6 +225,17 @@ async function checkWizard() {
         assert.match(inspection, /Agent status updates not configured yet — setup can keep agent status up to date/);
         assert.doesNotMatch(inspection, /0 detected/);
         assert.deepEqual(calls, [], 'Inspection mutated setup');
+
+        // No agent binary on PATH: setup names the gap with an install command.
+        assert.match(inspection, /No coding agent found\. Install one, e\.g\. `npm i -g @anthropic-ai\/claude-code`, then sign in/);
+
+        // Agent binaries present: setup lists them instead of warning.
+        presentAgentBins = ['claude', 'codex'];
+        const agentsFound = await run([], ['--inspect']);
+        assert.match(agentsFound, /Coding agents 2 found — claude, codex/);
+        assert.doesNotMatch(agentsFound, /No coding agent found/);
+        assert.deepEqual(calls, [], 'Inspection mutated setup');
+        presentAgentBins = [];
     } finally {
         process.stdout.write = write;
         mock.restoreAll();
