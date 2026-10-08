@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runCommand as run, spawnCommand as spawn, onCommandCleanup, commandSignal, assertCommandActive } from './commands.mjs';
 import { androidArgs } from './deviceTarget.mjs';
+import { waitForRelay } from '../../scripts/diagnostics/application/waitForRelay.mjs';
 
 const RELAY_ENTRY = 'apps/relay/dist/main.js';
 const HOST_ENTRY = 'apps/host/dist/main.js';
@@ -177,9 +178,8 @@ async function startStack(options, live) {
     })}\n`, { encoding: 'utf8', mode: 0o600 });
     chmodSync(journalPath, 0o600);
 
-    const relayPort = await freePort();
-    let hostHttpPort = await freePort();
-    while (hostHttpPort === relayPort) hostHttpPort = await freePort();
+    let relayPort;
+    const hostHttpPort = await freePort();
     const children = [];
     // Which of our processes died, and whether we killed it. A gate that failed
     // because the host exited reads the same as one that timed out unless the
@@ -248,7 +248,7 @@ async function startStack(options, live) {
             cwd: sourceRoot,
             stdio: ['ignore', 'pipe', 'pipe'],
             env: childEnv(home, muxrHome, {
-                MUXR_RELAY_PORT: String(relayPort),
+                MUXR_RELAY_PORT: '0',
                 MUXR_RELAY_HOST: '127.0.0.1',
                 MUXR_RELAY_DATA_DIR: join(muxrHome, 'relay'),
                 MUXR_RELAY_LOCAL_AUTHORITY: '1',
@@ -259,6 +259,8 @@ async function startStack(options, live) {
         track('relay', relay);
         relay.stdout.on('data', (chunk) => relayLog.push(String(chunk)));
         relay.stderr.on('data', (chunk) => relayLog.push(String(chunk)));
+        relayPort = await waitForRelay(relay);
+        if (relayPort === 8792 || relayPort === 8793) throw new Error('Lab relay bound a reserved port');
         if (!await relayHealthy(relayPort)) {
             throw new Error(`the relay never became healthy: ${relayLog.join('').trim().split('\n').slice(-3).join(' | ')}`);
         }
