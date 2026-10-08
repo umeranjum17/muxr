@@ -4,12 +4,16 @@ import { join } from 'node:path';
 import { verifyRelease } from './verifyRelease.mjs';
 import { sealRelease } from './sealRelease.mjs';
 import { reportFiles } from './prepareChangelog.mjs';
-import { digestFile } from '../infrastructure/artifacts.mjs';
+import { artifactPath, digestFile } from '../infrastructure/artifacts.mjs';
+import { requireLinkProtocol } from './requireLinkProtocol.mjs';
 
 export async function publishCandidate() {
     const { RUNNER_TEMP, VERSION, CHANNEL, GITHUB_SHA, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_REPOSITORY, BUILD_CODE } = process.env;
     const directory = join(RUNNER_TEMP, 'candidate');
-    await verifyRelease({ directory, version: VERSION, channel: CHANNEL, commit: GITHUB_SHA, runId: GITHUB_RUN_ID });
+    const manifest = await verifyRelease({ directory, version: VERSION, channel: CHANNEL, commit: GITHUB_SHA, runId: GITHUB_RUN_ID });
+    const packages = manifest.artifacts.filter((item) => item.name.endsWith('.tgz'));
+    if (packages.length !== 1) throw new Error('Exactly one tested npm tarball is required');
+    requireLinkProtocol(artifactPath(directory, packages[0].name));
     const androidDirectory = join(RUNNER_TEMP, 'android');
     const android = JSON.parse(readFileSync(join(androidDirectory, 'result.json')));
     // Nightly carries the development application identity so it installs

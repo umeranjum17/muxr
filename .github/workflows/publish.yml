@@ -93,7 +93,9 @@ jobs:
         with:
           node-version: 22
       - run: npm install --global npm@11.6.2
-      - name: Download and publish verified bytes without rebuilding
+      # publishNpm checks the retained CLI's link protocol against the app's
+      # health gate before any npm publish or latest dist-tag mutation.
+      - name: Check store compatibility and publish verified bytes without rebuilding
         run: |
           gh run download "$BUILD_RUN_ID" --repo "$GITHUB_REPOSITORY" --name npm-candidate --dir "$RUNNER_TEMP/package"
           node scripts/release/presentation/publishNpm.mjs
