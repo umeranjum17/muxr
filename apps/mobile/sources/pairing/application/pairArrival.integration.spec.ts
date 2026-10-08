@@ -1,25 +1,52 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { hostId, keyPairFrom, offerText, parseOffer, unb64url } from '@byokit/link';
-import { PairingNeedsNewCode } from '../domain/pairingString';
+import { linkUrl } from '@byokit/relay/device';
 
-/**
- * Pairing lifecycle journey: pair for real (transport faked at the claim
- * boundary, storage real in memory), then redeliver the launching intent the
- * way a density change and a relaunch do — before the offer expires — and
- * require the pairing to survive with no consent sheet and no second claim.
- */
-const harness = vi.hoisted(() => {
-    Object.assign(globalThis, { __DEV__: false });
-    return {
-        secureValues: new Map<string, string>(),
-        asyncValues: new Map<string, string>(),
-        claims: 0,
-        declined: false,
-    };
-});
+const harness = vi.hoisted(() => ({
+    secureValues: new Map<string, string>(),
+    asyncValues: new Map<string, string>(),
+    claims: 0,
+    declined: false,
+    authenticated: false,
+    initialUrl: null as string | null,
+    params: {} as { offer?: string },
+    receive: undefined as ((event: { url: string }) => void) | undefined,
+    router: { replace: vi.fn(), back: vi.fn() },
+}));
 
 vi.mock('react-native', () => ({
-    Platform: { get OS() { return 'android'; } },
+    Platform: { OS: 'android' },
+    ActivityIndicator: 'ActivityIndicator',
+    Pressable: 'Pressable',
+    ScrollView: 'ScrollView',
+    Text: 'Text',
+    TextInput: 'TextInput',
+    View: 'View',
+}));
+vi.mock('react-native-keyboard-controller', () => ({ KeyboardAwareScrollView: 'ScrollView', KeyboardStickyView: 'View' }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
+vi.mock('react-native-unistyles', () => ({
+    StyleSheet: { create: (styles: (theme: unknown) => unknown) => styles({ colors: {
+        text: '#000', textSecondary: '#555', textDestructive: '#f00', surface: '#fff',
+        surfaceHigh: '#eee', surfaceHighest: '#ddd', divider: '#ccc',
+        button: { primary: { background: '#00f', tint: '#fff' } },
+    } }) },
+}));
+vi.mock('@expo/vector-icons', () => ({ Ionicons: () => null }));
+vi.mock('expo-clipboard', () => ({ setStringAsync: async () => undefined }));
+vi.mock('@/components/haptics', () => ({ hapticsLight: () => undefined }));
+vi.mock('@/herd/presentation/FirstRunConnection', () => ({ RouteSwitcher: () => null }));
+vi.mock('expo-router', () => ({ useRouter: () => harness.router, useLocalSearchParams: () => harness.params }));
+vi.mock('expo-linking', () => ({
+    getInitialURL: async () => harness.initialUrl,
+    addEventListener: (_type: string, receive: (event: { url: string }) => void) => {
+        harness.receive = receive;
+        return { remove: () => { harness.receive = undefined; } };
+    },
+}));
+vi.mock('expo-camera', () => ({
+    CameraView: { isModernBarcodeScannerAvailable: false },
+    useCameraPermissions: () => [{ granted: true }, async () => ({ granted: true })],
 }));
 vi.mock('expo-device', () => ({ isDevice: true }));
 vi.mock('expo-secure-store', () => ({
@@ -34,9 +61,31 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
         removeItem: async (key: string) => { harness.asyncValues.delete(key); },
     },
 }));
+vi.mock('@/account/ui', async () => {
+    const React = await import('react');
+    const { TokenStorage } = await import('@/account/infrastructure/tokenStorage');
+    return { useAuth: () => {
+        const [isAuthenticated, setAuthenticated] = React.useState(harness.authenticated);
+        return { isAuthenticated, login: async (token: string, secret: string) => {
+            await TokenStorage.setCredentials({ token, secret });
+            harness.authenticated = true;
+            setAuthenticated(true);
+        } };
+    } };
+});
 vi.mock('@/conversation/session', () => ({
     realtimeMachineSwitchGuard: () => ({ allowed: true }),
     stopRealtimeSession: () => undefined,
+}));
+vi.mock('@/connection', async () => ({
+    ...await import('@/connection/connectionSettings'),
+    forgetSshCredential: async () => undefined,
+    sshTunnelAvailable: () => false,
+}));
+vi.mock('@/modal', () => ({ Modal: { alert: vi.fn(), confirm: async () => true } }));
+vi.mock('@/pairing', async () => ({
+    ...await import('./usePairing'),
+    ...await import('./pairArrival'),
 }));
 vi.mock('../infrastructure/linkPairClient', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../infrastructure/linkPairClient')>();
@@ -44,12 +93,12 @@ vi.mock('../infrastructure/linkPairClient', async (importOriginal) => {
         ...actual,
         claimLinkPairing: async (
             pending: { scanned: string; secretKey: string; name: string },
-            options: { mode: 'claim' | 'resume'; onClaimed?: () => Promise<void>; onProven?: (answer: never) => Promise<void> },
+            options: { onClaimed?: () => Promise<void>; onProven?: (answer: never) => Promise<void> },
         ) => {
-            if (harness.declined) throw new PairingNeedsNewCode('The computer declined this pairing.');
-            const parsed = parseOffer(pending.scanned, 0);
-            if (parsed.expires < Date.now()) throw new PairingNeedsNewCode('That pairing code has run out.');
             harness.claims += 1;
+            const { PairingNeedsNewCode } = await import('../domain/pairingString');
+            if (harness.declined) throw new PairingNeedsNewCode('The computer declined this pairing.');
+            const parsed = parseOffer(pending.scanned);
             const key = keyPairFrom(unb64url(pending.secretKey));
             const answer = {
                 machineId: `machine-${parsed.ticket}`,
@@ -70,97 +119,128 @@ vi.mock('../infrastructure/linkPairClient', async (importOriginal) => {
 
 const RELAY = 'ws://127.0.0.1:33863';
 
-function machineOffer(seed: number, overrides: { expires?: number; relay?: string } = {}): { offer: string; machineId: string } {
+function machineOffer(seed: number, overrides: { expires?: number; url?: string } = {}): string {
     const hostBytes = Buffer.alloc(32, seed);
-    const urls = [`${overrides.relay ?? RELAY}/link/v1/${hostId(hostBytes)}`];
-    const ticket = Buffer.alloc(16, seed).toString('base64url');
-    const offer = offerText({
-        v: 1,
-        host: hostBytes.toString('base64url'),
-        name: 'Umer-test',
-        urls,
-        ticket,
-        expires: overrides.expires ?? Date.now() + 240_000,
-        role: 'control',
+    return offerText({
+        v: 1, host: hostBytes.toString('base64url'), name: 'Umer-test',
+        urls: [overrides.url ?? linkUrl(RELAY, hostId(hostBytes))],
+        ticket: Buffer.alloc(16, seed).toString('base64url'),
+        expires: overrides.expires ?? Date.now() + 240_000, role: 'control',
     });
-    return { offer, machineId: `machine-${ticket}` };
 }
 
-/** Fresh module state over the same persisted secrets: a relaunch. Same state continuing: a density change. */
 async function modules() {
-    const linkPairing = await import('./linkPairing');
-    const pairMachine = await import('./PairMachine');
-    const pairArrival = await import('./pairArrival');
-    const tokenStorage = await import('@/account/infrastructure/tokenStorage');
+    const React = await import('react');
+    const { default: renderer } = await import('react-test-renderer');
+    const { default: PairScreen } = await import('@/app/(app)/pair');
+    const { TokenStorage } = await import('@/account/infrastructure/tokenStorage');
     const connection = await import('@/connection/connectionSettings');
-    return { ...linkPairing, ...pairMachine, ...pairArrival, TokenStorage: tokenStorage.TokenStorage, ...connection };
+    const pairing = await import('./linkPairing');
+    const grants = await import('../infrastructure/grantStore');
+    return { React, renderer, PairScreen, TokenStorage, ...connection, ...pairing, ...grants };
 }
 
-async function pairPhone(mod: Awaited<ReturnType<typeof modules>>, offer: string): Promise<void> {
-    const grant = await mod.pairOverLink(offer);
-    const paired = await mod.pairMachine({ grant });
-    if (!paired.ok) throw new Error('pairMachine failed in journey');
-    await mod.TokenStorage.setCredentials({ token: paired.credential, secret: paired.secretKey });
-}
+it('keeps the active pairing through screen recreation and relaunch, but asks before switching', async () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    let mod = await modules();
+    let screen!: import('react-test-renderer').ReactTestRenderer;
+    const mount = async () => {
+        await mod.renderer.act(async () => { screen = mod.renderer.create(mod.React.createElement(mod.PairScreen)); });
+    };
+    const unmount = async () => {
+        await mod.renderer.act(async () => { screen.unmount(); });
+        harness.router.replace.mockClear();
+    };
+    const pairButtons = () => screen.root.findAll((node) => node.type === 'Pressable' && node.props.accessibilityLabel === 'Pair');
+    const pressPair = async () => {
+        expect(pairButtons()).toHaveLength(1);
+        await mod.renderer.act(async () => { pairButtons()[0]!.props.onPress(); });
+    };
+    const deliver = async (url: string) => {
+        expect(harness.receive).toBeDefined();
+        await mod.renderer.act(async () => { harness.receive!({ url }); });
+    };
+    const expectHome = async (credentials: unknown, machineId: string) => {
+        expect(harness.router.replace).toHaveBeenCalledWith('/');
+        expect(pairButtons()).toHaveLength(0);
+        expect(await mod.TokenStorage.getCredentials()).toEqual(credentials);
+        expect((await mod.loadConnectionSettingsAsync()).machineId).toBe(machineId);
+        expect(harness.claims).toBe(1);
+    };
 
-async function isAuthenticated(mod: Awaited<ReturnType<typeof modules>>): Promise<boolean> {
-    return (await mod.TokenStorage.getCredentials()) !== null;
-}
+    const offer = machineOffer(7);
+    harness.initialUrl = offer;
+    await mount();
+    expect(harness.router.replace).not.toHaveBeenCalled();
+    await pressPair();
+    const credentials = await mod.TokenStorage.getCredentials();
+    expect(credentials).not.toBeNull();
+    const active = (await mod.listPairedGrants())[0]!;
+    expect(harness.claims).toBe(1);
+    await unmount();
 
-beforeEach(() => {
-    harness.secureValues.clear();
-    harness.asyncValues.clear();
-    harness.claims = 0;
+    harness.params = { offer };
+    await mount();
+    await expectHome(credentials, active.machineId);
+    await unmount();
+
+    vi.resetModules();
+    harness.params = {};
+    mod = await modules();
+    harness.authenticated = (await mod.TokenStorage.getCredentials()) !== null;
+    await mount();
+    await expectHome(credentials, active.machineId);
+    await unmount();
+
+    harness.initialUrl = null;
+    await mount();
+    await deliver(machineOffer(7, { expires: Date.now() - 60_000 }));
+    await expectHome(credentials, active.machineId);
+    await unmount();
+
+    await mod.storeGrant({ ...active, linkUrl: undefined });
+    harness.initialUrl = offer;
+    await mount();
+    await expectHome(credentials, active.machineId);
+    await unmount();
+
+    harness.initialUrl = null;
+    await mount();
+    await deliver(machineOffer(7, { url: `${RELAY}/unrelated` }));
+    expect(pairButtons()).toHaveLength(1);
+    expect(harness.router.replace).not.toHaveBeenCalled();
+    await unmount();
+
+    const other = machineOffer(8);
+    await mount();
+    await deliver(other);
+    expect(pairButtons()).toHaveLength(1);
+    expect(harness.router.replace).not.toHaveBeenCalled();
+    harness.declined = true;
+    await pressPair();
+    expect(screen.root.findAll((node) => node.type === 'Text' && node.props.accessibilityRole === 'alert')
+        .map((node) => node.props.children)).toContain('The computer declined this pairing.');
+    expect(harness.router.replace).not.toHaveBeenCalled();
+    expect(await mod.TokenStorage.getCredentials()).toEqual(credentials);
+    expect(mod.getCachedConnectionSettings().machineId).toBe(active.machineId);
+    await unmount();
+
     harness.declined = false;
-});
+    harness.initialUrl = other;
+    await mount();
+    await pressPair();
+    const switchedCredentials = await mod.TokenStorage.getCredentials();
+    const switchedSettings = await mod.loadConnectionSettingsAsync();
+    expect(switchedSettings.machineId).not.toBe(active.machineId);
+    expect(await mod.listPairedGrants()).toHaveLength(2);
+    await unmount();
 
-describe('pairing lifecycle journey', () => {
-    it('a density change and a relaunch keep the pairing with no consent and no second claim', async () => {
-        const first = await modules();
-        const { offer } = machineOffer(7);
-        await pairPhone(first, offer);
-        expect(await first.listPairedGrants()).toHaveLength(1);
-        expect(await isAuthenticated(first)).toBe(true);
-
-        // Density change: same JS state, the OS redelivers the launching intent.
-        expect(await first.resolvePairArrival(offer, { authenticated: await isAuthenticated(first), source: 'intent' })).toBe('home');
-
-        // Relaunch: fresh JS state over the same persisted secrets.
-        vi.resetModules();
-        const second = await modules();
-        expect(await isAuthenticated(second)).toBe(true);
-        expect(await second.listPairedGrants()).toHaveLength(1);
-        expect(await second.resolvePairArrival(offer, { authenticated: await isAuthenticated(second), source: 'intent' })).toBe('home');
-
-        // The consumed offer was never claimed twice, expired or not.
-        const spent = machineOffer(7, { expires: Date.now() - 60_000 });
-        expect(spent.offer).not.toBe(offer);
-        expect(await second.resolvePairArrival(spent.offer, { authenticated: true, source: 'intent' })).toBe('home');
-        expect(harness.claims).toBe(1);
-    });
-
-    it('a different machine still shows consent, and garbage keeps the form', async () => {
-        const mod = await modules();
-        const { offer } = machineOffer(11);
-        await pairPhone(mod, offer);
-        const authenticated = await isAuthenticated(mod);
-
-        const other = machineOffer(12);
-        expect(await mod.resolvePairArrival(other.offer, { authenticated, source: 'intent' })).toBe('confirm');
-        expect(await mod.resolvePairArrival('byokit-link:1:not-an-offer', { authenticated, source: 'intent' })).toBe('form');
-        expect(await mod.resolvePairArrival(other.offer, { authenticated: false, source: 'intent' })).toBe('confirm');
-        expect(harness.claims).toBe(1);
-    });
-
-    it('a declined claim reports its failure instead of silently going home', async () => {
-        const mod = await modules();
-        const { offer } = machineOffer(21);
-        await pairPhone(mod, offer);
-        harness.declined = true;
-        // The class identity splits across the relaunch's resetModules, so
-        // assert the surfaced failure rather than the constructor: what
-        // matters is that a declined claim reports instead of going home.
-        await expect(mod.pairOverLink(machineOffer(22).offer)).rejects.toThrow(/declined/i);
-        expect(harness.claims).toBe(1);
-    });
+    harness.initialUrl = offer;
+    await mount();
+    expect(pairButtons()).toHaveLength(1);
+    expect(harness.router.replace).not.toHaveBeenCalled();
+    expect(await mod.TokenStorage.getCredentials()).toEqual(switchedCredentials);
+    expect(mod.getCachedConnectionSettings().machineId).toBe(switchedSettings.machineId);
+    expect(harness.claims).toBe(3);
+    await unmount();
 });

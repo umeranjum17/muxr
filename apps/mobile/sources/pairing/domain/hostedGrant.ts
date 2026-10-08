@@ -1,4 +1,5 @@
 import { hostId, parseOffer, unb64url, type PairOffer } from '@byokit/link';
+import { linkUrl } from '@byokit/relay/device';
 import { decodeBase64 } from '@/encryption/base64';
 
 export type DeviceAuthority = 'control' | 'observe';
@@ -95,7 +96,5 @@ export function offerMatchesGrant(
         return false;
     }
     if (hostId(offerKey) !== hostId(grantKey)) return false;
-    if (grant.linkUrl !== undefined && grant.linkUrl !== '') return parsed.urls.includes(grant.linkUrl);
-    return grant.relayUrl !== ''
-        && parsed.urls.some((url) => url === grant.relayUrl || url.startsWith(`${grant.relayUrl}/`));
+    return parsed.urls.includes(grant.linkUrl ?? linkUrl(grant.relayUrl, hostId(grantKey)));
 }

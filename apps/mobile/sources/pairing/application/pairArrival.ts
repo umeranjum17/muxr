@@ -1,5 +1,6 @@
 import { decidePairingInput, linkOfferFromUrl, type PairArrivalSource } from '../domain/pairingString';
-import { offerMatchesGrant } from '../domain/hostedGrant';
+import { offerMatchesGrant, pickGrantForConnection } from '../domain/hostedGrant';
+import { loadConnectionSettingsAsync } from '@/connection';
 import { listPairedGrants } from './linkPairing';
 
 /** Where an arriving offer takes the app: its consent screen, the manual form, or back to the existing pairing. */
@@ -22,7 +23,9 @@ export async function resolvePairArrival(raw: string, args: {
     if (args.source === 'intent' && args.authenticated) {
         try {
             const offer = linkOfferFromUrl(raw);
-            if (offer !== undefined && (await listPairedGrants()).some((grant) => offerMatchesGrant(offer, grant))) {
+            const settings = await loadConnectionSettingsAsync();
+            const grant = pickGrantForConnection(settings, await listPairedGrants());
+            if (offer !== undefined && grant !== undefined && offerMatchesGrant(offer, grant)) {
                 return 'home';
             }
         } catch {
