@@ -7,7 +7,6 @@ const DESTINATIONS = {
     'new agent': '/new-agent',
     settings: '/settings',
     'voice settings': '/settings/voice',
-    plugins: '/settings/plugins',
     appearance: '/settings/appearance',
     preferences: '/settings/features',
     connection: '/settings/connection',
@@ -19,7 +18,6 @@ function screenName(pathname: string): string {
     if (pathname.startsWith('/session/')) return 'agent conversation';
     if (pathname.startsWith('/machine/')) return 'machine';
     if (pathname.startsWith('/workspace/')) return 'workspace';
-    if (pathname.startsWith('/plugin')) return 'plugin';
     return 'app';
 }
 

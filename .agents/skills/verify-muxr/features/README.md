@@ -45,6 +45,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 ## Features
 
+- [Select a safe development Herdr session](./dev-herdr-guard.md) —
+  direct socket guard proof without launching a stack; no baseline needed.
+
 - [Share a file into a pane's Shared Artifacts](./shared-artifact.md) —
   `muxr share`, collision suffixes, dotfile rename, missing-target failure,
   versioned page shares and their refusals, and the retention view of the
@@ -67,3 +70,7 @@ user-visible behavior, then exactly four H2 sections in this order:
 - [Add a second Claude account on iPhone and iPad](./accounts-ios.md) —
   Release simulator app over a fake-Herdr stack: the Added notice names
   accounts as the list does, light and dark, before/after one build.
+- [See what runs your sessions from Settings](./settings-herdr-info.md) —
+  Settings `Herdr` row and sheet with the `herdr agent list` command, Copy
+  feedback, and the real-Herdr lab log proving the command lists the host's
+  sessions.
