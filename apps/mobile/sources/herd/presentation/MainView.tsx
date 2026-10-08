@@ -18,8 +18,6 @@ import { storage, useHerdrRuntime, useHerdrTree, useLocalSetting, useSessionsLoa
 import { sync } from '@/catalog/sync';
 import { useSplitViewLayout } from '@/utils/responsive';
 import { useRouter } from 'expo-router';
-import { PluginSlot, DeclarativeHomeCards, DeclarativePhoneNavRow } from '@/plugins/ui';
-import { pluginHref } from '@/plugins';
 import { HomeDock, MOBILE_HOME_DOCK_CONTENT_INSET } from '@/spawn/ui';
 import { HerdView } from './HerdView';
 import { LiveTerminalsRow, type LiveCardBadgeInfo } from './LiveTerminalsRow';
@@ -417,9 +415,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
         }).catch(() => undefined);
     }, [authorityLoading, router, sessionsLoaded, socketStatus.status]);
 
-    // The home is the screen: no tabs. Plugin destinations live where their
-    // content belongs (settings rows, home cards, session actions), never as
-    // top-level navigation.
+    // The home is the screen: no tabs and no top-level navigation.
     const [searchQuery, setSearchQuery] = React.useState('');
     const [searchActive, setSearchActive] = React.useState(false);
     const [homePrompt, setHomePrompt] = React.useState('');
@@ -431,8 +427,6 @@ export const MainView = React.memo(({ liveCardBadge }: {
     }, []);
     const [headerBackdropVisible, setHeaderBackdropVisible] = React.useState(false);
     const headerBackdropVisibleRef = React.useRef(false);
-    // Plugin surfaces live in the home body on every surface: cards first,
-    // then whatever navigation the catalog still contributes as chips.
     const topContentInset = Platform.OS === 'web'
         ? 0
         : safeArea.top
@@ -483,10 +477,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
 
     const permanentRecovery = !['host', 'runtime'].includes(recoveryMode(socketStatus.error, false));
     const homeHeader = <>
-        <PluginSlot slot="home.cards" context={{}} />
         {!permanentRecovery && <RightNowCard linkDown={socketStatus.status !== 'connected'} />}
-        <DeclarativeHomeCards />
-        <DeclarativePhoneNavRow onSelect={(pluginId, contentId) => router.push(pluginHref(pluginId, contentId))} />
     </>;
 
     // In split view, the sidebar is the only navigator. The landing pane is
@@ -526,9 +517,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
                     ) : splitBusy && splitBusySince !== null ? <BusyConnectingCard since={splitBusySince} /> : null}
                     {/* The same order as the phone: plans and machine first, then Live,
                         then what to start. */}
-                    <PluginSlot slot="home.cards" context={{}} />
                     {!permanentRecovery && <RightNowCard linkDown={socketStatus.status !== 'connected'} />}
-                    <DeclarativeHomeCards />
                     {!splitRecovering && !splitBusy
                         ? <LiveTerminalsRow showZeroState={!splitEmpty} visibilityTop={safeArea.top} visibilityBottomInset={safeArea.bottom} cardBadge={liveCardBadge} /> : null}
                     {splitEmpty ? <HomeEmptyState />

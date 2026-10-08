@@ -16,9 +16,8 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { initialWindowMetrics, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { PluginSlot } from '@/plugins/ui';
 import { RealtimeSessionOverlay } from '@/conversation/presentation/RealtimeSessionOverlay';
-import { usePluginEvents } from '@/plugins';
+import { useAgentStopReports } from '@/watch/agentStopReports';
 import { SidebarNavigator } from '@/herd/ui';
 import { View, Platform, AppState, Pressable, Text } from 'react-native';
 import { ModalProvider } from '@/modal';
@@ -133,9 +132,9 @@ SplashScreen.preventAutoHideAsync();
 initConsoleLogging()
 
 // Component to apply horizontal safe area padding
-/** Kernel side of manifest-declared triggers; owns no feature behaviour. */
-function PluginEventRunner() {
-    usePluginEvents();
+/** Voice report when a watched agent stops; owns no feature behaviour. */
+function AgentStopReporter() {
+    useAgentStopReports();
     return null;
 }
 function RealtimeAppControlBridge() {
@@ -536,11 +535,8 @@ export default function RootLayout() {
                                             {/* Keep the root conversation mounted while routes change. */}
                                             <SidebarNavigator />
                                         </HorizontalSafeAreaWrapper>
-                                        <PluginEventRunner />
-                                        {/* Realtime voice is product code: its overlay is mounted
-                                            here rather than by a plugin contribution. */}
+                                        <AgentStopReporter />
                                         <RealtimeSessionOverlay />
-                                        <PluginSlot slot="app.overlay" context={{}} />
                                 </CommandPaletteProvider>
                             </ModalProvider>
                         </ThemeProvider>

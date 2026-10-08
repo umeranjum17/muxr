@@ -1,8 +1,5 @@
 import { MUXR_UI_VERSION, pluginCompatibilityError, type PluginManifestV1, type PluginSummary } from '@trymuxr/contract';
 import { registerPluginInvalidationHandler, sync } from '@/catalog/sync';
-import bakedShortcuts from '../bundledShortcuts.json';
-import { resolvePluginText } from '../domain/pluginText';
-import { setPluginShortcuts } from '@/../modules/plugin-shortcuts';
 
 export type ApprovedPlugin = { summary: PluginSummary & { manifestHash: string }; manifest: PluginManifestV1 };
 export type PluginCatalogEntry = { summary: PluginSummary; manifest?: PluginManifestV1 };
@@ -12,7 +9,6 @@ let loadedOnce = false;
 let loading: Promise<void> | undefined;
 let queued = false;
 let unavailable = new Map<string, string>();
-let shortcutProjection = '';
 const manifestCache = new Map<string, PluginManifestV1>();
 const listeners = new Set<() => void>();
 
@@ -67,19 +63,6 @@ export function refreshPlugins(): Promise<void> {
                 const existing = previous.get(cacheKey(summary.pluginId, summary.manifestHash));
                 return [existing !== undefined && sameSummary(existing.summary, summary) ? existing : { summary, manifest }];
             });
-            const shortcuts = snapshot.flatMap(({ summary, manifest }) => manifest.contributions.flatMap((contribution) =>
-                contribution.slot === 'shortcuts' ? [{
-                    id: `${summary.pluginId}.${contribution.id}`,
-                    label: resolvePluginText(contribution.label),
-                    longLabel: resolvePluginText(contribution.longLabel ?? contribution.label),
-                }] : [],
-            )).sort((left, right) => left.id.localeCompare(right.id));
-            const bakedIds = (bakedShortcuts as Array<{ id: string }>).map(({ id }) => id).sort();
-            const nextProjection = JSON.stringify([shortcuts, bakedIds]);
-            if (nextProjection !== shortcutProjection) {
-                setPluginShortcuts(shortcuts, bakedIds);
-                shortcutProjection = nextProjection;
-            }
             for (const listener of listeners) listener();
         } while (queued);
     })();

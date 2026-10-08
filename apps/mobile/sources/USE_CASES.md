@@ -1,8 +1,8 @@
 # Mobile use cases
 
-Named application operations. Each file is one real thing muxr does: a command in, a result out, domain objects and ports in the middle. Routes, hooks, plugin slots, and host adapters call these; they do not own the decision.
+Named application operations. Each file is one real thing muxr does: a command in, a result out, domain objects and ports in the middle. Routes, hooks, and host adapters call these; they do not own the decision.
 
-Helpers next to use cases (draft state, dock options, live-row order, plugin catalog) are not operations. Do not promote them to use cases and do not dump them in a `services/` folder.
+Helpers next to use cases (draft state, dock options, live-row order) are not operations. Do not promote them to use cases and do not dump them in a `services/` folder.
 
 Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CONTEXT.md).
 
@@ -22,8 +22,7 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 | Grant peer authority | `collaboration/GrantPeerAuthority.ts` | `Collaboration` | Settings → Collaboration |
 | Revoke peer authority | `collaboration/RevokePeerAuthority.ts` | `Collaboration` | Settings → Collaboration disconnect |
 | Open Terminal | `terminal/application/OpenTerminal.ts` | live pane / Agent Route | `TerminalView` |
-| Run plugin action | `plugins/application/RunPluginAction.ts` | screen/tree models | `pluginActions.ts` (modals + router) |
-| Run plugin shortcut | `plugins/application/RunPluginShortcut.ts` | enabled catalog, baked product shortcuts | `app/(app)/shortcut/[id].tsx` |
+| Start voice from a launcher shortcut | `app/(app)/shortcut/[id].tsx` | baked product shortcut | `plugins/withAppActions.js`, iOS `VoiceShortcutAppDelegateSubscriber` |
 
 ## Runtime
 
@@ -35,7 +34,7 @@ Navigate by capability. Domain language is in the root [CONTEXT.md](../../../CON
 | Read a listed Agent | `catalog/application/readAgentSession.ts` | Agent | Catalog store lookups by Agent Route |
 | Stop or abort an Agent | `catalog/application/stopAgent.ts` | Agent | `catalog/application/ops.ts` (`sessionStop`, `sessionAbort`) |
 | Watch Agent lifecycle on this machine | `watch/watchAgentLifecycle.ts` | Agent Watch | `catalog/application/sync.ts` bootstrap |
-| Report an Agent outcome | `watch/reportAgentOutcome.ts` | Voice Report | `watch/wakeAndReport.ts`, product agent-stop trigger in `plugins/application/usePluginEvents.ts` |
+| Report an Agent outcome | `watch/reportAgentOutcome.ts` | Voice Report | `watch/wakeAndReport.ts`, product agent-stop trigger in `watch/agentStopReports.ts` |
 | Bind this device to a machine | `pairing/application/PairMachine.ts` | Pairing String, Hosted Grant, PairedMachine | `usePairing.ts`, `app/(app)/pair.tsx` |
 | Restore a paired connection | `pairing/application/restoreConnection.ts` | Hosted Grant, Connection | `linkPairing.ts` (`restoreHostedConnection`) |
 | Forget a pairing on this device | `pairing/application/forgetMachine.ts` | Hosted Grant | `SettingsView.tsx` |
