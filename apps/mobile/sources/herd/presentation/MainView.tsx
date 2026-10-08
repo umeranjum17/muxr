@@ -255,11 +255,11 @@ const HeaderTitle = React.memo(({ large = false, linkDown = false }: { large?: b
                     onPress={() => { void openMachinePicker(); }}
                     style={styles.machineTitleButton}
                 >
-                    <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
+                    <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={2}>{title}</Text>
                     <Ionicons name="chevron-down" size={13} color={theme.colors.header.tint} />
                 </Pressable>
             ) : (
-                <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={1}>{title}</Text>
+                <Text style={[styles.titleText, large && styles.tabletTitleText]} numberOfLines={2}>{title}</Text>
             )}
             {connectionStatus.text && <HomeHeaderStatus {...connectionStatus} large={large} />}
             <OptionSheet
@@ -427,10 +427,11 @@ export const MainView = React.memo(({ liveCardBadge }: {
     }, []);
     const [headerBackdropVisible, setHeaderBackdropVisible] = React.useState(false);
     const headerBackdropVisibleRef = React.useRef(false);
+    // Large text grows the header past its usual height; content starts below what it measured.
+    const [phoneHeaderHeight, setPhoneHeaderHeight] = React.useState(0);
     const topContentInset = Platform.OS === 'web'
         ? 0
-        : safeArea.top
-            + MOBILE_GLASS_HEADER_HEIGHT
+        : Math.max(safeArea.top + MOBILE_GLASS_HEADER_HEIGHT, phoneHeaderHeight)
             + 12;
     // A view-only grant cannot start agents, so it gets no composer.
     const dockVisible = authority === 'control' && !authorityLoading && !searchActive && !phoneHomeRecovering;
@@ -544,7 +545,7 @@ export const MainView = React.memo(({ liveCardBadge }: {
 
     // Compact home uses the same header, herd, and (when permitted) composer dock on web and native.
     const phoneHeader = (
-        <View style={[styles.phoneHeader, Platform.OS !== 'web' && styles.phoneHeaderOverlay]}>
+        <View style={[styles.phoneHeader, Platform.OS !== 'web' && styles.phoneHeaderOverlay]} onLayout={(e) => setPhoneHeaderHeight(e.nativeEvent.layout.height)}>
             <Header
                 title={searchActive
                     ? <HeaderSearch value={searchQuery} onChangeText={setSearchQuery} />

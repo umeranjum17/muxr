@@ -122,7 +122,7 @@ export const Header = React.memo((props: HeaderProps) => {
                 </Animated.View>
             )}
             <View style={styles.contentWrapper}>
-                <View style={[styles.content, isDesktop && styles.desktopContent, compactHorizontalPadding && styles.compactContent, { height: contentHeight }]}>
+                <View style={[styles.content, isDesktop && styles.desktopContent, compactHorizontalPadding && styles.compactContent, { minHeight: contentHeight }]}>
                     <View style={styles.leftContainer}>
                         {headerLeft && headerLeftUsesGlass && (
                             <MobileGlassSurface

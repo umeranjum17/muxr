@@ -20,6 +20,8 @@ export const ActionButton = React.memo((props: {
     icon?: keyof typeof Ionicons.glyphMap;
     disabled?: boolean;
     accessibilityLabel?: string;
+    /** Let a long title wrap onto more lines at large text instead of cutting it. */
+    wrap?: boolean;
 }) => {
     const styles = stylesheet;
     const [busy, setBusy] = React.useState(false);
@@ -50,6 +52,7 @@ export const ActionButton = React.memo((props: {
             accessibilityState={{ disabled: !!props.disabled, busy }}
             style={(p) => [
                 styles.base,
+                props.wrap && styles.wrap,
                 variant === 'primary' && styles.primary,
                 variant === 'secondary' && styles.secondary,
                 variant === 'quiet' && styles.quiet,
@@ -64,7 +67,7 @@ export const ActionButton = React.memo((props: {
                     color={variant === 'primary' ? styles.primaryText.color : styles.secondaryText.color}
                 />
             ) : (
-                <View style={styles.content}>
+                <View style={[styles.content, props.wrap && styles.wrapContent]}>
                     {props.icon !== undefined && (
                         <Ionicons
                             name={props.icon}
@@ -78,8 +81,9 @@ export const ActionButton = React.memo((props: {
                             variant === 'primary' && styles.primaryText,
                             variant === 'secondary' && styles.secondaryText,
                             variant === 'quiet' && styles.quietText,
+                            props.wrap && styles.wrapText,
                         ]}
-                        numberOfLines={1}
+                        numberOfLines={props.wrap ? undefined : 1}
                     >
                         {props.title}
                     </Text>
@@ -98,6 +102,9 @@ const stylesheet = StyleSheet.create((theme) => ({
         paddingHorizontal: 24,
         alignSelf: 'stretch',
     },
+    wrap: { height: undefined, minHeight: 52, paddingVertical: 8, paddingHorizontal: 12 },
+    wrapContent: { maxWidth: '100%' },
+    wrapText: { flexShrink: 1, textAlign: 'center' },
     primary: {
         backgroundColor: theme.colors.button.primary.background,
     },
