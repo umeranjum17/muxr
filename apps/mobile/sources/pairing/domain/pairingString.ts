@@ -99,6 +99,15 @@ export class PairingNeedsNewCode extends Error {}
 export function linkOfferFromUrl(value: string): string | undefined {
     const input = value.replace(/\s+/g, '');
     if (LINK_OFFER.test(input) || validCompactOffer(input)) return input;
+    // expo-router hands a custom-scheme deep link to native-intent as a
+    // path like `/pair#<offer>` (scheme stripped). Accept that form too.
+    const hash = input.indexOf('#');
+    if (hash >= 0) {
+        const before = input.slice(0, hash);
+        const offer = input.slice(hash + 1);
+        if ((before === 'pair' || before === '/pair' || before.endsWith('://pair') || before.endsWith('/pair'))
+            && (LINK_OFFER.test(offer) || validCompactOffer(offer))) return offer;
+    }
     try {
         const url = new URL(input);
         const app = ['muxr:', 'muxr-dev:', 'muxr-preview:'].includes(url.protocol)
