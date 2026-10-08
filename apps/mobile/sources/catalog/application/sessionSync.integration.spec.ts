@@ -1274,6 +1274,8 @@ describe('session sync flow', () => {
     });
 
     it('keeps migrated and new space pins on their own paired computer across switches and remounts', async () => {
+        // The restart flow resets modules; use the same current store as realSync.
+        const { storage } = await import('./storage');
         mmkvValues.clear();
         const space = (workspaceId: string, label: string): HerdrTreeWorkspace =>
             ({ workspaceId, label, focused: false, agentStatus: 'idle', tabs: [] });
