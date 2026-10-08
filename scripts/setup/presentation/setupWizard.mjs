@@ -355,6 +355,12 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
         }
     }
 
+    // First run keeps the defaults (phone app only, pair the phone):
+    // the browser-client, pairing, and status-updates questions stay
+    // available when changing the connection later, and browser pairing
+    // stays in the devices menu.
+    const isFirstRun = current === undefined;
+    if (isFirstRun) return { mode, port, endpoint, web: false, pairing: 'phone' };
     setupStep(3, totalSteps, 'Choose app access');
     let web = false;
     if (modeAllowsBrowserHosting(mode)) {
@@ -493,19 +499,25 @@ export async function applyMachineSetup(args = []) {
 
     return withFullscreen(async () => {
     const found = await withSpinner('Inspecting Herdr, agents, and networking', async () => probeMachine());
+    const current = await selfhostPublicSummary();
+    // A first run skips the browser-client, pairing, and status-updates
+    // questions and keeps their defaults; they stay reachable from the
+    // muxr menu (change connection, devices).
+    const isFirstRun = current === undefined;
     // A first run with no coding-agent providers installed has nothing to
     // sync, so the status-updates question is hidden instead of asked and
     // answered to no effect. A failed availability check keeps the question:
     // sync may still succeed when the check itself is what broke.
     const asksIntegrations = !found.agents.checked || found.agents.available.length > 0;
-    const totalSteps = asksIntegrations ? 7 : 6;
+    let totalSteps = 6;
+    if (asksIntegrations) totalSteps = 7;
+    if (isFirstRun) totalSteps = 4;
     setupStep(1, totalSteps, 'Check this computer');
     renderInspection(found);
     // A disconnected Tailscale installation is proposed as one reviewed route;
     // connecting it remains behind Apply instead of becoming a preflight prompt.
     const tailscalePlanned = found.tailscale.installed && !found.tailscale.connected && found.tailscale.backend !== undefined;
     const cancelSetup = () => cancelled();
-    const current = await selfhostPublicSummary();
 
     setupStep(2, totalSteps, 'Connect your phone');
     let plan = await chooseMachineConnection({ found, current, tailscalePlanned, requestedMode, args, totalSteps });
@@ -518,7 +530,7 @@ export async function applyMachineSetup(args = []) {
     else if (current !== undefined) existingConnections = 'keep working; restart only if a reviewed runtime setting changed';
 
     let syncIntegrations = false;
-    if (asksIntegrations) {
+    if (asksIntegrations && !isFirstRun) {
         setupStep(5, totalSteps, 'Agent status updates');
         syncIntegrations = await select(found.agents.checked
             ? 'Keep agent status up to date?'
@@ -529,6 +541,21 @@ export async function applyMachineSetup(args = []) {
         if (aborted(syncIntegrations)) return cancelSetup();
     }
 
+    if (isFirstRun) {
+        setupStep(3, totalSteps, 'Review setup');
+        note([
+            `Your phone will reach this computer over ${connectionLabel(plan.mode, plan.endpoint, plan.port)}.`,
+            found.herdr.installed
+                ? 'We will use the Herdr already on this computer.'
+                : 'We will install Herdr during setup.',
+            'Your phone pairs next with a short code.',
+            'You can add a browser or change status updates later from the muxr menu.',
+            ...(plan.mode === 'lan'
+                ? ['This works only on this Wi-Fi and stops working when you leave home.']
+                : []),
+            'No change is made until you choose Apply setup.',
+        ]);
+    } else {
     setupStep(asksIntegrations ? 6 : 5, totalSteps, 'Review setup');
     note([
         `Connection: ${connectionLabel(plan.mode, plan.endpoint, plan.port)}`,
@@ -544,6 +571,7 @@ export async function applyMachineSetup(args = []) {
         `Existing connections: ${existingConnections}`,
         'No change is made until you choose Apply setup.',
     ]);
+    }
     const apply = await select('Apply this setup?', [
         { value: false, title: 'Cancel', description: 'leave this machine unchanged' },
         { value: true, title: 'Apply setup', description: 'make the reviewed changes and verify health; pair a new device if selected' },
@@ -580,6 +608,15 @@ export async function applyMachineSetup(args = []) {
     if (doctor !== 0) return doctor;
     const summary = await selfhostPublicSummary();
     heading('Setup complete');
+    if (isFirstRun) {
+        note([
+            `Your phone reaches this computer over ${connectionLabel(mode, endpoint, port)}.`,
+            'Everything is installed and running.',
+            ...(mode === 'lan'
+                ? ['This works only on this Wi-Fi and stops working when you leave home.']
+                : []),
+        ]);
+    } else {
     note([
         `Your host runs here. Phones reach it over ${relayKind(mode)}.${pairing === 'none' ? ' Pair with `muxr pair` when ready.' : ''}`,
         `Connection: ${connectionLabel(mode, endpoint, port)}`,
@@ -597,6 +634,12 @@ export async function applyMachineSetup(args = []) {
             : []),
         `Configuration: ${selfhostPath()} (owner-only; use \`muxr setup\` to change the route)`,
     ]);
+    }
+    if (isFirstRun) {
+        outro('Open muxr on your phone and tap Start');
+        completeFullscreen();
+        return 0;
+    }
     outro(browserPairFailed
         ? 'Core setup is ready, but browser pairing needs attention.'
         : pairing === 'none'
