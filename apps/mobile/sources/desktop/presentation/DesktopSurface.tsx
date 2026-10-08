@@ -20,7 +20,7 @@ import { hapticsSelection } from '@/components/haptics';
 import { claimDesktopRequest, peekDesktopRequest, previewDocks, requestDesktop } from '../request';
 import { createDesktopSignaling } from '../application/desktopSignaling';
 import { desktopCopy, previewCopy, previewIcon } from '../model/desktopCopy';
-import { describeDesktopOverlay, describeInputRejection, describePreviewOverlay, type PreviewKind } from '../model/desktopOverlay';
+import { describeDesktopFailureDetail, describeDesktopOverlay, describeInputRejection, describePreviewOverlay, type PreviewKind } from '../model/desktopOverlay';
 import { DESKTOP_KEY_ROW_HEIGHT, DesktopKeyRow } from './DesktopKeyRow';
 
 /** Request smoother motion than the engine's default; still frames are not repeated. */
@@ -218,7 +218,7 @@ function DesktopSurfaceBody({ sessionId, onExit, title, leading, target, docked 
                 session: { permissions },
             };
         }, [targetSession]),
-        onError: (failure) => say(failure.message),
+        onError: (failure) => say(describeDesktopFailureDetail(failure)),
         // Text the desktop refused is a notice, not a failure: the session
         // carries on, and the clipboard is the way round.
         onRejected: ({ code }) => {

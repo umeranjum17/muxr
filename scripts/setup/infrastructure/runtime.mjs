@@ -181,13 +181,23 @@ export function removeManaged(path, entry, manifest, { dryRun, force }) {
     return true;
 }
 
-export async function askVisible(question, { piped = false } = {}) {
+export async function askVisible(question, { piped = false, reaskOnEmpty = false } = {}) {
     if (process.stdin.isTTY && process.stdout.isTTY) {
         const rl = createInterface({ input: process.stdin, output: process.stdout });
-        return new Promise((resolve) => rl.question(question, (answer) => {
+        try {
+            for (;;) {
+                const answer = await new Promise((resolve) => {
+                    const onClose = () => resolve(null);
+                    rl.once('close', onClose);
+                    rl.question(question, (line) => { rl.removeListener('close', onClose); resolve(line); });
+                });
+                // A closed input (Ctrl-D) declines instead of re-asking forever.
+                if (answer === null || answer === undefined) return false;
+                if (answer.trim() !== '' || !reaskOnEmpty) return /^y(?:es)?$/i.test(answer.trim());
+            }
+        } finally {
             rl.close();
-            resolve(/^y(?:es)?$/i.test(answer.trim()));
-        }));
+        }
     }
     if (!piped) return false;
     if (process.stdin.isTTY) return false;

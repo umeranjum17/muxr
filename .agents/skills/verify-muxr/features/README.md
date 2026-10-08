@@ -45,6 +45,9 @@ user-visible behavior, then exactly four H2 sections in this order:
 
 ## Features
 
+- [Read a plain Computer failure](./computer-failure.md) —
+  real native release app against a guarded Linux lab without ScreenCast:
+  plain cause and next step, Try again, themes and 270dp/font 1.3.
 - [Select a safe development Herdr session](./dev-herdr-guard.md) —
   direct socket guard proof without launching a stack; no baseline needed.
 
