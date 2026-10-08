@@ -10,7 +10,7 @@ import { StyleSheet } from 'react-native-unistyles';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/account/ui';
 import { decidePairingInput, linkPairMachineName, looksLikeLinkOffer, PairingNeedsNewCode } from '@/pairing/e2ee';
-import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScanner, decidePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
+import { pairingDeviceNoun, pairLinkConsent, pairLinkOffer, usePairQrScanner, resolvePairArrival, type PairArrivalSource, type PairingProgress } from '@/pairing';
 import { applySshAfterPairing, establishSshTunnel, getCachedConnectionSettings, parseSshFields, sshTunnelAvailable, stopSshTunnel, type SshFieldInput } from '@/connection';
 import { ActionButton } from '@/components/ActionButton';
 import { RouteSwitcher } from '@/herd/presentation/FirstRunConnection';
@@ -90,24 +90,25 @@ export default function PairScreen() {
     const sshRoute = !browser && routeParams.route === 'ssh' && sshTunnelAvailable();
     // The OS redelivers the pairing intent on activity recreation and on
     // relaunch paths that restore the launching intent; anything the person
-    // typed, pasted, or scanned is theirs. Only an intent arrival may carry
-    // the existing pairing forward.
-    const arrivalSource = React.useRef<PairArrivalSource>('user');
+    // typed, pasted, or scanned is theirs. A redelivery naming the pairing
+    // this device already holds restores it before consent; anything else
+    // follows the usual confirm/error form.
     const reviewPairing = React.useCallback((raw: string, source: PairArrivalSource = 'user') => {
-        arrivalSource.current = source;
-        const decided = decidePairingInput(raw);
-        if (!decided.ok) {
-            if (decidePairArrival({ decided, authenticated: auth.isAuthenticated, source }) === 'home') {
+        void resolvePairArrival(raw, { authenticated: auth.isAuthenticated, source }).then((target) => {
+            if (target === 'home') {
                 router.replace('/');
                 return;
             }
-            setState({ phase: 'error', message: decided.message });
-            return;
-        }
-        const offer = decided.offer;
-        setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
-        void linkPairMachineName(offer).then((name) => {
-            if (name !== undefined) setState((current) => current?.url === offer ? { ...current, machineName: name } : current);
+            const decided = decidePairingInput(raw);
+            if (!decided.ok) {
+                setState({ phase: 'error', message: decided.message });
+                return;
+            }
+            const offer = decided.offer;
+            setState({ phase: 'confirm', url: offer, machineName: 'your computer', linkOffer: true });
+            void linkPairMachineName(offer).then((name) => {
+                if (name !== undefined) setState((current) => current?.url === offer ? { ...current, machineName: name } : current);
+            }).catch(() => undefined);
         }).catch(() => undefined);
     }, [auth.isAuthenticated, router]);
     const scanPairQr = usePairQrScanner(reviewPairing, !browser && openedFromSettings);
@@ -193,13 +194,6 @@ export default function PairScreen() {
         setProgress(undefined);
         setState({ phase: 'working', url, machineName: machineName ?? 'this machine' });
         void pair(url, parsedInput.input).catch((cause) => {
-            // A redelivered intent whose offer was already spent pairs
-            // nowhere: the existing pairing carries forward instead of
-            // stranding on Try again with a dead code.
-            if (cause instanceof PairingNeedsNewCode && auth.isAuthenticated && arrivalSource.current === 'intent') {
-                router.replace('/');
-                return;
-            }
             // A spent code drops to the new-code form; anything else keeps Try again on this code.
             setState({
                 phase: 'error',
