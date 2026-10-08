@@ -8,6 +8,7 @@
 - A QR needs its matrix width and half-block row count plus one cursor row, not spare rows for instructions already printed above it.
 - Narrow or short terminals print an omission reason and the complete pairing string.
 - At the approval prompt, Enter re-asks without rejecting the device; `y` approves and `n` declines.
+- A non-TTY `muxr pair` (AI agent or script) never approves: it prints exactly one line — `Pairing needs you at this computer's terminal: run `muxr pair` yourself` — and exits 2. The person must run `muxr pair` at the terminal.
 
 ## How to get to it (user POV)
 
@@ -49,6 +50,24 @@ ANSI-to-PNG prompt renderings are acceptable with the source retained and the
 rendering disclosed; inspect both images. The PTY flow checks the shared
 pairing producer, not CLI setup or desktop screen-sharing after pairing.
 No emulator turn is needed when only the terminal prompt changes.
+
+## Non-TTY guard
+
+When the pairing approval is unreachable (no TTY), prove it exits instead of
+looping re-mints:
+
+```sh
+time node scripts/cli.mjs pair </dev/null | cat; echo "exit=$?"
+```
+
+The output must be exactly `Pairing needs you at this computer's terminal: run
+`muxr pair` yourself`, exit 2, under 1 s, and the host log must show no pairing
+offer was minted. `muxr setup` converges on the same `mintDeviceGrant` call, but
+a task-owned (scoped) `MUXR_HOME` cannot prove its full path: the daemon
+registration refuses before pairing — expected scope-guard behavior, not a bug.
+To disprove the check, delete the non-TTY guard at the top of the `linkPair` loop:
+the command then stays at the approval prompt or loops re-minting offers. Restore
+the candidate before continuing.
 
 ## Gotchas
 
