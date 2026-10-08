@@ -57,6 +57,29 @@ describe('the desktop overlay', () => {
         expect(overlay.canRetry).toBe(true);
     });
 
+    it('reads plain copy, never engine text, for an unmapped failure code', () => {
+        const overlay = describeDesktopOverlay({
+            status: 'failed',
+            geometry: null,
+            presented: false,
+            failure: {
+                // The engine's portal failures arrive under the client's
+                // catch-all code, carrying the raw engine text as the message.
+                code: 'platform',
+                message: 'compositor has no ScreenCast portal: A portal frontend implementing `org.freedesktop.portal.ScreenCast` was not found',
+            },
+            diagnostics: {},
+        });
+
+        expect(overlay.title).toBe("Couldn't open this computer");
+        expect(overlay.detail).toContain('could not share its screen');
+        expect(overlay.detail).toContain('try again');
+        expect(overlay.detail).not.toContain('ScreenCast');
+        expect(overlay.detail).not.toContain('portal');
+        expect(overlay.detail).not.toContain('`');
+        expect(overlay.canRetry).toBe(true);
+    });
+
     it('falls back to neutral copy for a reason it does not know', () => {
         const overlay = describeDesktopOverlay(ended('internal: something odd'));
 
