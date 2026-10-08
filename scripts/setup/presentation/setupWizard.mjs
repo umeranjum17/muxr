@@ -355,9 +355,13 @@ async function chooseMachineConnection({ found, current, tailscalePlanned, reque
             title: `${choice.title}${choice.value === current?.connectionMode ? ' · current' : ''}`,
             recommended: choice.value === proposal.mode && !choice.disabled,
         }));
-        const preferred = connectionChoices.findIndex((choice) => choice.recommended);
-        note('Another VPN on your phone? Choose Works only on this Wi-Fi with that VPN\'s allow-local-network option, or pause that VPN to use muxr away from home.');
-        mode = await select('How will your phone reach this computer?', connectionChoices, preferred);
+        const recommended = connectionChoices.find((choice) => choice.recommended);
+        const otherWays = { value: 'other', title: 'Other ways', description: 'choose another network or your own server' };
+        mode = await select('How will your phone reach this computer?', recommended ? [recommended, otherWays] : connectionChoices, 0);
+        if (mode === 'other') {
+            note('Another VPN on your phone? Choose Works only on this Wi-Fi with that VPN\'s allow-local-network option, or pause that VPN to use muxr away from home.');
+            mode = await select('Other ways', connectionChoices.filter((choice) => choice !== recommended));
+        }
 
     }
     if (aborted(mode)) return undefined;

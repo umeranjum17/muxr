@@ -1,4 +1,4 @@
-import { parseOffer, type PairOffer } from '@byokit/link';
+import { COMPACT_TAG, decodeCompactOffer, parseOffer, type PairOffer } from '@byokit/link';
 import { decodeBase64 } from '@/encryption/base64';
 
 const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
@@ -16,6 +16,25 @@ const UNSAFE_PAIRING_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e
 const PAIR_LINK = /^https:\/\/[^#]+\/pair#|^muxr:\/\/pair[?#]|^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=|^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/pair#|^byokit-link:1:/i;
 const LINK_OFFER = /^byokit-link:1:[A-Za-z0-9_-]+$/;
 
+/**
+ * A compact QR offer: the same pairing through one code entry, shown where
+ * the full QR cannot fit. The tag comes from the kit, never copied here; the
+ * kit stays the only parser of the bytes after it.
+ */
+export function isCompactOfferText(value: string): boolean {
+    return value.startsWith(COMPACT_TAG);
+}
+
+function validCompactOffer(value: string): boolean {
+    if (!isCompactOfferText(value)) return false;
+    try {
+        decodeCompactOffer(value);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 export const LEGACY_PAIRING_CODE = 'This code came from muxr 0.2.0 or older. On the computer run `npm i -g @trymuxr/cli@latest`, then `muxr pair`.';
 
 export const CUTOFF_PAIRING_CODE = 'This string is cut off. Copy all of it, or scan the QR.';
@@ -29,8 +48,14 @@ const WS_LEGACY_CODE = /^wss?:\/\/[^?\s]+\?[^#\s]*\bpair=/i;
 
 /** True only when the input decodes as an offer whose time has passed; undecodable input never counts as expired. */
 export function linkOfferExpired(value: string): boolean {
+    const compact = value.replace(/\s+/g, '');
     try {
-        return parseOffer(value.replace(/\s+/g, ''), 0).expires < Date.now();
+        return parseOffer(compact, 0).expires < Date.now();
+    } catch {
+        // A compact offer is not a v1 offer: ask the kit's compact reader.
+    }
+    try {
+        return decodeCompactOffer(compact, 0).expires < Date.now();
     } catch {
         return false;
     }
@@ -53,7 +78,9 @@ export function decidePairingInput(value: string): PairingInputDecision {
         try {
             parseOffer(compact);
         } catch {
-            return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
+            // Not v1: a compact offer validates through the kit's reader, and
+            // anything else carrying the link tag is cut off.
+            if (!validCompactOffer(compact)) return { ok: false, message: CUTOFF_PAIRING_CODE, expired: false };
         }
         return { ok: true, offer: compact };
     }
@@ -68,7 +95,7 @@ export class PairingNeedsNewCode extends Error {}
 /** Unwrap only the registered app schemes or an HTTPS /pair link; byokit validates the offer itself. Inner whitespace (terminal wrapping, retype gaps) is stripped: it can never be part of an offer. */
 export function linkOfferFromUrl(value: string): string | undefined {
     const input = value.replace(/\s+/g, '');
-    if (LINK_OFFER.test(input)) return input;
+    if (LINK_OFFER.test(input) || validCompactOffer(input)) return input;
     try {
         const url = new URL(input);
         const app = ['muxr:', 'muxr-dev:', 'muxr-preview:'].includes(url.protocol)

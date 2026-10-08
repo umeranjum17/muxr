@@ -1,10 +1,13 @@
 # Scan a pairing QR from the terminal
 
-`muxr pair` prints the full BYOKit pairing string and instructions, then a centered QR when its complete quiet zone fits the terminal. Small or plain terminals retain the exact string instead.
+`muxr pair` prints one unwrapped pairing string and instructions, then a centered QR when its complete quiet zone fits the terminal. The host mints both the full v1 offer and the compact offer; the terminal shows the full QR wherever it fits (only it resumes through the kit's pendingGrant when the phone dies before approval) and the compact QR where it cannot (80x24, 91x37). Small or plain terminals retain the exact string instead.
 
 ## Sub-features
 
 - Native pairing offers use the running host's private pairing socket and existing BYOKit link.
+- The printed token is the offer the QR carries: the full string where the full QR fits, the compact string where only it fits. Either scans and pairs; a phone killed before approving a compact offer rescans.
+- Interactive terminal offers redraw the same block rather than adding expired codes to scrollback. Plain output remains append-only.
+- Setup leads with one recommended network route; alternatives are behind Other ways. A first run is four steps, not seven.
 - After verified pairing, a computer without `WAYLAND_DISPLAY` or `DISPLAY` skips screen-sharing approval with one plain line and exits 0.
 - Caught screen-sharing failures preserve the real reason and say pairing is done only after verified pairing. Fatal CLI exceptions/rejections print one plain line and exit 1; `MUXR_DEBUG=1` enables their stack.
 - A QR needs its matrix width and half-block row count plus one cursor row, not spare rows for instructions already printed above it.

@@ -13,7 +13,7 @@
 import { Host, keyPair } from '@byokit/link';
 import { describe, expect, it } from 'vitest';
 import { pairingIntent } from './host';
-import { hostedPairingAuthority, looksLikeLinkOffer, looksLikePairingLink, parsePairingString } from '@/pairing/domain/pairingString';
+import { decidePairingInput, hostedPairingAuthority, looksLikeLinkOffer, looksLikePairingLink, parsePairingString } from '@/pairing/domain/pairingString';
 import { redirectSystemPath } from '@/app/+native-intent';
 
 /** Every relay address `muxr setup` can end up printing a QR for. */
@@ -79,8 +79,7 @@ describe('a scanned pairing QR reaches pairing', () => {
         }
     });
 
-    it('ignores barcodes that are not pairing links, and refuses look-alikes that are', () => {
-        // The camera reports everything in view; none of this may open a
+    it('ignores barcodes that are not pairing links, and refuses look-alikes that are', () => {        // The camera reports everything in view; none of this may open a
         // confirmation prompt.
         for (const noise of [
             'WIFI:S:cafe;T:WPA;P:hunter2;;',
@@ -100,5 +99,21 @@ describe('a scanned pairing QR reaches pairing', () => {
         const trailing = 'ws://192.168.1.24:8792/?pair=ABCD1234EF&redirect=evil';
         expect(looksLikePairingLink(trailing)).toBe(true);
         expect(parsePairingString(trailing)).toMatchObject({ ok: false });
+    });
+
+    it('recognises a real compact offer the way the small-terminal QR prints it', async () => {
+        const host = await Host.open({ keys: keyPair(), name: 'Desk', handle: () => ({}), confirm: () => true });
+        try {
+            const compact = host.compactOffer({ urls: [`ws://100.124.161.1:57709/link/v1/${host.id}`], role: 'control' }).text;
+            // The scanner gate, the paste taxonomy, and the consent name all
+            // read the compact shape; anything else carrying the link tag is
+            // a cut-off code, never a silent ignore.
+            expect(looksLikePairingLink(compact)).toBe(true);
+            expect(looksLikeLinkOffer(compact)).toBe(true);
+            expect(decidePairingInput(compact)).toMatchObject({ ok: true, offer: compact });
+            expect(decidePairingInput(`${compact.slice(0, 20)} `)).toMatchObject({ ok: false });
+            const { linkOfferName } = await import('@/pairing/infrastructure/linkPairClient');
+            expect(linkOfferName(compact)).toBe('Desk');
+        } finally { host.close(); }
     });
 });

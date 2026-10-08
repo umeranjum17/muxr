@@ -5,8 +5,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { hostId } from '@byokit/link';
 import { linkUrl } from '@byokit/relay/device';
-import { askVisible, base64, print, printTerminalQr } from '../infrastructure/runtime.mjs';
-import { startPairingPage } from '../infrastructure/pairingPage.mjs';
+import { askVisible, base64, print, printTerminalQr, qrDimensions } from '../infrastructure/runtime.mjs';
 import { pairingIntent } from '../domain/dist/index.js';
 import { readSelfhostState, selfhostCredential, writeSelfhostState } from '../infrastructure/selfhost.mjs';
 import { withSelfhostRotationLock } from '../infrastructure/selfhostRelay.mjs';
@@ -212,8 +211,6 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     const info = lstatSync(socketPath);
     if (!info.isSocket() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o077) !== 0) throw new Error('unsafe pairing socket');
     if (signal?.aborted) throw new Error('pairing cancelled');
-    const page = process.stdout.isTTY && intent.kind === 'native' ? await startPairingPage() : undefined;
-    if (signal?.aborted) { await page?.close(); throw new Error('pairing cancelled'); }
     const socket = createConnection(socketPath);
     socket.on('connect', () => socket.write(`${JSON.stringify({ intent: { kind: intent.kind, authority: intent.authority, personal: intent.personal },
         // A lab shell (HERDR_SESSION set) must never pair a host serving the live session.
@@ -233,10 +230,7 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
                 for (const line of lines) {
                     try {
                         const event = JSON.parse(line);
-                        if (event.offer) {
-                            page?.update(event.offer);
-                            showOffer(event.offer, intent, page?.url);
-                        }
+                        if (event.offer) showOffer(event.offer, intent);
                         else if (event.approval) void Promise.resolve(approve(event.approval)).then((yes) => socket.write(`${JSON.stringify({ yes })}\n`), reject);
                         else if (event.error) reject(new Error(event.error));
                         else if (event.result) resolve(event.result);
@@ -247,7 +241,6 @@ export async function pairOnRunningHost(socketPath, approve = showApproval, sign
     } finally {
         signal?.removeEventListener('abort', cancel);
         socket.destroy();
-        await page?.close();
     }
 }
 
@@ -337,21 +330,36 @@ async function servePairing(state, req, device, claims, done, intent, admit) {
     };
 }
 
-function showOffer(offer, intent, pageUrl) {
+/** Whether the terminal can show a scannable QR for this text: its matrix
+ *  width and half-block row count plus one cursor row. Instructions and the
+ *  pairing string print first and may scroll; the QR itself must stay whole. */
+function fitsQr(text) {
+    if (!process.stdout.isTTY || process.env.TERM === 'dumb' || process.env.NO_COLOR !== undefined || process.env.MUXR_NO_TUI === '1') return false;
+    const { rows, width } = qrDimensions(text);
+    if (process.stdout.columns !== undefined && width > process.stdout.columns) return false;
+    return process.stdout.rows === undefined || rows + 1 <= process.stdout.rows;
+}
+
+function showOffer(offer, intent) {
+    const compact = intent.kind === 'native' && typeof offer.compactText === 'string' ? offer.compactText : undefined;
+    // Show the full v1 offer wherever its QR fits: only it resumes through
+    // the kit's pendingGrant when the phone dies before approval. Where it
+    // cannot fit, the compact offer pairs the same way through one code entry.
+    const code = fitsQr(offer.text) ? offer.text : compact !== undefined && fitsQr(compact) ? compact : undefined;
+    const token = code ?? offer.text;
     const lines = [
         intent.kind === 'browser'
             ? `Pair a ${intent.authority === 'observe' ? 'view-only' : 'control'} browser for ${intent.grantDurationLabel()}. Keep the code private.`
             : 'Pair your phone. Keep the code private.',
-        ...(pageUrl ? ['Open this page on this computer for a scannable QR:', pageUrl] : []),
         'Compare the two words, then approve on this computer.',
-        `Expires at ${new Date(offer.expires).toLocaleTimeString()}; refreshes automatically.`,
+        `Expires at ${new Date(code === compact ? offer.compactExpires ?? offer.expires : offer.expires).toLocaleTimeString()}; refreshes automatically.`,
         '',
         intent.kind === 'browser'
             ? 'Open the browser pairing link below (one token):'
             : 'Other ways: copy the pairing string below (one token):',
         // Never insert hard line breaks into the offer. Terminal soft wraps
         // remain one logical line when selected/copied or captured with -J.
-        offer.text,
+        token,
         'Waiting for the device to finish pairing…',
     ];
     const redraw = process.stdout.isTTY && process.env.TERM !== 'dumb' && process.env.MUXR_NO_TUI !== '1' && process.env.NO_COLOR === undefined;
@@ -359,11 +367,9 @@ function showOffer(offer, intent, pageUrl) {
     // erase only the remainder instead, so expired offers leave no history.
     if (redraw) process.stdout.write('\x1b[H');
     lines.forEach((line) => print(`${line}${redraw ? '\x1b[K' : ''}`));
-    if (process.stdout.isTTY) {
-        const columns = process.stdout.columns ?? 80;
-        const reservedRows = lines.reduce((total, line) => total + Math.max(1, Math.ceil(line.length / columns)), 0);
-        printTerminalQr(offer.text, { reservedRows });
-    }
+    // The QR carries the same token printed above, so it needs no spare rows
+    // for text already shown: printTerminalQr re-checks the fit itself.
+    if (process.stdout.isTTY) printTerminalQr(token);
     if (redraw) process.stdout.write('\x1b[J');
 }
 

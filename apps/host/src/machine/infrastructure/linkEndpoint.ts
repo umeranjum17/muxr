@@ -424,11 +424,24 @@ export class LinkEndpoint {
     }
 
     /** Open the one-time offer on this machine's already-registered host. */
-    offerPairing(pairing: NonNullable<LinkEndpoint['pairing']>, relayUrl: string, intent: { kind: 'native' | 'browser'; authority: 'control' | 'observe'; lifetime?: number; base?: string }): { text: string; expires: number } {
+    offerPairing(pairing: NonNullable<LinkEndpoint['pairing']>, relayUrl: string, intent: { kind: 'native' | 'browser'; authority: 'control' | 'observe'; lifetime?: number; base?: string }): { text: string; expires: number; compactText?: string; compactExpires?: number } {
         if (this.pairing !== undefined && this.pairing !== pairing) throw new Error('another pairing is in progress');
         this.pairing = pairing;
-        return this.host.offer({ urls: [linkUrl(relayUrl, this.host.id)], role: intent.authority === 'observe' ? 'view' : 'control', kind: intent.kind,
+        const urls = [linkUrl(relayUrl, this.host.id)];
+        const role = intent.authority === 'observe' ? 'view' : 'control';
+        const offer = this.host.offer({ urls, role, kind: intent.kind,
             ...(intent.lifetime === undefined ? {} : { lifetime: intent.lifetime }), ...(intent.base === undefined ? {} : { base: intent.base }) });
+        // Native phones read either text. The terminal shows the full v1 offer
+        // wherever its QR fits and the compact offer where it cannot; the
+        // compact form packs the same addresses and terms through one code
+        // entry, so its phone pairs like a typed code. Only v1 offers resume
+        // through the kit's pendingGrant, so a phone killed before approving a
+        // compact offer rescans. Browser links keep the full offer: the compact
+        // form has no browser-link shape.
+        if (intent.kind !== 'native') return offer;
+        const compact = this.host.compactOffer({ urls, role, kind: intent.kind,
+            ...(intent.lifetime === undefined ? {} : { lifetime: intent.lifetime }) });
+        return { ...offer, compactText: compact.text, compactExpires: compact.expires };
     }
 
     stopPairing(): void {
